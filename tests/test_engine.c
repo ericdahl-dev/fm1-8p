@@ -101,6 +101,10 @@ TT_TEST(init_rejects_bad_arguments)
 {
     TT_CHECK_EQ(fm_engine_init(NULL, RATE, 1), FM_ERR_ARG);
     TT_CHECK_EQ(fm_engine_init(&eng, 0, 1), FM_ERR_ARG);
+    TT_CHECK_EQ(fm_engine_init(&eng, 7999, 1), FM_ERR_ARG);
+    TT_CHECK_EQ(fm_engine_init(&eng, 192001, 1), FM_ERR_ARG);
+    TT_CHECK_EQ(fm_engine_init(&eng, 8000, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_init(&eng, 192000, 1), FM_OK);
     TT_CHECK_EQ(fm_engine_init(&eng, RATE, 0), FM_ERR_ARG);
     TT_CHECK_EQ(fm_engine_init(&eng, RATE, FM_MAX_VOICES + 1), FM_ERR_ARG);
     TT_CHECK_EQ(fm_engine_init(&eng, RATE, FM_MAX_VOICES), FM_OK);
@@ -163,7 +167,7 @@ TT_TEST(block_size_does_not_change_output)
  */
 TT_TEST(extreme_settings_stay_bounded_and_release)
 {
-    static const uint32_t rates[] = { 1, 8000, 44100, 192000 };
+    static const uint32_t rates[] = { 8000, 11025, 44100, 192000 };
     static const uint8_t notes[] = { 0, 1, 60, 126, 127 };
     size_t r, n, i;
     for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
