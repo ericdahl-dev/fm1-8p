@@ -83,6 +83,19 @@ typedef char fm_require_ctrl_samples_power_of_two[
  * at 44.1 kHz), so fenv_lag never wraps. */
 #define FENV_LAG_MAX (1u << 24)
 
+/* The filter's settings changed: its busy bit follows whether it is now a
+ * wire. The one place that sets FM_BUSY_FILTER. */
+static void mark_filter(fm_voice *v)
+{
+    fm_voice_mark(v, FM_BUSY_FILTER, !fm_filter_is_wire(&v->filter));
+}
+
+void fm_voice_set_highpass(fm_voice *v, uint8_t step)
+{
+    fm_filter_set_highpass(&v->filter, step, v->rate_cents);
+    mark_filter(v);
+}
+
 /* Recomputes the cutoff from the settings, the voice's note and its
  * filter envelope level `fenv`. */
 static void update_cutoff(fm_voice *v, int32_t fenv)
@@ -93,7 +106,7 @@ static void update_cutoff(fm_voice *v, int32_t fenv)
     if (cents == v->cutoff_now) return; /* the coefficients stand */
     v->cutoff_now = cents;
     fm_filter_set_cutoff(&v->filter, cents, v->rate_cents);
-    fm_voice_mark(v, FM_BUSY_FILTER, !fm_filter_is_wire(&v->filter));
+    mark_filter(v);
 }
 
 /* Gates both envelopes on. The filter envelope starts from where the amp

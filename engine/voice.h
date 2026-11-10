@@ -201,6 +201,10 @@ uint32_t fm_voice_busy(const fm_voice *v);
  * it costs a cutoff computation. */
 uint32_t fm_voice_busy_derived(const fm_voice *v);
 
+/* Sets the highpass position 0..3 of voice `v`'s filter (see
+ * fm_filter_set_highpass), keeping the voice's busy word. */
+void fm_voice_set_highpass(fm_voice *v, uint8_t step);
+
 void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
                          uint32_t sample_rate, uint32_t next_tick,
                          uint32_t tick_left);
