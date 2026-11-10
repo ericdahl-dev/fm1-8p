@@ -5,6 +5,7 @@
  */
 #include "render.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -65,6 +66,22 @@ static void dispatch(fm_engine *e, const smf_event *ev, uint8_t channel)
 
 int render_midi_file(const char *midi_path, const char *wav_path,
                      const render_opts *o)
+{
+    return render_midi(midi_path, wav_path, o, NULL);
+}
+
+void render_describe(const render_info *info, char *buf, size_t len)
+{
+    unsigned n = (unsigned)info->voice_count;
+    snprintf(buf, len,
+             "%u voice%s, MIDI channel %u; each voice mixed at 1/%u "
+             "(one note peaks at %.1f dBFS)",
+             n, n == 1 ? "" : "s", (unsigned)info->channel, 2 * n,
+             -20.0 * log10(2.0 * n));
+}
+
+int render_midi(const char *midi_path, const char *wav_path,
+                const render_opts *o, render_info *info)
 {
     static fm_engine eng; /* large-ish; keep it off the stack */
     char err[128];
@@ -143,5 +160,9 @@ int render_midi_file(const char *midi_path, const char *wav_path,
     rc = wav_write_file(wav_path, pcm, total, o->sample_rate);
     free(pcm);
     if (rc != 0) fprintf(stderr, "%s: cannot write\n", wav_path);
+    if (rc == 0 && info) {
+        info->voice_count = voices;
+        info->channel = (uint32_t)channel + 1;
+    }
     return rc;
 }

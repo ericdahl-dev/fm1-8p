@@ -6,6 +6,7 @@
 #ifndef RENDER_H
 #define RENDER_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define RENDER_MAX_SETTINGS 32
@@ -32,5 +33,21 @@ typedef struct {
  */
 int render_midi_file(const char *midi_path, const char *wav_path,
                      const render_opts *o);
+
+/* What a render used, for the summary the tool prints. */
+typedef struct {
+    uint32_t voice_count; /* after the default is applied */
+    uint32_t channel;     /* MIDI channel played, 1..16 */
+} render_info;
+
+/* render_midi_file, also filling `info` (if non-null) on success. */
+int render_midi(const char *midi_path, const char *wav_path,
+                const render_opts *o, render_info *info);
+
+/*
+ * One line for the user: voice count, channel and the level one note
+ * peaks at, since the mix gain is 1 / (2 x voices).
+ */
+void render_describe(const render_info *info, char *buf, size_t len);
 
 #endif /* RENDER_H */

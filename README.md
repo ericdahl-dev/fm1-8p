@@ -27,6 +27,12 @@ make render-demo     # renders examples/demo.mid to build/demo.wav
 Run `./build/fm1-8p-render` with no arguments to list every option and
 parameter.
 
+The render tool plays one MIDI channel (`-c`, by default the channel of the
+first note on) with 6 voices by default (`-v`). Each voice is mixed at
+1/(2 x voices) so a full chord never clips, which makes a single note quieter
+with more voices: -21.6 dBFS with 6, -6 dBFS with `-v 1`. After each render
+the tool prints the voice count, channel and that level.
+
 The engine uses only integer math. Its number formats, the sample rate and
 block size rules, and how the float-free check works are in
 [docs/fixed-point.md](docs/fixed-point.md).

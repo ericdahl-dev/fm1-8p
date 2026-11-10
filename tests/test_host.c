@@ -475,6 +475,30 @@ TT_TEST(render_plays_one_midi_channel)
     TT_CHECK(render_midi_file("build/two-ch.mid", "build/x.wav", &o) != 0);
 }
 
+TT_TEST(render_reports_voice_count_channel_and_level)
+{
+    render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
+    render_info info;
+    char text[160];
+    write_smf("build/two-ch.mid", two_channels, sizeof two_channels);
+    TT_CHECK_EQ(render_midi("build/two-ch.mid", "build/x.wav", &o, &info), 0);
+    TT_CHECK_EQ(info.voice_count, 6);
+    TT_CHECK_EQ(info.channel, 1);
+    render_describe(&info, text, sizeof text);
+    printf("    %s\n", text);
+    TT_CHECK(strstr(text, "6 voices") != NULL);
+    TT_CHECK(strstr(text, "MIDI channel 1") != NULL);
+    TT_CHECK(strstr(text, "1/12") != NULL);
+    TT_CHECK(strstr(text, "-21.6 dBFS") != NULL);
+    o.voice_count = 1;
+    o.channel = 2;
+    TT_CHECK_EQ(render_midi("build/two-ch.mid", "build/x.wav", &o, &info), 0);
+    render_describe(&info, text, sizeof text);
+    TT_CHECK(strstr(text, "1 voice,") != NULL);
+    TT_CHECK(strstr(text, "MIDI channel 2") != NULL);
+    TT_CHECK(strstr(text, "-6.0 dBFS") != NULL);
+}
+
 TT_TEST(render_rejects_a_bad_voice_count)
 {
     render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
@@ -506,4 +530,5 @@ static void run_host_tests(void)
     TT_RUN(chord_midi_file_plays_every_note_and_follows_pitch_bend);
     TT_RUN(render_rejects_a_bad_voice_count);
     TT_RUN(render_plays_one_midi_channel);
+    TT_RUN(render_reports_voice_count_channel_and_level);
 }

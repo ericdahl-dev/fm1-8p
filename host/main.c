@@ -33,6 +33,8 @@ static void usage(void)
 int main(int argc, char **argv)
 {
     render_opts o;
+    render_info info;
+    char line[160];
     int i;
     memset(&o, 0, sizeof o);
     o.sample_rate = 44100;
@@ -81,5 +83,8 @@ int main(int argc, char **argv)
         usage();
         return 2;
     }
-    return render_midi_file(argv[i], argv[i + 1], &o) == 0 ? 0 : 1;
+    if (render_midi(argv[i], argv[i + 1], &o, &info) != 0) return 1;
+    render_describe(&info, line, sizeof line);
+    printf("%s: %s\n", argv[i + 1], line);
+    return 0;
 }

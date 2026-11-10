@@ -33,7 +33,7 @@ $(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR)
 	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@
 
 $(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -o $@
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -lm -o $@
 
 # Tests may use double and libm (never the engine itself).
 $(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) $(ENGINE_OBJ) $(HOST_OBJ)
