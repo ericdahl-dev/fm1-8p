@@ -1107,6 +1107,26 @@ TT_TEST(env_advance_decays_to_a_soft_notes_sustain)
     TT_CHECK_EQ(a.stage, b.stage);
 }
 
+/*
+ * A retrigger at a softer peak than the level already reached does not
+ * jump down to it: the attack goes straight to the decay from where it
+ * is. Advancing does the same as stepping.
+ */
+TT_TEST(env_advance_retrigger_above_a_soft_peak_goes_to_decay)
+{
+    static fm_env a, b;
+    soft_env(&b, FM_ENV_FULL, FM_ENV_FULL);
+    while (b.stage != FM_ENV_SUSTAIN) fm_env_next(&b);
+    b.peak = 600 << 20;
+    fm_env_gate_on(&b);
+    a = b;
+    fm_env_next(&b);
+    fm_env_advance(&a, 1);
+    TT_CHECK_EQ(a.level, b.level);
+    TT_CHECK_EQ(a.stage, b.stage);
+    TT_CHECK_EQ(a.step, b.step);
+}
+
 /* The patch of the skipped-envelope test, with filter env amount `amount`. */
 static void lag_patch(fm_engine *e, int32_t amount)
 {
@@ -1299,6 +1319,7 @@ static void run_filter_tests(void)
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
+    TT_RUN(env_advance_retrigger_above_a_soft_peak_goes_to_decay);
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
     TT_RUN(open_filter_without_envelope_matches_the_full_render);

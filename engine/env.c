@@ -156,7 +156,8 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
                 e->level += (int32_t)(n * (uint32_t)e->step);
                 return e->level;
             }
-            e->level = e->peak;
+            /* a retrigger above a softer peak keeps its level */
+            if (e->level < e->peak) e->level = e->peak;
             enter_decay(e);
             n -= c + 1;
             break;
