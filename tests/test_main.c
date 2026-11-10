@@ -19,6 +19,7 @@
 #include "test_poly.c"
 #include "test_unison.c"
 #include "test_cpu_test.c"
+#include "test_bench.c"
 #include "test_osc.c"
 #include "test_chorus.c"
 #include "test_filter.c"
@@ -30,6 +31,7 @@ int main(void)
     run_poly_tests();
     run_unison_tests();
     run_cpu_test_tests();
+    run_bench_tests();
     run_osc_tests();
     run_chorus_tests();
     run_filter_tests();
