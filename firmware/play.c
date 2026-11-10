@@ -6,40 +6,32 @@
  * the head that publishes it, and read after the head that says it is there. */
 #define BARRIER() __asm__ volatile("" ::: "memory")
 
-/* The default patch: the engine's defaults (one saw, the amp envelope) plus a gentle filter envelope
- * that opens each note and settles, the slow chorus, and the keys' velocity on the level. */
-static const play_param PATCH[] = {
-    {FM_PARAM_AMP_VELOCITY, 70},
-    {FM_PARAM_FILTER_CUTOFF_CENTS, 7800},       /* about 740 Hz */
-    {FM_PARAM_FILTER_RESONANCE, 200},
-    {FM_PARAM_FILTER_KEY_TRACK, 500},
-    {FM_PARAM_FILTER_ENV_ATTACK_MS, 5},
-    {FM_PARAM_FILTER_ENV_DECAY_MS, 600},
-    {FM_PARAM_FILTER_ENV_SUSTAIN, 300},
-    {FM_PARAM_FILTER_ENV_RELEASE_MS, 400},
-    {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600},   /* three octaves up at the envelope's peak */
-    {FM_PARAM_CHORUS_MODE, FM_CHORUS_SLOW},
-};
+const patch *play_patch(const play *p) { return p->patch; }
 
-const play_param *play_patch(uint32_t *n)
+/* Every field of t the engine has a param for; the others wait for their features (patches.h). */
+static int use_patch(play *p, const patch *t)
 {
-    *n = (uint32_t)(sizeof PATCH / sizeof PATCH[0]);
-    return PATCH;
+    uint32_t f;
+    for (f = 0; f < PATCH_FIELD_COUNT; f++) {
+        int32_t id = patch_param((patch_field)f);
+        if (id == PATCH_NONE)
+            continue;
+        if (fm_engine_set_param(&p->engine, (uint16_t)id, patch_value(t, (patch_field)f)) != FM_OK)
+            return -1;
+    }
+    p->patch = t;
+    return 0;
 }
 
 int play_init(play *p)
 {
-    uint32_t i;
     p->head = p->tail = 0;
     p->lost = p->lost_seen = 0;
     p->last_note = -1;
     p->oct = 0;
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
-    for (i = 0; i < sizeof PATCH / sizeof PATCH[0]; i++)
-        if (fm_engine_set_param(&p->engine, PATCH[i].id, PATCH[i].value) != FM_OK)
-            return -1;
-    return 0;
+    return use_patch(p, &PATCHES[PATCH_SOUNDTRACK]);
 }
 
 /* Main loop: one event into the queue. When it is full the event is dropped and counted: the next

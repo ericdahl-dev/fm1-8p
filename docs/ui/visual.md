@@ -31,8 +31,9 @@ What each control does is the interaction model's job, in [`interaction.md`](int
 - the per-state screen content of its section 6.
 
 The look is inspired by a mid-80s two-oscillator polysynth panel and by synthwave. It copies no
-logo, wordmark, panel artwork or factory patch name. The device is called "fm1-8p" on screen.
-The patch and pattern names are invented, and the display font is an original design.
+logo, wordmark or panel artwork. The device is called "fm1-8p" on screen. The patches are the
+JX-8P's 32 factory tones with their factory names (Eric's decision in #75; docs/patches.md); the
+pattern names are invented, and the display font is an original design.
 
 ## Mockups
 

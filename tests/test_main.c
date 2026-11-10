@@ -27,6 +27,7 @@
 #include "test_filter.c"
 #include "test_filter_oracle.c"
 #include "test_play.c"
+#include "test_patches.c"
 #include "test_units.c"
 
 int main(void)
@@ -44,6 +45,7 @@ int main(void)
     run_filter_tests();
     run_filter_oracle_tests();
     run_play_tests();
+    run_patches_tests();
     run_units_tests();
     return tt_report();
 }

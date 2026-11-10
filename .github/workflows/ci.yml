@@ -46,6 +46,9 @@ jobs:
       - name: FM-1 build script checks
         run: make check-fm1-build
 
+      - name: Factory patch converter (and firmware/patches.c up to date)
+        run: make check-patches
+
       - name: Sample render
         run: |
           make render-demo
