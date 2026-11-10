@@ -560,9 +560,13 @@ def draw_header(sc, t, sec, chip, context, page=None):
     sc.fill(0, sum(LAYOUT["header"]) - 1, W, 1, t["line"])
     if page is not None:                  # where the page sits: a strip on the header's rule
         cur, n = page if isinstance(page, tuple) else (PAGE_ORDER.index(page), len(PAGE_ORDER))
-        sw = (W - 2 * M - (n - 1) * 2) // n
-        for i in range(n):
-            sc.fill(M + i * (sw + 2), 22, sw, 2, col if i == cur else t["line"])
+        span = W - 2 * M - (n - 1) * 2       # segments share the full 230 px:
+        x = M                                 # the leftover px go one each to
+        for i in range(n):                    # the first segments
+            sw = span // n + (1 if i < span % n else 0)
+            sc.fill(x, 22, sw, 2, col if i == cur else t["line"])
+            x += sw + 2
+        assert x - 2 == W - M
 
 
 def draw_footer(sc, t, left, right, right_c=None):
