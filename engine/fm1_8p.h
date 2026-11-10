@@ -16,17 +16,14 @@
 
 #include <stdint.h>
 
+#include "osc.h"
+
 #define FM_MAX_VOICES 8
 
 typedef enum {
     FM_OK = 0,
     FM_ERR_ARG = -1 /* bad argument (null pointer, rate or voice count) */
 } fm_status;
-
-typedef struct {
-    uint32_t phase; /* Q0.32, one full cycle = 2^32 */
-    uint32_t inc;   /* Q0.32 phase increment per sample */
-} fm_osc;
 
 typedef struct {
     uint32_t sample_rate;
