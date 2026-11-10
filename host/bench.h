@@ -55,6 +55,16 @@ int bench_run(uint32_t blocks, uint32_t reps, bench_clock clock, void *ctx, benc
 int bench_workloads_parse(const char *s, uint32_t *mask);
 /* "default" or "full" */
 const char *bench_workload_name(bench_workload w);
+/* fm1-8p-bench's options. */
+typedef struct {
+    uint32_t blocks, reps;      /* -b, -r */
+    uint32_t workloads;         /* -w: mask of 1 << bench_workload */
+} bench_args;
+
+/* argv[1..argc) into a (defaults: 2000 blocks, 5 runs, the default workload; each -w adds one).
+ * Returns 0, or -1 on an unknown or incomplete option, or blocks or runs out of range. */
+int bench_args_parse(int argc, char **argv, bench_args *a);
+
 /* The CPU test the last run drove (its engine as the run left it). */
 const cpu_test *bench_cpu_test(void);
 

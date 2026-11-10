@@ -24,6 +24,7 @@ give clang and make. CI builds and tests on both: `build-test (gcc)` and
 make                 # builds build/fm1-8p-render and build/fm1-8p-bench
 make check           # runs the tests and the float-free engine check
 make bench           # times the engine per voice count (see Benchmark)
+make bench-full      # the same on the full patch, every modulation on
 make render-demo     # renders examples/demo.mid to build/demo.wav
 
 ./build/fm1-8p-render -r 44100 -v 6 -s amp_attack_ms=200 -s amp_release_ms=800 \
@@ -52,8 +53,9 @@ untimed (the notes start there), then times `BLOCKS` blocks one by one
 (default 2000) and keeps the median block. The table gives the median of the
 `RUNS` runs (default 5).
 
-It prints one table per workload, under `## default patch` and `## full patch`; `-w default` or
-`-w full` runs only that one (default `all`):
+`-w` picks the workload: `default` (what runs without `-w`), `full`, or `all`; it can be repeated
+(`-w default -w full` is `-w all`). Each one prints its own table, under `## default patch` or
+`## full patch`. `make bench` runs the default workload and `make bench-full` the full one:
 
 | workload | what plays |
 | --- | --- |

@@ -10,6 +10,7 @@
 #endif
 
 #include "bench.h"
+#include "args.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +62,32 @@ int bench_workloads_parse(const char *s, uint32_t *mask)
             return 0;
         }
     return -1;
+}
+
+int bench_args_parse(int argc, char **argv, bench_args *a)
+{
+    int i;
+    uint32_t w = 0;
+    a->blocks = 2000;
+    a->reps = 5;
+    a->workloads = 0;                           /* each -w adds; none means the default */
+    for (i = 1; i < argc; i += 2) {
+        uint32_t *dst = strcmp(argv[i], "-b") == 0 ? &a->blocks : strcmp(argv[i], "-r") == 0 ? &a->reps : NULL;
+        int bad = i + 1 >= argc;
+        if (!bad && strcmp(argv[i], "-w") == 0) {
+            bad = bench_workloads_parse(argv[i + 1], &w) != 0;
+            a->workloads |= w;
+        } else if (!bad) {
+            bad = dst == NULL || args_parse_u32(argv[i + 1], dst) != 0;
+        }
+        if (bad)
+            return -1;
+    }
+    if (a->workloads == 0)
+        a->workloads = 1u << BENCH_DEFAULT_PATCH;
+    if (a->blocks == 0 || a->blocks > BENCH_MAX_BLOCKS || a->reps == 0 || a->reps > BENCH_MAX_REPS)
+        return -1;
+    return 0;
 }
 
 const cpu_test *bench_cpu_test(void) { return &bench_ct; }

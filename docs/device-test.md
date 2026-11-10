@@ -32,10 +32,10 @@ For each step it shows the **worst** render time of any block, as a percentage o
 comment: unison does its divides when notes and the detune change, so a burst of note-ons inside one block is its
 worst case. Step F is the modulation cost: with every depth at 0 (steps 1 to 8) the LFO costs nothing, so only F
 measures vibrato, pulse-width modulation, velocity and the chorus together. `make bench` times the same patch on the
-desktop at every voice count (its `## full patch` table).
+desktop at every voice count (`make bench-full`).
 
 What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.4 % per voice, 28.1 % at
-8 voices, 31.1 % for U. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
+8 voices, 31.1 % for U, 60.5 % for F. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
 itself: note it.
 
 ## 1. What you need
@@ -191,7 +191,7 @@ try again.
 | 7 | | | 24.7 | |
 | 8 | | | 28.1 | |
 | U (unison burst) | | | 31.1 | |
-| F (full patch) | | | pending | |
+| F (full patch) | | | 60.5 | |
 
 - `dock.py modules`: render worst __ % of a block, __ overruns
 - Heard any clicks, dropouts or the sine taking over? At which step?
@@ -200,4 +200,5 @@ try again.
 ```
 
 The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `8ee3f5e` (unison and #5's oscillators,
-before the filter). If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+before the filter); row F's from the same fm1-emu with the engine at `14ac94b` (#8's LFO and velocity, still before
+the filter), in PR #32's CI run. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
