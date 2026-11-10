@@ -344,8 +344,8 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak)
 {
     uint8_t i = (uint8_t)(v - e->voices);
     v->stamp = ++e->stamp;
-    fm_voice_note_on(v, note, voice_pitch(e, i, note), peak, e->sample_rate,
-                     e->fade_samples);
+    fm_voice_note_on(v, note, voice_pitch(e, i, note), peak, e->ticks + 1,
+                     e->sample_rate, e->fade_samples);
 }
 
 /* The voice fading `note` out after a steal, or null. */
@@ -372,7 +372,7 @@ static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak)
     uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
     fm_voice *w;
     fm_voice_take_back(f, voice_pitch(e, (uint8_t)(f - e->voices), note),
-                       peak, e->sample_rate);
+                       peak, e->ticks + 1, e->sample_rate);
     f->stamp = ++e->stamp;
     if (!key_down && !sustained) return;
     w = pick_voice(e, f);
@@ -403,7 +403,7 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
         fm_voice *v = &e->voices[i];
         v->stamp = ++e->stamp;
         fm_voice_change_note(v, note, voice_pitch(e, i, note), peak,
-                             e->sample_rate, retrigger);
+                             e->ticks + 1, e->sample_rate, retrigger);
     }
 }
 
@@ -556,23 +556,22 @@ static void control_tick(fm_engine *e)
  * control tick, so the output never depends on the caller's block size.
  * With every depth at 0 the ticks change no sample, so a chunk runs to
  * FM_MIX_FRAMES and the ticks it passes run after it (they only advance
- * the LFO and the delay counters): rendering costs what it did before
- * the LFO existed.
+ * the LFO and the tick count, so a voice still learns which tick its
+ * note started before): rendering costs what it did before the LFO
+ * existed.
  */
-static uint32_t chunk_frames(fm_engine *e, uint32_t frames, int *batched)
+static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    *batched = !e->mod_on && e->mod.pitch_oct == 0 && e->mod.pw == 0;
-    if (!*batched) {
-        if (n > e->tick_left) n = e->tick_left;
-        e->tick_left -= n;
-    }
+    if ((e->mod_on || e->mod.pitch_oct != 0 || e->mod.pw != 0) &&
+        n > e->tick_left)
+        n = e->tick_left;
     return n;
 }
 
-/* After a batched chunk of `n` frames: the ticks it passed. */
-static void catch_up_ticks(fm_engine *e, uint32_t n)
+/* After a chunk of `n` frames: the ticks a batched chunk passed. */
+static void advance_ticks(fm_engine *e, uint32_t n)
 {
     while (n > e->tick_left) {
         n -= e->tick_left;
@@ -586,12 +585,12 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
     while (frames) {
         uint32_t n, i;
         uint8_t k;
-        int batched;
-        n = chunk_frames(e, frames, &batched);
+        n = chunk_frames(e, frames);
         for (i = 0; i < n; i++) e->mix[i] = 0;
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
-                fm_voice_render_add(&e->voices[k], e->mix, n, e->sample_rate);
+                fm_voice_render_add(&e->voices[k], e->mix, n, e->sample_rate,
+                                    e->ticks + 1, e->tick_left);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
@@ -608,7 +607,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
                 out[2 * i + 1] = s;
             }
         }
-        if (batched) catch_up_ticks(e, n);
+        advance_ticks(e, n);
         out += 2 * n;
         frames -= n;
     }

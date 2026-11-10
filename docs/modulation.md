@@ -90,8 +90,9 @@ LFO is at full depth at once. The delay is counted in ticks (rounded down),
 the fade step is `2^30 / delay_ticks`, both computed when the parameter is
 set, so the tick has no divide. A voice keeps the tick its delay started at,
 not a running counter, so ticks without modulation have nothing to count.
-The start is taken at the voice's first tick with modulation on: for a note
-that starts while every depth is 0, the delay runs from when a depth is set.
+The start is the first tick after the note starts, even while every depth
+is 0: a depth set later finds the delay already running, or over
+(`lfo_delay_counts_from_the_note_even_with_no_depth_set`).
 
 A note restruck while its voice still sounds (the same note again in poly,
 a note taken back during a steal fade, a unison retrigger) and a unison

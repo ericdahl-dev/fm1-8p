@@ -381,15 +381,19 @@ static void render_in_blocks(int16_t *out, uint32_t frames, uint32_t block)
     }
 }
 
-/* A note with the vibrato depth off, on, then off again. */
+/* Notes with the vibrato depth off, on (inside the delay of a note a
+ * steal started mid-block), then off again. */
 static void depth_on_and_off_in_blocks(int16_t *out, uint32_t block)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 2);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 900);
-    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 40);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 100);
     render_in_blocks(out, 333, block);
     fm_engine_note_on(&mod_eng, 60, 100);
-    render_in_blocks(out + 2 * 333, 7000, block);
+    fm_engine_note_on(&mod_eng, 64, 100);
+    render_in_blocks(out + 2 * 333, 2000, block);
+    fm_engine_note_on(&mod_eng, 67, 100); /* steals: starts after 3 ms */
+    render_in_blocks(out + 2 * 2333, 5000, block);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 300);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PW_PCT, 20);
     render_in_blocks(out + 2 * 7333, 9000, block);
@@ -411,6 +415,33 @@ TT_TEST(block_size_does_not_change_output_as_depths_come_and_go)
     }
 }
 
+/* A4 with a 2 Hz square vibrato of 100 cents and a 500 ms delay; the
+ * depth is set before the note, or only after 1 s with `late`. Returns
+ * the pitch (cents) over 1.02..1.23 s, the top half of an LFO cycle. */
+static double vibrato_after_late_depth(int late)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 500);
+    if (!late) fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
+    fm_engine_note_on(&mod_eng, 69, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE);
+    if (late) fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
+    fm_engine_render(&mod_eng, mod_buf + 2 * MOD_RATE, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 1020, 1230), note_hz(69));
+}
+
+TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
+{
+    /* the delay ran out at 0.5 s whether or not a depth was set then */
+    double early = vibrato_after_late_depth(0), late = vibrato_after_late_depth(1);
+    printf("    depth before the note %.1f cents, after 1 s %.1f cents\n",
+           early, late);
+    TT_CHECK_NEAR(early, 100, 1);
+    TT_CHECK_NEAR(late, early, 0.5);
+}
+
 static void run_mod_tests(void)
 {
     TT_RUN(lfo_to_pitch_moves_the_pitch_by_the_depth);
@@ -426,4 +457,5 @@ static void run_mod_tests(void)
     TT_RUN(restriking_a_sounding_note_keeps_its_vibrato);
     TT_RUN(velocity_setting_mid_note_leaves_the_note_alone);
     TT_RUN(block_size_does_not_change_output_as_depths_come_and_go);
+    TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }
