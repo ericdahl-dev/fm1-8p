@@ -374,8 +374,18 @@ TT_TEST(ui_octave_label_reads_like_the_hosts)
     TT_CHECK(strcmp(s, "OCT +1") == 0);
 }
 
+/* A slot's number as the screen shows it: two digits. */
+TT_TEST(ui_slot_number_is_two_digits)
+{
+    char s[3];
+    ui_setup();
+    ui_slot_number(ui_page_slot(&ui_u, 0), s);
+    TT_CHECK(strcmp(s, "41") == 0);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_slot_number_is_two_digits);
     TT_RUN(ui_octave_label_reads_like_the_hosts);
     TT_RUN(ui_octave_change_marks_the_header);
     TT_RUN(ui_new_last_note_marks_the_note_strip);

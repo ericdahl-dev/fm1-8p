@@ -336,3 +336,10 @@ void ui_octave_label(int32_t oct, char *s)
     s[i++] = (char)('0' + (oct < 0 ? -oct : oct));
     s[i] = 0;
 }
+
+void ui_slot_number(const ui_slot *sl, char *s)
+{
+    s[0] = (char)('0' + sl->num / 10u);
+    s[1] = (char)('0' + sl->num % 10u);
+    s[2] = 0;
+}
