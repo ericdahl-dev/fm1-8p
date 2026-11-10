@@ -208,6 +208,25 @@ TT_TEST(uninitialized_engine_is_silent_and_does_not_divide_by_zero)
     TT_CHECK(!loud);
 }
 
+/*
+ * Raising sustain while a 0 ms decay is in progress once overflowed a
+ * signed comparison (UBSan: sustain + step = 2^31). The level must end
+ * up at the new sustain (full), never wrap negative or past full.
+ */
+TT_TEST(raising_sustain_mid_decay_does_not_overflow)
+{
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 0);
+    fm_engine_note_on(&eng, 45, 100);
+    fm_engine_render(&eng, buf, 1);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_render(&eng, buf, 4410);
+    TT_CHECK(peak_abs(buf, 2000, 4410) > 15000);
+    TT_CHECK(peak_abs(buf, 0, 4410) <= 16384 + 64);
+}
+
 static void run_engine_tests(void)
 {
     TT_RUN(note_on_plays_saw_at_note_pitch);
@@ -219,4 +238,5 @@ static void run_engine_tests(void)
     TT_RUN(block_size_does_not_change_output);
     TT_RUN(extreme_settings_stay_bounded_and_release);
     TT_RUN(uninitialized_engine_is_silent_and_does_not_divide_by_zero);
+    TT_RUN(raising_sustain_mid_decay_does_not_overflow);
 }

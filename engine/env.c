@@ -39,7 +39,9 @@ int32_t fm_env_next(fm_env *e)
 {
     switch (e->stage) {
     case FM_ENV_ATTACK:
-        if (e->level >= FM_ENV_FULL - e->step) {
+        /* all comparisons subtract: levels and steps are 0..2^30, so a
+         * difference cannot overflow where a sum could */
+        if (FM_ENV_FULL - e->level <= e->step) {
             e->level = FM_ENV_FULL;
             e->stage = FM_ENV_DECAY;
             e->step = step_for(FM_ENV_FULL - e->sustain, e->decay_samples);
@@ -48,7 +50,7 @@ int32_t fm_env_next(fm_env *e)
         }
         break;
     case FM_ENV_DECAY:
-        if (e->level <= e->sustain + e->step) {
+        if (e->level - e->step <= e->sustain) {
             e->level = e->sustain;
             e->stage = FM_ENV_SUSTAIN;
         } else {
