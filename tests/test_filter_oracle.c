@@ -23,8 +23,9 @@ static int32_t oracle_cutoff_at(size_t i, int32_t base, int32_t amount)
 }
 
 /* SNR in dB of the engine's filter against the oracle, both run on oracle_input for 1 s with the
- * given settings; 999 when they match exactly. */
-static double oracle_snr_db(int32_t base, int32_t amount, int32_t res, uint8_t hp)
+ * given settings; 999 when they match exactly. `full`: through fm_filter_process (every sample the
+ * whole filter), else fm_filter_run (as the render loop calls it, with its inline fast path). */
+static double oracle_snr_db_via(int32_t base, int32_t amount, int32_t res, uint8_t hp, int full)
 {
     static fm_filter f;
     static oracle_filter o;
@@ -43,12 +44,17 @@ static double oracle_snr_db(int32_t base, int32_t amount, int32_t res, uint8_t h
             fm_filter_set_cutoff(&f, oracle_cutoff_at(i, base, amount), rate);
             oracle_filter_set_cutoff(&o, oracle_cutoff_at(i, base, amount), rate);
         }
-        y = fm_filter_run(&f, x);
+        y = full ? fm_filter_process(&f, x) : fm_filter_run(&f, x);
         r = oracle_filter_process(&o, x);
         sig += (double)r * r;
         err += ((double)y - r) * ((double)y - r);
     }
     return err == 0 ? 999.0 : 10.0 * log10(sig / err);
+}
+
+static double oracle_snr_db(int32_t base, int32_t amount, int32_t res, uint8_t hp)
+{
+    return oracle_snr_db_via(base, amount, res, hp, 0);
 }
 
 /* The full patch (CPU test step F): cutoff 10500 swept +3600 cents, resonance 700, highpass step 1. */
@@ -59,11 +65,21 @@ TT_TEST(filter_matches_the_reference_on_the_full_patch)
     TT_CHECK(snr >= 90.0);
 }
 
-/* The default patch: the filter fully open, no resonance, highpass off. */
+/* The default patch: the filter fully open, no resonance, highpass off. The render loop takes the
+ * inline fast path (fm_filter_run) for it, so this checks that path. */
 TT_TEST(filter_matches_the_reference_on_the_default_patch)
 {
     double snr = oracle_snr_db(ORACLE_OPEN_CENTS, 0, 0, 0);
-    printf("    default patch: %.1f dB SNR against the reference\n", snr);
+    printf("    default patch, fast path: %.1f dB SNR against the reference\n", snr);
+    TT_CHECK(snr >= 90.0);
+}
+
+/* The default patch through fm_filter_process, the path the fast path stands in for (and the one
+ * taken for an input beyond +-2.0). */
+TT_TEST(filter_matches_the_reference_on_the_default_patch_full_path)
+{
+    double snr = oracle_snr_db_via(ORACLE_OPEN_CENTS, 0, 0, 0, 1);
+    printf("    default patch, full path: %.1f dB SNR against the reference\n", snr);
     TT_CHECK(snr >= 90.0);
 }
 
@@ -248,5 +264,6 @@ static void run_filter_oracle_tests(void)
     TT_RUN(full_resonance_8_voice_chord_stays_bounded);
     TT_RUN(self_oscillation_pitch_matches_the_reference);
     TT_RUN(filter_matches_the_reference_on_the_default_patch);
+    TT_RUN(filter_matches_the_reference_on_the_default_patch_full_path);
     TT_RUN(filter_matches_the_reference_on_the_full_patch);
 }
