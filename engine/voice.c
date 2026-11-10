@@ -331,22 +331,6 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
     fm_osc_pair_set_tune(&v->osc, which, cents, v->pitch, sample_rate);
 }
 
-/*
- * A block with every processor at rest (fm_voice_busy 0, as in the default
- * patch): the filter a wire, no envelope amount and nothing marking the
- * cutoff, no steal fade or queued release, the mix at osc_mix. Then nothing about the
- * filter can change within the block, so the loop runs just the amp
- * envelope and the oscillators, and the filter's bookkeeping (its last
- * sample, the envelope's lag, the control phase) is done once at the end,
- * with the same result as the full loop below. Returns 1 if it ran.
- * (No call in the loop but the two every voice makes: one more costs a
- * voice about 15 %, as the compiler must then reload the voice's fields.)
- */
-uint32_t fm_voice_busy(const fm_voice *v)
-{
-    return v->busy;
-}
-
 uint32_t fm_voice_busy_derived(const fm_voice *v)
 {
     return v->pending || v->gate_left || v->env_amount || v->mix_env ||
@@ -356,6 +340,17 @@ uint32_t fm_voice_busy_derived(const fm_voice *v)
                                  0, 0) != v->cutoff_now;
 }
 
+/*
+ * A block with every processor at rest (fm_voice_busy 0, as in the default
+ * patch): the filter a wire, no envelope amount and nothing marking the
+ * cutoff, no steal fade or queued release, the mix at osc_mix. Then nothing
+ * about the filter can change within the block, so the loop runs just the
+ * amp envelope and the oscillators, and the filter's bookkeeping (its last
+ * sample, the envelope's lag, the control phase) is done once at the end,
+ * with the same result as the full loop below. Returns 1 if it ran. (No
+ * call in the loop but the two every voice makes: one more costs a voice
+ * about 15 %, as the compiler must then reload the voice's fields.)
+ */
 static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
 {
     int32_t last = v->filter.s[3];
@@ -417,11 +412,12 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             if (v->env_amount || (v->mix_env && !v->mix_src))
                 fenv = filter_env_level(v);
             /* with no envelope amount the cutoff changes only when a
-             * setting or the note does, which marks it dirty */
-            if (v->busy & (FM_BUSY_FILTER_ENV | FM_BUSY_CUTOFF)) update_cutoff(v, fenv);
+             * setting or the note does, which sets FM_BUSY_CUTOFF */
+            if (fm_voice_busy(v) & (FM_BUSY_FILTER_ENV | FM_BUSY_CUTOFF))
+                update_cutoff(v, fenv);
             /* the mix envelope, or a glide back to osc_mix after it (until
              * it lands: a glide can land exactly with its step still set) */
-            if (v->busy & FM_BUSY_MIX)
+            if (fm_voice_busy(v) & FM_BUSY_MIX)
                 update_mix(v, v->mix_src ? amp_share(v, level) : fenv);
             if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;

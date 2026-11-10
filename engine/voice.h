@@ -157,12 +157,6 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now);
 
 /*
- * Adds `frames` samples of the voice (Q8.24) to `mix`. `next_tick` is the
- * number of the next control tick and `tick_left` the samples before it,
- * so a stolen note that starts mid-chunk knows which tick its LFO delay
- * counts from.
- */
-/*
  * A voice's busy word: each per-voice processor sets its bit when it leaves
  * rest and clears it when it returns. A voice with none set (and sounding)
  * renders on the fast path.
@@ -173,6 +167,13 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
 #define FM_BUSY_GATE 0x08u       /* a release queued (gate_left) */
 #define FM_BUSY_FILTER 0x10u     /* the filter isn't a wire (fm_filter_is_wire) */
 #define FM_BUSY_MIX 0x20u        /* the mix envelope on, or a glide not landed */
+#define FM_BUSY_ALL 0x3Fu
+
+/* every FM_BUSY_* bit fits in fm_voice's busy */
+typedef char fm_require_busy_bits_fit[
+    ((FM_BUSY_CUTOFF | FM_BUSY_FILTER_ENV | FM_BUSY_STEAL | FM_BUSY_GATE |
+      FM_BUSY_FILTER | FM_BUSY_MIX) == FM_BUSY_ALL &&
+     FM_BUSY_ALL >> (8 * sizeof(((fm_voice *)0)->busy)) == 0) ? 1 : -1];
 
 /* Sets or clears busy bit(s) `bits` of voice `v`. */
 static inline void fm_voice_mark(fm_voice *v, uint8_t bits, int on)
@@ -190,8 +191,12 @@ static inline void fm_voice_mark_mix(fm_voice *v)
 }
 
 /* Nonzero while any of the voice's processors is away from rest; a voice
- * at rest (and sounding) renders on the fast path. */
-uint32_t fm_voice_busy(const fm_voice *v);
+ * at rest (and sounding) renders on the fast path. The busy word itself:
+ * the one way to read it (mask it with FM_BUSY_* for one processor). */
+static inline uint32_t fm_voice_busy(const fm_voice *v)
+{
+    return v->busy;
+}
 
 /* The same question asked of the processors themselves instead of the busy
  * word: nonzero while any is away from rest (a steal fade or queued
@@ -205,6 +210,12 @@ uint32_t fm_voice_busy_derived(const fm_voice *v);
  * fm_filter_set_highpass), keeping the voice's busy word. */
 void fm_voice_set_highpass(fm_voice *v, uint8_t step);
 
+/*
+ * Adds `frames` samples of the voice (Q8.24) to `mix`. `next_tick` is the
+ * number of the next control tick and `tick_left` the samples before it,
+ * so a stolen note that starts mid-chunk knows which tick its LFO delay
+ * counts from.
+ */
 void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
                          uint32_t sample_rate, uint32_t next_tick,
                          uint32_t tick_left);
