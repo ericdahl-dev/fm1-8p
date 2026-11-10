@@ -26,6 +26,8 @@
 #define FM_MAX_VOICES 8
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
+/* Keys unison mode remembers for last-note priority (oldest dropped). */
+#define FM_HELD_MAX 16
 
 typedef enum {
     FM_OK = 0,
@@ -39,6 +41,8 @@ typedef enum {
     FM_PARAM_AMP_SUSTAIN, /* per mille of full level, 0..1000 */
     FM_PARAM_AMP_RELEASE_MS,
     FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
+    FM_PARAM_VOICE_MODE, /* FM_VOICE_MODE_POLY or FM_VOICE_MODE_UNISON */
+    FM_PARAM_UNISON_DETUNE_CENTS, /* unison spread, lowest to highest voice */
     /* lowpass cutoff, cents above MIDI note 0 (6900 = 440 Hz);
      * FM_FILTER_OPEN_CENTS (the maximum) is fully open */
     FM_PARAM_FILTER_CUTOFF_CENTS,
@@ -54,6 +58,10 @@ typedef enum {
     FM_PARAM_HIGHPASS_STEP, /* 0 (off) .. 3 (most low cut) */
     FM_PARAM_COUNT
 } fm_param_id;
+
+/* Values of FM_PARAM_VOICE_MODE (see docs/voices.md#unison). */
+#define FM_VOICE_MODE_POLY 0
+#define FM_VOICE_MODE_UNISON 1
 
 typedef struct {
     uint16_t id;
@@ -75,6 +83,9 @@ typedef struct {
     int32_t bend_value;    /* last pitch bend, -8192..8191 from center */
     int32_t bend;          /* Q16.16 semitones added to every note */
     fm_voice voices[FM_MAX_VOICES];
+    int32_t detune[FM_MAX_VOICES]; /* Q16.16 semitones each voice is off by */
+    uint8_t held[FM_HELD_MAX]; /* unison: keys down, oldest first */
+    uint8_t held_count;
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
 } fm_engine;
 
@@ -82,7 +93,8 @@ typedef struct {
  * Sets up `e` for `voice_count` voices (1..FM_MAX_VOICES) at
  * `sample_rate` Hz (1..192000) with every parameter at its default.
  * Each note takes a voice; with more notes than voices the engine steals
- * one (the rule is in docs/voices.md). Each voice is mixed at
+ * one (the rule is in docs/voices.md). In unison mode (FM_PARAM_VOICE_MODE)
+ * every voice plays the newest note instead, detuned. Each voice is mixed at
  * 1 / voice_count, then -6 dB, so a full chord never clips without filter
  * resonance; high resonance can reach full scale, where the output
  * saturates.
