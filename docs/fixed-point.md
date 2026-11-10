@@ -128,9 +128,8 @@ How it works, per sample:
   exceeds half the input peak plus 1.0, which is at most the input peak for
   inputs up to +-2.0, and stays far inside int32 for any input. Mixing
   equal parts dry and wet lowers the RMS level of a sustained saw (A3) by
-  2 dB (slow), 3 dB (deep) and 5 dB (fast) compared with chorus off; the
-  polyphony slice's gain staging can add make-up gain if listening calls for
-  it.
+  2 dB (slow), 3 dB (deep) and 5 dB (fast) compared with chorus off; make-up gain
+  is left to the gain staging work in #24, if listening calls for it.
 - Cost, per sample with the chorus on: one 64-bit multiply (the sweep), two
   32-bit multiplies (the interpolations), a few shifts, adds and masks, and
   four reads and one write of the delay line. The engine runs it over each
