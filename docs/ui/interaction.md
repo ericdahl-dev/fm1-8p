@@ -1,6 +1,7 @@
 # On-device UI: interaction model
 
-Status: proposal for #39. Eric approves it before the firmware UI is built.
+Status: proposal for #39, with Eric's decisions of 2026-11-10 applied
+([section 10](#10-decisions-eric-2026-11-10)).
 Owner: UX lead (interaction). The UI Designer owns colors, type and mockups,
 which come from the screen content lists in [section 6](#6-screen-content-requirements).
 
@@ -101,11 +102,11 @@ A fast step is used when one event carries 3 or more clicks.
 | 31 | K1 | `osc_mix_permille` | MIX | `D1 70 : 30 D2` (0..100, 1 = 10 per mille) | 1 / 5 |
 | 32 | K2 | `osc_sync` (pending, PR #31) | SYNC | OFF, ON | 1 / 1 |
 | 33 | K3 | `osc_xmod_permille` (pending, PR #31) | X-MOD | 0..100 % | 1 / 5 |
-| 34 | K4 | DCO-2 envelope level (pending, #33) | D2 ENV | -- | - |
+| 34 | K4 | DCO-2 coarse tune (pending, new engine issue) | COARSE | -12..+12 st | 1 / 1 |
 
 ### 4x VCF (pages 4A and 4B)
 
-All from PR #25 except 46.
+All from PR #25 except 46 and 47.
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
@@ -115,7 +116,7 @@ All from PR #25 except 46.
 | 44 | K4 | `filter_key_track_permille` | KEY | 0..100 % | 1 / 10 |
 | 45 | K1 | `highpass_step` | HPF | OFF, 100 Hz, 240 Hz, 560 Hz | 1 / 1 |
 | 46 | K2 | filter velocity amount (pending, #8) | VEL | 0..100 % | 1 / 5 |
-| 47 | K3 | reserved | | | |
+| 47 | K3 | DCO-2 envelope level (pending, #33) | D2 ENV | -- | - |
 | 48 | K4 | reserved | | | |
 
 ### 5x VCF ENV (page 5A)
@@ -251,21 +252,37 @@ In PLAY or EDIT:
 - **Unsaved edits:** when the edit buffer is modified, the first click does
   not load anything. It shows `EDITED: TURN AGAIN TO DISCARD`. Another click
   in the same direction within 2 s discards the edits and loads. Anything
-  else cancels the warning. See question Q4.
+  else cancels the warning (decision Q4).
+- **The edit buffer survives power-off** (decision Q4). It is kept with the
+  module's settings, in the settings record if it fits in 240 bytes and in a
+  flash bank otherwise, and written only when nothing sounds.
 - **In SAVE:** PRESETS picks the destination slot.
-- **In GLO and SEQ:** PRESETS browses patches as in PLAY. In SEQ, while the
-  sequencer is playing, the rules in
-  [Patch change while the sequencer plays](#patch-change-while-the-sequencer-plays)
-  apply.
+- **In GLO:** PRESETS browses patches as in PLAY.
+- **In SEQ view:** PRESETS browses **patterns**, not patches. See
+  [Pattern slots](#pattern-slots).
+
+### Patch numbering
+
+- **User patches:** 64 slots numbered 11..88, two digits 1..8 each, like the
+  parameter numbers (11..18, 21..28, ... 81..88).
+- **Starter patches (#14):** a separate read-only group, shown with a `P`
+  prefix (`P1`, `P2`, ...). PRESETS goes through the user slots 11..88, then
+  the P group, then wraps.
+- A starter patch can be edited and saved to a user slot. SAVE never offers a P
+  slot as the destination.
 
 ### SAVE
 
-1. **SAVE tap** in PLAY, EDIT or SEQ opens SAVE.
+SAVE saves the **patch** from PLAY and EDIT, and the **pattern** from SEQ
+view. The flow is the same for both; only the slots differ.
+
+1. **SAVE tap** in PLAY or EDIT opens SAVE for the patch. In SEQ view it opens
+   SAVE for the pattern.
    - The destination starts at the current slot.
    - The name is the current one.
 2. **In SAVE:**
-   - PRESETS: the destination slot. It shows the name of what is there now, or
-     `EMPTY`.
+   - PRESETS: the destination slot (patch 11..88, or pattern 11..88). It
+     shows the name of what is there now, or `EMPTY`.
    - SELECT: moves the name cursor.
    - KNOB1: the character at the cursor (A-Z, 0-9, space, `-`).
    - KNOB2: inserts or deletes at the cursor. Clockwise inserts a space, and
@@ -274,17 +291,18 @@ In PLAY or EDIT:
 3. **SAVE tap again** writes the patch. If the destination holds another
    patch, the first tap shows `REPLACE 23 <NAME>? SAVE AGAIN`, and the second
    tap writes.
-4. **After the write:** it shows `SAVED 23` for 1.5 s, the edit buffer becomes
-   clean, and the state goes back to where SAVE was pressed.
+4. **After the write:** it shows `SAVED 23` (or `SAVED PATTERN 23`) for 1.5 s,
+   that edit buffer becomes clean, and the state goes back to where SAVE was
+   pressed.
 5. **Cancel:** HOME tap or EDIT tap. Nothing is written.
 6. **A write erases a flash bank,** which stalls the sound for about 100 ms.
    - If any voice is sounding or the sequencer is playing, the write waits. It
      shows `SAVING WHEN SILENT`, and is written on the first silent moment.
-   - A third SAVE tap writes at once anyway. See question Q5.
+   - A third SAVE tap writes at once anyway (decision Q5).
    - A failed write shows `SAVE FAILED` and keeps the edit buffer dirty.
 
-The patch includes its sequencer pattern if #40 stores patterns with patches.
-See question Q2.
+A patch never includes a pattern, and a pattern never includes a sound
+(decision Q2).
 
 ### GLO: global settings
 
@@ -306,7 +324,7 @@ is sounding, as fm1-dock's rules ask.
 | G21 | K1 | CC receive | OFF, ON | ON |
 | G22 | K2 | CC send (knob moves go out as CC) | OFF, ON | OFF |
 | G23 | K3 | Program change | OFF, RECV, SEND, BOTH | RECV |
-| G24 | K4 | External CC response | JUMP, PICKUP | JUMP (Q6) |
+| G24 | K4 | External CC response | JUMP, PICKUP | JUMP (decision Q6) |
 | G31 | K1 | Velocity curve (the host's `sense_set` curve) | 50..200 % | the host's |
 | G32 | K2 | Fixed velocity, for keys with no force sensing | 1..127 | 100 |
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
@@ -333,7 +351,7 @@ step entry, where the octave sets the pitch that is written.
 | SELECT | page (goes to EDIT) | page | step cursor | name cursor | GLO page |
 | ALGORITHM | section (goes to EDIT) | section | SEQ page | - | GLO page |
 | KNOB1-4 | performance knobs | page's parameters | SEQ page's values | K1 char, K2 insert/delete | settings |
-| PRESETS | patch | patch | patch | destination slot | patch |
+| PRESETS | patch | patch | pattern | destination slot | patch |
 
 ## 5. Sequencer
 
@@ -341,18 +359,26 @@ This follows #35-#42: 16 steps, and each step holds a note, a chord (up to the
 voice count), a tie or a rest. Each step also has a velocity, a bend and mod
 value, and a jump or glide move.
 
-### Keys and LEDs
+### The split keyboard (decision Q1)
 
-- **Steps 1-16 are keys 0-15** (F3..G#4: all keys, black and white, in a
-  row). Keys 16-26 have no step.
-- **The keys always play notes.** In SEQ view their LEDs show the pattern, and
-  holding **SEQ** turns them into step selectors.
-  - So a chord can be played anywhere on the keyboard, including over the step
-    keys.
-  - #39's first idea was "hold a chord and press a step key". That needs the
-    step keys to be silent, which costs 16 of the 27 keys. See question Q1.
+**Outside SEQ view, all 27 keys play notes.** In SEQ view the keyboard splits:
 
-Key LED states in SEQ view, keys 0-15:
+| Keys | In SEQ view |
+| --- | --- |
+| 0-15, F3..G#4 (black and white, in a row) | **step keys**, steps 1-16. They make no sound. |
+| 16-26, A4..G5 (11 keys) | **chord keys**. They play notes, as do MIDI notes in. |
+
+- **Chord keys follow the octave:** OCT- and OCT+ shift them as usual. With
+  the octave at -2, they play A2..G3, so chords in any register are reachable.
+- **MIDI notes in count as held chord keys.** A chord can come from a MIDI
+  keyboard as well as the top 11 keys.
+- **Every key remembers how it started.** A key held when SEQ view opens or
+  closes still releases the way it began (see
+  [Keys that change meaning while held](#keys-that-change-meaning-while-held)).
+
+### Key LEDs
+
+Step keys 0-15 in SEQ view:
 
 | Step | LED |
 | --- | --- |
@@ -363,11 +389,17 @@ Key LED states in SEQ view, keys 0-15:
 | cursor (stopped, or in REC) | blinks between lit and glow at 4 Hz |
 | playhead (playing) | the step's state inverted for the step's length: lit becomes off, glow or off becomes lit |
 
-- Keys 16-26 are off in SEQ view, unless G33 is on and the key is held.
-- **Outside SEQ view,** while the sequencer plays: only the playhead key is
-  lit. Held notes are also lit if G33 is on.
-- **When stopped, outside SEQ view:** held notes are lit if G33 is on, and
-  everything else is off.
+Chord keys 16-26 in SEQ view:
+
+- **Glow:** the play zone, so the split is visible.
+- **Lit:** while the key is held.
+
+Outside SEQ view:
+
+- **While the sequencer plays:** only the playhead step's key (0-15) is lit.
+  Held notes are also lit if G33 is on.
+- **When stopped:** held notes are lit if G33 is on, and everything else is
+  off.
 
 Button LEDs:
 
@@ -383,8 +415,12 @@ pressed from. In SEQ view:
 
 - **SELECT** moves the step cursor (1..length, wraps), and the screen shows
   that step.
-- **SEQ held + key 0-15** moves the cursor to that step. Without REC, it also
-  plays the step's notes once, as an audition.
+- **A step key with no chord held** moves the cursor to that step. While
+  stopped and not in REC, it also plays the step's notes once, as an audition.
+- **A step key with a chord held** writes the chord to that step and moves the
+  cursor there (see [Writing steps](#writing-steps)).
+- **PRESETS** browses patterns (see [Pattern slots](#pattern-slots)).
+- **SAVE** saves the pattern.
 - **ALGORITHM** picks the SEQ page:
 
 | Page | K1 | K2 | K3 | K4 |
@@ -393,6 +429,9 @@ pressed from. In SEQ view:
 | S2 STEP (the cursor's step) | VEL 1..127 | BEND -100..+100 % of the bend range (and the semitones it gives) | MOD 0..127 | MOVE JUMP, GLIDE |
 | S3 PLAY | TRANSPOSE -24..+24 st | KEY TRANSPOSE OFF, ON | - | - |
 
+- **Pattern settings are part of the pattern.** TEMPO, LENGTH, SWING and GATE
+  are saved with it, and loading a pattern sets them. TRANSPOSE and KEY
+  TRANSPOSE are performance settings and are not saved.
 - **TEMPO under external clock:** TEMPO shows the measured tempo and
   `MIDI CLOCK`. Turning it shows `TEMPO FOLLOWS MIDI CLOCK` and changes
   nothing.
@@ -409,27 +448,76 @@ pressed from. In SEQ view:
 | LFO | toggle JUMP or GLIDE on the cursor step | same |
 | FX | unassigned | step back one step, without writing |
 
-### Step record (REC)
+### Writing steps
+
+There are two ways to write a step. Both use a **chord**: the chord keys and
+MIDI notes held at that moment, with the octave applied. In both:
+
+- **Note count:** only as many notes as the voice count are kept, the first
+  ones pressed. The rest are dropped, and the screen shows `MAX 6 NOTES`.
+- **Velocity:** the highest velocity among the chord's notes. A key with no
+  force sensing uses G32.
+- **Bend and mod:** the live MIDI-in pitch bend and CC1 at the moment of
+  writing (#42). With no MIDI controller, these are center and 0.
+
+**1. Chord + step key (any time in SEQ view, playing or stopped):**
+
+1. Hold a chord on the chord keys, or over MIDI. It sounds.
+2. Press a step key. The chord is written to that step and the cursor moves
+   there.
+3. Still holding the chord, more step keys write the same chord to those steps
+   too, which is quick for repeated chords.
+4. Releasing the chord writes nothing more.
+
+**2. Step record (REC, while stopped):**
 
 1. **Arming:** REC tap while stopped arms step record. If you are not in SEQ
    view, it goes there. The cursor stays where it is, and the REC LED is lit.
-2. **Building a step:** play a note or chord. Each key down sounds and joins
-   the step being built.
-3. **Writing:** when the last held key is released, the step is written at the
-   cursor and the cursor advances (and wraps at the length).
-   - **Notes:** the keys that were held, with the octave applied. Only as many
-     as the voice count are kept, the first ones pressed. The rest are
-     dropped, and the screen shows `MAX 6 NOTES`.
-   - **Velocity:** the highest velocity among the step's notes. A key with no
-     force sensing uses G32.
-   - **Bend and mod:** the live MIDI-in pitch bend and CC1 at the moment of
-     writing (#42). With no MIDI controller, these are center and 0.
-4. **Rests, ties and going back:** SEL writes a rest, ENV writes a tie, and FX
+2. **Building a step:** play a note or chord on the chord keys or over MIDI.
+   Each key down sounds and joins the step being built.
+3. **Writing:** when the last held chord key or MIDI note is released, the
+   step is written at the cursor and the cursor advances (and wraps at the
+   length).
+4. **Moving the cursor:** a step key with no chord held moves it, without
+   writing or auditioning. A step key with a chord held writes the chord there
+   at once, as in way 1, and the cursor then advances past it.
+5. **Rests, ties and going back:** SEL writes a rest, ENV writes a tie, and FX
    steps back.
-5. **Leaving:** REC tap disarms.
-6. **PLAY while armed:** the sequencer starts and REC disarms, so a performance
-   doesn't record over the pattern. Live recording while playing is not in
-   this version. See question Q3.
+6. **Leaving:** REC tap disarms.
+7. **PLAY while armed:** the sequencer starts and REC disarms, so a performance
+   doesn't record over the pattern. There is no live recording while playing in
+   this version (decision Q3).
+
+### Pattern slots
+
+Patterns have their own slots, separate from patches (decision Q2).
+
+- **Numbering:** 64 user pattern slots numbered 11..88, two digits 1..8 each,
+  like patches (decision Q9). The screen always says which kind: `PATCH 23`
+  and `PATTERN 23` are different things.
+- **Storage:** patterns are kept in their own flash banks. The format and size
+  are #40's.
+- **An empty slot loads as an empty pattern:** 16 rests, LENGTH 16, and the
+  default TEMPO, SWING and GATE.
+- **The pattern edit buffer** is the pattern being played and edited.
+  - It is separate from the sound's edit buffer.
+  - It has its own PATTERN EDITED marker.
+  - It survives power-off the same way (decision Q4).
+- **Browsing:** PRESETS in SEQ view.
+  - **Stopped:** each click loads the next or previous pattern at once. With
+    PATTERN EDITED, the first click warns `PATTERN EDITED: TURN AGAIN TO
+    DISCARD`, as for patches.
+  - **Playing:** the pattern doesn't change mid-pass. Clicks pick the **next
+    pattern**, shown as `NEXT PATTERN 23`. It takes over when the running
+    pattern ends its pass (after its last step).
+  - Turning back to the running pattern's number cancels the next pattern.
+  - With PATTERN EDITED, the warning comes first, as when stopped.
+- **Saving:** SAVE in SEQ view, the same flow as a patch (see
+  [SAVE](#save)).
+- **Patch and pattern never change each other.**
+  - A patch change, from PRESETS or a MIDI program change, changes only the
+    sound, and the running pattern plays on (decision Q8).
+  - A pattern change changes only the notes.
 
 ### Playing
 
@@ -438,6 +526,7 @@ pressed from. In SEQ view:
 - **Stopping:**
   - note-offs go out for everything the sequencer started;
   - bend returns to center and mod returns to the live wheel (#42);
+  - a queued next pattern loads at once;
   - with G14 on, MIDI stop goes out.
 - **Starting** sends MIDI start, with G14 on.
 - **Clock source MIDI** (G13) or AUTO with clock present:
@@ -446,8 +535,13 @@ pressed from. In SEQ view:
   - a second press disarms.
   - MIDI start, stop and continue act as #38 says, whatever the PLAY LED shows.
 - **Transpose:** S3 TRANSPOSE sets an offset.
-  - With KEY TRANSPOSE on and the sequencer playing, a key press does not
-    sound. It sets the transpose to the key minus C4, at the next step (#37).
+  - With KEY TRANSPOSE on and the sequencer playing, a played key does not
+    sound. It sets the transpose to the key minus a reference C, at the next
+    step (#37).
+  - The reference is C4 outside SEQ view, and C5 (the only C among the chord
+    keys) in SEQ view. Both are before the octave shift.
+  - In SEQ view only the chord keys transpose; the step keys stay step keys.
+    MIDI notes in transpose too.
   - Releasing the key keeps the transpose.
   - When stopped, keys play normally.
 - **Bend and mod per step (#42):**
@@ -455,29 +549,20 @@ pressed from. In SEQ view:
   - GLIDE steps ramp from the previous step's values to their own by the step
     end.
   - Live MIDI bend and CC1 still reach the engine while the sequencer plays;
-    the newest value wins until the next step sets its own. See question Q7.
+    the newest value wins until the next step sets its own (decision Q7).
 
 ### Editing during playback
 
 All of PLAY, EDIT, GLO and SEQ stay usable while the sequencer plays.
 
 - **Sound edits** reach the engine at once. They are smoothed by #3.
-- **Step edits:** an edit to a step (S2, SEL or ENV) takes effect the next time
-  that step plays. A step that is sounding is not cut.
+- **Step edits:** an edit to a step (chord + step key, S2, SEL or ENV) takes
+  effect the next time that step plays. A step that is sounding is not cut.
 - **Pattern settings:**
   - LENGTH shorter than the playhead: the playhead wraps to step 1 at the next
     step.
   - TEMPO changes take effect at the next step.
   - SWING and GATE apply from the next step.
-
-### Patch change while the sequencer plays
-
-Only relevant if patterns are stored with patches (Q2):
-
-- the new patch's **sound** loads at once;
-- its **pattern** takes over at the end of the current pass of the running
-  pattern, at its step 16 or its length.
-- Until then the screen shows `NEXT PATTERN: 23`. See question Q8.
 
 ## 6. Screen content requirements
 
@@ -487,13 +572,17 @@ synth, and "should" items help.
 
 Everywhere, unless the state says otherwise:
 
-- **Must:** the current patch number and name, with an EDITED marker when the
-  edit buffer differs from the stored patch.
+- **Must:** the current patch number and name (`PATCH 23`, or `P3` for a
+  starter), with an EDITED marker when the edit buffer differs from the stored
+  patch.
+- **Must:** the current pattern number (`PATTERN 41`), with a PATTERN EDITED
+  marker. While a next pattern is queued, also `NEXT PATTERN 23`.
 - **Must:** a transport indicator: STOPPED, PLAYING with the step number, or
   WAITING FOR CLOCK. Also the clock source in use, INT or MIDI, and the tempo.
 - **Must:** a banner line for short messages, shown 1.5 s:
-  - `SAVED 23`
+  - `SAVED 23`, `SAVED PATTERN 23`
   - `EDITED: TURN AGAIN TO DISCARD`
+  - `PATTERN EDITED: TURN AGAIN TO DISCARD`
   - `MAX 6 NOTES`
   - `NO EDITS`
   - `NO PARAMETER`
@@ -501,7 +590,7 @@ Everywhere, unless the state says otherwise:
   - `SAVE FAILED`
   - `TEMPO FOLLOWS MIDI CLOCK`
   - `COMPARE: RELEASE EDIT TO CHANGE`
-  - `NEXT PATTERN: 23`
+  - `NEXT PATTERN 23`
 - **Should:** the number of sounding voices, out of the voice count.
 - **Should:** a MIDI-in activity mark that flashes for 100 ms on any message.
 
@@ -542,6 +631,7 @@ Everywhere, unless the state says otherwise:
 ### SAVE
 
 - **Must:**
+  - whether a patch or a pattern is being saved;
   - the destination slot number;
   - the name currently in that slot, or EMPTY;
   - the new name with the cursor position;
@@ -559,6 +649,8 @@ Everywhere, unless the state says otherwise:
 
 ### SEQ view
 
+- **Must:** the pattern number and name, PATTERN EDITED, and the queued next
+  pattern if there is one. In SEQ view, PRESETS changes this, not the patch.
 - **Must:** a 16-step strip. For each step: rest, note, chord or tie, and
   whether it is past the length. Also the cursor, and the playhead while
   playing. It mirrors the key LEDs.
@@ -569,6 +661,9 @@ Everywhere, unless the state says otherwise:
 - **Must:** the SEQ page (S1, S2 or S3) and its four knob values.
 - **Must:** step record armed or not. While armed, the notes held so far for
   the step being built.
+- **Must:** the chord held now on the chord keys and MIDI in, by note name,
+  since pressing a step key writes it there.
+- **Must:** that the keyboard is split: F3..G#4 are steps, A4..G5 play.
 - **Must:** the meaning of SEL, ENV, LFO and FX in SEQ view (REST, TIE, MOVE,
   BACK), since it differs from the other states.
 - **Must:** the transpose, when it isn't 0.
@@ -613,11 +708,14 @@ stateDiagram-v2
         [*] --> Steps
         Steps --> StepRec: REC tap (stopped)
         StepRec --> Steps: REC tap / PLAY
+        Steps --> Steps: chord held + step key (write)
     }
 ```
 
 - **Previous** means the state that SEQ, SAVE or GLO was entered from.
 - **Compare and number jump** also exist in PLAY, and work the same there.
+- **The keyboard split** applies only in SEQ view: there, keys F3..G#4 are step
+  keys and A4..G5 play. In every other state all keys play.
 - **The transport** runs alongside every state: STOPPED, PLAYING, or
   WAITING-FOR-CLOCK. PLAY toggles it from any state.
 - **HOME held 1.5 s** leaves fm1-8p for the host's picker from any state.
@@ -632,13 +730,16 @@ stateDiagram-v2
 | FX | CTRL page | same | BACK (in REC) | - | - |
 | EDIT | tap: last edit page; hold: compare | tap: PLAY; hold: compare | tap: last edit page | cancel | - |
 | GLO | GLO | GLO | GLO | - | back |
-| SAVE | SAVE | SAVE | SAVE | write, or confirm | - |
+| SAVE | save patch | save patch | save pattern | write, or confirm | - |
 | ARP | - | - | - | - | - |
-| SEQ | SEQ view | SEQ view | tap: back; hold: keys select steps | - | - |
+| SEQ | SEQ view | SEQ view | back | - | - |
 | PLAY | start/stop | start/stop | start/stop | start/stop | start/stop |
 | REC | arm, go to SEQ | arm, go to SEQ | arm or disarm | - | - |
 | HOME tap | - | PLAY | PLAY | cancel | back |
-| OCT-/+ | octave | octave | octave | octave | octave |
+| OCT-/+ | octave | octave | octave (chord keys) | octave | octave |
+| PRESETS | patch | patch | pattern (queued while playing) | slot | patch |
+| Keys F3..G#4 | notes | notes | step keys | notes | notes |
+| Keys A4..G5 | notes | notes | chord keys | notes | notes |
 
 "-" means the button does nothing in that state, and its LED is off. A button
 that does something glows, unless it is lit for its own reason.
@@ -676,6 +777,7 @@ that does something glows, unless it is lit for its own reason.
   values at the moment of the write.
 - **Program change** (with G23 RECV or BOTH) loads the patch at once,
   discarding edits without the PRESETS warning. A remote device asked for it.
+  It never changes the pattern.
 
 ### Editing during sequencer playback
 
@@ -690,19 +792,21 @@ See [Editing during playback](#editing-during-playback). Also:
 
 ### Keys that change meaning while held
 
-- Each held key remembers how it started: a played note, a step select, a
-  number digit or a transpose.
-- Its release is handled the same way, even if the modifier (SEL, SEQ) was let
-  go in between.
-- A note started before SEL or SEQ was pressed still gets its note-off when
-  the key comes up.
+- Each held key remembers how it started: a played note, a chord key, a step
+  key, a number digit or a transpose.
+- Its release is handled the same way, even if the state changed in between.
+  For example, a note held on F3 when SEQ view opens still gets its note-off
+  when F3 comes up, and a step key held when SEQ view closes makes no sound
+  when it comes up.
+- A note started before SEL was pressed still gets its note-off when the key
+  comes up.
 
 ### Leaving the module
 
 - `release()` stops the sequencer and cuts every note.
-- The edit buffer, the current page, the SEQ cursor and the current state are
-  kept in RAM. If the host reloads the module, they come from the settings
-  record (Q4).
+- The sound and pattern edit buffers, the current page, the SEQ cursor and the
+  current state are kept in RAM. If the host reloads the module, or after a
+  power cycle, the edit buffers come from flash (decision Q4).
 
 ### Taps and holds
 
@@ -711,9 +815,8 @@ See [Editing during playback](#editing-during-playback). Also:
 - **Buttons that act on press:** PLAY, REC, SAVE, GLO, ENV, LFO and FX, since
   they have no hold meaning in that state.
 - **Buttons that act on release:** SEL and EDIT, in the states where they have
-  a hold meaning. SEQ acts on release only if no step key was pressed while it
-  was held.
-- **Two buttons at once:** only SEL+key, SEQ+key and HOME are combinations.
+  a hold meaning. SEQ acts on press.
+- **Two buttons at once:** only SEL+key and HOME are combinations.
   Any other button pressed while one is held acts on its own.
 
 ## 9. Acceptance behaviors
@@ -737,7 +840,7 @@ test.
    shows 3A with 32 SYNC as the focus. No note-on is sent for those keys.
 6. Holding SEL, tapping C4 (digit 5) and releasing SEL shows 5A, and the
    focus is empty.
-7. Number 47 (reserved) shows page 4B, the focus is empty, and the banner is
+7. Number 48 (reserved) shows page 4B, the focus is empty, and the banner is
    `NO PARAMETER`.
 8. EDIT tap in PLAY shows the last edit page, and 4A on a fresh start. EDIT
    tap in EDIT shows PLAY.
@@ -771,63 +874,102 @@ test.
 21. A SAVE confirmed while a voice is sounding writes nothing until the voices
     are silent, then writes once.
 22. After a write, EDITED is clear and the EDIT LED glows.
+23. KNOB4 +1 on page 3A raises DCO-2 COARSE by 1 semitone, clamped to -12..+12.
 
 **Sequencer**
 
-23. PLAY sends the sequencer start on press, from every state. PLAY again
+24. PLAY sends the sequencer start on press, from every state. PLAY again
     stops it, and every note it started gets a note-off.
-24. In REC, holding C4 and E4, then releasing both, writes one step with those
-    two notes at the cursor, and the cursor moves +1.
-25. In REC with a 6-voice count, holding 8 keys writes the first 6 pressed and
-    shows `MAX 6 NOTES`.
-26. In REC, SEL writes a rest and ENV writes a tie, and each advances the
+25. In REC, holding chord keys C5 and E5, then releasing both, writes one step
+    with those two notes at the cursor, and the cursor moves +1.
+26. In REC with a 6-voice count, holding 8 chord keys writes the first 6
+    pressed and shows `MAX 6 NOTES`.
+27. In REC, SEL writes a rest and ENV writes a tie, and each advances the
     cursor. FX moves the cursor back without writing.
-27. In REC, a key with velocity 0 (unsensed) writes the step with G32's
+28. In REC, a key with velocity 0 (unsensed) writes the step with G32's
     velocity.
-28. In REC with MIDI bend at +4096 and CC1 at 64, the written step holds bend
+29. In REC with MIDI bend at +4096 and CC1 at 64, the written step holds bend
     +4096 and mod 64.
-29. PLAY while REC is armed starts playback and disarms REC.
-30. Holding SEQ and pressing key 5 moves the cursor to step 6 with no note-on
-    sent while stopped in REC. Without REC it auditions step 6's notes.
-31. Key LEDs in SEQ view, for a 12-step pattern with notes on 1 and 5 and a
+30. PLAY while REC is armed starts playback and disarms REC.
+31. In SEQ view with no chord held, pressing key 5 sends no note-on for
+    A#3 and moves the cursor to step 6. Stopped and not in REC, it auditions
+    step 6's notes; in REC it plays nothing.
+32. In SEQ view, holding chord keys A4 and C5 and pressing key 2 writes that
+    chord to step 3. Pressing key 7 while still holding writes it to step 8
+    too. Releasing the chord writes nothing more.
+33. Outside SEQ view, key 0 (F3) sends a note-on for F3.
+34. A note held on F3 when SEQ view opens gets its note-off when F3 is
+    released.
+35. Chord + step key works while playing; the step plays the new chord the
+    next time it comes round.
+36. Key LEDs in SEQ view, for a 12-step pattern with notes on 1 and 5 and a
     tie on 6: key 0 lit, key 4 lit, key 5 tie-blink, keys 1-3 and 6-11 glow,
-    keys 12-15 off.
-32. While playing, the playhead key's LED is inverted for exactly its step, and
+    keys 12-15 off, keys 16-26 glow, and a held chord key lit.
+37. While playing, the playhead key's LED is inverted for exactly its step, and
     the other keys keep their states.
-33. With KEY TRANSPOSE on and playing, pressing D4 sends no note-on and sets
-    transpose +2 from the next step.
-34. With G13 = MIDI and no clock, PLAY sets WAITING FOR CLOCK and sends no
+38. With KEY TRANSPOSE on and playing, outside SEQ view pressing D4 sends no
+    note-on and sets transpose +2 from the next step. In SEQ view, pressing
+    chord key D5 does the same.
+39. With G13 = MIDI and no clock, PLAY sets WAITING FOR CLOCK and sends no
     notes. MIDI start then starts the sequencer from step 1.
-35. A tempo knob turn under external clock changes nothing and shows the
+40. A tempo knob turn under external clock changes nothing and shows the
     banner.
-36. Setting LENGTH to 4 while the playhead is on step 9 plays step 1 next.
+41. Setting LENGTH to 4 while the playhead is on step 9 plays step 1 next.
+
+**Patterns**
+
+42. In SEQ view, stopped, PRESETS +1 loads the next pattern at once, and the
+    patch is unchanged.
+43. In SEQ view, playing, PRESETS +1 loads nothing yet and shows
+    `NEXT PATTERN nn`. The new pattern's step 1 plays right after the running
+    pattern's last step.
+44. While a next pattern is queued, turning PRESETS back to the running
+    pattern's number cancels it.
+45. Stopping with a next pattern queued loads it at once.
+46. A patch change (PRESETS outside SEQ view, or program change) while
+    playing leaves the running pattern, its step and its tempo unchanged.
+47. With PATTERN EDITED, the first PRESETS click in SEQ view loads nothing and
+    warns; a second click within 2 s proceeds.
+48. SAVE in SEQ view writes a pattern slot and never a patch slot; SAVE in
+    PLAY or EDIT writes a patch slot and never a pattern slot.
+49. An empty pattern slot loads as 16 rests with LENGTH 16.
 
 **Keys and MIDI**
 
-37. A key pressed before SEL is held, and released while SEL is held, sends
+50. A key pressed before SEL is held, and released while SEL is held, sends
     its note-off.
-38. With G24 = PICKUP and cutoff at 64 (CC scale), CC74 = 20 is ignored, and
+51. With G24 = PICKUP and cutoff at 64 (CC scale), CC74 = 20 is ignored, and
     CC74 = 63, 64 or 65 takes over. After that, CC74 = 20 sets the value.
-39. With G24 = JUMP, CC74 = 20 sets cutoff at once.
-40. A CC during compare reaches the edit buffer. On EDIT release, the engine
+52. With G24 = JUMP, CC74 = 20 sets cutoff at once.
+53. A CC during compare reaches the edit buffer. On EDIT release, the engine
     has the CC's value.
-41. Program change 5 loads patch 5 even with an edited buffer, when G23 is RECV
+54. Program change 5 loads patch 5 even with an edited buffer, when G23 is RECV
     or BOTH.
-42. After `release()`, then `draw(full)`, every LED is sent again and the
+55. After `release()`, then `draw(full)`, every LED is sent again and the
     transport is STOPPED.
 
-## 10. Open questions for Eric
+## 10. Decisions (Eric, 2026-11-10)
 
-These are listed in the PR description. They are not decided here, and the
-default in each is the recommended option.
-
-- **Q1:** step key layout.
-- **Q2:** where patterns are stored.
-- **Q3:** live recording.
-- **Q4:** unsaved edits on patch change, and the edit buffer at power-off.
-- **Q5:** SAVE while sound is playing.
-- **Q6:** external CC response.
-- **Q7:** live MIDI bend and mod during per-step bend and mod.
-- **Q8:** patch change while the sequencer plays.
-- **Q9:** patch slot numbering.
-- **Q10:** coarse tune for DCO-2.
+- **Q1, step key layout: split keyboard.** In SEQ view, F3..G#4 are silent
+  step keys, and chords are played on A4..G5 or over MIDI, then written with a
+  step key. Outside SEQ view all keys play.
+- **Q2, pattern storage: separate pattern slots.** Patterns have their own
+  slots, browsed with PRESETS and saved with SAVE in SEQ view. Patches hold no
+  pattern.
+- **Q3, live recording: not in this version.** PLAY while REC is armed starts
+  playback and disarms REC.
+- **Q4, unsaved edits: warn, and keep them at power-off.** The first PRESETS
+  click with unsaved edits warns, and a second click within 2 s discards. The
+  sound and pattern edit buffers survive a power cycle.
+- **Q5, SAVE while sound plays: wait for silence.** The write waits until
+  nothing sounds and the sequencer is stopped. A third SAVE forces it.
+- **Q6, external CC: JUMP by default,** with PICKUP in GLO (G24).
+- **Q7, live bend and mod over steps: the newest value wins** until the next
+  step sets its own.
+- **Q8, patch and pattern changes while playing.** A patch change leaves the
+  running pattern alone. A pattern change takes effect at the end of the pass,
+  shown as `NEXT PATTERN nn`.
+- **Q9, numbering: 11..88.** 64 user patches and 64 user patterns, each
+  numbered 11..88. Starter patches are a read-only P group.
+- **Q10, DCO-2 coarse tune: yes.** -12..+12 semitones at slot 34. The DCO-2
+  envelope level (#33) moves to slot 47. Eric is filing the engine issue.
