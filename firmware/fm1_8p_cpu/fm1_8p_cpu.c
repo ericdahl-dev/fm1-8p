@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* FM1-8P CPU: fm1-8p's engine under fm1-dock, sweeping 1..8 voices (5 s each) on a held chord, then
- * the unison burst ("U", count 9: 8 voices in unison, 8 note-ons and a detune change every block;
- * cpu_test.h), with the worst render time per count on screen and in the log (tools/dock.py logs):
+ * the unison burst ("U", count 9: 8 voices in unison, 8 note-ons and a detune change every block),
+ * then the full patch ("F", count 10: the 8-voice chord with both oscillators, vibrato, pulse-width
+ * modulation, amp velocity and the chorus; cpu_test.h), with the worst render time per count on
+ * screen and in the log (tools/dock.py logs):
  * one line "fm1-8p voices/worst permille" = count << 16 | permille for each count a sweep held in
  * full. The block that starts a count (engine init, note on) is not timed.
- *   KNOB1     pick a step by hand, 1..8 then U (stops the sweep; a hand-picked U keeps bursting)
- *   PLAY      sweep again from 1 (after a sweep's U, the burst stops and its row is final) */
+ *   KNOB1     pick a step by hand, 1..8, U, F (stops the sweep; a hand-picked U keeps bursting)
+ *   PLAY      sweep again from 1 (after a sweep's F, the chord rings and F's row is final) */
 #include "hb_module.h"
 #include "cpu_test.h"
 
@@ -15,7 +17,11 @@
 
 static const hb_host_t *H;
 static cpu_test T;                              /* static: 2 KiB of buffer must not sit on the ISR stack */
-static uint32_t drawn[CT_BURST + 1], drawn_v;
+static uint32_t drawn[CT_LAST + 1], drawn_v;
+/* Rows from HB_TOP + 4 to the screen's bottom (240), one per step: (240 - 24 - 4) / 10 = 21 px for
+ * 16 px text, so all CT_LAST rows fit. */
+#define ROW_PITCH ((240u - HB_TOP - 4u) / CT_LAST)
+#define SHOWN_ERR 0x80000000u                   /* drawn[]: the row shows ERR (not a per mille) */
 
 static void render(int32_t *out, uint32_t n)
 {
@@ -35,15 +41,21 @@ static void ui(uint32_t ev, int32_t arg)
     }
 }
 
-static void line(uint32_t v, uint32_t pm)       /* "N  NN.N %", "U  NN.N %" for the burst */
+/* "N  NN.N %"; U for the burst, F for the full patch; "N  ERR" when the step failed to start */
+static void line(uint32_t v, uint32_t pm)
 {
     char s[12] = "N  000.0 %";
-    s[0] = (char)(v == CT_BURST ? 'U' : '0' + v);
+    s[0] = (char)(v == CT_FULL ? 'F' : v == CT_BURST ? 'U' : '0' + v);
+    if (pm == SHOWN_ERR) {
+        s[3] = 'E', s[4] = 'R', s[5] = 'R', s[6] = ' ', s[7] = ' ', s[8] = ' ', s[9] = ' ';
+        H->text(0, (int32_t)(HB_TOP + 4u + ROW_PITCH * (v - 1u)), 240, 0, s, HB_RGB(255, 60, 60), 1);
+        return;
+    }
     s[3] = (char)(pm >= 1000u ? '0' + pm / 1000u % 10u : ' ');
     s[4] = (char)(pm >= 100u ? '0' + pm / 100u % 10u : ' ');
     s[5] = (char)('0' + pm / 10u % 10u);
     s[7] = (char)('0' + pm % 10u);
-    H->text(0, (int32_t)(HB_TOP + 8u + 24u * (v - 1u)), 240, 0, s,
+    H->text(0, (int32_t)(HB_TOP + 4u + ROW_PITCH * (v - 1u)), 240, 0, s,
             v == cpu_test_voices(&T) ? 0xFFFFu : HB_RGB(150, 150, 150), 1);
 }
 
@@ -52,14 +64,18 @@ static void draw(uint32_t full)
     uint32_t v, pm, cur = cpu_test_voices(&T);
     if (full) {
         H->fill(0, HB_TOP, 240, 240 - HB_TOP, 0);
-        for (v = 0; v <= CT_BURST; v++)
+        for (v = 0; v <= CT_LAST; v++)
             drawn[v] = ~0u;
         drawn_v = ~0u;
     }
-    while (cpu_test_take_completed(&T, &v, &pm))   /* each count a sweep held in full, once */
-        H->log_u32("fm1-8p voices/worst permille", v << 16 | pm);
-    for (v = 1; v <= CT_BURST; v++) {
-        pm = cpu_test_worst_permille(&T, v);
+    while (cpu_test_take_completed(&T, &v, &pm)) { /* each count a sweep held in full, once */
+        if (cpu_test_failed(&T, v))
+            H->log_u32("fm1-8p ERROR: step failed to start, not timed; count", v);
+        else
+            H->log_u32("fm1-8p voices/worst permille", v << 16 | pm);
+    }
+    for (v = 1; v <= CT_LAST; v++) {
+        pm = cpu_test_failed(&T, v) ? SHOWN_ERR : cpu_test_worst_permille(&T, v);
         if (pm != drawn[v] || (cur != drawn_v && (v == cur || v == drawn_v))) {
             drawn[v] = pm;
             line(v, pm);
@@ -80,7 +96,7 @@ static int init(const hb_host_t *h)
         return 1;                               /* the host falls back to the sine */
     }
     cpu_test_sweep(&T, CPU_HOLD_BLOCKS);
-    H->log("fm1-8p cpu: sweeping 1..8 voices, then the unison burst");
+    H->log("fm1-8p cpu: sweeping 1..8 voices, then the unison burst, then the full patch");
     return 0;
 }
 

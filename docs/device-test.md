@@ -1,7 +1,7 @@
 # Running the CPU test on an FM-1 (#13)
 
 This guide runs fm1-8p's CPU test on a real FM-1 and gets the numbers that decide the voice count. It takes
-about 20 minutes. The test itself runs for 45 s.
+about 20 minutes. The test itself runs for 50 s (10 steps of 5 s).
 
 Every fm1-dock command and behavior below is quoted from fm1-dock at the commit we pin, `9e6e08e`
 (`firmware/pins.env`), with the file and line it comes from.
@@ -19,20 +19,23 @@ Every command below runs from `$DOCK` (`cd "$DOCK"` first) and writes into `$RUN
 
 ## What the test does
 
-The module `FM1-8P CPU` holds a chord and steps through 9 steps, 5 s each:
+The module `FM1-8P CPU` holds a chord and steps through 10 steps, 5 s each:
 
 | step | what plays |
 | --- | --- |
 | 1 to 8 | 1 to 8 voices, one note each (C3 up in thirds), poly mode |
-| U | the unison burst: 8 voices in unison; in every block the 8 keys go up, go down again (each note-on retriggers every voice) and the unison detune changes. After its 5 s the burst stops and the last note rings; the U row no longer changes |
+| U | the unison burst: 8 voices in unison; in every block the 8 keys go up, go down again (each note-on retriggers every voice) and the unison detune changes |
+| F | the full patch: the 8-voice chord (poly mode) with every modulation on: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, and the deep chorus. After its 5 s the chord rings on; the F row no longer changes |
 
 For each step it shows the **worst** render time of any block, as a percentage of one 256-frame block (5.8 ms at
 44.1 kHz). The block that starts a step (engine setup, first note-on) is not timed. Step U is the case from the #13
 comment: unison does its divides when notes and the detune change, so a burst of note-ons inside one block is its
-worst case.
+worst case. Step F is the modulation cost: with every depth at 0 (steps 1 to 8) the LFO costs nothing, so only F
+measures vibrato, pulse-width modulation, velocity and the chorus together. `make bench` times the same patch on the
+desktop at every voice count (`make bench-full`).
 
 What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.4 % per voice, 28.1 % at
-8 voices, 31.1 % for U. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
+8 voices, 31.1 % for U, 60.5 % for F. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
 itself: note it.
 
 ## 1. What you need
@@ -111,14 +114,16 @@ If the deploy is refused (an ABI or room error), go to route B.
 ## 4. Run the test and read the screen
 
 1. **Don't touch the FM-1.** The sweep starts by itself when the module starts; let that one run. (The module's
-   controls, for later: PLAY sweeps again from 1; KNOB1 picks a step by hand, 1 to 8 then U, and stops the sweep.)
-   If you did press PLAY or turn KNOB1 during the sweep, press PLAY once and start the 50 s again: the screen
+   controls, for later: PLAY sweeps again from 1; KNOB1 picks a step by hand, 1 to 8, U, then F, and stops the sweep.)
+   If you did press PLAY or turn KNOB1 during the sweep, press PLAY once and start the 55 s again: the screen
    restarts, and the report in section 5 uses only the last sweep.
-2. Wait **50 s**: 9 steps of 5 s, plus a little.
-3. The screen has one row per step: `1` to `8`, then `U`. Each row is the step's worst block, like `4   11.5 %`.
-   The current step's row is white, the others gray. **Write down all 9 rows** once `U` has run its 5 s.
-4. Listen while it runs: a chord that gets richer for 40 s, then a fast-retriggered 8-voice unison note for 5 s. Clicks,
-   dropouts or the sine taking over mean an overrun: note at which step.
+2. Wait **55 s**: 10 steps of 5 s, plus a little.
+3. The screen has one row per step: `1` to `8`, then `U`, then `F`. Each row is the step's worst block, like
+   `4   11.5 %`. The current step's row is white, the others gray. **Write down all 10 rows** once `F` has run its
+   5 s.
+4. Listen while it runs: a chord that gets richer for 40 s, then a fast-retriggered 8-voice unison note for 5 s, then
+   the full chord again with vibrato and chorus, its notes at different loudness. Clicks, dropouts or the sine taking
+   over mean an overrun: note at which step.
 
 ## 5. Pull the numbers off the FM-1
 
@@ -135,7 +140,7 @@ FM1_BUILD_LIB=1 sh -c '. tools/fm1-build.sh; emu_report "$0"' "$RUN/fm1-8p-logs.
 
 - **logs**: the host's log ring. Our module writes one line per step it held in full:
   `fm1-8p voices/worst permille 00040073`, where the hex value is `count << 16 | permille`
-  (`00040073`: 4 voices, 0x73 = 115 per mille = 11.5 %). Count 9 is U. The last command above turns the lines
+  (`00040073`: 4 voices, 0x73 = 115 per mille = 11.5 %). Count 9 is U, count 10 is F. The last command above turns the lines
   into `$RUN/report.md`, a table with one row per step. It uses only the last sweep in the log (from its last count-1
   line on), so a sweep restarted with PLAY doesn't give duplicate rows; it fails and names any step that's
   missing. Use its rows for the "log" column in section 8.
@@ -186,6 +191,7 @@ try again.
 | 7 | | | 24.7 | |
 | 8 | | | 28.1 | |
 | U (unison burst) | | | 31.1 | |
+| F (full patch) | | | 60.5 | |
 
 - `dock.py modules`: render worst __ % of a block, __ overruns
 - Heard any clicks, dropouts or the sine taking over? At which step?
@@ -194,4 +200,5 @@ try again.
 ```
 
 The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `8ee3f5e` (unison and #5's oscillators,
-before the filter). If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+before the filter); row F's from the same fm1-emu with the engine at `14ac94b` (#8's LFO and velocity, still before
+the filter), in PR #32's CI run. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.

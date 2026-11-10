@@ -140,8 +140,79 @@ TT_TEST(bench_report_gives_time_per_frame_and_per_voice)
     TT_CHECK(strstr(out, "|      4 |      25600 |      100.0 |             25.0 |  3.0 % |") != NULL);
 }
 
+/* The full-patch workload times the same voice counts; bench_run is the default one. */
+TT_TEST(bench_runs_the_full_patch_workload_at_every_voice_count)
+{
+    fake_clock c = {0, 51200, 0, 0, 0};
+    uint32_t v;
+    c.calls_per_rep = 2u * 10u * FM_MAX_VOICES;
+    TT_CHECK_EQ(bench_run_workload(BENCH_FULL_PATCH, 10, 2, fake_now, &c, &bres), 0);
+    TT_CHECK_EQ(bres.workload, BENCH_FULL_PATCH);
+    for (v = 1; v <= FM_MAX_VOICES; v++)
+        TT_CHECK_EQ(bres.rows[v - 1].block_ns, 51200);
+    TT_CHECK_EQ(fm_engine_get_param(&bench_cpu_test()->engine, FM_PARAM_AMP_VELOCITY), 100);
+    TT_CHECK_EQ(fm_engine_active_voices(&bench_cpu_test()->engine), FM_MAX_VOICES);
+    c.calls = 0;
+    TT_CHECK_EQ(bench_run(10, 2, fake_now, &c, &bres), 0);
+    TT_CHECK_EQ(bres.workload, BENCH_DEFAULT_PATCH);
+    TT_CHECK_EQ(fm_engine_get_param(&bench_cpu_test()->engine, FM_PARAM_AMP_VELOCITY), 0);
+}
+
+TT_TEST(bench_workload_names_parse)
+{
+    uint32_t m = 0;
+    TT_CHECK_EQ(bench_workloads_parse("default", &m), 0);
+    TT_CHECK_EQ(m, 1u << BENCH_DEFAULT_PATCH);
+    TT_CHECK_EQ(bench_workloads_parse("full", &m), 0);
+    TT_CHECK_EQ(m, 1u << BENCH_FULL_PATCH);
+    TT_CHECK_EQ(bench_workloads_parse("all", &m), 0);
+    TT_CHECK_EQ(m, (1u << BENCH_DEFAULT_PATCH) | (1u << BENCH_FULL_PATCH));
+    TT_CHECK(bench_workloads_parse("fully", &m) != 0);
+    TT_CHECK(bench_workloads_parse("", &m) != 0);
+    TT_CHECK_EQ(strcmp(bench_workload_name(BENCH_FULL_PATCH), "full"), 0);
+    TT_CHECK_EQ(strcmp(bench_workload_name(BENCH_DEFAULT_PATCH), "default"), 0);
+}
+
+/* With no options the bench runs what `make bench` always ran: the default workload only. */
+TT_TEST(bench_args_default_to_the_default_workload)
+{
+    char *argv[] = {"fm1-8p-bench"};
+    bench_args a;
+    TT_CHECK_EQ(bench_args_parse(1, argv, &a), 0);
+    TT_CHECK_EQ(a.blocks, 2000);
+    TT_CHECK_EQ(a.reps, 5);
+    TT_CHECK_EQ(a.workloads, 1u << BENCH_DEFAULT_PATCH);
+}
+
+/* -w adds a workload each time it appears: `-w default -w full` runs both. */
+TT_TEST(bench_args_repeated_workloads_add_up)
+{
+    char *argv[] = {"fm1-8p-bench", "-w", "full", "-w", "default"};
+    bench_args a;
+    TT_CHECK_EQ(bench_args_parse(5, argv, &a), 0);
+    TT_CHECK_EQ(a.workloads, (1u << BENCH_DEFAULT_PATCH) | (1u << BENCH_FULL_PATCH));
+    TT_CHECK_EQ(bench_args_parse(3, argv, &a), 0);
+    TT_CHECK_EQ(a.workloads, 1u << BENCH_FULL_PATCH);           /* -w alone replaces the default */
+}
+
+/* Impossible block or run counts are refused while parsing, before the bench prints or times anything. */
+TT_TEST(bench_args_reject_impossible_counts)
+{
+    char *zero_b[] = {"fm1-8p-bench", "-b", "0"}, *big_r[] = {"fm1-8p-bench", "-r", "33"};
+    char *ok[] = {"fm1-8p-bench", "-b", "100000", "-r", "32"};
+    bench_args a;
+    TT_CHECK(bench_args_parse(3, zero_b, &a) != 0);
+    TT_CHECK(bench_args_parse(3, big_r, &a) != 0);
+    TT_CHECK_EQ(bench_args_parse(5, ok, &a), 0);
+}
+
 static void run_bench_tests(void)
 {
+    TT_RUN(bench_args_reject_impossible_counts);
+    TT_RUN(bench_args_repeated_workloads_add_up);
+    TT_RUN(bench_args_default_to_the_default_workload);
+    TT_RUN(bench_runs_the_full_patch_workload_at_every_voice_count);
+    TT_RUN(bench_workload_names_parse);
     TT_RUN(bench_median_of_odd_and_even_counts);
     TT_RUN(bench_median_of_a_full_reversed_or_shuffled_run_is_quick);
     TT_RUN(bench_clock_step_is_the_smallest_tick_seen);

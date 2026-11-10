@@ -10,12 +10,12 @@
 #endif
 
 #include "bench.h"
+#include "args.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#include "../firmware/cpu_test.h"
 
 static cpu_test bench_ct;
 static int32_t bench_out[2 * CT_BLOCK];
@@ -42,13 +42,72 @@ static void render_block(void)
     cpu_test_render(&bench_ct, bench_out, CT_BLOCK);
 }
 
+static const char *const WORKLOAD_NAMES[BENCH_WORKLOAD_COUNT] = {"default", "full"};
+
+const char *bench_workload_name(bench_workload w)
+{
+    return (unsigned)w < BENCH_WORKLOAD_COUNT ? WORKLOAD_NAMES[w] : "?";
+}
+
+int bench_workloads_parse(const char *s, uint32_t *mask)
+{
+    uint32_t w;
+    if (strcmp(s, "all") == 0) {
+        *mask = (1u << BENCH_WORKLOAD_COUNT) - 1u;
+        return 0;
+    }
+    for (w = 0; w < BENCH_WORKLOAD_COUNT; w++)
+        if (strcmp(s, WORKLOAD_NAMES[w]) == 0) {
+            *mask = 1u << w;
+            return 0;
+        }
+    return -1;
+}
+
+int bench_args_parse(int argc, char **argv, bench_args *a)
+{
+    int i;
+    uint32_t w = 0;
+    a->blocks = 2000;
+    a->reps = 5;
+    a->workloads = 0;                           /* each -w adds; none means the default */
+    for (i = 1; i < argc; i += 2) {
+        uint32_t *dst = strcmp(argv[i], "-b") == 0 ? &a->blocks : strcmp(argv[i], "-r") == 0 ? &a->reps : NULL;
+        int bad = i + 1 >= argc;
+        if (!bad && strcmp(argv[i], "-w") == 0) {
+            bad = bench_workloads_parse(argv[i + 1], &w) != 0;
+            a->workloads |= w;
+        } else if (!bad) {
+            bad = dst == NULL || args_parse_u32(argv[i + 1], dst) != 0;
+        }
+        if (bad)
+            return -1;
+    }
+    if (a->workloads == 0)
+        a->workloads = 1u << BENCH_DEFAULT_PATCH;
+    if (a->blocks == 0 || a->blocks > BENCH_MAX_BLOCKS || a->reps == 0 || a->reps > BENCH_MAX_REPS)
+        return -1;
+    return 0;
+}
+
+const cpu_test *bench_cpu_test(void) { return &bench_ct; }
+
 int bench_run(uint32_t blocks, uint32_t reps, bench_clock clock, void *ctx, bench_result *r)
 {
+    return bench_run_workload(BENCH_DEFAULT_PATCH, blocks, reps, clock, ctx, r);
+}
+
+int bench_run_workload(bench_workload w, uint32_t blocks, uint32_t reps, bench_clock clock, void *ctx,
+                       bench_result *r)
+{
     uint32_t rep, v, b;
-    if (blocks == 0 || blocks > BENCH_MAX_BLOCKS || reps == 0 || reps > BENCH_MAX_REPS)
+    if (blocks == 0 || blocks > BENCH_MAX_BLOCKS || reps == 0 || reps > BENCH_MAX_REPS ||
+        (unsigned)w >= BENCH_WORKLOAD_COUNT)
         return -1;
     if (cpu_test_init(&bench_ct) != 0)
         return -1;
+    cpu_test_use_full_patch(&bench_ct, w == BENCH_FULL_PATCH);
+    r->workload = w;
     r->blocks = blocks;
     r->reps = reps;
     for (rep = 0; rep < reps; rep++) {
