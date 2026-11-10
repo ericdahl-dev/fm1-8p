@@ -127,6 +127,7 @@ static void start(fm_voice *v, uint32_t sample_rate, int32_t peak,
                   uint32_t now)
 {
     v->pending = 0;
+    fm_voice_mark(v, FM_BUSY_STEAL, 0);
     v->ctrl_phase = 0; /* the new note's cutoff from its first sample */
     restart_lfo(v, now);
     apply_pitch(v);
@@ -164,6 +165,7 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch, int32_t peak,
     } else {
         v->old_note = old;
         v->pending = 1;
+        fm_voice_mark(v, FM_BUSY_STEAL, 1);
         v->wait = fade_samples;
         fm_env_fade(&v->amp_env, fade_samples);
     }
@@ -251,6 +253,7 @@ void fm_voice_silence(fm_voice *v)
     v->fenv_lag = 0;
     fm_filter_clear(&v->filter); /* no ringing left for the next note */
     v->pending = 0;
+    fm_voice_mark(v, FM_BUSY_STEAL, 0);
     v->gate_left = 0;
     v->key_down = 0;
     v->sustained = 0;
@@ -311,7 +314,7 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
 uint32_t fm_voice_busy(const fm_voice *v)
 {
     return v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
-           v->busy || v->pending || v->gate_left ||
+           v->busy || v->gate_left ||
            !fm_filter_is_wire(&v->filter);
 }
 
