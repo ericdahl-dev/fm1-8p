@@ -176,6 +176,8 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_OSC_MIX:
         for (i = 0; i < FM_MAX_VOICES; i++) {
             e->voices[i].mix_base = permille_to_q30(v);
+            if (e->voices[i].mix_env)
+                continue; /* the next control tick glides there */
             e->voices[i].mix_step = 0;
             fm_osc_pair_set_mix(&e->voices[i].osc, e->voices[i].mix_base);
         }

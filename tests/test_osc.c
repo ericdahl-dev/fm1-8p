@@ -480,6 +480,42 @@ TT_TEST(mix_env_off_renders_as_never_set)
 }
 
 /*
+ * Changing osc_mix while the mix envelope is on glides too: with depth +500
+ * and the envelope full, osc_mix 500 -> 0 moves the mix from 1.0 to 0.5 at
+ * most 1/16 a sample (not via a snap to bare osc_mix, 0), read off the
+ * output as in the depth test.
+ */
+TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
+{
+    static int16_t a[2 * 4410], b[2 * 4410];
+    double prev = 0, worst = 0;
+    size_t i, prev_i = 0;
+    render_mix_step(a, 0, 4410, 0);
+    render_mix_step(b, 1000, 4410, 0);
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 500);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, 2264);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 0);
+    fm_engine_render(&eng, buf + 2 * 2264, 4410 - 2264);
+    for (i = 2264 - 64; i < 2264 + 256; i++) {
+        double d = (double)b[2 * i] - a[2 * i], m;
+        if (d > -3000 && d < 3000) continue;
+        m = (buf[2 * i] - a[2 * i]) / d;
+        if (prev_i && fabs(m - prev) / (double)(i - prev_i) > worst)
+            worst = fabs(m - prev) / (double)(i - prev_i);
+        prev = m;
+        prev_i = i;
+    }
+    printf("    largest mix move per sample after an osc_mix change: %.3f\n", worst);
+    TT_CHECK(worst <= 1.0 / 16 + 0.01);
+}
+
+/*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
  * Today's worst, 0.005 cent, is the pitch table's rounding at note 0;
@@ -1068,6 +1104,7 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_depth_change_glides_without_a_click);
     TT_RUN(mix_env_off_settles_at_the_fixed_mix);
     TT_RUN(mix_env_off_renders_as_never_set);
+    TT_RUN(osc_mix_change_with_the_mix_env_on_glides);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
