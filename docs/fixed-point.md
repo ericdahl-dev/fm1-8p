@@ -23,7 +23,7 @@ integer divided by 2^n.
 | polyBLEP correction | `int64_t` | Q16 | 2^16 | -1.0 to +1.0 | Only computed on the two samples around each saw wrap. |
 | Filter pitch (cutoff, key tracking, envelope amount) | `int32_t` | cents above MIDI note 0 (8.18 Hz) | | cutoff 0 to 14400 | Cutoff, key tracking and the filter envelope add in this log domain, so one octave is always 1200 whatever the frequency. |
 | Filter stage coefficient `g` | `int32_t` | Q1.30 | 2^30 (fully open) | 0 to 1.0 | Same scale as the envelope; a stage is `y += (x - y) * g >> 30`. |
-| Resonance feedback `k` | `int32_t` | Q4.28 | 2^28 | 0 to 4.2 | The loop self-oscillates from about 3.4 (top of the range) to 4.2 (lowest cutoffs); 4.2 at resonance 1000. |
+| Resonance feedback `k` | `int32_t` | Q4.28 | 2^28 | 0 to 4.2 | 4.2 at resonance 1000. In theory the loop self-oscillates at about 4.0 across most of the range, dropping to 3.4 at the top; at the lowest cutoffs 4.2 is not enough (see Filter). |
 | Output | `int16_t` | Q1.15 | 32768 | -32768 to 32767 | What a codec or a WAV file takes. Q8.24 maps to it with `>> 9` and saturation. |
 
 Multiplies of two 32-bit values go through a 64-bit intermediate
@@ -72,9 +72,14 @@ resonant 4-pole (24 dB/octave) lowpass.
   z = -1/3 in each stage. Without it the stages lag too little in phase at
   high cutoffs, so the one-sample delay in the feedback made the loop buzz at
   Nyquist there, and stay below self-oscillation at the bottom. With it,
-  resonance 1000 self-oscillates within 30 cents of the cutoff up to
-  3.5 kHz (sharp at higher cutoffs: 7.1 kHz for an 8.4 kHz cutoff), and
-  never at Nyquist. The feedback sum goes through a soft clip: a wire up to
+  resonance 1000 self-oscillates close to the cutoff and never at Nyquist.
+  At 44.1 kHz the ringing is 0 to 12 cents flat of the cutoff up to 1.5 kHz,
+  63 cents flat at 3.5 kHz, and further flat above that (7.1 kHz for an
+  8.4 kHz cutoff); the test holds it within a semitone below 4 kHz. Cutoffs
+  above Nyquist ring at about fs/4 (11 kHz at 44.1 kHz) until the top-of-range
+  fade silences the feedback. At the bottom, the self-oscillation sustains
+  from about 15 Hz at 44.1 or 48 kHz and from about 33 Hz at 192 kHz; below
+  that, resonance 1000 rings down instead. The feedback sum goes through a soft clip: a wire up to
   +-2.0 (a full-scale saw passes untouched), then a quadratic knee that
   flattens at +-4.0. `m` is a weighted average of `x` and `x1`, and `y` of `m`
   and the old `y`, so no state can pass the clip's limit. The filter cannot
@@ -99,20 +104,24 @@ resonant 4-pole (24 dB/octave) lowpass.
 - **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
   amp envelope; its amount is -9600 to +9600 cents (8 octaves either way).
 
-Measured response (`tests/test_filter.c`, sines at 44.1 kHz, cutoff 440 Hz):
+Measured response (`tests/test_filter.c`, sines at 44.1 kHz, cutoff 440 Hz).
+The acceptance tolerance for the 24 dB/octave slope is: at resonance 0, each
+octave's drop within +-2 dB of the ideal 4-pole; at resonance 600, the octave
+above the cutoff 24 +-3 dB below the cutoff point.
 
 | Measurement | Measured | Ideal 4-pole | Test tolerance |
 | --- | --- | --- | --- |
 | 3 octaves below cutoff | -0.27 dB | -0.27 dB | above -0.5 dB |
 | At cutoff, no resonance | -12.0 dB | -12.0 dB | +-2 dB |
-| Drop over the 1st octave above cutoff | 15.9 dB | 15.9 dB | +-2 dB |
-| Drop over the 2nd octave | 21.2 dB | 21.2 dB | +-2 dB |
-| Drop over the 3rd octave | 23.0 dB | 23.3 dB | +-2 dB |
+| Drop over the 1st octave above cutoff (880 Hz: -28.0 dB) | 15.9 dB | 15.9 dB | +-2 dB |
+| Drop over the 2nd octave (1760 Hz: -49.3 dB) | 21.3 dB | 21.2 dB | +-2 dB |
+| Drop over the 3rd octave (3520 Hz: -73.0 dB) | 23.6 dB | 23.3 dB | +-2 dB |
 | Drop over the 1st octave, resonance 600 | 24.4 dB | 24.4 dB | 24 +-3 dB |
 | At cutoff, resonance 500 / 900 | -5.6 / +9.6 dB | -5.6 / +13.2 dB | each at least 5 / 12 dB above the previous |
 
 With no resonance, four equal poles meet at the cutoff, so the cutoff point
-itself is -12 dB and the slope only reaches 24 dB/octave about two octaves up.
+itself is -12 dB and the slope approaches 24 dB/octave further up (23.6 dB
+over the third octave).
 A moderate resonance (around 600) lifts the cutoff point to about -3.4 dB,
 and the octave above it is then about 24 dB lower. Near self-oscillation the
 peak is lower than the ideal analog ladder's (+9.6 against +13.2 dB at 900):
