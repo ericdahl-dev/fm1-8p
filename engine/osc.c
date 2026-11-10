@@ -110,10 +110,12 @@ static int32_t saw_at(uint32_t t, uint32_t dt)
  * +2(1 - width) for the last `width` of the cycle and -2 width for the
  * rest: peak-to-peak 2.0 and no DC, like an AC-coupled analog pulse. At
  * 50% that is +-1.0, the square; other widths are scaled by pw_gain.
+ * `dt0` is the first saw's polyBLEP increment (0 right after a sync
+ * restart, which brings its own correction), `dt` the second's.
  */
-static int32_t pulse_at(uint32_t t, uint32_t dt, uint32_t width)
+static int32_t pulse_at(uint32_t t, uint32_t dt0, uint32_t dt, uint32_t width)
 {
-    return saw_at(t, dt) - saw_at(t + width, dt);
+    return saw_at(t, dt0) - saw_at(t + width, dt);
 }
 
 void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
@@ -134,6 +136,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->ratio = 1u << 16;
     p->sync = 0;
     p->sync_step = 0;
+    p->sync_pend = 0;
     p->sync_x = 0;
     p->xmod = 0;
     p->special = 0;
@@ -266,7 +269,7 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
 static void update_special(fm_osc_pair *p)
 {
     p->special = (uint8_t)(p->sync || p->xmod);
-    p->sync_step = 0;
+    p->sync_pend = 0;
     p->only1 = (uint8_t)(p->mix == 0 && !p->special);
 }
 
@@ -359,6 +362,7 @@ static int32_t naive_at(const fm_osc_pair *p, uint8_t which, uint32_t t)
 }
 
 static int32_t wave_at(fm_osc_pair *p, uint8_t which);
+static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0);
 
 /*
  * osc2's sample, with the polyBLEP of a sync reset in the last sample.
@@ -368,32 +372,45 @@ static int32_t wave_at(fm_osc_pair *p, uint8_t which);
  */
 static int32_t osc2_at(fm_osc_pair *p)
 {
-    int32_t v = wave_at(p, 1);
-    if (p->sync_step) {
-        int64_t x = p->sync_x; /* samples since the reset, Q16 */
-        int64_t r = 2 * x - ((x * x) >> 16) - 65536; /* -1..0, Q16 */
-        v += (int32_t)((p->sync_step * r) >> 16);
-        p->sync_step = 0;
-    }
-    return v;
+    int32_t v;
+    int64_t x, r;
+    if (!p->sync_pend)
+        return wave_at(p, 1);
+    /* the first sample after a restart: no polyBLEP of osc2's own for the
+     * restart (dt 0 for the saw that starts there), the restart's instead */
+    v = wave_at_dt(p, 1, 0);
+    x = p->sync_x; /* samples since the restart, Q16 */
+    r = 2 * x - ((x * x) >> 16) - 65536; /* -1..0, Q16 */
+    p->sync_pend = 0;
+    return v + (int32_t)((p->sync_step * r) >> 16);
 }
 
-/* Oscillator `which`'s sample at its current phase, Q8.24. */
-static int32_t wave_at(fm_osc_pair *p, uint8_t which)
+/*
+ * Oscillator `which`'s sample at its current phase, Q8.24. `dt0` is the
+ * increment the polyBLEP of the saw that starts at the phase uses (0: none);
+ * a pulse's second saw always uses the oscillator's increment.
+ */
+static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0)
 {
     fm_osc *o = &p->osc[which];
     uint32_t t = o->phase;
     switch (p->wave[which]) {
     case FM_WAVE_PULSE:
-        return (int32_t)(((int64_t)pulse_at(t, o->inc, p->pw[which]) *
+        return (int32_t)(((int64_t)pulse_at(t, dt0, o->inc, p->pw[which]) *
                           p->pw_gain[which]) >> 30);
     case FM_WAVE_SQUARE:
-        return pulse_at(t, o->inc, 0x80000000u);
+        return pulse_at(t, dt0, o->inc, 0x80000000u);
     case FM_WAVE_NOISE:
         return noise_next(p);
     default:
-        return saw_at(t, o->inc);
+        return saw_at(t, dt0);
     }
+}
+
+/* Oscillator `which`'s sample at its current phase, Q8.24. */
+static int32_t wave_at(fm_osc_pair *p, uint8_t which)
+{
+    return wave_at_dt(p, which, p->osc[which].inc);
 }
 
 /*
@@ -405,14 +422,15 @@ static int32_t wave_at(fm_osc_pair *p, uint8_t which)
  */
 static FM_NOINLINE int32_t sync_reset(fm_osc_pair *p, uint32_t t)
 {
-    uint32_t cont = p->osc[1].phase + p->osc[1].inc;
-    uint32_t now = (uint32_t)(((uint64_t)t * p->ratio) >> 16);
-    /* osc2 was at cont - now when osc1 wrapped, and jumps to 0 there */
-    int32_t half = (naive_at(p, 1, 0) - naive_at(p, 1, cont - now)) / 2;
-    int32_t own = p->wave[1] == FM_WAVE_NOISE ? 0 : p->wave[1] == FM_WAVE_PULSE
-        ? (int32_t)(((int64_t)p->pw_gain[1] << 24) >> 30) : 1 << 24;
+    /* osc2's increment this sample (bent, with cross-mod) for both ends */
+    uint32_t inc2 = p->osc[1].inc, cont = p->osc[1].phase + inc2, now;
+    int32_t half;
     p->sync_x = (uint16_t)(((uint64_t)t << 16) / p->osc[0].inc); /* t < inc: under 1.0 */
-    p->sync_step = half + own;
+    now = (uint32_t)(((uint64_t)p->sync_x * inc2) >> 16);
+    /* osc2 was at cont - now when osc1 wrapped, and jumps to 0 there */
+    half = (naive_at(p, 1, 0) - naive_at(p, 1, cont - now)) / 2;
+    p->sync_step = half;
+    p->sync_pend = 1;
     p->osc[1].phase = now;
     p->osc[0].phase = t;
     /* the sample just computed, (1 - x) before the step: x^2 of the polyBLEP */
@@ -444,7 +462,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     if (p->mix != FM_OSC_MIX_FULL || p->xmod)
         a = wave_at(p, 0);
     if (p->mix == 0) {
-        p->sync_step = 0;
+        p->sync_pend = 0;
         (void)advance(p);
         return a;
     }

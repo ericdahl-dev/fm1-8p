@@ -64,6 +64,7 @@ typedef struct {
     uint16_t sync_x;   /* how far past the reset the next sample is, Q0.16 */
     uint8_t wave[2];   /* fm_wave */
     uint8_t sync;      /* 1: osc2 restarts with every cycle of osc1 */
+    uint8_t sync_pend; /* a restart's correction is due on the next osc2 sample */
     uint8_t special;   /* sync or cross-mod on */
     uint8_t only1;     /* mix 0 and nothing special: osc1 alone, the fast path */
     int32_t sync_step; /* polyBLEP height for the sample after a sync reset, Q8.24; 0 = none */

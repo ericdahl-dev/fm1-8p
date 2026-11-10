@@ -649,7 +649,10 @@ TT_TEST(max_xmod_and_sync_stay_in_range)
         fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 1000);
         fm_engine_note_on(&eng, notes[n], 127);
         fm_engine_render(&eng, buf, 2000);
-        TT_CHECK(peak_abs(buf, 0, 2000) < 32700);
+        if (peak_abs(buf, 0, 2000) > 16384 + 64)
+            printf("    over at rate %u note %u waves %u/%u sync %u: %d\n", (unsigned)rates[r],
+                   (unsigned)notes[n], (unsigned)w1, (unsigned)w2, (unsigned)sy, peak_abs(buf, 0, 2000));
+        TT_CHECK(peak_abs(buf, 0, 2000) <= 16384 + 64); /* one voice at full level, like the noise test */
         fm_engine_note_off(&eng, notes[n]);
         fm_engine_render(&eng, buf, 2000);
         for (i = 2; i < 2 * 2000; i++)
