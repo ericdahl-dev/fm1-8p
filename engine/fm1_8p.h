@@ -5,9 +5,9 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 4.5 KiB (4628 bytes on
- * 32- and 64-bit desktops and on Cortex-M), almost half of it the chorus
- * delay line and about 0.9 KiB the voices' filters, so static storage is
+ * sets up everything inside it. fm_engine is about 5.0 KiB (5084 bytes on
+ * 32- and 64-bit desktops and on Cortex-M), about 40 % of it the chorus
+ * delay line and about 1 KiB the voices' filters, so static storage is
  * recommended; a task stack must have room for it on
  * top of its other use. See docs/fixed-point.md for the number formats.
  *
@@ -57,6 +57,12 @@ typedef enum {
     FM_PARAM_OSC2_FINE_CENTS,
     FM_PARAM_OSC_MIX,              /* per mille: 0 osc1 only, 1000 osc2 only */
     FM_PARAM_CHORUS_MODE, /* 0 = off, then the fm_chorus_mode modes */
+    FM_PARAM_LFO_WAVE,        /* fm_lfo_wave (docs/modulation.md) */
+    FM_PARAM_LFO_RATE_CENTIHZ, /* hundredths of a hertz */
+    FM_PARAM_LFO_DELAY_MS,    /* zero for this long, then fades in as long */
+    FM_PARAM_LFO_PITCH_CENTS, /* vibrato depth at full LFO, each way */
+    FM_PARAM_AMP_VELOCITY,    /* percent: 0 ignores velocity, 100 full curve */
+    FM_PARAM_LFO_PW_PCT,      /* pulse width depth, percent of a cycle each way */
     /* lowpass cutoff, cents above MIDI note 0 (6900 = 440 Hz);
      * FM_FILTER_OPEN_CENTS (the maximum) is fully open */
     FM_PARAM_FILTER_CUTOFF_CENTS,
@@ -100,6 +106,11 @@ typedef struct {
     int32_t detune[FM_MAX_VOICES]; /* Q16.16 semitones each voice is off by */
     uint8_t held[FM_HELD_MAX]; /* unison: keys down, oldest first */
     uint8_t held_count;
+    fm_lfo lfo;          /* one LFO for every voice (docs/modulation.md) */
+    fm_voice_mod mod;    /* what the LFO does to each voice */
+    uint32_t tick_left;  /* samples until the next control tick */
+    uint32_t ticks;      /* control ticks since init */
+    uint8_t mod_on;      /* the last tick applied a nonzero depth */
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
     int32_t mix_right[FM_MIX_FRAMES]; /* the chorus's right side, Q8.24 */
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
@@ -122,8 +133,8 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
 
 /*
  * Note numbers and velocities are MIDI 0..127; others are ignored.
- * Velocity 0 is a note off. Otherwise velocity has no effect in this
- * slice: every note plays at the same level (velocity lands in #8).
+ * Velocity 0 is a note off. Otherwise it scales the note's amp
+ * envelope by the amp_velocity curve (docs/modulation.md#velocity).
  */
 void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity);
 void fm_engine_note_off(fm_engine *e, uint8_t note);

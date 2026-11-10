@@ -20,12 +20,23 @@ void fm_env_reset(fm_env *e)
     e->level = 0;
     e->step = 0;
     e->stage = FM_ENV_IDLE;
+    e->peak = FM_ENV_FULL;
+    e->sus_level = 0;
+}
+
+/* The sustain level for this note: the setting scaled by the peak
+ * (exact when the peak is full). Kept so the decay needs no multiply. */
+static int32_t sustain_level(fm_env *e)
+{
+    e->sus_level = (int32_t)(((int64_t)e->sustain * e->peak) >> 30);
+    return e->sus_level;
 }
 
 void fm_env_gate_on(fm_env *e)
 {
     e->stage = FM_ENV_ATTACK;
-    e->step = step_for(FM_ENV_FULL, e->attack_samples);
+    e->step = step_for(e->peak, e->attack_samples);
+    sustain_level(e);
 }
 
 void fm_env_gate_off(fm_env *e)
@@ -46,21 +57,22 @@ void fm_env_fade(fm_env *e, uint32_t samples)
  * direction, over the decay time. */
 static void enter_decay(fm_env *e)
 {
-    int32_t span = e->level > e->sustain ? e->level - e->sustain
-                                         : e->sustain - e->level;
+    int32_t s = e->sus_level;
+    int32_t span = e->level > s ? e->level - s : s - e->level;
     e->stage = FM_ENV_DECAY;
     e->step = step_for(span, e->decay_samples);
 }
 
 void fm_env_retime(fm_env *e)
 {
+    sustain_level(e);
     switch (e->stage) {
     case FM_ENV_ATTACK:
-        e->step = step_for(FM_ENV_FULL, e->attack_samples);
+        e->step = step_for(e->peak, e->attack_samples);
         break;
     case FM_ENV_DECAY:
     case FM_ENV_SUSTAIN:
-        if (e->level != e->sustain) enter_decay(e);
+        if (e->level != e->sus_level) enter_decay(e);
         break;
     case FM_ENV_RELEASE:
         e->step = step_for(e->level, e->release_samples);
@@ -72,27 +84,31 @@ void fm_env_retime(fm_env *e)
 
 int32_t fm_env_next(fm_env *e)
 {
+    int32_t s;
     switch (e->stage) {
     case FM_ENV_ATTACK:
         /* all comparisons subtract: levels and steps are 0..2^30, so a
-         * difference cannot overflow where a sum could */
-        if (FM_ENV_FULL - e->level <= e->step) {
-            e->level = FM_ENV_FULL;
+         * difference cannot overflow where a sum could. A retrigger above
+         * a softer note's peak goes straight to the decay, from where it
+         * is, so the level never jumps. */
+        if (e->peak - e->level <= e->step) {
+            if (e->level < e->peak) e->level = e->peak;
             enter_decay(e);
         } else {
             e->level += e->step;
         }
         break;
     case FM_ENV_DECAY:
-        if (e->level >= e->sustain) {
-            if (e->level - e->step <= e->sustain) {
-                e->level = e->sustain;
+        s = e->sus_level;
+        if (e->level >= s) {
+            if (e->level - e->step <= s) {
+                e->level = s;
                 e->stage = FM_ENV_SUSTAIN;
             } else {
                 e->level -= e->step;
             }
-        } else if (e->sustain - e->level <= e->step) {
-            e->level = e->sustain;
+        } else if (s - e->level <= e->step) {
+            e->level = s;
             e->stage = FM_ENV_SUSTAIN;
         } else {
             e->level += e->step;

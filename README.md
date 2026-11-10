@@ -10,8 +10,9 @@ On the desktop, the fixed-point engine plays band-limited voices of two
 oscillators each (saw, pulse, square or noise, with octave, fine tune, pulse
 width and a mix between them), a resonant 24 dB lowpass (with key tracking
 and its own envelope), a 4-position highpass and an ADSR amp envelope, up to
-8 at once (6 by default), with voice stealing, the sustain pedal, pitch bend
-and a unison mode, rendered from a MIDI file to a WAV.
+8 at once (6 by default), with voice stealing, the sustain pedal, pitch bend,
+a unison mode, an LFO routed to pitch and pulse width with a delay, and
+velocity, rendered from a MIDI file to a WAV.
 
 ## Build and run
 
@@ -84,6 +85,10 @@ block size rules, and how the float-free check works are in
 How notes get voices (the stealing rule), the sustain pedal, pitch bend,
 unison mode (`-s voice_mode=1 -s unison_detune_cents=20`) and the output gain
 staging are in [docs/voices.md](docs/voices.md).
+The LFO (waveforms, rate, delay and fade-in, depths, routing to pitch and
+pulse width) and the velocity curve are in
+[docs/modulation.md](docs/modulation.md), for example
+`-s lfo_pitch_cents=20 -s lfo_delay_ms=300 -s amp_velocity_pct=70`.
 
 ## FM-1 CPU-test firmware
 

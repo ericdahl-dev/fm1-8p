@@ -234,9 +234,10 @@ the filter and the chorus is a follow-up in
 
 The cost of this is level: one note on a 6-voice engine peaks at
 `16384 / 6` = 2731, about -21.6 dBFS (-18 dBFS for 4 voices). That is normal
-for a polysynth without a limiter. Once velocity (#8) and the patch level
-exist, the output gain can be revisited with real patches and the CPU test's
-final voice count.
+for a polysynth without a limiter. Velocity
+([modulation.md](modulation.md#velocity)) only lowers a note from there. Once
+a patch level exists, the output gain can be revisited with real patches and
+the CPU test's final voice count.
 
 `full_chord_at_max_velocity_never_clips` plays every voice count from 1 to 8
 in octaves (whose saws wrap together, the worst case) with the default patch
@@ -266,17 +267,19 @@ the envelope is not stepped; see [fixed-point.md](fixed-point.md#filter)),
 one 64-bit multiply for the amp,
 an add into the mix buffer, and a test for a queued release (the steal fade
 case above). The oscillator pair and the filter are most of a voice's
-per-sample cost; a unison note pays both once per voice, like a chord. Idle
-voices are skipped. Per sample for the whole engine: one
+per-sample cost; a unison note pays both once per voice, like a chord. The
+LFO and velocity add nothing per sample; their per-tick cost is in
+[modulation.md](modulation.md#cost). Idle voices are skipped. Per sample for
+the whole engine: one
 64-bit multiply (the mix gain) and the int16 conversion.
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-The voices take about 1.8 KiB with room for 8 (232 bytes each: the
-oscillator pair is 60 and the filter 116, its state, its envelope and its
+The voices take about 2.2 KiB with room for 8 (280 bytes each: the
+oscillator pair is 60 and the filter 124, its state, its envelope and its
 settings), and unison adds 49 bytes (8 detune offsets and the 16 held keys).
 With the chorus (its 2 KiB delay line and a 256-byte right-side buffer)
-`fm_engine` is about 4.5 KiB (4628 bytes on x86-64), so static storage is
+`fm_engine` is about 5.0 KiB (5084 bytes on x86-64), so static storage is
 recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per

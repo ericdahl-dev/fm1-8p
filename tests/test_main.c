@@ -22,6 +22,8 @@
 #include "test_bench.c"
 #include "test_osc.c"
 #include "test_chorus.c"
+#include "test_lfo.c"
+#include "test_mod.c"
 #include "test_filter.c"
 
 int main(void)
@@ -34,6 +36,8 @@ int main(void)
     run_bench_tests();
     run_osc_tests();
     run_chorus_tests();
+    run_lfo_tests();
+    run_mod_tests();
     run_filter_tests();
     return tt_report();
 }
