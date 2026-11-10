@@ -27,6 +27,8 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_FILTER_ENV_RELEASE_MS, "filter_env_release_ms", 0, 10000, 300 },
     { FM_PARAM_FILTER_ENV_AMOUNT_CENTS, "filter_env_amount_cents", -9600, 9600,
       0 },
+    { FM_PARAM_HIGHPASS_STEP, "highpass_step", 0,
+      FM_FILTER_HIGHPASS_STEPS - 1, 0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)

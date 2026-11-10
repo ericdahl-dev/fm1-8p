@@ -128,6 +128,8 @@ void fm_filter_reset(fm_filter *f)
     for (i = 0; i < 4; i++) f->s[i] = 0;
     f->g = ONE_Q30;
     f->k = 0;
+    f->hp = 0;
+    f->hp_g = 0;
 }
 
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
@@ -165,6 +167,16 @@ static int32_t soft_clip(int64_t u)
     return u < 0 ? -m : m;
 }
 
+void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
+{
+    /* corners in cents: off, 100 Hz, 240 Hz, 560 Hz */
+    static const int32_t corner[FM_FILTER_HIGHPASS_STEPS] = {
+        0, 4335, 5851, 7318
+    };
+    if (step >= FM_FILTER_HIGHPASS_STEPS) step = FM_FILTER_HIGHPASS_STEPS - 1;
+    f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
+}
+
 /* One stage: y += g * (x - y). */
 static int32_t stage(int32_t *y, int32_t x, int32_t g)
 {
@@ -174,7 +186,13 @@ static int32_t stage(int32_t *y, int32_t x, int32_t g)
 
 int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
-    int32_t u = soft_clip((int64_t)in - (((int64_t)f->s[3] * f->k) >> 28));
+    int64_t x = in;
+    int32_t u;
+    if (f->hp_g) { /* highpass = input minus a one-pole lowpass of it */
+        f->hp += (int32_t)(((x - f->hp) * f->hp_g) >> 30);
+        x -= f->hp;
+    }
+    u = soft_clip(x - (((int64_t)f->s[3] * f->k) >> 28));
     int32_t y = stage(&f->s[0], u, f->g);
     y = stage(&f->s[1], y, f->g);
     y = stage(&f->s[2], y, f->g);

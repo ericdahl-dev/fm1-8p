@@ -22,6 +22,8 @@ typedef struct {
     int32_t s[4]; /* lowpass stage outputs, Q8.24 */
     int32_t g;    /* lowpass stage coefficient, Q1.30 (1.0 = open) */
     int32_t k;    /* resonance feedback, Q4.28 (0 .. 4.0) */
+    int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
+    int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
 } fm_filter;
 
 /* Pitch of the sample rate in cents above MIDI note 0. Computed once
@@ -48,7 +50,12 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
 /* Resonance, per mille (0 = none, 1000 = self-oscillation). */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
-/* Filters one Q8.24 sample. */
+/* Highpass position 0..3 (higher is clamped to 3): 0 is off (a wire),
+ * then one-pole (6 dB/octave) corners at about 100, 240 and 560 Hz. */
+#define FM_FILTER_HIGHPASS_STEPS 4
+void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents);
+
+/* Filters one Q8.24 sample: highpass, then lowpass. */
 int32_t fm_filter_process(fm_filter *f, int32_t in);
 
 #endif /* FM_FILTER_H */

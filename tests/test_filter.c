@@ -252,6 +252,50 @@ TT_TEST(filter_envelope_sweeps_cutoff_up_or_down)
     TT_CHECK_NEAR(early / late, 1.0, 0.05);
 }
 
+/*
+ * The highpass has four positions: 0 is off, 1..3 cut more and more
+ * low end. Measured on its own (lowpass open) with low sines, and in the
+ * voice on a low note, where it thins out the level.
+ */
+TT_TEST(each_highpass_step_cuts_low_frequencies_more)
+{
+    static fm_filter f;
+    double g55[4], g110[4], level[4];
+    int32_t rate_cents = fm_filter_rate_cents(FRATE);
+    uint8_t step;
+    size_t i;
+    for (step = 0; step < 4; step++) {
+        fm_filter_reset(&f);
+        fm_filter_set_highpass(&f, step, rate_cents);
+        g55[step] = filter_gain_db(&f, 55.0, 0.5);
+        g110[step] = filter_gain_db(&f, 110.0, 0.5);
+
+        fm_engine_init(&feng, FRATE, 1);
+        fm_engine_set_param(&feng, FM_PARAM_HIGHPASS_STEP, step);
+        fm_engine_note_on(&feng, 33, 100); /* 55 Hz */
+        fm_engine_render(&feng, fbuf_a, FRAMES_HALF_S);
+        level[step] = rms(fbuf_a, 4410, FRAMES_HALF_S);
+        printf("    highpass step %u: 55 Hz %.2f dB, 110 Hz %.2f dB, "
+               "note 33 RMS %.0f\n", step, g55[step], g110[step],
+               level[step]);
+    }
+    /* step 0 is a wire */
+    fm_filter_reset(&f);
+    fm_filter_set_highpass(&f, 0, rate_cents);
+    for (i = 0; i < 1000; i++) {
+        int32_t x = sine_q24(0.9, 55.0, i);
+        TT_CHECK_EQ(fm_filter_process(&f, x), x);
+    }
+    for (step = 1; step < 4; step++) {
+        TT_CHECK(g55[step] < g55[step - 1] - 2.0);
+        TT_CHECK(g110[step] < g110[step - 1] - 2.0);
+        TT_CHECK(level[step] < level[step - 1]);
+    }
+    /* the highpass is out of range of the setting: clamped to step 3 */
+    TT_CHECK_EQ(fm_engine_set_param(&feng, FM_PARAM_HIGHPASS_STEP, 9), FM_OK);
+    TT_CHECK_EQ(fm_engine_get_param(&feng, FM_PARAM_HIGHPASS_STEP), 3);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -259,4 +303,5 @@ static void run_filter_tests(void)
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
     TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
+    TT_RUN(each_highpass_step_cuts_low_frequencies_more);
 }

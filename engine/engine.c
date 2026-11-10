@@ -81,6 +81,9 @@ static void apply_param(fm_engine *e, uint16_t id)
         case FM_PARAM_FILTER_KEY_TRACK:
             vc->key_track = v;
             break;
+        case FM_PARAM_HIGHPASS_STEP:
+            fm_filter_set_highpass(&vc->filter, (uint8_t)v, vc->rate_cents);
+            break;
         case FM_PARAM_FILTER_ENV_ATTACK_MS:
             vc->filter_env.attack_samples = ms_to_samples(e, v);
             break;

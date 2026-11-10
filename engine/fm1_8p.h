@@ -51,6 +51,7 @@ typedef enum {
     /* cents the filter envelope adds to the cutoff at full level;
      * negative sweeps the cutoff down */
     FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
+    FM_PARAM_HIGHPASS_STEP, /* 0 (off) .. 3 (most low cut) */
     FM_PARAM_COUNT
 } fm_param_id;
 
