@@ -23,6 +23,7 @@ void fm_voice_reset(fm_voice *v, int32_t rate_cents)
     v->cutoff_cents = FM_FILTER_OPEN_CENTS;
     v->key_track = 0;
     v->env_amount = 0;
+    v->key_note = 0;
     fm_env_reset(&v->filter_env);
     v->ctrl_phase = 0;
 }
@@ -49,6 +50,7 @@ static void start(fm_voice *v)
 static void hold(fm_voice *v, uint8_t note, uint32_t inc)
 {
     v->note = note;
+    v->key_note = note;
     v->key_down = 1;
     v->sustained = 0;
     v->gate_left = 0;
@@ -84,8 +86,11 @@ void fm_voice_change_note(fm_voice *v, uint8_t note, uint32_t inc,
     hold(v, note, inc);
     if (v->pending) return; /* starts when the fade ends */
     fm_osc_set_inc(&v->osc, inc);
-    if (retrigger || v->amp_env.stage == FM_ENV_IDLE)
+    v->ctrl_phase = 0; /* the new note's cutoff from its first sample */
+    if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
         fm_env_gate_on(&v->amp_env);
+        fm_env_gate_on(&v->filter_env);
+    }
 }
 
 void fm_voice_key_up(fm_voice *v, int pedal_down)
@@ -134,7 +139,8 @@ static void update_cutoff(fm_voice *v, int32_t fenv)
 {
     fm_filter_set_cutoff(&v->filter,
                          fm_filter_voice_cents(v->cutoff_cents, v->key_track,
-                                               v->note, fenv, v->env_amount),
+                                               v->key_note, fenv,
+                                               v->env_amount),
                          v->rate_cents);
 }
 

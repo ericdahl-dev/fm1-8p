@@ -677,6 +677,106 @@ TT_TEST(cutoff_changes_apply_within_16_samples)
     TT_CHECK(peak_abs(fbuf_a, 16, 64) > 10000);
 }
 
+/*
+ * Unison (docs/voices.md#unison): a new note retriggers every voice, and
+ * the filter envelope restarts with the amp envelope; a legato return to
+ * a key still down carries on, as the amp envelope does. Here the filter
+ * envelope sweeps from +4800 cents down to the bare cutoff in 100 ms.
+ */
+TT_TEST(unison_retrigger_restarts_the_filter_envelope_and_legato_does_not)
+{
+    double settled, retriggered, legato;
+    fm_engine_init(&feng, FRATE, 4);
+    fm_engine_set_param(&feng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 4800);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 100);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
+    fm_engine_note_on(&feng, 36, 100);
+    fm_engine_render(&feng, fbuf_a, 13230); /* 300 ms: swept down */
+    settled = brightness(fbuf_a, 8820, 13230);
+    fm_engine_note_on(&feng, 36 + 7, 100); /* retrigger */
+    fm_engine_render(&feng, fbuf_a, 13230);
+    retriggered = brightness(fbuf_a, 0, 1323); /* first 30 ms */
+    fm_engine_note_off(&feng, 36 + 7); /* legato back to 36 */
+    fm_engine_render(&feng, fbuf_a, 4410);
+    legato = brightness(fbuf_a, 0, 1323);
+    printf("    unison brightness: settled %.4f, retriggered %.4f, "
+           "legato %.4f\n", settled, retriggered, legato);
+    TT_CHECK(retriggered > 2.0 * settled);
+    TT_CHECK_NEAR(legato / settled, 1.0, 0.1);
+}
+
+/* Largest change between neighboring samples of one channel over
+ * frames [from, to): large for a bright high note, small once filtered. */
+static int max_step(const int16_t *stereo, size_t from, size_t to)
+{
+    int m = 0;
+    size_t i;
+    for (i = from + 1; i < to; i++) {
+        int d = stereo[2 * i] - stereo[2 * (i - 1)];
+        if (d < 0) d = -d;
+        if (d > m) m = d;
+    }
+    return m;
+}
+
+/*
+ * A unison note change applies the new note's tracked cutoff from its
+ * first sample, as a poly note start does. With full key tracking and a
+ * 7700-cent cutoff, note 0's cutoff is 1700 cents (22 Hz) and note 127's
+ * is past open (a wire), so the new note's 12.5 kHz saw comes straight
+ * through; with the old note's cutoff it would be filtered almost away.
+ */
+TT_TEST(unison_note_change_gets_its_cutoff_from_the_first_sample)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 7700);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
+    fm_engine_note_on(&feng, 0, 100);
+    fm_engine_render(&feng, fbuf_a, 4405); /* 5 into a control period */
+    TT_CHECK(max_step(fbuf_a, 4000, 4405) < 100);
+    fm_engine_note_on(&feng, 127, 100);
+    fm_engine_render(&feng, fbuf_a, 11);
+    printf("    unison note change: largest step in 11 samples %d\n",
+           max_step(fbuf_a, 0, 11));
+    TT_CHECK(max_step(fbuf_a, 0, 11) > 8000);
+}
+
+/*
+ * A voice-mode switch releases every note like a note off, and the voices
+ * still sounding then belong to no note. Their filter must keep tracking
+ * the key they were playing, so the release sounds exactly like a plain
+ * note off.
+ */
+TT_TEST(mode_switch_release_keeps_the_key_tracked_cutoff)
+{
+    int sw;
+    for (sw = 0; sw < 2; sw++) {
+        int16_t *out = sw ? fbuf_a : fbuf_b;
+        fm_engine_init(&feng, FRATE, 2);
+        fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 500);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
+        fm_engine_note_on(&feng, 36, 100);
+        fm_engine_render(&feng, out, 4410);
+        if (sw)
+            fm_engine_set_param(&feng, FM_PARAM_VOICE_MODE,
+                                FM_VOICE_MODE_UNISON);
+        else
+            fm_engine_note_off(&feng, 36);
+        fm_engine_render(&feng, out + 2 * 4410, 8820);
+    }
+    TT_CHECK(peak_abs(fbuf_a, 4410, 8820) > 1000);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, 13230 * 4) == 0);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -695,4 +795,7 @@ static void run_filter_tests(void)
     TT_RUN(all_sound_off_clears_the_filter_ringing);
     TT_RUN(new_note_gets_its_cutoff_from_the_first_sample);
     TT_RUN(cutoff_changes_apply_within_16_samples);
+    TT_RUN(unison_retrigger_restarts_the_filter_envelope_and_legato_does_not);
+    TT_RUN(unison_note_change_gets_its_cutoff_from_the_first_sample);
+    TT_RUN(mode_switch_release_keeps_the_key_tracked_cutoff);
 }

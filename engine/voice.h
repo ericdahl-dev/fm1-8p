@@ -41,6 +41,9 @@ typedef struct {
     int32_t cutoff_cents;   /* base cutoff */
     int32_t key_track;      /* per mille */
     int32_t env_amount;     /* filter envelope amount, cents */
+    uint8_t key_note;       /* the key the filter tracks: the last real
+                             * `note`, kept when a mode switch sets
+                             * FM_VOICE_NO_NOTE */
     uint8_t ctrl_phase;     /* samples until the next cutoff update */
 } fm_voice;
 
@@ -74,10 +77,11 @@ void fm_voice_take_back(fm_voice *v, uint32_t inc);
 /*
  * Moves the voice to `note` at `inc` without a steal fade (unison mode,
  * where every voice follows one note). The oscillator keeps its phase,
- * so the pitch changes without a jump. With `retrigger` the envelope
- * restarts its attack from the current level; without, it carries on
- * (legato), unless the voice was idle. A voice still fading out a stolen
- * poly note starts `note` when the fade ends.
+ * so the pitch changes without a jump. With `retrigger` the amp and
+ * filter envelopes restart their attack from the current level; without,
+ * they carry on (legato), unless the voice was idle. Either way the
+ * filter's key tracking follows `note` from the next sample. A voice still
+ * fading out a stolen poly note starts `note` when the fade ends.
  */
 void fm_voice_change_note(fm_voice *v, uint8_t note, uint32_t inc,
                           int retrigger);
