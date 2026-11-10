@@ -245,7 +245,9 @@ mix: each voice's mix is `osc_mix_permille` plus that share of the envelope's
 level, clamped to 0..1000. Positive depth fades osc2 in as the envelope rises
 (a swell where the tone thickens), negative fades it out.
 `osc_mix_env_source` picks the envelope: 0 the filter envelope (the default),
-1 the amp envelope. For example, a pad whose second oscillator blooms over
+1 the amp envelope. The amp envelope is read against the note's own peak, so
+a soft note gets the same depth as a hard one (velocity changes the
+loudness, not the mix). For example, a pad whose second oscillator blooms over
 two seconds:
 
 ```sh
@@ -254,13 +256,21 @@ two seconds:
 ```
 
 The mix is worked out at the filter's control rate (every 16 samples) and
-glides there a sample at a time, so a depth change doesn't click and the
-envelope doesn't step. No divide runs per sample (the glide's step is a
-division by the constant 16, once a tick). At depth 0 a voice renders exactly
-as with the fixed mix, on the same path. Above 0 the voice leaves the plain
-path for the full one (filter and filter envelope stepped every sample): in
-fm1-emu's strict mode the full patch (step F) at 8 voices goes from 61.1 % to
-81.5 % with `osc_mix_env_permille=500`.
+glides there a sample at a time, so a change of depth or of `osc_mix_permille`
+doesn't click and the envelope doesn't step. No divide runs per sample: the
+glide's step is a division by the constant 16, once a tick, and the amp
+source's reading against the peak is one divide a tick. At depth 0 a voice
+renders exactly as with the fixed mix, on the same path; after depth goes
+back to 0 it glides to `osc_mix_permille` and returns to that path.
+
+Above 0 the voice leaves the plain path for the full one, even in a flat
+sustain (left to the speed pass, #34). With the amp source and no filter
+envelope amount the filter envelope stays unstepped. In fm1-emu's strict mode
+the CPU test's step F (full patch with the filter, 6 voices) measures 77.2 %
+on main before this, 79.0 % at depth 0 and 82.5 % with
+`osc_mix_env_permille=500`, the same on two code layouts. Of the 1.8 points
+at depth 0, about 1.2 is the per-sample glide check and 0.8 the control
+tick's (#34).
 
 ### Sync and cross-mod
 
