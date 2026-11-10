@@ -49,8 +49,6 @@ static void put(play *p, uint32_t st, uint32_t d1, uint32_t d2)
     uint32_t h = p->head;
     if (d1 > 127u || d2 > 127u)                 /* not MIDI data */
         return;
-    if (st == 0x90u && d2 != 0u)
-        p->last_note = (int32_t)d1;
     if (h - p->tail >= PLAY_QUEUE) {
         p->lost = p->lost + 1u;
         return;
@@ -58,6 +56,8 @@ static void put(play *p, uint32_t st, uint32_t d1, uint32_t d2)
     p->queue[h % PLAY_QUEUE] = st << 16 | d1 << 8 | d2;
     BARRIER();
     p->head = h + 1u;                           /* after the entry: the ISR never reads it early */
+    if (st == 0x90u && d2 != 0u)                /* queued: it will sound */
+        p->last_note = (int32_t)d1;
 }
 
 /* Audio interrupt: one event into the engine. */

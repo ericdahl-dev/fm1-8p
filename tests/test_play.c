@@ -264,8 +264,21 @@ TT_TEST(play_queue_overflow_lets_the_pedal_up_and_centers_the_bend)
     TT_CHECK(same);
 }
 
+/* A note the full queue dropped never sounds, so the screen doesn't show it as played. */
+TT_TEST(play_last_note_skips_a_note_the_full_queue_dropped)
+{
+    uint32_t i;
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_note(&pl_a, 60, 100);
+    for (i = 0; i < PLAY_QUEUE; i++)
+        play_midi(&pl_a, 0xB0, 1, 0);
+    play_note(&pl_a, 72, 100);                  /* dropped */
+    TT_CHECK_EQ(play_last_note(&pl_a), 60);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_last_note_skips_a_note_the_full_queue_dropped);
     TT_RUN(play_queue_overflow_lets_the_pedal_up_and_centers_the_bend);
     TT_RUN(play_note_name_spells_the_note);
     TT_RUN(play_queue_overflow_never_leaves_a_note_hanging);
