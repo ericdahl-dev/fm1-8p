@@ -217,6 +217,19 @@ void fm_voice_release(fm_voice *v)
 }
 
 /*
+ * The amp envelope's level `level` against the note's peak (Q1.30), so
+ * velocity doesn't scale the mix envelope's depth. A divide, once a
+ * control tick (16 samples), only when the mix follows the amp envelope.
+ */
+static int32_t amp_share(const fm_voice *v, int32_t level)
+{
+    int64_t r;
+    if (v->amp_env.peak <= 0) return 0;
+    r = ((int64_t)level << 30) / v->amp_env.peak;
+    return r > FM_ENV_FULL ? FM_ENV_FULL : (int32_t)r;
+}
+
+/*
  * Aims the mix at osc_mix plus the mix envelope's share at envelope level
  * `env`, reached by the next control tick: it glides there a sample at a
  * time (no click when the depth changes, no steps as the envelope moves).
@@ -360,7 +373,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             /* the mix envelope, or a glide back to osc_mix after it (until
              * it lands: a glide can land exactly with its step still set) */
             if (v->mix_env || v->mix_step || v->osc.mix != v->mix_base)
-                update_mix(v, v->mix_src ? level : fenv);
+                update_mix(v, v->mix_src ? amp_share(v, level) : fenv);
             if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
         }

@@ -516,6 +516,27 @@ TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
 }
 
 /*
+ * Following the amp envelope, the mix envelope reads its level against the
+ * note's own peak: a soft note (velocity 90 at full velocity sensitivity,
+ * peak about 0.5) at full sustain still gets the whole depth, so depth
+ * +1000 plays osc2 alone.
+ */
+TT_TEST(mix_env_from_the_amp_env_ignores_velocity)
+{
+    double want = RATE / (note_hz(57) * 2);
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_AMP_VELOCITY, 100);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV_SOURCE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
+    fm_engine_note_on(&eng, 57, 90);
+    fm_engine_render(&eng, buf, RATE);
+    TT_CHECK_NEAR(period_from_crossings(buf + 2 * 4410, RATE - 4410, 0),
+                  want, want * 0.0006); /* 1 cent */
+}
+
+/*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
  * Today's worst, 0.005 cent, is the pitch table's rounding at note 0;
@@ -1105,6 +1126,7 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_off_settles_at_the_fixed_mix);
     TT_RUN(mix_env_off_renders_as_never_set);
     TT_RUN(osc_mix_change_with_the_mix_env_on_glides);
+    TT_RUN(mix_env_from_the_amp_env_ignores_velocity);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
