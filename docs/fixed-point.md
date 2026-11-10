@@ -238,6 +238,30 @@ fifth (+7) or a fourth (+5). For example:
     -s osc2_octave=1 -s osc2_fine_cents=7 -s osc_mix_permille=500 song.mid song.wav
 ```
 
+### Mix envelope
+
+`osc_mix_env_permille` (-1000 to +1000, default 0) lets an envelope move the
+mix: each voice's mix is `osc_mix_permille` plus that share of the envelope's
+level, clamped to 0..1000. Positive depth fades osc2 in as the envelope rises
+(a swell where the tone thickens), negative fades it out.
+`osc_mix_env_source` picks the envelope: 0 the filter envelope (the default),
+1 the amp envelope. For example, a pad whose second oscillator blooms over
+two seconds:
+
+```sh
+./build/fm1-8p-render -s osc2_fine_cents=-12 -s osc_mix_env_permille=800 \
+    -s filter_env_attack_ms=2000 -s filter_env_sustain_permille=1000 song.mid song.wav
+```
+
+The mix is worked out at the filter's control rate (every 16 samples) and
+glides there a sample at a time, so a depth change doesn't click and the
+envelope doesn't step. No divide runs per sample (the glide's step is a
+division by the constant 16, once a tick). At depth 0 a voice renders exactly
+as with the fixed mix, on the same path. Above 0 the voice leaves the plain
+path for the full one (filter and filter envelope stepped every sample): in
+fm1-emu's strict mode the full patch (step F) at 8 voices goes from 61.1 % to
+81.5 % with `osc_mix_env_permille=500`.
+
 ### Sync and cross-mod
 
 `osc_sync` (0 or 1) restarts osc2 every time osc1 starts a cycle, so the pair
