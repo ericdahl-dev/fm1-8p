@@ -294,8 +294,19 @@ TT_TEST(ui_full_redraw_takes_the_pending_bits)
     TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
 }
 
+/* The focus row's value: the number in D24 and the full unit after it. */
+TT_TEST(ui_focus_value_splits_number_and_unit)
+{
+    char n[UI_VALUE_LEN], u[UI_VALUE_LEN];
+    ui_value(FM_PARAM_FILTER_CUTOFF_CENTS, 9100, n, u);
+    TT_CHECK(strcmp(n, "1.57") == 0 && strcmp(u, "kHz") == 0);
+    ui_value(FM_PARAM_FILTER_RESONANCE, 340, n, u);
+    TT_CHECK(strcmp(n, "34") == 0 && strcmp(u, "") == 0);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_focus_value_splits_number_and_unit);
     TT_RUN(ui_full_redraw_takes_the_pending_bits);
     TT_RUN(ui_edit_led_shows_an_edited_patch);
     TT_RUN(ui_section_leds_light_their_page);

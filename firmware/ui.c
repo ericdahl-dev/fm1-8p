@@ -106,7 +106,7 @@ uint32_t ui_seg7(char c)
     return c == '-' ? 0x40u : 0u;
 }
 
-void ui_column(uint16_t id, int32_t value, char *num, char *unit)
+void ui_value(uint16_t id, int32_t value, char *num, char *unit)
 {
     char s[UI_VALUE_LEN];
     const char *p = s;
@@ -116,12 +116,18 @@ void ui_column(uint16_t id, int32_t value, char *num, char *unit)
     *num = 0;
     if (*p == ' ')
         p++;
-    if (p[0] == 'k' && p[1] == 'H')             /* kHz: k */
-        *unit++ = 'k';
-    else if (p[0] != 'H')                       /* Hz: no room after three digits */
-        while (*p)
-            *unit++ = *p++;
+    while (*p)
+        *unit++ = *p++;
     *unit = 0;
+}
+
+void ui_column(uint16_t id, int32_t value, char *num, char *unit)
+{
+    ui_value(id, value, num, unit);
+    if (unit[0] == 'k')                         /* kHz: k */
+        unit[1] = 0;
+    else if (unit[0] == 'H')                    /* Hz: no room after three digits */
+        unit[0] = 0;
 }
 
 /* 2^(k / 16) in Q16 and log2(1 + k / 16) in Q12, k = 0..16: the curve's exp2 and log2, a straight

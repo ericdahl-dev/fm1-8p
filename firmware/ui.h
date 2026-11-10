@@ -59,6 +59,8 @@ void ui_init(ui *u, play *p);
 #define UI_VALUE_LEN 12u                /* room for a value as the focus row reads it, and its end */
 /* param id's value as the focus row reads it (interaction.md section 3), into s (UI_VALUE_LEN) */
 void ui_format(uint16_t id, int32_t value, char *s);
+/* the value as the focus row reads it: the number into num, the unit into unit (UI_VALUE_LEN each) */
+void ui_value(uint16_t id, int32_t value, char *num, char *unit);
 /* the value as a knob column reads it: the number into num, a short unit into unit (UI_VALUE_LEN
  * each): 1.25 k, 440 (Hz has no room), +24 st, 50 % */
 void ui_column(uint16_t id, int32_t value, char *num, char *unit);

@@ -62,10 +62,12 @@ static void frame(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
     H->cv_rect(x + w - 1, y, 1, h, c);
 }
 
-static uint32_t glyph(char c)                   /* its index in DFONT_CHARS */
+static uint32_t glyph(char c)                   /* its index in DFONT_CHARS: lower case as upper */
 {
     static const char CH[] = DFONT_CHARS;
     uint32_t i;
+    if (c >= 'a' && c <= 'z')
+        c = (char)(c - 'a' + 'A');
     for (i = 0; i < DFONT_N; i++)
         if (CH[i] == c)
             return i;
@@ -158,14 +160,10 @@ static void footer(void)
 static void focus_row(void)
 {
     const ui_slot *s = ui_page_slot(&U, U.focus);
-    char num[3], val[UI_VALUE_LEN], *unit = val;
+    char num[3], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
     int32_t x;
     num[0] = (char)('0' + s->num / 10u), num[1] = (char)('0' + s->num % 10u), num[2] = 0;
-    ui_format(s->id, play_get_param(&P, s->id), val);
-    while (*unit && *unit != ' ')
-        unit++;
-    if (*unit)
-        *unit++ = 0;
+    ui_value(s->id, play_get_param(&P, s->id), val, unit);
     H->cv_begin(240, 46, C_BG);
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
     frame(M, 0, 64, 46, C_LINE);
