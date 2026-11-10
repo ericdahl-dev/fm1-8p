@@ -10,3 +10,8 @@ int32_t fm_permille_to_q30(int32_t permille)
 {
     return (int32_t)((int64_t)permille * (1 << 30) / 1000);
 }
+
+uint64_t fm_us_to_samples_q16(uint32_t us, uint32_t rate)
+{
+    return ((uint64_t)us * rate << 16) / 1000000u;
+}

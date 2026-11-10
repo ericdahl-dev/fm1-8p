@@ -8,6 +8,7 @@
  * in fm_chorus_set_mode.
  */
 #include "chorus.h"
+#include "units.h"
 
 #define MASK (FM_CHORUS_DELAY_LEN - 1)
 
@@ -47,12 +48,6 @@ void fm_chorus_init(fm_chorus *c, uint32_t sample_rate)
     c->pos = 0;
 }
 
-/* Microseconds to samples, Q16.16 (fits: 10 ms * 192 kHz * 2^16 < 2^37). */
-static uint64_t us_to_q16(uint32_t us, uint32_t rate)
-{
-    return ((uint64_t)us * rate << 16) / 1000000u;
-}
-
 void fm_chorus_set_mode(fm_chorus *c, uint8_t mode)
 {
     const mode_spec *m;
@@ -67,8 +62,8 @@ void fm_chorus_set_mode(fm_chorus *c, uint8_t mode)
     m = &modes[mode];
     c->lfo_inc = (uint32_t)(((uint64_t)m->rate_mhz << 32) /
                             ((uint64_t)c->sample_rate * 1000u));
-    center = us_to_q16(m->center_us, c->sample_rate);
-    depth = us_to_q16(m->depth_us, c->sample_rate);
+    center = fm_us_to_samples_q16(m->center_us, c->sample_rate);
+    depth = fm_us_to_samples_q16(m->depth_us, c->sample_rate);
     if (center + depth > longest) { /* very high rates: scale to fit */
         uint64_t total = center + depth;
         center = center * longest / total;

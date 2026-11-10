@@ -18,4 +18,8 @@ uint32_t fm_ms_to_samples(int32_t ms, uint32_t rate);
  * shift: shifting a negative value left is undefined in C. */
 int32_t fm_permille_to_q30(int32_t permille);
 
+/* Microseconds to samples at `rate` Hz, Q16.16. Exact while
+ * us * rate < 2^48 (10 ms at 192 kHz is about 2^31). */
+uint64_t fm_us_to_samples_q16(uint32_t us, uint32_t rate);
+
 #endif
