@@ -318,7 +318,9 @@ TT_TEST(cpu_test_default_steps_leave_the_patch_at_its_defaults)
 {
     static const uint16_t MOD[] = {FM_PARAM_OSC1_WAVE, FM_PARAM_OSC2_WAVE, FM_PARAM_OSC_MIX,
                                    FM_PARAM_CHORUS_MODE, FM_PARAM_LFO_PITCH_CENTS, FM_PARAM_LFO_PW_PCT,
-                                   FM_PARAM_AMP_VELOCITY};
+                                   FM_PARAM_AMP_VELOCITY, FM_PARAM_FILTER_CUTOFF_CENTS,
+                                   FM_PARAM_FILTER_RESONANCE, FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
+                                   FM_PARAM_HIGHPASS_STEP};
     uint32_t v, i;
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
     cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
@@ -378,8 +380,24 @@ TT_TEST(cpu_test_full_patch_that_fails_is_not_timed)
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_AMP_VELOCITY), 100);
 }
 
+/* F's filter does real work: no voice's filter is on fm_filter_run's wide-open fast path (a wire). */
+TT_TEST(cpu_test_full_patch_filter_is_off_the_fast_path)
+{
+    uint32_t i, b;
+    TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
+    for (b = 0; b < 200; b++) {                                 /* through attack and decay to sustain */
+        cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+        for (i = 0; i < FM_MAX_VOICES; i++) {
+            const fm_filter *f = &ct_a.engine.voices[i].filter;
+            TT_CHECK(f->fade != 0 || f->hp_g != 0);
+        }
+    }
+}
+
 static void run_cpu_test_tests(void)
 {
+    TT_RUN(cpu_test_full_patch_filter_is_off_the_fast_path);
     TT_RUN(cpu_test_full_patch_that_fails_is_not_timed);
     TT_RUN(cpu_test_full_patch_can_play_at_any_voice_count);
     TT_RUN(cpu_test_full_patch_strikes_varied_velocities);

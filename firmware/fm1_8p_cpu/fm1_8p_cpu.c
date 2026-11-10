@@ -2,7 +2,7 @@
 /* FM1-8P CPU: fm1-8p's engine under fm1-dock, sweeping 1..8 voices (5 s each) on a held chord, then
  * the unison burst ("U", count 9: 8 voices in unison, 8 note-ons and a detune change every block),
  * then the full patch ("F", count 10: the 8-voice chord with both oscillators, vibrato, pulse-width
- * modulation, amp velocity and the chorus; cpu_test.h), with the worst render time per count on
+ * modulation, amp velocity, the filter and the chorus; cpu_test.h), with the worst render time per count on
  * screen and in the log (tools/dock.py logs):
  * one line "fm1-8p voices/worst permille" = count << 16 | permille for each count a sweep held in
  * full. The block that starts a count (engine init, note on) is not timed.

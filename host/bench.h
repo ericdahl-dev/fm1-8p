@@ -26,7 +26,8 @@ typedef struct {
 } bench_row;
 
 /* What plays: the CPU test's default chord (steps 1..8), or its full patch (step F's sound: two
- * oscillators, vibrato, pulse-width modulation, amp velocity and the chorus) on the same chord. */
+ * oscillators, vibrato, pulse-width modulation, amp velocity, the filter and the chorus) on the same
+ * chord. */
 typedef enum {
     BENCH_DEFAULT_PATCH = 0,
     BENCH_FULL_PATCH,

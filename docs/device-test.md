@@ -25,7 +25,7 @@ The module `FM1-8P CPU` holds a chord and steps through 10 steps, 5 s each:
 | --- | --- |
 | 1 to 8 | 1 to 8 voices, one note each (C3 up in thirds), poly mode |
 | U | the unison burst: 8 voices in unison; in every block the 8 keys go up, go down again (each note-on retriggers every voice) and the unison detune changes |
-| F | the full patch: the 8-voice chord (poly mode) with every modulation on: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, and the deep chorus. After its 5 s the chord rings on; the F row no longer changes |
+| F | the full patch: the 8-voice chord (poly mode) with every modulation on: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, a resonant lowpass (cutoff 6000 cents, resonance 700, envelope amount 3600 cents) with the first highpass step, and the deep chorus. After its 5 s the chord rings on; the F row no longer changes |
 
 For each step it shows the **worst** render time of any block, as a percentage of one 256-frame block (5.8 ms at
 44.1 kHz). The block that starts a step (engine setup, first note-on) is not timed. Step U is the case from the #13

@@ -16,8 +16,10 @@
 #define CT_BURST (FM_MAX_VOICES + 1u)
 /* The step after U, the sweep's last: the full patch ("F"). The 8-voice chord in poly mode with every
  * modulation on: a pulse and a saw mixed half and half, vibrato, pulse-width modulation, amp velocity
- * with a different velocity per note, and the chorus (cpu_test_full_patch). With every depth at 0 the
- * LFO costs nothing, so steps 1..8 and U never measure it; F does. */
+ * with a different velocity per note, the filter (a resonant lowpass swept by its envelope and the first
+ * highpass step, never on its wide-open fast path) and the chorus (FULL_PATCH in cpu_test.c). With every
+ * depth at 0 the LFO costs nothing and an open filter is a wire, so steps 1..8 and U never measure them;
+ * F does. */
 #define CT_FULL (CT_BURST + 1u)
 #define CT_LAST CT_FULL                 /* the sweep's last step: counts run 1..CT_LAST */
 

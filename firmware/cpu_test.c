@@ -17,6 +17,12 @@ static const cpu_test_param FULL_PATCH[] = {
     {FM_PARAM_LFO_PITCH_CENTS, 30},
     {FM_PARAM_LFO_PW_PCT, 25},
     {FM_PARAM_AMP_VELOCITY, 100},
+    /* the filter well below open, so fm_filter_run never takes its wide-open fast path: a resonant
+     * lowpass swept by its envelope, and the first highpass step */
+    {FM_PARAM_FILTER_CUTOFF_CENTS, 6000},
+    {FM_PARAM_FILTER_RESONANCE, 700},
+    {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600},
+    {FM_PARAM_HIGHPASS_STEP, 1},
 };
 
 void cpu_test_set_full_patch(cpu_test *t, const cpu_test_param *p, uint32_t n)
