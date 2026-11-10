@@ -3,7 +3,7 @@
 #
 #   make                    build the render tool, build/fm1-8p-render
 #   make test               build and run the tests
-#   make check-float-free   prove the engine has no floating point or heap
+#   make check-float-free   prove the engine (and the synth module's play.c) has no floating point or heap
 #                           use, and that the check catches both
 #   make check-fm1-build    test the FM-1 build script's pin and report checks
 #   make check              test + check-float-free + check-fm1-build
@@ -25,8 +25,8 @@ HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
 BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
-FW_SRC     = firmware/cpu_test.c
-FW_HDR     = firmware/cpu_test.h
+FW_SRC     = firmware/cpu_test.c firmware/play.c
+FW_HDR     = firmware/cpu_test.h firmware/play.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
@@ -67,6 +67,7 @@ test: $(BUILD)/run-tests
 # engine sources) must make the same check fail.
 check-float-free:
 	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-engine $(ENGINE_SRC)
+	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c
 	@for c in $(CANARIES); do \
 		if CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-canary \
 			$(ENGINE_SRC) $$c >/dev/null 2>&1; then \
