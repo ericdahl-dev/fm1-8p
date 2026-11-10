@@ -11,6 +11,7 @@
 # The FM-1 firmware itself is built by tools/fm1-build.sh (see README).
 #   make render-demo        render examples/demo.mid to build/demo.wav
 #   make bench              time the engine per voice count, build/fm1-8p-bench
+#   make bench-full         the same on the full patch (every modulation on)
 
 CC      ?= cc
 CFLAGS  ?= -O2 -g
@@ -34,7 +35,7 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench test check check-float-free check-fm1-build render-demo clean
+.PHONY: all bench bench-full test check check-float-free check-fm1-build render-demo clean
 
 all: $(RENDER) $(BENCH)
 
@@ -50,6 +51,9 @@ $(BENCH): host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
 
 bench: $(BENCH)
 	./$(BENCH)
+
+bench-full: $(BENCH)
+	./$(BENCH) -w full
 
 # Tests may use double and libm (never the engine itself).
 $(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)

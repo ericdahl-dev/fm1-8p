@@ -38,7 +38,7 @@ jobs:
       - name: Long benchmark run under UBSan (the output buffer must not pile up)
         run: |
           make BUILD=build/ubsan CFLAGS="-O1 -g -fsanitize=undefined -fno-sanitize-recover=all" build/ubsan/fm1-8p-bench
-          ./build/ubsan/fm1-8p-bench -b 100000 -r 1
+          ./build/ubsan/fm1-8p-bench -b 100000 -r 1 -w all
 
       - name: Float-free engine check
         run: make check-float-free
@@ -55,7 +55,7 @@ jobs:
         run: |
           make build/fm1-8p-bench
           ./build/fm1-8p-bench -h
-          ./build/fm1-8p-bench -b 200 -r 3
+          ./build/fm1-8p-bench -b 200 -r 3 -w all
 
       - name: Upload sample render
         if: matrix.os == 'ubuntu-latest' && matrix.cc == 'gcc'

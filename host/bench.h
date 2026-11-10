@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include "../engine/fm1_8p.h"
+#include "../firmware/cpu_test.h"
 
 #define BENCH_MAX_BLOCKS 100000u
 #define BENCH_MAX_REPS 32u
@@ -24,7 +25,16 @@ typedef struct {
     uint64_t min_ns, max_ns;    /* the fastest and slowest run's median block */
 } bench_row;
 
+/* What plays: the CPU test's default chord (steps 1..8), or its full patch (step F's sound: two
+ * oscillators, vibrato, pulse-width modulation, amp velocity and the chorus) on the same chord. */
+typedef enum {
+    BENCH_DEFAULT_PATCH = 0,
+    BENCH_FULL_PATCH,
+    BENCH_WORKLOAD_COUNT
+} bench_workload;
+
 typedef struct {
+    bench_workload workload;
     uint32_t blocks, reps;
     bench_row rows[FM_MAX_VOICES];  /* [voices - 1] */
 } bench_result;
@@ -36,7 +46,27 @@ uint64_t bench_median(uint64_t *v, uint32_t n);
  * Each run: for 1..FM_MAX_VOICES voices, the CPU test's chord (one setup block, not timed),
  * then `blocks` blocks timed one by one. Returns 0, or -1 if blocks or reps is 0 or too big.
  */
+int bench_run_workload(bench_workload w, uint32_t blocks, uint32_t reps, bench_clock clock, void *ctx,
+                       bench_result *r);
+/* bench_run_workload with BENCH_DEFAULT_PATCH. */
 int bench_run(uint32_t blocks, uint32_t reps, bench_clock clock, void *ctx, bench_result *r);
+
+/* "default", "full", or "all" (both) as a mask of 1 << bench_workload. Returns 0, or -1 if unknown. */
+int bench_workloads_parse(const char *s, uint32_t *mask);
+/* "default" or "full" */
+const char *bench_workload_name(bench_workload w);
+/* fm1-8p-bench's options. */
+typedef struct {
+    uint32_t blocks, reps;      /* -b, -r */
+    uint32_t workloads;         /* -w: mask of 1 << bench_workload */
+} bench_args;
+
+/* argv[1..argc) into a (defaults: 2000 blocks, 5 runs, the default workload; each -w adds one).
+ * Returns 0, or -1 on an unknown or incomplete option, or blocks or runs out of range. */
+int bench_args_parse(int argc, char **argv, bench_args *a);
+
+/* The CPU test the last run drove (its engine as the run left it). */
+const cpu_test *bench_cpu_test(void);
 
 /*
  * A Markdown table: voices, ns per block, ns per frame, ns per voice-frame, run spread.
