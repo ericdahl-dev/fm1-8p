@@ -101,9 +101,9 @@ FIELDS = [
     Field("PITCH_ENV_OSC2_CENTS", None, -2400, 2400, "#58"),
     Field("PITCH_ENV_SOURCE", None, 0, 3, "#58"),
     Field("PITCH_ENV_VELOCITY_PCT", None, 0, 100, "#58"),
-    Field("OSC2_ENV_PERMILLE", None, -1000, 1000, "#33"),
-    Field("OSC2_ENV_SOURCE", None, 0, 3, "#33"),
-    Field("OSC2_ENV_VELOCITY_PCT", None, 0, 100, "#33"),
+    Field("OSC_MIX_ENV_PERMILLE", "OSC_MIX_ENV", -1000, 1000, None),
+    Field("OSC_MIX_ENV_SOURCE", "OSC_MIX_ENV_SOURCE", 0, 1, None),
+    Field("OSC_MIX_ENV_VELOCITY_PCT", None, 0, 100, "velocity on the mix envelope (no issue yet)"),
     Field("FILTER_LFO_PERMILLE", None, 0, 1000, "#8"),
     Field("FILTER_VELOCITY_PCT", None, 0, 100, "#8"),
     Field("ENV1_KEY_FOLLOW", None, 0, 3, "#60"),
@@ -202,6 +202,11 @@ def env_mode(v):
     return (ENV1 if pos >= 2 else ENV2), (1 if pos & 1 else -1)
 
 
+def mix_permille(l1, l2):
+    """DCO levels as the engine's osc mix: DCO-2's share, per mille."""
+    return rnd(1000 * l2 / (l1 + l2)) if l1 + l2 else 0
+
+
 def tune_semis(v):
     """DCO TUNE, 0..127, in semitones -12..+12. Inferred, not documented (docs/patches.md): value >> 2
     with a dead band of four steps (56..71) at 0, so the factory tones' fifths (FAT FIFTH 97, ORGAN 1
@@ -234,8 +239,17 @@ def to_engine(tone):
     e["OSC1_OCTAVE"], e["OSC1_COARSE_SEMIS"] = octave_and_semis(p[DCO1_RANGE], p[DCO1_TUNE])
     e["OSC2_OCTAVE"], e["OSC2_COARSE_SEMIS"] = octave_and_semis(p[DCO2_RANGE], p[DCO2_TUNE])
     e["OSC2_FINE_CENTS"] = max(-50, min(50, rnd((p[DCO2_FINE] - 64) * 50 / 64)))
+    # MIX ENV scales DCO-2's level (est.): from 1 - depth to 1 as the envelope rises (inverted: the
+    # other way). osc_mix is the mix with the envelope at rest, osc_mix_env the change at its peak.
     l1, l2 = p[MIX_DCO1], p[MIX_DCO2]
-    e["OSC_MIX_PERMILLE"] = rnd(1000 * l2 / (l1 + l2)) if l1 + l2 else 0
+    src, sign = env_mode(p[MIX_ENV_MODE])
+    depth = p[MIX_ENV] / 127
+    low = mix_permille(l1, l2 * (1 - depth))
+    full = mix_permille(l1, l2)
+    rest, peak = (low, full) if sign > 0 else (full, low)
+    e["OSC_MIX_PERMILLE"] = rest
+    e["OSC_MIX_ENV_PERMILLE"] = peak - rest
+    e["OSC_MIX_ENV_SOURCE"] = 1 if src == ENV2 and p[VCA_MODE] >= 64 else 0
     xmod = switch(p[DCO_XMOD])
     e["OSC_SYNC"] = 1 if xmod in (1, 2) else 0
     e["XMOD_AM"] = 1 if xmod in (2, 3) else 0
@@ -263,11 +277,8 @@ def to_engine(tone):
     e["PITCH_ENV_OSC2_CENTS"] = sign * rnd(2400 * (p[DCO2_ENV] / 127) ** 2)
     e["PITCH_ENV_SOURCE"] = switch(p[DCO_ENV_MODE])
     e["PITCH_ENV_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[DCO_DYNA])]
-    # waiting for DCO-2's envelope level (#33)
-    _, sign = env_mode(p[MIX_ENV_MODE])
-    e["OSC2_ENV_PERMILLE"] = sign * permille(p[MIX_ENV])
-    e["OSC2_ENV_SOURCE"] = switch(p[MIX_ENV_MODE])
-    e["OSC2_ENV_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[MIX_DYNA])]
+    # waiting for velocity on the mix envelope
+    e["OSC_MIX_ENV_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[MIX_DYNA])]
     # waiting for LFO to cutoff and filter velocity (#8), envelope key follow (#60), a VCA level
     e["FILTER_LFO_PERMILLE"] = permille(p[VCF_LFO])
     e["FILTER_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[VCF_DYNA])]

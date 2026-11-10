@@ -114,7 +114,8 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | RANGE + TUNE | `osc1_octave`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; whole octaves of range + tune go to the octave, the rest to coarse. DCO-1 has no coarse in the engine yet: `PATCH_OSC1_COARSE_SEMIS` waits. Two tones need it: MUSIC BOX (+4) and WINDCHIMES (-3) |
 | WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse (25 % wide, *est.*), saw |
 | FINE TUNE | `osc2_fine_cents` | (value - 64) x 50 / 64 |
-| MIX DCO-1, DCO-2 | `osc_mix_permille` | DCO-2 / (DCO-1 + DCO-2); the overall level is lost |
+| MIX DCO-1, DCO-2 | `osc_mix_permille` | DCO-2 / (DCO-1 + DCO-2), with MIX ENV's envelope at rest; the overall level is lost |
+| MIX ENV, MIX ENV MODE | `osc_mix_env_permille`, `osc_mix_env_source` | the envelope scales DCO-2's level from 1 - depth (at rest) to 1 (at the peak), the other way when inverted (*est.*); `osc_mix_env_permille` is the mix's change from rest to peak. It follows the amp envelope for ENV-2 when the VCA follows ENV-2, else the filter envelope (exact when VCF ENV MODE names the same envelope, *est.* otherwise). 19 of the 32 tones use MIX ENV at full depth on ENV-1, so DCO-2 swells in with the filter envelope |
 | CROSS MOD | `osc_sync` | on for SYNC 1 and SYNC 2. The JX-8P's X-MOD is reportedly amplitude modulation (ring-mod-like), not the engine's FM (`osc_xmod`), so it waits in `PATCH_XMOD_AM` (SYNC 2 and X-MOD) |
 | HPF | `highpass_step` | position 0..3 |
 | VCF FREQ | `filter_cutoff_cents` | 1200 + 100 x value: a semitone per step from MIDI note 12 (16 Hz) (*est.*) |
@@ -142,7 +143,7 @@ returns `PATCH_NONE` for them; when a feature lands, its field gets the new `fm_
 | `FILTER_ENV_SOURCE` | VCF ENV MODE (0..3) | #59 envelope source and invert |
 | `ENV1_KEY_FOLLOW`, `ENV2_KEY_FOLLOW` | ENV-1 KEY, ENV-2 KEY (0..3) | #60 envelope key follow |
 | `AMP_GATE` | VCA MODE | #63 amp gate |
-| `OSC2_ENV_PERMILLE`, `OSC2_ENV_SOURCE`, `OSC2_ENV_VELOCITY_PCT` | MIX ENV (signed), MIX ENV MODE, MIX DYNAMICS | #33 DCO-2 envelope level |
+| `OSC_MIX_ENV_VELOCITY_PCT` | MIX DYNAMICS | velocity on the mix envelope (no issue yet) |
 | `FILTER_LFO_PERMILLE`, `FILTER_VELOCITY_PCT` | VCF LFO, VCF DYNAMICS | #8 (LFO to cutoff, filter velocity) |
 | `XMOD_AM` | CROSS MOD SYNC 2 and X-MOD | the JX-8P's cross mod (no issue yet) |
 | `OSC1_COARSE_SEMIS` | DCO-1 TUNE | DCO-1 coarse tune (no issue yet) |
@@ -154,8 +155,8 @@ the table has no fields for them.
 
 ## Storage
 
-Each patch is its name (12 characters and the end) and one `uint16_t` per field, 46 fields:
-106 bytes, 3392 bytes for the 32. A value is stored with a bias of 32768 (`patch_value()` takes
+Each patch is its name (12 characters and the end) and one `uint16_t` per field, 45 fields:
+104 bytes with padding, 3328 bytes for the 32. A value is stored with a bias of 32768 (`patch_value()` takes
 it off): stored as plain `int16_t`, a value of -64..-49 next to another can make a 32-bit word
 in 0xFFC00000..0xFFCFFFFF, which fm1-dock rejects as a ROM address (`make check-float-free`
 catches it on the desktop).

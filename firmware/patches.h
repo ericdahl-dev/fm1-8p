@@ -51,9 +51,9 @@ typedef enum {
     PATCH_PITCH_ENV_OSC2_CENTS,         /* waits #58 */
     PATCH_PITCH_ENV_SOURCE,             /* waits #58: as FILTER_ENV_SOURCE */
     PATCH_PITCH_ENV_VELOCITY_PCT,       /* waits #58 */
-    PATCH_OSC2_ENV_PERMILLE,            /* waits #33: DCO-2 level envelope depth, signed */
-    PATCH_OSC2_ENV_SOURCE,              /* waits #33: as FILTER_ENV_SOURCE */
-    PATCH_OSC2_ENV_VELOCITY_PCT,        /* waits #33 */
+    PATCH_OSC_MIX_ENV_PERMILLE,         /* MIX ENV: the mix's change at the envelope's peak */
+    PATCH_OSC_MIX_ENV_SOURCE,           /* 0 filter envelope, 1 amp envelope */
+    PATCH_OSC_MIX_ENV_VELOCITY_PCT,     /* waits: velocity on the mix envelope (no issue yet) */
     PATCH_FILTER_LFO_PERMILLE,          /* waits #8: LFO to cutoff */
     PATCH_FILTER_VELOCITY_PCT,          /* waits #8 */
     PATCH_ENV1_KEY_FOLLOW,              /* waits #60: 0 off .. 3 */

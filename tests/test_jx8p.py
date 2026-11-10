@@ -65,11 +65,11 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch("SOUNDTRACK")["OSC2_FINE_CENTS"], -13)   # 48
         self.assertEqual(patch("PIANO 3")["OSC2_FINE_CENTS"], -33)      # 22
 
-    # the engine crossfades (0 osc1 only .. 1000 osc2 only); the JX-8P has a level per DCO
+    # the engine crossfades (0 osc1 only .. 1000 osc2 only); the JX-8P has a level per DCO. With
+    # no MIX ENV the levels set the mix
     def test_mixer_levels_become_the_osc_mix(self):
-        self.assertEqual(patch("SOUNDTRACK")["OSC_MIX_PERMILLE"], 500)  # 109 and 109
         self.assertEqual(patch("ORGAN 2")["OSC_MIX_PERMILLE"], 0)       # 105 and 0
-        self.assertEqual(patch("PIANO 1")["OSC_MIX_PERMILLE"], 486)     # 90 and 85
+        self.assertEqual(patch("LO STRINGS")["OSC_MIX_PERMILLE"], 500)  # MIX ENV 0
 
     # CROSS MOD: off, 1 (sync), 2 (sync and cross mod), 3 (cross mod). The JX-8P's cross mod is
     # amplitude modulation, not the engine's FM (osc_xmod), so it waits in XMOD_AM.
@@ -159,13 +159,28 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["PITCH_ENV_SOURCE"], 2)
         self.assertEqual(patch("PIANO 3")["PITCH_ENV_VELOCITY_PCT"], 100)   # DCO DYNAMICS 96
 
-    # Kept for DCO-2's envelope level (#33), LFO to cutoff and filter velocity (#8), envelope key
-    # follow (#60) and the VCA level
+    # MIX ENV (#33): the envelope scales DCO-2's level by its depth (est.), so osc_mix is the mix
+    # with the envelope at rest and osc_mix_env the change at its peak. Inverted: the other way. It
+    # follows the engine envelope that runs the JX-8P one it names: amp for ENV-2 when the VCA
+    # follows ENV-2, else filter
+    def test_mix_env_drives_the_osc_mix_envelope(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["OSC_MIX_ENV_PERMILLE"].param, "OSC_MIX_ENV")
+        self.assertEqual(fields["OSC_MIX_ENV_SOURCE"].param, "OSC_MIX_ENV_SOURCE")
+        e = patch("SOUNDTRACK")                 # 109 and 109, MIX ENV 58, ENV-2 normal
+        self.assertEqual((e["OSC_MIX_PERMILLE"], e["OSC_MIX_ENV_PERMILLE"]), (352, 148))
+        self.assertEqual(e["OSC_MIX_ENV_SOURCE"], 1)
+        e = patch("PIANO 1")                    # 90 and 85, MIX ENV 127, ENV-1 normal
+        self.assertEqual((e["OSC_MIX_PERMILLE"], e["OSC_MIX_ENV_PERMILLE"]), (0, 486))
+        self.assertEqual(e["OSC_MIX_ENV_SOURCE"], 0)
+        e = patch("VOICES")                     # 123 and 127, MIX ENV 71, ENV-1 inverted
+        self.assertEqual((e["OSC_MIX_PERMILLE"], e["OSC_MIX_ENV_PERMILLE"]), (508, -195))
+        self.assertEqual(patch("ORGAN 2")["OSC_MIX_ENV_SOURCE"], 0)         # ENV-2, VCA on GATE
+
+    # Kept for LFO to cutoff and filter velocity (#8), envelope key follow (#60) and the VCA level
     def test_other_features_the_engine_lacks_are_kept_for_later(self):
         e = patch("SOUNDTRACK")
-        self.assertEqual(e["OSC2_ENV_PERMILLE"], 457)       # MIX ENV 58, ENV-2 normal
-        self.assertEqual(e["OSC2_ENV_SOURCE"], 1)
-        self.assertEqual(e["OSC2_ENV_VELOCITY_PCT"], 33)    # MIX DYNAMICS 32
+        self.assertEqual(e["OSC_MIX_ENV_VELOCITY_PCT"], 33)    # MIX DYNAMICS 32
         self.assertEqual(e["FILTER_LFO_PERMILLE"], 0)
         self.assertEqual(e["FILTER_VELOCITY_PCT"], 33)      # VCF DYNAMICS 32
         self.assertEqual((e["ENV1_KEY_FOLLOW"], e["ENV2_KEY_FOLLOW"]), (0, 1))
