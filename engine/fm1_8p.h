@@ -62,7 +62,11 @@ typedef struct {
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count);
 
-/* Note numbers and velocities are MIDI 0..127; others are ignored. */
+/*
+ * Note numbers and velocities are MIDI 0..127; others are ignored.
+ * Velocity 0 is a note off. Otherwise velocity has no effect in this
+ * slice: every note plays at the same level (velocity lands in #8).
+ */
 void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity);
 void fm_engine_note_off(fm_engine *e, uint8_t note);
 

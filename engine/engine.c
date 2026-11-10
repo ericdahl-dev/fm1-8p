@@ -127,7 +127,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
     for (i = 0; i < frames; i++) {
         int32_t level = fm_env_next(&e->amp_env);
         int32_t s = 0;
-        if (level > 0 || e->amp_env.stage != FM_ENV_IDLE) {
+        if (e->amp_env.stage != FM_ENV_IDLE) {
             int32_t saw = fm_osc_saw_next(&e->osc);
             /* Q8.24 * Q1.30 -> Q8.24, then the fixed voice gain of 0.5 */
             s = (int32_t)(((int64_t)saw * level) >> 31);
