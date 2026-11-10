@@ -71,6 +71,35 @@ TT_TEST(pulse_width_sets_duty_cycle)
     }
 }
 
+/*
+ * Fraction of samples within 10% of the peak level: a two-level wave (a
+ * square) sits there almost all the time, a saw only a tenth of it.
+ */
+static double near_peak_fraction(const int16_t *stereo, size_t frames)
+{
+    int peak = peak_abs(stereo, 0, frames);
+    size_t i, near = 0;
+    for (i = 0; i < frames; i++)
+        if (abs(stereo[2 * i]) * 10 >= peak * 9) near++;
+    return (double)near / (double)frames;
+}
+
+/* The square stays a 50% two-level wave whatever the pulse width says. */
+TT_TEST(square_ignores_pulse_width)
+{
+    static const int32_t widths[] = { 10, 90 };
+    size_t k;
+    for (k = 0; k < sizeof widths / sizeof widths[0]; k++) {
+        osc_init();
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SQUARE);
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, widths[k]);
+        fm_engine_note_on(&eng, 45, 100);
+        fm_engine_render(&eng, buf, 4410 + 40091);
+        TT_CHECK_NEAR(duty_cycle(buf + 2 * 4410, 40091), 0.5, 0.005);
+        TT_CHECK(near_peak_fraction(buf + 2 * 4410, 40091) > 0.95);
+    }
+}
+
 /* Octave shifts by factors of two; fine tune by 2^(cents / 1200). */
 TT_TEST(octave_and_fine_tune_shift_pitch)
 {
@@ -281,6 +310,7 @@ static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(pulse_width_sets_duty_cycle);
+    TT_RUN(square_ignores_pulse_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(retuning_a_held_note_takes_effect);
     TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
