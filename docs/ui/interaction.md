@@ -75,13 +75,11 @@ A fast step is used when one event carries 3 or more clicks.
   number are reserved now, so the map does not change when it lands. Until
   then the screen shows `--` and the knob does nothing.
 
-**Pending on main at `a94bd31`** (checked 2026-11-10). Everything else in the
+**Pending on main at `d1c50e6`** (checked 2026-11-10). Everything else in the
 map is live in `engine/fm1_8p.h` and `engine/params.c`.
 
 | Slots | Waits for |
 | --- | --- |
-| 34 | #52 (DCO-2 coarse tune) |
-| 41-45, 51-54 | PR #25 (filter, open) |
 | 46, 76 | #8, its second PR (filter velocity, LFO to cutoff) |
 | 47 | #33 (DCO-2 envelope level) |
 | 85-86 | #41 (mod wheel) |
@@ -93,8 +91,6 @@ map is live in `engine/fm1_8p.h` and `engine/params.c`.
 | 68, 77, 78 | #61 (aftertouch) |
 | 88 | #62 (portamento) |
 
-Until PR #25 lands, three of the PLAY performance knobs (K1-K3: 41, 42, 43)
-are pending too. Only K4 (64 RELEASE) works.
 - **"Reserved":** the slot is empty. It shows nothing and the knob does
   nothing.
 
@@ -126,19 +122,19 @@ are pending too. Only K4 (64 RELEASE) works.
 | 31 | K1 | `osc_mix_permille` | MIX | `D1 70 : 30 D2` (0..100, 1 = 10 per mille) | 1 / 5 |
 | 32 | K2 | `osc_sync` | SYNC | OFF, ON | 1 / 1 |
 | 33 | K3 | `osc_xmod_permille` | X-MOD | 0..100 % | 1 / 5 |
-| 34 | K4 | DCO-2 coarse tune (pending, #52) | COARSE | -12..+12 st | 1 / 1 |
+| 34 | K4 | `osc2_coarse_semis` | COARSE | -12..+12 st | 1 / 1 |
 
 ### 4x VCF (pages 4A and 4B)
 
-41-45 are pending until PR #25 lands. 46 and 47 are pending on their own issues.
+46 and 47 are pending on their own issues.
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 41 | K1 | `filter_cutoff_cents` (pending, PR #25) | CUTOFF | Hz, 3 significant digits (8.18 Hz .. 33.5 kHz); `OPEN` at 14400 | 100 ct / 400 ct |
-| 42 | K2 | `filter_resonance_permille` (pending, PR #25) | RESO | 0..100 (100 self-oscillates) | 1 / 5 |
-| 43 | K3 | `filter_env_amount_cents` (pending, PR #25) | ENV | -96..+96 st | 1 st / 6 st |
-| 44 | K4 | `filter_key_track_permille` (pending, PR #25) | KEY | 0..100 % | 1 / 10 |
-| 45 | K1 | `highpass_step` (pending, PR #25) | HPF | OFF, 100 Hz, 240 Hz, 560 Hz | 1 / 1 |
+| 41 | K1 | `filter_cutoff_cents` | CUTOFF | Hz, 3 significant digits (8.18 Hz .. 33.5 kHz); `OPEN` at 14400 | 100 ct / 400 ct |
+| 42 | K2 | `filter_resonance_permille` | RESO | 0..100 (100 self-oscillates) | 1 / 5 |
+| 43 | K3 | `filter_env_amount_cents` | ENV | -96..+96 st | 1 st / 6 st |
+| 44 | K4 | `filter_key_track_permille` | KEY | 0..100 % | 1 / 10 |
+| 45 | K1 | `highpass_step` | HPF | OFF, 100 Hz, 240 Hz, 560 Hz | 1 / 1 |
 | 46 | K2 | filter velocity amount (pending, #8) | VEL | 0..100 % | 1 / 5 |
 | 47 | K3 | DCO-2 envelope level (pending, #33) | D2 ENV | -- | - |
 | 48 | K4 | filter envelope source (pending, #59) | ENV SRC | ENV1, ENV1 INV, ENV2, ENV2 INV | 1 / 1 |
@@ -147,10 +143,10 @@ are pending too. Only K4 (64 RELEASE) works.
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 51 | K1 | `filter_env_attack_ms` (pending, PR #25) | ATTACK | time (see below) | time table |
-| 52 | K2 | `filter_env_decay_ms` (pending, PR #25) | DECAY | time | time table |
-| 53 | K3 | `filter_env_sustain_permille` (pending, PR #25) | SUSTAIN | 0..100 | 1 / 5 |
-| 54 | K4 | `filter_env_release_ms` (pending, PR #25) | RELEASE | time | time table |
+| 51 | K1 | `filter_env_attack_ms` | ATTACK | time (see below) | time table |
+| 52 | K2 | `filter_env_decay_ms` | DECAY | time | time table |
+| 53 | K3 | `filter_env_sustain_permille` | SUSTAIN | 0..100 | 1 / 5 |
+| 54 | K4 | `filter_env_release_ms` | RELEASE | time | time table |
 | 55 | K1 | envelope 1 key follow (pending, #60) | KEY | 0..100 % | 1 / 10 |
 | 56-58 | K2-K4 | reserved | | | |
 
