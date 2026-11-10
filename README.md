@@ -6,8 +6,9 @@ by Roland or M-VAVE.
 
 ## Status
 
-The first slice works on the desktop: one band-limited saw voice with an ADSR
-amp envelope, rendered from a MIDI file to a WAV by the fixed-point engine.
+On the desktop, the fixed-point engine plays band-limited saw voices with an
+ADSR amp envelope, up to 8 at once (6 by default), with voice stealing, the
+sustain pedal and pitch bend, rendered from a MIDI file to a WAV.
 
 ## Build and run
 
@@ -19,16 +20,24 @@ make                 # builds build/fm1-8p-render
 make check           # runs the tests and the float-free engine check
 make render-demo     # renders examples/demo.mid to build/demo.wav
 
-./build/fm1-8p-render -r 44100 -s amp_attack_ms=200 -s amp_release_ms=800 \
+./build/fm1-8p-render -r 44100 -v 6 -s amp_attack_ms=200 -s amp_release_ms=800 \
     song.mid song.wav
 ```
 
 Run `./build/fm1-8p-render` with no arguments to list every option and
 parameter.
 
+The render tool plays one MIDI channel (`-c`, by default the channel of the
+first note on) with 6 voices by default (`-v`). Each voice is mixed at
+1/(2 x voices) so a full chord never clips, which makes a single note quieter
+with more voices: -21.6 dBFS with 6, -6 dBFS with `-v 1`. After each render
+the tool prints the voice count, channel and that level.
+
 The engine uses only integer math. Its number formats, the sample rate and
 block size rules, and how the float-free check works are in
 [docs/fixed-point.md](docs/fixed-point.md).
+How notes get voices (the stealing rule), the sustain pedal, pitch bend and
+the output gain staging are in [docs/voices.md](docs/voices.md).
 
 ## FM-1 CPU-test firmware
 

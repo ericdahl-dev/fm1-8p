@@ -10,16 +10,22 @@
  *
  * The struct layout is exposed only so callers can allocate it; treat
  * every field as private.
+ *
+ * The engine takes no locks. Call every function from one context, or
+ * make sure no other call runs while fm_engine_render does (for example,
+ * queue MIDI events and apply them between blocks in the audio
+ * callback).
  */
 #ifndef FM1_8P_H
 #define FM1_8P_H
 
 #include <stdint.h>
 
-#include "env.h"
-#include "osc.h"
+#include "voice.h"
 
 #define FM_MAX_VOICES 8
+/* Frames mixed at a time inside fm_engine_render (any block size works). */
+#define FM_MIX_FRAMES 64
 
 typedef enum {
     FM_OK = 0,
@@ -32,6 +38,7 @@ typedef enum {
     FM_PARAM_AMP_DECAY_MS,
     FM_PARAM_AMP_SUSTAIN, /* per mille of full level, 0..1000 */
     FM_PARAM_AMP_RELEASE_MS,
+    FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -48,16 +55,22 @@ typedef struct {
     uint32_t sample_rate;
     uint8_t voice_count;
     int32_t params[FM_PARAM_COUNT];
-    /* the one voice of this slice */
-    fm_osc osc;
-    fm_env amp_env;
-    uint8_t note;
+    int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
+    uint32_t stamp;   /* counts note ons and offs, to age the voices */
+    uint32_t fade_samples; /* fast fade of a stolen voice */
+    uint8_t pedal_down;    /* sustain pedal (CC 64 >= 64) */
+    int32_t bend_value;    /* last pitch bend, -8192..8191 from center */
+    int32_t bend;          /* Q16.16 semitones added to every note */
+    fm_voice voices[FM_MAX_VOICES];
+    int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
 } fm_engine;
 
 /*
  * Sets up `e` for `voice_count` voices (1..FM_MAX_VOICES) at
  * `sample_rate` Hz (1..192000) with every parameter at its default.
- * This slice plays one voice whatever the count.
+ * Each note takes a voice; with more notes than voices the engine steals
+ * one (the rule is in docs/voices.md). Each voice is mixed at
+ * 1 / voice_count, then -6 dB, so a full chord never clips.
  */
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count);
@@ -71,11 +84,19 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity);
 void fm_engine_note_off(fm_engine *e, uint8_t note);
 
 /*
- * MIDI control change (controller and value 0..127). This slice handles
- * 120 (all sound off: silence now) and 123 (all notes off: release);
- * others are ignored. Sustain, mod wheel and bend come in later slices.
+ * MIDI control change (controller and value 0..127). Handled: 64
+ * (sustain pedal, down at 64 or more), 120 (all sound off: silence now)
+ * and 123 (all notes off: release every note, even those the pedal
+ * holds). Others are ignored; the mod wheel comes in a later slice.
  */
 void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value);
+
+/*
+ * MIDI pitch bend, 0..16383 (the 14-bit value; 8192 is center). Full
+ * down is -bend_range_semitones, full up 8191/8192 of +range. Sounding
+ * notes follow at once. Out-of-range values are ignored.
+ */
+void fm_engine_pitch_bend(fm_engine *e, uint16_t value);
 
 /*
  * Sets a parameter; values outside its range are clamped. Returns
@@ -84,6 +105,12 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value);
 fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value);
 /* Current value of a parameter, or 0 for an unknown id. */
 int32_t fm_engine_get_param(const fm_engine *e, uint16_t id);
+
+/*
+ * Number of voices sounding (attack through release, or fading after a
+ * steal). A voice goes idle once its release reaches silence.
+ */
+uint8_t fm_engine_active_voices(const fm_engine *e);
 
 /* Renders `frames` interleaved stereo frames (L, R) of signed 16-bit. */
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames);

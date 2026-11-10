@@ -10,6 +10,8 @@
  *   decay   - full -> sustain in the decay time
  *   sustain - holds the sustain level
  *   release - current level -> 0 in the release time, then idle
+ *   fade    - like release, but over a time given by the caller and not
+ *             changed by fm_env_retime (the fast fade of a stolen voice)
  *
  * When a setting changes, fm_env_retime recomputes the running stage from
  * the current level: a new release time applies at once, and a sustain
@@ -28,7 +30,8 @@ typedef enum {
     FM_ENV_ATTACK,
     FM_ENV_DECAY,
     FM_ENV_SUSTAIN,
-    FM_ENV_RELEASE
+    FM_ENV_RELEASE,
+    FM_ENV_FADE
 } fm_env_stage;
 
 typedef struct {
@@ -46,6 +49,8 @@ typedef struct {
 void fm_env_reset(fm_env *e);
 void fm_env_gate_on(fm_env *e);
 void fm_env_gate_off(fm_env *e);
+/* Falls from the current level to 0 in `samples`, then goes idle. */
+void fm_env_fade(fm_env *e, uint32_t samples);
 /* Call after changing any setting while the envelope may be running. */
 void fm_env_retime(fm_env *e);
 /* Advances one sample and returns the new level (Q1.30). */

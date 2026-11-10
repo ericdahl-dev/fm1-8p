@@ -16,8 +16,14 @@ typedef struct {
 /* Highest allowed increment: just under Nyquist. */
 #define FM_OSC_MAX_INC 0x7FFF0000u
 
-/* Phase increment (Q0.32 per sample) for a MIDI note at a sample rate. */
-uint32_t fm_osc_note_inc(uint8_t note, uint32_t sample_rate);
+/* Highest pitch the table covers: note 131 (15.8 kHz), Q16.16 semitones. */
+#define FM_OSC_MAX_PITCH (131 << 16)
+
+/*
+ * Phase increment (Q0.32 per sample) for a pitch in Q16.16 semitones (MIDI note numbers with
+ * a fraction), clamped to 0..FM_OSC_MAX_PITCH.
+ */
+uint32_t fm_osc_pitch_inc(int32_t pitch, uint32_t sample_rate);
 
 void fm_osc_reset(fm_osc *o);
 void fm_osc_set_inc(fm_osc *o, uint32_t inc);
