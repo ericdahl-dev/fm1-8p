@@ -131,6 +131,24 @@ build_with() (
 mkdir -p "$T/nm/clean" && cp "$T/nm/mod/module_02200000.elf" "$T/nm/clean/" && cp "$T/nm/clean.nm" "$T/nm/clean/module_02200000.elf.nm"
 expect_ok   "a build whose module links only integer helpers succeeds" build_with "$T/nm/clean"
 expect_fail "a build whose module links a soft-float helper fails" build_with "$T/nm/mod"
+# A compile error: hbmod fails, leaving the last build's clean ELF and .dock in place. The build must
+# fail, not check the stale ELF and ship the old .dock.
+build_failing() (
+    ROOT=$(pwd) OUT=$T/bout FM1_DOCK=$T/fd JIELI_TOOLCHAIN=$T/nm/tc FM1_IDENTITY=test fail=$1
+    check_inputs() { :; }
+    dock() {
+        case "$1" in
+        hbmod.py) [ "$(basename "$2")" = "$fail" ] && return 1
+                  d=$FM1_DOCK/build/modules/$(basename "$2"); mkdir -p "$d"
+                  cp "$T/nm/clean/module_02200000.elf" "$T/nm/clean/module_02200000.elf.nm" "$d/" ;;
+        build.py) : >"$FM1_DOCK/build/modules/$(basename "$3").dock"; : >"$FM1_DOCK/build/$5.fwsc" ;;
+        esac
+    }
+    build_firmware
+)
+build_with "$T/nm/clean" >/dev/null 2>&1      # a good build first: its ELF and .dock stay behind
+expect_fail "a build whose synth module fails to compile fails" build_failing fm1_8p
+expect_fail "a build whose CPU test fails to compile fails" build_failing fm1_8p_cpu
 # The emulator run builds the quick module (the image fm1-emu and CI time) and checks it the same way:
 # a soft-float quick module fails before the emulator starts.
 emu_with() (

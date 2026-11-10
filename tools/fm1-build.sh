@@ -288,21 +288,24 @@ dock() {        # run one of fm1-dock's tools from its checkout
 }
 
 # build_module DIR NAME APP: firmware/DIR as a .dock (USB deploy) and a solo .fwsc NAME.fwsc, into $OUT.
+# Every step checks its own status: a caller's `||` turns `set -e` off in here, and a failed compile
+# would otherwise leave the last build's ELF to pass the symbol check and its .dock to be copied.
 build_module() {
-    stage_module "$ROOT/firmware/$1" "$OUT/modules/$1" "$ROOT/engine"
-    dock hbmod.py "$OUT/modules/$1"
+    stage_module "$ROOT/firmware/$1" "$OUT/modules/$1" "$ROOT/engine" || return 1
+    dock hbmod.py "$OUT/modules/$1" || return 1
     check_module_symbols "$FM1_DOCK/build/modules/$1" || return 1
-    dock build.py --modules "$OUT/modules/$1" --name "$2" --app-name "$3" --identity "$FM1_IDENTITY"
-    cp "$FM1_DOCK/build/modules/$1.dock" "$FM1_DOCK/build/$2.fwsc" "$OUT/"
+    dock build.py --modules "$OUT/modules/$1" --name "$2" --app-name "$3" --identity "$FM1_IDENTITY" ||
+        return 1
+    cp "$FM1_DOCK/build/modules/$1.dock" "$FM1_DOCK/build/$2.fwsc" "$OUT/" || return 1
     echo "fm1-build: $OUT/$1.dock $OUT/$2.fwsc ($FM1_IDENTITY)"
 }
 
 build_firmware() {
-    check_inputs
+    check_inputs || return 1
     ulimit -n 8192 2>/dev/null || true         # the parallel compiles open many files
-    mkdir -p "$OUT"
-    build_module fm1_8p fm1-8p "FM1-8P" || return 1   # the playable synth
-    build_module fm1_8p_cpu fm1-8p-cpu "FM1-8P CPU"
+    mkdir -p "$OUT" || return 1
+    build_module fm1_8p fm1-8p "FM1-8P" || return 1             # the playable synth
+    build_module fm1_8p_cpu fm1-8p-cpu "FM1-8P CPU" || return 1
 }
 
 run_canaries() {
