@@ -20,15 +20,33 @@ static const uint32_t top_octave_hz_q16[12] = {
     870957077u, 922746880u, 977616265u, 1035748353u
 };
 
-uint32_t fm_osc_note_inc(uint8_t note, uint32_t sample_rate)
+/* Note frequency in Q16.16 Hz for a whole note 0..131. */
+static uint32_t note_hz_q16(uint32_t note)
 {
-    uint32_t hz_q16;
+    return top_octave_hz_q16[note % 12] >> (10 - note / 12);
+}
+
+uint32_t fm_osc_pitch_inc(int32_t pitch, uint32_t sample_rate)
+{
+    uint32_t note, frac, lo, hz_q16;
     uint64_t inc;
     if (sample_rate == 0) return 0; /* never divide by zero: no trap on pi32v2 */
-    if (note > 127) note = 127;
-    hz_q16 = top_octave_hz_q16[note % 12] >> (10 - note / 12);
+    if (pitch < 0) pitch = 0;
+    if (pitch > FM_OSC_MAX_PITCH) pitch = FM_OSC_MAX_PITCH;
+    note = (uint32_t)pitch >> 16;
+    frac = (uint32_t)pitch & 0xFFFFu;
+    lo = note_hz_q16(note);
+    hz_q16 = lo;
+    if (frac) /* straight line to the next semitone (under 0.8 cent off) */
+        hz_q16 += (uint32_t)(((uint64_t)(note_hz_q16(note + 1) - lo) * frac) >> 16);
     inc = ((uint64_t)hz_q16 << 16) / sample_rate;
     return inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)inc;
+}
+
+uint32_t fm_osc_note_inc(uint8_t note, uint32_t sample_rate)
+{
+    return fm_osc_pitch_inc((int32_t)(note > 127 ? 127 : note) << 16,
+                            sample_rate);
 }
 
 void fm_osc_reset(fm_osc *o)

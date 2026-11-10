@@ -32,6 +32,7 @@ typedef enum {
     FM_PARAM_AMP_DECAY_MS,
     FM_PARAM_AMP_SUSTAIN, /* per mille of full level, 0..1000 */
     FM_PARAM_AMP_RELEASE_MS,
+    FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -63,6 +64,8 @@ typedef struct {
     uint32_t stamp;   /* counts note ons and offs, to age the voices */
     uint32_t fade_samples; /* fast fade of a stolen voice */
     uint8_t pedal_down;    /* sustain pedal (CC 64 >= 64) */
+    int32_t bend_value;    /* last pitch bend, -8192..8191 from center */
+    int32_t bend;          /* Q16.16 semitones added to every note */
     fm_voice voices[FM_MAX_VOICES];
 } fm_engine;
 
@@ -88,6 +91,13 @@ void fm_engine_note_off(fm_engine *e, uint8_t note);
  * others are ignored. Sustain, mod wheel and bend come in later slices.
  */
 void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value);
+
+/*
+ * MIDI pitch bend, 0..16383 (the 14-bit value; 8192 is center). Full
+ * down is -bend_range_semitones, full up 8191/8192 of +range. Sounding
+ * notes follow at once. Out-of-range values are ignored.
+ */
+void fm_engine_pitch_bend(fm_engine *e, uint16_t value);
 
 /*
  * Sets a parameter; values outside its range are clamped. Returns

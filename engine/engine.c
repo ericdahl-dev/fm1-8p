@@ -22,11 +22,41 @@ static uint32_t ms_to_samples(const fm_engine *e, int32_t ms)
     return (uint32_t)(((uint64_t)(uint32_t)ms * e->sample_rate) / 1000u);
 }
 
+/* Phase increment for `note` with the current bend. */
+static uint32_t note_inc(const fm_engine *e, uint8_t note)
+{
+    return fm_osc_pitch_inc(((int32_t)note << 16) + e->bend, e->sample_rate);
+}
+
+/* Retunes every voice after the bend changes. A stolen voice's old note
+ * keeps its pitch for the few ms it takes to fade. */
+static void retune(fm_engine *e)
+{
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++) {
+        fm_voice *v = &e->voices[i];
+        v->next_inc = note_inc(e, v->note);
+        if (!v->pending) fm_osc_set_inc(&v->osc, v->next_inc);
+    }
+}
+
+/* MIDI bend (-8192..8191 from center) to Q16.16 semitones: exact, since
+ * value / 8192 * range * 65536 = value * range * 8. */
+static void apply_bend(fm_engine *e, int32_t centered)
+{
+    e->bend = centered * e->params[FM_PARAM_BEND_RANGE] * 8;
+    retune(e);
+}
+
 /* Recomputes the derived settings a parameter feeds. */
 static void apply_param(fm_engine *e, uint16_t id)
 {
     int32_t v = e->params[id];
     uint8_t i;
+    if (id == FM_PARAM_BEND_RANGE) {
+        apply_bend(e, e->bend_value);
+        return;
+    }
     for (i = 0; i < e->voice_count; i++) {
         fm_env *env = &e->voices[i].amp_env;
         switch (id) {
@@ -64,6 +94,8 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->mix_gain = (int32_t)((1u << 29) / voice_count);
     e->stamp = 0;
     e->pedal_down = 0;
+    e->bend = 0;
+    e->bend_value = 0;
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
     for (i = 0; i < FM_MAX_VOICES; i++) {
         fm_osc_reset(&e->voices[i].osc);
@@ -177,7 +209,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         v->key_down = 1;
         v->sustained = 0;
         v->stamp = ++e->stamp;
-        v->next_inc = fm_osc_note_inc(note, e->sample_rate);
+        v->next_inc = note_inc(e, note);
         if (v->pending) {
             /* already waiting for its fade to end */
         } else if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
@@ -229,6 +261,13 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
             break;
         }
     }
+}
+
+void fm_engine_pitch_bend(fm_engine *e, uint16_t value)
+{
+    if (e->sample_rate == 0 || value > 16383) return;
+    e->bend_value = (int32_t)value - 8192;
+    apply_bend(e, e->bend_value);
 }
 
 uint8_t fm_engine_active_voices(const fm_engine *e)

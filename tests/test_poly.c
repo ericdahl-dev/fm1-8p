@@ -234,6 +234,45 @@ TT_TEST(sustain_pedal_holds_released_notes_until_it_comes_up)
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 1);
 }
 
+/* Pitch, in cents relative to `note`, of what the engine plays now. */
+static double cents_from(int note)
+{
+    double period;
+    fm_engine_render(&poly, pbuf, PRATE / 2);
+    period = period_from_crossings(pbuf + 2 * 4410, PRATE / 2 - 4410, 0);
+    return 1200.0 * log2((PRATE / note_hz(note)) / period);
+}
+
+TT_TEST(pitch_bend_shifts_pitch_by_its_range)
+{
+    init_poly(4);
+    TT_CHECK_EQ(fm_engine_get_param(&poly, FM_PARAM_BEND_RANGE), 2);
+    fm_engine_note_on(&poly, 69, 100);
+    TT_CHECK_NEAR(cents_from(69), 0, 1);
+    fm_engine_pitch_bend(&poly, 0); /* full down: -2 semitones */
+    TT_CHECK_NEAR(cents_from(69), -200, 1);
+    fm_engine_pitch_bend(&poly, 12288); /* halfway up: +1 semitone */
+    TT_CHECK_NEAR(cents_from(69), 100, 1);
+    fm_engine_pitch_bend(&poly, 16383); /* full up: 8191/8192 of 2 */
+    TT_CHECK_NEAR(cents_from(69), 200.0 * 8191 / 8192, 1);
+    fm_engine_pitch_bend(&poly, 8192 + 1234); /* between semitones */
+    TT_CHECK_NEAR(cents_from(69), 200.0 * 1234 / 8192, 1);
+    /* new notes start bent, too */
+    fm_engine_note_off(&poly, 69);
+    fm_engine_controller(&poly, 120, 0);
+    fm_engine_note_on(&poly, 57, 100);
+    TT_CHECK_NEAR(cents_from(57), 200.0 * 1234 / 8192, 1);
+    /* a wider range, and back to center */
+    fm_engine_set_param(&poly, FM_PARAM_BEND_RANGE, 12);
+    fm_engine_pitch_bend(&poly, 0);
+    TT_CHECK_NEAR(cents_from(57), -1200, 1);
+    fm_engine_pitch_bend(&poly, 8192);
+    TT_CHECK_NEAR(cents_from(57), 0, 1);
+    /* out-of-range values are ignored */
+    fm_engine_pitch_bend(&poly, 16384);
+    TT_CHECK_NEAR(cents_from(57), 0, 1);
+}
+
 static void run_poly_tests(void)
 {
     TT_RUN(every_note_of_a_full_chord_sounds);
@@ -244,4 +283,5 @@ static void run_poly_tests(void)
     TT_RUN(released_note_goes_silent_and_its_voice_idle);
     TT_RUN(repeated_note_reuses_its_voice);
     TT_RUN(sustain_pedal_holds_released_notes_until_it_comes_up);
+    TT_RUN(pitch_bend_shifts_pitch_by_its_range);
 }
