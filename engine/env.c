@@ -161,15 +161,15 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
             n -= c + 1;
             break;
         case FM_ENV_DECAY:
-            d = e->level >= e->sustain ? e->level - e->sustain
-                                       : e->sustain - e->level;
+            d = e->level >= e->sus_level ? e->level - e->sus_level
+                                         : e->sus_level - e->level;
             c = steps_before_landing(d, e->step);
             if (n <= c) {
                 int32_t move = (int32_t)(n * (uint32_t)e->step);
-                e->level += e->level >= e->sustain ? -move : move;
+                e->level += e->level >= e->sus_level ? -move : move;
                 return e->level;
             }
-            e->level = e->sustain;
+            e->level = e->sus_level;
             e->stage = FM_ENV_SUSTAIN;
             return e->level; /* sustain holds */
         case FM_ENV_SUSTAIN:

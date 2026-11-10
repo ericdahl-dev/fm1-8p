@@ -1091,6 +1091,22 @@ TT_TEST(env_advance_attack_rises_to_a_soft_peak)
     TT_CHECK_EQ(a.stage, b.stage);
 }
 
+/*
+ * A soft note decays to its own sustain level (sustain scaled by the
+ * peak): advancing through attack and decay lands where stepping does.
+ */
+TT_TEST(env_advance_decays_to_a_soft_notes_sustain)
+{
+    static fm_env a, b;
+    uint32_t m = 0;
+    soft_env(&b, 600 << 20, 1 << 29);
+    a = b;
+    while (b.stage != FM_ENV_SUSTAIN) { fm_env_next(&b); m++; }
+    fm_env_advance(&a, m);
+    TT_CHECK_EQ(a.level, b.level);
+    TT_CHECK_EQ(a.stage, b.stage);
+}
+
 /* The patch of the skipped-envelope test, with filter env amount `amount`. */
 static void lag_patch(fm_engine *e, int32_t amount)
 {
@@ -1282,6 +1298,7 @@ static void run_filter_tests(void)
     TT_RUN(unison_note_change_keeps_the_control_cadence);
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
+    TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
