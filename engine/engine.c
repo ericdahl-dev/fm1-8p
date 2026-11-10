@@ -136,7 +136,8 @@ typedef char fm_require_filter_env_params_in_a_run[
 /* Per mille (0..1000) -> Q1.30 (1000 -> 1.0), rounded down. */
 static int32_t permille_to_q30(int32_t permille)
 {
-    return (int32_t)(((int64_t)permille << 30) / 1000);
+    /* a multiply, not << 30: shifting a negative value is undefined */
+    return (int32_t)((int64_t)permille * (1 << 30) / 1000);
 }
 
 /* Recomputes the derived settings a parameter feeds. */
@@ -173,9 +174,26 @@ static void apply_param(fm_engine *e, uint16_t id)
             fm_osc_pair_set_sync(&e->voices[i].osc, (uint8_t)v);
         return;
     case FM_PARAM_OSC_MIX:
-        for (i = 0; i < FM_MAX_VOICES; i++)
-            fm_osc_pair_set_mix(&e->voices[i].osc,
-                                permille_to_q30(v));
+        for (i = 0; i < FM_MAX_VOICES; i++) {
+            e->voices[i].mix_base = permille_to_q30(v);
+            if (e->voices[i].mix_env)
+                continue; /* the next control tick glides there */
+            e->voices[i].mix_step = 0;
+            fm_osc_pair_set_mix(&e->voices[i].osc, e->voices[i].mix_base);
+        }
+        return;
+    case FM_PARAM_OSC_MIX_ENV_SOURCE:
+        for (i = 0; i < FM_MAX_VOICES; i++) {
+            /* the amp source leaves the filter envelope lazy: catch it up */
+            fm_voice_sync_filter_env(&e->voices[i]);
+            e->voices[i].mix_src = (uint8_t)v;
+        }
+        return;
+    case FM_PARAM_OSC_MIX_ENV:
+        for (i = 0; i < FM_MAX_VOICES; i++) {
+            fm_voice_sync_filter_env(&e->voices[i]); /* stepped from now on */
+            e->voices[i].mix_env = permille_to_q30(v); /* off: glides back to osc_mix */
+        }
         return;
     default:
         break;

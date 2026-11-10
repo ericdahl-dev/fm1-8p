@@ -49,6 +49,7 @@ typedef struct {
                              * (after a steal fade, as next_pitch) */
     uint8_t ctrl_phase;     /* samples until the next cutoff update */
     uint8_t cutoff_dirty;   /* a setting or the note changed the cutoff */
+    uint8_t mix_src;        /* the mix envelope follows: 0 filter_env, 1 amp_env */
     /* filter: settings copied from the engine's parameters, and state */
     fm_filter filter;
     fm_env filter_env;
@@ -59,6 +60,9 @@ typedef struct {
     int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
     uint32_t fenv_lag;      /* samples filter_env is behind: it is not
                              * stepped while the amount is 0 */
+    int32_t mix_base;       /* osc_mix, Q1.30 */
+    int32_t mix_env;        /* the envelope's share of the mix, Q1.30, signed */
+    int32_t mix_step;       /* the mix's glide each sample to its next target */
 } fm_voice;
 
 /* What the LFO does to every voice, set by the engine from the patch. */
