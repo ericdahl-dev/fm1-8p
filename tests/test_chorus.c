@@ -211,7 +211,7 @@ static ch_sweep ch_measure_sweep(uint8_t mode, uint32_t rate,
 
 TT_TEST(chorus_modes_differ_in_rate_and_depth)
 {
-    /* the mode table documented in engine/chorus.h */
+    /* the mode table documented in engine/chorus_state.h */
     static const double spec[FM_CHORUS_MODE_COUNT][3] = {
         { 0, 0, 0 }, { 0.5, 5.0, 1.5 }, { 0.8, 5.0, 2.5 }, { 6.0, 3.0, 0.3 },
     };
@@ -368,7 +368,7 @@ TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
 /*
  * The chorus lives in fm_engine, which may sit on a task stack: its
  * delay line is fixed (2048 bytes of int16 samples, as documented in
- * engine/chorus.h) and the whole struct stays within 2.1 KiB.
+ * engine/chorus_state.h) and the whole struct stays within 2.1 KiB.
  */
 TT_TEST(chorus_memory_is_fixed_and_small)
 {

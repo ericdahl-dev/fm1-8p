@@ -3,6 +3,7 @@
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  */
+#include "chorus.h"
 #include "fm1_8p.h"
 
 /* Below 8 kHz slow LFO and delay settings lose precision. */
