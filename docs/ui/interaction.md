@@ -32,8 +32,10 @@ fm1-8p keeps that feel:
 - **There are three ways to get to a section quickly:** a section button, the
   ALGORITHM encoder (one section per detent), or typing the number on the keys.
 
-Rules for everything on the device: no Roland names, logos or panel artwork,
-and no factory patch names or content from any Roland product. On the device
+Rules for everything on the device: no Roland logos or panel artwork, and no
+Roland product name. The one exception is the patches: the JX-8P's 32 factory
+tones ship with their factory names (Eric's decision in #75; see
+[docs/patches.md](../patches.md)). On the device
 the sections are called DCO-1, DCO-2, MIX, VCF, VCF ENV, VCA, LFO and CTRL.
 Those are generic synth terms. Chorus modes are named SLOW, DEEP and FAST,
 not numbered the way the original's were.

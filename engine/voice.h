@@ -58,8 +58,8 @@ typedef struct {
     int32_t key_track;      /* per mille */
     int32_t env_amount;     /* filter envelope amount, cents */
     int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
-    uint32_t fenv_lag;      /* samples filter_env is behind: it is not
-                             * stepped while the amount is 0 */
+    uint32_t fenv_lag;      /* samples filter_env is behind: it is caught
+                             * up only when read (the control rate) */
     int32_t mix_base;       /* osc_mix, Q1.30 */
     int32_t mix_env;        /* the envelope's share of the mix, Q1.30, signed */
     int32_t mix_step;       /* the mix's glide each sample to its next target */
@@ -79,10 +79,11 @@ typedef struct {
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents);
 
 /*
- * Brings filter_env up to date. While the filter envelope amount is 0 the
- * render does not step it every sample (it cannot change the sound); it
- * is caught up (fm_env_advance) before every gate and setting change.
- * Call this before reading or changing filter_env from outside the voice.
+ * Brings filter_env up to date. The render does not step it every sample:
+ * it counts the samples (fenv_lag) and catches it up (fm_env_advance,
+ * exactly that many steps) when it reads the level, at a control point or
+ * a note change, and before every gate and setting change. Call this
+ * before reading or changing filter_env from outside the voice.
  */
 void fm_voice_sync_filter_env(fm_voice *v);
 

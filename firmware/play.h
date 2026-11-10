@@ -4,6 +4,7 @@
 #define PLAY_H
 #include <stdint.h>
 #include "../engine/fm1_8p.h"
+#include "patches.h"
 
 #define PLAY_FS 44100u
 #define PLAY_BLOCK 256u                 /* frames per fm1-dock render call */
@@ -15,12 +16,6 @@
 #define PLAY_KEY0 53u                   /* key 0's note at octave 0: F3 */
 #define PLAY_QUEUE 64u                  /* events between two renders (a power of two) */
 
-/* One param of a patch: fm_param_id and its value. */
-typedef struct {
-    uint16_t id;
-    int32_t value;
-} play_param;
-
 typedef struct {
     fm_engine engine;
     int16_t buf[2u * PLAY_BLOCK];       /* engine output, static: not on the ISR stack */
@@ -31,15 +26,16 @@ typedef struct {
     volatile uint32_t lost;             /* main loop: +1 per event the full queue dropped */
     uint32_t lost_seen;                 /* ISR only: the last `lost` it acted on */
     int32_t last_note;                  /* main loop: the last note on, -1 none */
+    const patch *patch;                 /* the patch playing */
     int32_t oct;                        /* main loop: the keys' octave, -2..2 */
     uint8_t held[PLAY_KEYS];            /* main loop: the note each key started */
 } play;
 
-/* Sets up the engine on PLAY_VOICES voices with the default patch; 0: ready. */
+/* Sets up the engine on PLAY_VOICES voices with the default patch, SOUNDTRACK
+ * (PATCHES[PATCH_SOUNDTRACK]); 0: ready. */
 int play_init(play *p);
-/* The default patch: the params init sets (every other one keeps the engine's default); *n gets
- * their count. */
-const play_param *play_patch(uint32_t *n);
+/* The patch playing. */
+const patch *play_patch(const play *p);
 /* main loop: a note from the keys (velocity 0: note off); the next render applies it */
 void play_note(play *p, uint32_t note, uint32_t vel);
 /* main loop: a channel message from the host's midi() (USB, Bluetooth or the jack: all alike), any

@@ -170,16 +170,12 @@ static void apply_param(fm_engine *e, uint16_t id)
             fm_voice_mark_mix(&e->voices[i]);
         }
         return;
-    case FM_PARAM_OSC_MIX_ENV_SOURCE:
-        for (i = 0; i < FM_MAX_VOICES; i++) {
-            /* the amp source leaves the filter envelope lazy: catch it up */
-            fm_voice_sync_filter_env(&e->voices[i]);
+    case FM_PARAM_OSC_MIX_ENV_SOURCE: /* the filter envelope is caught up when read */
+        for (i = 0; i < FM_MAX_VOICES; i++)
             e->voices[i].mix_src = (uint8_t)v;
-        }
         return;
     case FM_PARAM_OSC_MIX_ENV:
         for (i = 0; i < FM_MAX_VOICES; i++) {
-            fm_voice_sync_filter_env(&e->voices[i]); /* stepped from now on */
             e->voices[i].mix_env = fm_permille_to_q30(v); /* off: glides back to osc_mix */
             fm_voice_mark_mix(&e->voices[i]);
         }
