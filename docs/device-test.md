@@ -36,8 +36,8 @@ pulse-width modulation, velocity and the chorus together. It plays 6 voices, not
 that renders slower than real time (section 2). `make bench-full` times the same patch on the desktop at every voice
 count up to 8.
 
-What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.1 % per voice, 25.7 % at
-8 voices, 31.3 % for U, F_PCT % for F. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
+What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.1 % per voice, 25.8 % at
+8 voices, 31.4 % for U, 77.3 % for F (6 voices). On the device, expect roughly 1.15 times those. A big difference from that is a finding in
 itself: note it.
 
 ## 1. What you need
@@ -186,15 +186,15 @@ try again.
 | step | screen (worst %) | log (per mille) | fm1-emu strict (%) | device / emu |
 | --- | --- | --- | --- | --- |
 | 1 | | | 4.4 | |
-| 2 | | | 7.2 | |
+| 2 | | | 7.3 | |
 | 3 | | | 10.3 | |
 | 4 | | | 13.4 | |
 | 5 | | | 16.5 | |
 | 6 | | | 19.6 | |
 | 7 | | | 22.7 | |
-| 8 | | | 25.7 | |
-| U (unison burst) | | | 31.3 | |
-| F (full patch) | | | 101.0 | |
+| 8 | | | 25.8 | |
+| U (unison burst) | | | 31.4 | |
+| F (full patch) | | | 77.3 | |
 
 - `dock.py modules`: render worst __ % of a block, __ overruns
 - Heard any clicks, dropouts or the sine taking over? At which step?
@@ -203,4 +203,4 @@ try again.
 ```
 
 The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `d5ee372` (#25's filter), with row F
-playing the filter off its fast path. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+playing the filter on 6 voices. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
