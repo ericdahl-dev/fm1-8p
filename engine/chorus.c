@@ -43,8 +43,8 @@ void fm_chorus_init(fm_chorus *c, uint32_t sample_rate)
     c->lfo_inc = 0;
     c->center = 0;
     c->depth = 0;
-    c->mode = FM_CHORUS_OFF;
-    clear_line(c);
+    c->mode = FM_CHORUS_OFF; /* the line is emptied when a mode turns on */
+    c->pos = 0;
 }
 
 /* Microseconds to samples, Q16.16 (fits: 10 ms * 192 kHz * 2^16 < 2^37). */

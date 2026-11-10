@@ -523,6 +523,30 @@ TT_TEST(chorus_block_matches_sample_by_sample)
     TT_CHECK(same);
 }
 
+/*
+ * Re-initializing (the CPU test does it from the audio interrupt) is
+ * cheap: init leaves the delay line alone and only the off-to-on switch
+ * empties it. Turning the chorus on after a re-init still starts silent.
+ */
+TT_TEST(chorus_reinit_then_on_starts_from_a_silent_line)
+{
+    static fm_chorus ch;
+    uint32_t n;
+    int32_t l, r;
+    int silent = 1;
+    fm_chorus_init(&ch, CH_RATE);
+    fm_chorus_set_mode(&ch, FM_CHORUS_DEEP);
+    for (n = 0; n < 3000; n++)
+        fm_chorus_process(&ch, (n / 40) % 2 ? (1 << 23) : -(1 << 23), &l, &r);
+    fm_chorus_init(&ch, CH_RATE);
+    fm_chorus_set_mode(&ch, FM_CHORUS_SLOW);
+    for (n = 0; n < FM_CHORUS_DELAY_LEN; n++) {
+        fm_chorus_process(&ch, 0, &l, &r);
+        if (l != 0 || r != 0) silent = 0;
+    }
+    TT_CHECK(silent);
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
@@ -538,4 +562,5 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_adds_no_dc_offset);
     TT_RUN(chorus_line_has_headroom_for_the_loudest_mix);
     TT_RUN(chorus_block_matches_sample_by_sample);
+    TT_RUN(chorus_reinit_then_on_starts_from_a_silent_line);
 }

@@ -53,7 +53,10 @@ typedef struct {
     int16_t line[FM_CHORUS_DELAY_LEN]; /* Q8.24 >> 10: 1.0 = 16384 */
 } fm_chorus;
 
-/* Sets up `c` at `sample_rate` Hz, mode off. */
+/*
+ * Sets up `c` at `sample_rate` Hz, mode off. Cheap: the delay line is
+ * emptied only when a mode turns on, not here.
+ */
 void fm_chorus_init(fm_chorus *c, uint32_t sample_rate);
 
 /*
