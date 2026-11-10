@@ -210,6 +210,45 @@ TT_TEST(switching_back_to_poly_restores_normal_allocation)
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
 }
 
+/*
+ * The sustain pedal holds the unison note once the last key is up, and a
+ * new note while it holds retriggers as usual. All notes off and all
+ * sound off forget the held keys too, so no later release falls back to
+ * a key from before.
+ */
+TT_TEST(unison_pedal_and_all_notes_off)
+{
+    static const uint8_t ccs[] = { 123, 120 };
+    size_t c;
+    init_unison(4, 0);
+    fm_engine_controller(&poly, 64, 127);
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_note_off(&poly, 60);
+    fm_engine_render(&poly, pbuf, PRATE / 2);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 4);
+    TT_CHECK(peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2) > 10000);
+    fm_engine_note_on(&poly, 64, 100);
+    fm_engine_note_off(&poly, 64);
+    fm_engine_render(&poly, pbuf, PRATE / 2);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 4);
+    fm_engine_controller(&poly, 64, 0);
+    fm_engine_render(&poly, pbuf, PRATE / 10);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+
+    for (c = 0; c < sizeof ccs; c++) {
+        fm_engine_note_on(&poly, 60, 100);
+        fm_engine_render(&poly, pbuf, 441);
+        fm_engine_controller(&poly, ccs[c], 0);
+        fm_engine_render(&poly, pbuf, PRATE / 10);
+        TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+        fm_engine_note_on(&poly, 64, 100);
+        fm_engine_note_off(&poly, 64); /* 60's key is forgotten */
+        fm_engine_render(&poly, pbuf, PRATE / 10);
+        TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+        fm_engine_note_off(&poly, 60);
+    }
+}
+
 static void run_unison_tests(void)
 {
     TT_RUN(unison_note_uses_every_voice_and_no_more);
@@ -218,4 +257,5 @@ static void run_unison_tests(void)
     TT_RUN(unison_note_changes_do_not_click);
     TT_RUN(unison_at_full_velocity_never_clips);
     TT_RUN(switching_back_to_poly_restores_normal_allocation);
+    TT_RUN(unison_pedal_and_all_notes_off);
 }

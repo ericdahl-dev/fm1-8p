@@ -357,6 +357,8 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
 {
     uint8_t i;
     if (controller == 64) e->pedal_down = value >= 64;
+    if (controller == 120 || controller == 123)
+        e->held_count = 0; /* unison forgets the keys it was holding */
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         switch (controller) {
