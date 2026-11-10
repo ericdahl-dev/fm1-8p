@@ -307,6 +307,8 @@ mkdir -p "$T/epout" && : >"$T/epout/fm1-8p.fwsc"
 emu_play_with >/dev/null 2>&1
 expect_ok "emu-play reuses the built synth: nothing rebuilt" test ! -s "$T/ep-dock.calls"
 expect_ok "... and the emulator gets build/fm1's file" grep -q -- "--fwsc $T/epout/fm1-8p.fwsc" "$T/ep-python.args"
+expect_ok "an emu-play run with an unpinned fm1-live says so in its report" \
+    grep -q 'unpinned fm1-live' "$T/epout/emu-play-report.md"
 
 grep -v 'render: last' "$T/play.txt" >"$T/play-nometer.txt"
 emu_play_report "$T/play-nometer.txt" >"$T/play-report.md" 2>&1

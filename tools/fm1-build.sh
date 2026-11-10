@@ -384,6 +384,9 @@ run_emu_play() {
     cat "$OUT/emu-play.log"
     report_rc=0
     emu_play_report "$OUT/emu-play.log" >"$OUT/emu-play-report.md" 2>&1 || report_rc=1
+    if ! verify_sha256 "$FM1_LIVE" "$FM1_LIVE_SHA256" 2>/dev/null; then
+        printf '\nNote: run with an unpinned fm1-live (%s).\n' "$FM1_LIVE" >>"$OUT/emu-play-report.md"
+    fi
     if [ "$emu_rc" -ne 0 ]; then
         printf '\n**The emulator run failed (exit %s).**\n' "$emu_rc" >>"$OUT/emu-play-report.md"
     fi
