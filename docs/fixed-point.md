@@ -91,7 +91,9 @@ is in `engine/params.c`.
 
 Each voice has two oscillators. `osc1_wave` and `osc2_wave` pick 0 saw,
 1 pulse, 2 square or 3 noise; `oscN_octave` (-2 to +2) and `oscN_fine_cents`
-(-100 to +100) tune each from the played note; `oscN_pulse_width_pct` (1 to 99)
+(-100 to +100) tune each from the played note, and osc2 also has
+`osc2_coarse_semis` (-12 to +12 semitones, on top of its octave and fine
+tune) for intervals such as a fifth (+7) or a fourth (+5); `oscN_pulse_width_pct` (1 to 99)
 sets the pulse duty; and `osc_mix_permille` crossfades from osc1 alone (0, the
 default) to osc2 alone (1000). For example:
 
