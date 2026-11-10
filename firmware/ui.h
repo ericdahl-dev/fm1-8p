@@ -52,6 +52,9 @@ void ui_init(ui *u, play *p);
 #define UI_VALUE_LEN 12u                /* room for a value as the focus row reads it, and its end */
 /* param id's value as the focus row reads it (interaction.md section 3), into s (UI_VALUE_LEN) */
 void ui_format(uint16_t id, int32_t value, char *s);
+/* the slot's filter curve, as docs/ui/mockups/render.py draws it: its level at column i of n, in
+ * tenths of a dB (0 flat, + the resonant bump) */
+int32_t ui_curve_db(int32_t cutoff_cents, int32_t reso_permille, uint32_t i, uint32_t n);
 #define UI_METER_SEGS 8u
 /* the knob meter's lit segments (bit k, left to right): a range from the left, a bipolar param
  * (min = -max) out from the middle */

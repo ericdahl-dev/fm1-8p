@@ -91,6 +91,71 @@ void ui_format(uint16_t id, int32_t value, char *s)
     *s = 0;
 }
 
+/* 2^(k / 16) in Q16 and log2(1 + k / 16) in Q12, k = 0..16: the curve's exp2 and log2, a straight
+ * line between entries */
+static const uint32_t EXP2[17] = {65536, 68438, 71468, 74632, 77936, 81386, 84990, 88752, 92682,
+                                  96785, 101070, 105545, 110218, 115098, 120194, 125515, 131072};
+static const uint16_t LOG2[17] = {0, 358, 696, 1016, 1319, 1607, 1882, 2145, 2396, 2637, 2869,
+                                  3092, 3307, 3514, 3715, 3908, 4096};
+
+/* 2^(e / 4096) in Q8 (0 when below 1/256) */
+static uint32_t exp2_q8(int32_t e)
+{
+    int32_t ip = e >> 12;                       /* (floor) */
+    uint32_t f = (uint32_t)e & 4095u, k = f >> 8, t;
+    t = EXP2[k] + (EXP2[k + 1u] - EXP2[k]) * (f & 255u) / 256u;     /* Q16 */
+    ip -= 8;                                    /* to Q8 */
+    if (ip <= -24)
+        return 0;
+    return ip < 0 ? t >> -ip : t << ip;
+}
+
+/* log2(v) in Q12, v > 0 */
+static int32_t log2_q12(uint32_t v)
+{
+    int32_t p = 31;
+    uint32_t m, k;
+    while (!(v >> p))
+        p--;
+    m = p >= 12 ? v >> (p - 12) : v << (12 - p);   /* 4096..8191: 1.m */
+    m -= 4096u;
+    k = m >> 8;
+    return p * 4096 + (int32_t)(LOG2[k] + (LOG2[k + 1u] - LOG2[k]) * (m & 255u) / 256u);
+}
+
+static uint32_t isqrt(uint32_t v)
+{
+    uint32_t r = 0, b = 1u << 30;
+    while (b > v)
+        b >>= 2;
+    while (b) {
+        if (v >= r + b) {
+            v -= r + b;
+            r = (r >> 1) + b;
+        } else {
+            r >>= 1;
+        }
+        b >>= 2;
+    }
+    return r;
+}
+
+int32_t ui_curve_db(int32_t cutoff_cents, int32_t reso_permille, uint32_t i, uint32_t n)
+{
+    /* render.py: fc = 10^(-2 + 2.4 cut), x = 10^(-2 + 2.6 i / (n - 1)) / fc, q = 0.7 + 6 res^1.5,
+     * |H|^2 = 1 / ((1 - x^2)^2 + (x / q)^2); here log2(x) in Q12 */
+    int32_t dec = (int32_t)(10650u * i / (n > 1u ? n - 1u : 1u)) - cutoff_cents * 9830 / 14400;
+    int32_t lx = dec * 13607 / 4096, a;
+    uint32_t r = (uint32_t)(reso_permille < 0 ? 0 : reso_permille) * 4096u / 1000u;
+    uint32_t q = 2867u + 6u * (r * isqrt(r) / 64u), q2 = q * q >> 16, x2, d;
+    if (lx > 3 * 4096)                          /* x > 8: x^4 is all of it, -40 log10 x */
+        return -(lx * 1204 / 40960);
+    x2 = exp2_q8(2 * lx);                       /* x^2, Q8 */
+    a = 256 - (int32_t)x2;
+    d = (uint32_t)(a * a) + (x2 << 16) / q2;    /* Q16 */
+    return -((log2_q12(d) - 16 * 4096) * 301 / 40960);   /* -100 log10 d, in tenths of a dB */
+}
+
 uint32_t ui_meter(uint16_t id, int32_t value)
 {
     const fm_param_info *in = fm_param_info_get(id);

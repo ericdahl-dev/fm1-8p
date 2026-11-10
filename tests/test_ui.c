@@ -167,8 +167,23 @@ TT_TEST(ui_edit_returns_to_play)
     TT_CHECK_EQ(ui_take(&ui_u, 500) & UI_D_FULL, UI_D_FULL);
 }
 
+/* The slot's filter curve, as render.py's filter_curve draws it (the cutoff and the resonance as
+ * fractions of their range; column i of n across 2.6 decades): its level in tenths of a dB, to
+ * half a dB of the mockup's floating point. */
+TT_TEST(ui_curve_follows_the_mockup)
+{
+    TT_CHECK_NEAR(ui_curve_db(9300, 340, 0, 226), 0, 5);
+    TT_CHECK_NEAR(ui_curve_db(9300, 340, 120, 226), 39, 5);    /* the resonant bump */
+    TT_CHECK_NEAR(ui_curve_db(9300, 340, 150, 226), -38, 5);
+    TT_CHECK_NEAR(ui_curve_db(9300, 340, 200, 226), -302, 5);
+    TT_CHECK_NEAR(ui_curve_db(7800, 200, 140, 226), -114, 5);
+    TT_CHECK_NEAR(ui_curve_db(14400, 1000, 200, 226), 89, 5);
+    TT_CHECK_NEAR(ui_curve_db(0, 0, 50, 226), -231, 5);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_curve_follows_the_mockup);
     TT_RUN(ui_redraws_only_what_a_turn_changed);
     TT_RUN(ui_edit_returns_to_play);
     TT_RUN(ui_meter_lights_the_value);
