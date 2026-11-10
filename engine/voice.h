@@ -48,7 +48,7 @@ typedef struct {
     uint8_t next_key;       /* `note` as set, for key_note when it starts
                              * (after a steal fade, as next_pitch) */
     uint8_t ctrl_phase;     /* samples until the next cutoff update */
-    uint8_t cutoff_dirty;   /* a setting or the note changed the cutoff */
+    uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
     uint8_t mix_src;        /* the mix envelope follows: 0 filter_env, 1 amp_env */
     /* filter: settings copied from the engine's parameters, and state */
     fm_filter filter;
@@ -155,6 +155,60 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
  */
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now);
+
+/*
+ * A voice's busy word: each per-voice processor sets its bit when it leaves
+ * rest and clears it when it returns. A voice with none set (and sounding)
+ * renders on the fast path.
+ */
+#define FM_BUSY_CUTOFF 0x01u     /* a setting or the note changed the cutoff */
+#define FM_BUSY_FILTER_ENV 0x02u /* the filter envelope moves the cutoff */
+#define FM_BUSY_STEAL 0x04u      /* fading out a stolen note (pending) */
+#define FM_BUSY_GATE 0x08u       /* a release queued (gate_left) */
+#define FM_BUSY_FILTER 0x10u     /* the filter isn't a wire (fm_filter_is_wire) */
+#define FM_BUSY_MIX 0x20u        /* the mix envelope on, or a glide not landed */
+#define FM_BUSY_ALL 0x3Fu
+
+/* every FM_BUSY_* bit fits in fm_voice's busy */
+typedef char fm_require_busy_bits_fit[
+    ((FM_BUSY_CUTOFF | FM_BUSY_FILTER_ENV | FM_BUSY_STEAL | FM_BUSY_GATE |
+      FM_BUSY_FILTER | FM_BUSY_MIX) == FM_BUSY_ALL &&
+     FM_BUSY_ALL >> (8 * sizeof(((fm_voice *)0)->busy)) == 0) ? 1 : -1];
+
+/* Sets or clears busy bit(s) `bits` of voice `v`. */
+static inline void fm_voice_mark(fm_voice *v, uint8_t bits, int on)
+{
+    v->busy = (uint8_t)(on ? v->busy | bits : v->busy & ~bits);
+}
+
+/* Marks the mix busy while the mix envelope is on, a glide step is set or
+ * the mix is away from osc_mix; call after any of them changes (the glide
+ * itself moves the mix only while a step is set). */
+static inline void fm_voice_mark_mix(fm_voice *v)
+{
+    fm_voice_mark(v, FM_BUSY_MIX,
+                  v->mix_env || v->mix_step || v->osc.mix != v->mix_base);
+}
+
+/* Nonzero while any of the voice's processors is away from rest; a voice
+ * at rest (and sounding) renders on the fast path. The busy word itself:
+ * the one way to read it (mask it with FM_BUSY_* for one processor). */
+static inline uint32_t fm_voice_busy(const fm_voice *v)
+{
+    return v->busy;
+}
+
+/* The same question asked of the processors themselves instead of the busy
+ * word: nonzero while any is away from rest (a steal fade or queued
+ * release, a filter envelope amount, the mix envelope or a glide, the
+ * filter not a wire, or a cutoff not yet updated for the settings and the
+ * note). The busy word must be nonzero whenever this is. For checks only:
+ * it costs a cutoff computation. */
+uint32_t fm_voice_busy_derived(const fm_voice *v);
+
+/* Sets the highpass position 0..3 of voice `v`'s filter (see
+ * fm_filter_set_highpass), keeping the voice's busy word. */
+void fm_voice_set_highpass(fm_voice *v, uint8_t step);
 
 /*
  * Adds `frames` samples of the voice (Q8.24) to `mix`. `next_tick` is the
