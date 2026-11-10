@@ -133,10 +133,12 @@ check boundedness with eight summed full-scale voices.
 - The FM-1 runs at 44.1 kHz with 256-frame blocks, so the host and the tests
   default to 44100 Hz. One block is 5.8 ms of audio, and all the voices plus
   the chorus have to render within that.
-- The sample rate is an argument to `fm_engine_init` (1 Hz to 192 kHz) and is
-  never hardcoded, because the FM-1's real rate still has to be confirmed.
-  Most tests run at 44.1 kHz; the edge-case test also uses 1 Hz, 8 kHz and
-  192 kHz.
+- The sample rate is an argument to `fm_engine_init` (8 kHz to 192 kHz; it
+  returns `FM_ERR_ARG` outside that) and is never hardcoded, because the
+  FM-1's real rate still has to be confirmed. Below 8 kHz the chorus LFO
+  increment and the millisecond conversions lose too much precision to be
+  worth supporting. Most tests run at 44.1 kHz; the edge-case tests also use
+  8 kHz, 11.025 kHz and 192 kHz.
 - `fm_engine_render` takes any number of frames, so the caller (the desktop
   host or the device's audio callback) picks the block size. The engine works
   sample by sample and keeps no block buffers. The host renders between MIDI

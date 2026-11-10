@@ -72,7 +72,7 @@ typedef struct {
 
 /*
  * Sets up `e` for `voice_count` voices (1..FM_MAX_VOICES) at
- * `sample_rate` Hz (1..192000) with every parameter at its default.
+ * `sample_rate` Hz (8000..192000) with every parameter at its default.
  * Each note takes a voice; with more notes than voices the engine steals
  * one (the rule is in docs/voices.md). Each voice is mixed at
  * 1 / voice_count, then -6 dB, so a full chord never clips.

@@ -298,7 +298,7 @@ TT_TEST(chorus_engine_peak_does_not_rise_with_a_full_chord)
  */
 TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
 {
-    static const uint32_t rates[] = { 1, 8000, 96000, 192000 };
+    static const uint32_t rates[] = { 8000, 11025, 96000, 192000 };
     static fm_chorus ch;
     size_t r;
     int mode;
@@ -312,8 +312,7 @@ TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
             fm_engine_note_on(&ch_eng, 45, 100);
             fm_engine_render(&ch_eng, ch_buf, CH_RATE);
             TT_CHECK(peak_abs(ch_buf, 0, CH_RATE) <= 16384 + 64);
-            if (rates[r] >= 8000)
-                TT_CHECK(ch_side_ratio(ch_buf, CH_RATE / 2, CH_RATE) > 0.05);
+            TT_CHECK(ch_side_ratio(ch_buf, CH_RATE / 2, CH_RATE) > 0.05);
         }
     }
     /* deep at 192 kHz: scaled to the line, same rate and shape */

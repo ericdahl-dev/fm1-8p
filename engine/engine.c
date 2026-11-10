@@ -5,6 +5,8 @@
  */
 #include "fm1_8p.h"
 
+/* Below 8 kHz slow LFO and delay settings lose precision. */
+#define MIN_SAMPLE_RATE 8000u
 #define MAX_SAMPLE_RATE 192000u
 /* A stolen voice fades out over this long before its new note starts. */
 #define STEAL_FADE_MS 3
@@ -87,7 +89,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
 {
     uint16_t id;
     uint8_t i;
-    if (!e || sample_rate == 0 || sample_rate > MAX_SAMPLE_RATE ||
+    if (!e || sample_rate < MIN_SAMPLE_RATE || sample_rate > MAX_SAMPLE_RATE ||
         voice_count == 0 || voice_count > FM_MAX_VOICES)
         return FM_ERR_ARG;
     e->sample_rate = sample_rate;
