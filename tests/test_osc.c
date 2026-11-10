@@ -684,6 +684,30 @@ TT_TEST(sync_with_osc2_coarse_repeats_at_osc1)
     TT_CHECK(synced < 200);
 }
 
+/*
+ * Cross-mod's bend follows osc2's coarse tune: changed on a note already
+ * playing with cross-mod, it sounds exactly like a note started with it.
+ */
+TT_TEST(xmod_follows_osc2_coarse_changed_on_a_held_note)
+{
+    static int16_t first[2 * 4096];
+    size_t i;
+    int same = 1;
+    slave_init(RATE, FM_WAVE_SAW);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 500);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, first, 4096);
+    slave_init(RATE, FM_WAVE_SAW);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 500);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7); /* on the held note */
+    fm_engine_render(&eng, buf, 4096);
+    for (i = 0; i < 2 * 4096; i++)
+        if (buf[i] != first[i]) same = 0;
+    TT_CHECK(same);
+}
+
 /* Cross-mod set to 0 sounds exactly like cross-mod never touched. */
 TT_TEST(xmod_zero_matches_no_xmod)
 {
@@ -793,6 +817,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
     TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
     TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
+    TT_RUN(xmod_follows_osc2_coarse_changed_on_a_held_note);
     TT_RUN(xmod_zero_matches_no_xmod);
     TT_RUN(xmod_adds_sidebands);
     TT_RUN(max_xmod_and_sync_stay_in_range);
