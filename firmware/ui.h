@@ -36,7 +36,17 @@ typedef struct {
 typedef struct {
     play *p;
     ui_state state;
+    uint32_t focus;                     /* the knob (0..3) the focus row shows: the last one turned */
+    uint32_t dirty;                     /* UI_D_*: what to redraw */
+    uint32_t drawn_ms;                  /* when ui_take last handed out a redraw */
 } ui;
+
+/* ui_take's bits: what changed since the last redraw */
+#define UI_D_FULL   0x01u               /* the whole screen: a page opened */
+#define UI_D_FOCUS  0x02u               /* the focus row */
+#define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
+#define UI_D_COL(k) (0x10u << (k))      /* knob column k */
+#define UI_FRAME_MS 33u                 /* redraws are at least this far apart (visual.md: 30 a second) */
 
 void ui_init(ui *u, play *p);
 #define UI_VALUE_LEN 12u                /* room for a value as the focus row reads it, and its end */
@@ -50,4 +60,6 @@ uint32_t ui_meter(uint16_t id, int32_t value);
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
+/* the UI_D_* bits to redraw now (0: nothing, or the last redraw was under UI_FRAME_MS ago), taken */
+uint32_t ui_take(ui *u, uint32_t ms);
 #endif

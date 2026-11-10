@@ -115,6 +115,16 @@ void ui_init(ui *u, play *p)
 {
     u->p = p;
     u->state = UI_PLAY;
+    u->focus = 1;
+    u->dirty = UI_D_FULL;
+    u->drawn_ms = 0;
+}
+
+static void show_page(ui *u, ui_state st)
+{
+    u->state = st;
+    u->focus = 1;                               /* knob 2, as visual.md's pages open */
+    u->dirty |= UI_D_FULL;
 }
 
 static void turn(ui *u, uint32_t k, int32_t clicks)
@@ -124,6 +134,10 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         return;
     play_set_param(u->p, s->id, play_get_param(u->p, s->id) +
                    (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
+    u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
+    if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE)
+        u->dirty |= UI_D_SLOT;                  /* the curve shows only those two */
+    u->focus = k;
 }
 
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
@@ -131,8 +145,20 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     uint32_t id = ev & 0xFFu;
     (void)ms;
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV))
-        u->state = UI_EDIT;
+        show_page(u, UI_EDIT);
+    else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT))
+        show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&
              u->state == UI_EDIT)
         turn(u, id - UI_ENC_KNOB1, arg);
+}
+
+uint32_t ui_take(ui *u, uint32_t ms)
+{
+    uint32_t d = u->dirty;
+    if (!d || (!(d & UI_D_FULL) && ms - u->drawn_ms < UI_FRAME_MS))
+        return 0;
+    u->dirty = 0;
+    u->drawn_ms = ms;
+    return d;
 }

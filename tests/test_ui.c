@@ -138,8 +138,39 @@ TT_TEST(ui_meter_lights_the_value)
     TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 0), 0u);
 }
 
+/* What to redraw: the page in full when it opens; after a turn, that knob's column and the focus
+ * row (the focus moves to the knob turned: the column it left too), and the curve only for CUTOFF
+ * and RESO. Turns closer than UI_FRAME_MS to the last redraw wait for the next one. */
+TT_TEST(ui_redraws_only_what_a_turn_changed)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    TT_CHECK_EQ(ui_take(&ui_u, 0) & UI_D_FULL, UI_D_FULL);
+    TT_CHECK_EQ(ui_take(&ui_u, 100), 0u);       /* nothing changed */
+    TT_CHECK_EQ(ui_u.focus, 1u);                /* RESO, as the page opens */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 200);
+    TT_CHECK_EQ(ui_take(&ui_u, 200), UI_D_COL(1) | UI_D_FOCUS | UI_D_SLOT);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 210);
+    TT_CHECK_EQ(ui_take(&ui_u, 210), 0u);       /* within a frame of the last redraw */
+    TT_CHECK_EQ(ui_take(&ui_u, 200 + UI_FRAME_MS), UI_D_COL(1) | UI_D_COL(2) | UI_D_FOCUS);
+    TT_CHECK_EQ(ui_u.focus, 2u);
+}
+
+/* EDIT goes back to the PLAY screen, in full. */
+TT_TEST(ui_edit_returns_to_play)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    (void)ui_take(&ui_u, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 500);
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+    TT_CHECK_EQ(ui_take(&ui_u, 500) & UI_D_FULL, UI_D_FULL);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_redraws_only_what_a_turn_changed);
+    TT_RUN(ui_edit_returns_to_play);
     TT_RUN(ui_meter_lights_the_value);
     TT_RUN(ui_reso_env_and_key_read_in_their_units);
     TT_RUN(ui_cutoff_reads_in_hz_three_digits);
