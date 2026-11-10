@@ -28,13 +28,14 @@ static uint32_t note_inc(const fm_engine *e, uint8_t note)
     return fm_osc_pitch_inc(((int32_t)note << 16) + e->bend, e->sample_rate);
 }
 
-/* Retunes every voice after the bend changes. A stolen voice's old note
+/* Retunes every sounding voice after the bend changes. A stolen voice's old note
  * keeps its pitch for the few ms it takes to fade. */
 static void retune(fm_engine *e)
 {
     uint8_t i;
-    for (i = 0; i < e->voice_count; i++)
-        fm_voice_set_inc(&e->voices[i], note_inc(e, e->voices[i].note));
+    for (i = 0; i < e->voice_count; i++) /* idle voices get theirs at note on */
+        if (fm_voice_active(&e->voices[i]))
+            fm_voice_set_inc(&e->voices[i], note_inc(e, e->voices[i].note));
 }
 
 /* MIDI bend (-8192..8191 from center) to Q16.16 semitones: exact, since

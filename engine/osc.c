@@ -43,12 +43,6 @@ uint32_t fm_osc_pitch_inc(int32_t pitch, uint32_t sample_rate)
     return inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)inc;
 }
 
-uint32_t fm_osc_note_inc(uint8_t note, uint32_t sample_rate)
-{
-    return fm_osc_pitch_inc((int32_t)(note > 127 ? 127 : note) << 16,
-                            sample_rate);
-}
-
 void fm_osc_reset(fm_osc *o)
 {
     o->phase = 0;
