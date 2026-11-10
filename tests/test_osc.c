@@ -272,6 +272,35 @@ TT_TEST(mix_env_back_to_zero_restores_the_fixed_mix)
     TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
 }
 
+/* Renders a held note with mix 300 and the filter envelope sweeping the cutoff. */
+static void render_mix_env_patch(int16_t *out, int set_and_clear)
+{
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 300);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3000);
+    if (set_and_clear) {
+        fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 700);
+        fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 0);
+    }
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, out, 8192);
+}
+
+/* Depth 0 (set and cleared) is byte-identical to the fixed mix. */
+TT_TEST(mix_env_zero_matches_the_fixed_mix)
+{
+    static int16_t plain[2 * 8192];
+    size_t i;
+    int same = 1;
+    render_mix_env_patch(plain, 0);
+    render_mix_env_patch(buf, 1);
+    for (i = 0; i < 2 * 8192; i++)
+        if (buf[i] != plain[i]) same = 0;
+    TT_CHECK(same);
+}
+
 /*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
@@ -854,6 +883,7 @@ static void run_osc_tests(void)
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(mix_env_at_full_depth_plays_osc2);
     TT_RUN(mix_env_back_to_zero_restores_the_fixed_mix);
+    TT_RUN(mix_env_zero_matches_the_fixed_mix);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
