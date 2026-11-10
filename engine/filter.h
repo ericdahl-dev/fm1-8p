@@ -62,7 +62,9 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 #define FM_FILTER_HIGHPASS_STEPS 4
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents);
 
-/* Filters one Q8.24 sample: highpass, then lowpass. */
+/* Filters one Q8.24 sample: highpass, then lowpass. Any int32 input (the
+ * whole +-128.0) is valid: no overflow, a bounded output, and exactly the
+ * output of the same filter computed in 64 bits. */
 int32_t fm_filter_process(fm_filter *f, int32_t in);
 
 /*

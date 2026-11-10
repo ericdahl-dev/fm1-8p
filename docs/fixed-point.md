@@ -111,8 +111,18 @@ resonant 4-pole (24 dB/octave) lowpass.
   +-2.0 (a full-scale saw passes untouched), then a quadratic knee that
   flattens at +-4.0. `m` is a weighted average of `x` and `x1`, and `y` of `m`
   and the old `y`, so no state can pass the clip's limit. The filter cannot
-  overflow or run away at any resonance, and self-oscillation settles at a
-  fixed level (about 0.83 of full scale at mid cutoffs).
+  overflow or run away at any resonance, for any Q8.24 input (the whole
+  +-128.0), and self-oscillation settles at a fixed level (about 0.83 of
+  full scale at mid cutoffs).
+- **32-bit sums (#34).** The sums run in 32 bits; only the products need 64
+  (one 32x32->64 multiply each). The highpass state stays within the input's
+  range, so while the input and that state are within +-64.0 (an oscillator
+  stays near +-1.0) the highpass fits 32 bits; louder, it runs in 64. Its
+  output is then clamped to +-32.0, which changes nothing: the feedback is
+  within +-4.0 * 4.2, so the clamped value still drives the soft clip past
+  its saturation (6.0) with the same sign. The output is bit for bit that
+  of the same filter in 64 bits over the whole +-128.0
+  (`tests/test_filter_oracle.c` holds it to a 64-bit reference).
 - **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
   env_amount * env_level`, all in cents, computed every 16 samples (a
   2.8 kHz control rate at 44.1 kHz), not per sample. Key tracking follows the
