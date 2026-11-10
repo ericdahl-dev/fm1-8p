@@ -21,6 +21,7 @@
 typedef struct {
     int32_t s[4]; /* lowpass stage outputs, Q8.24 */
     int32_t g;    /* lowpass stage coefficient, Q1.30 (1.0 = open) */
+    int32_t k;    /* resonance feedback, Q4.28 (0 .. 4.0) */
 } fm_filter;
 
 /* Pitch of the sample rate in cents above MIDI note 0. Computed once

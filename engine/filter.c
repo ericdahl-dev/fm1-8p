@@ -3,10 +3,14 @@
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
- * The lowpass is four one-pole stages in series, y += g * (x - y). Each
+ * The lowpass is four one-pole stages in series, y += g * (x - y), with
+ * the last stage fed back to the input (times -k) for resonance. Each
  * stage output is a weighted average of its input and its old output,
- * so with 0 <= g <= 1 no stage can exceed its input. See
- * docs/fixed-point.md for the formats and the measured response.
+ * so with 0 <= g <= 1 no stage can exceed its input. The feedback sum
+ * goes through a soft clip that never exceeds CLIP_MAX, so every state
+ * stays within +-CLIP_MAX whatever the resonance: no overflow, no
+ * runaway. See docs/fixed-point.md for the formats and the measured
+ * response.
  */
 #include "filter.h"
 
@@ -113,6 +117,7 @@ void fm_filter_reset(fm_filter *f)
     int i;
     for (i = 0; i < 4; i++) f->s[i] = 0;
     f->g = ONE_Q30;
+    f->k = 0;
 }
 
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
@@ -126,8 +131,28 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
 
 void fm_filter_set_resonance(fm_filter *f, int32_t permille)
 {
-    (void)f;
-    (void)permille;
+    if (permille < 0) permille = 0;
+    if (permille > 1000) permille = 1000;
+    f->k = permille * 1073741; /* 4.0 * permille / 1000, Q4.28 */
+}
+
+/*
+ * Soft clip, Q8.24: a wire up to +-2.0 (so a full-scale input passes
+ * untouched), then a quadratic knee that flattens out at +-4.0 for
+ * inputs of +-6.0 and beyond. Continuous, with a continuous slope.
+ */
+#define KNEE      (2 << 24)
+#define KNEE_SPAN (4 << 24)
+#define CLIP_MAX  (4 << 24)
+
+static int32_t soft_clip(int64_t u)
+{
+    int64_t a = (u < 0 ? -u : u) - KNEE;
+    int32_t m;
+    if (a <= 0) return (int32_t)u;
+    m = a >= KNEE_SPAN ? CLIP_MAX
+                       : KNEE + (int32_t)(a - ((a * a) >> 27)); /* a - a^2/8 */
+    return u < 0 ? -m : m;
 }
 
 /* One stage: y += g * (x - y). */
@@ -139,7 +164,8 @@ static int32_t stage(int32_t *y, int32_t x, int32_t g)
 
 int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
-    int32_t y = stage(&f->s[0], in, f->g);
+    int32_t u = soft_clip((int64_t)in - (((int64_t)f->s[3] * f->k) >> 28));
+    int32_t y = stage(&f->s[0], u, f->g);
     y = stage(&f->s[1], y, f->g);
     y = stage(&f->s[2], y, f->g);
     return stage(&f->s[3], y, f->g);

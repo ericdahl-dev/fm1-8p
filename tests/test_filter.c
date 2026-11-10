@@ -67,7 +67,36 @@ TT_TEST(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave)
     TT_CHECK_NEAR(oct2 - oct3, 23.3, 2.0);
 }
 
+/*
+ * Resonance feeds the last stage back to the input, which lifts the
+ * response at the cutoff (theory for the analog ladder: 0.25 / (1 - k/4)
+ * at feedback k; k = 4 at resonance 1000) and costs some bass. Midway,
+ * where the cutoff point is near the passband level, the octave above
+ * cutoff is about 24 dB below the cutoff point (theory 23.6 dB at 600).
+ */
+TT_TEST(resonance_raises_gain_near_cutoff)
+{
+    static fm_filter f;
+    double at0, at500, at900, at600, oct600;
+    lowpass_at(&f, 6900, 0);
+    at0 = filter_gain_db(&f, 440.0, 0.25);
+    lowpass_at(&f, 6900, 500);
+    at500 = filter_gain_db(&f, 440.0, 0.25);
+    lowpass_at(&f, 6900, 900);
+    at900 = filter_gain_db(&f, 440.0, 0.25);
+    lowpass_at(&f, 6900, 600);
+    at600 = filter_gain_db(&f, 440.0, 0.25);
+    oct600 = filter_gain_db(&f, 880.0, 0.25);
+    printf("    gain at cutoff: res 0 %.2f dB, 500 %.2f, 900 %.2f; "
+           "res 600: cutoff %.2f, octave above %.2f\n",
+           at0, at500, at900, at600, oct600);
+    TT_CHECK(at500 > at0 + 5.0);  /* theory +6.0 dB */
+    TT_CHECK(at900 > at500 + 12.0); /* theory +14.0 dB */
+    TT_CHECK_NEAR(at600 - oct600, 24.0, 3.0);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
+    TT_RUN(resonance_raises_gain_near_cutoff);
 }
