@@ -278,14 +278,16 @@ TT_TEST(cpu_test_full_patch_ends_the_sweep_after_its_hold)
     TT_CHECK_EQ(cpu_test_take_completed(&ct_a, &v, &pm), 0);
 }
 
-/* Step F, after U: the full patch, every modulation the engine has turned on, on the 8-voice chord. */
+/* Step F, after U: the full patch, every modulation the engine has turned on, on a 6-voice chord: F asks
+ * "do 6 voices fit", so a device that can't keep up shows an overrun rather than having the module stopped
+ * (the desktop bench plays it on 8). */
 TT_TEST(cpu_test_full_patch_step_turns_on_every_modulation)
 {
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
     cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
     cpu_test_render(&ct_a, ct_out, CT_BLOCK);
     TT_CHECK_EQ(cpu_test_voices(&ct_a), CT_FULL);
-    TT_CHECK_EQ(fm_engine_active_voices(&ct_a.engine), FM_MAX_VOICES);
+    TT_CHECK_EQ(fm_engine_active_voices(&ct_a.engine), 6);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_VOICE_MODE), FM_VOICE_MODE_POLY);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_OSC1_WAVE), FM_WAVE_PULSE);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_OSC2_WAVE), FM_WAVE_SAW);
@@ -300,17 +302,18 @@ TT_TEST(cpu_test_full_patch_step_turns_on_every_modulation)
 /* F strikes its notes at different velocities, so the amp velocity curve gives each a different peak. */
 TT_TEST(cpu_test_full_patch_strikes_varied_velocities)
 {
-    uint32_t i, j, differ = 0;
+    uint32_t i, j, differ = 0, n;
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
     cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
     cpu_test_render(&ct_a, ct_out, CT_BLOCK);
-    for (i = 0; i < FM_MAX_VOICES; i++) {
+    n = ct_a.engine.voice_count;
+    for (i = 0; i < n; i++) {
         TT_CHECK(cpu_test_full_velocity(i) >= 1 && cpu_test_full_velocity(i) < 127);
         TT_CHECK(ct_a.engine.voices[i].amp_env.peak < (1 << 30));       /* below full: the curve applied */
         for (j = 0; j < i; j++)
             differ += ct_a.engine.voices[i].amp_env.peak != ct_a.engine.voices[j].amp_env.peak;
     }
-    TT_CHECK_EQ(differ, FM_MAX_VOICES * (FM_MAX_VOICES - 1) / 2);   /* every pair differs */
+    TT_CHECK_EQ(differ, n * (n - 1) / 2);                       /* every pair differs */
 }
 
 /* Steps 1..8 and U play the default patch: F's settings never leak into them, even after F ran. */
@@ -318,7 +321,9 @@ TT_TEST(cpu_test_default_steps_leave_the_patch_at_its_defaults)
 {
     static const uint16_t MOD[] = {FM_PARAM_OSC1_WAVE, FM_PARAM_OSC2_WAVE, FM_PARAM_OSC_MIX,
                                    FM_PARAM_CHORUS_MODE, FM_PARAM_LFO_PITCH_CENTS, FM_PARAM_LFO_PW_PCT,
-                                   FM_PARAM_AMP_VELOCITY};
+                                   FM_PARAM_AMP_VELOCITY, FM_PARAM_FILTER_CUTOFF_CENTS,
+                                   FM_PARAM_FILTER_RESONANCE, FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
+                                   FM_PARAM_HIGHPASS_STEP};
     uint32_t v, i;
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
     cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
@@ -378,8 +383,47 @@ TT_TEST(cpu_test_full_patch_that_fails_is_not_timed)
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_AMP_VELOCITY), 100);
 }
 
+/* F's filter does real work, off fm_filter_run's wide-open fast path (a wire): in every voice the lowpass
+ * is below open (fade, and with it the resonance, engaged) and the highpass is on, each on its own. */
+TT_TEST(cpu_test_full_patch_filter_is_off_the_fast_path)
+{
+    uint32_t i, b;
+    TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
+    for (b = 0; b < 200; b++) {                                 /* through attack and decay to sustain */
+        cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+        for (i = 0; i < ct_a.engine.voice_count; i++) {
+            const fm_filter *f = &ct_a.engine.voices[i].filter;
+            TT_CHECK(f->fade != 0);                             /* the lowpass */
+            TT_CHECK(f->k != 0);                                /* its resonance */
+            TT_CHECK(f->hp_g != 0);                             /* the highpass */
+        }
+    }
+}
+
+/* F times the lowpass's costlier general path: the envelope sweeps the cutoff into the top of its range
+ * (the fade, 0 < fade < 1.0, where every stage weighs its previous input), not only the cheaper path
+ * below it. */
+TT_TEST(cpu_test_full_patch_sweeps_the_filter_through_its_fade)
+{
+    uint32_t i, b, faded = 0;
+    TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
+    for (b = 0; b < 200; b++) {                                 /* through attack and decay to sustain */
+        cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+        for (i = 0; i < ct_a.engine.voice_count; i++) {
+            const fm_filter *f = &ct_a.engine.voices[i].filter;
+            if (f->fade > 0 && f->fade < (1 << 30))
+                faded++;
+        }
+    }
+    TT_CHECK(faded > 0);
+}
+
 static void run_cpu_test_tests(void)
 {
+    TT_RUN(cpu_test_full_patch_sweeps_the_filter_through_its_fade);
+    TT_RUN(cpu_test_full_patch_filter_is_off_the_fast_path);
     TT_RUN(cpu_test_full_patch_that_fails_is_not_timed);
     TT_RUN(cpu_test_full_patch_can_play_at_any_voice_count);
     TT_RUN(cpu_test_full_patch_strikes_varied_velocities);
