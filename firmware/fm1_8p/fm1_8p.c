@@ -25,9 +25,6 @@ static void note(uint32_t ch, uint32_t key, uint32_t vel)
 
 static void midi(uint32_t st, uint32_t d1, uint32_t d2) { play_midi(&P, st, d1, d2); }
 
-/* Not called while midi() is set (the host hands that every channel message); kept for completeness. */
-static void cc(uint32_t ch, uint32_t num, uint32_t val) { play_midi(&P, 0xB0u | (ch & 15u), num, val); }
-
 static void ui(uint32_t ev, int32_t arg) { (void)ev; (void)arg; }
 
 static void draw(uint32_t full)
@@ -51,8 +48,6 @@ static void draw(uint32_t full)
     }
 }
 
-static void release(void) {}
-
 static int init(const hb_host_t *h)
 {
     H = h;
@@ -65,4 +60,5 @@ static int init(const hb_host_t *h)
     return 0;
 }
 
-HB_DESC = {HB_ABI, "FM1-8P", init, release, note, cc, render, ui, draw, 0, 0, 0, midi};
+/* no release(): init() starts afresh; no cc(): midi() takes every channel message */
+HB_DESC = {HB_ABI, "FM1-8P", init, 0, note, 0, render, ui, draw, 0, 0, 0, midi};
