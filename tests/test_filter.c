@@ -407,14 +407,26 @@ TT_TEST(filter_output_does_not_depend_on_block_size)
 }
 
 /*
- * Every filter extreme at every sample rate the engine accepts: nothing
- * may divide by zero (the desktop traps), and the voice must still fall
- * silent after release. Includes the cutoff swept past both ends by key
- * tracking and the envelope.
+ * Every filter extreme from the lowest to the highest engine rate:
+ * nothing may divide by zero (the desktop traps), and the voice must
+ * still fall silent after release. Includes the cutoff swept past both
+ * ends by key tracking and the envelope. The filter module on its own
+ * also takes rates far below the engine's (1 Hz here).
  */
 TT_TEST(extreme_filter_settings_stay_bounded_and_release)
 {
-    static const uint32_t rates[] = { 1, 8000, 44100, 192000 };
+    static const uint32_t rates[] = { 8000, 22050, 44100, 192000 };
+    static fm_filter f;
+    int32_t low_rate = fm_filter_rate_cents(1), cents;
+    for (cents = 0; cents <= FM_FILTER_OPEN_CENTS; cents += 600) {
+        int32_t y;
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, 1000);
+        fm_filter_set_highpass(&f, 3, low_rate);
+        fm_filter_set_cutoff(&f, cents, low_rate);
+        y = fm_filter_process(&f, 1 << 24);
+        TT_CHECK(y <= FILTER_BOUND && y >= -FILTER_BOUND);
+    }
     static const uint8_t notes[] = { 0, 60, 127 };
     static const int32_t cutoffs[] = { 0, FM_FILTER_OPEN_CENTS };
     static const int32_t amounts[] = { -9600, 9600 };
