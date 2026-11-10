@@ -16,6 +16,7 @@
 #define UI_BTN_LFO     5u
 #define UI_BTN_EDIT    6u
 #define UI_BTN_HOME    8u
+#define UI_BUTTONS     14u                /* button ids 0..13 */
 #define UI_ENC_KNOB1   2u
 #define UI_ENC_KNOB2   3u
 #define UI_ENC_KNOB3   4u
@@ -43,7 +44,7 @@ typedef struct {
     uint32_t focus;                     /* the knob (0..3) the focus row shows: the last one turned */
     uint32_t dirty;                     /* UI_D_*: what to redraw */
     uint32_t drawn_ms;                  /* when ui_take last handed out a redraw */
-    uint32_t edit_down_ms;              /* when EDIT went down */
+    uint32_t down_ms[UI_BUTTONS];       /* when each button went down */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */

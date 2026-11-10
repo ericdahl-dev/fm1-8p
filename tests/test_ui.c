@@ -318,8 +318,20 @@ TT_TEST(ui_redraw_goes_one_band_at_a_time)
     TT_CHECK_EQ(ui_next_band(&pending), 0u);
 }
 
+/* HOME held 1.5 s opens the host's picker, which sends HOME's release first: a release 400 ms or
+ * more after the press is not a tap, so the page stays. */
+TT_TEST(ui_home_hold_keeps_the_page)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_HOME, 0, 1000);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_HOME, 0, 2500);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_home_hold_keeps_the_page);
     TT_RUN(ui_redraw_goes_one_band_at_a_time);
     TT_RUN(ui_focus_value_splits_number_and_unit);
     TT_RUN(ui_full_redraw_takes_the_pending_bits);
