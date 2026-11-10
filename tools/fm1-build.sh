@@ -71,11 +71,15 @@ stage_module() {
                     esac
                 done
                 echo "$key =$out" ;;
-            cflags\ =*) echo "$line" ;;
-            cflags\ *=*)                         # hbmod's `cflags FILE =`: FILE relative to the module
-                file=${line#cflags } file=${file%% =*}
-                case "$file" in /*) ;; *) file=$(abspath "$src/$file") ;; esac
-                echo "cflags $file =${line#* =}" ;;
+            cflags*=*)                          # as hbmod reads it: split at the first '=', words of the key
+                set -f; val=$(echo ${line#*=}); set -- ${line%%=*}; set +f    # (no globbing: flags may hold *)
+                if [ "$#" -ge 2 ] && [ "$1" = cflags ]; then   # `cflags FILE =`: FILE relative to the module
+                    file=$2
+                    case "$file" in /*) ;; *) file=$(abspath "$src/$file") ;; esac
+                    echo "cflags $file = $val"
+                else
+                    echo "$line"
+                fi ;;
             *) echo "$line" ;;
         esac
     done <"$1/module.cfg" >"$2/module.cfg"
@@ -142,19 +146,23 @@ emu_report() {
     fi
 }
 
-# check_module_symbols DIR: the module hbmod linked in DIR (module_02200000.elf) defines nothing beyond
-# its own objects (DIR/*.o) except allowed helpers. NM: the toolchain's nm.
+# check_module_symbols DIR: the module hbmod linked in DIR (module_02200000.elf) takes nothing from the
+# toolchain's libraries ($JIELI_TOOLCHAIN/pi32v2/lib/lib*.a) but allowed helpers: no soft-float, libm
+# or heap. It reads the linked image, not DIR's objects: hbmod never cleans DIR, so an object from an
+# older build may sit there. It runs the toolchain's own nm.
 check_module_symbols() {
     (
-        cd "$1" || exit 1
         tmp=$(mktemp -d) || exit 1
         trap 'rm -rf "$tmp"' EXIT
-        "$NM" *.o >"$tmp/own" && "$NM" module_02200000.elf >"$tmp/linked" || exit 1
-        awk 'NF == 3 { print $3 }' "$tmp/own" | sort -u >"$tmp/own.n"
+        nm=$JIELI_TOOLCHAIN/pi32v2/bin/nm
+        "$nm" "$1/module_02200000.elf" >"$tmp/linked" && "$nm" "$JIELI_TOOLCHAIN"/pi32v2/lib/lib*.a >"$tmp/libs" ||
+            exit 1
         awk 'NF == 3 { print $3 }' "$tmp/linked" | sort -u >"$tmp/linked.n"
-        # integer helpers (64-bit and division), memory helpers, and what hbmod's link script defines
-        bad=$(comm -23 "$tmp/linked.n" "$tmp/own.n" | grep -Ev \
-            '^(__(u?(div|mod|divmod)|mul|ashl|ashr|lshr|cmp|ucmp)(si|di)[34]|memset|memcpy|memmove|hb_module|_hb_.*|\..*)$')
+        # (a library's global definitions: only those can be pulled into a link)
+        awk 'NF == 3 && $2 ~ /^[A-TV-Z]$/ { print $3 }' "$tmp/libs" | sort -u >"$tmp/libs.n"
+        # integer helpers (64-bit, division and bit counts) and memory helpers
+        bad=$(comm -12 "$tmp/linked.n" "$tmp/libs.n" | grep -Ev \
+            '^(__(u?(div|mod|divmod)|mul|ashl|ashr|lshr|cmp|ucmp|neg)(si|di)[234]|__(clz|ctz|popcount|bswap|ffs|parity)(si|di)2|memset|memcpy|memmove)$')
         [ -z "$bad" ] && exit 0
         echo "fm1-build: the module links in symbols outside the allowlist (soft-float, libm or heap?):" $bad >&2
         exit 1
@@ -253,6 +261,7 @@ check_inputs() {
         { echo "fm1-build: $FM1_DOCK is not fm1-dock $FM1_DOCK_SHA" >&2; rc=1; }
     verify_toolchain_dir "$JIELI_TOOLCHAIN" "$JIELI_TOOLCHAIN_DIR" || rc=1
     [ -x "$JIELI_TOOLCHAIN/pi32v2/bin/clang" ] || { echo "fm1-build: no clang in $JIELI_TOOLCHAIN" >&2; rc=1; }
+    [ -x "$JIELI_TOOLCHAIN/pi32v2/bin/nm" ] || { echo "fm1-build: no nm in $JIELI_TOOLCHAIN" >&2; rc=1; }
     for pin in $AC79_SDK_FILES; do
         verify_sha256 "$AC79_SDK/cpu/wl82/tools/${pin%%:*}" "${pin#*:}" || rc=1
     done
@@ -285,7 +294,8 @@ run_canaries() {
     for c in "$ROOT"/firmware/canary/*/; do
         canary=$(basename "$c")
         log=$OUT/canary-$canary.log
-        if dock hbmod.py "$c" >"$log" 2>&1; then
+        if dock hbmod.py "$c" >"$log" 2>&1 &&
+            check_module_symbols "$FM1_DOCK/build/modules/$canary" >>"$log" 2>&1; then
             echo "fm1-build: canary $canary built: the check was NOT applied" >&2
             rc=1
         elif canary_caught "$log" "$c/expect"; then
@@ -306,6 +316,7 @@ run_emu() {
     stage_module "$ROOT/firmware/fm1_8p_cpu_quick" "$OUT/modules/fm1_8p_cpu_quick" "$ROOT/engine"
     dock build.py --modules "$OUT/modules/fm1_8p_cpu_quick" --name fm1-8p-cpu-quick \
         --app-name "FM1-8P CPU" --identity "$FM1_IDENTITY"
+    check_module_symbols "$FM1_DOCK/build/modules/fm1_8p_cpu_quick" || return 1
     emu_rc=0      # (no pipefail in sh: the log goes to a file first, so a crash isn't hidden by tee)
     (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
         --fwsc build/fm1-8p-cpu-quick.fwsc --ms "${FM1_EMU_MS:-$(emu_window_ms "$(sed -n 's/.*-DCPU_HOLD_BLOCKS=\([0-9]*\)u.*/\1/p' "$ROOT/firmware/fm1_8p_cpu_quick/module.cfg")")}" --out "$OUT/emu") \
@@ -334,7 +345,6 @@ JIELI_TOOLCHAIN=${JIELI_TOOLCHAIN:-$FM1_DEPS/jieli/toolchain}
 AC79_SDK=${AC79_SDK:-$FM1_DEPS/ac79-sdk}
 FM1_DOCK=${FM1_DOCK:-$FM1_DEPS/fm1-dock}
 PYTHON=${PYTHON:-python3}
-NM=${NM:-$JIELI_TOOLCHAIN/pi32v2/bin/nm}
 OUT=$ROOT/build/fm1
 mkdir -p "$OUT"
 
