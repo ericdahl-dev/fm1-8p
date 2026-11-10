@@ -91,6 +91,7 @@ expect_fail "an already-extracted fm1-live is checked too" fetch_emu
     for v in 1 2 3 4 5 6 7; do echo "5274 fm1-8p voices/worst permille 000${v}001c"; done
     echo "35250 fm1-8p voices/worst permille 000801f4"
     echo "40250 fm1-8p voices/worst permille 000900eb"
+    echo "45250 fm1-8p voices/worst permille 000a0190"
     echo "---"
     echo "active module 1; render: last 3784 ticks (2.7 %), worst 4046 (2.9 %), 0 overruns, 1984 blocks"
 } >"$T/emu.txt"
@@ -99,6 +100,12 @@ emu_report "$T/emu.txt" >"$T/report.md"
 expect_ok "emu report has one row per logged voice count" grep -q '^| 1 | 28 | 2.8 % |$' "$T/report.md"
 expect_ok "emu report: 8 voices" grep -q '^| 8 | 500 | 50.0 % |$' "$T/report.md"
 expect_ok "emu report: the unison burst is row U" grep -q '^| U (unison burst) | 235 | 23.5 % |$' "$T/report.md"
+expect_ok "emu report: the full patch is row F" grep -q '^| F (full patch) | 400 | 40.0 % |$' "$T/report.md"
+grep -v 'permille 000a' "$T/emu.txt" >"$T/emu-nofull.txt"
+expect_fail "emu report fails when the full patch is missing" emu_report "$T/emu-nofull.txt"
+emu_report "$T/emu-nofull.txt" >"$T/report.md" 2>&1
+expect_ok "... and names it F" grep -q 'Missing voice counts: F\*\*' "$T/report.md"
+emu_report "$T/emu.txt" >"$T/report.md"
 expect_ok "emu report keeps the host meter line" grep -q 'worst 4046 (2.9 %), 0 overruns' "$T/report.md"
 grep -v 'permille 000[4-6]' "$T/emu.txt" >"$T/emu-short.txt"
 expect_fail "emu report fails when voice counts are missing" emu_report "$T/emu-short.txt"
@@ -116,9 +123,10 @@ expect_ok "emu report of a restarted sweep passes" emu_report "$T/emu-again.txt"
 emu_report "$T/emu-again.txt" >"$T/report.md"
 expect_ok "... with the last sweep's rows only" grep -q '^| 1 | 28 | 2.8 % |$' "$T/report.md"
 expect_fail "... and none from the earlier one" grep -q '| 99 |' "$T/report.md"
-expect_ok "... one row per count" test "$(grep -c '^| [0-9U]' "$T/report.md")" = 9
+expect_ok "... one row per count" test "$(grep -c '^| [0-9UF]' "$T/report.md")" = 10
 expect_ok "the burst's count comes from firmware/cpu_test.h" test "$(burst_count)" = 9
-expect_ok "the emu window covers 9 steps of 86 blocks with a margin" test "$(emu_window_ms 86)" -ge 6000
+expect_ok "the full patch's count comes from firmware/cpu_test.h" test "$(full_count)" = 10
+expect_ok "the emu window covers 10 steps of 86 blocks with a margin" test "$(emu_window_ms 86)" -ge 6700
 printf 'nothing here\n' >"$T/empty.txt"
 expect_fail "emu report fails when no voice count was logged" emu_report "$T/empty.txt"
 

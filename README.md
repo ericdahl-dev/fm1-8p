@@ -45,12 +45,22 @@ the tool prints the voice count, channel and that level.
 
 ### Benchmark
 
-`build/fm1-8p-bench [-b BLOCKS] [-r RUNS]` (`-h` for help) times the engine on the FM-1 CPU
-test's workload (`firmware/cpu_test.c`): the same held chord at 1 to 8 voices,
+`build/fm1-8p-bench [-b BLOCKS] [-r RUNS] [-w WORKLOAD]` (`-h` for help) times the engine on the
+FM-1 CPU test's workload (`firmware/cpu_test.c`): the same held chord at 1 to 8 voices,
 44 100 Hz, 256-frame blocks. For each run and voice count it renders one block
 untimed (the notes start there), then times `BLOCKS` blocks one by one
 (default 2000) and keeps the median block. The table gives the median of the
-`RUNS` runs (default 5):
+`RUNS` runs (default 5).
+
+It prints one table per workload, under `## default patch` and `## full patch`; `-w default` or
+`-w full` runs only that one (default `all`):
+
+| workload | what plays |
+| --- | --- |
+| default | the default patch, as in the CPU test's steps 1 to 8. With every modulation depth at 0 the LFO costs nothing here |
+| full | the CPU test's step F patch on the same chord: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, and the deep chorus |
+
+The columns:
 
 | column | meaning |
 | --- | --- |
@@ -89,11 +99,13 @@ pulse width) and the velocity curve are in
 `firmware/` runs the unchanged engine on the FM-1 as an
 [fm1-dock](https://github.com/joakimeriksson/fm1-dock) module and measures it: it holds a chord
 and steps from 1 to 8 voices, 5 s each, then runs the unison burst (row U: 8 voices in unison,
-8 note-ons and a detune change in every block), showing the worst render time per step on screen
-(as % of a 256-frame block, 5.8 ms; the block that starts a step, engine init and note on, isn't
-timed) and logging each step a sweep held in full (`tools/dock.py logs` in fm1-dock; the burst
-logs as count 9). KNOB1 picks a step by hand, 1 to 8 then U (it stops there; a hand-picked U keeps
-bursting), and stops the sweep; PLAY sweeps again from 1. To run it on an FM-1,
+8 note-ons and a detune change in every block), then the full patch (row F: the 8-voice chord with
+both oscillators, vibrato, pulse-width modulation, amp velocity and the chorus), showing the worst
+render time per step on screen (as % of a 256-frame block, 5.8 ms; the block that starts a step,
+engine init and note on, isn't timed) and logging each step a sweep held in full (`tools/dock.py
+logs` in fm1-dock; the burst logs as count 9, the full patch as 10). KNOB1 picks a step by hand, 1
+to 8, U, then F (it stops there; a hand-picked U keeps bursting), and stops the sweep; PLAY sweeps
+again from 1. To run it on an FM-1,
 follow [docs/device-test.md](docs/device-test.md).
 
 Linux x86-64 (macOS through fm1-dock's Docker fallback, untested), with curl, git, tar, xz and

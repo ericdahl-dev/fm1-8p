@@ -3,6 +3,31 @@
 
 static const uint8_t CHORD[FM_MAX_VOICES] = {48, 52, 55, 59, 62, 66, 69, 72};   /* C3 up in thirds */
 
+/* Step F's velocities, one per chord note: spread over the curve, none at full (127 skips the curve). */
+static const uint8_t FULL_VEL[FM_MAX_VOICES] = {112, 64, 96, 40, 120, 80, 104, 56};
+
+uint8_t cpu_test_full_velocity(uint32_t i) { return FULL_VEL[i % FM_MAX_VOICES]; }
+
+int cpu_test_full_patch(fm_engine *e)
+{
+    static const int32_t P[][2] = {
+        {FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE},
+        {FM_PARAM_OSC2_WAVE, FM_WAVE_SAW},
+        {FM_PARAM_OSC_MIX, 500},
+        {FM_PARAM_CHORUS_MODE, FM_CHORUS_DEEP},
+        {FM_PARAM_LFO_PITCH_CENTS, 30},
+        {FM_PARAM_LFO_PW_PCT, 25},
+        {FM_PARAM_AMP_VELOCITY, 100},
+    };
+    uint32_t i;
+    for (i = 0; i < sizeof P / sizeof P[0]; i++) {
+        fm_status rc = fm_engine_set_param(e, (uint16_t)P[i][0], P[i][1]);
+        if (rc != FM_OK)
+            return rc;
+    }
+    return FM_OK;
+}
+
 uint32_t cpu_test_chord(uint32_t k, uint8_t *notes)
 {
     uint32_t i;
@@ -17,7 +42,7 @@ static int start(cpu_test *t, uint8_t voices)
 {
     uint8_t notes[FM_MAX_VOICES];
     uint32_t i, k;
-    uint8_t engine_voices = voices == CT_BURST ? FM_MAX_VOICES : voices;
+    uint8_t engine_voices = voices >= CT_BURST ? FM_MAX_VOICES : voices;
     if (fm_engine_init(&t->engine, CT_FS, engine_voices) != FM_OK)
         return -1;
     t->held = 0;
@@ -26,6 +51,14 @@ static int start(cpu_test *t, uint8_t voices)
     if (voices == CT_BURST) {
         (void)fm_engine_set_param(&t->engine, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
         fm_engine_note_on(&t->engine, CHORD[0], 100);
+        return 0;
+    }
+    if (voices == CT_FULL || t->full) {
+        if (cpu_test_full_patch(&t->engine) != FM_OK)
+            return -1;
+        k = cpu_test_chord(engine_voices, notes);
+        for (i = 0; i < k; i++)
+            fm_engine_note_on(&t->engine, notes[i], FULL_VEL[i]);
         return 0;
     }
     k = cpu_test_chord(voices, notes);
@@ -48,13 +81,14 @@ static void burst(cpu_test *t)
 int cpu_test_init(cpu_test *t)
 {
     uint32_t i;
-    for (i = 0; i <= CT_BURST; i++)
+    for (i = 0; i <= CT_FULL; i++)
         t->worst[i] = 0;
     t->want = 1;
     t->asks = t->seen = 0;
     t->hold = 0;
     t->done_seq = t->taken = 0;
     t->fresh = 0;
+    t->full = 0;
     return start(t, 1);                         /* here, outside the ISR: the first block is clean */
 }
 
@@ -66,7 +100,7 @@ static int over(const cpu_test *t)
 
 void cpu_test_request_voices(cpu_test *t, int32_t n)
 {
-    t->want = (uint8_t)(n < 1 ? 1 : n > (int32_t)CT_BURST ? (int32_t)CT_BURST : n); /* 1..8, then U */
+    t->want = (uint8_t)(n < 1 ? 1 : n > (int32_t)CT_FULL ? (int32_t)CT_FULL : n); /* 1..8, U, F */
     t->asks = t->asks + 1u;                     /* after the count: the ISR never sees a new ask with an old count */
 }
 
@@ -81,9 +115,9 @@ void cpu_test_render(cpu_test *t, int32_t *out, uint32_t n)
     t->fresh = 0;
     if (asks != t->seen) {                      /* a new request from the main loop wins */
         t->seen = asks;
-        (void)start(t, t->want);                /* want is 1..CT_BURST: cannot fail */
+        (void)start(t, t->want);                /* want is 1..CT_FULL: cannot fail */
         t->fresh = 1;                           /* this block's time includes setup */
-    } else if (t->hold && t->held >= t->hold && t->voices < CT_BURST) {
+    } else if (t->hold && t->held >= t->hold && t->voices < CT_FULL) {
         (void)start(t, (uint8_t)(t->voices + 1u));
         t->fresh = 1;
     }
@@ -101,7 +135,7 @@ void cpu_test_record(cpu_test *t, uint32_t ticks)
     if (!t->fresh && !over(t) && ticks > t->worst[v])
         t->worst[v] = ticks;
     if (t->hold != 0u && t->held == t->hold) {  /* this count's hold is complete (once: held only grows) */
-        t->done[t->done_seq % CT_BURST] = v;
+        t->done[t->done_seq % CT_FULL] = v;
         t->done_seq = t->done_seq + 1u;         /* after the entry: the main loop never reads it early */
     }
 }
@@ -110,7 +144,7 @@ int cpu_test_take_completed(cpu_test *t, uint32_t *voices, uint32_t *permille)
 {
     if (t->taken == t->done_seq)
         return 0;
-    *voices = t->done[t->taken % CT_BURST];
+    *voices = t->done[t->taken % CT_FULL];
     *permille = cpu_test_worst_permille(t, *voices);
     t->taken++;
     return 1;
@@ -118,10 +152,12 @@ int cpu_test_take_completed(cpu_test *t, uint32_t *voices, uint32_t *permille)
 
 uint32_t cpu_test_worst_permille(const cpu_test *t, uint32_t voices)
 {
-    if (voices < 1u || voices > CT_BURST)
+    if (voices < 1u || voices > CT_FULL)
         return 0;
     return (uint32_t)(((uint64_t)t->worst[voices] * 1000u) / CT_BLOCK_TICKS);  /* main loop: 64/32 */
 }
 
 void cpu_test_sweep(cpu_test *t, uint32_t hold) { t->hold = hold; }
+
+void cpu_test_use_full_patch(cpu_test *t, int on) { t->full = (uint8_t)(on != 0); }
 
