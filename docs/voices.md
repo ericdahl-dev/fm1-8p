@@ -114,6 +114,13 @@ voices stack (the voices past it in `fm_engine` never sound), and the
 render still skips voices that are idle, so a unison note costs the same as
 a chord of `voice_count` notes and silence costs nothing.
 
+Each unison voice has its own filter and filter envelope, as in poly. A new
+note retriggers both envelopes of every voice; a legato return leaves both
+running. The filter's key tracking follows the note number, not each
+voice's detuned pitch (nor the bend), so every voice of a unison note has
+the same cutoff. A voice left sounding by a mode switch keeps tracking the
+key it was playing while it releases.
+
 ### Detune
 
 `unison_detune_cents`, 0 to 100, default 20, is the spread from the lowest
@@ -188,7 +195,10 @@ detune the saws drift in and out of phase and the peak moves between that
 ceiling and well below it. That makes one unison note `voice_count` times
 (at 6 voices, 15.6 dB) louder than one poly note, as stacking oscillators
 on a real synth does. `unison_at_full_velocity_never_clips` checks 1 to 8
-voices at 0, 7 and 100 cents, through a retrigger.
+voices at 0, 7 and 100 cents, through a retrigger, with the default patch
+(filter open). As with a chord, high filter resonance can lift a unison
+note past that ceiling to full scale, where the int16 conversion
+saturates (see [Gain staging](#gain-staging) and #24).
 
 ## Gain staging
 
@@ -239,14 +249,21 @@ of a few ms; a 0 ms attack or release is a deliberate hard edge.
 
 Per sounding voice, per sample: one envelope step, one saw sample (with a
 64-by-32 divide on the two samples around each wrap, see
-[fixed-point.md](fixed-point.md)), one 64-bit multiply, an add into the mix
-buffer, and a test for a queued release (the steal fade case above). Idle voices are skipped. Per sample for the whole engine: one
+[fixed-point.md](fixed-point.md)), the filter (a filter-envelope step, five
+32x32->64 multiplies for the 4-pole lowpass plus one for the highpass when
+it is on, and a cutoff update every 16 samples; see
+[fixed-point.md](fixed-point.md#filter)), one 64-bit multiply for the amp,
+an add into the mix buffer, and a test for a queued release (the steal fade
+case above). The filter is most of a voice's per-sample cost; a unison note
+pays it once per voice, like a chord. Idle voices are skipped. Per sample for the whole engine: one
 64-bit multiply (the mix gain) and the int16 conversion.
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-`fm_engine` is about 0.8 KiB (848 bytes on x86-64) with room for 8 voices;
-unison adds 49 of them (8 detune offsets and the 16 held keys).
+`fm_engine` is about 1.7 KiB (1748 bytes on x86-64) with room for 8 voices;
+unison adds 49 of them (8 detune offsets and the 16 held keys), and the
+filter 108 per voice (its state, its envelope and its settings), up from
+848 bytes before the filter.
 
 Divisions all happen on events: one 64-by-32 divide per note on (its pitch),
 and one per sounding voice for each pitch bend message. In unison a note on
