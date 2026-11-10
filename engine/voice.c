@@ -100,6 +100,7 @@ void fm_voice_silence(fm_voice *v)
 {
     fm_env_reset(&v->amp_env);
     fm_env_reset(&v->filter_env);
+    fm_filter_clear(&v->filter); /* no ringing left for the next note */
     v->pending = 0;
     v->gate_left = 0;
     v->key_down = 0;

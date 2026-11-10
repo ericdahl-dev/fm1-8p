@@ -122,13 +122,18 @@ int32_t fm_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
     return cutoff_cents + track + env;
 }
 
-void fm_filter_reset(fm_filter *f)
+void fm_filter_clear(fm_filter *f)
 {
     int i;
     for (i = 0; i < 4; i++) f->s[i] = 0;
+    f->hp = 0;
+}
+
+void fm_filter_reset(fm_filter *f)
+{
+    fm_filter_clear(f);
     f->g = ONE_Q30;
     f->k = 0;
-    f->hp = 0;
     f->hp_g = 0;
 }
 

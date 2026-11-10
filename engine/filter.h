@@ -42,6 +42,8 @@ int32_t fm_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
 
 /* Clears the state and opens the filter (no resonance, no highpass). */
 void fm_filter_reset(fm_filter *f);
+/* Clears the state (silences any ringing), keeping the settings. */
+void fm_filter_clear(fm_filter *f);
 
 /* Lowpass cutoff in cents above MIDI note 0; clamped to 0..open. */
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
