@@ -457,6 +457,51 @@ TT_TEST(each_voice_makes_its_own_noise)
     TT_CHECK_NEAR(two / one, 2.0, 0.2); /* power: x2 uncorrelated, x4 same */
 }
 
+/*
+ * Unison detune goes through the voice's pitch, so osc2 follows it like
+ * osc1: with osc2 alone (mix 1000) two voices 100 cents apart sound at
+ * -50 and +50 cents, each as loud as a solo note, and nothing is left at
+ * the undetuned pitch. (A solo note of osc2 equals one of osc1: same saw.)
+ */
+TT_TEST(unison_detune_moves_both_oscillators)
+{
+    double ref = solo_amp(2, 93);
+    int sign;
+    init_unison(2, 100);
+    fm_engine_set_param(&poly, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_note_on(&poly, 93, 100);
+    fm_engine_render(&poly, pbuf, 2205 + DFT_N);
+    for (sign = -1; sign <= 1; sign += 2) {
+        double hz = note_hz(93) * pow(2.0, sign * 50 / 1200.0);
+        TT_CHECK_NEAR(tone_amp(pbuf + 2 * 2205, DFT_N, 0, hz, PRATE) / ref,
+                      1.0, 0.15);
+    }
+    TT_CHECK(note_amp(pbuf, 2205, 93) / ref < 0.3);
+}
+
+/*
+ * Unison voices start together, so they need distinct noise: two of them
+ * sum to about twice the power of one, where a shared stream would give
+ * four times.
+ */
+TT_TEST(unison_voices_make_distinct_noise)
+{
+    double power[2] = { 0, 0 };
+    size_t i, k;
+    for (k = 0; k < 2; k++) {
+        init_unison((uint8_t)(k + 1), 0);
+        fm_engine_set_param(&poly, FM_PARAM_OSC1_WAVE, FM_WAVE_NOISE);
+        fm_engine_note_on(&poly, 60, 100);
+        fm_engine_render(&poly, pbuf, 2205 + 8192);
+        for (i = 2205; i < 2205 + 8192; i++)
+            power[k] += (double)pbuf[2 * i] * pbuf[2 * i];
+    }
+    TT_CHECK(power[0] > 0);
+    /* per-voice gain is 1 / voice_count: two voices sum to 2/4 = 0.5x
+     * the power of one if uncorrelated, 4/4 = 1x if identical */
+    TT_CHECK_NEAR(power[1] / power[0], 0.5, 0.06);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -471,6 +516,8 @@ static void run_osc_tests(void)
     TT_RUN(pitch_bend_moves_both_oscillators);
     TT_RUN(retuning_a_bent_note_keeps_the_bend);
     TT_RUN(each_voice_makes_its_own_noise);
+    TT_RUN(unison_detune_moves_both_oscillators);
+    TT_RUN(unison_voices_make_distinct_noise);
     TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
     TT_RUN(noise_is_bounded_and_not_periodic);
     TT_RUN(high_pulse_and_square_notes_have_low_aliasing);
