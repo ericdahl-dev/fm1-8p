@@ -177,6 +177,31 @@ TT_TEST(osc2_coarse_tune_shifts_by_semitones)
     TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
 }
 
+/* Coarse tune back at 0 sounds exactly like coarse tune never touched. */
+TT_TEST(osc2_coarse_zero_matches_no_coarse)
+{
+    static int16_t plain[2 * 4096];
+    size_t i;
+    int same = 1;
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 37);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, plain, 4096);
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 37);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 0);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, 4096);
+    for (i = 0; i < 2 * 4096; i++)
+        if (buf[i] != plain[i]) same = 0;
+    TT_CHECK(same);
+}
+
 /*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
@@ -716,6 +741,7 @@ static void run_osc_tests(void)
     TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
+    TT_RUN(osc2_coarse_zero_matches_no_coarse);
     TT_RUN(tuned_increment_matches_exact_pitch);
     TT_RUN(octave_shifts_keep_their_ratio_at_the_extremes);
     TT_RUN(retuning_a_held_note_takes_effect);
