@@ -156,6 +156,8 @@ static void apply_param(fm_engine *e, uint16_t id)
         /* cents -> Q16.16 octaves: exact for multiples of 75 cents */
         e->mod.pitch_oct = v * 65536 / 1200;
         return;
+    case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
+        return;
     default:
         break;
     }

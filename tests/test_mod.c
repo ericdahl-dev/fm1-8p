@@ -348,6 +348,28 @@ TT_TEST(restriking_a_sounding_note_keeps_its_vibrato)
     TT_CHECK(fabs(cents(after, before)) < 60);
 }
 
+/* A note in its decay; at 100 ms amp_velocity_pct is set to `sens` (or
+ * left alone for -1). */
+static void decay_with_velocity_change(int16_t *out, int32_t sens)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_DECAY_MS, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_SUSTAIN, 0);
+    fm_engine_note_on(&mod_eng, 57, 90);
+    fm_engine_render(&mod_eng, out, MOD_RATE / 10);
+    if (sens >= 0) fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, sens);
+    fm_engine_render(&mod_eng, out + 2 * (MOD_RATE / 10), MOD_RATE);
+}
+
+TT_TEST(velocity_setting_mid_note_leaves_the_note_alone)
+{
+    /* the setting applies from the next note on; the sounding decay
+     * must not be recomputed */
+    decay_with_velocity_change(mod_ref, -1);
+    decay_with_velocity_change(mod_buf, 37);
+    TT_CHECK(memcmp(mod_ref, mod_buf, (size_t)(MOD_RATE + MOD_RATE / 10) * 4) == 0);
+}
+
 static void run_mod_tests(void)
 {
     TT_RUN(lfo_to_pitch_moves_the_pitch_by_the_depth);
@@ -361,4 +383,5 @@ static void run_mod_tests(void)
     TT_RUN(unison_legato_return_keeps_the_last_strike_velocity);
     TT_RUN(pulse_width_limits_do_not_depend_on_the_lfo_phase);
     TT_RUN(restriking_a_sounding_note_keeps_its_vibrato);
+    TT_RUN(velocity_setting_mid_note_leaves_the_note_alone);
 }
