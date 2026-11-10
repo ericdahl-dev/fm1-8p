@@ -78,6 +78,7 @@ typedef enum {
      * negative sweeps the cutoff down */
     FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
     FM_PARAM_HIGHPASS_STEP, /* 0 (off) .. 3 (most low cut) */
+    FM_PARAM_OSC2_COARSE_SEMIS, /* -12..+12 semitones, on top of osc2's octave and fine */
     FM_PARAM_COUNT
 } fm_param_id;
 

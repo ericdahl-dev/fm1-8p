@@ -123,8 +123,8 @@ a chord of `voice_count` notes and silence costs nothing.
 Each unison voice has its own filter and filter envelope, as in poly. A new
 note retriggers both envelopes of every voice; a legato return leaves both
 running. The filter's key tracking follows the note number, not each
-voice's detuned pitch (nor the bend or the oscillators' octave and fine
-tune), so every voice of a unison note has
+voice's detuned pitch (nor the bend or the oscillators' octave, coarse and
+fine tune), so every voice of a unison note has
 the same cutoff. A voice left sounding by a mode switch keeps tracking the
 key it was playing while it releases.
 

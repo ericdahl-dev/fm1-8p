@@ -116,8 +116,8 @@ resonant 4-pole (24 dB/octave) lowpass.
 - **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
   env_amount * env_level`, all in cents, computed every 16 samples (a
   2.8 kHz control rate at 44.1 kHz), not per sample. Key tracking follows the
-  MIDI note number only: pitch bend and each oscillator's octave and fine
-  tune move the oscillators but not the cutoff. The coefficient is the
+  MIDI note number only: pitch bend, each oscillator's octave and fine
+  tune, and osc2's coarse tune move the oscillators but not the cutoff. The coefficient is the
   matched-pole `g = 1 - e^(-2 pi fc / fs)`, worked out from two small
   tables (`tools/gen_filter_tables.py`): `2^(cents / 1200)` in 16-cent steps,
   and `(1 - e^-x) / x`, both linearly interpolated. The sample rate's own
@@ -227,9 +227,11 @@ is in `engine/params.c`.
 
 Each voice has two oscillators. `osc1_wave` and `osc2_wave` pick 0 saw,
 1 pulse, 2 square or 3 noise; `oscN_octave` (-2 to +2) and `oscN_fine_cents`
-(-100 to +100) tune each from the played note; `oscN_pulse_width_pct` (1 to 99)
-sets the pulse duty; and `osc_mix_permille` crossfades from osc1 alone (0, the
-default) to osc2 alone (1000). For example:
+(-100 to +100) tune each from the played note; `oscN_pulse_width_pct` (1 to
+99) sets the pulse duty; and `osc_mix_permille` crossfades from osc1 alone (0,
+the default) to osc2 alone (1000). osc2 also has `osc2_coarse_semis` (-12 to
++12 semitones, on top of its octave and fine tune) for intervals such as a
+fifth (+7) or a fourth (+5). For example:
 
 ```sh
 ./build/fm1-8p-render -s osc1_wave=1 -s osc1_pulse_width_pct=25 \

@@ -167,6 +167,80 @@ TT_TEST(octave_and_fine_tune_shift_pitch)
     }
 }
 
+/* osc2's coarse tune moves it by whole semitones: +7 a fifth up, -7 a fifth down. */
+TT_TEST(osc2_coarse_tune_shifts_by_semitones)
+{
+    static const int32_t semis[] = { 7, -7 };
+    size_t k;
+    for (k = 0; k < sizeof semis / sizeof semis[0]; k++) {
+        double want = RATE / (note_hz(57) * pow(2.0, semis[k] / 12.0));
+        osc_init();
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000), FM_OK);
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, semis[k]), FM_OK);
+        TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
+    }
+}
+
+/* Coarse tune past +-12 clamps to +-12: an octave up or down, no further. */
+TT_TEST(osc2_coarse_tune_clamps_to_an_octave)
+{
+    static const int32_t asked[] = { 13, -13 };
+    size_t k;
+    for (k = 0; k < sizeof asked / sizeof asked[0]; k++) {
+        int32_t got = asked[k] > 0 ? 12 : -12;
+        double want = RATE / (note_hz(57) * pow(2.0, got / 12.0));
+        osc_init();
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000), FM_OK);
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, asked[k]), FM_OK);
+        TT_CHECK_EQ(fm_engine_get_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS), got);
+        TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
+    }
+}
+
+/* Coarse tune back at 0 sounds exactly like coarse tune never touched. */
+TT_TEST(osc2_coarse_zero_matches_no_coarse)
+{
+    static int16_t plain[2 * 4096];
+    size_t i;
+    int same = 1;
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 37);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, plain, 4096);
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 37);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 0);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, 4096);
+    for (i = 0; i < 2 * 4096; i++)
+        if (buf[i] != plain[i]) same = 0;
+    TT_CHECK(same);
+}
+
+/*
+ * Coarse tune changed on a held note retunes osc2 from there on, without
+ * restarting its cycle: at sample 441 osc2 is 0.2 into a cycle, where a
+ * restart would jump about 0.4 of full scale and a saw moves about 0.01.
+ */
+TT_TEST(osc2_coarse_change_retunes_a_held_note_without_a_restart)
+{
+    static int16_t head[2 * 441];
+    double want = RATE / (note_hz(57) * pow(2.0, 7 / 12.0));
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, head, 441);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    fm_engine_render(&eng, buf, RATE);
+    TT_CHECK(abs(buf[0] - head[2 * 440]) < 1000);
+    TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
+}
+
 /*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
@@ -367,7 +441,8 @@ TT_TEST(extreme_osc_settings_stay_bounded_and_release)
 {
     static const uint32_t rates[] = { 8000, 44100, 192000 };
     static const uint8_t notes[] = { 0, 127 };
-    static const int32_t tunes[][2] = { { -2, -100 }, { 2, 100 } };
+    /* octave, fine, and osc2's coarse: up to 37 semitones each way */
+    static const int32_t tunes[][3] = { { -2, -100, -12 }, { 2, 100, 12 } };
     static const int32_t widths[] = { 1, 99 };
     static const int32_t mixes[] = { 0, 500, 1000 };
     size_t r, n, t, w, wv, m, i;
@@ -389,6 +464,7 @@ TT_TEST(extreme_osc_settings_stay_bounded_and_release)
         fm_engine_set_param(&eng, FM_PARAM_OSC1_FINE_CENTS, tunes[t][1]);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, tunes[1 - t][0]);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, tunes[1 - t][1]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, tunes[1 - t][2]);
         fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, widths[w]);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_PULSE_WIDTH_PCT, widths[1 - w]);
         fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mixes[m]);
@@ -616,6 +692,44 @@ TT_TEST(synced_osc2_just_past_its_wrap_has_low_aliasing)
     TT_CHECK(db < ALIAS_LIMIT_DB);
 }
 
+/* With a coarse offset on osc2, sync still makes the pair repeat at osc1's pitch. */
+TT_TEST(sync_with_osc2_coarse_repeats_at_osc1)
+{
+    int synced;
+    slave_init(44000, FM_WAVE_SAW);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 5);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, 1);
+    fm_engine_note_on(&eng, 69, 100);
+    fm_engine_render(&eng, buf, 8000);
+    synced = max_diff_at_lag(buf, 4000, 2000, 100);
+    printf("    sync with coarse +5: largest change over one osc1 cycle %d\n", synced);
+    TT_CHECK(synced < 200);
+}
+
+/*
+ * Cross-mod's bend follows osc2's coarse tune: changed on a note already
+ * playing with cross-mod, it sounds exactly like a note started with it.
+ */
+TT_TEST(xmod_follows_osc2_coarse_changed_on_a_held_note)
+{
+    static int16_t first[2 * 4096];
+    size_t i;
+    int same = 1;
+    slave_init(RATE, FM_WAVE_SAW);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 500);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, first, 4096);
+    slave_init(RATE, FM_WAVE_SAW);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 500);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7); /* on the held note */
+    fm_engine_render(&eng, buf, 4096);
+    for (i = 0; i < 2 * 4096; i++)
+        if (buf[i] != first[i]) same = 0;
+    TT_CHECK(same);
+}
+
 /* Cross-mod set to 0 sounds exactly like cross-mod never touched. */
 TT_TEST(xmod_zero_matches_no_xmod)
 {
@@ -678,7 +792,9 @@ TT_TEST(max_xmod_and_sync_stay_in_range)
         fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 0);
         fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, (int32_t)w1);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_WAVE, (int32_t)w2);
-        fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 2);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 2); /* with coarse and fine: */
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 12); /* 37 semitones up */
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 100);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_PULSE_WIDTH_PCT, 1);
         fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000);
         fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, (int32_t)sy);
@@ -705,6 +821,10 @@ static void run_osc_tests(void)
     TT_RUN(pulse_width_outside_its_range_is_clamped);
     TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
+    TT_RUN(osc2_coarse_tune_shifts_by_semitones);
+    TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
+    TT_RUN(osc2_coarse_zero_matches_no_coarse);
+    TT_RUN(osc2_coarse_change_retunes_a_held_note_without_a_restart);
     TT_RUN(tuned_increment_matches_exact_pitch);
     TT_RUN(octave_shifts_keep_their_ratio_at_the_extremes);
     TT_RUN(retuning_a_held_note_takes_effect);
@@ -721,6 +841,8 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_has_low_aliasing);
     TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
     TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
+    TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
+    TT_RUN(xmod_follows_osc2_coarse_changed_on_a_held_note);
     TT_RUN(xmod_zero_matches_no_xmod);
     TT_RUN(xmod_adds_sidebands);
     TT_RUN(max_xmod_and_sync_stay_in_range);
