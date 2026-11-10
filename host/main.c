@@ -17,7 +17,12 @@ static void usage(void)
             "usage: fm1-8p-render [options] input.mid output.wav\n"
             "  -r RATE        sample rate in Hz (default 44100)\n"
             "  -t MS          tail rendered after the song ends (default 1000)\n"
-            "  -s NAME=VALUE  set a parameter (repeatable); parameters:\n");
+            "  -v VOICES      voice count, 1..%d (default %d); each voice is\n"
+            "                 mixed at 1/(2 x VOICES), so fewer voices play louder\n"
+            "  -c CHANNEL     MIDI channel to play, 1..16 (default: the channel\n"
+            "                 of the first note on); other channels are ignored\n"
+            "  -s NAME=VALUE  set a parameter (repeatable); parameters:\n",
+            FM_MAX_VOICES, RENDER_DEFAULT_VOICES);
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         const fm_param_info *p = fm_param_info_get(id);
         fprintf(stderr, "                   %-22s %d..%d (default %d)\n",
@@ -28,6 +33,8 @@ static void usage(void)
 int main(int argc, char **argv)
 {
     render_opts o;
+    render_info info;
+    char line[160];
     int i;
     memset(&o, 0, sizeof o);
     o.sample_rate = 44100;
@@ -49,6 +56,18 @@ int main(int argc, char **argv)
                 fprintf(stderr, "bad tail: %s\n", argv[i]);
                 return 2;
             }
+        } else if (strcmp(opt, "-v") == 0) {
+            if (args_parse_u32(argv[++i], &o.voice_count) != 0 ||
+                o.voice_count < 1 || o.voice_count > FM_MAX_VOICES) {
+                fprintf(stderr, "bad voice count: %s\n", argv[i]);
+                return 2;
+            }
+        } else if (strcmp(opt, "-c") == 0) {
+            if (args_parse_u32(argv[++i], &o.channel) != 0 || o.channel < 1 ||
+                o.channel > 16) {
+                fprintf(stderr, "bad MIDI channel: %s\n", argv[i]);
+                return 2;
+            }
         } else if (strcmp(opt, "-s") == 0) {
             if (args_parse_setting(argv[++i], &o) != 0) {
                 fprintf(stderr, "bad setting: %s\n", argv[i]);
@@ -64,5 +83,8 @@ int main(int argc, char **argv)
         usage();
         return 2;
     }
-    return render_midi_file(argv[i], argv[i + 1], &o) == 0 ? 0 : 1;
+    if (render_midi(argv[i], argv[i + 1], &o, &info) != 0) return 1;
+    render_describe(&info, line, sizeof line);
+    printf("%s: %s\n", argv[i + 1], line);
+    return 0;
 }

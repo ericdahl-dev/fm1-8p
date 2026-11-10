@@ -9,14 +9,20 @@
 
 #include "test_engine.c"
 #include "test_host.c"
+#include "test_poly.c"
+#include "test_unison.c"
 #include "test_cpu_test.c"
 #include "test_bench.c"
+#include "test_osc.c"
 
 int main(void)
 {
     run_engine_tests();
     run_host_tests();
+    run_poly_tests();
+    run_unison_tests();
     run_cpu_test_tests();
     run_bench_tests();
+    run_osc_tests();
     return tt_report();
 }

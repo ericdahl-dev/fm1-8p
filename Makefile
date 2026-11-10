@@ -43,10 +43,10 @@ $(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR) $(FW_HDR)
 	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@
 
 $(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -o $@
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -lm -o $@
 
 $(BENCH): host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -o $@
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@
 
 bench: $(BENCH)
 	./$(BENCH)

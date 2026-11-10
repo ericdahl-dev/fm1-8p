@@ -383,6 +383,143 @@ TT_TEST(parameter_settings_reject_out_of_range_values)
     TT_CHECK_EQ(o.param_count, 2);
 }
 
+/* A C major triad, bent a whole tone down before it starts, held 1 s. */
+static const uint8_t bent_chord[] = {
+    0x00, 0xE0, 0x00, 0x00,           /* pitch bend full down */
+    0x00, 0x90, 60, 100, 0x00, 64, 100, 0x00, 67, 100,
+    0x87, 0x40, 0x80, 60, 0, 0x00, 64, 0, 0x00, 67, 0
+};
+
+static double chord_amp(const int16_t *pcm, int note)
+{
+    return tone_amp(pcm + 2 * 4410, 16384, 0, note_hz(note), 44100);
+}
+
+TT_TEST(chord_midi_file_plays_every_note_and_follows_pitch_bend)
+{
+    static const uint8_t counts[] = { 0 /* default */, 4, 6 };
+    size_t c;
+    for (c = 0; c < sizeof counts; c++) {
+        render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
+        uint32_t frames, rate;
+        int16_t *pcm;
+        double a58, a62, a65, a60;
+        o.voice_count = counts[c];
+        write_smf("build/chord.mid", bent_chord, sizeof bent_chord);
+        TT_CHECK_EQ(render_midi_file("build/chord.mid", "build/chord.wav", &o), 0);
+        pcm = read_wav_pcm("build/chord.wav", &frames, &rate);
+        TT_CHECK(pcm != NULL);
+        TT_CHECK(frames >= 4410 + 16384);
+        a58 = chord_amp(pcm, 58);
+        a62 = chord_amp(pcm, 62);
+        a65 = chord_amp(pcm, 65);
+        a60 = chord_amp(pcm, 60);
+        free(pcm);
+        TT_CHECK(a58 > 500);
+        TT_CHECK_NEAR(a62 / a58, 1.0, 0.1);
+        TT_CHECK_NEAR(a65 / a58, 1.0, 0.1);
+        TT_CHECK(a60 / a58 < 0.05);
+    }
+}
+
+/*
+ * Two channels: channel 2 bends full down first, then channel 1 plays a
+ * C major triad and channel 2 plays B-flat 4, all held 1 s.
+ */
+static const uint8_t two_channels[] = {
+    0x00, 0xE1, 0x00, 0x00,
+    0x00, 0x90, 60, 100, 0x00, 64, 100, 0x00, 67, 100,
+    0x00, 0x91, 70, 100,
+    0x87, 0x40, 0x80, 60, 0, 0x00, 64, 0, 0x00, 67, 0, 0x00, 0x81, 70, 0
+};
+
+TT_TEST(render_plays_one_midi_channel)
+{
+    render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
+    uint32_t frames, rate;
+    int16_t *pcm;
+    double a60, a64, a70, a68, a58;
+    write_smf("build/two-ch.mid", two_channels, sizeof two_channels);
+
+    /* default: the channel of the first note on (1), unbent */
+    TT_CHECK_EQ(render_midi_file("build/two-ch.mid", "build/two-ch.wav", &o), 0);
+    pcm = read_wav_pcm("build/two-ch.wav", &frames, &rate);
+    TT_CHECK(pcm != NULL);
+    a60 = chord_amp(pcm, 60);
+    a64 = chord_amp(pcm, 64);
+    a58 = chord_amp(pcm, 58);
+    a70 = chord_amp(pcm, 70);
+    a68 = chord_amp(pcm, 68);
+    free(pcm);
+    TT_CHECK(a60 > 500);
+    TT_CHECK_NEAR(a64 / a60, 1.0, 0.1);
+    TT_CHECK(a58 / a60 < 0.05); /* channel 2's bend ignored */
+    TT_CHECK(a70 / a60 < 0.05); /* channel 2's note ignored */
+    TT_CHECK(a68 / a60 < 0.05);
+
+    /* -c 2: only channel 2's note, bent a whole tone down */
+    o.channel = 2;
+    TT_CHECK_EQ(render_midi_file("build/two-ch.mid", "build/two-ch.wav", &o), 0);
+    pcm = read_wav_pcm("build/two-ch.wav", &frames, &rate);
+    TT_CHECK(pcm != NULL);
+    a60 = chord_amp(pcm, 60);
+    a68 = chord_amp(pcm, 68);
+    a70 = chord_amp(pcm, 70);
+    free(pcm);
+    TT_CHECK(a68 > 500);
+    TT_CHECK(a60 / a68 < 0.05);
+    TT_CHECK(a70 / a68 < 0.05);
+
+    o.channel = 17;
+    printf("    (expected error message follows)\n");
+    TT_CHECK(render_midi_file("build/two-ch.mid", "build/x.wav", &o) != 0);
+}
+
+TT_TEST(render_reports_voice_count_channel_and_level)
+{
+    render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
+    render_info info;
+    char text[160];
+    write_smf("build/two-ch.mid", two_channels, sizeof two_channels);
+    TT_CHECK_EQ(render_midi("build/two-ch.mid", "build/x.wav", &o, &info), 0);
+    TT_CHECK_EQ(info.voice_count, 6);
+    TT_CHECK_EQ(info.channel, 1);
+    render_describe(&info, text, sizeof text);
+    printf("    %s\n", text);
+    TT_CHECK(strstr(text, "6 voices") != NULL);
+    TT_CHECK(strstr(text, "MIDI channel 1") != NULL);
+    TT_CHECK(strstr(text, "1/12") != NULL);
+    TT_CHECK(strstr(text, "-21.6 dBFS") != NULL);
+    o.voice_count = 1;
+    o.channel = 2;
+    TT_CHECK_EQ(render_midi("build/two-ch.mid", "build/x.wav", &o, &info), 0);
+    render_describe(&info, text, sizeof text);
+    TT_CHECK(strstr(text, "1 voice,") != NULL);
+    TT_CHECK(strstr(text, "MIDI channel 2") != NULL);
+    TT_CHECK(strstr(text, "-6.0 dBFS") != NULL);
+    /* in unison one note takes every voice, so it peaks at -6 dBFS */
+    o.voice_count = 6;
+    o.param_count = 1;
+    o.param_id[0] = FM_PARAM_VOICE_MODE;
+    o.param_value[0] = FM_VOICE_MODE_UNISON;
+    TT_CHECK_EQ(render_midi("build/two-ch.mid", "build/x.wav", &o, &info), 0);
+    render_describe(&info, text, sizeof text);
+    printf("    %s\n", text);
+    TT_CHECK(strstr(text, "6 voices in unison") != NULL);
+    TT_CHECK(strstr(text, "1/12") != NULL);
+    TT_CHECK(strstr(text, "-6.0 dBFS") != NULL);
+    TT_CHECK(strstr(text, "-21.6") == NULL);
+}
+
+TT_TEST(render_rejects_a_bad_voice_count)
+{
+    render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
+    o.voice_count = FM_MAX_VOICES + 1;
+    write_smf("build/one-note.mid", one_note, sizeof one_note);
+    printf("    (expected error message follows)\n");
+    TT_CHECK(render_midi_file("build/one-note.mid", "build/x.wav", &o) != 0);
+}
+
 static void run_host_tests(void)
 {
     TT_RUN(slurp_fails_cleanly_on_missing_and_empty_files);
@@ -402,4 +539,8 @@ static void run_host_tests(void)
     TT_RUN(wav_rejects_sample_rate_out_of_range);
     TT_RUN(numeric_options_reject_negative_and_out_of_range_values);
     TT_RUN(parameter_settings_reject_out_of_range_values);
+    TT_RUN(chord_midi_file_plays_every_note_and_follows_pitch_bend);
+    TT_RUN(render_rejects_a_bad_voice_count);
+    TT_RUN(render_plays_one_midi_channel);
+    TT_RUN(render_reports_voice_count_channel_and_level);
 }
