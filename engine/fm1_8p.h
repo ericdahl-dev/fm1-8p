@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 
+#include "chorus.h"
 #include "voice.h"
 
 #define FM_MAX_VOICES 8
@@ -39,6 +40,7 @@ typedef enum {
     FM_PARAM_AMP_SUSTAIN, /* per mille of full level, 0..1000 */
     FM_PARAM_AMP_RELEASE_MS,
     FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
+    FM_PARAM_CHORUS_MODE, /* 0 = off, then the fm_chorus_mode modes */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -63,6 +65,7 @@ typedef struct {
     int32_t bend;          /* Q16.16 semitones added to every note */
     fm_voice voices[FM_MAX_VOICES];
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
+    fm_chorus chorus; /* output stage, after the voices are mixed */
 } fm_engine;
 
 /*

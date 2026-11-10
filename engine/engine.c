@@ -55,6 +55,10 @@ static void apply_param(fm_engine *e, uint16_t id)
         apply_bend(e, e->bend_value);
         return;
     }
+    if (id == FM_PARAM_CHORUS_MODE) {
+        fm_chorus_set_mode(&e->chorus, (uint8_t)v);
+        return;
+    }
     for (i = 0; i < e->voice_count; i++) {
         fm_env *env = &e->voices[i].amp_env;
         switch (id) {
@@ -96,6 +100,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend_value = 0;
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
     for (i = 0; i < FM_MAX_VOICES; i++) fm_voice_reset(&e->voices[i]);
+    fm_chorus_init(&e->chorus, sample_rate);
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         e->params[id] = fm_param_info_get(id)->def;
         apply_param(e, id);
@@ -295,10 +300,11 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
                 fm_voice_render_add(&e->voices[k], e->mix, n);
         for (i = 0; i < n; i++) {
             /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
-            int16_t s = to_int16(
-                (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30));
-            out[2 * i] = s;
-            out[2 * i + 1] = s;
+            int32_t s = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
+            int32_t left, right;
+            fm_chorus_process(&e->chorus, s, &left, &right);
+            out[2 * i] = to_int16(left);
+            out[2 * i + 1] = to_int16(right);
         }
         out += 2 * n;
         frames -= n;
