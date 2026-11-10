@@ -18,8 +18,8 @@
 #     the engine defines itself) must all be on a short allowlist of
 #     memory and integer-arithmetic helpers. That rejects soft-float
 #     helpers, libm (sinf, expf, ...) and the heap (malloc, free, ...).
-#  4. No instruction immediate or data word may fall in 0xFFC00000 to
-#     0xFFCFFFFF: the FM-1 image build (fm1-dock) rejects such words as
+#  4. No instruction immediate (on arm64 also the top half a movk sets)
+#     or data word may fall in 0xFFC00000 to 0xFFCFFFFF: the FM-1 image build (fm1-dock) rejects such words as
 #     ROM-looking constants. Desktop code generation differs from the
 #     device's, so this catches constants in the source (and most the
 #     compiler derives from them), not every word the device build makes.
@@ -95,6 +95,9 @@ for obj in "$OUT"/*.o; do
         }
         $1 == "D" {
             line = tolower($0)
+            # arm64 builds a 32-bit constant in two halves: movk wN, #0xffcX, lsl #16
+            # puts 0xFFCx in the top half, whatever the bottom half holds.
+            if (line ~ /movk[ \t]+w[0-9]+, #0xffc[0-9a-f], lsl #16/) { print line; next }
             n = split(line, tok, /[^-0-9a-fx]+/)
             for (i = 1; i <= n; i++) {
                 t = tok[i]

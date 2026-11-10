@@ -65,12 +65,6 @@ jobs:
       - name: Tests
         run: make check
 
-      - name: Debug ROM canary
-        if: failure()
-        run: |
-          sh tools/check-engine.sh build/dbg tests/canary/rom_constant.c || true
-          for o in build/dbg/*.o; do echo "== $o"; objdump -d --no-show-raw-insn "$o"; objdump -s "$o"; done
-
       - name: Tests with AddressSanitizer and UBSan
         run: |
           make clean
