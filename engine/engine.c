@@ -136,7 +136,8 @@ typedef char fm_require_filter_env_params_in_a_run[
 /* Per mille (0..1000) -> Q1.30 (1000 -> 1.0), rounded down. */
 static int32_t permille_to_q30(int32_t permille)
 {
-    return (int32_t)(((int64_t)permille << 30) / 1000);
+    /* a multiply, not << 30: shifting a negative value is undefined */
+    return (int32_t)((int64_t)permille * (1 << 30) / 1000);
 }
 
 /* Recomputes the derived settings a parameter feeds. */
