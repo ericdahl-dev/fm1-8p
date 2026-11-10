@@ -328,7 +328,7 @@ static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
     for (i = 0; i < frames; i++) {
         int32_t level;
         if (v->amp_env.stage == FM_ENV_IDLE) break; /* the release ended */
-        level = fm_env_next(&v->amp_env);
+        level = fm_env_step(&v->amp_env);
         /* the wire: the pair peaks at 1.0, inside the soft clip's
          * untouched +-2.0, sync and cross-mod included
          * (extreme_osc_settings_stay_bounded_and_release,
@@ -367,7 +367,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             fm_env_gate_off(&v->amp_env);
             filter_env_gate_off(v);
         }
-        level = fm_env_next(&v->amp_env);
+        level = fm_env_step(&v->amp_env);
         /* the filter envelope is read only at the control rate: counted
          * here, caught up exactly (fm_env_advance) when it is read */
         v->fenv_lag++;
