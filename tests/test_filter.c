@@ -1170,6 +1170,60 @@ TT_TEST(envelope_amount_to_zero_returns_the_cutoff_to_its_setting)
     TT_CHECK_EQ(feng.voices[0].filter.g, want.g);
 }
 
+/*
+ * An open filter with no envelope amount renders the same, bit for bit,
+ * as one whose envelope has an amount: against a cutoff at the top the
+ * envelope's cents clamp away. The first takes the render's cheapest
+ * path, the second the full one. 80 frames in (a control tick, so the
+ * filter is set before any sample of the next block) the first's amount
+ * comes up to the second's, mid-decay, and the cutoff and resonance
+ * move: both must go on identically, which needs the first's skipped
+ * envelope, filter state and control cadence exactly where the full
+ * render has them. Then through a release, the cutoff back at the top and
+ * off it again, in blocks of odd sizes.
+ */
+TT_TEST(open_filter_without_envelope_matches_the_full_render)
+{
+    static fm_engine a, b;
+    static const uint32_t blocks[] = { 1, 15, 64, 333, 1000, 13, 4096 };
+    int k, same = 1;
+    for (k = 0; k < 2; k++) {
+        fm_engine *e = k ? &b : &a;
+        fm_engine_init(e, FRATE, 4);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_DECAY_MS, 3000);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, k * 1200);
+        fm_engine_note_on(e, 48, 100);
+        fm_engine_note_on(e, 55, 90);
+    }
+    for (k = 0; k < 7; k++) {
+        size_t n = blocks[k];
+        fm_engine_render(&a, fbuf_a, n);
+        fm_engine_render(&b, fbuf_b, n);
+        if (memcmp(fbuf_a, fbuf_b, n * 4) != 0) same = 0;
+        if (k == 2) { /* 80 frames: on a control tick */
+            fm_engine_set_param(&a, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 1200);
+            fm_engine_set_param(&a, FM_PARAM_FILTER_CUTOFF_CENTS, 9000);
+            fm_engine_set_param(&b, FM_PARAM_FILTER_CUTOFF_CENTS, 9000);
+            fm_engine_set_param(&a, FM_PARAM_FILTER_RESONANCE, 700);
+            fm_engine_set_param(&b, FM_PARAM_FILTER_RESONANCE, 700);
+        }
+        if (k == 4) {
+            fm_engine_set_param(&a, FM_PARAM_FILTER_CUTOFF_CENTS, 14400);
+            fm_engine_set_param(&b, FM_PARAM_FILTER_CUTOFF_CENTS, 14400);
+            fm_engine_note_off(&a, 48);
+            fm_engine_note_off(&b, 48);
+        }
+        if (k == 5) {
+            fm_engine_set_param(&a, FM_PARAM_FILTER_CUTOFF_CENTS, 7000);
+            fm_engine_set_param(&b, FM_PARAM_FILTER_CUTOFF_CENTS, 7000);
+        }
+    }
+    TT_CHECK(same);
+    TT_CHECK(peak_abs(fbuf_a, 0, 4096) > 100); /* still sounding */
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -1201,4 +1255,5 @@ static void run_filter_tests(void)
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
+    TT_RUN(open_filter_without_envelope_matches_the_full_render);
 }
