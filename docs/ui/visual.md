@@ -10,6 +10,15 @@ This document covers how fm1-8p looks on the FM-1's 240 x 240 screen. Eric's pic
 - **fm1-8p's own display font** for values and names. The host's Terminus stays for the small
   labels.
 
+Eric's follow-up answers settled four more:
+
+| decision | what it means |
+| --- | --- |
+| **Night Panel is the default theme** | a fresh device, or a settings record without THEME, starts in Night Panel |
+| **Names are 12 characters at most** | patch and pattern names always fit the D20 focus row; SAVE's name editor stops at 12 |
+| **SEQ view's footer shows the pattern** | `PTN 41 NIGHT DRIVE*`, and `NEXT 42` while one is queued; the patch shows again on leaving SEQ view |
+| **THEME is live** | a turn applies at once, debounced by 150 ms (see [THEME in GLO](#theme-in-glo-and-what-a-switch-redraws)) |
+
 What each control does is the interaction model's job, in [`interaction.md`](interaction.md)
 (PR #51). This document follows it for:
 
@@ -66,12 +75,12 @@ The mockups show one moment in both themes:
 
 ## One layout
 
-All the screens share one grid (`LAYOUT` in `render.py`). Every position below is the same in
-both themes.
+All the screens share one grid, the `LAYOUT` dict in `render.py`, which every screen function
+reads its bands from. Every position below is the same in both themes.
 
 | band | rows | contents |
 | --- | --- | --- |
-| header | 0-23 | the state or section chip, its context, and the transport on the right: a play or stop mark, step, tempo and clock source (`07 112 INT`). On EDIT pages a 12-segment strip on the header's bottom rule shows where the page sits in the page order, and on GLO a 3-segment strip does the same. |
+| header | 0-23 | the state or section chip, its context, and the transport on the right: a play or stop mark, step, tempo and clock source (`07 112 INT`). On EDIT pages a 12-segment strip on the header's bottom rule shows where the page sits in interaction.md's page order (`PAGE_ORDER` in `render.py`: 1A, 2A, 3A, 4A, 4B, 5A, 6A, 6B, 7A, 7B, 8A, 8B, so 4A VCF lights the 4th segment and 5A VCF ENV the 6th), and on GLO a 3-segment strip does the same. |
 | focus | 28-73 | a 64 x 46 LED window with the parameter number, then the section name, the full label, and the value in D24 with its unit |
 | slot | 78-133 | a single 230 x 56 canvas. It holds the filter response (VCF), the ADSR (VCF ENV and VCA), the art (PLAY) or the theme cards (GLO). |
 | knob columns | 138-221 | four 56 x 84 columns with 2 px gaps, left to right for KNOB1-4. Each column holds the number, the label, a meter, and the value in D24 with its unit. |
@@ -193,13 +202,20 @@ units wide and 6 units tall (I is 2 units wide, M and W are 5), with 45° chamfe
 curves. A square pen draws the strokes and the result is baked to 1 bit per pixel, so both sizes
 come from one design. It has 45 characters: space, `#%+-./:`, 0-9 and A-Z.
 
+Pen positions round half toward the glyph's middle (`floor(v + 0.5)` below it, mirrored above
+it), never Python's half-to-even, so mirrored strokes land on mirrored pixels. A bar exactly on
+the middle row of an odd span (H, E, F, A in D24 and D20) is drawn one row thicker, because a
+3 px pen has no centered place there. `render.py` checks on every run that O and H are
+symmetric top to bottom and that 0 is symmetric under a half turn.
+
 | size | use | cap height | pen | digit width | advance |
 | --- | --- | --- | --- | --- | --- |
 | D24 | values: column values, the focus value | 24 px | 3 px | 11 px | 13 px |
 | D20 | names: patch name, theme name, chord name | 20 px | 3 px | 11 px | 13 px |
 
 The 3-digit value `480` is 37 px wide, so it fits a 56 px column with a Terminus unit after it.
-The longest names fit the focus row's 158 px: `NIGHT PANEL` takes 136 px, and 12 characters fit.
+The longest names fit the focus row's 158 px: `NIGHT PANEL` takes 136 px. Names are at most
+12 characters (decided), which always fit.
 
 - **Flash: 3960 bytes for both sizes,** under the 6 KB budget. D24 takes 2016 bytes of bitmaps
   plus 132 bytes of tables (2148). D20 takes 1680 plus 132 (1812).
@@ -207,7 +223,7 @@ The longest names fit the focus row's 158 px: `NIGHT PANEL` takes 136 px, and 12
   - `DFONT_CHARS` lists the characters, and a glyph's index is its place in it;
   - per glyph, a width `W[i]` (u8) and an offset `OFF[i]` (u16) into `DATA`;
   - the bitmap is 1 bit per pixel, MSB first, `ceil(w / 8)` bytes per row, and `H` rows;
-  - the advance is the width plus `GAP` (2 px);
+  - the advance is the width plus the size's gap, `D24_GAP` or `D20_GAP` (2 px each);
   - lower case folds to upper case, and any other character draws as a space.
 - **Drawing it: expand, then one `blit`.** The module expands the text into a RGB565 row buffer
   the size of its box, high byte first as `blit` takes it, filled with the background, with
@@ -235,7 +251,7 @@ The SEQ view follows `interaction.md`'s SEQ list, top to bottom:
 | 101-153 | the cursor step: its number in the LED window, the chord name in D20 (`C MIN7`), the notes in Terminus (`C3 Eb3 G3 Bb3`), `TIE > 6`, and `HELD` with the chord held now |
 | 156-187 | the S1, S2 or S3 page's four knob values, one cell per knob |
 | 191-206 | what the section buttons mean here: `SEL REST`, `ENV TIE`, `LFO MOVE`, and `FX BACK` in REC (`--` otherwise) |
-| 209-223 | the 27-key strip, mirroring the key LEDs. The step keys F3..G#4 are underlined in the SEQ color and the chord keys A4..G5 in dim, so the split is visible. |
+| 208-222 | the 27-key strip (rows 208-219, its 2 px underline at 221-222, clear of the footer's rule at 223), mirroring the key LEDs. The step keys F3..G#4 are underlined in the SEQ color and the chord keys A4..G5 in dim, so the split is visible. |
 | 224-239 | the pattern number and name with `*`, and `NEXT 42` while a pattern is queued |
 
 The steps are drawn like this:
@@ -249,9 +265,8 @@ The steps are drawn like this:
   draws its notes in the playhead color.
 - **The cursor** gets a 1 px frame in `cursor`.
 
-The patch number is not in SEQ view's footer. PRESETS browses patterns there, so the pattern
-takes the footer. The patch is still in the header of every other state. This is an open
-question below.
+The patch number is not in SEQ view's footer (decided). PRESETS browses patterns there, so the
+pattern takes the footer. The patch shows in every other state's footer.
 
 **Redraw cost.** Each step column is its own 14 x 72 canvas. A playhead move redraws only:
 
