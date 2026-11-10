@@ -41,7 +41,8 @@ int play_init(play *p)
             return -1;
     for (i = 0; i < FM_PARAM_COUNT; i++)
         p->target[i] = p->stored[i] = fm_engine_get_param(&p->engine, (uint16_t)i);
-    p->asked = p->asked_seen = 0;
+    for (i = 0; i < PLAY_PARAM_WORDS; i++)
+        p->asked[i] = 0;
     return 0;
 }
 
@@ -117,8 +118,8 @@ void play_set_param(play *p, uint16_t id, int32_t value)
     if (!in)
         return;
     p->target[id] = value < in->min ? in->min : value > in->max ? in->max : value;
-    BARRIER();
-    p->asked = p->asked + 1u;                   /* after the value: the ISR never sees an old one */
+    BARRIER();                                  /* the value before its bit: the ISR never sees an old one */
+    p->asked[id >> 5] = p->asked[id >> 5] | 1u << (id & 31u);
 }
 
 int32_t play_get_param(const play *p, uint16_t id)
@@ -126,18 +127,19 @@ int32_t play_get_param(const play *p, uint16_t id)
     return id < FM_PARAM_COUNT ? p->target[id] : 0;
 }
 
-/* Audio interrupt: the params the main loop set, into the engine. */
+/* Audio interrupt: the params the main loop set, into the engine: only those whose bit is set. (The
+ * main loop's |= can put back a bit cleared here mid-way: that param is set again, the same value.) */
 static void apply_params(play *p)
 {
-    uint32_t asked = p->asked;
-    uint16_t id;
-    if (asked == p->asked_seen)
-        return;
-    p->asked_seen = asked;
-    BARRIER();                                  /* the values are read after `asked` */
-    for (id = 0; id < FM_PARAM_COUNT; id++)
-        if (p->target[id] != fm_engine_get_param(&p->engine, id))
-            (void)fm_engine_set_param(&p->engine, id, p->target[id]);
+    uint32_t w, b;
+    for (w = 0; w < PLAY_PARAM_WORDS; w++) {
+        uint32_t bits = p->asked[w];
+        p->asked[w] = 0;
+        BARRIER();                              /* the values are read after their bits */
+        for (b = w * 32u; bits; bits >>= 1, b++)
+            if (bits & 1u)
+                (void)fm_engine_set_param(&p->engine, (uint16_t)b, p->target[b]);
+    }
 }
 
 int32_t play_last_note(const play *p) { return p->last_note; }

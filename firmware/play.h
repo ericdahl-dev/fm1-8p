@@ -13,6 +13,7 @@
 #define PLAY_GAIN_SHIFT 2
 #define PLAY_KEYS 27u                   /* the FM-1's note keys */
 #define PLAY_KEY0 53u                   /* key 0's note at octave 0: F3 */
+#define PLAY_PARAM_WORDS ((FM_PARAM_COUNT + 31u) / 32u)
 #define PLAY_QUEUE 64u                  /* events between two renders (a power of two) */
 
 /* One param of a patch: fm_param_id and its value. */
@@ -37,8 +38,7 @@ typedef struct {
      * engine to */
     volatile int32_t target[FM_PARAM_COUNT];
     int32_t stored[FM_PARAM_COUNT];     /* main loop: the stored patch's values (play_edited) */
-    volatile uint32_t asked;            /* main loop: +1 per param set */
-    uint32_t asked_seen;                /* ISR only: the last `asked` it applied */
+    volatile uint32_t asked[PLAY_PARAM_WORDS];  /* bit id: a param set that the ISR hasn't applied */
 } play;
 
 /* Sets up the engine on PLAY_VOICES voices with the default patch; 0: ready. */
