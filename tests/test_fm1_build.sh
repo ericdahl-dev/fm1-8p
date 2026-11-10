@@ -42,7 +42,7 @@ expect_ok "staged module keeps its other settings" grep -qx 'cflags = -Os' "$cfg
 : >"$T/eng/new.c"
 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
 expect_ok "a new engine file is built with no firmware edit" has " $(sed -n 's/^sources = //p' "$cfg") " "$T/eng/new.c"
-for m in firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
+for m in firmware/fm1_8p firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
     expect_ok "$m takes the engine's sources from engine/" grep -q '@ENGINE_SOURCES@' "$m/module.cfg"
 done
 
@@ -133,6 +133,20 @@ expect_ok "the full patch's count comes from firmware/cpu_test.h" test "$(full_c
 expect_ok "the emu window covers 10 steps of 86 blocks with a margin" test "$(emu_window_ms 86)" -ge 6700
 printf 'nothing here\n' >"$T/empty.txt"
 expect_fail "emu report fails when no voice count was logged" emu_report "$T/empty.txt"
+
+# The playable module in fm1-emu: a scripted note sequence must run with no overrun.
+{
+    echo "260 fm1-8p: ready, voices 00000004"
+    echo "---"
+    echo "active module 0; render: last 70000 ticks (50.3 %), worst 86000 (61.7 %), 0 overruns, 1200 blocks"
+} >"$T/play.txt"
+expect_ok "emu play report passes with no overrun" emu_play_report "$T/play.txt"
+sed 's/, 0 overruns/, 3 overruns/' "$T/play.txt" >"$T/play-over.txt"
+expect_fail "emu play report fails on an overrun" emu_play_report "$T/play-over.txt"
+grep -v 'ready' "$T/play.txt" >"$T/play-noinit.txt"
+expect_fail "emu play report fails when the module never started" emu_play_report "$T/play-noinit.txt"
+{ cat "$T/play.txt"; echo "5000 too slow: stopped 00000000"; } >"$T/play-slow.txt"
+expect_fail "emu play report fails when the host stopped the module" emu_play_report "$T/play-slow.txt"
 
 printf '  FAIL  rom_ref: reference to ROM address 0xffc01000\nhbmod: checks failed\n' >"$T/canary.log"
 printf 'reference to ROM address\n' >"$T/expect"

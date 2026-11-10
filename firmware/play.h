@@ -40,6 +40,9 @@ void play_note(play *p, uint32_t note, uint32_t vel);
 void play_midi(play *p, uint32_t st, uint32_t d1, uint32_t d2);
 /* main loop: the last note played (keys or MIDI; a note off leaves it), -1 none yet */
 int32_t play_last_note(const play *p);
+#define PLAY_NOTE_NAME 5u               /* room for a note's name: "C#-1" and its end */
+/* the note's name into s (PLAY_NOTE_NAME bytes): MIDI 60 is "C4", 61 "C#4"; outside 0..127 "--" */
+void play_note_name(int32_t note, char *s);
 /* audio interrupt: add n (<= PLAY_BLOCK) stereo frames, Q15 in int32, into out */
 void play_render(play *p, int32_t *out, uint32_t n);
 #endif

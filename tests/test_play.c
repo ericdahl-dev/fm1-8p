@@ -208,8 +208,25 @@ TT_TEST(play_queue_overflow_never_leaves_a_note_hanging)
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 1);
 }
 
+/* The screen's name for a note: MIDI 60 is C4; none is "--". */
+TT_TEST(play_note_name_spells_the_note)
+{
+    char s[PLAY_NOTE_NAME];
+    play_note_name(60, s);
+    TT_CHECK(strcmp(s, "C4") == 0);
+    play_note_name(61, s);
+    TT_CHECK(strcmp(s, "C#4") == 0);
+    play_note_name(0, s);
+    TT_CHECK(strcmp(s, "C-1") == 0);
+    play_note_name(127, s);
+    TT_CHECK(strcmp(s, "G9") == 0);
+    play_note_name(-1, s);
+    TT_CHECK(strcmp(s, "--") == 0);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_note_name_spells_the_note);
     TT_RUN(play_queue_overflow_never_leaves_a_note_hanging);
     TT_RUN(play_ignores_data_bytes_past_127);
     TT_RUN(play_remembers_the_last_note_played);

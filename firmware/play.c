@@ -82,6 +82,24 @@ void play_midi(play *p, uint32_t st, uint32_t d1, uint32_t d2)
     }
 }
 
+void play_note_name(int32_t note, char *s)
+{
+    static const char NAME[12][3] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    const char *p;
+    int32_t octave;
+    if (note < 0 || note > 127) {
+        s[0] = '-', s[1] = '-', s[2] = 0;
+        return;
+    }
+    for (p = NAME[note % 12]; *p; p++)
+        *s++ = *p;
+    octave = note / 12 - 1;
+    if (octave < 0)
+        *s++ = '-', octave = -octave;
+    *s++ = (char)('0' + octave);
+    *s = 0;
+}
+
 int32_t play_last_note(const play *p) { return p->last_note; }
 
 void play_render(play *p, int32_t *out, uint32_t n)
