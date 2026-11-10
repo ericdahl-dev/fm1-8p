@@ -146,13 +146,6 @@ static int32_t pulse_gain(uint32_t w)
 }
 
 /*
- * The duty oscillator `i` plays: its width, kept at least two samples
- * (two increments) from either edge of the cycle. A narrower pulse falls
- * inside the polyBLEP's two-sample span, so it is mostly aliasing; at C7
- * a 1% pulse is 0.2 samples wide. Above a quarter of the sample rate
- * there is room only for a square.
- */
-/*
  * pulse_gain without the divide, for widths the LFO moves every control
  * tick: 1 / (2 max(w, 1 - w)) from the seed 48/17 - 32/17 m and two
  * Newton steps, x = x (2 - m x), good to about 1e-5 (0.0001 dB).
@@ -169,6 +162,13 @@ static int32_t pulse_gain_fast(uint32_t w)
 /* 1 % of a cycle, Q0.32: the narrowest pulse the LFO can make. */
 #define PW_MIN 42949673u
 
+/*
+ * The duty oscillator `i` plays: its width, kept at least two samples
+ * (two increments) from either edge of the cycle. A narrower pulse falls
+ * inside the polyBLEP's two-sample span, so it is mostly aliasing; at C7
+ * a 1% pulse is 0.2 samples wide. Above a quarter of the sample rate
+ * there is room only for a square.
+ */
 static void update_pw(fm_osc_pair *p, uint8_t i)
 {
     /* limits from the unmodulated pitch: the LFO's phase never sets the
@@ -200,7 +200,6 @@ void fm_osc_pair_set_pw_mod(fm_osc_pair *p, int32_t offset)
         if (p->wave[i] == FM_WAVE_PULSE) update_pw(p, i);
 }
 
-/* Sets oscillator `i`'s increment for `pitch` plus its tuning. */
 /*
  * 2^x for x in Q16.16 octaves, times `inc`, capped just under Nyquist.
  * The fraction uses a quartic fit of 2^f on [0, 1) (Q30 coefficients,
@@ -226,6 +225,8 @@ static uint32_t mod_inc(uint32_t inc, int32_t x)
     return out > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)out;
 }
 
+/* Sets oscillator `i`'s increment for `pitch` plus its tuning, and the LFO
+ * offset on top. */
 static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
                      uint32_t sample_rate)
 {

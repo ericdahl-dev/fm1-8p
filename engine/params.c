@@ -28,7 +28,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_OSC2_FINE_CENTS, "osc2_fine_cents",  -100,  100,   0 },
     { FM_PARAM_OSC_MIX,        "osc_mix_permille",    0, 1000,    0 },
     { FM_PARAM_CHORUS_MODE,    "chorus_mode",         0, FM_CHORUS_MODE_COUNT - 1, 0 },
-    { FM_PARAM_LFO_WAVE,       "lfo_wave",            0,     3,    0 },
+    { FM_PARAM_LFO_WAVE,       "lfo_wave",            0, FM_LFO_WAVE_COUNT - 1, FM_LFO_TRIANGLE },
     { FM_PARAM_LFO_RATE_CENTIHZ, "lfo_rate_centihz",  1,  3000,  500 },
     { FM_PARAM_LFO_DELAY_MS,   "lfo_delay_ms",        0,  5000,    0 },
     { FM_PARAM_LFO_PITCH_CENTS, "lfo_pitch_cents",    0,  1200,    0 },
