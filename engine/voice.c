@@ -4,6 +4,9 @@
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  */
+#ifdef FM_CHECK_BUSY
+#include <assert.h>
+#endif
 #include "voice.h"
 
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents)
@@ -331,12 +334,24 @@ uint32_t fm_voice_busy(const fm_voice *v)
     return v->busy;
 }
 
+uint32_t fm_voice_busy_derived(const fm_voice *v)
+{
+    return v->pending || v->gate_left || v->env_amount || v->mix_env ||
+           v->mix_step || v->osc.mix != v->mix_base ||
+           !fm_filter_is_wire(&v->filter) ||
+           fm_filter_voice_cents(v->cutoff_cents, v->key_track, v->key_note,
+                                 0, 0) != v->cutoff_now;
+}
+
 static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
 {
     int32_t last = v->filter.s[3];
     uint32_t i;
     if (fm_voice_busy(v) || v->amp_env.stage == FM_ENV_IDLE)
         return 0;
+#ifdef FM_CHECK_BUSY
+    assert(!fm_voice_busy_derived(v)); /* the busy word hid a processor */
+#endif
     for (i = 0; i < frames; i++) {
         int32_t level;
         if (v->amp_env.stage == FM_ENV_IDLE) break; /* the release ended */

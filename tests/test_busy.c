@@ -123,6 +123,82 @@ TT_TEST(busy_filter_says_when_it_is_a_wire)
     TT_CHECK(fm_filter_is_wire(&f));
 }
 
+/*
+ * The busy word is a cache: it must never say "at rest" while a processor
+ * is away from rest (fm_voice_busy_derived reads them directly). Random
+ * notes (steals, take backs, same-note restrikes), the sustain pedal, poly
+ * and unison, the filter and mix settings and render lengths; checked on
+ * every voice after every step.
+ */
+static uint32_t busy_rng;
+static uint32_t busy_pick(uint32_t n)
+{
+    busy_rng = busy_rng * 1664525u + 1013904223u;
+    return (busy_rng >> 8) % n;
+}
+
+static void busy_random_param(fm_engine *e)
+{
+    static const struct { uint16_t id; int32_t v[4]; } p[] = {
+        {FM_PARAM_FILTER_CUTOFF_CENTS, {3000, 6000, 9000, 20000}},
+        {FM_PARAM_HIGHPASS_STEP, {0, 0, 1, 3}},
+        {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, {0, 0, 2400, -1200}},
+        {FM_PARAM_FILTER_KEY_TRACK, {0, 0, 500, 1000}},
+        {FM_PARAM_FILTER_RESONANCE, {0, 0, 400, 900}},
+        {FM_PARAM_OSC_MIX, {0, 500, 500, 1000}},
+        {FM_PARAM_OSC_MIX_ENV, {0, 0, 500, -700}},
+        {FM_PARAM_OSC_MIX_ENV_SOURCE, {0, 0, 1, 1}},
+        {FM_PARAM_VOICE_MODE, {FM_VOICE_MODE_POLY, FM_VOICE_MODE_POLY,
+                               FM_VOICE_MODE_POLY, FM_VOICE_MODE_UNISON}},
+        {FM_PARAM_AMP_RELEASE_MS, {5, 20, 200, 800}},
+        {FM_PARAM_AMP_ATTACK_MS, {0, 2, 30, 300}},
+        {FM_PARAM_FILTER_ENV_ATTACK_MS, {0, 10, 100, 1000}},
+    };
+    uint32_t k = busy_pick(sizeof p / sizeof p[0]);
+    fm_engine_set_param(e, p[k].id, p[k].v[busy_pick(4)]);
+}
+
+/* Steps engine `e` once at random. */
+static void busy_random_step(fm_engine *e, int16_t *buf)
+{
+    static const uint8_t notes[] = {48, 52, 55, 57, 60, 64};
+    uint8_t note = notes[busy_pick(sizeof notes)];
+    switch (busy_pick(8)) {
+    case 0: case 1:
+        fm_engine_note_on(e, note, (uint8_t)(1 + busy_pick(127)));
+        break;
+    case 2: case 3:
+        fm_engine_note_off(e, note);
+        break;
+    case 4:
+        fm_engine_controller(e, 64, busy_pick(2) ? 127 : 0);
+        break;
+    case 5:
+        busy_random_param(e);
+        break;
+    default:
+        fm_engine_render(e, buf, 1 + busy_pick(300));
+        break;
+    }
+}
+
+TT_TEST(busy_word_never_hides_a_busy_processor)
+{
+    uint32_t seed, step, i, bad = 0;
+    for (seed = 1; seed <= 4; seed++) {
+        busy_rng = seed;
+        fm_engine_init(&beng, 44100u, (uint8_t)(1 + seed));
+        for (step = 0; step < 3000; step++) {
+            busy_random_step(&beng, bbuf);
+            for (i = 0; i < beng.voice_count; i++) {
+                const fm_voice *v = &beng.voices[i];
+                if (!fm_voice_busy(v) && fm_voice_busy_derived(v)) bad++;
+            }
+        }
+    }
+    TT_CHECK_EQ(bad, 0);
+}
+
 static void run_busy_tests(void)
 {
     TT_RUN(busy_default_patch_is_at_rest);
@@ -132,4 +208,5 @@ static void run_busy_tests(void)
     TT_RUN(busy_steal_fade_ends_at_rest);
     TT_RUN(busy_queued_release_ends_at_rest);
     TT_RUN(busy_filter_says_when_it_is_a_wire);
+    TT_RUN(busy_word_never_hides_a_busy_processor);
 }

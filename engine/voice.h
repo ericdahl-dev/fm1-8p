@@ -193,6 +193,14 @@ static inline void fm_voice_mark_mix(fm_voice *v)
  * at rest (and sounding) renders on the fast path. */
 uint32_t fm_voice_busy(const fm_voice *v);
 
+/* The same question asked of the processors themselves instead of the busy
+ * word: nonzero while any is away from rest (a steal fade or queued
+ * release, a filter envelope amount, the mix envelope or a glide, the
+ * filter not a wire, or a cutoff not yet updated for the settings and the
+ * note). The busy word must be nonzero whenever this is. For checks only:
+ * it costs a cutoff computation. */
+uint32_t fm_voice_busy_derived(const fm_voice *v);
+
 void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
                          uint32_t sample_rate, uint32_t next_tick,
                          uint32_t tick_left);
