@@ -83,7 +83,9 @@ typedef struct {
  * `sample_rate` Hz (1..192000) with every parameter at its default.
  * Each note takes a voice; with more notes than voices the engine steals
  * one (the rule is in docs/voices.md). Each voice is mixed at
- * 1 / voice_count, then -6 dB, so a full chord never clips.
+ * 1 / voice_count, then -6 dB, so a full chord never clips without filter
+ * resonance; high resonance can reach full scale, where the output
+ * saturates.
  */
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count);

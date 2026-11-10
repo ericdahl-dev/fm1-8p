@@ -57,9 +57,10 @@ the desktop, where a division by zero does trap.
 Each voice is the saw (peak 1.0 in Q8.24) times its amp envelope (Q1.30).
 The voices are summed in Q8.24 and the sum is scaled by
 `0.5 / voice_count` (Q1.30), so even every voice at full level with lined-up
-peaks stays at or below half of full scale (-6 dBFS), with 6 dB left for
-resonance and the chorus. The table and the reasoning are in
-[voices.md](voices.md#gain-staging).
+peaks stays at or below half of full scale (-6 dBFS) without filter
+resonance. High resonance uses that 6 dB and can reach full scale, where the
+int16 conversion saturates (follow-up: #24). The table and the reasoning are
+in [voices.md](voices.md#gain-staging).
 
 ### Filter
 

@@ -109,17 +109,24 @@ least significant first). Values above 16383 are ignored.
 | Stage | Format | Peak |
 | --- | --- | --- |
 | Saw | Q8.24 | 1.0 (polyBLEP keeps it within +-1.0) |
-| Voice: saw times amp envelope | Q8.24 | 1.0 |
-| Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count`, at most 8.0, which uses 4 of the 7 headroom bits |
+| Filter output | Q8.24 | 1.0 with the filter open or no resonance; with high resonance up to the soft clip's +-4.0 |
+| Voice: filter output times amp envelope | Q8.24 | as the filter output |
+| Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count` with no resonance; at most 4.0 x 8 = 32.0, which uses 6 of the 7 headroom bits |
 | Mix gain | Q1.30 | `0.5 / voice_count` = `(1 << 29) / voice_count`, rounded down |
-| Output before conversion | Q8.24 | 0.5 |
-| Output | `int16_t` | 16384 (-6 dBFS) |
+| Output before conversion | Q8.24 | 0.5 with no resonance; up to 2.0 with high resonance |
+| Output | `int16_t` | 16384 (-6 dBFS) with no resonance; high resonance can reach full scale, where the conversion saturates |
 
-Each voice is scaled by `1 / voice_count`, so the worst case, every voice at
-full level with their peaks lined up, reaches exactly full scale before a
-fixed -6 dB. That -6 dB is headroom saved for the filter's resonance and the
-chorus in later slices; until then nothing can come within 6 dB of clipping.
-The int16 conversion still saturates as a last guard.
+Each voice is scaled by `1 / voice_count`, so the worst case without
+resonance, every voice at full level with their peaks lined up, reaches
+exactly full scale before a fixed -6 dB. The filter (#7) now uses that
+headroom: at high resonance its peak near the cutoff lifts a voice above the
+saw's level, up to the soft clip's +-4.0 in theory (4x what the mix gain
+budgets). Measured at resonance 1000, cutoff 13700 cents and highpass 3, one
+note on a 1-voice engine peaks at about 27100 (-1.6 dBFS). So high resonance can
+reach full scale. When it does, the int16 conversion saturates: samples clamp
+at +-32767, with no wraparound and no undefined behavior. Gain staging for
+the filter and the chorus is a follow-up in
+[#24](https://github.com/ericdahl-dev/fm1-8p/issues/24).
 
 The cost of this is level: one note on a 6-voice engine peaks at
 `16384 / 6` = 2731, about -21.6 dBFS (-18 dBFS for 4 voices). That is normal
@@ -128,8 +135,9 @@ exist, the output gain can be revisited with real patches and the CPU test's
 final voice count.
 
 `full_chord_at_max_velocity_never_clips` plays every voice count from 1 to 8
-in octaves (whose saws wrap together, the worst case) and checks no sample
-reaches +-32767, and that the peak stays at or below 16384.
+in octaves (whose saws wrap together, the worst case) with the default patch
+(filter open) and checks no sample reaches +-32767, and that the peak stays at
+or below 16384.
 
 ## Clicks
 
