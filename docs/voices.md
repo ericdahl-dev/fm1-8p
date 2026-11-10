@@ -151,7 +151,9 @@ buffer, and a test for a queued release (the steal fade case above). Idle voices
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-`fm_engine` is about 0.7 KiB (692 bytes on x86-64) with room for 8 voices.
+The voices take about 0.7 KiB with room for 8; with the chorus (its 2 KiB
+delay line and a 256-byte right-side buffer) `fm_engine` is about 3.1 KiB
+(3120 bytes on x86-64), so static storage is recommended.
 
 Divisions all happen on events: one 64-by-32 divide per note on (its pitch),
 and one per sounding voice for each pitch bend message. A fast bend sends a

@@ -4,9 +4,11 @@
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
- * allocation: the caller owns the fm_engine storage (static or on a task
- * stack) and fm_engine_init sets up everything inside it. See
- * docs/fixed-point.md for the number formats.
+ * allocation: the caller owns the fm_engine storage and fm_engine_init
+ * sets up everything inside it. fm_engine is about 3.1 KiB (3120 bytes on
+ * 32- and 64-bit desktops), two thirds of it the chorus delay line, so
+ * static storage is recommended; a task stack must have room for it on
+ * top of its other use. See docs/fixed-point.md for the number formats.
  *
  * The struct layout is exposed only so callers can allocate it; treat
  * every field as private.

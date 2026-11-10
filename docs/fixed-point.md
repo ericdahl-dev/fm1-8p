@@ -107,7 +107,9 @@ How it works, per sample:
   the block costs one check. Divisions run only when the mode is set.
 
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
-2.1 KiB (2072 bytes on x86-64), inside `fm_engine`. Nothing is allocated and
+2.1 KiB (2072 bytes on x86-64), inside `fm_engine`, plus the 256-byte
+`mix_right` buffer. That makes `fm_engine` about 3.1 KiB (3120 bytes), so
+static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
 are scaled down together to fit (rate and shape are kept). At very low rates

@@ -577,6 +577,17 @@ TT_TEST(chorus_reinit_then_on_starts_from_a_silent_line)
     TT_CHECK(silent);
 }
 
+/*
+ * fm_engine's documented size (fm1_8p.h: about 3.1 KiB, static storage
+ * recommended). Growing past this budget must update that comment.
+ */
+TT_TEST(engine_storage_stays_within_its_documented_size)
+{
+    printf("    sizeof(fm_engine) = %u bytes\n", (unsigned)sizeof(fm_engine));
+    TT_CHECK(sizeof(fm_engine) <= 3200);
+    TT_CHECK(sizeof(fm_engine) > sizeof(fm_chorus));
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
@@ -587,6 +598,7 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_engine_peak_does_not_rise_with_a_full_chord);
     TT_RUN(chorus_handles_extreme_rates_and_unknown_modes);
     TT_RUN(chorus_memory_is_fixed_and_small);
+    TT_RUN(engine_storage_stays_within_its_documented_size);
     TT_RUN(chorus_delay_line_clamps_hot_input_to_two);
     TT_RUN(chorus_turned_on_again_starts_from_a_silent_line);
     TT_RUN(all_sound_off_silences_the_chorus_tail);
