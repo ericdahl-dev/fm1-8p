@@ -22,6 +22,8 @@ typedef struct {
     fm_env amp_env;
     uint32_t stamp;    /* engine event count at the last note on or off */
     uint32_t next_inc; /* pitch of `note` (kept while an old note fades) */
+    uint32_t wait;     /* length of the current steal fade, in samples */
+    uint32_t gate_left; /* samples until a queued release (0: none) */
     uint8_t note;
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
@@ -38,7 +40,9 @@ int fm_voice_active(const fm_voice *v);
  * once, and a voice already playing the same note retriggers its attack
  * from the current level. Any other sounding voice is stolen: the old
  * note fades out over `fade_samples`, then the new one starts. A voice
- * already fading just changes the note it will start.
+ * already fading just changes the note it will start. If the new note's
+ * key comes up during the fade, the note still starts after it, holds
+ * for the fade time (as long as it waited) and then releases.
  */
 void fm_voice_note_on(fm_voice *v, uint8_t note, uint32_t inc,
                       uint32_t fade_samples);

@@ -11,6 +11,8 @@ void fm_voice_reset(fm_voice *v)
     fm_env_reset(&v->amp_env);
     v->stamp = 0;
     v->next_inc = 0;
+    v->wait = 0;
+    v->gate_left = 0;
     v->note = 0;
     v->key_down = 0;
     v->sustained = 0;
@@ -23,13 +25,14 @@ int fm_voice_active(const fm_voice *v)
 }
 
 /* Starts the note from the current level (0 when idle). A note whose
- * key came up while it waited releases at once. */
+ * key came up while it waited for a steal fade queues its release for as
+ * long as it waited, so it is heard rather than released at level 0. */
 static void start(fm_voice *v)
 {
     v->pending = 0;
     fm_osc_set_inc(&v->osc, v->next_inc);
     fm_env_gate_on(&v->amp_env);
-    if (!v->key_down && !v->sustained) fm_env_gate_off(&v->amp_env);
+    if (!v->key_down && !v->sustained) v->gate_left = v->wait ? v->wait : 1;
 }
 
 void fm_voice_note_on(fm_voice *v, uint8_t note, uint32_t inc,
@@ -40,11 +43,13 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, uint32_t inc,
     v->key_down = 1;
     v->sustained = 0;
     v->next_inc = inc;
+    v->gate_left = 0;
     if (v->pending) return; /* starts when the fade ends */
     if (same || v->amp_env.stage == FM_ENV_IDLE) {
         start(v);
     } else {
         v->pending = 1;
+        v->wait = fade_samples;
         fm_env_fade(&v->amp_env, fade_samples);
     }
 }
@@ -70,6 +75,7 @@ void fm_voice_silence(fm_voice *v)
 {
     fm_env_reset(&v->amp_env);
     v->pending = 0;
+    v->gate_left = 0;
     v->key_down = 0;
     v->sustained = 0;
 }
@@ -89,6 +95,8 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames)
             if (!v->pending) return;
             start(v); /* the stolen note has faded out */
         }
+        if (v->gate_left && --v->gate_left == 0)
+            fm_env_gate_off(&v->amp_env); /* the queued release */
         level = fm_env_next(&v->amp_env);
         saw = fm_osc_saw_next(&v->osc);
         /* Q8.24 * Q1.30 -> Q8.24 */
