@@ -29,6 +29,10 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents)
     v->cutoff_cents = FM_FILTER_OPEN_CENTS;
     v->key_track = 0;
     v->env_amount = 0;
+    v->mix_base = 0;
+    v->mix_env = 0;
+    v->mix_src = 0;
+    v->mix_step = 0;
     v->key_note = 0;
     v->next_key = 0;
     fm_env_reset(&v->filter_env);
@@ -212,6 +216,34 @@ void fm_voice_release(fm_voice *v)
     }
 }
 
+/*
+ * The amp envelope's level `level` against the note's peak (Q1.30), so
+ * velocity doesn't scale the mix envelope's depth. A divide, once a
+ * control tick (16 samples), only when the mix follows the amp envelope.
+ */
+static int32_t amp_share(const fm_voice *v, int32_t level)
+{
+    int64_t r;
+    if (v->amp_env.peak <= 0) return 0;
+    r = ((int64_t)level << 30) / v->amp_env.peak;
+    return r > FM_ENV_FULL ? FM_ENV_FULL : (int32_t)r;
+}
+
+/*
+ * Aims the mix at osc_mix plus the mix envelope's share at envelope level
+ * `env`, reached by the next control tick: it glides there a sample at a
+ * time (no click when the depth changes, no steps as the envelope moves).
+ */
+static void update_mix(fm_voice *v, int32_t env)
+{
+    int64_t m = v->mix_base + (((int64_t)v->mix_env * env) >> 30);
+    if (m < 0) m = 0;
+    if (m > FM_OSC_MIX_FULL) m = FM_OSC_MIX_FULL;
+    v->mix_step = ((int32_t)m - v->osc.mix) / FILTER_CTRL_SAMPLES;
+    if (!v->mix_step) /* within a glide's rounding: there now */
+        fm_osc_pair_set_mix(&v->osc, (int32_t)m);
+}
+
 void fm_voice_silence(fm_voice *v)
 {
     fm_env_reset(&v->amp_env);
@@ -280,7 +312,8 @@ static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
 {
     int32_t last = v->filter.s[3];
     uint32_t i;
-    if (v->env_amount || v->cutoff_dirty || v->pending || v->gate_left ||
+    if (v->env_amount || v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
+        v->cutoff_dirty || v->pending || v->gate_left ||
         v->filter.fade || v->filter.hp_g ||
         v->amp_env.stage == FM_ENV_IDLE)
         return 0;
@@ -327,7 +360,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             filter_env_gate_off(v);
         }
         level = fm_env_next(&v->amp_env);
-        if (v->env_amount) {
+        if (v->env_amount || (v->mix_env && !v->mix_src)) {
             fenv = fm_env_next(&v->filter_env);
         } else { /* no effect on the sound: caught up when needed */
             fenv = 0;
@@ -337,10 +370,16 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             /* with no envelope amount the cutoff changes only when a
              * setting or the note does, which marks it dirty */
             if (v->env_amount || v->cutoff_dirty) update_cutoff(v, fenv);
+            /* the mix envelope, or a glide back to osc_mix after it (until
+             * it lands: a glide can land exactly with its step still set) */
+            if (v->mix_env || v->mix_step || v->osc.mix != v->mix_base)
+                update_mix(v, v->mix_src ? amp_share(v, level) : fenv);
             if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
         }
         v->ctrl_phase--;
+        if (v->mix_step)
+            fm_osc_pair_set_mix(&v->osc, v->osc.mix + v->mix_step);
         osc = fm_filter_run(&v->filter, fm_osc_pair_next(&v->osc));
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)osc * level) >> 30);

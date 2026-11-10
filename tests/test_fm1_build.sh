@@ -55,8 +55,11 @@ expect_ok "a file's own cflags with other spacing still name it absolutely" grep
 # The engine and the CPU test (the render path) build at hbmod's default -O2, which module.cfg doesn't
 # restate; the screen and keys stay -Os (#34: -O2 took step F, 6 voices with the filter, from 77.2 % to
 # 63.8 % of a block in fm1-emu strict).
-ui=$(abspath firmware/fm1_8p_cpu/fm1_8p_cpu.c)
-for m in firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
+for m in firmware/fm1_8p firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
+    case $m in
+        firmware/fm1_8p) ui=$(abspath firmware/fm1_8p/fm1_8p.c) ;;
+        *) ui=$(abspath firmware/fm1_8p_cpu/fm1_8p_cpu.c) ;;
+    esac
     stage_module "$m" "$T/staged/$(basename "$m")" engine >/dev/null 2>&1
     flags=" $(sed -n 's/^cflags = //p' "$T/staged/$(basename "$m")/module.cfg") "
     expect_fail "$m leaves the engine at hbmod's default -O2 (no -O in its cflags)" grep -q -- ' -O' <<EOF2
@@ -120,7 +123,7 @@ build_with() (
         case "$1" in
         hbmod.py) d=$FM1_DOCK/build/modules/$(basename "$2"); mkdir -p "$d"
                   cp "$linked/module_02200000.elf" "$linked/module_02200000.elf.nm" "$d/" ;;
-        build.py) : >"$FM1_DOCK/build/modules/fm1_8p_cpu.dock"; : >"$FM1_DOCK/build/fm1-8p-cpu.fwsc" ;;
+        build.py) : >"$FM1_DOCK/build/modules/$(basename "$3").dock"; : >"$FM1_DOCK/build/$5.fwsc" ;;
         esac
     }
     build_firmware
@@ -128,6 +131,24 @@ build_with() (
 mkdir -p "$T/nm/clean" && cp "$T/nm/mod/module_02200000.elf" "$T/nm/clean/" && cp "$T/nm/clean.nm" "$T/nm/clean/module_02200000.elf.nm"
 expect_ok   "a build whose module links only integer helpers succeeds" build_with "$T/nm/clean"
 expect_fail "a build whose module links a soft-float helper fails" build_with "$T/nm/mod"
+# A compile error: hbmod fails, leaving the last build's clean ELF and .dock in place. The build must
+# fail, not check the stale ELF and ship the old .dock.
+build_failing() (
+    ROOT=$(pwd) OUT=$T/bout FM1_DOCK=$T/fd JIELI_TOOLCHAIN=$T/nm/tc FM1_IDENTITY=test fail=$1
+    check_inputs() { :; }
+    dock() {
+        case "$1" in
+        hbmod.py) [ "$(basename "$2")" = "$fail" ] && return 1
+                  d=$FM1_DOCK/build/modules/$(basename "$2"); mkdir -p "$d"
+                  cp "$T/nm/clean/module_02200000.elf" "$T/nm/clean/module_02200000.elf.nm" "$d/" ;;
+        build.py) : >"$FM1_DOCK/build/modules/$(basename "$3").dock"; : >"$FM1_DOCK/build/$5.fwsc" ;;
+        esac
+    }
+    build_firmware
+)
+build_with "$T/nm/clean" >/dev/null 2>&1      # a good build first: its ELF and .dock stay behind
+expect_fail "a build whose synth module fails to compile fails" build_failing fm1_8p
+expect_fail "a build whose CPU test fails to compile fails" build_failing fm1_8p_cpu
 # The emulator run builds the quick module (the image fm1-emu and CI time) and checks it the same way:
 # a soft-float quick module fails before the emulator starts.
 emu_with() (
@@ -164,7 +185,7 @@ rm -f "$T/emu-ran.called"
 emu_with "$T/nm/mod" >/dev/null 2>&1
 expect_ok "an emulator run whose quick module links a soft-float helper never starts the emulator" test ! -e "$T/emu-ran.called"
 
-for m in firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
+for m in firmware/fm1_8p firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
     expect_ok "$m takes the engine's sources from engine/" grep -q '@ENGINE_SOURCES@' "$m/module.cfg"
 done
 
@@ -255,6 +276,43 @@ expect_ok "the full patch's count comes from firmware/cpu_test.h" test "$(full_c
 expect_ok "the emu window covers 10 steps of 86 blocks with a margin" test "$(emu_window_ms 86)" -ge 6700
 printf 'nothing here\n' >"$T/empty.txt"
 expect_fail "emu report fails when no voice count was logged" emu_report "$T/empty.txt"
+
+# The playable module in fm1-emu: a scripted note sequence must run with no overrun.
+{
+    echo "260 fm1-8p: ready, voices 00000004"
+    echo "---"
+    echo "active module 0; render: last 70000 ticks (50.3 %), worst 86000 (61.7 %), 0 overruns, 1200 blocks"
+} >"$T/play.txt"
+expect_ok "emu play report passes with no overrun" emu_play_report "$T/play.txt"
+sed 's/, 0 overruns/, 3 overruns/' "$T/play.txt" >"$T/play-over.txt"
+expect_fail "emu play report fails on an overrun" emu_play_report "$T/play-over.txt"
+grep -v 'ready' "$T/play.txt" >"$T/play-noinit.txt"
+expect_fail "emu play report fails when the module never started" emu_play_report "$T/play-noinit.txt"
+{ cat "$T/play.txt"; echo "5000 too slow: stopped 00000000"; } >"$T/play-slow.txt"
+expect_fail "emu play report fails when the host stopped the module" emu_play_report "$T/play-slow.txt"
+# run_emu_play plays the synth that `build` made: with build/fm1/fm1-8p.fwsc there, nothing is
+# rebuilt and the emulator gets that file. fm1-dock's tools and fm1-live stand in.
+emu_play_with() (
+    ROOT=$(pwd) OUT=$T/epout FM1_DOCK=$T/fp JIELI_TOOLCHAIN=$T/nm/tc FM1_IDENTITY=test
+    FM1_LIVE=$T/live/fm1-live FM1_LIVE_SHA256=0
+    PYTHON=$T/ep-python; printf '#!/bin/sh\necho "$@" >"%s.args"\n' "$PYTHON" >"$PYTHON"; chmod +x "$PYTHON"
+    check_inputs() { :; }
+    fetch_emu() { :; }
+    dock() { echo "$1" >>"$T/ep-dock.calls"; }
+    mkdir -p "$FM1_DOCK" "$OUT"
+    run_emu_play
+)
+mkdir -p "$T/epout" && : >"$T/epout/fm1-8p.fwsc"
+: >"$T/ep-dock.calls"
+emu_play_with >/dev/null 2>&1
+expect_ok "emu-play reuses the built synth: nothing rebuilt" test ! -s "$T/ep-dock.calls"
+expect_ok "... and the emulator gets build/fm1's file" grep -q -- "--fwsc $T/epout/fm1-8p.fwsc" "$T/ep-python.args"
+expect_ok "an emu-play run with an unpinned fm1-live says so in its report" \
+    grep -q 'unpinned fm1-live' "$T/epout/emu-play-report.md"
+
+grep -v 'render: last' "$T/play.txt" >"$T/play-nometer.txt"
+emu_play_report "$T/play-nometer.txt" >"$T/play-report.md" 2>&1
+expect_ok "emu play report says why when the render meter is missing" grep -q 'No render meter' "$T/play-report.md"
 
 printf '  FAIL  rom_ref: reference to ROM address 0xffc01000\nhbmod: checks failed\n' >"$T/canary.log"
 printf 'reference to ROM address\n' >"$T/expect"
