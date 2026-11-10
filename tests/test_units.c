@@ -64,9 +64,21 @@ TT_TEST(units_rate_to_phase_inc_wide_inputs)
     TT_CHECK(fm_rate_to_phase_inc(1u << 28, 1000000u, 48000u, 5) == 768614336u);
 }
 
+/* ms to samples never wraps: a negative time is 0, and past 32 bits it
+ * saturates (at 192 kHz, 22369621 ms is 4294967232 samples; one more ms
+ * would be 4294967424). */
+TT_TEST(units_ms_to_samples_clamps)
+{
+    TT_CHECK_EQ(fm_ms_to_samples(-1, 44100u), 0u);
+    TT_CHECK_EQ(fm_ms_to_samples(22369621, 192000u), 4294967232u);
+    TT_CHECK_EQ(fm_ms_to_samples(22369622, 192000u), 0xFFFFFFFFu);
+    TT_CHECK_EQ(fm_ms_to_samples(0x7FFFFFFF, 192000u), 0xFFFFFFFFu);
+}
+
 static void run_units_tests(void)
 {
     TT_RUN(units_ms_to_samples_edges);
+    TT_RUN(units_ms_to_samples_clamps);
     TT_RUN(units_permille_to_q30_edges);
     TT_RUN(units_us_to_samples_q16_edges);
     TT_RUN(units_rate_to_phase_inc_edges);

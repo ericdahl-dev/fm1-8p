@@ -3,7 +3,10 @@
 
 uint32_t fm_ms_to_samples(int32_t ms, uint32_t rate)
 {
-    return (uint32_t)(((uint64_t)(uint32_t)ms * rate) / 1000u);
+    uint64_t n;
+    if (ms <= 0) return 0;
+    n = (uint64_t)(uint32_t)ms * rate / 1000u; /* < 2^31 * 2^32 */
+    return n > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)n;
 }
 
 int32_t fm_permille_to_q30(int32_t permille)

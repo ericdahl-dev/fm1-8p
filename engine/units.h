@@ -10,8 +10,9 @@
 
 #include <stdint.h>
 
-/* Milliseconds to samples at `rate` Hz. The product is formed in 64 bits,
- * so any ms and rate fit (10 s at 192 kHz: 1.92e9 before the divide). */
+/* Milliseconds to samples at `rate` Hz: a negative time is 0, and a count
+ * past 32 bits saturates (the product, under 2^63, is formed in 64 bits).
+ * The longest setting, 10 s at 192 kHz, is 1920000 samples. */
 uint32_t fm_ms_to_samples(int32_t ms, uint32_t rate);
 
 /* Per mille (-1000..+1000) to Q1.30: 1000 is 1 << 30. A multiply, not a
