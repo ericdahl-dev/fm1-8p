@@ -1,6 +1,7 @@
 /*
- * The engine's filter held to the filter as merged in #25 (filter_oracle.c, test-only): whatever
- * arithmetic the engine uses, its output must stay within the stated error of that reference.
+ * The engine's filter held to the filter as merged in #25 (filter_oracle.c, test-only: its 64-bit
+ * processing on the engine's own state and setters): whatever arithmetic the engine uses, its output
+ * must stay within the stated error of that reference.
  */
 #include "filter_oracle.c"
 
@@ -28,21 +29,21 @@ static int32_t oracle_cutoff_at(size_t i, int32_t base, int32_t amount)
 static double oracle_snr_db_via(int32_t base, int32_t amount, int32_t res, uint8_t hp, int full)
 {
     static fm_filter f;
-    static oracle_filter o;
+    static fm_filter o;
     int32_t rate = fm_filter_rate_cents(ORACLE_RATE);
     double sig = 0, err = 0;
     size_t i;
     fm_filter_reset(&f);
-    oracle_filter_reset(&o);
+    fm_filter_reset(&o);
     fm_filter_set_resonance(&f, res);
-    oracle_filter_set_resonance(&o, res);
+    fm_filter_set_resonance(&o, res);
     fm_filter_set_highpass(&f, hp, rate);
-    oracle_filter_set_highpass(&o, hp, rate);
+    fm_filter_set_highpass(&o, hp, rate);
     for (i = 0; i < ORACLE_RATE; i++) {
         int32_t x = oracle_input(i), y, r;
         if (i % 16 == 0) {
             fm_filter_set_cutoff(&f, oracle_cutoff_at(i, base, amount), rate);
-            oracle_filter_set_cutoff(&o, oracle_cutoff_at(i, base, amount), rate);
+            fm_filter_set_cutoff(&o, oracle_cutoff_at(i, base, amount), rate);
         }
         y = full ? fm_filter_process(&f, x) : fm_filter_run(&f, x);
         r = oracle_filter_process(&o, x);
@@ -69,7 +70,7 @@ TT_TEST(filter_matches_the_reference_on_the_full_patch)
  * inline fast path (fm_filter_run) for it, so this checks that path. */
 TT_TEST(filter_matches_the_reference_on_the_default_patch)
 {
-    double snr = oracle_snr_db(ORACLE_OPEN_CENTS, 0, 0, 0);
+    double snr = oracle_snr_db(FM_FILTER_OPEN_CENTS, 0, 0, 0);
     printf("    default patch, fast path: %.1f dB SNR against the reference\n", snr);
     TT_CHECK(snr >= 90.0);
 }
@@ -78,7 +79,7 @@ TT_TEST(filter_matches_the_reference_on_the_default_patch)
  * taken for an input beyond +-2.0). */
 TT_TEST(filter_matches_the_reference_on_the_default_patch_full_path)
 {
-    double snr = oracle_snr_db_via(ORACLE_OPEN_CENTS, 0, 0, 0, 1);
+    double snr = oracle_snr_db_via(FM_FILTER_OPEN_CENTS, 0, 0, 0, 1);
     printf("    default patch, full path: %.1f dB SNR against the reference\n", snr);
     TT_CHECK(snr >= 90.0);
 }
@@ -106,17 +107,17 @@ TT_TEST(self_oscillation_pitch_matches_the_reference)
     static const int32_t cutoffs[] = { 2400, 4800, 6900, 9000, 10500, 12000, 13000 };
     static int32_t y[4 * ORACLE_RATE], r[4 * ORACLE_RATE];
     static fm_filter f;
-    static oracle_filter o;
+    static fm_filter o;
     int32_t rate = fm_filter_rate_cents(ORACLE_RATE);
     size_t c, i;
     for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
         double hy, hr, cents;
         fm_filter_reset(&f);
-        oracle_filter_reset(&o);
+        fm_filter_reset(&o);
         fm_filter_set_resonance(&f, 1000);
-        oracle_filter_set_resonance(&o, 1000);
+        fm_filter_set_resonance(&o, 1000);
         fm_filter_set_cutoff(&f, cutoffs[c], rate);
-        oracle_filter_set_cutoff(&o, cutoffs[c], rate);
+        fm_filter_set_cutoff(&o, cutoffs[c], rate);
         for (i = 0; i < 4 * (size_t)ORACLE_RATE; i++) {
             y[i] = fm_filter_run(&f, i == 0 ? 1 << 24 : 0);
             r[i] = oracle_filter_process(&o, i == 0 ? 1 << 24 : 0);
@@ -185,22 +186,22 @@ TT_TEST(full_resonance_8_voice_chord_stays_bounded)
 TT_TEST(loud_input_matches_the_reference_exactly)
 {
     static fm_filter f;
-    static oracle_filter o;
+    static fm_filter o;
     int32_t rate = fm_filter_rate_cents(ORACLE_RATE);
     size_t i;
     int same = 1;
     fm_filter_reset(&f);
-    oracle_filter_reset(&o);
+    fm_filter_reset(&o);
     fm_filter_set_resonance(&f, 1000);
-    oracle_filter_set_resonance(&o, 1000);
+    fm_filter_set_resonance(&o, 1000);
     fm_filter_set_highpass(&f, 3, rate);
-    oracle_filter_set_highpass(&o, 3, rate);
+    fm_filter_set_highpass(&o, 3, rate);
     for (i = 0; i < ORACLE_RATE; i++) {
         int32_t x = (i / 50) % 2 ? (int32_t)(31.9 * 16777216.0) : -(int32_t)(31.9 * 16777216.0);
         if (i % 16 == 0) {
-            int32_t c = (int32_t)(i * ORACLE_OPEN_CENTS / ORACLE_RATE);
+            int32_t c = (int32_t)(i * FM_FILTER_OPEN_CENTS / ORACLE_RATE);
             fm_filter_set_cutoff(&f, c, rate);
-            oracle_filter_set_cutoff(&o, c, rate);
+            fm_filter_set_cutoff(&o, c, rate);
         }
         same &= fm_filter_run(&f, x) == oracle_filter_process(&o, x);
     }
@@ -212,22 +213,22 @@ TT_TEST(loud_input_matches_the_reference_exactly)
  * offset out, at every lowpass setting from open down to a resonant 2400 cents. */
 TT_TEST(input_beyond_32_matches_the_reference_exactly)
 {
-    static const int32_t cutoffs[] = { ORACLE_OPEN_CENTS, 14000, 9000, 2400 };
+    static const int32_t cutoffs[] = { FM_FILTER_OPEN_CENTS, 14000, 9000, 2400 };
     static const int32_t dcs[] = { 40, 100, -127 };
     static fm_filter f;
-    static oracle_filter o;
+    static fm_filter o;
     int32_t rate = fm_filter_rate_cents(ORACLE_RATE);
     size_t c, d, i, differ = 0;
     for (d = 0; d < sizeof dcs / sizeof dcs[0]; d++)
         for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
             fm_filter_reset(&f);
-            oracle_filter_reset(&o);
+            fm_filter_reset(&o);
             fm_filter_set_resonance(&f, c == 3 ? 900 : 0);
-            oracle_filter_set_resonance(&o, c == 3 ? 900 : 0);
+            fm_filter_set_resonance(&o, c == 3 ? 900 : 0);
             fm_filter_set_highpass(&f, 3, rate);
-            oracle_filter_set_highpass(&o, 3, rate);
+            fm_filter_set_highpass(&o, 3, rate);
             fm_filter_set_cutoff(&f, cutoffs[c], rate);
-            oracle_filter_set_cutoff(&o, cutoffs[c], rate);
+            fm_filter_set_cutoff(&o, cutoffs[c], rate);
             for (i = 0; i < ORACLE_RATE; i++) {
                 int32_t x = (int32_t)lround(16777216.0 * (dcs[d] + 0.5 * sin(6.283185307179586 * 440.0 * (double)i / ORACLE_RATE)));
                 differ += fm_filter_run(&f, x) != oracle_filter_process(&o, x);
@@ -244,7 +245,7 @@ TT_TEST(extreme_input_stays_bounded)
     static fm_filter f;
     int32_t rate = fm_filter_rate_cents(ORACLE_RATE);
     size_t i, c;
-    for (c = 0; c <= (size_t)ORACLE_OPEN_CENTS; c += 1200) {
+    for (c = 0; c <= (size_t)FM_FILTER_OPEN_CENTS; c += 1200) {
         fm_filter_reset(&f);
         fm_filter_set_resonance(&f, 1000);
         fm_filter_set_highpass(&f, 3, rate);
