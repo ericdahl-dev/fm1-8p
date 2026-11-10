@@ -267,6 +267,30 @@ TT_TEST(key_tracking_moves_cutoff_with_note_pitch)
              2.0 * rms(fbuf_b, 4410, FRAMES_HALF_S));
 }
 
+/*
+ * Key tracking follows the note number, not the oscillators' tuning: osc2
+ * (heard alone) a coarse +12 up sounds exactly like osc2 an octave up,
+ * whose tuning the cutoff already ignores.
+ */
+TT_TEST(key_tracking_ignores_osc2_coarse_like_its_octave)
+{
+    static const int32_t shift[][2] = { { 12, 0 }, { 0, 1 } }; /* coarse, octave */
+    int16_t *outs[2] = { fbuf_a, fbuf_b };
+    size_t k;
+    for (k = 0; k < 2; k++) {
+        fm_engine_init(&feng, FRATE, 1);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 5000);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 300);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
+        fm_engine_set_param(&feng, FM_PARAM_OSC_MIX, 1000);
+        fm_engine_set_param(&feng, FM_PARAM_OSC2_COARSE_SEMIS, shift[k][0]);
+        fm_engine_set_param(&feng, FM_PARAM_OSC2_OCTAVE, shift[k][1]);
+        fm_engine_note_on(&feng, 72, 100);
+        fm_engine_render(&feng, outs[k], FRAMES_HALF_S);
+    }
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRAMES_HALF_S * 4) == 0);
+}
+
 /* Brightness of one channel over frames [from, to): RMS of the sample
  * differences over RMS of the signal (rises with high harmonics). */
 static double brightness(const int16_t *stereo, size_t from, size_t to)
@@ -1343,6 +1367,7 @@ static void run_filter_tests(void)
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
     TT_RUN(max_resonance_self_oscillates_near_cutoff);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
+    TT_RUN(key_tracking_ignores_osc2_coarse_like_its_octave);
     TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);
     TT_RUN(filter_output_does_not_depend_on_block_size);

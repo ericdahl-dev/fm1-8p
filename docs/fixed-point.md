@@ -116,8 +116,8 @@ resonant 4-pole (24 dB/octave) lowpass.
 - **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
   env_amount * env_level`, all in cents, computed every 16 samples (a
   2.8 kHz control rate at 44.1 kHz), not per sample. Key tracking follows the
-  MIDI note number only: pitch bend and each oscillator's octave and fine
-  tune move the oscillators but not the cutoff. The coefficient is the
+  MIDI note number only: pitch bend, each oscillator's octave and fine
+  tune, and osc2's coarse tune move the oscillators but not the cutoff. The coefficient is the
   matched-pole `g = 1 - e^(-2 pi fc / fs)`, worked out from two small
   tables (`tools/gen_filter_tables.py`): `2^(cents / 1200)` in 16-cent steps,
   and `(1 - e^-x) / x`, both linearly interpolated. The sample rate's own
