@@ -262,7 +262,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
                    ms - u->down_ms[id] < UI_TAP_MS;   /* a release: was it a tap? */
     if ((ev & 0xFF000000u) == UI_EV_BTN_DOWN && id < UI_BUTTONS)
         u->down_ms[id] = ms;
-    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV))
+    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV) && u->state != UI_EDIT)   /* (on 4A: 4B, with #47) */
         show_page(u, UI_EDIT);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */

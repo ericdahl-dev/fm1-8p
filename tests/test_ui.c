@@ -329,8 +329,21 @@ TT_TEST(ui_home_hold_keeps_the_page)
     TT_CHECK_EQ(ui_u.state, UI_EDIT);
 }
 
+/* ENV while 4A shows does nothing yet (stepping to 4B comes with #47): no redraw, the focus kept. */
+TT_TEST(ui_env_on_4a_does_nothing)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 0);
+    (void)ui_take_full(&ui_u, 100);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 200);
+    TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
+    TT_CHECK_EQ(ui_u.focus, 3u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_env_on_4a_does_nothing);
     TT_RUN(ui_home_hold_keeps_the_page);
     TT_RUN(ui_redraw_goes_one_band_at_a_time);
     TT_RUN(ui_focus_value_splits_number_and_unit);
