@@ -95,6 +95,12 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value);
 /* Current value of a parameter, or 0 for an unknown id. */
 int32_t fm_engine_get_param(const fm_engine *e, uint16_t id);
 
+/*
+ * Number of voices sounding (attack through release, or fading after a
+ * steal). A voice goes idle once its release reaches silence.
+ */
+uint8_t fm_engine_active_voices(const fm_engine *e);
+
 /* Renders `frames` interleaved stereo frames (L, R) of signed 16-bit. */
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames);
 

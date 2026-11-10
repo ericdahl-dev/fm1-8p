@@ -105,6 +105,20 @@ static void start_note(fm_voice *v)
     if (!v->key_down) fm_env_gate_off(&v->amp_env);
 }
 
+/* The sounding voice that has `note`, or null. At most one voice has a
+ * given note, because a repeated note reuses its voice. */
+static fm_voice *find_note(fm_engine *e, uint8_t note)
+{
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++) {
+        fm_voice *v = &e->voices[i];
+        if (v->note == note &&
+            (v->amp_env.stage != FM_ENV_IDLE || v->pending))
+            return v;
+    }
+    return 0;
+}
+
 /* Steal preference: lower ranks are taken first. */
 static int voice_rank(const fm_voice *v)
 {
@@ -144,13 +158,17 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         return;
     }
     {
-        fm_voice *v = pick_voice(e);
+        fm_voice *v = find_note(e, note);
+        int retrigger = v != 0;
+        if (!v) v = pick_voice(e);
         v->note = note;
         v->key_down = 1;
         v->stamp = ++e->stamp;
         v->next_inc = fm_osc_note_inc(note, e->sample_rate);
-        if (v->amp_env.stage == FM_ENV_IDLE) {
-            start_note(v);
+        if (v->pending) {
+            /* already waiting for its fade to end */
+        } else if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
+            start_note(v); /* attack from the current level */
         } else { /* steal: fade the old note out, start this one after */
             v->pending = 1;
             fm_env_fade(&v->amp_env, e->fade_samples);
@@ -187,6 +205,15 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
             break;
         }
     }
+}
+
+uint8_t fm_engine_active_voices(const fm_engine *e)
+{
+    uint8_t i, n = 0;
+    for (i = 0; i < e->voice_count; i++)
+        if (e->voices[i].amp_env.stage != FM_ENV_IDLE || e->voices[i].pending)
+            n++;
+    return n;
 }
 
 /* Q8.24 to int16 with saturation (1.0 maps to 32768). */
