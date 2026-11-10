@@ -414,6 +414,46 @@ TT_TEST(mix_env_depth_change_glides_without_a_click)
     TT_CHECK(worst <= 1.0 / 16 + 0.01);
 }
 
+/* Mix 500, depth 500 with the filter envelope full at once, osc2 an
+ * octave up; depth 0 after `at` frames; `frames` in all. */
+static void render_mix_back(int16_t *out, int32_t mix, int32_t depth,
+                            uint32_t at, uint32_t frames)
+{
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, out, at);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 0);
+    fm_engine_render(&eng, out + 2 * at, frames - at);
+}
+
+/*
+ * Depth back to 0 glides to osc_mix and stays there: read off the output
+ * against each oscillator alone, the mix holds at 0.5 for the next second
+ * (a glide landing exactly on its target must not carry on past it).
+ */
+TT_TEST(mix_env_off_settles_at_the_fixed_mix)
+{
+    static int16_t a[2 * (RATE + 4410)], b[2 * (RATE + 4410)], c[2 * (RATE + 4410)];
+    double worst = 0;
+    size_t i;
+    render_mix_back(a, 0, 0, 4410, RATE + 4410);
+    render_mix_back(b, 1000, 0, 4410, RATE + 4410);
+    render_mix_back(c, 500, 500, 4410, RATE + 4410);
+    for (i = 4410 + 64; i < RATE + 4410; i++) {
+        double d = (double)b[2 * i] - a[2 * i];
+        if (d > -3000 && d < 3000) continue;
+        if (fabs((c[2 * i] - a[2 * i]) / d - 0.5) > worst)
+            worst = fabs((c[2 * i] - a[2 * i]) / d - 0.5);
+    }
+    printf("    mix after depth 0: furthest from 0.5 over 1 s: %.3f\n", worst);
+    TT_CHECK(worst < 0.01);
+}
+
 /*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
@@ -1001,6 +1041,7 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_negative_depth_fades_osc2_out);
     TT_RUN(mix_env_can_follow_the_amp_envelope);
     TT_RUN(mix_env_depth_change_glides_without_a_click);
+    TT_RUN(mix_env_off_settles_at_the_fixed_mix);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);

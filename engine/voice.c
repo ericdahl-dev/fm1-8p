@@ -357,8 +357,9 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             /* with no envelope amount the cutoff changes only when a
              * setting or the note does, which marks it dirty */
             if (v->env_amount || v->cutoff_dirty) update_cutoff(v, fenv);
-            /* the mix envelope, or a glide back to osc_mix after it */
-            if (v->mix_env || v->osc.mix != v->mix_base)
+            /* the mix envelope, or a glide back to osc_mix after it (until
+             * it lands: a glide can land exactly with its step still set) */
+            if (v->mix_env || v->mix_step || v->osc.mix != v->mix_base)
                 update_mix(v, v->mix_src ? level : fenv);
             if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
