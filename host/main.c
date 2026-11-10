@@ -17,7 +17,9 @@ static void usage(void)
             "usage: fm1-8p-render [options] input.mid output.wav\n"
             "  -r RATE        sample rate in Hz (default 44100)\n"
             "  -t MS          tail rendered after the song ends (default 1000)\n"
-            "  -s NAME=VALUE  set a parameter (repeatable); parameters:\n");
+            "  -v VOICES      voice count, 1..%d (default %d)\n"
+            "  -s NAME=VALUE  set a parameter (repeatable); parameters:\n",
+            FM_MAX_VOICES, RENDER_DEFAULT_VOICES);
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         const fm_param_info *p = fm_param_info_get(id);
         fprintf(stderr, "                   %-22s %d..%d (default %d)\n",
@@ -47,6 +49,12 @@ int main(int argc, char **argv)
         } else if (strcmp(opt, "-t") == 0) {
             if (args_parse_u32(argv[++i], &o.tail_ms) != 0) {
                 fprintf(stderr, "bad tail: %s\n", argv[i]);
+                return 2;
+            }
+        } else if (strcmp(opt, "-v") == 0) {
+            if (args_parse_u32(argv[++i], &o.voice_count) != 0 ||
+                o.voice_count < 1 || o.voice_count > FM_MAX_VOICES) {
+                fprintf(stderr, "bad voice count: %s\n", argv[i]);
                 return 2;
             }
         } else if (strcmp(opt, "-s") == 0) {

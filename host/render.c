@@ -45,6 +45,9 @@ static void dispatch(fm_engine *e, const smf_event *ev)
     case 0x90: fm_engine_note_on(e, ev->data1, ev->data2); break;
     case 0x80: fm_engine_note_off(e, ev->data1); break;
     case 0xB0: fm_engine_controller(e, ev->data1, ev->data2); break;
+    case 0xE0: /* 14-bit value, least significant 7 bits first */
+        fm_engine_pitch_bend(e, (uint16_t)(ev->data1 | ev->data2 << 7));
+        break;
     default: break;
     }
 }
@@ -61,7 +64,13 @@ int render_midi_file(const char *midi_path, const char *wav_path,
     uint32_t total, done = 0;
     int16_t *pcm;
     int rc;
+    uint32_t voices = o->voice_count ? o->voice_count : RENDER_DEFAULT_VOICES;
 
+    if (voices > FM_MAX_VOICES) {
+        fprintf(stderr, "voice count %u out of range (1..%d)\n",
+                (unsigned)voices, FM_MAX_VOICES);
+        return -1;
+    }
     if (o->sample_rate < 8000 || o->sample_rate > 192000) {
         fprintf(stderr, "sample rate %u out of range (8000..192000)\n",
                 (unsigned)o->sample_rate);
@@ -86,7 +95,7 @@ int render_midi_file(const char *midi_path, const char *wav_path,
     }
     total = us_to_frames(total_us, o->sample_rate);
     pcm = malloc((size_t)(total ? total : 1) * 2 * sizeof *pcm);
-    if (!pcm || fm_engine_init(&eng, o->sample_rate, 1) != FM_OK) {
+    if (!pcm || fm_engine_init(&eng, o->sample_rate, (uint8_t)voices) != FM_OK) {
         fprintf(stderr, "cannot set up render\n");
         free(pcm);
         smf_free(&song);

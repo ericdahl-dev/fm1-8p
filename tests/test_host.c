@@ -383,6 +383,54 @@ TT_TEST(parameter_settings_reject_out_of_range_values)
     TT_CHECK_EQ(o.param_count, 2);
 }
 
+/* A C major triad, bent a whole tone down before it starts, held 1 s. */
+static const uint8_t bent_chord[] = {
+    0x00, 0xE0, 0x00, 0x00,           /* pitch bend full down */
+    0x00, 0x90, 60, 100, 0x00, 64, 100, 0x00, 67, 100,
+    0x87, 0x40, 0x80, 60, 0, 0x00, 64, 0, 0x00, 67, 0
+};
+
+static double chord_amp(const int16_t *pcm, int note)
+{
+    return tone_amp(pcm + 2 * 4410, 16384, 0, note_hz(note), 44100);
+}
+
+TT_TEST(chord_midi_file_plays_every_note_and_follows_pitch_bend)
+{
+    static const uint8_t counts[] = { 0 /* default */, 4, 6 };
+    size_t c;
+    for (c = 0; c < sizeof counts; c++) {
+        render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
+        uint32_t frames, rate;
+        int16_t *pcm;
+        double a58, a62, a65, a60;
+        o.voice_count = counts[c];
+        write_smf("build/chord.mid", bent_chord, sizeof bent_chord);
+        TT_CHECK_EQ(render_midi_file("build/chord.mid", "build/chord.wav", &o), 0);
+        pcm = read_wav_pcm("build/chord.wav", &frames, &rate);
+        TT_CHECK(pcm != NULL);
+        TT_CHECK(frames >= 4410 + 16384);
+        a58 = chord_amp(pcm, 58);
+        a62 = chord_amp(pcm, 62);
+        a65 = chord_amp(pcm, 65);
+        a60 = chord_amp(pcm, 60);
+        free(pcm);
+        TT_CHECK(a58 > 500);
+        TT_CHECK_NEAR(a62 / a58, 1.0, 0.1);
+        TT_CHECK_NEAR(a65 / a58, 1.0, 0.1);
+        TT_CHECK(a60 / a58 < 0.05);
+    }
+}
+
+TT_TEST(render_rejects_a_bad_voice_count)
+{
+    render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
+    o.voice_count = FM_MAX_VOICES + 1;
+    write_smf("build/one-note.mid", one_note, sizeof one_note);
+    printf("    (expected error message follows)\n");
+    TT_CHECK(render_midi_file("build/one-note.mid", "build/x.wav", &o) != 0);
+}
+
 static void run_host_tests(void)
 {
     TT_RUN(slurp_fails_cleanly_on_missing_and_empty_files);
@@ -402,4 +450,6 @@ static void run_host_tests(void)
     TT_RUN(wav_rejects_sample_rate_out_of_range);
     TT_RUN(numeric_options_reject_negative_and_out_of_range_values);
     TT_RUN(parameter_settings_reject_out_of_range_values);
+    TT_RUN(chord_midi_file_plays_every_note_and_follows_pitch_bend);
+    TT_RUN(render_rejects_a_bad_voice_count);
 }

@@ -9,10 +9,12 @@
 #include <stdint.h>
 
 #define RENDER_MAX_SETTINGS 32
+#define RENDER_DEFAULT_VOICES 6 /* the FM-1 target */
 
 typedef struct {
     uint32_t sample_rate; /* Hz */
     uint32_t tail_ms;     /* extra time rendered after the song ends */
+    uint32_t voice_count; /* 1..FM_MAX_VOICES; 0 means RENDER_DEFAULT_VOICES */
     /* engine parameters set before the song starts, in order */
     uint32_t param_count;
     uint16_t param_id[RENDER_MAX_SETTINGS];
