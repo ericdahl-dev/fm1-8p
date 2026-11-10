@@ -66,7 +66,7 @@ untimed (the notes start there), then times `BLOCKS` blocks one by one
 | workload | what plays |
 | --- | --- |
 | default | the default patch, as in the CPU test's steps 1 to 8. With every modulation depth at 0 the LFO costs nothing here |
-| full | the CPU test's step F patch on the same chord: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, a resonant lowpass (cutoff 6000 cents, resonance 700, envelope amount 3600 cents) with the first highpass step, and the deep chorus |
+| full | the CPU test's step F patch on the same chord: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, a resonant lowpass (cutoff 10500 cents, resonance 700, its envelope sweeping it up 3600 cents into the top of its range) with the first highpass step, and the deep chorus; at every count up to 8, where step F plays 6 voices |
 
 The columns:
 
@@ -107,8 +107,8 @@ pulse width) and the velocity curve are in
 `firmware/` runs the unchanged engine on the FM-1 as an
 [fm1-dock](https://github.com/joakimeriksson/fm1-dock) module and measures it: it holds a chord
 and steps from 1 to 8 voices, 5 s each, then runs the unison burst (row U: 8 voices in unison,
-8 note-ons and a detune change in every block), then the full patch (row F: the 8-voice chord with
-both oscillators, vibrato, pulse-width modulation, amp velocity, the filter and the chorus), showing the worst
+8 note-ons and a detune change in every block), then the full patch (row F: a 6-voice chord, the
+target polyphony, with the filter, both oscillators, vibrato, pulse-width modulation, amp velocity and the chorus), showing the worst
 render time per step on screen (as % of a 256-frame block, 5.8 ms; the block that starts a step,
 engine init and note on, isn't timed) and logging each step a sweep held in full (`tools/dock.py
 logs` in fm1-dock; the burst logs as count 9, the full patch as 10). KNOB1 picks a step by hand, 1
