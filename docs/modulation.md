@@ -225,5 +225,5 @@ Memory: each voice grows by 40 bytes (its LFO start tick, offsets and
 velocity peak; the oscillator pair's unmodulated increments and offsets; the
 envelope's peak and sustain target), and `fm_engine` holds the LFO (20
 bytes), its routing (16) and two tick counters. That made `fm_engine` 4056
-bytes, 392 more than before; with the filter (#7) it is 5084. Nothing is allocated and the render path
+bytes, 392 more than before; with the filter (#7) and sync and cross-mod (#6) it is 5252. Nothing is allocated and the render path
 adds no stack arrays.

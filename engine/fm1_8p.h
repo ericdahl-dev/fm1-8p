@@ -5,7 +5,7 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.0 KiB (5084 bytes on
+ * sets up everything inside it. fm_engine is about 5.1 KiB (5252 bytes on
  * 32- and 64-bit desktops and on Cortex-M), about 40 % of it the chorus
  * delay line and about 1 KiB the voices' filters, so static storage is
  * recommended; a task stack must have room for it on
@@ -63,6 +63,8 @@ typedef enum {
     FM_PARAM_LFO_PITCH_CENTS, /* vibrato depth at full LFO, each way */
     FM_PARAM_AMP_VELOCITY,    /* percent: 0 ignores velocity, 100 full curve */
     FM_PARAM_LFO_PW_PCT,      /* pulse width depth, percent of a cycle each way */
+    FM_PARAM_OSC_SYNC,    /* 1: osc2 restarts with every cycle of osc1 */
+    FM_PARAM_OSC_XMOD,    /* per mille: osc1 bends osc2's frequency by up to +-100 % */
     /* lowpass cutoff, cents above MIDI note 0 (6900 = 440 Hz);
      * FM_FILTER_OPEN_CENTS (the maximum) is fully open */
     FM_PARAM_FILTER_CUTOFF_CENTS,

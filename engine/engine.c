@@ -139,6 +139,15 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_OSC2_FINE_CENTS:
         apply_osc_param(e, 1, id - FM_PARAM_OSC2_WAVE);
         return;
+    case FM_PARAM_OSC_XMOD:
+        for (i = 0; i < FM_MAX_VOICES; i++) /* per mille -> Q1.30 */
+            fm_osc_pair_set_xmod(&e->voices[i].osc,
+                                 (int32_t)(((int64_t)v << 30) / 1000));
+        return;
+    case FM_PARAM_OSC_SYNC:
+        for (i = 0; i < FM_MAX_VOICES; i++)
+            fm_osc_pair_set_sync(&e->voices[i].osc, (uint8_t)v);
+        return;
     case FM_PARAM_OSC_MIX:
         for (i = 0; i < FM_MAX_VOICES; i++)
             fm_osc_pair_set_mix(&e->voices[i].osc,
