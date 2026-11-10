@@ -4,8 +4,8 @@
  * cpu_test.h), with the worst render time per count on screen and in the log (tools/dock.py logs):
  * one line "fm1-8p voices/worst permille" = count << 16 | permille for each count a sweep held in
  * full. The block that starts a count (engine init, note on) is not timed.
- *   KNOB1     pick the voice count by hand (stops the sweep)
- *   PLAY      sweep again from 1 */
+ *   KNOB1     pick a step by hand, 1..8 then U (stops the sweep; a hand-picked U keeps bursting)
+ *   PLAY      sweep again from 1 (after a sweep's U, the burst stops and its row is final) */
 #include "hb_module.h"
 #include "cpu_test.h"
 

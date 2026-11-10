@@ -58,9 +58,15 @@ int cpu_test_init(cpu_test *t)
     return start(t, 1);                         /* here, outside the ISR: the first block is clean */
 }
 
+/* A sweep's last step (U) has run its hold: its row is final. */
+static int over(const cpu_test *t)
+{
+    return t->hold != 0u && t->held > t->hold;
+}
+
 void cpu_test_request_voices(cpu_test *t, int32_t n)
 {
-    t->want = (uint8_t)(n < 1 ? 1 : n > FM_MAX_VOICES ? FM_MAX_VOICES : n);
+    t->want = (uint8_t)(n < 1 ? 1 : n > (int32_t)CT_BURST ? (int32_t)CT_BURST : n); /* 1..8, then U */
     t->asks = t->asks + 1u;                     /* after the count: the ISR never sees a new ask with an old count */
 }
 
@@ -75,15 +81,15 @@ void cpu_test_render(cpu_test *t, int32_t *out, uint32_t n)
     t->fresh = 0;
     if (asks != t->seen) {                      /* a new request from the main loop wins */
         t->seen = asks;
-        (void)start(t, t->want);                /* want is 1..FM_MAX_VOICES: cannot fail */
+        (void)start(t, t->want);                /* want is 1..CT_BURST: cannot fail */
         t->fresh = 1;                           /* this block's time includes setup */
     } else if (t->hold && t->held >= t->hold && t->voices < CT_BURST) {
         (void)start(t, (uint8_t)(t->voices + 1u));
         t->fresh = 1;
     }
     t->held++;
-    if (t->voices == CT_BURST && !t->fresh)
-        burst(t);
+    if (t->voices == CT_BURST && !t->fresh && !over(t))
+        burst(t);                               /* after a sweep's hold the last chord just rings */
     fm_engine_render(&t->engine, t->buf, n);
     for (i = 0; i < 2u * n; i++)
         out[i] += t->buf[i];                    /* int16 is already Q15 */
@@ -92,7 +98,7 @@ void cpu_test_render(cpu_test *t, int32_t *out, uint32_t n)
 void cpu_test_record(cpu_test *t, uint32_t ticks)
 {
     uint8_t v = t->voices;
-    if (!t->fresh && ticks > t->worst[v])
+    if (!t->fresh && !over(t) && ticks > t->worst[v])
         t->worst[v] = ticks;
     if (t->hold != 0u && t->held == t->hold) {  /* this count's hold is complete (once: held only grows) */
         t->done[t->done_seq % CT_BURST] = v;

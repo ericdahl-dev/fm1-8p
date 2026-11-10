@@ -51,7 +51,8 @@ and steps from 1 to 8 voices, 5 s each, then runs the unison burst (row U: 8 voi
 8 note-ons and a detune change in every block), showing the worst render time per step on screen
 (as % of a 256-frame block, 5.8 ms; the block that starts a step, engine init and note on, isn't
 timed) and logging each step a sweep held in full (`tools/dock.py logs` in fm1-dock; the burst
-logs as count 9). KNOB1 picks a voice count by hand; PLAY sweeps again. To run it on an FM-1,
+logs as count 9). KNOB1 picks a step by hand, 1 to 8 then U (it stops there; a hand-picked U keeps
+bursting), and stops the sweep; PLAY sweeps again from 1. To run it on an FM-1,
 follow [docs/device-test.md](docs/device-test.md).
 
 Linux x86-64 (macOS through fm1-dock's Docker fallback, untested), with curl, git, tar, xz and

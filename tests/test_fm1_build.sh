@@ -87,9 +87,8 @@ FM1_EMU_DIR=x FM1_EMU_SHA256=$good
 expect_fail "an already-extracted fm1-live is checked too" fetch_emu
 
 {
-    echo "272 fm1-8p cpu: sweeping 1..8 voices"
+    echo "272 fm1-8p cpu: sweeping 1..8 voices, then the unison burst"
     for v in 1 2 3 4 5 6 7; do echo "5274 fm1-8p voices/worst permille 000${v}001c"; done
-    echo "10270 fm1-8p voices/worst permille 00020020"
     echo "35250 fm1-8p voices/worst permille 000801f4"
     echo "40250 fm1-8p voices/worst permille 000900eb"
     echo "---"
@@ -109,6 +108,17 @@ grep -v 'permille 0009' "$T/emu.txt" >"$T/emu-noburst.txt"
 expect_fail "emu report fails when the unison burst is missing" emu_report "$T/emu-noburst.txt"
 emu_report "$T/emu-noburst.txt" >"$T/report.md" 2>&1
 expect_ok "... and names it U" grep -q 'Missing voice counts: U\*\*' "$T/report.md"
+{   # PLAY pressed during a sweep: the old sweep's rows, then a full new one
+    for v in 1 2 3; do echo "1 fm1-8p voices/worst permille 000${v}0063"; done
+    cat "$T/emu.txt"
+} >"$T/emu-again.txt"
+expect_ok "emu report of a restarted sweep passes" emu_report "$T/emu-again.txt"
+emu_report "$T/emu-again.txt" >"$T/report.md"
+expect_ok "... with the last sweep's rows only" grep -q '^| 1 | 28 | 2.8 % |$' "$T/report.md"
+expect_fail "... and none from the earlier one" grep -q '| 99 |' "$T/report.md"
+expect_ok "... one row per count" test "$(grep -c '^| [0-9U]' "$T/report.md")" = 9
+expect_ok "the burst's count comes from firmware/cpu_test.h" test "$(burst_count)" = 9
+expect_ok "the emu window covers 9 steps of 86 blocks with a margin" test "$(emu_window_ms 86)" -ge 6000
 printf 'nothing here\n' >"$T/empty.txt"
 expect_fail "emu report fails when no voice count was logged" emu_report "$T/empty.txt"
 

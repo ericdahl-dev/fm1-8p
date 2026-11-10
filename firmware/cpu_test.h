@@ -33,7 +33,8 @@ typedef struct {
 int cpu_test_init(cpu_test *t);
 /* audio interrupt: add n (<= CT_BLOCK) stereo frames, Q15 in int32, into out */
 void cpu_test_render(cpu_test *t, int32_t *out, uint32_t n);
-/* main loop: ask for 1..FM_MAX_VOICES voices (clamped); the next render applies it */
+/* main loop: ask for 1..FM_MAX_VOICES voices, or CT_BURST for U (clamped to 1..CT_BURST); the next
+ * render applies it. U picked this way bursts until the next request. */
 void cpu_test_request_voices(cpu_test *t, int32_t n);
 uint8_t cpu_test_voices(const cpu_test *t);
 /* ISR, after a render: that block took `ticks` (24 MHz) at the current voice count. The block that
