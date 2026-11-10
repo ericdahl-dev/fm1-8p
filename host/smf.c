@@ -150,13 +150,20 @@ static int parse_track(const uint8_t *p, size_t len, uint64_t track,
     return 0;
 }
 
+static int rank(const raw_event *e)
+{
+    if (e->status == TEMPO_EVENT) return 0;
+    if ((e->status & 0xF0) == 0x80) return 1;
+    return 2;
+}
+
 static int by_time(const void *a, const void *b)
 {
     const raw_event *x = a, *y = b;
     if (x->tick != y->tick) return x->tick < y->tick ? -1 : 1;
-    /* tempo changes at a tick apply before the notes at that tick */
-    if ((x->status == TEMPO_EVENT) != (y->status == TEMPO_EVENT))
-        return x->status == TEMPO_EVENT ? -1 : 1;
+    /* at one tick: tempo changes, then note offs, then everything else
+     * in file order, so an off can't release a note started at that tick */
+    if (rank(x) != rank(y)) return rank(x) < rank(y) ? -1 : 1;
     return x->order < y->order ? -1 : (x->order > y->order);
 }
 

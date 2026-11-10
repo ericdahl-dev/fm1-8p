@@ -255,6 +255,31 @@ TT_TEST(smf_rejects_tempo_with_wrong_length)
     TT_CHECK(parse_bytes(d, sizeof d) != 0);
 }
 
+/*
+ * A note off and a note on for the same key at the same tick, in
+ * different tracks: the off must come first, or the new note would be
+ * released as soon as it starts.
+ */
+TT_TEST(smf_orders_note_offs_before_note_ons_at_the_same_tick)
+{
+    static const uint8_t d[] = {
+        SMF_HDR(2),
+        'M', 'T', 'r', 'k', 0, 0, 0, 9,
+        0x83, 0x60, 0x90, 60, 100, EOT,               /* on at 480 */
+        'M', 'T', 'r', 'k', 0, 0, 0, 13,
+        0x00, 0x90, 60, 100, 0x83, 0x60, 0x80, 60, 64, EOT /* 0..480 */
+    };
+    smf_song song;
+    char err[128];
+    TT_CHECK_EQ(smf_parse(d, sizeof d, &song, err, sizeof err), 0);
+    TT_CHECK_EQ(song.count, 3);
+    TT_CHECK_EQ(song.events[0].status, 0x90);
+    TT_CHECK_EQ(song.events[1].status, 0x80);
+    TT_CHECK_EQ(song.events[2].status, 0x90);
+    TT_CHECK_EQ(song.events[1].time_us, song.events[2].time_us);
+    smf_free(&song);
+}
+
 TT_TEST(wav_rejects_sample_rate_out_of_range)
 {
     static int16_t pcm[2 * 4];
@@ -313,6 +338,7 @@ static void run_host_tests(void)
     TT_RUN(smf_rejects_missing_tracks);
     TT_RUN(smf_rejects_status_byte_in_data_position);
     TT_RUN(smf_rejects_tempo_with_wrong_length);
+    TT_RUN(smf_orders_note_offs_before_note_ons_at_the_same_tick);
     TT_RUN(wav_rejects_sample_rate_out_of_range);
     TT_RUN(numeric_options_reject_negative_and_out_of_range_values);
     TT_RUN(parameter_settings_reject_out_of_range_values);
