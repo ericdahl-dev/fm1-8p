@@ -84,15 +84,16 @@ emu_report() {
     echo "| --- | --- | --- |"
     for h in $rows; do
         v=$((0x$h >> 16)) pm=$((0x$h & 0xFFFF))
+        [ "$v" = 9 ] && v="U (unison burst)"       # count 9: firmware/cpu_test.h CT_BURST
         echo "| $v | $pm | $((pm / 10)).$((pm % 10)) % |"
     done
     echo
     grep 'render: last' "$1" || true
     missing=
-    for v in 1 2 3 4 5 6 7 8; do
+    for v in 1 2 3 4 5 6 7 8 9; do
         case " $(for h in $rows; do printf '%d ' $((0x$h >> 16)); done)" in
             *" $v "*) ;;
-            *) missing="$missing $v" ;;
+            *) [ "$v" = 9 ] && missing="$missing U" || missing="$missing $v" ;;
         esac
     done
     if [ -n "$missing" ]; then

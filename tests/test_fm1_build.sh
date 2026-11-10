@@ -91,6 +91,7 @@ expect_fail "an already-extracted fm1-live is checked too" fetch_emu
     for v in 1 2 3 4 5 6 7; do echo "5274 fm1-8p voices/worst permille 000${v}001c"; done
     echo "10270 fm1-8p voices/worst permille 00020020"
     echo "35250 fm1-8p voices/worst permille 000801f4"
+    echo "40250 fm1-8p voices/worst permille 000900eb"
     echo "---"
     echo "active module 1; render: last 3784 ticks (2.7 %), worst 4046 (2.9 %), 0 overruns, 1984 blocks"
 } >"$T/emu.txt"
@@ -98,11 +99,16 @@ expect_ok "emu report of a full sweep passes" emu_report "$T/emu.txt"
 emu_report "$T/emu.txt" >"$T/report.md"
 expect_ok "emu report has one row per logged voice count" grep -q '^| 1 | 28 | 2.8 % |$' "$T/report.md"
 expect_ok "emu report: 8 voices" grep -q '^| 8 | 500 | 50.0 % |$' "$T/report.md"
+expect_ok "emu report: the unison burst is row U" grep -q '^| U (unison burst) | 235 | 23.5 % |$' "$T/report.md"
 expect_ok "emu report keeps the host meter line" grep -q 'worst 4046 (2.9 %), 0 overruns' "$T/report.md"
 grep -v 'permille 000[4-6]' "$T/emu.txt" >"$T/emu-short.txt"
 expect_fail "emu report fails when voice counts are missing" emu_report "$T/emu-short.txt"
 emu_report "$T/emu-short.txt" >"$T/report.md" 2>&1
 expect_ok "... and names them" grep -q 'Missing voice counts: 4 5 6' "$T/report.md"
+grep -v 'permille 0009' "$T/emu.txt" >"$T/emu-noburst.txt"
+expect_fail "emu report fails when the unison burst is missing" emu_report "$T/emu-noburst.txt"
+emu_report "$T/emu-noburst.txt" >"$T/report.md" 2>&1
+expect_ok "... and names it U" grep -q 'Missing voice counts: U\*\*' "$T/report.md"
 printf 'nothing here\n' >"$T/empty.txt"
 expect_fail "emu report fails when no voice count was logged" emu_report "$T/empty.txt"
 
