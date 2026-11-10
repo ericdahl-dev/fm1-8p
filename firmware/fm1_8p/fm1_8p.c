@@ -127,11 +127,25 @@ static void seg7(int32_t x, int32_t y, const char *s, uint16_t on, uint16_t ghos
 }
 
 /* ---------------------------------------------------------------- the bands */
+/* Each band is one canvas or a few (the parts), gaps around it included, so nothing is drawn with
+ * fill() (which waits for the panel). The panel takes a canvas's pixels while the main loop goes on;
+ * blit() notes when they will be out, and draw() starts no part before then (cv_begin would wait). */
+#define TICKS_PER_PX 32u                        /* 16 bits a pixel on SPI1 at ~12 MHz, 24 MHz ticks */
+static uint32_t blit_t, blit_wait;
+
+static void blit(int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    H->cv_blit(x, y);
+    blit_t = H->ticks();
+    blit_wait = (uint32_t)(w * h) * TICKS_PER_PX;
+}
+
+/* rows 0..27: the header and the gap under it */
 static void header(const char *chip, uint16_t col, const char *a, const char *b, int32_t page)
 {
     int32_t x, w;
     uint32_t i;
-    H->cv_begin(240, 24, C_BG);
+    H->cv_begin(240, 28, C_BG);
     H->cv_rect(0, 0, 240, 3, col);
     H->cv_text(M, 4, 0, chip, col);
     x = M + H->text_w(0, chip) + 8;
@@ -143,20 +157,23 @@ static void header(const char *chip, uint16_t col, const char *a, const char *b,
             ui_strip(i, &x, &w);
             H->cv_rect(x, 22, w, 2, i == (uint32_t)page ? col : C_LINE);
         }
-    H->cv_blit(0, 0);
+    blit(0, 0, 240, 28);
 }
 
+/* rows 222..239: the gap, the line and the footer */
 static void footer(void)
 {
     char v[] = "N VOICES";
     v[0] = (char)('0' + PLAY_VOICES % 10u);
-    H->fill(0, 223, 240, 1, C_LINE);
-    H->cv_begin(240, 16, C_SURF);
-    H->cv_text(M, 0, 0, "FM1-8P", C_TEXT);
-    H->cv_text(240 - M - H->text_w(0, v), 0, 0, v, C_DIM);
-    H->cv_blit(0, 224);
+    H->cv_begin(240, 18, C_SURF);
+    H->cv_rect(0, 0, 240, 1, C_BG);
+    H->cv_rect(0, 1, 240, 1, C_LINE);
+    H->cv_text(M, 2, 0, "FM1-8P", C_TEXT);
+    H->cv_text(240 - M - H->text_w(0, v), 2, 0, v, C_DIM);
+    blit(0, 222, 240, 18);
 }
 
+/* rows 28..77 */
 static void focus_row(void)
 {
     const ui_slot *s = ui_page_slot(&U, U.focus);
@@ -164,7 +181,7 @@ static void focus_row(void)
     int32_t x;
     num[0] = (char)('0' + s->num / 10u), num[1] = (char)('0' + s->num % 10u), num[2] = 0;
     ui_value(s->id, play_get_param(&P, s->id), val, unit);
-    H->cv_begin(240, 46, C_BG);
+    H->cv_begin(240, 50, C_BG);
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
     frame(M, 0, 64, 46, C_LINE);
     seg7(M + (64 - 38) / 2, 5, num, C_VCF, mix(C_WINDOW, C_VCF, 20));
@@ -173,122 +190,135 @@ static void focus_row(void)
     x = d24(M + 72, 20, val, C_TEXT);
     if (*unit)
         H->cv_text(x + 3, 28, 0, unit, C_DIM);
-    H->cv_blit(0, 28);
+    blit(0, 28, 240, 50);
 }
 
-/* the filter curve: +12 dB at the top, -36 at the bottom, hatched under */
-static void slot(void)
+/* rows 78..137, in SLOT_PARTS strips across: the filter curve, +12 dB at the top, -36 at the
+ * bottom, hatched under */
+#define SLOT_PARTS 3u
+static void slot(uint32_t part)
 {
-    const int32_t w = 240 - 2 * M, h = 56, n = w - 4;
+    const int32_t w = 240 - 2 * M, h = 56, n = w - 4, pw = 240 / (int32_t)SLOT_PARTS;
+    const int32_t x0 = (int32_t)part * pw;      /* the part's screen x */
     int32_t cut = play_get_param(&P, FM_PARAM_FILTER_CUTOFF_CENTS);
-    ui_curve c;
-    int32_t res = play_get_param(&P, FM_PARAM_FILTER_RESONANCE), i, y0 = 0;
+    int32_t res = play_get_param(&P, FM_PARAM_FILTER_RESONANCE), i, i0, i1, y, y0 = 0;
     uint16_t hatch = mix(C_WINDOW, C_VCF, 41);
+    ui_curve c;
     ui_curve_begin(&c, cut, res, (uint32_t)n);
-    H->cv_begin(w, h, C_WINDOW);
-    frame(0, 0, w, h, C_LINE);
-    H->cv_rect(2, 5 + 120 * (h - 8) / 480, w - 4, 1, C_LINE);
-    for (i = 0; i < n; i++) {
-        int32_t d = ui_curve_db(&c, (uint32_t)i), y;
+    H->cv_begin(pw, 60, C_BG);
+    H->cv_rect(M - x0, 0, w, h, C_WINDOW);      /* (the canvas clips what isn't this part's) */
+    frame(M - x0, 0, w, h, C_LINE);
+    H->cv_rect(M + 2 - x0, 5 + 120 * (h - 8) / 480, w - 4, 1, C_LINE);
+    i = x0 - M - 3;                             /* from the column before the part: the line joins */
+    i0 = i = i < 0 ? 0 : i;
+    i1 = x0 + pw - M - 2;
+    i1 = i1 > n ? n : i1;
+    for (; i < i1; i++) {
+        int32_t d = ui_curve_db(&c, (uint32_t)i), xi = M + 2 + i - x0;
         d = d > 120 ? 120 : d < -360 ? -360 : d;
         y = 5 + (120 - d) * (h - 8) / 480;
         if (!(i & 1))
-            H->cv_rect(2 + i, y + 2, 1, h - 4 - y, hatch);
-        if (i) {
+            H->cv_rect(xi, y + 2, 1, h - 4 - y, hatch);
+        if (i > i0) {
             int32_t lo = y < y0 ? y : y0, hi = y < y0 ? y0 : y;
-            H->cv_rect(2 + i - 1, lo, 2, hi - lo + 2, C_VCF);
+            H->cv_rect(xi - 1, lo, 2, hi - lo + 2, C_VCF);
         }
         y0 = y;
     }
-    H->cv_blit(M, 78);
+    blit(x0, 78, pw, 60);
 }
 
+/* rows 138..221: knob column k, with the gap on its left (and column 3 the margin on its right) */
 static void column(uint32_t k)
 {
     const ui_slot *s = ui_page_slot(&U, k);
-    const int32_t x = M + (int32_t)k * (COL_W + 2);
+    const int32_t cx = k ? M - 2 + (int32_t)k * (COL_W + 2) : 0;    /* the canvas's screen x */
+    const int32_t cw = (k == 3u ? 240 : M - 2 + (int32_t)(k + 1u) * (COL_W + 2)) - cx;
+    const int32_t x = M + (int32_t)k * (COL_W + 2) - cx;            /* the column in the canvas */
     uint32_t act = k == U.focus, lit, i;
     uint16_t bg = act ? C_SURFHI : C_SURF, on;
-    char num[3], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    char val[UI_VALUE_LEN], unit[UI_VALUE_LEN], num[3];
     int32_t value, tw, x0;
-    H->cv_begin(COL_W, 84, bg);
-    if (!s || s->kind == UI_RESERVED) {
-        H->cv_blit(x, 138);
-        return;
+    H->cv_begin(cw, 84, C_BG);
+    H->cv_rect(x, 0, COL_W, 84, bg);
+    if (s && s->kind != UI_RESERVED) {
+        num[0] = (char)('0' + s->num / 10u), num[1] = (char)('0' + s->num % 10u), num[2] = 0;
+        text_c(x, COL_W, 3, num, C_VCF);
+        text_c(x, COL_W, 19, s->label, act ? C_TEXT : C_DIM);
+        if (s->kind == UI_PENDING) {            /* (interaction.md: a pending parameter shows --) */
+            d24(x + (COL_W - d24_w("--")) / 2, 52, "--", C_DIM);
+        } else {
+            value = play_get_param(&P, s->id);
+            lit = ui_meter(s->id, value);
+            on = act ? C_VCF : mix(bg, C_VCF, 154);
+            for (i = 0; i < UI_METER_SEGS; i++) /* 44 px: 8 segments of about 4, 2 px gaps */
+                H->cv_rect(x + 6 + ((int32_t)i * 23 + 2) / 4, 40, 4, 6, lit >> i & 1u ? on : C_LINE);
+            ui_column(s->id, value, val, unit);
+            tw = d24_w(val) + (*unit ? 3 + H->text_w(0, unit) : 0);
+            x0 = d24(x + (COL_W - tw) / 2, 52, val, act ? C_TEXT : C_DIM);
+            if (*unit)
+                H->cv_text(x0 + 1, 60, 0, unit, mix(C_SURF, act ? C_TEXT : C_DIM, 179));
+        }
+        if (act) {                              /* the glow: three frames inward */
+            frame(x, 0, COL_W, 84, C_VCF);
+            frame(x + 1, 1, COL_W - 2, 82, mix(C_BG, C_VCF, 115));
+            frame(x + 2, 2, COL_W - 4, 80, mix(C_BG, C_VCF, 51));
+        }
     }
-    num[0] = (char)('0' + s->num / 10u), num[1] = (char)('0' + s->num % 10u), num[2] = 0;
-    text_c(0, COL_W, 3, num, C_VCF);
-    text_c(0, COL_W, 19, s->label, act ? C_TEXT : C_DIM);
-    if (s->kind == UI_PENDING) {                /* (interaction.md: a pending parameter shows --) */
-        x0 = (COL_W - d24_w("--")) / 2;
-        d24(x0, 52, "--", C_DIM);
-    } else {
-        value = play_get_param(&P, s->id);
-        lit = ui_meter(s->id, value);
-        on = act ? C_VCF : mix(bg, C_VCF, 154);
-        for (i = 0; i < UI_METER_SEGS; i++)     /* 44 px: 8 segments of about 4, 2 px gaps */
-            H->cv_rect(6 + ((int32_t)i * 23 + 2) / 4, 40, 4, 6, lit >> i & 1u ? on : C_LINE);
-        ui_column(s->id, value, val, unit);
-        tw = d24_w(val) + (*unit ? 3 + H->text_w(0, unit) : 0);
-        x0 = d24((COL_W - tw) / 2, 52, val, act ? C_TEXT : C_DIM);
-        if (*unit)
-            H->cv_text(x0 + 1, 60, 0, unit, mix(C_SURF, act ? C_TEXT : C_DIM, 179));
-    }
-    if (act) {                                  /* the glow: three frames inward */
-        frame(0, 0, COL_W, 84, C_VCF);
-        frame(1, 1, COL_W - 2, 82, mix(C_BG, C_VCF, 115));
-        frame(2, 2, COL_W - 4, 80, mix(C_BG, C_VCF, 51));
-    }
-    H->cv_blit(x, 138);
+    blit(cx, 138, cw, 84);
 }
 
-/* ---------------------------------------------------------------- the screens */
-static void play_screen(uint32_t full)
+/* ---------------------------------------------------------------- the screens, a part per call */
+/* PLAY: the header and footer, then three strips (as the VCF page's bands, so the same bits) */
+static void play_part(uint32_t b, uint32_t part)
 {
     char s[PLAY_NOTE_NAME];
-    int32_t last = play_last_note(&P);
-    if (full) {
-        H->fill(0, 24, 240, 199, 0);
-        header("PLAY", C_PLAY, "FM1-8P", "", -1);
-        H->text(0, 48, 240, 1, "FM1-8P", HB_RGB(255, 176, 64), 1);
-        H->text(0, 92, 240, 0, "ENV: VCF PAGE", C_DIM, 1);
-        H->text(0, 140, 240, 0, "LAST NOTE", C_DIM, 1);
-        footer();
-        drawn_note = NOT_DRAWN;
-    }
-    if (last != drawn_note) {                   /* only when it changed: never per audio block */
-        drawn_note = last;
-        play_note_name(last, s);
-        H->fill(0, 164, 240, 36, 0);
-        H->text(0, 164, 240, 1, s, 0xFFFFu, 1);
+    if (b == UI_D_FULL) {
+        if (part == 0u)
+            header("PLAY", C_PLAY, "FM1-8P", "", -1);
+        else
+            footer();
+    } else if (b == UI_D_FOCUS) {               /* rows 28..77 */
+        H->cv_begin(240, 50, C_BG);
+        H->cv_text((240 - H->text_w(1, "FM1-8P")) / 2, 20, 1, "FM1-8P", HB_RGB(255, 176, 64));
+        blit(0, 28, 240, 50);
+    } else if (b == UI_D_SLOT) {                /* rows 78..137 */
+        H->cv_begin(240, 60, C_BG);
+        H->cv_text((240 - H->text_w(0, "ENV: VCF PAGE")) / 2, 14, 0, "ENV: VCF PAGE", C_DIM);
+        blit(0, 78, 240, 60);
+    } else if (b == UI_D_COL(0)) {              /* rows 138..221: the last note */
+        drawn_note = play_last_note(&P);
+        play_note_name(drawn_note, s);
+        H->cv_begin(240, 84, C_BG);
+        H->cv_text((240 - H->text_w(0, "LAST NOTE")) / 2, 2, 0, "LAST NOTE", C_DIM);
+        H->cv_text((240 - H->text_w(1, s)) / 2, 26, 1, s, 0xFFFFu);
+        blit(0, 138, 240, 84);
     }
 }
 
-static void vcf_screen(uint32_t d)
+/* VCF 4A */
+static void vcf_part(uint32_t b, uint32_t part)
 {
     uint32_t k;
-    if (d & UI_D_FULL) {
-        uint32_t g;
-        /* only the gaps between the bands: a fill of the whole screen cost ~75 ms in fm1-emu */
-        static const uint8_t GAP[][4] = {
-            {0, 24, 240, 4}, {0, 74, 240, 4}, {0, 134, 240, 4}, {0, 222, 240, 1},   /* between rows */
-            {0, 78, 5, 56}, {235, 78, 5, 56},                                        /* beside the slot */
-            {0, 138, 5, 84}, {61, 138, 2, 84}, {119, 138, 2, 84}, {177, 138, 2, 84}, /* the columns' */
-            {235, 138, 5, 84},
-        };
-        for (g = 0; g < sizeof GAP / sizeof GAP[0]; g++)
-            H->fill(GAP[g][0], GAP[g][1], GAP[g][2], GAP[g][3], C_BG);
-        header("4 VCF", C_VCF, "A", "/B", (int32_t)UI_PAGE_4A);
-        footer();
-        d = ~0u;
-    }
-    if (d & UI_D_FOCUS)
+    if (b == UI_D_FULL) {
+        if (part == 0u)
+            header("4 VCF", C_VCF, "A", "/B", (int32_t)UI_PAGE_4A);
+        else
+            footer();
+    } else if (b == UI_D_FOCUS) {
         focus_row();
-    if (d & UI_D_SLOT)
-        slot();
-    for (k = 0; k < 4u; k++)
-        if (d & UI_D_COL(k))
-            column(k);
+    } else if (b == UI_D_SLOT) {
+        slot(part);
+    } else {
+        for (k = 0; k < 4u; k++)
+            if (b == UI_D_COL(k))
+                column(k);
+    }
+}
+
+static uint32_t parts(uint32_t b)
+{
+    return b == UI_D_FULL ? 2u : b == UI_D_SLOT && U.state == UI_EDIT ? SLOT_PARTS : 1u;
 }
 
 /* ---------------------------------------------------------------- panel */
@@ -301,16 +331,24 @@ static void octave_shown(void)
         H->key_base((uint32_t)((int32_t)PLAY_KEY0 + 12 * P.oct));
 }
 
-static void page_leds(void)
+/* the section buttons and EDIT, as ui_led says (sent when one changes, and all on draw(full)) */
+static uint8_t led_sent[16];
+static void page_leds(uint32_t all)
 {
-    H->led(HB_BTN_ENV, U.state == UI_EDIT);
-    H->led(HB_BTN_EDIT, U.state == UI_EDIT);
+    static const uint8_t BTN[] = {HB_BTN_SEL, HB_BTN_ENV, HB_BTN_LFO, HB_BTN_FX, HB_BTN_EDIT};
+    uint32_t i;
+    for (i = 0; i < sizeof BTN; i++) {
+        uint32_t v = ui_led(&U, BTN[i]);
+        if (all || led_sent[BTN[i]] != v) {
+            led_sent[BTN[i]] = (uint8_t)v;
+            H->led(BTN[i], v);
+        }
+    }
 }
 
 static void ui_ev(uint32_t ev, int32_t arg)
 {
     uint32_t id = HB_EV_ID(ev), kind = HB_EV_KIND(ev);
-    ui_state was = U.state;
     if ((kind == HB_EV_KEY_DOWN || kind == HB_EV_KEY_UP) && id >= PLAY_KEYS)
         return;
     switch (kind) {
@@ -334,41 +372,85 @@ static void ui_ev(uint32_t ev, int32_t arg)
     default: break;
     }
     ui_event(&U, ev, arg, H->ms());             /* pages and knobs */
-    if (U.state != was)
-        page_leds();
+    page_leds(0);
 }
 
+/* The host calls draw() from its main loop, between its key scans: one part a call, so a key never
+ * waits behind more than one part. */
+static uint32_t pending;                        /* UI_D_* bands still to draw */
+static uint32_t band, part;                     /* the band being drawn (0: none) and its next part */
+#ifdef FM1_DEBUG
+static uint32_t worst_call;                     /* the longest draw() call, in 24 MHz ticks */
+#endif
 static void draw(uint32_t full)
 {
-    uint32_t d = ui_take(&U, H->ms());
+    uint32_t d;
+#ifdef FM1_DEBUG
+    uint32_t t0 = H->ticks();
+#endif
     if (full) {
-        d |= UI_D_FULL;
+        d = ui_take_full(&U, H->ms());
         octave_shown();                         /* (back from the picker, which had the LEDs) */
-        page_leds();
+        page_leds(1);
+    } else {
+        d = ui_take(&U, H->ms());
     }
-    if (U.state == UI_EDIT) {
-        uint32_t t0 = H->ticks();
-        vcf_screen(d);
-        if (d & UI_D_FULL)                      /* (a page's cost, in 24 MHz ticks: once per page) */
-            H->log_u32("fm1-8p: VCF page drawn, ticks", H->ticks() - t0);
-    } else
-        play_screen((d & UI_D_FULL) != 0);
+    if (d & UI_D_FULL) {
+        pending = UI_D_ALL;                     /* a new page: all of it, none of the old one's */
+        band = 0;
+    } else {
+        pending |= d;
+    }
+    if (U.state == UI_PLAY && play_last_note(&P) != drawn_note)
+        pending |= UI_D_COL(0);                 /* only when it changed: never per audio block */
+    if (H->ticks() - blit_t < blit_wait)
+        return;                                 /* the panel is still taking the last part */
+    if (!band) {
+        band = ui_next_band(&pending);
+        part = 0;
+        if (!band)
+            return;
+    }
+    if (U.state == UI_EDIT)
+        vcf_part(band, part);
+    else
+        play_part(band, part);
+    if (++part >= parts(band))
+        band = 0;
+#ifdef FM1_DEBUG
+    if (H->ticks() - t0 > worst_call) {
+        worst_call = H->ticks() - t0;
+        H->log_u32("fm1-8p: worst draw call, ticks", worst_call);
+    }
+#endif
 }
 
 static int init(const hb_host_t *h)
 {
     H = h;
     drawn_note = NOT_DRAWN;
+    pending = band = part = 0;
+    blit_t = blit_wait = 0;
     if (play_init(&P) != 0) {
         H->log("fm1-8p: engine init failed");
         return 1;                               /* the host falls back to the sine */
     }
     ui_init(&U, &P);
     octave_shown();
-    page_leds();
+    page_leds(1);
     H->log_u32("fm1-8p: ready, voices", PLAY_VOICES);
     return 0;
 }
+
+/* ui.h's values are hb_module.h's (ui.c is plain C, built and tested without fm1-dock) */
+_Static_assert(UI_EV_BTN_DOWN == HB_EV_BTN_DOWN && UI_EV_BTN_UP == HB_EV_BTN_UP && UI_EV_ENC == HB_EV_ENC,
+               "ui.h's events are hb_module.h's");
+_Static_assert(UI_BTN_FX == HB_BTN_FX && UI_BTN_SEL == HB_BTN_SEL && UI_BTN_ENV == HB_BTN_ENV &&
+               UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_HOME == HB_BTN_HOME,
+               "ui.h's buttons are hb_module.h's");
+_Static_assert(UI_ENC_KNOB1 == HB_ENC_KNOB1 && UI_ENC_KNOB2 == HB_ENC_KNOB2 &&
+               UI_ENC_KNOB3 == HB_ENC_KNOB3 && UI_ENC_KNOB4 == HB_ENC_KNOB4,
+               "ui.h's encoders are hb_module.h's");
 
 /* no release(): init() starts afresh; no cc(): midi() takes every channel message */
 HB_DESC = {HB_ABI, "FM1-8P", init, 0, note, 0, render, ui_ev, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL, midi};
