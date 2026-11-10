@@ -14,4 +14,8 @@
  * so any ms and rate fit (10 s at 192 kHz: 1.92e9 before the divide). */
 uint32_t fm_ms_to_samples(int32_t ms, uint32_t rate);
 
+/* Per mille (-1000..+1000) to Q1.30: 1000 is 1 << 30. A multiply, not a
+ * shift: shifting a negative value left is undefined in C. */
+int32_t fm_permille_to_q30(int32_t permille);
+
 #endif

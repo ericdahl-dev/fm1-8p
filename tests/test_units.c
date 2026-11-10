@@ -11,7 +11,19 @@ TT_TEST(units_ms_to_samples_edges)
     TT_CHECK_EQ(fm_ms_to_samples(10000, 192000u), 1920000u);
 }
 
+/* Per mille to Q1.30: 0, the ends +-1000, and +-1 truncated toward zero
+ * (2^30 / 1000 = 1073741.824). */
+TT_TEST(units_permille_to_q30_edges)
+{
+    TT_CHECK_EQ(fm_permille_to_q30(0), 0);
+    TT_CHECK_EQ(fm_permille_to_q30(1000), 1 << 30);
+    TT_CHECK_EQ(fm_permille_to_q30(-1000), -(1 << 30));
+    TT_CHECK_EQ(fm_permille_to_q30(1), 1073741);
+    TT_CHECK_EQ(fm_permille_to_q30(-1), -1073741);
+}
+
 static void run_units_tests(void)
 {
     TT_RUN(units_ms_to_samples_edges);
+    TT_RUN(units_permille_to_q30_edges);
 }
