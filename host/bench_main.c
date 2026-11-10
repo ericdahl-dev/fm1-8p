@@ -18,7 +18,7 @@ static void usage(FILE *f)
             "Workloads: the FM-1 CPU test's held chord (firmware/cpu_test.c) at 1..%u voices, 44100 Hz.\n"
             "  default  the default patch (steps 1..8 of the CPU test)\n"
             "  full     the full patch (step F's sound: pulse + saw, vibrato, pulse-width modulation,\n"
-            "           amp velocity with varied note velocities, chorus)\n",
+            "           amp velocity with varied note velocities, resonant filter, chorus)\n",
             (unsigned)BENCH_MAX_BLOCKS, (unsigned)BENCH_MAX_REPS, (unsigned)FM_MAX_VOICES);
 }
 

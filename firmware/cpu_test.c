@@ -8,7 +8,7 @@ static const uint8_t FULL_VEL[FM_MAX_VOICES] = {112, 64, 96, 40, 120, 80, 104, 5
 
 uint8_t cpu_test_full_velocity(uint32_t i) { return FULL_VEL[i % FM_MAX_VOICES]; }
 
-/* Step F's sound: both oscillators, vibrato, pulse-width modulation, amp velocity and the chorus. */
+/* Step F's sound: both oscillators, vibrato, pulse-width modulation, amp velocity, the filter and the chorus. */
 static const cpu_test_param FULL_PATCH[] = {
     {FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE},
     {FM_PARAM_OSC2_WAVE, FM_WAVE_SAW},
@@ -17,6 +17,13 @@ static const cpu_test_param FULL_PATCH[] = {
     {FM_PARAM_LFO_PITCH_CENTS, 30},
     {FM_PARAM_LFO_PW_PCT, 25},
     {FM_PARAM_AMP_VELOCITY, 100},
+    /* the filter never on fm_filter_run's wide-open fast path: a resonant lowpass whose envelope sweeps
+     * it from 10500 up to 14100 cents, into the fade at the top of its range (the costlier general path),
+     * and the first highpass step */
+    {FM_PARAM_FILTER_CUTOFF_CENTS, 10500},
+    {FM_PARAM_FILTER_RESONANCE, 700},
+    {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600},
+    {FM_PARAM_HIGHPASS_STEP, 1},
 };
 
 void cpu_test_set_full_patch(cpu_test *t, const cpu_test_param *p, uint32_t n)
@@ -58,7 +65,8 @@ static int start(cpu_test *t, uint8_t voices, patch_kind patch)
     uint8_t notes[FM_MAX_VOICES];
     uint32_t i, k;
     fm_status rc = FM_OK;
-    uint8_t engine_voices = voices > FM_MAX_VOICES ? FM_MAX_VOICES : voices;
+    uint8_t engine_voices = voices == CT_FULL ? CT_FULL_VOICES
+                            : voices > FM_MAX_VOICES ? FM_MAX_VOICES : voices;
     t->held = 0;
     t->worst[voices] = 0;                       /* a count started again measures afresh */
     t->voices = voices;
