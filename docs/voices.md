@@ -120,6 +120,14 @@ voices stack (the voices past it in `fm_engine` never sound), and the
 render still skips voices that are idle, so a unison note costs the same as
 a chord of `voice_count` notes and silence costs nothing.
 
+Each unison voice has its own filter and filter envelope, as in poly. A new
+note retriggers both envelopes of every voice; a legato return leaves both
+running. The filter's key tracking follows the note number, not each
+voice's detuned pitch (nor the bend or the oscillators' octave, coarse and
+fine tune), so every voice of a unison note has
+the same cutoff. A voice left sounding by a mode switch keeps tracking the
+key it was playing while it releases.
+
 ### Detune
 
 `unison_detune_cents`, 0 to 100, default 20, is the spread from the lowest
@@ -194,24 +202,35 @@ detune the saws drift in and out of phase and the peak moves between that
 ceiling and well below it. That makes one unison note `voice_count` times
 (at 6 voices, 15.6 dB) louder than one poly note, as stacking oscillators
 on a real synth does. `unison_at_full_velocity_never_clips` checks 1 to 8
-voices at 0, 7 and 100 cents, through a retrigger.
+voices at 0, 7 and 100 cents, through a retrigger, with the default patch
+(filter open). As with a chord, high filter resonance can lift a unison
+note past that ceiling to full scale, where the int16 conversion
+saturates (see [Gain staging](#gain-staging) and #24).
 
 ## Gain staging
 
 | Stage | Format | Peak |
 | --- | --- | --- |
 | Saw | Q8.24 | 1.0 (polyBLEP keeps it within +-1.0) |
-| Voice: oscillator mix times amp envelope | Q8.24 | 1.0 |
-| Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count`, at most 8.0, which uses 4 of the 7 headroom bits |
+| Oscillator mix | Q8.24 | 1.0 (every waveform peaks at 1.0; the mix is a crossfade) |
+| Filter output | Q8.24 | 1.0 with the filter open or no resonance; with high resonance up to the soft clip's +-4.0 |
+| Voice: filter output times amp envelope | Q8.24 | as the filter output |
+| Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count` with no resonance; at most 4.0 x 8 = 32.0, which uses 6 of the 7 headroom bits |
 | Mix gain | Q1.30 | `0.5 / voice_count` = `(1 << 29) / voice_count`, rounded down |
-| Output before conversion | Q8.24 | 0.5 |
-| Output | `int16_t` | 16384 (-6 dBFS) |
+| Output before conversion | Q8.24 | 0.5 with no resonance; up to 2.0 with high resonance |
+| Output | `int16_t` | 16384 (-6 dBFS) with no resonance; high resonance can reach full scale, where the conversion saturates |
 
-Each voice is scaled by `1 / voice_count`, so the worst case, every voice at
-full level with their peaks lined up, reaches exactly full scale before a
-fixed -6 dB. That -6 dB is headroom saved for the filter's resonance and the
-chorus in later slices; until then nothing can come within 6 dB of clipping.
-The int16 conversion still saturates as a last guard.
+Each voice is scaled by `1 / voice_count`, so the worst case without
+resonance, every voice at full level with their peaks lined up, reaches
+exactly full scale before a fixed -6 dB. The filter (#7) now uses that
+headroom: at high resonance its peak near the cutoff lifts a voice above the
+saw's level, up to the soft clip's +-4.0 in theory (4x what the mix gain
+budgets). Measured at resonance 1000, cutoff 13700 cents and highpass 3, one
+note on a 1-voice engine peaks at about 27100 (-1.6 dBFS). So high resonance can
+reach full scale. When it does, the int16 conversion saturates: samples clamp
+at +-32767, with no wraparound and no undefined behavior. Gain staging for
+the filter and the chorus is a follow-up in
+[#24](https://github.com/ericdahl-dev/fm1-8p/issues/24).
 
 The cost of this is level: one note on a 6-voice engine peaks at
 `16384 / 6` = 2731, about -21.6 dBFS (-18 dBFS for 4 voices). That is normal
@@ -221,8 +240,9 @@ a patch level exists, the output gain can be revisited with real patches and
 the CPU test's final voice count.
 
 `full_chord_at_max_velocity_never_clips` plays every voice count from 1 to 8
-in octaves (whose saws wrap together, the worst case) and checks no sample
-reaches +-32767, and that the peak stays at or below 16384.
+in octaves (whose saws wrap together, the worst case) with the default patch
+(filter open) and checks no sample reaches +-32767, and that the peak stays at
+or below 16384.
 
 ## Clicks
 
@@ -239,19 +259,29 @@ of a few ms; a 0 ms attack or release is a deliberate hard edge.
 Per sounding voice, per sample: one envelope step, one sample of the
 oscillator pair (a saw has a 64-by-32 divide on the two samples around each
 wrap, a pulse or square on both edges, and the mix adds a multiply when both
-oscillators sound; see [fixed-point.md](fixed-point.md)), one 64-bit multiply, an add into the mix
-buffer, and a test for a queued release (the steal fade case above). The LFO
-and velocity add nothing per sample; their per-tick cost is in
-[modulation.md](modulation.md#cost). Idle voices are skipped. Per sample for the whole engine: one
+oscillators sound; see [fixed-point.md](fixed-point.md)), the filter (a
+filter-envelope step, five 32x32->64 multiplies for the 4-pole lowpass plus
+one for the highpass when it is on, and a cutoff update every 16 samples;
+wide open, as by default, it is four compares, and with no envelope amount
+the envelope is not stepped; see [fixed-point.md](fixed-point.md#filter)),
+one 64-bit multiply for the amp,
+an add into the mix buffer, and a test for a queued release (the steal fade
+case above). The oscillator pair and the filter are most of a voice's
+per-sample cost; a unison note pays both once per voice, like a chord. The
+LFO and velocity add nothing per sample; their per-tick cost is in
+[modulation.md](modulation.md#cost). Idle voices are skipped. Per sample for
+the whole engine: one
 64-bit multiply (the mix gain) and the int16 conversion.
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-The voices take about 1.3 KiB with room for 8 (two oscillators each), and
-unison adds 49 bytes (8 detune offsets and the 16 held keys). With the chorus
-(its 2 KiB delay line and a 256-byte right-side buffer) `fm_engine` is about
-4.0 KiB (4056 bytes on x86-64; the LFO and velocity state of #8 add 392), so
-static storage is recommended.
+The voices take about 2.3 KiB with room for 8 (300 bytes each: the
+oscillator pair is 96 with its sync and cross-mod state, and the filter 124,
+its state, its envelope and its settings), and unison adds 49 bytes (8
+detune offsets and the 16 held keys). With the chorus (its 2 KiB delay line
+and a 256-byte right-side buffer) `fm_engine` is about 5.1 KiB (5252 bytes
+on x86-64), so static storage is
+recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per
 voice (one per oscillator's pitch, plus one more for each pulse oscillator's
@@ -259,6 +289,12 @@ gain), and a pitch bend message the same per sounding voice. In unison a note
 on or a legato return costs that for every voice (up to 32 divides at 8
 voices with two pulse oscillators); a detune or mode change adds one 32-by-32
 detune divide per voice, and the device CPU test should time a burst of these.
+Sync adds none on events: where a restart falls inside the sample comes from
+a reciprocal of osc1's increment, worked out by Newton steps (no divide)
+whenever the increments change while sync or cross-mod is on. A restart
+divides only when osc2's own wrap lands in the same sample, like a saw's
+polyBLEP around a wrap: one divide when osc2 wrapped first (in place of the
+one its saw would make on the next sample), two when the restart came first.
 Rendering in unison is no different from rendering the same number of poly
 voices. A fast bend sends a few hundred messages a second, so a few dozen
 divides each is far below the render's cost, but they run wherever the caller

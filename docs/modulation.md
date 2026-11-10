@@ -18,8 +18,8 @@ Every depth defaults to 0 and so does `amp_velocity_pct`, so a patch that
 does not set them renders byte-identical to an engine without this module
 (`zero_pitch_depth_leaves_the_output_untouched`,
 `zero_pulse_width_depth_leaves_the_output_untouched`, and the host's demo
-render). A cutoff route (`lfo_cutoff`) and filter velocity land with the
-filter (#7).
+render). A cutoff route (`lfo_cutoff`) and filter velocity land in #8
+after the filter.
 
 ## One LFO, a delay per voice
 
@@ -187,8 +187,8 @@ the level never jumps:
 is louder, that the level follows the curve within 1 %, that 50 %
 sensitivity goes halfway, and that 0 % ignores velocity.
 
-Filter velocity (velocity also opening the cutoff) lands with the filter
-(#7).
+Filter velocity (velocity also opening the cutoff) lands in #8 after the
+filter.
 
 ## Cost
 
@@ -224,6 +224,6 @@ the device is for the CPU test's next round (#13).
 Memory: each voice grows by 40 bytes (its LFO start tick, offsets and
 velocity peak; the oscillator pair's unmodulated increments and offsets; the
 envelope's peak and sustain target), and `fm_engine` holds the LFO (20
-bytes), its routing (16) and two tick counters. `fm_engine` is 4056 bytes,
-392 more than before. Nothing is allocated and the render path
+bytes), its routing (16) and two tick counters. That made `fm_engine` 4056
+bytes, 392 more than before; with the filter (#7) and sync and cross-mod (#6) it is 5252. Nothing is allocated and the render path
 adds no stack arrays.

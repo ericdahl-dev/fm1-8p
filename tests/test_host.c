@@ -383,6 +383,28 @@ TT_TEST(parameter_settings_reject_out_of_range_values)
     TT_CHECK_EQ(o.param_count, 2);
 }
 
+/* -s osc2_coarse_semis=-12 with osc2 alone renders the note an octave down. */
+TT_TEST(render_takes_osc2_coarse_from_the_command_line)
+{
+    render_opts o;
+    uint32_t frames, rate;
+    int16_t *pcm;
+    double period, want = 44100 / (note_hz(69) / 2);
+    memset(&o, 0, sizeof o);
+    o.sample_rate = 44100;
+    TT_CHECK_EQ(args_parse_setting("osc2_coarse_semis=-12", &o), 0);
+    TT_CHECK_EQ(args_parse_setting("osc_mix_permille=1000", &o), 0);
+    TT_CHECK_EQ(o.param_id[0], FM_PARAM_OSC2_COARSE_SEMIS);
+    TT_CHECK_EQ(o.param_value[0], -12);
+    write_smf("build/one-note.mid", one_note, sizeof one_note);
+    TT_CHECK_EQ(render_midi_file("build/one-note.mid", "build/coarse.wav", &o), 0);
+    pcm = read_wav_pcm("build/coarse.wav", &frames, &rate);
+    TT_CHECK(pcm != NULL);
+    period = period_from_crossings(pcm + 2 * 4410, 44100 - 2 * 4410, 0);
+    free(pcm);
+    TT_CHECK_NEAR(period, want, want * 0.0006);
+}
+
 /* A C major triad, bent a whole tone down before it starts, held 1 s. */
 static const uint8_t bent_chord[] = {
     0x00, 0xE0, 0x00, 0x00,           /* pitch bend full down */
@@ -539,6 +561,7 @@ static void run_host_tests(void)
     TT_RUN(wav_rejects_sample_rate_out_of_range);
     TT_RUN(numeric_options_reject_negative_and_out_of_range_values);
     TT_RUN(parameter_settings_reject_out_of_range_values);
+    TT_RUN(render_takes_osc2_coarse_from_the_command_line);
     TT_RUN(chord_midi_file_plays_every_note_and_follows_pitch_bend);
     TT_RUN(render_rejects_a_bad_voice_count);
     TT_RUN(render_plays_one_midi_channel);
