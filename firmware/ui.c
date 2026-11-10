@@ -216,6 +216,7 @@ void ui_init(ui *u, play *p)
     u->focus = 1;
     u->dirty = UI_D_FULL;
     u->drawn_ms = 0;
+    u->edit_down_ms = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -241,11 +242,13 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 {
     uint32_t id = ev & 0xFFu;
-    (void)ms;
+
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV))
         show_page(u, UI_EDIT);
-    else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT))
-        show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);
+    else if (ev == (UI_EV_BTN_DOWN | UI_BTN_EDIT))
+        u->edit_down_ms = ms;
+    else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && ms - u->edit_down_ms < UI_TAP_MS)
+        show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && u->state != UI_PLAY)
         show_page(u, UI_PLAY);
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&

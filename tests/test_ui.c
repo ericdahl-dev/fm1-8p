@@ -162,6 +162,7 @@ TT_TEST(ui_edit_returns_to_play)
     ui_setup();
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
     (void)ui_take(&ui_u, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 400);
     ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 500);
     TT_CHECK_EQ(ui_u.state, UI_PLAY);
     TT_CHECK_EQ(ui_take(&ui_u, 500) & UI_D_FULL, UI_D_FULL);
@@ -238,8 +239,21 @@ TT_TEST(ui_home_tap_returns_to_play)
     TT_CHECK_EQ(ui_u.state, UI_PLAY);
 }
 
+/* EDIT held 400 ms or more is compare (not built yet): it doesn't change the page. */
+TT_TEST(ui_edit_hold_does_not_toggle)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 1400);
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 2000);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2399);  /* a tap */
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_edit_hold_does_not_toggle);
     TT_RUN(ui_home_tap_returns_to_play);
     TT_RUN(ui_page_strip_fills_the_rule);
     TT_RUN(ui_seg7_digits);
