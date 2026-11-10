@@ -184,9 +184,80 @@ TT_TEST(chorus_modes_differ_in_rate_and_depth)
         }
 }
 
+/*
+ * Worst case at the module: the sum of FM_MAX_VOICES full-scale voices,
+ * +-8.0 in Q8.24, as a square wave (every period from 2 to 600 samples,
+ * so some line up with the taps), as full-scale noise, and at the int32
+ * extremes. An output must never exceed half the input peak plus 1.0
+ * (half the delay line's +-2.0 clamp), so the chorus never adds level
+ * beyond the dry input and nothing overflows.
+ */
+#define CH_FULL_SCALE_8_VOICES (FM_MAX_VOICES * (1 << 24))
+
+static int ch_bounded(fm_chorus *ch, int32_t in, int32_t peak_in)
+{
+    int32_t l, r;
+    int64_t limit = (int64_t)peak_in / 2 + (1 << 24) + 1;
+    fm_chorus_process(ch, in, &l, &r);
+    return llabs((long long)l) <= limit && llabs((long long)r) <= limit;
+}
+
+TT_TEST(chorus_output_stays_bounded_for_eight_full_scale_voices)
+{
+    static fm_chorus ch;
+    const int32_t fs = CH_FULL_SCALE_8_VOICES;
+    uint32_t seed = 12345, n;
+    int mode, period, ok = 1;
+    for (mode = 1; mode < FM_CHORUS_MODE_COUNT; mode++) {
+        fm_chorus_init(&ch, CH_RATE);
+        fm_chorus_set_mode(&ch, (uint8_t)mode);
+        for (period = 2; period <= 600; period += 7)
+            for (n = 0; n < 4u * (uint32_t)period + 1500u; n++)
+                ok &= ch_bounded(&ch, (int32_t)(n % (uint32_t)period) <
+                                 period / 2 ? fs : -fs, fs);
+        for (n = 0; n < CH_RATE * 2; n++) {
+            int32_t x;
+            seed = seed * 1664525u + 1013904223u;
+            x = (int32_t)(seed >> 4) - (1 << 27); /* -8.0 .. +8.0 */
+            ok &= ch_bounded(&ch, x, fs);
+        }
+        for (n = 0; n < 4000; n++)
+            ok &= ch_bounded(&ch, (n / 300) % 2 ? INT32_MAX : INT32_MIN,
+                             INT32_MAX);
+    }
+    TT_CHECK(ok);
+}
+
+/*
+ * Through the engine at the full voice count: loudest settings, every
+ * mode. The chorus must not raise the peak over chorus off.
+ */
+TT_TEST(chorus_engine_output_stays_bounded_at_full_voice_count)
+{
+    int mode, peak_off = 0;
+    for (mode = 0; mode < FM_CHORUS_MODE_COUNT; mode++) {
+        int peak;
+        TT_CHECK_EQ(fm_engine_init(&ch_eng, CH_RATE, FM_MAX_VOICES), FM_OK);
+        fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, mode);
+        fm_engine_set_param(&ch_eng, FM_PARAM_AMP_ATTACK_MS, 0);
+        fm_engine_set_param(&ch_eng, FM_PARAM_AMP_SUSTAIN, 1000);
+        fm_engine_note_on(&ch_eng, 33, 127);
+        fm_engine_render(&ch_eng, ch_buf, CH_RATE * 2);
+        fm_engine_note_on(&ch_eng, 96, 127);
+        fm_engine_render(&ch_eng, ch_buf + CH_RATE * 4, CH_RATE * 2);
+        peak = peak_abs(ch_buf, 0, CH_RATE * 4);
+        if (mode == 0) peak_off = peak;
+        printf("    chorus mode %d: peak %d\n", mode, peak);
+        TT_CHECK(peak > 8000);
+        TT_CHECK(peak <= peak_off);
+    }
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
     TT_RUN(chorus_on_makes_left_and_right_differ_for_a_mono_voice);
     TT_RUN(chorus_modes_differ_in_rate_and_depth);
+    TT_RUN(chorus_output_stays_bounded_for_eight_full_scale_voices);
+    TT_RUN(chorus_engine_output_stays_bounded_at_full_voice_count);
 }
