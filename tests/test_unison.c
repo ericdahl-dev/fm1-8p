@@ -328,6 +328,40 @@ TT_TEST(random_unison_playing_stays_within_its_voices_and_bounds)
     }
 }
 
+/* Renders a note released 10 ms ago for another 100 ms into `out`,
+ * after setting `id` to `value` (or nothing, for id FM_PARAM_COUNT). */
+static void release_tail(int16_t *out, uint8_t mode, uint16_t id,
+                         int32_t value)
+{
+    init_unison(4, 20);
+    fm_engine_set_param(&poly, FM_PARAM_VOICE_MODE, mode);
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_render(&poly, out, 441);
+    fm_engine_note_off(&poly, 60);
+    fm_engine_render(&poly, out, 441);
+    if (id < FM_PARAM_COUNT) fm_engine_set_param(&poly, id, value);
+    fm_engine_render(&poly, out, PRATE / 10);
+}
+
+/*
+ * Setting the voice mode to the value it has, or changing the detune in
+ * poly mode, leaves sounding notes alone: a release in progress ends
+ * exactly as it would have.
+ */
+TT_TEST(setting_mode_or_detune_leaves_a_release_alone)
+{
+    static int16_t ref[2 * PRATE / 10], got[2 * PRATE / 10];
+    uint8_t mode;
+    for (mode = 0; mode <= 1; mode++) {
+        release_tail(ref, mode, FM_PARAM_COUNT, 0);
+        release_tail(got, mode, FM_PARAM_VOICE_MODE, mode);
+        TT_CHECK(memcmp(ref, got, sizeof ref) == 0);
+    }
+    release_tail(ref, FM_VOICE_MODE_POLY, FM_PARAM_COUNT, 0);
+    release_tail(got, FM_VOICE_MODE_POLY, FM_PARAM_UNISON_DETUNE_CENTS, 90);
+    TT_CHECK(memcmp(ref, got, sizeof ref) == 0);
+}
+
 static void run_unison_tests(void)
 {
     TT_RUN(unison_note_uses_every_voice_and_no_more);
@@ -338,4 +372,5 @@ static void run_unison_tests(void)
     TT_RUN(switching_back_to_poly_restores_normal_allocation);
     TT_RUN(unison_pedal_and_all_notes_off);
     TT_RUN(random_unison_playing_stays_within_its_voices_and_bounds);
+    TT_RUN(setting_mode_or_detune_leaves_a_release_alone);
 }

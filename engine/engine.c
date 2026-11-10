@@ -72,12 +72,13 @@ static void apply_param(fm_engine *e, uint16_t id)
         apply_bend(e, e->bend_value);
         return;
     }
-    if (id == FM_PARAM_UNISON_DETUNE_CENTS) {
-        if (e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON) {
-            for (i = 0; i < e->voice_count; i++)
-                e->detune[i] = unison_detune(e, i);
-            retune(e);
-        }
+    if (id == FM_PARAM_VOICE_MODE || id == FM_PARAM_UNISON_DETUNE_CENTS) {
+        /* every voice's detune: the unison spread, or none in poly */
+        int unison = e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON;
+        for (i = 0; i < e->voice_count; i++)
+            e->detune[i] = unison ? unison_detune(e, i) : 0;
+        if (unison && id == FM_PARAM_UNISON_DETUNE_CENTS)
+            retune(e); /* a sounding unison note follows at once */
         return;
     }
     for (i = 0; i < e->voice_count; i++) {
@@ -214,11 +215,10 @@ static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
     return best;
 }
 
-/* Poly: voice `v` plays `note` in tune (no unison detune). */
+/* Poly: voice `v` plays `note` (in poly every detune is 0). */
 static void poly_play(fm_engine *e, fm_voice *v, uint8_t note)
 {
     uint8_t i = (uint8_t)(v - e->voices);
-    e->detune[i] = 0;
     v->stamp = ++e->stamp;
     fm_voice_note_on(v, note, voice_inc(e, i, note), e->fade_samples);
 }
@@ -244,10 +244,8 @@ static fm_voice *find_fading(fm_engine *e, uint8_t note)
 static void take_back(fm_engine *e, fm_voice *f, uint8_t note)
 {
     uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
-    uint8_t fi = (uint8_t)(f - e->voices);
     fm_voice *w;
-    e->detune[fi] = 0;
-    fm_voice_take_back(f, voice_inc(e, fi, note));
+    fm_voice_take_back(f, voice_inc(e, (uint8_t)(f - e->voices), note));
     f->stamp = ++e->stamp;
     if (!key_down && !sustained) return;
     w = pick_voice(e, f);
@@ -274,7 +272,6 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        e->detune[i] = unison_detune(e, i);
         v->stamp = ++e->stamp;
         fm_voice_change_note(v, note, voice_inc(e, i, note), retrigger);
     }
