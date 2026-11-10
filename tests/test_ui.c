@@ -181,8 +181,31 @@ TT_TEST(ui_curve_follows_the_mockup)
     TT_CHECK_NEAR(ui_curve_db(0, 0, 50, 226), -231, 5);
 }
 
+static int ui_column_shows(uint16_t id, int32_t value, const char *num, const char *unit)
+{
+    char n[UI_VALUE_LEN], u[UI_VALUE_LEN];
+    ui_column(id, value, n, u);
+    if (strcmp(n, num) != 0 || strcmp(u, unit) != 0) {
+        printf("    %d shows \"%s\" \"%s\", not \"%s\" \"%s\"\n", (int)value, n, u, num, unit);
+        return 0;
+    }
+    return 1;
+}
+
+/* A knob column has 56 px: the number, and a short unit after it (visual.md: 1.25k, +24st). */
+TT_TEST(ui_column_value_is_short)
+{
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 9100, "1.57", "k"));
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 6900, "440", ""));
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 14400, "OPEN", ""));
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_RESONANCE, 340, "34", ""));
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "+24", "st"));
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50", "%"));
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_column_value_is_short);
     TT_RUN(ui_curve_follows_the_mockup);
     TT_RUN(ui_redraws_only_what_a_turn_changed);
     TT_RUN(ui_edit_returns_to_play);

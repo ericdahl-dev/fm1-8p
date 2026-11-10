@@ -52,6 +52,9 @@ void ui_init(ui *u, play *p);
 #define UI_VALUE_LEN 12u                /* room for a value as the focus row reads it, and its end */
 /* param id's value as the focus row reads it (interaction.md section 3), into s (UI_VALUE_LEN) */
 void ui_format(uint16_t id, int32_t value, char *s);
+/* the value as a knob column reads it: the number into num, a short unit into unit (UI_VALUE_LEN
+ * each): 1.25 k, 440 (Hz has no room), +24 st, 50 % */
+void ui_column(uint16_t id, int32_t value, char *num, char *unit);
 /* the slot's filter curve, as docs/ui/mockups/render.py draws it: its level at column i of n, in
  * tenths of a dB (0 flat, + the resonant bump) */
 int32_t ui_curve_db(int32_t cutoff_cents, int32_t reso_permille, uint32_t i, uint32_t n);

@@ -91,6 +91,24 @@ void ui_format(uint16_t id, int32_t value, char *s)
     *s = 0;
 }
 
+void ui_column(uint16_t id, int32_t value, char *num, char *unit)
+{
+    char s[UI_VALUE_LEN];
+    const char *p = s;
+    ui_format(id, value, s);
+    while (*p && *p != ' ')
+        *num++ = *p++;
+    *num = 0;
+    if (*p == ' ')
+        p++;
+    if (p[0] == 'k' && p[1] == 'H')             /* kHz: k */
+        *unit++ = 'k';
+    else if (p[0] != 'H')                       /* Hz: no room after three digits */
+        while (*p)
+            *unit++ = *p++;
+    *unit = 0;
+}
+
 /* 2^(k / 16) in Q16 and log2(1 + k / 16) in Q12, k = 0..16: the curve's exp2 and log2, a straight
  * line between entries */
 static const uint32_t EXP2[17] = {65536, 68438, 71468, 74632, 77936, 81386, 84990, 88752, 92682,
