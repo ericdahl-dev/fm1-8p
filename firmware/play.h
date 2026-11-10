@@ -26,6 +26,11 @@ typedef struct {
     volatile uint32_t lost;             /* main loop: +1 per event the full queue dropped */
     uint32_t lost_seen;                 /* ISR only: the last `lost` it acted on */
     int32_t last_note;                  /* main loop: the last note on, -1 none */
+    /* params set from the main loop (the UI's knobs): the value asked for, which the ISR moves the
+     * engine to */
+    volatile int32_t target[FM_PARAM_COUNT];
+    volatile uint32_t asked;            /* main loop: +1 per param set */
+    uint32_t asked_seen;                /* ISR only: the last `asked` it applied */
 } play;
 
 /* Sets up the engine on PLAY_VOICES voices with the default patch; 0: ready. */
@@ -43,6 +48,10 @@ int32_t play_last_note(const play *p);
 #define PLAY_NOTE_NAME 5u               /* room for a note's name: "C#-1" and its end */
 /* the note's name into s (PLAY_NOTE_NAME bytes): MIDI 60 is "C4", 61 "C#4"; outside 0..127 "--" */
 void play_note_name(int32_t note, char *s);
+/* main loop: set a param (clamped to its range); the next renders move the engine to it */
+void play_set_param(play *p, uint16_t id, int32_t value);
+/* main loop: a param's value as last set (the engine follows it), 0 for an unknown id */
+int32_t play_get_param(const play *p, uint16_t id);
 /* audio interrupt: add n (<= PLAY_BLOCK) stereo frames, Q15 in int32, into out */
 void play_render(play *p, int32_t *out, uint32_t n);
 #endif

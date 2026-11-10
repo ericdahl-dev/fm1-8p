@@ -33,6 +33,9 @@ int play_init(play *p)
     for (i = 0; i < sizeof PATCH / sizeof PATCH[0]; i++)
         if (fm_engine_set_param(&p->engine, PATCH[i].id, PATCH[i].value) != FM_OK)
             return -1;
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        p->target[i] = fm_engine_get_param(&p->engine, (uint16_t)i);
+    p->asked = p->asked_seen = 0;
     return 0;
 }
 
@@ -100,6 +103,33 @@ void play_note_name(int32_t note, char *s)
     *s = 0;
 }
 
+void play_set_param(play *p, uint16_t id, int32_t value)
+{
+    const fm_param_info *in = fm_param_info_get(id);
+    if (!in)
+        return;
+    p->target[id] = value < in->min ? in->min : value > in->max ? in->max : value;
+    p->asked = p->asked + 1u;                   /* after the value: the ISR never sees an old one */
+}
+
+int32_t play_get_param(const play *p, uint16_t id)
+{
+    return id < FM_PARAM_COUNT ? p->target[id] : 0;
+}
+
+/* Audio interrupt: the params the main loop set, into the engine. */
+static void apply_params(play *p)
+{
+    uint32_t asked = p->asked;
+    uint16_t id;
+    if (asked == p->asked_seen)
+        return;
+    p->asked_seen = asked;
+    for (id = 0; id < FM_PARAM_COUNT; id++)
+        if (p->target[id] != fm_engine_get_param(&p->engine, id))
+            (void)fm_engine_set_param(&p->engine, id, p->target[id]);
+}
+
 int32_t play_last_note(const play *p) { return p->last_note; }
 
 void play_render(play *p, int32_t *out, uint32_t n)
@@ -111,6 +141,7 @@ void play_render(play *p, int32_t *out, uint32_t n)
     for (; t != h; t++)
         apply(p, p->queue[t % PLAY_QUEUE]);
     p->tail = t;
+    apply_params(p);
     if (p->lost != p->lost_seen) {              /* some events were dropped: let every note go */
         p->lost_seen = p->lost;
         fm_engine_controller(&p->engine, 123, 0);
