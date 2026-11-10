@@ -670,6 +670,20 @@ TT_TEST(synced_osc2_just_past_its_wrap_has_low_aliasing)
     TT_CHECK(db < ALIAS_LIMIT_DB);
 }
 
+/* With a coarse offset on osc2, sync still makes the pair repeat at osc1's pitch. */
+TT_TEST(sync_with_osc2_coarse_repeats_at_osc1)
+{
+    int synced;
+    slave_init(44000, FM_WAVE_SAW);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 5);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, 1);
+    fm_engine_note_on(&eng, 69, 100);
+    fm_engine_render(&eng, buf, 8000);
+    synced = max_diff_at_lag(buf, 4000, 2000, 100);
+    printf("    sync with coarse +5: largest change over one osc1 cycle %d\n", synced);
+    TT_CHECK(synced < 200);
+}
+
 /* Cross-mod set to 0 sounds exactly like cross-mod never touched. */
 TT_TEST(xmod_zero_matches_no_xmod)
 {
@@ -778,6 +792,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_has_low_aliasing);
     TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
     TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
+    TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
     TT_RUN(xmod_zero_matches_no_xmod);
     TT_RUN(xmod_adds_sidebands);
     TT_RUN(max_xmod_and_sync_stay_in_range);
