@@ -5,9 +5,10 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 4.1 KiB (4224 bytes on
- * 32- and 64-bit desktops), more than half of it the chorus delay line, so
- * static storage is recommended; a task stack must have room for it on
+ * sets up everything inside it. fm_engine is about 5.1 KiB (5252 bytes on
+ * 32- and 64-bit desktops and on Cortex-M), about 40 % of it the chorus
+ * delay line and about 1 KiB the voices' filters, so static storage is
+ * recommended; a task stack must have room for it on
  * top of its other use. See docs/fixed-point.md for the number formats.
  *
  * The struct layout is exposed only so callers can allocate it; treat
@@ -64,6 +65,19 @@ typedef enum {
     FM_PARAM_LFO_PW_PCT,      /* pulse width depth, percent of a cycle each way */
     FM_PARAM_OSC_SYNC,    /* 1: osc2 restarts with every cycle of osc1 */
     FM_PARAM_OSC_XMOD,    /* per mille: osc1 bends osc2's frequency by up to +-100 % */
+    /* lowpass cutoff, cents above MIDI note 0 (6900 = 440 Hz);
+     * FM_FILTER_OPEN_CENTS (the maximum) is fully open */
+    FM_PARAM_FILTER_CUTOFF_CENTS,
+    FM_PARAM_FILTER_RESONANCE, /* per mille; 1000 self-oscillates */
+    FM_PARAM_FILTER_KEY_TRACK, /* per mille; 1000 follows the note 1:1 */
+    FM_PARAM_FILTER_ENV_ATTACK_MS,
+    FM_PARAM_FILTER_ENV_DECAY_MS,
+    FM_PARAM_FILTER_ENV_SUSTAIN, /* per mille of full level, 0..1000 */
+    FM_PARAM_FILTER_ENV_RELEASE_MS,
+    /* cents the filter envelope adds to the cutoff at full level;
+     * negative sweeps the cutoff down */
+    FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
+    FM_PARAM_HIGHPASS_STEP, /* 0 (off) .. 3 (most low cut) */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -112,7 +126,9 @@ typedef struct {
  * Each note takes a voice; with more notes than voices the engine steals
  * one (the rule is in docs/voices.md). In unison mode (FM_PARAM_VOICE_MODE)
  * every voice plays the newest note instead, detuned. Each voice is mixed at
- * 1 / voice_count, then -6 dB, so a full chord never clips.
+ * 1 / voice_count, then -6 dB, so a full chord never clips without filter
+ * resonance; high resonance can reach full scale, where the output
+ * saturates.
  */
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count);
