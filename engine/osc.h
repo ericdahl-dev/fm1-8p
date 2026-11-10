@@ -16,13 +16,16 @@ typedef struct {
 /* Highest allowed increment: just under Nyquist. */
 #define FM_OSC_MAX_INC 0x7FFF0000u
 
-/* Phase increment (Q0.32 per sample) for a MIDI note at a sample rate. */
-uint32_t fm_osc_note_inc(uint8_t note, uint32_t sample_rate);
+/* Highest pitch the table covers: note 131 (15.8 kHz), Q16.16 semitones. */
+#define FM_OSC_MAX_PITCH (131 << 16)
+
 /*
- * Phase increment for a MIDI note shifted by `cents` (clamped to notes
- * 0..127). Integer math only; meant for events, not per sample.
+ * Phase increment (Q0.32 per sample) for a pitch in Q16.16 semitones (MIDI note numbers with
+ * a fraction), clamped to 0..FM_OSC_MAX_PITCH. The fraction follows
+ * 2^(f / 12) to well under 0.01 cent. Integer math; for events, not per
+ * sample.
  */
-uint32_t fm_osc_tuned_inc(uint8_t note, int32_t cents, uint32_t sample_rate);
+uint32_t fm_osc_pitch_inc(int32_t pitch, uint32_t sample_rate);
 
 void fm_osc_reset(fm_osc *o);
 void fm_osc_set_inc(fm_osc *o, uint32_t inc);
@@ -47,12 +50,10 @@ typedef struct {
     fm_osc osc[2];
     uint32_t width[2]; /* pulse duty as set, Q0.32 of a cycle */
     uint32_t pw[2];    /* duty played: width limited by the pitch */
-    int32_t cents[2];  /* tuning offset from the note */
-    uint32_t sample_rate;
+    int32_t tune[2];   /* offset from the played pitch, Q16.16 semitones */
     int32_t mix;       /* share of the second oscillator, Q1.30 0..1.0 */
     uint32_t noise;    /* xorshift32 state, never 0 */
     uint8_t wave[2];   /* fm_wave */
-    uint8_t note;
 } fm_osc_pair;
 
 /*
@@ -66,18 +67,23 @@ void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave);
 /* Pulse duty of oscillator `which` as a Q0.32 fraction of a cycle. */
 void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width);
 /*
- * Tuning of oscillator `which` in cents from the played note (an octave is
- * 1200). Applies at once to a held note.
+ * Tuning of oscillator `which` in cents from the played pitch (an octave
+ * is 1200). `pitch` (Q16.16 semitones) is what the pair plays now, so
+ * that oscillator retunes at once; the other is left alone.
  */
-void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents);
+void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
+                          int32_t pitch, uint32_t sample_rate);
 /*
  * Crossfade between the oscillators, Q1.30: 0 is the first alone,
  * FM_OSC_MIX_FULL the second alone, values between a linear blend.
  */
 #define FM_OSC_MIX_FULL (1 << 30)
 void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix);
-/* Plays a MIDI note at a sample rate: sets both oscillators' pitch. */
-void fm_osc_pair_set_note(fm_osc_pair *p, uint8_t note, uint32_t sample_rate);
+/*
+ * Plays `pitch` (Q16.16 semitones: the note plus any bend): each
+ * oscillator sounds at it plus its own tuning.
+ */
+void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate);
 /* Next mixed sample, Q8.24. */
 int32_t fm_osc_pair_next(fm_osc_pair *p);
 

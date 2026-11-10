@@ -20,40 +20,36 @@ static const uint32_t top_octave_hz_q16[12] = {
     870957077u, 922746880u, 977616265u, 1035748353u
 };
 
-uint32_t fm_osc_note_inc(uint8_t note, uint32_t sample_rate)
+/* Note frequency in Q16.16 Hz for a whole note 0..131. */
+static uint32_t note_hz_q16(uint32_t note)
 {
-    uint32_t hz_q16;
-    uint64_t inc;
-    if (sample_rate == 0) return 0; /* never divide by zero: no trap on pi32v2 */
-    if (note > 127) note = 127;
-    hz_q16 = top_octave_hz_q16[note % 12] >> (10 - note / 12);
-    inc = ((uint64_t)hz_q16 << 16) / sample_rate;
-    return inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)inc;
+    return top_octave_hz_q16[note % 12] >> (10 - note / 12);
 }
 
 /*
- * 2^(c / 1200) in Q2.30 for c in 0..99 cents, by the series
- * e^y = 1 + y + y^2/2 + y^3/6 with y = c * ln 2 / 1200 (y < 0.058, so
- * the error is under 0.001 cent).
+ * 2^(f / 12) in Q2.30 for a fraction of a semitone f (Q16, 0..1), by the
+ * series e^y = 1 + y + y^2/2 + y^3/6 with y = f * ln 2 / 12 (y < 0.058,
+ * so the error is under 0.001 cent).
  */
-static uint32_t cents_ratio_q30(uint32_t c)
+static uint32_t semitone_ratio_q30(uint32_t f)
 {
-    int64_t y = (int64_t)c * 620218; /* ln 2 / 1200 in Q30 */
+    int64_t y = (int64_t)(((uint64_t)f * 62021760u) >> 16); /* ln 2 / 12, Q30 */
     int64_t y2 = (y * y) >> 30, y3 = (y2 * y) >> 30;
     return (uint32_t)((1 << 30) + y + y2 / 2 + (int32_t)y3 / 6);
 }
 
-uint32_t fm_osc_tuned_inc(uint8_t note, int32_t cents, uint32_t sample_rate)
+uint32_t fm_osc_pitch_inc(int32_t pitch, uint32_t sample_rate)
 {
-    int32_t total;
-    uint64_t inc;
-    if (cents < -12800) cents = -12800; /* keeps the sum from overflowing */
-    if (cents > 12800) cents = 12800;
-    total = (int32_t)note * 100 + cents;
-    if (total < 0) total = 0;
-    if (total > 127 * 100) total = 127 * 100;
-    inc = fm_osc_note_inc((uint8_t)(total / 100), sample_rate);
-    inc = (inc * cents_ratio_q30((uint32_t)(total % 100))) >> 30;
+    uint32_t note, frac;
+    uint64_t hz_q16, inc;
+    if (sample_rate == 0) return 0; /* never divide by zero: no trap on pi32v2 */
+    if (pitch < 0) pitch = 0;
+    if (pitch > FM_OSC_MAX_PITCH) pitch = FM_OSC_MAX_PITCH;
+    note = (uint32_t)pitch >> 16;
+    frac = (uint32_t)pitch & 0xFFFFu;
+    hz_q16 = note_hz_q16(note);
+    if (frac) hz_q16 = (hz_q16 * semitone_ratio_q30(frac)) >> 30;
+    inc = (hz_q16 << 16) / sample_rate;
     return inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)inc;
 }
 
@@ -114,11 +110,9 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
         p->wave[i] = FM_WAVE_SAW;
         p->width[i] = 0x80000000u;
         p->pw[i] = 0x80000000u;
-        p->cents[i] = 0;
+        p->tune[i] = 0;
     }
-    p->sample_rate = 0;
     p->mix = 0;
-    p->note = 0;
     p->noise = seed ? seed : 0x2545F491u;
 }
 
@@ -153,22 +147,22 @@ static void update_pw(fm_osc_pair *p, uint8_t i)
     p->pw[i] = w;
 }
 
-/* Recomputes both oscillators' increments from the note and tuning. */
-static void retune(fm_osc_pair *p)
+/* Sets oscillator `i`'s increment for `pitch` plus its tuning. */
+static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
+                     uint32_t sample_rate)
 {
-    uint8_t i;
-    for (i = 0; i < 2; i++) {
-        fm_osc_set_inc(&p->osc[i],
-                       fm_osc_tuned_inc(p->note, p->cents[i], p->sample_rate));
-        update_pw(p, i);
-    }
+    fm_osc_set_inc(&p->osc[i], fm_osc_pitch_inc(pitch + p->tune[i], sample_rate));
+    update_pw(p, i);
 }
 
-void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents)
+void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
+                          int32_t pitch, uint32_t sample_rate)
 {
     if (which >= 2) return;
-    p->cents[which] = cents;
-    retune(p);
+    if (cents < -12800) cents = -12800; /* keeps the sums from overflowing */
+    if (cents > 12800) cents = 12800;
+    p->tune[which] = cents * 65536 / 100; /* Q16.16 semitones */
+    tune_osc(p, which, pitch, sample_rate);
 }
 
 void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width)
@@ -183,11 +177,10 @@ void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave)
     if (which < 2 && wave < FM_WAVE_COUNT) p->wave[which] = wave;
 }
 
-void fm_osc_pair_set_note(fm_osc_pair *p, uint8_t note, uint32_t sample_rate)
+void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate)
 {
-    p->note = note;
-    p->sample_rate = sample_rate;
-    retune(p);
+    tune_osc(p, 0, pitch, sample_rate);
+    tune_osc(p, 1, pitch, sample_rate);
 }
 
 /*

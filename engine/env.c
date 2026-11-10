@@ -35,6 +35,13 @@ void fm_env_gate_off(fm_env *e)
     e->step = step_for(e->level, e->release_samples);
 }
 
+void fm_env_fade(fm_env *e, uint32_t samples)
+{
+    if (e->stage == FM_ENV_IDLE) return;
+    e->stage = FM_ENV_FADE;
+    e->step = step_for(e->level, samples);
+}
+
 /* Step for the DECAY stage: from the current level to sustain, in either
  * direction, over the decay time. */
 static void enter_decay(fm_env *e)
@@ -94,6 +101,7 @@ int32_t fm_env_next(fm_env *e)
     case FM_ENV_SUSTAIN: /* holds; fm_env_retime starts a glide on change */
         break;
     case FM_ENV_RELEASE:
+    case FM_ENV_FADE:
         if (e->level <= e->step) {
             e->level = 0;
             e->stage = FM_ENV_IDLE;

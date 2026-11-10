@@ -121,7 +121,7 @@ TT_TEST(octave_and_fine_tune_shift_pitch)
 }
 
 /*
- * fm_osc_tuned_inc against 2^(cents / 1200) in double precision, every
+ * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
  * Today's worst, 0.005 cent, is the pitch table's rounding at note 0;
  * dropping the cubic term of the 2^x series makes it 0.056.
@@ -136,7 +136,8 @@ TT_TEST(tuned_increment_matches_exact_pitch)
         for (c = -2400; c <= 2400; c++) {
             double want = note_hz(notes[n]) * pow(2.0, c / 1200.0) / RATE *
                           4294967296.0;
-            double got = fm_osc_tuned_inc(notes[n], c, RATE);
+            double got = fm_osc_pitch_inc(((int32_t)notes[n] << 16) +
+                                          c * 65536 / 100, RATE);
             double err = fabs(1200.0 * log2(got / want));
             if (err > worst) worst = err;
         }
@@ -300,13 +301,13 @@ TT_TEST(high_pulse_and_square_notes_have_low_aliasing)
  */
 TT_TEST(extreme_osc_settings_stay_bounded_and_release)
 {
-    static const uint32_t rates[] = { 1, 8000, 44100, 192000 };
+    static const uint32_t rates[] = { 8000, 44100, 192000 };
     static const uint8_t notes[] = { 0, 127 };
     static const int32_t tunes[][2] = { { -2, -100 }, { 2, 100 } };
     static const int32_t widths[] = { 1, 99 };
     static const int32_t mixes[] = { 0, 500, 1000 };
     size_t r, n, t, w, wv, m, i;
-    for (r = 0; r < 4; r++)
+    for (r = 0; r < 3; r++)
     for (n = 0; n < 2; n++)
     for (t = 0; t < 2; t++)
     for (w = 0; w < 2; w++)

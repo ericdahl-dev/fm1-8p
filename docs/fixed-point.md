@@ -15,20 +15,21 @@ integer divided by 2^n.
 | --- | --- | --- | --- | --- | --- |
 | Oscillator phase | `uint32_t` | unsigned Q0.32 | one full cycle = 2^32 | 0 to just under 1 cycle | Wraps for free on overflow; 32 bits give a frequency step of rate / 2^32 (about 10 uHz at 44.1 kHz). |
 | Phase increment | `uint32_t` | unsigned Q0.32 per sample | | capped at `0x7FFF0000`, just under Nyquist | Same scale as the phase, so one add per sample. |
+| Pitch (note plus bend) | `int32_t` | Q16.16 semitones | one semitone = 2^16 | MIDI notes 0 to 131 | Pitch bend is exact in this format (see [voices.md](voices.md#pitch-bend)). Between semitones the frequency is the note below times 2^(f/12), by the same cubic series as the tuning (under 0.001 cent). |
 | Note frequency | `uint32_t` | unsigned Q16.16 Hz | | up to 15.8 kHz (note 131) | A 12-entry table for notes 120 to 131 (`tools/gen_pitch_table.py`); lower octaves are exact right shifts, so no `pow()`. The increment is `(hz_q16 << 16) / rate`, computed once per note on. |
 | Audio sample (inside the engine) | `int32_t` | Q8.24 | 2^24 | about -128 to +128 | 24 fraction bits keep far more resolution than the 16-bit output, and 7 bits of headroom above 1.0 leave room to sum voices, filter resonance and chorus in later slices before the final clamp. |
 | Envelope level | `int32_t` | Q1.30 | 2^30 (`FM_ENV_FULL`) | 0 to 1.0 | Fine enough for a smooth 10 s segment at 192 kHz (the smallest step is about 560 LSB). |
 | Gain | `int32_t` | Q1.30 | 2^30 | 0 to 1.0 | Same as the envelope, so `sample * gain >> 30` keeps Q8.24. |
 | polyBLEP correction | `int64_t` | Q16 | 2^16 | -1.0 to +1.0 | Only computed on the two samples around each saw wrap. |
 | Pulse width | `uint32_t` | unsigned Q0.32 | one full cycle = 2^32 | 2 increments to 1 cycle minus 2 increments | Same scale as the phase, so the second saw of a pulse is just `phase + width`. Set from `oscN_pulse_width_pct` and limited by the pitch on events (see [Aliasing threshold](#aliasing-threshold)). |
-| Tuning | `int32_t` | cents | | -2500 to +2500 (2 octaves and 100 cents) | `octave * 1200 + fine`. Turned into a ratio 2^(c/1200) on events by a cubic series in Q2.30 (error under 0.001 cent), so no table and no `pow()`. |
+| Tuning | `int32_t` | Q16.16 semitones | one semitone = 2^16 | -25 to +25 semitones (2 octaves and 100 cents) | Set in cents (`octave * 1200 + fine`) and added to the voice's pitch on events, so tuning and bend combine by one add. The fraction of a semitone becomes a ratio 2^(f/12) by a cubic series in Q2.30 (error under 0.001 cent), so no extra table and no `pow()`. |
 | Oscillator mix | `int32_t` | Q1.30 | 2^30 (`FM_OSC_MIX_FULL`) | 0 to 1.0 | `a + (b - a) * mix >> 30`: exactly one oscillator at either end. |
 | Noise state | `uint32_t` | xorshift32 | | never 0 | Three shifts and three XORs a sample; the top bits, `>> 7`, are the Q8.24 sample. |
 | Output | `int16_t` | Q1.15 | 32768 | -32768 to 32767 | What a codec or a WAV file takes. Q8.24 maps to it with `>> 9` and saturation. |
 
 Multiplies of two 32-bit values go through a 64-bit intermediate
-(`(int64_t)a * b >> n`). Divisions happen only on events (note on, a parameter
-change, an envelope stage change), except the polyBLEP correction, which does
+(`(int64_t)a * b >> n`). Divisions happen only on events (note on, pitch
+bend, a parameter change, an envelope stage change), except the polyBLEP correction, which does
 one 64-by-32 division on each of the two samples around every saw wrap. That
 is 2 divisions a cycle for a saw and 4 for a pulse or square (two saws, one
 per edge), so up to 8 a cycle for a voice with two pulse oscillators. Per
@@ -51,27 +52,31 @@ trap on pi32v2; it returns garbage:
   for a zeroed (uninitialized) engine instead of dividing;
 - the oscillator increment: the polyBLEP division runs only when it is
   non-zero;
-- envelope times: a 0 ms segment jumps at once instead of dividing by 0
-  samples;
+- envelope times: a 0 ms segment (or the steal fade at a very low sample
+  rate) jumps at once instead of dividing by 0 samples;
+- the voice count: `fm_engine_init` rejects 0 before dividing by it for the
+  mix gain;
 - the remaining divisors are constants (1000).
 
 `extreme_settings_stay_bounded_and_release` and
 `uninitialized_engine_is_silent_and_does_not_divide_by_zero` cover these on
 the desktop, where a division by zero does trap.
 
-### Gain staging in this slice
+### Gain staging
 
-The one voice is the oscillator mix (a saw, square or noise peaks at 1.0 in
-Q8.24) times the amp envelope (Q1.30) times a fixed voice gain of 0.5, so the
-output peaks at about half of full scale (-6 dBFS). Gain staging for several
-voices and the chorus comes with the polyphony and chorus slices.
+Each voice is its oscillator mix (a saw, square or noise peaks at 1.0 in
+Q8.24) times its amp envelope (Q1.30). The voices are summed in Q8.24 and the
+sum is scaled by `0.5 / voice_count` (Q1.30), so even every voice at full
+level with lined-up peaks stays at or below half of full scale (-6 dBFS), with
+6 dB left for resonance and the chorus. The table and the reasoning are in
+[voices.md](voices.md#gain-staging).
 
 The pulse is the difference of two saws, `saw(t) - saw(t + width)`, so it has
 no DC (like an AC-coupled analog pulse): it sits at +2(1 - w) for the last
 fraction w of the cycle and at -2w for the rest. Peak to peak is always 2.0,
-but a narrow pulse peaks near +2.0 (or a wide one near -2.0), so the voice can
-reach almost full scale, against half for the saw and square. The mix is a
-crossfade, so two oscillators together peak no higher than the louder one.
+but a narrow pulse peaks near +2.0 (or a wide one near -2.0), about twice the
+saw. The mix is a crossfade, so two oscillators together peak no higher than
+the louder one.
 
 ### Parameter values
 
@@ -121,8 +126,8 @@ default) to osc2 alone (1000). For example:
   globals other than `const` tables, and allocates nothing.
 - On the device, `fm_engine_render` runs in the audio interrupt, which has
   about 7.75 KiB of stack. Render paths must keep no large locals (no
-  per-block arrays on the stack); today they use a few dozen bytes. Any scratch
-  buffer a later slice needs goes in `fm_engine`.
+  per-block arrays on the stack); today they use a few dozen bytes. Scratch
+  buffers go in `fm_engine`, like the 64-frame mix buffer.
 
 ## Constants the FM-1 build rejects
 
