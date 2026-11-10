@@ -6,7 +6,9 @@
 #   make check-float-free   prove the engine (and the synth module's play.c) has no floating point or heap
 #                           use, and that the check catches both
 #   make check-fm1-build    test the FM-1 build script's pin and report checks
-#   make check              test + check-float-free + check-fm1-build
+#   make check-patches      test the JX-8P patch converter (python3) and that firmware/patches.c is
+#                           what it generates from data/jx8p-factory-1-32.syx
+#   make check              test + check-float-free + check-fm1-build + check-patches
 #
 # The FM-1 firmware itself is built by tools/fm1-build.sh (see README).
 #   make render-demo        render examples/demo.mid to build/demo.wav
@@ -25,8 +27,8 @@ HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
 BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
-FW_SRC     = firmware/cpu_test.c firmware/play.c
-FW_HDR     = firmware/cpu_test.h firmware/play.h
+FW_SRC     = firmware/cpu_test.c firmware/play.c firmware/patches.c
+FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/patches.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
@@ -35,7 +37,7 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench bench-full test check check-float-free check-fm1-build render-demo clean
+.PHONY: all bench bench-full test check check-float-free check-fm1-build check-patches render-demo clean
 
 all: $(RENDER) $(BENCH)
 
@@ -67,7 +69,7 @@ test: $(BUILD)/run-tests
 # engine sources) must make the same check fail.
 check-float-free:
 	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-engine $(ENGINE_SRC)
-	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c
+	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c firmware/patches.c
 	@for c in $(CANARIES); do \
 		if CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-canary \
 			$(ENGINE_SRC) $$c >/dev/null 2>&1; then \
@@ -79,7 +81,10 @@ check-float-free:
 check-fm1-build:
 	sh tests/test_fm1_build.sh
 
-check: test check-float-free check-fm1-build
+check-patches:
+	python3 -m unittest discover -s tests -p 'test_*.py'
+
+check: test check-float-free check-fm1-build check-patches
 
 render-demo: $(RENDER)
 	./$(RENDER) examples/demo.mid $(BUILD)/demo.wav

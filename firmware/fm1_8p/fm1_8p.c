@@ -5,7 +5,8 @@
  *   MIDI   whatever the host takes in (USB, Bluetooth or the jack) comes through midi(), all alike:
  *          note on and off, sustain (CC 64), all sound / notes off (CC 120 / 123), pitch bend; any
  *          channel
- * The screen shows the name, the voice count and the last note played. */
+ * The screen shows the name, the patch (SOUNDTRACK at boot), the voice count and the last note
+ * played. */
 #include "hb_module.h"
 #include "play.h"
 
@@ -39,7 +40,8 @@ static void draw(uint32_t full)
         v[0] = (char)('0' + PLAY_VOICES % 10u);
         H->fill(0, HB_TOP, 240, 240 - HB_TOP, 0);
         H->text(0, 48, 240, 1, "FM1-8P", HB_RGB(255, 176, 64), 1);
-        H->text(0, 92, 240, 0, v, C_DIM, 1);
+        H->text(0, 88, 240, 0, play_patch(&P)->name, 0xFFFFu, 1);
+        H->text(0, 112, 240, 0, v, C_DIM, 1);
         H->text(0, 140, 240, 0, "LAST NOTE", C_DIM, 1);
         drawn_note = NOT_DRAWN;
     }

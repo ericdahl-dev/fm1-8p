@@ -107,10 +107,11 @@ pulse width) and the velocity curve are in
 `firmware/fm1_8p/` is the playable synth, the fm1-dock module **FM1-8P**: the FM-1's keys (with
 their velocity; OCT- and OCT+ move the octave, each key lights while held) and MIDI (note on and
 off, sustain CC 64, pitch bend; any channel, from whatever fm1-dock takes in: USB, Bluetooth or the
-jack) play the engine on 4 voices (`PLAY_VOICES` in `firmware/play.h`) with one default patch (the
-`PATCH` table in `firmware/play.c`: the engine's defaults plus a gentle filter envelope, the slow
-chorus and amp velocity). The screen shows the name, the voice count and the last note played. The
-key and MIDI mapping is plain C (`firmware/play.[ch]`), tested on the desktop by `make test`.
+jack) play the engine on 4 voices (`PLAY_VOICES` in `firmware/play.h`). It boots on SOUNDTRACK,
+tone 17 of the JX-8P's 32 factory tones, which are all in `firmware/patches.c` (converted by
+`tools/jx8p.py`; the source and the mapping are in [docs/patches.md](docs/patches.md)). The screen
+shows the name, the patch, the voice count and the last note played. The key and MIDI mapping is
+plain C (`firmware/play.[ch]`), tested on the desktop by `make test`.
 
 ## FM-1 CPU-test firmware
 

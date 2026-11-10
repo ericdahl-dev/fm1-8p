@@ -52,8 +52,12 @@ TT_TEST(play_midi_note_on_any_channel_plays)
     TT_CHECK(pl_sound());
 }
 
-/* blocks of PLAY_BLOCK frames for about one second: longer than the default patch's release */
+/* blocks of PLAY_BLOCK frames for about one second */
 #define PL_SECOND (PLAY_FS / PLAY_BLOCK + 1u)
+/* blocks past the default patch's release, and a second more */
+#define PL_RELEASED ((uint32_t)patch_value(&PATCHES[PATCH_SOUNDTRACK], PATCH_AMP_RELEASE_MS) \
+                     * PLAY_FS / 1000u \
+                     / PLAY_BLOCK + PL_SECOND)
 
 static void pl_render_for(play *p, uint32_t blocks)
 {
@@ -68,7 +72,7 @@ TT_TEST(play_midi_note_off_releases_the_note)
     play_midi(&pl_a, 0x91, 64, 100);
     pl_render(&pl_a);
     play_midi(&pl_a, 0x80, 60, 0);
-    pl_render_for(&pl_a, 2u * PL_SECOND);
+    pl_render_for(&pl_a, PL_RELEASED);
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 1);     /* 64 still held */
 }
 
@@ -78,10 +82,10 @@ TT_TEST(play_midi_sustain_pedal_holds_released_notes)
     play_midi(&pl_a, 0x90, 60, 100);
     play_midi(&pl_a, 0xB0, 64, 127);
     play_midi(&pl_a, 0x80, 60, 0);
-    pl_render_for(&pl_a, 2u * PL_SECOND);
+    pl_render_for(&pl_a, PL_RELEASED);
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 1);     /* the pedal holds it */
     play_midi(&pl_a, 0xB0, 64, 0);
-    pl_render_for(&pl_a, 2u * PL_SECOND);
+    pl_render_for(&pl_a, PL_RELEASED);
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);
 }
 
@@ -116,19 +120,20 @@ TT_TEST(play_holds_play_voices_notes_at_once)
     TT_CHECK_EQ(PLAY_VOICES, 4);
 }
 
-/* The default patch is one table (play_patch): init sets each of its params, a gentle filter envelope
- * and the slow chorus among them; every other param stays at the engine's default. */
-TT_TEST(play_init_sets_the_default_patch_from_its_table)
+/* The default patch is the JX-8P's tone 17, SOUNDTRACK (firmware/patches.c): init sets every field
+ * the engine has a param for, each one as the table has it (in the engine's range: none clamped). */
+TT_TEST(play_init_plays_soundtrack)
 {
-    uint32_t i, n;
-    const play_param *t = play_patch(&n);
+    uint32_t f;
+    const patch *s = &PATCHES[PATCH_SOUNDTRACK];
     TT_CHECK_EQ(play_init(&pl_a), 0);
-    TT_CHECK(n > 0);
-    for (i = 0; i < n; i++)
-        TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, t[i].id), t[i].value);
+    TT_CHECK(play_patch(&pl_a) == s);
+    TT_CHECK(strcmp(s->name, "SOUNDTRACK") == 0);
+    for (f = 0; f < PATCH_FIELD_COUNT; f++)
+        if (patch_param((patch_field)f) != PATCH_NONE)
+            TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, (uint16_t)patch_param((patch_field)f)),
+                        patch_value(s, (patch_field)f));
     TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, FM_PARAM_CHORUS_MODE), FM_CHORUS_SLOW);
-    TT_CHECK(fm_engine_get_param(&pl_a.engine, FM_PARAM_FILTER_ENV_AMOUNT_CENTS) > 0);
-    TT_CHECK(fm_engine_get_param(&pl_a.engine, FM_PARAM_FILTER_CUTOFF_CENTS) < FM_FILTER_OPEN_CENTS);
 }
 
 static int32_t pl_peak(play *p, uint32_t blocks)
@@ -201,7 +206,7 @@ TT_TEST(play_queue_overflow_never_leaves_a_note_hanging)
     for (i = 0; i < PLAY_QUEUE; i++)
         play_midi(&pl_a, 0xB0, 1, 0);
     play_note(&pl_a, 62, 0);                    /* the note off is lost */
-    pl_render_for(&pl_a, 2u * PL_SECOND);
+    pl_render_for(&pl_a, PL_RELEASED);
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);
     play_note(&pl_a, 64, 100);                  /* and it plays on afterwards */
     pl_render(&pl_a);
@@ -231,7 +236,7 @@ static void run_play_tests(void)
     TT_RUN(play_ignores_data_bytes_past_127);
     TT_RUN(play_remembers_the_last_note_played);
     TT_RUN(play_key_velocity_sets_the_level);
-    TT_RUN(play_init_sets_the_default_patch_from_its_table);
+    TT_RUN(play_init_plays_soundtrack);
     TT_RUN(play_holds_play_voices_notes_at_once);
     TT_RUN(play_midi_pitch_bend_moves_the_pitch);
     TT_RUN(play_midi_sustain_pedal_holds_released_notes);
