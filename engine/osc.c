@@ -111,9 +111,11 @@ static int32_t saw_at(uint32_t t, uint32_t dt)
  * rest: peak-to-peak 2.0 and no DC, like an AC-coupled analog pulse. At
  * 50% that is +-1.0, the square; other widths are scaled by pw_gain.
  * `dt0` is the first saw's polyBLEP increment (0 right after a sync
- * restart, which brings its own correction), `dt` the second's.
+ * restart, which brings its own correction), `dt` the second's. Kept out of
+ * line: inlined at -Os, it makes wave_next save four more registers on
+ * every call, the saw's included (+1.7 % at 8 voices in fm1-emu).
  */
-static int32_t pulse_at(uint32_t t, uint32_t dt0, uint32_t dt, uint32_t width)
+static FM_NOINLINE int32_t pulse_at(uint32_t t, uint32_t dt0, uint32_t dt, uint32_t width)
 {
     return saw_at(t, dt0) - saw_at(t + width, dt);
 }
@@ -169,19 +171,21 @@ static int32_t pulse_gain(uint32_t w)
  * tick: 1 / (2 max(w, 1 - w)) from the seed 48/17 - 32/17 m and two
  * Newton steps, x = x (2 - m x), good to about 1e-5 (0.0001 dB).
  */
-/* 1 / m for m in 0.5..1 (Q30), Q30, by `steps` Newton steps from the seed. */
-static int64_t recip_q30(int64_t m, int steps)
+/* Toward 1 / m for m in 0.5..1 (Q30): the seed, then Newton steps (Q30). */
+static int64_t recip_seed(int64_t m)
 {
-    int64_t x = 3031741621ll - ((2021161081ll * m) >> 30); /* Q30 */
-    while (steps-- > 0)
-        x = (x * ((1ll << 31) - ((m * x) >> 30))) >> 30;
-    return x;
+    return 3031741621ll - ((2021161081ll * m) >> 30);
+}
+
+static int64_t recip_step(int64_t m, int64_t x)
+{
+    return (x * ((1ll << 31) - ((m * x) >> 30))) >> 30;
 }
 
 static int32_t pulse_gain_fast(uint32_t w)
 {
     int64_t m = (w >= 0x80000000u ? w : 0u - w) >> 2; /* Q30, 0.5..1 */
-    return (int32_t)(recip_q30(m, 2) >> 1);
+    return (int32_t)(recip_step(m, recip_step(m, recip_seed(m))) >> 1);
 }
 
 /* 1 % of a cycle, Q0.32: the narrowest pulse the LFO can make. */
@@ -239,7 +243,7 @@ static void update_derived(fm_osc_pair *p)
         m <<= 1;
         s++;
     }
-    p->recip0 = (uint32_t)recip_q30(m >> 2, 3);
+    p->recip0 = (uint32_t)recip_step(m >> 2, recip_step(m >> 2, recip_step(m >> 2, recip_seed(m >> 2))));
     p->recip0_sh = (uint8_t)(46 - s); /* t / inc0 in Q16 = t * recip0 >> recip0_sh */
 }
 
@@ -555,9 +559,20 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
 /* Oscillator `which`'s sample, then its phase moves on (no sync). */
 static int32_t wave_next(fm_osc_pair *p, uint8_t which)
 {
-    int32_t v = wave_at(p, which);
-    p->osc[which].phase += p->osc[which].inc;
-    return v;
+    fm_osc *o = &p->osc[which];
+    uint32_t t = o->phase;
+    o->phase = t + o->inc;
+    switch (p->wave[which]) {
+    case FM_WAVE_PULSE:
+        return (int32_t)(((int64_t)pulse_at(t, o->inc, o->inc, p->pw[which]) *
+                          p->pw_gain[which]) >> 30);
+    case FM_WAVE_SQUARE:
+        return pulse_at(t, o->inc, o->inc, 0x80000000u);
+    case FM_WAVE_NOISE:
+        return noise_next(p);
+    default:
+        return saw_at(t, o->inc);
+    }
 }
 
 /*
