@@ -13,7 +13,7 @@ integer divided by 2^n.
 
 | Quantity | Type | Format | 1.0 is | Range | Why |
 | --- | --- | --- | --- | --- | --- |
-| Oscillator phase | `uint32_t` | unsigned Q0.32 | one full cycle = 2^32 | 0 to just under 1 cycle | Wraps for free on overflow; 32 bits give a frequency step of rate / 2^32 (about 11 uHz at 48 kHz). |
+| Oscillator phase | `uint32_t` | unsigned Q0.32 | one full cycle = 2^32 | 0 to just under 1 cycle | Wraps for free on overflow; 32 bits give a frequency step of rate / 2^32 (about 10 uHz at 44.1 kHz). |
 | Phase increment | `uint32_t` | unsigned Q0.32 per sample | | capped at `0x7FFF0000`, just under Nyquist | Same scale as the phase, so one add per sample. |
 | Note frequency | `uint32_t` | unsigned Q16.16 Hz | | up to 15.8 kHz (note 131) | A 12-entry table for notes 120 to 131 (`tools/gen_pitch_table.py`); lower octaves are exact right shifts, so no `pow()`. The increment is `(hz_q16 << 16) / rate`, computed once per note on. |
 | Audio sample (inside the engine) | `int32_t` | Q8.24 | 2^24 | about -128 to +128 | 24 fraction bits keep far more resolution than the 16-bit output, and 7 bits of headroom above 1.0 leave room to sum voices, filter resonance and chorus in later slices before the final clamp. |
@@ -25,7 +25,26 @@ integer divided by 2^n.
 Multiplies of two 32-bit values go through a 64-bit intermediate
 (`(int64_t)a * b >> n`). Divisions happen only on events (note on, a parameter
 change, an envelope stage change), except the polyBLEP correction, which does
-one 64-by-32 division on each of the two samples around every saw wrap.
+one 64-by-32 division on each of the two samples around every saw wrap. On
+the JieLi clang toolchain these compile to the native divide, and the branch
+links with no `__*di3` or float helpers (checked by the #12 firmware work).
+If the CPU test shows the divides cost too much, a reciprocal of the
+increment computed once per note on (or once per block) can replace them.
+
+Every divisor is non-zero by construction, because division by zero does not
+trap on pi32v2; it returns garbage:
+
+- the sample rate: `fm_engine_init` rejects 0, and the pitch code returns 0
+  for a zeroed (uninitialized) engine instead of dividing;
+- the oscillator increment: the polyBLEP division runs only when it is
+  non-zero;
+- envelope times: a 0 ms segment jumps at once instead of dividing by 0
+  samples;
+- the remaining divisors are constants (1000).
+
+`extreme_settings_stay_bounded_and_release` and
+`uninitialized_engine_is_silent_and_does_not_divide_by_zero` cover these on
+the desktop, where a division by zero does trap.
 
 ### Gain staging in this slice
 
@@ -53,30 +72,48 @@ is in `engine/params.c`.
 
 ## Sample rate and block size
 
+- The FM-1 runs at 44.1 kHz with 256-frame blocks, so the host and the tests
+  default to 44100 Hz. One block is 5.8 ms of audio, and all the voices plus
+  the chorus have to render within that.
 - The sample rate is an argument to `fm_engine_init` (1 Hz to 192 kHz) and is
   never hardcoded, because the FM-1's real rate still has to be confirmed.
-  Tests run at 44.1 kHz and 48 kHz.
+  Most tests run at 44.1 kHz; the edge-case test also uses 1 Hz, 8 kHz and
+  192 kHz.
 - `fm_engine_render` takes any number of frames, so the caller (the desktop
   host or the device's audio callback) picks the block size. The engine works
   sample by sample and keeps no block buffers. The host renders between MIDI
-  events, so its blocks vary in size.
+  events, so its blocks vary in size. `block_size_does_not_change_output`
+  checks that blocks of 1, 255, 256 and 4096 frames give byte-identical
+  output.
 - Output is interleaved stereo `int16_t` (L, R, L, R ...).
 - All state lives in the caller-owned `fm_engine` struct; the engine has no
   globals other than `const` tables, and allocates nothing.
+- On the device, `fm_engine_render` runs in the audio interrupt, which has
+  about 7.75 KiB of stack. Render paths must keep no large locals (no
+  per-block arrays on the stack); today they use a few dozen bytes. Any scratch
+  buffer a later slice needs goes in `fm_engine`.
+
+## Constants the FM-1 build rejects
+
+The fm1-dock image build rejects any 32-bit word in 0xFFC00000..0xFFCFFFFF
+because it looks like a ROM address. Q8.24 -0.25 is exactly 0xFFC00000, and
+`-32767 << 7` is 0xFFC00080, so such constants are easy to make by accident.
+Clamp first and shift after, and don't write negative constants that land in
+that range. Layer 4 of the engine check (below) scans for them.
 
 ## Aliasing threshold
 
 The saw is a naive ramp with a 2-point polyBLEP correction. The test
-`high_saw_note_has_low_aliasing` renders C7 (MIDI 96, 2093 Hz) at 48 kHz, takes
+`high_saw_note_has_low_aliasing` renders C7 (MIDI 96, 2093 Hz) at 44.1 kHz, takes
 a 32768-point Blackman-Harris windowed FFT, and counts as aliasing all energy
 more than 6 bins away from a harmonic of the note. The limit is **-25 dB**
 relative to the total energy.
 
 | Saw | Aliasing on this test |
 | --- | --- |
-| Naive ramp | -12.9 dB |
-| polyBLEP, this engine | -28.5 dB |
-| polyBLEP, double-precision model | -28.5 dB |
+| Naive ramp | -12.6 dB |
+| polyBLEP, this engine | -27.9 dB |
+| polyBLEP, double-precision model | -27.9 dB |
 
 The fixed-point saw matches the floating-point model, so the remaining
 aliasing is a property of 2-point polyBLEP, not of the number format. A
@@ -86,6 +123,8 @@ if listening tests call for it.
 ## Float-free check
 
 `make check-float-free` runs `tools/check-engine.sh` on every `engine/*.c`.
+Despite the name, it checks for constants the FM-1 build rejects as well as
+for floating point and the heap.
 Each layer can fail the check on its own:
 
 1. The sources are compiled with the FPU turned off for code generation
@@ -101,8 +140,14 @@ Each layer can fail the check on its own:
    defines itself, must be on a short allowlist (memory helpers, stack
    protection, 64-bit integer helpers). That rejects soft-float helpers such as
    `__muldf3`, libm, and the heap (`malloc`, `free` and so on).
+4. No instruction immediate (as `objdump -d` prints it) or data word may fall
+   in 0xFFC00000..0xFFCFFFFF. Desktop code generation differs from the
+   device's, so this catches constants written in the source, not every word
+   the device compiler might derive. fm1-dock's own check stays the final
+   word.
 
 The target then compiles the canaries in `tests/canary/` (floating-point
-arithmetic, a `float` variable, a `malloc` call) along with the engine and
+arithmetic, a `float` variable, a `malloc` call, and a 0xFFCxxxxx constant as
+an immediate and in a table) along with the engine and
 fails unless the check rejects each one. The check works on x86-64 and arm64
 with GCC or Clang, so it runs on Linux, macOS and in CI.
