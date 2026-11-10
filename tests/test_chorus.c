@@ -99,22 +99,22 @@ typedef struct {
     double rate_hz, center_ms, depth_ms, mirror_err_ms;
 } ch_sweep;
 
-static ch_sweep ch_measure_sweep(uint8_t mode)
+static ch_sweep ch_measure_sweep(uint8_t mode, uint32_t rate)
 {
     static fm_chorus ch;
-    const uint32_t frames = CH_RATE * 8;
+    const uint32_t frames = rate * 8;
     double lo = 1e9, hi = -1e9, sum = 0, mirror = 0, mean;
     double first = -1, last = -1, prev = 0;
     int crossings = 0, have_prev = 0, pass;
     size_t valid = 0;
     uint32_t n;
     ch_sweep out;
-    fm_chorus_init(&ch, CH_RATE);
+    fm_chorus_init(&ch, rate);
     fm_chorus_set_mode(&ch, mode);
     /* pass 0 finds the mean delay, pass 1 counts LFO cycles around it */
     for (pass = 0; pass < 2; pass++) {
         if (pass == 1) {
-            fm_chorus_init(&ch, CH_RATE);
+            fm_chorus_init(&ch, rate);
             fm_chorus_set_mode(&ch, mode);
         }
         mean = valid ? sum / (double)valid : 0;
@@ -125,7 +125,7 @@ static ch_sweep ch_measure_sweep(uint8_t mode)
             double wet_l, wet_r, d_l, d_r;
             fm_chorus_process(&ch, x, &l, &r);
             /* skip the ramp's wrap until the taps are past it */
-            if (pos < 512 || n < CH_RAMP_PERIOD) continue;
+            if (pos < FM_CHORUS_DELAY_LEN + 8 || n < CH_RAMP_PERIOD) continue;
             wet_l = 2.0 * l - x;
             wet_r = 2.0 * r - x;
             d_l = pos - (wet_l / CH_RAMP_STEP + CH_RAMP_PERIOD / 2);
@@ -148,11 +148,11 @@ static ch_sweep ch_measure_sweep(uint8_t mode)
             }
         }
     }
-    out.center_ms = (lo + hi) / 2 * 1000.0 / CH_RATE;
-    out.depth_ms = (hi - lo) / 2 * 1000.0 / CH_RATE;
+    out.center_ms = (lo + hi) / 2 * 1000.0 / rate;
+    out.depth_ms = (hi - lo) / 2 * 1000.0 / rate;
     out.rate_hz = crossings > 1
-        ? (crossings - 1) * (double)CH_RATE / (last - first) : 0;
-    out.mirror_err_ms = mirror * 1000.0 / CH_RATE;
+        ? (crossings - 1) * (double)rate / (last - first) : 0;
+    out.mirror_err_ms = mirror * 1000.0 / rate;
     return out;
 }
 
@@ -165,7 +165,7 @@ TT_TEST(chorus_modes_differ_in_rate_and_depth)
     ch_sweep got[FM_CHORUS_MODE_COUNT];
     int a, b;
     for (a = 1; a < FM_CHORUS_MODE_COUNT; a++) {
-        got[a] = ch_measure_sweep((uint8_t)a);
+        got[a] = ch_measure_sweep((uint8_t)a, CH_RATE);
         printf("    chorus mode %d: %.3f Hz, center %.3f ms, sweep +-%.3f ms\n",
                a, got[a].rate_hz, got[a].center_ms, got[a].depth_ms);
         TT_CHECK_NEAR(got[a].rate_hz, spec[a][0], spec[a][0] * 0.02);
@@ -253,6 +253,65 @@ TT_TEST(chorus_engine_output_stays_bounded_at_full_voice_count)
     }
 }
 
+/*
+ * Every mode at the edge sample rates: no division by zero (the desktop
+ * traps on one), the taps stay inside the delay line (the deep mode
+ * needs more than the line holds at 192 kHz, so it is scaled to fit),
+ * and the stereo spread survives. An out-of-range mode means off.
+ */
+TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
+{
+    static const uint32_t rates[] = { 1, 8000, 96000, 192000 };
+    static fm_chorus ch;
+    size_t r;
+    int mode;
+    int32_t l, r_out;
+    ch_sweep sw;
+    for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
+        for (mode = 1; mode < FM_CHORUS_MODE_COUNT; mode++) {
+            TT_CHECK_EQ(fm_engine_init(&ch_eng, rates[r], 1), FM_OK);
+            fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, mode);
+            fm_engine_set_param(&ch_eng, FM_PARAM_AMP_ATTACK_MS, 0);
+            fm_engine_note_on(&ch_eng, 45, 100);
+            fm_engine_render(&ch_eng, ch_buf, CH_RATE);
+            TT_CHECK(peak_abs(ch_buf, 0, CH_RATE) <= 16384 + 64);
+            if (rates[r] >= 8000)
+                TT_CHECK(ch_side_ratio(ch_buf, CH_RATE / 2, CH_RATE) > 0.05);
+        }
+    }
+    /* deep at 192 kHz: scaled to the line, same rate and shape */
+    sw = ch_measure_sweep(FM_CHORUS_DEEP, 192000);
+    TT_CHECK((sw.center_ms + sw.depth_ms) * 192.0 <= FM_CHORUS_DELAY_LEN - 2);
+    TT_CHECK((sw.center_ms + sw.depth_ms) * 192.0 > FM_CHORUS_DELAY_LEN - 4);
+    TT_CHECK_NEAR(sw.center_ms / sw.depth_ms, 2.0, 0.01);
+    TT_CHECK_NEAR(sw.rate_hz, 0.8, 0.016);
+    fm_chorus_init(&ch, CH_RATE);
+    fm_chorus_set_mode(&ch, FM_CHORUS_MODE_COUNT);
+    fm_chorus_process(&ch, 12345, &l, &r_out);
+    TT_CHECK(l == 12345 && r_out == 12345);
+    fm_chorus_set_mode(&ch, 255);
+    fm_chorus_process(&ch, -777, &l, &r_out);
+    TT_CHECK(l == -777 && r_out == -777);
+    /* a chorus with no sample rate stays off rather than divide by 0 */
+    fm_chorus_init(&ch, 0);
+    fm_chorus_set_mode(&ch, FM_CHORUS_DEEP);
+    fm_chorus_process(&ch, 999, &l, &r_out);
+    TT_CHECK(l == 999 && r_out == 999);
+}
+
+/*
+ * The chorus lives in fm_engine, which may sit on a task stack: its
+ * delay line is fixed (2048 bytes of int16 samples, as documented in
+ * engine/chorus.h) and the whole struct stays within 2.1 KiB.
+ */
+TT_TEST(chorus_memory_is_fixed_and_small)
+{
+    static fm_chorus ch;
+    TT_CHECK_EQ(sizeof ch.line, 2048);
+    TT_CHECK_EQ(FM_CHORUS_DELAY_LEN & (FM_CHORUS_DELAY_LEN - 1), 0);
+    TT_CHECK(sizeof(fm_chorus) <= 2048 + 64);
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
@@ -260,4 +319,6 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_modes_differ_in_rate_and_depth);
     TT_RUN(chorus_output_stays_bounded_for_eight_full_scale_voices);
     TT_RUN(chorus_engine_output_stays_bounded_at_full_voice_count);
+    TT_RUN(chorus_handles_extreme_rates_and_unknown_modes);
+    TT_RUN(chorus_memory_is_fixed_and_small);
 }
