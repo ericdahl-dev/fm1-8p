@@ -96,7 +96,14 @@ static int32_t tap(const fm_chorus *c, int32_t delay)
     int32_t s1 = c->line[(c->pos - whole - 1u) & MASK];
     /* |s0 * 2^15| <= 2^30 and |(s1 - s0) * frac| < 2^31 */
     int32_t v = s0 * 32768 + (s1 - s0) * frac;
-    return v >> 5; /* line units are 2^10 in Q8.24; v has 15 more bits */
+    /* line units are 2^10 in Q8.24 and v has 15 more bits: drop 5, rounded */
+    return (v + 16) >> 5;
+}
+
+/* (a + b) / 2, rounded once (halves up), with no overflow for any int32. */
+static int32_t half_sum(int32_t a, int32_t b)
+{
+    return (a >> 1) + (b >> 1) + (((a & 1) + (b & 1) + 1) >> 1);
 }
 
 void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
@@ -108,8 +115,8 @@ void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
         *right = in;
         return;
     }
-    /* Q8.24 -> line units (1.0 = 16384), saturating at +-2.0 */
-    q = in >> 10;
+    /* Q8.24 -> line units (1.0 = 16384), rounded, saturating at +-2.0 */
+    q = (in >> 10) + ((in >> 9) & 1);
     if (q > 32767) q = 32767;
     if (q < -32768) q = -32768;
     c->pos = (uint16_t)((c->pos + 1u) & MASK);
@@ -118,6 +125,6 @@ void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
     sweep = (int32_t)(((int64_t)c->depth * triangle(c->lfo_phase)) >> 30);
     c->lfo_phase += c->lfo_inc;
 
-    *left = (in >> 1) + (tap(c, c->center + sweep) >> 1);
-    *right = (in >> 1) + (tap(c, c->center - sweep) >> 1);
+    *left = half_sum(in, tap(c, c->center + sweep));
+    *right = half_sum(in, tap(c, c->center - sweep));
 }

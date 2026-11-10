@@ -422,6 +422,43 @@ TT_TEST(all_sound_off_silences_the_chorus_tail)
     }
 }
 
+/*
+ * The chorus adds no DC. Two choruses get the same signal with opposite
+ * signs: the processing is linear, so an unbiased chorus gives exactly
+ * opposite outputs and the mean of their sum is its DC offset, which must
+ * stay under one Q8.24 LSB (1/512 of an output LSB) in every mode.
+ * Rounding halves up leaves about +0.5 LSB; rounding by plain right
+ * shifts, which floor, gives about -256 LSB.
+ */
+TT_TEST(chorus_adds_no_dc_offset)
+{
+    static fm_chorus pos, neg;
+    uint32_t seed = 99;
+    int mode;
+    for (mode = 1; mode < FM_CHORUS_MODE_COUNT; mode++) {
+        double sum_l = 0, sum_r = 0;
+        const uint32_t frames = CH_RATE * 4;
+        uint32_t n;
+        fm_chorus_init(&pos, CH_RATE);
+        fm_chorus_init(&neg, CH_RATE);
+        fm_chorus_set_mode(&pos, (uint8_t)mode);
+        fm_chorus_set_mode(&neg, (uint8_t)mode);
+        for (n = 0; n < frames; n++) {
+            int32_t x, l1, r1, l2, r2;
+            seed = seed * 1664525u + 1013904223u;
+            x = (int32_t)(seed >> 7) - (1 << 24); /* -1.0 .. +1.0 */
+            fm_chorus_process(&pos, x, &l1, &r1);
+            fm_chorus_process(&neg, -x, &l2, &r2);
+            sum_l += (double)l1 + l2;
+            sum_r += (double)r1 + r2;
+        }
+        printf("    chorus mode %d: DC offset %+.3f / %+.3f LSB\n", mode,
+               sum_l / 2 / frames, sum_r / 2 / frames);
+        TT_CHECK(fabs(sum_l / 2 / frames) < 1.0);
+        TT_CHECK(fabs(sum_r / 2 / frames) < 1.0);
+    }
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
@@ -434,4 +471,5 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_delay_line_clamps_hot_input_to_two);
     TT_RUN(chorus_turned_on_again_starts_from_a_silent_line);
     TT_RUN(all_sound_off_silences_the_chorus_tail);
+    TT_RUN(chorus_adds_no_dc_offset);
 }
