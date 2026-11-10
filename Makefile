@@ -56,7 +56,7 @@ bench-full: $(BENCH)
 	./$(BENCH) -w full
 
 # Tests may use double and libm (never the engine itself).
-$(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
+$(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) tests/filter_oracle.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
 	$(CC) $(STD) -Wall -Wextra -Werror -Wno-unused-function $(CFLAGS) \
 		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@
 
