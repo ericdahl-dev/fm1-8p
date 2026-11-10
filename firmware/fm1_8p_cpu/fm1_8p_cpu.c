@@ -1,0 +1,93 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* FM1-8P CPU: fm1-8p's engine under fm1-dock, sweeping 1..8 voices (5 s each) on a held chord, with
+ * the worst render time per voice count on screen and in the log (tools/dock.py logs): one line
+ * "fm1-8p voices/worst permille" = count << 16 | permille as each count finishes.
+ *   KNOB1     pick the voice count by hand (stops the sweep)
+ *   PLAY      sweep again from 1 */
+#include "hb_module.h"
+#include "cpu_test.h"
+
+#ifndef CPU_HOLD_BLOCKS
+#define CPU_HOLD_BLOCKS 861u                    /* 5 s: 861 * 256 / 44100 */
+#endif
+
+static const hb_host_t *H;
+static cpu_test T;                              /* static: 2 KiB of buffer must not sit on the ISR stack */
+static uint32_t drawn[FM_MAX_VOICES + 1], drawn_v, logged_v, logged_last;
+
+static void render(int32_t *out, uint32_t n)
+{
+    uint32_t t0 = H->ticks();
+    cpu_test_render(&T, out, n);
+    cpu_test_record(&T, H->ticks() - t0);
+}
+
+static void ui(uint32_t ev, int32_t arg)
+{
+    if (HB_EV_KIND(ev) == HB_EV_ENC && HB_EV_ID(ev) == HB_ENC_KNOB1) {
+        cpu_test_sweep(&T, 0);
+        cpu_test_request_voices(&T, (int32_t)cpu_test_voices(&T) + arg);
+    } else if (HB_EV_KIND(ev) == HB_EV_BTN_DOWN && HB_EV_ID(ev) == HB_BTN_PLAY) {
+        cpu_test_request_voices(&T, 1);
+        cpu_test_sweep(&T, CPU_HOLD_BLOCKS);
+    }
+}
+
+static void line(uint32_t v, uint32_t pm)       /* "N  NN.N %" */
+{
+    char s[12] = "N  000.0 %";
+    s[0] = (char)('0' + v);
+    s[3] = (char)(pm >= 1000u ? '0' + pm / 1000u % 10u : ' ');
+    s[4] = (char)(pm >= 100u ? '0' + pm / 100u % 10u : ' ');
+    s[5] = (char)('0' + pm / 10u % 10u);
+    s[7] = (char)('0' + pm % 10u);
+    H->text(0, (int32_t)(HB_TOP + 8u + 24u * (v - 1u)), 240, 0, s,
+            v == cpu_test_voices(&T) ? 0xFFFFu : HB_RGB(150, 150, 150), 1);
+}
+
+static void draw(uint32_t full)
+{
+    uint32_t v, cur = cpu_test_voices(&T);
+    if (full) {
+        H->fill(0, HB_TOP, 240, 240 - HB_TOP, 0);
+        for (v = 0; v <= FM_MAX_VOICES; v++)
+            drawn[v] = ~0u;
+        drawn_v = ~0u;
+    }
+    if (cur != logged_v) {                      /* a count is done: its worst into the log */
+        if (logged_v >= 1u && logged_v <= FM_MAX_VOICES)
+            H->log_u32("fm1-8p voices/worst permille", logged_v << 16 | cpu_test_worst_permille(&T, logged_v));
+        logged_v = cur;
+        logged_last = 0;
+    }
+    if (cpu_test_finished(&T) && !logged_last) {    /* the last count never changes: log it once held */
+        H->log_u32("fm1-8p voices/worst permille", cur << 16 | cpu_test_worst_permille(&T, cur));
+        logged_last = 1;
+    }
+    for (v = 1; v <= FM_MAX_VOICES; v++) {
+        uint32_t pm = cpu_test_worst_permille(&T, v);
+        if (pm != drawn[v] || (cur != drawn_v && (v == cur || v == drawn_v))) {
+            drawn[v] = pm;
+            line(v, pm);
+        }
+    }
+    drawn_v = cur;
+}
+
+static void note(uint32_t ch, uint32_t key, uint32_t vel) { (void)ch; (void)key; (void)vel; }
+static void cc(uint32_t ch, uint32_t num, uint32_t val) { (void)ch; (void)num; (void)val; }
+static void release(void) {}
+
+static int init(const hb_host_t *h)
+{
+    H = h;
+    if (cpu_test_init(&T) != 0) {
+        H->log("fm1-8p: engine init failed");
+        return 1;                               /* the host falls back to the sine */
+    }
+    cpu_test_sweep(&T, CPU_HOLD_BLOCKS);
+    H->log("fm1-8p cpu: sweeping 1..8 voices");
+    return 0;
+}
+
+HB_DESC = {HB_ABI, "FM1-8P CPU", init, release, note, cc, render, ui, draw, 0, 0, 0, 0};
