@@ -308,9 +308,9 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
 }
 
 /*
- * The default patch's block: the filter open with the highpass off (a
- * wire), no envelope amount and nothing marking the cutoff, no note
- * waiting for a steal fade and no queued release. Then nothing about the
+ * A block with every processor at rest (fm_voice_busy 0, as in the default
+ * patch): the filter a wire, no envelope amount and nothing marking the
+ * cutoff, no steal fade or queued release, the mix at osc_mix. Then nothing about the
  * filter can change within the block, so the loop runs just the amp
  * envelope and the oscillators, and the filter's bookkeeping (its last
  * sample, the envelope's lag, the control phase) is done once at the end,
@@ -382,7 +382,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
         if (v->ctrl_phase == 0) {
             /* with no envelope amount the cutoff changes only when a
              * setting or the note does, which marks it dirty */
-            if (v->env_amount || (v->busy & FM_BUSY_CUTOFF)) update_cutoff(v, fenv);
+            if (v->busy & (FM_BUSY_FILTER_ENV | FM_BUSY_CUTOFF)) update_cutoff(v, fenv);
             /* the mix envelope, or a glide back to osc_mix after it (until
              * it lands: a glide can land exactly with its step still set) */
             if (v->busy & FM_BUSY_MIX)
