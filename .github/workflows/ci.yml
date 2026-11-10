@@ -5,12 +5,19 @@ on:
   pull_request:
 
 jobs:
+  # Ubuntu with gcc and clang, and macOS (Apple clang, arm64). The Ubuntu jobs keep the names
+  # "build-test (gcc)" and "build-test (clang)": ruleset "main requires CI" requires them.
   build-test:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os == 'ubuntu-latest' && format('build-test ({0})', matrix.cc) || format('build-test ({0}, {1})', matrix.os, matrix.cc) }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         cc: [gcc, clang]
+        include:
+          - os: macos-latest
+            cc: clang
     env:
       CC: ${{ matrix.cc }}
     steps:
@@ -28,6 +35,11 @@ jobs:
           make test CFLAGS="-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all"
           make clean
 
+      - name: Long benchmark run under UBSan (the output buffer must not pile up)
+        run: |
+          make BUILD=build/ubsan CFLAGS="-O1 -g -fsanitize=undefined -fno-sanitize-recover=all" build/ubsan/fm1-8p-bench
+          ./build/ubsan/fm1-8p-bench -b 100000 -r 1
+
       - name: Float-free engine check
         run: make check-float-free
 
@@ -39,8 +51,14 @@ jobs:
           make render-demo
           ls -l build/demo.wav
 
+      - name: Benchmark (short run; shared runners are too noisy to compare; prints the clock step)
+        run: |
+          make build/fm1-8p-bench
+          ./build/fm1-8p-bench -h
+          ./build/fm1-8p-bench -b 200 -r 3
+
       - name: Upload sample render
-        if: matrix.cc == 'gcc'
+        if: matrix.os == 'ubuntu-latest' && matrix.cc == 'gcc'
         uses: actions/upload-artifact@v4
         with:
           name: demo-wav

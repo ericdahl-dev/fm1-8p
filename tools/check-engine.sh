@@ -18,8 +18,8 @@
 #     the engine defines itself) must all be on a short allowlist of
 #     memory and integer-arithmetic helpers. That rejects soft-float
 #     helpers, libm (sinf, expf, ...) and the heap (malloc, free, ...).
-#  4. No instruction immediate or data word may fall in 0xFFC00000 to
-#     0xFFCFFFFF: the FM-1 image build (fm1-dock) rejects such words as
+#  4. No 32-bit word of an instruction immediate (on arm64 also the top
+#     half a movk sets) or of a data section may fall in 0xFFC00000 to 0xFFCFFFFF: the FM-1 image build (fm1-dock) rejects such words as
 #     ROM-looking constants. Desktop code generation differs from the
 #     device's, so this catches constants in the source (and most the
 #     compiler derives from them), not every word the device build makes.
@@ -44,8 +44,9 @@ NO_FLOAT_TYPES="$NO_FLOAT_TYPES -Ddouble=fm1_8p_engine_must_not_use_double"
 
 # Symbols an engine object may reference outside the engine: memory
 # helpers the compiler emits for struct copies, stack protection, and
-# integer helpers for 64-bit math on 32-bit targets.
-ALLOW='^(memset|memcpy|memmove|__stack_chk_fail|__stack_chk_guard|__chkstk_darwin|__(u?(div|mod|divmod)|mul|ashl|ashr|lshr|cmp|ucmp)(di|ti)[34]|__aeabi_(u?ldivmod|u?idiv|u?idivmod|lasr|llsl|llsr|lmul|lcmp|ulcmp|memset|memset4|memset8|memcpy|memcpy4|memcpy8|memclr|memclr4|memclr8|memmove))$'
+# integer helpers for 64-bit math on 32-bit targets. Apple clang lowers
+# zeroing and fill loops to Darwin's bzero and memset_pattern4/8/16.
+ALLOW='^(memset|memcpy|memmove|bzero|memset_pattern(4|8|16)|__stack_chk_fail|__stack_chk_guard|__chkstk_darwin|__(u?(div|mod|divmod)|mul|ashl|ashr|lshr|cmp|ucmp)(di|ti)[34]|__aeabi_(u?ldivmod|u?idiv|u?idivmod|lasr|llsl|llsr|lmul|lcmp|ulcmp|memset|memset4|memset8|memcpy|memcpy4|memcpy8|memclr|memclr4|memclr8|memmove))$'
 
 # Mach-O prefixes C symbols with an underscore.
 STRIP='s/^_//'
@@ -89,12 +90,16 @@ for obj in "$OUT"/*.o; do
             objdump -d --no-show-raw-insn "$obj" | sed 's/^/D /'
             objdump -s "$obj" | sed 's/^/S /'
         } 2>/dev/null | awk '
-        function rom_hex(h) {   # h: lowercase hex digits, no 0x
-            if (length(h) == 16 && substr(h, 1, 8) == "ffffffff") h = substr(h, 9)
+        function rom_hex(h) {   # h: lowercase hex digits, no 0x; either 32-bit word counts
+            if (length(h) == 16)
+                return substr(h, 1, 3) == "ffc" || substr(h, 9, 3) == "ffc"
             return length(h) == 8 && substr(h, 1, 3) == "ffc"
         }
         $1 == "D" {
             line = tolower($0)
+            # arm64 builds constants 16 bits at a time: movk #0xffcX at lsl #16 (w or x
+            # register) or lsl #48 (x) puts 0xFFCx at the top of a 32-bit word.
+            if (line ~ /movk[ \t]+[wx][0-9]+, #0xffc[0-9a-f], lsl #(16|48)/) { print line; next }
             n = split(line, tok, /[^-0-9a-fx]+/)
             for (i = 1; i <= n; i++) {
                 t = tok[i]
