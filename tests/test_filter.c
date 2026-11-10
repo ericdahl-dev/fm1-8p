@@ -1316,6 +1316,37 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
 }
 
 /*
+ * With no envelope amount but the osc mix following the filter envelope
+ * (mix envelope on, source 0), the envelope is read at every control
+ * point for the mix, so it is caught up there exactly as with an amount:
+ * equal to an envelope stepped every sample whenever caught up, never
+ * more than 15 samples behind, through the attack, the decay and a
+ * release.
+ */
+TT_TEST(filter_envelope_for_the_mix_alone_stays_exact)
+{
+    fm_env ref;
+    int ok = 1;
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 3);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 40);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 300);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_RELEASE_MS, 30);
+    fm_engine_set_param(&feng, FM_PARAM_OSC_MIX_ENV, 800);
+    fm_engine_note_on(&feng, 48, 100);
+    ref = feng.voices[0].filter_env; /* gated on, not yet stepped */
+    render_beside(&feng, &ref, 77); /* in the attack */
+    ok &= fenv_matches(&feng, &ref);
+    render_beside(&feng, &ref, 1999); /* decay, then sustain */
+    ok &= fenv_matches(&feng, &ref);
+    fm_engine_note_off(&feng, 48);
+    fm_env_gate_off(&ref);
+    render_beside(&feng, &ref, 503);
+    ok &= fenv_matches(&feng, &ref);
+    TT_CHECK(ok);
+}
+
+/*
  * A legato note change (unison falling back to a held key) sets the new
  * note's cutoff at once, mid control period, from the filter envelope's
  * level at that sample: the same level an envelope stepped every sample
@@ -1500,6 +1531,7 @@ static void run_filter_tests(void)
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
     TT_RUN(filter_envelope_runs_at_the_control_rate_and_stays_exact);
     TT_RUN(legato_note_change_reads_the_current_filter_envelope);
+    TT_RUN(filter_envelope_for_the_mix_alone_stays_exact);
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
     TT_RUN(open_filter_with_sync_and_xmod_matches_the_full_render);
