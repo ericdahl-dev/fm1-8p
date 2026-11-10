@@ -339,6 +339,47 @@ TT_TEST(extreme_osc_settings_stay_bounded_and_release)
     }
 }
 
+/* Pitch bend moves osc2 as it moves osc1, including osc2's tuning. */
+TT_TEST(pitch_bend_moves_both_oscillators)
+{
+    double want = RATE / (note_hz(57) * pow(2.0, (1200 + 200) / 1200.0));
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000); /* osc2 alone */
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, 441);
+    fm_engine_pitch_bend(&eng, 16383); /* full up: +2 (8191/8192 of it) */
+    fm_engine_render(&eng, buf, RATE);
+    want *= pow(2.0, (200.0 / 8192) / 1200.0); /* 8191/8192 of 200 cents */
+    TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
+}
+
+/*
+ * Two voices playing noise make different noise: summed, they are louder
+ * than one by about sqrt(2) (3 dB), where identical streams would double.
+ */
+TT_TEST(each_voice_makes_its_own_noise)
+{
+    double one, two;
+    double power[2] = { 0, 0 };
+    size_t i, k;
+    for (k = 0; k < 2; k++) { /* one note, then two started together */
+        fm_engine_init(&eng, RATE, 2);
+        fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+        fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
+        fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_NOISE);
+        fm_engine_note_on(&eng, 60, 100);
+        if (k) fm_engine_note_on(&eng, 64, 100);
+        fm_engine_render(&eng, buf, 8192);
+        for (i = 0; i < 8192; i++) power[k] += (double)buf[2 * i] * buf[2 * i];
+    }
+    one = power[0];
+    two = power[1];
+    TT_CHECK(one > 0);
+    TT_CHECK_NEAR(two / one, 2.0, 0.2); /* power: x2 uncorrelated, x4 same */
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -347,6 +388,8 @@ static void run_osc_tests(void)
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(tuned_increment_matches_exact_pitch);
     TT_RUN(retuning_a_held_note_takes_effect);
+    TT_RUN(pitch_bend_moves_both_oscillators);
+    TT_RUN(each_voice_makes_its_own_noise);
     TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
     TT_RUN(noise_is_bounded_and_not_periodic);
     TT_RUN(high_pulse_and_square_notes_have_low_aliasing);
