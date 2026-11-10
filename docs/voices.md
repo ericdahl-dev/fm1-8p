@@ -251,7 +251,8 @@ The voices take about 1.4 KiB with room for 8 (two oscillators each, with
 sync and cross-mod state), and
 unison adds 49 bytes (8 detune offsets and the 16 held keys). With the chorus
 (its 2 KiB delay line and a 256-byte right-side buffer) `fm_engine` is about
-4.0 KiB (4056 bytes on x86-64; the LFO and velocity state of #8 add 392), so
+4.1 KiB (4224 bytes on x86-64; the LFO and velocity state of #8 add 392, sync
+and cross-mod 168), so
 static storage is recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per
@@ -260,6 +261,12 @@ gain), and a pitch bend message the same per sounding voice. In unison a note
 on or a legato return costs that for every voice (up to 32 divides at 8
 voices with two pulse oscillators); a detune or mode change adds one 32-by-32
 detune divide per voice, and the device CPU test should time a burst of these.
+Sync adds none on events: where a restart falls inside the sample comes from
+a reciprocal of osc1's increment, worked out by Newton steps (no divide)
+whenever the increments change while sync or cross-mod is on. A restart
+divides only when osc2's own wrap lands in the same sample, like a saw's
+polyBLEP around a wrap: one divide when osc2 wrapped first (in place of the
+one its saw would make on the next sample), two when the restart came first.
 Rendering in unison is no different from rendering the same number of poly
 voices. A fast bend sends a few hundred messages a second, so a few dozen
 divides each is far below the render's cost, but they run wherever the caller

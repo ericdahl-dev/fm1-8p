@@ -121,18 +121,25 @@ only when `osc_mix_permille` is above 0, and they can be used together:
     -s osc_xmod_permille=200 -s osc_mix_permille=1000 song.mid song.wav
 ```
 
-Cost, in fm1-emu's strict mode (the FM-1 CPU test's chord, worst block of
-256 frames; the device reads about 10-15 % higher):
+Cost, in fm1-emu's strict mode (the FM-1 CPU test's chord at 8 voices, worst
+block of 256 frames; the device reads about 10-15 % higher):
 
-| Setting | 1 voice | 8 voices |
+| Setting | before sync and cross-mod | with them |
 | --- | --- | --- |
-| osc1 alone, sync and cross-mod off (the default) | 4.4 % | 28.6 % |
-| Both oscillators (mix 500) | 6.5 % | 45.2 % |
-| Both, with sync on and cross-mod 500 | 8.4 % | 59.8 % |
+| Default patch (osc1 alone), step 8 | 28.5 % | 27.7 % |
+| Full patch (both oscillators, LFO, chorus), step F | 60.5 % | 62.9 % |
+| Full patch with sync on and cross-mod 500 | | 77.0 % |
 
-With both off the engine takes the same path as before they existed (28.3 %
-at 8 voices before this change). They cost on top of playing both
-oscillators, which most patches that use them do anyway.
+With both off the oscillators take their old path, behind one byte test;
+the full patch's difference moves by a point or so with code placement (the
+FM-1 runs from a 32 KB flash cache). Sync and cross-mod cost on top of
+playing both oscillators, which most patches that use them do anyway.
+
+A restart's position inside the sample (osc1's phase over its increment)
+comes from a reciprocal of the increment, kept by Newton steps when the
+increments change: no divide on events or at the LFO's control rate, and at
+most 1/65536 of a sample from the exact quotient (checked over 10 million
+random increments and phases).
 
 ## Chorus
 
@@ -175,7 +182,7 @@ How it works, per sample:
 
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 2.1 KiB (2072 bytes on x86-64), inside `fm_engine`, plus the 256-byte
-`mix_right` buffer. With the voices' LFO and velocity state that makes `fm_engine` about 4.0 KiB (4056 bytes), so
+`mix_right` buffer. With the voices' LFO and velocity state and their sync and cross-mod state, that makes `fm_engine` about 4.1 KiB (4224 bytes), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
