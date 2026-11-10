@@ -362,6 +362,35 @@ TT_TEST(setting_mode_or_detune_leaves_a_release_alone)
     TT_CHECK(memcmp(ref, got, sizeof ref) == 0);
 }
 
+/*
+ * After a switch from unison to poly the unison voices still releasing
+ * belong to no note: a poly note on the same key takes one voice and
+ * plays in tune, and the tails keep their detuned pitch, even through a
+ * bend, rather than collapsing onto the key.
+ */
+TT_TEST(unison_tails_belong_to_no_note_after_switching_to_poly)
+{
+    double ref = solo_amp(8, 93), hi, mid;
+    /* voice 7, the highest: the poly note steals voice 0, the oldest */
+    double high_hz = note_hz(93) * pow(2.0, 50 / 1200.0);
+    init_unison(8, 100);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 5000);
+    fm_engine_note_on(&poly, 93, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_set_param(&poly, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY);
+    fm_engine_note_on(&poly, 93, 100);
+    fm_engine_pitch_bend(&poly, 8192); /* retunes whatever has a note */
+    fm_engine_render(&poly, pbuf, 2205 + DFT_N);
+    mid = note_amp(pbuf, 2205, 93) / ref;
+    hi = tone_amp(pbuf + 2 * 2205, DFT_N, 0, high_hz, PRATE) / ref;
+    printf("    in tune %.2f, highest tail %.2f of one voice\n", mid, hi);
+    TT_CHECK_NEAR(mid, 1.0, 0.15); /* one voice, not eight collapsed */
+    TT_CHECK(hi > 0.5);            /* the tail still at +50 cents */
+    fm_engine_note_off(&poly, 93);
+    fm_engine_controller(&poly, 120, 0);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+}
+
 static void run_unison_tests(void)
 {
     TT_RUN(unison_note_uses_every_voice_and_no_more);
@@ -373,4 +402,5 @@ static void run_unison_tests(void)
     TT_RUN(unison_pedal_and_all_notes_off);
     TT_RUN(random_unison_playing_stays_within_its_voices_and_bounds);
     TT_RUN(setting_mode_or_detune_leaves_a_release_alone);
+    TT_RUN(unison_tails_belong_to_no_note_after_switching_to_poly);
 }

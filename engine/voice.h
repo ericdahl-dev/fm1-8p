@@ -17,6 +17,10 @@
 #include "env.h"
 #include "osc.h"
 
+/* `note` of a voice left sounding by a voice-mode switch: it belongs to
+ * no key, so no note on reuses it and no bend retunes it. */
+#define FM_VOICE_NO_NOTE 0xFF
+
 typedef struct {
     fm_osc osc;
     fm_env amp_env;

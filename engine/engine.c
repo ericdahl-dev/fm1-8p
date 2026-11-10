@@ -51,7 +51,8 @@ static void retune(fm_engine *e)
 {
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) /* idle voices get theirs at note on */
-        if (fm_voice_active(&e->voices[i]))
+        if (fm_voice_active(&e->voices[i]) &&
+            e->voices[i].note != FM_VOICE_NO_NOTE)
             fm_voice_set_inc(&e->voices[i], voice_inc(e, i, e->voices[i].note));
 }
 
@@ -111,16 +112,26 @@ static void release(fm_engine *e, fm_voice *v)
     fm_voice_release(v);
 }
 
-/* Releases every note, held by a key or the pedal, and forgets the
- * unison held keys. */
-static void release_all(fm_engine *e)
+/* Unison forgets the keys it was holding. */
+static void unison_reset(fm_engine *e)
+{
+    e->held_count = 0;
+}
+
+/*
+ * Before a voice-mode switch: releases every note, held by a key or the
+ * pedal, and leaves each sounding voice to finish at its pitch belonging
+ * to no note, so the new mode starts clean.
+ */
+static void end_mode(fm_engine *e)
 {
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         if (v->key_down || v->sustained) release(e, v);
+        if (fm_voice_active(v)) v->note = FM_VOICE_NO_NOTE;
     }
-    e->held_count = 0;
+    unison_reset(e);
 }
 
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
@@ -139,7 +150,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->pedal_down = 0;
     e->bend = 0;
     e->bend_value = 0;
-    e->held_count = 0;
+    unison_reset(e);
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
     for (i = 0; i < FM_MAX_VOICES; i++) {
         fm_voice_reset(&e->voices[i]);
@@ -159,7 +170,7 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value)
     if (value < info->min) value = info->min;
     if (value > info->max) value = info->max;
     if (id == FM_PARAM_VOICE_MODE && value != e->params[id])
-        release_all(e); /* a clean start in the new mode */
+        end_mode(e);
     e->params[id] = value;
     apply_param(e, id);
     return FM_OK;
@@ -354,8 +365,7 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
 {
     uint8_t i;
     if (controller == 64) e->pedal_down = value >= 64;
-    if (controller == 120 || controller == 123)
-        e->held_count = 0; /* unison forgets the keys it was holding */
+    if (controller == 120 || controller == 123) unison_reset(e);
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         switch (controller) {
