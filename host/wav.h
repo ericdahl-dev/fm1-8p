@@ -8,10 +8,13 @@
 
 #include <stdint.h>
 
+#define WAV_MAX_SAMPLE_RATE 768000u
+
 /*
  * Writes `frames` interleaved stereo int16 frames as a canonical 44-byte
  * header RIFF/WAVE file. Byte order is little-endian regardless of host.
- * Returns 0 on success, -1 on I/O error or if the data would exceed 4 GB.
+ * Returns 0 on success, -1 on I/O error, if the data would exceed 4 GB,
+ * or if sample_rate is outside 1..WAV_MAX_SAMPLE_RATE.
  */
 int wav_write_file(const char *path, const int16_t *stereo, uint32_t frames,
                    uint32_t sample_rate);

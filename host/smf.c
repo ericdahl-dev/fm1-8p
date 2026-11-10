@@ -103,7 +103,9 @@ static int parse_track(const uint8_t *p, size_t len, uint64_t track,
             pos += 2;
             if (read_vlq(p, len, &pos, &mlen) != 0 || mlen > len - pos)
                 return fail(err, err_len, "bad meta length");
-            if (type == 0x51 && mlen == 3) {
+            if (type == 0x51 && mlen != 3)
+                return fail(err, err_len, "tempo event with length other than 3");
+            if (type == 0x51) {
                 e.status = TEMPO_EVENT;
                 e.tempo = (uint32_t)p[pos] << 16 | (uint32_t)p[pos + 1] << 8 |
                           p[pos + 2];
@@ -135,8 +137,10 @@ static int parse_track(const uint8_t *p, size_t len, uint64_t track,
             int two = (running & 0xF0) != 0xC0 && (running & 0xF0) != 0xD0;
             if (pos + (two ? 2u : 1u) > len)
                 return fail(err, err_len, "truncated channel message");
-            e.data1 = p[pos++] & 0x7F;
-            if (two) e.data2 = p[pos++] & 0x7F;
+            if (p[pos] & 0x80 || (two && p[pos + 1] & 0x80))
+                return fail(err, err_len, "status byte where data expected");
+            e.data1 = p[pos++];
+            if (two) e.data2 = p[pos++];
         }
         if ((e.status & 0xF0) == 0x90 && e.data2 == 0)
             e.status = (uint8_t)(0x80 | (e.status & 0x0F));
@@ -176,6 +180,8 @@ int smf_parse(const uint8_t *data, size_t len, smf_song *song, char *err,
         return fail(err, err_len, "SMPTE time division not supported");
     if (division == 0) return fail(err, err_len, "zero time division");
 
+    if (be32(data + 4) > len - 8)
+        return fail(err, err_len, "header chunk longer than the file");
     pos = 8 + (size_t)be32(data + 4);
     for (t = 0; t < ntracks && pos + 8 <= len; ) {
         uint32_t clen = be32(data + pos + 4);
@@ -191,6 +197,10 @@ int smf_parse(const uint8_t *data, size_t len, smf_song *song, char *err,
             t++;
         }
         pos += 8 + (size_t)clen;
+    }
+    if (t < ntracks) {
+        free(l.ev);
+        return fail(err, err_len, "fewer track chunks than the header says");
     }
 
     qsort(l.ev, l.count, sizeof *l.ev, by_time);

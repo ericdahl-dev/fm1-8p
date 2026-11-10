@@ -29,6 +29,7 @@ int wav_write_file(const char *path, const int16_t *stereo, uint32_t frames,
     FILE *f;
     int ok;
 
+    if (sample_rate == 0 || sample_rate > WAV_MAX_SAMPLE_RATE) return -1;
     if (frames > (0xFFFFFFFFu - 36u) / 4u) return -1;
     data_bytes = frames * 4u;
     put32(h + 4, 36u + data_bytes);

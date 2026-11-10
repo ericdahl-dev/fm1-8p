@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../host/render.h"
+#include "../host/smf.h"
 #include "../host/wav.h"
 
 static uint32_t le32(const uint8_t *p)
@@ -204,6 +205,64 @@ TT_TEST(render_rejects_bad_input)
     TT_CHECK(render_midi_file("build/one-note.mid", "build/x.wav", &o) != 0);
 }
 
+/* Parses an in-memory SMF; returns smf_parse's result (song freed). */
+static int parse_bytes(const uint8_t *d, size_t n)
+{
+    smf_song song;
+    char err[128];
+    int rc = smf_parse(d, n, &song, err, sizeof err);
+    if (rc == 0) smf_free(&song);
+    return rc;
+}
+
+#define SMF_HDR(ntracks) 'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 1, 0, ntracks, 0x01, 0xE0
+#define EOT 0x00, 0xFF, 0x2F, 0x00
+
+TT_TEST(smf_accepts_a_well_formed_file)
+{
+    static const uint8_t ok[] = { SMF_HDR(1), 'M', 'T', 'r', 'k', 0, 0, 0, 12,
+                                  0x00, 0x90, 60, 100, 0x60, 0x80, 60, 0, EOT };
+    TT_CHECK_EQ(parse_bytes(ok, sizeof ok), 0);
+}
+
+TT_TEST(smf_rejects_header_longer_than_file)
+{
+    static const uint8_t d[] = { 'M', 'T', 'h', 'd', 0, 0, 0, 200, 0, 0, 0, 1,
+                                 0x01, 0xE0 };
+    TT_CHECK(parse_bytes(d, sizeof d) != 0);
+}
+
+TT_TEST(smf_rejects_missing_tracks)
+{
+    static const uint8_t d[] = { SMF_HDR(2), 'M', 'T', 'r', 'k', 0, 0, 0, 4,
+                                 EOT };
+    TT_CHECK(parse_bytes(d, sizeof d) != 0);
+}
+
+TT_TEST(smf_rejects_status_byte_in_data_position)
+{
+    /* note on whose velocity byte is 0x90 */
+    static const uint8_t d[] = { SMF_HDR(1), 'M', 'T', 'r', 'k', 0, 0, 0, 8,
+                                 0x00, 0x90, 60, 0x90, EOT };
+    TT_CHECK(parse_bytes(d, sizeof d) != 0);
+}
+
+TT_TEST(smf_rejects_tempo_with_wrong_length)
+{
+    static const uint8_t d[] = { SMF_HDR(1), 'M', 'T', 'r', 'k', 0, 0, 0, 10,
+                                 0x00, 0xFF, 0x51, 0x02, 0x07, 0xA1, EOT };
+    TT_CHECK(parse_bytes(d, sizeof d) != 0);
+}
+
+TT_TEST(wav_rejects_sample_rate_out_of_range)
+{
+    static int16_t pcm[2 * 4];
+    TT_CHECK(wav_write_file("build/bad-rate.wav", pcm, 4, 0) != 0);
+    /* 0x40000000 * 4 bytes per frame overflows the 32-bit byte rate */
+    TT_CHECK(wav_write_file("build/bad-rate.wav", pcm, 4, 0x40000000u) != 0);
+    TT_CHECK_EQ(wav_write_file("build/ok-rate.wav", pcm, 4, 192000), 0);
+}
+
 static void run_host_tests(void)
 {
     TT_RUN(wav_header_has_requested_rate_and_length);
@@ -212,4 +271,10 @@ static void run_host_tests(void)
     TT_RUN(tempo_changes_set_the_song_length);
     TT_RUN(same_midi_file_renders_byte_identical_wav);
     TT_RUN(render_rejects_bad_input);
+    TT_RUN(smf_accepts_a_well_formed_file);
+    TT_RUN(smf_rejects_header_longer_than_file);
+    TT_RUN(smf_rejects_missing_tracks);
+    TT_RUN(smf_rejects_status_byte_in_data_position);
+    TT_RUN(smf_rejects_tempo_with_wrong_length);
+    TT_RUN(wav_rejects_sample_rate_out_of_range);
 }
