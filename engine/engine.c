@@ -6,6 +6,8 @@
 #include "fm1_8p.h"
 
 #define MAX_SAMPLE_RATE 192000u
+/* A stolen voice fades out over this long before its new note starts. */
+#define STEAL_FADE_MS 3
 
 /*
  * The engine relies on >> of a negative value being an arithmetic shift
@@ -61,12 +63,15 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     /* each voice at 1 / voice_count, then -6 dB of headroom */
     e->mix_gain = (int32_t)((1u << 29) / voice_count);
     e->stamp = 0;
+    e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
     for (i = 0; i < FM_MAX_VOICES; i++) {
         fm_osc_reset(&e->voices[i].osc);
         fm_env_reset(&e->voices[i].amp_env);
         e->voices[i].note = 0;
         e->voices[i].key_down = 0;
         e->voices[i].stamp = 0;
+        e->voices[i].next_inc = 0;
+        e->voices[i].pending = 0;
     }
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         e->params[id] = fm_param_info_get(id)->def;
@@ -89,6 +94,15 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value)
 int32_t fm_engine_get_param(const fm_engine *e, uint16_t id)
 {
     return (e && id < FM_PARAM_COUNT) ? e->params[id] : 0;
+}
+
+/* Starts the voice's note from silence (or retriggers it). */
+static void start_note(fm_voice *v)
+{
+    v->pending = 0;
+    fm_osc_set_inc(&v->osc, v->next_inc);
+    fm_env_gate_on(&v->amp_env);
+    if (!v->key_down) fm_env_gate_off(&v->amp_env);
 }
 
 /* Steal preference: lower ranks are taken first. */
@@ -134,8 +148,13 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         v->note = note;
         v->key_down = 1;
         v->stamp = ++e->stamp;
-        fm_osc_set_inc(&v->osc, fm_osc_note_inc(note, e->sample_rate));
-        fm_env_gate_on(&v->amp_env);
+        v->next_inc = fm_osc_note_inc(note, e->sample_rate);
+        if (v->amp_env.stage == FM_ENV_IDLE) {
+            start_note(v);
+        } else { /* steal: fade the old note out, start this one after */
+            v->pending = 1;
+            fm_env_fade(&v->amp_env, e->fade_samples);
+        }
     }
 }
 
@@ -147,7 +166,7 @@ void fm_engine_note_off(fm_engine *e, uint8_t note)
         if (v->key_down && v->note == note) {
             v->key_down = 0;
             v->stamp = ++e->stamp;
-            fm_env_gate_off(&v->amp_env);
+            if (!v->pending) fm_env_gate_off(&v->amp_env);
         }
     }
 }
@@ -187,12 +206,15 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         uint8_t k;
         for (k = 0; k < e->voice_count; k++) {
             fm_voice *v = &e->voices[k];
-            int32_t level = fm_env_next(&v->amp_env);
-            if (v->amp_env.stage != FM_ENV_IDLE) {
-                int32_t saw = fm_osc_saw_next(&v->osc);
-                /* Q8.24 * Q1.30 -> Q8.24 */
-                sum += (int32_t)(((int64_t)saw * level) >> 30);
+            int32_t level, saw;
+            if (v->amp_env.stage == FM_ENV_IDLE) {
+                if (!v->pending) continue;
+                start_note(v); /* a stolen voice has faded out */
             }
+            level = fm_env_next(&v->amp_env);
+            saw = fm_osc_saw_next(&v->osc);
+            /* Q8.24 * Q1.30 -> Q8.24 */
+            sum += (int32_t)(((int64_t)saw * level) >> 30);
         }
         s = (int32_t)(((int64_t)sum * e->mix_gain) >> 30);
         out[2 * i] = to_int16(s);

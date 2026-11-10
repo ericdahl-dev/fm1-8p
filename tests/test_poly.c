@@ -107,9 +107,78 @@ TT_TEST(extra_note_steals_the_oldest_released_voice_before_held_ones)
     TT_CHECK(check_sounding(ref, expect));
 }
 
+/* Largest sample-to-sample change over frames [from, to), both channels. */
+static int max_jump(const int16_t *stereo, size_t from, size_t to)
+{
+    int jump = 0;
+    size_t i;
+    for (i = (from + 1) * 2; i < to * 2; i++) {
+        int d = stereo[i] - stereo[i - 2];
+        if (d < 0) d = -d;
+        if (d > jump) jump = d;
+    }
+    return jump;
+}
+
+/*
+ * Click threshold, in 16-bit LSB per sample (about -48 dBFS). Notes 0..4
+ * (8 to 10 Hz) have periods over 4000 samples, so on a 4-voice engine
+ * (voice peak 4096) their saws change by under 2 LSB per sample, and a
+ * 5 ms attack or a release adds at most 19 per voice. Every voice here
+ * starts at phase 0 and no saw wraps inside the 4000 frames checked.
+ * Cutting or restarting a voice anywhere else in its cycle jumps by
+ * hundreds or thousands of LSB.
+ */
+#define CLICK_LSB 128
+
+TT_TEST(no_click_when_a_voice_starts_is_stolen_or_ends)
+{
+    int n;
+    init_poly(4);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 5);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 20);
+    for (n = 0; n < 4; n++) { /* starts */
+        fm_engine_note_on(&poly, (uint8_t)n, 127);
+        fm_engine_render(&poly, pbuf + 2 * 100 * n, 100);
+    }
+    fm_engine_render(&poly, pbuf + 2 * 400, 1100);
+    TT_CHECK(peak_abs(pbuf, 1000, 1500) > 4000);
+    fm_engine_note_on(&poly, 4, 127); /* steals note 0's voice */
+    fm_engine_render(&poly, pbuf + 2 * 1500, 1500);
+    fm_engine_note_off(&poly, 1); /* ends */
+    fm_engine_note_off(&poly, 2);
+    fm_engine_render(&poly, pbuf + 2 * 3000, 1000);
+    printf("    largest jump: %d LSB\n", max_jump(pbuf, 0, 4000));
+    TT_CHECK(max_jump(pbuf, 0, 4000) <= CLICK_LSB);
+}
+
+/*
+ * A stolen voice fades out fast, then its new note starts from silence
+ * with its own attack, rather than carrying on at the old note's level.
+ */
+TT_TEST(stolen_voice_fades_then_new_note_attacks_from_silence)
+{
+    int full, early;
+    init_poly(1);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 200);
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_render(&poly, pbuf, PRATE / 2); /* 60 at full level */
+    full = peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2);
+    TT_CHECK(full > 10000);
+    fm_engine_note_on(&poly, 62, 100); /* steals the only voice */
+    fm_engine_render(&poly, pbuf, PRATE / 2);
+    /* 20 ms later: about 3 ms of fade, then 17 ms of a 200 ms attack */
+    early = peak_abs(pbuf, 882 - 176, 882);
+    printf("    20 ms after the steal: %.3f of full\n", (double)early / full);
+    TT_CHECK((double)early / full < 0.15);
+    TT_CHECK((double)peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2) / full > 0.95);
+}
+
 static void run_poly_tests(void)
 {
     TT_RUN(every_note_of_a_full_chord_sounds);
     TT_RUN(extra_note_steals_the_oldest_held_voice_and_sounds);
     TT_RUN(extra_note_steals_the_oldest_released_voice_before_held_ones);
+    TT_RUN(no_click_when_a_voice_starts_is_stolen_or_ends);
+    TT_RUN(stolen_voice_fades_then_new_note_attacks_from_silence);
 }
