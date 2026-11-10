@@ -60,6 +60,7 @@ abspath() {
 # So a new engine file is built with no firmware edit.
 stage_module() {
     src=$(abspath "$1") eng=$(abspath "$3")
+    dbg=; [ "${FM1_DEBUG:-}" = 1 ] && dbg=" -DFM1_DEBUG"   # only 1 is the debug build (0 is not)
     mkdir -p "$2" || return 1
     rm -f "$2"/module.cfg
     while IFS= read -r line || [ -n "$line" ]; do
@@ -81,9 +82,9 @@ stage_module() {
                 if [ "$#" -ge 2 ] && [ "$1" = cflags ]; then   # `cflags FILE =`: FILE relative to the module
                     file=$2
                     case "$file" in /*) ;; *) file=$(abspath "$src/$file") ;; esac
-                    echo "cflags $file = $val${FM1_DEBUG:+ -DFM1_DEBUG}"
+                    echo "cflags $file = $val$dbg"
                 else
-                    echo "$line${FM1_DEBUG:+ -DFM1_DEBUG}"      # (FM1_DEBUG=1: the timing logs)
+                    echo "$line$dbg"      # (FM1_DEBUG=1: the timing logs)
                 fi ;;
             *) echo "$line" ;;
         esac

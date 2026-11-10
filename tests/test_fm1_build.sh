@@ -56,6 +56,8 @@ expect_ok "a debug build defines FM1_DEBUG for the module" grep -qx 'cflags = -O
 expect_ok "... and for a file with its own cflags" grep -qx "cflags $T/mod/sub/own.c = -Os -DFM1_DEBUG" "$cfg"
 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
 expect_ok "a build without it doesn't" grep -qx "cflags $T/mod/sub/own.c = -Os" "$cfg"
+(FM1_DEBUG=0 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng") >/dev/null 2>&1
+expect_ok "FM1_DEBUG=0 is not a debug build" grep -qx "cflags $T/mod/sub/own.c = -Os" "$cfg"
 # hbmod splits each line at its first '=' and strips both sides, so spacing is free.
 printf 'name = x\nsources = ../shared.c\ncflags   own.c=-Os\n' >"$T/mod/sub/module.cfg"
 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
