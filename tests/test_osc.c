@@ -120,6 +120,31 @@ TT_TEST(octave_and_fine_tune_shift_pitch)
     }
 }
 
+/*
+ * fm_osc_tuned_inc against 2^(cents / 1200) in double precision, every
+ * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
+ * Today's worst, 0.005 cent, is the pitch table's rounding at note 0;
+ * dropping the cubic term of the 2^x series makes it 0.056.
+ */
+TT_TEST(tuned_increment_matches_exact_pitch)
+{
+    static const uint8_t notes[] = { 24, 60, 96 };
+    double worst = 0;
+    size_t n;
+    int32_t c;
+    for (n = 0; n < sizeof notes; n++) {
+        for (c = -2400; c <= 2400; c++) {
+            double want = note_hz(notes[n]) * pow(2.0, c / 1200.0) / RATE *
+                          4294967296.0;
+            double got = fm_osc_tuned_inc(notes[n], c, RATE);
+            double err = fabs(1200.0 * log2(got / want));
+            if (err > worst) worst = err;
+        }
+    }
+    printf("    tuning: worst error %.4f cent\n", worst);
+    TT_CHECK(worst < 0.01);
+}
+
 /* Retuning a held note takes effect at once, without a new note on. */
 TT_TEST(retuning_a_held_note_takes_effect)
 {
@@ -319,6 +344,7 @@ static void run_osc_tests(void)
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
+    TT_RUN(tuned_increment_matches_exact_pitch);
     TT_RUN(retuning_a_held_note_takes_effect);
     TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
     TT_RUN(noise_is_bounded_and_not_periodic);
