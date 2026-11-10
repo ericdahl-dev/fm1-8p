@@ -441,7 +441,8 @@ TT_TEST(extreme_osc_settings_stay_bounded_and_release)
 {
     static const uint32_t rates[] = { 8000, 44100, 192000 };
     static const uint8_t notes[] = { 0, 127 };
-    static const int32_t tunes[][2] = { { -2, -100 }, { 2, 100 } };
+    /* octave, fine, and osc2's coarse: up to 37 semitones each way */
+    static const int32_t tunes[][3] = { { -2, -100, -12 }, { 2, 100, 12 } };
     static const int32_t widths[] = { 1, 99 };
     static const int32_t mixes[] = { 0, 500, 1000 };
     size_t r, n, t, w, wv, m, i;
@@ -463,6 +464,7 @@ TT_TEST(extreme_osc_settings_stay_bounded_and_release)
         fm_engine_set_param(&eng, FM_PARAM_OSC1_FINE_CENTS, tunes[t][1]);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, tunes[1 - t][0]);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, tunes[1 - t][1]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, tunes[1 - t][2]);
         fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, widths[w]);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_PULSE_WIDTH_PCT, widths[1 - w]);
         fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mixes[m]);
@@ -790,7 +792,9 @@ TT_TEST(max_xmod_and_sync_stay_in_range)
         fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 0);
         fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, (int32_t)w1);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_WAVE, (int32_t)w2);
-        fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 2);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 2); /* with coarse and fine: */
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 12); /* 37 semitones up */
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 100);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_PULSE_WIDTH_PCT, 1);
         fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000);
         fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, (int32_t)sy);
