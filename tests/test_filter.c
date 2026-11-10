@@ -112,7 +112,7 @@ TT_TEST(max_resonance_stays_bounded_over_a_long_render)
     uint32_t noise = 12345;
     for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
         for (kind = 0; kind < 3; kind++) {
-            int32_t peak = 0, late_peak = 0;
+            int32_t peak = 0;
             lowpass_at(&f, cutoffs[c], 1000);
             for (i = 0; i < 10 * (size_t)FRATE; i++) {
                 int32_t x, y;
@@ -128,12 +128,10 @@ TT_TEST(max_resonance_stays_bounded_over_a_long_render)
                 y = fm_filter_process(&f, x);
                 if (y < 0) y = -y;
                 if (y > peak) peak = y;
-                if (i >= 9 * (size_t)FRATE && y > late_peak) late_peak = y;
             }
-            if (peak > FILTER_BOUND || late_peak > FILTER_BOUND)
-                printf("    cutoff %d, input %d: peak %.3f, last second "
-                       "%.3f\n", (int)cutoffs[c], (int)kind,
-                       peak / 16777216.0, late_peak / 16777216.0);
+            if (peak > FILTER_BOUND)
+                printf("    cutoff %d, input %d: peak %.3f\n", (int)cutoffs[c],
+                       (int)kind, peak / 16777216.0);
             TT_CHECK(peak <= FILTER_BOUND);
         }
     }
