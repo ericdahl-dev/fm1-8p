@@ -181,6 +181,22 @@ TT_TEST(osc2_coarse_tune_shifts_by_semitones)
     }
 }
 
+/* Coarse tune past +-12 clamps to +-12: an octave up or down, no further. */
+TT_TEST(osc2_coarse_tune_clamps_to_an_octave)
+{
+    static const int32_t asked[] = { 13, -13 };
+    size_t k;
+    for (k = 0; k < sizeof asked / sizeof asked[0]; k++) {
+        int32_t got = asked[k] > 0 ? 12 : -12;
+        double want = RATE / (note_hz(57) * pow(2.0, got / 12.0));
+        osc_init();
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000), FM_OK);
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, asked[k]), FM_OK);
+        TT_CHECK_EQ(fm_engine_get_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS), got);
+        TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
+    }
+}
+
 /* Coarse tune back at 0 sounds exactly like coarse tune never touched. */
 TT_TEST(osc2_coarse_zero_matches_no_coarse)
 {
@@ -802,6 +818,7 @@ static void run_osc_tests(void)
     TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
+    TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
     TT_RUN(osc2_coarse_change_retunes_a_held_note_without_a_restart);
     TT_RUN(tuned_increment_matches_exact_pitch);
