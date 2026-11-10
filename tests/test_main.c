@@ -25,6 +25,7 @@
 #include "test_lfo.c"
 #include "test_mod.c"
 #include "test_filter.c"
+#include "test_units.c"
 
 int main(void)
 {
@@ -39,5 +40,6 @@ int main(void)
     run_lfo_tests();
     run_mod_tests();
     run_filter_tests();
+    run_units_tests();
     return tt_report();
 }

@@ -5,6 +5,7 @@
  */
 #include "chorus.h"
 #include "fm1_8p.h"
+#include "units.h"
 
 /* Below 8 kHz slow LFO and delay settings lose precision. */
 #define MIN_SAMPLE_RATE 8000u
@@ -18,12 +19,6 @@
  * toolchain). Refuse to build where it is not.
  */
 typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
-
-/* Milliseconds to samples at the engine rate (fits: 10 s * 192 kHz). */
-static uint32_t ms_to_samples(const fm_engine *e, int32_t ms)
-{
-    return (uint32_t)(((uint64_t)(uint32_t)ms * e->sample_rate) / 1000u);
-}
 
 /* Pitch of voice `i` playing `note`, Q16.16 semitones: the note, the
  * bend and the voice's unison detune. Both oscillators follow it. */
@@ -188,7 +183,7 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_lfo_set_rate(&e->lfo, v, e->sample_rate);
         return;
     case FM_PARAM_LFO_DELAY_MS:
-        e->mod.delay_ticks = ms_to_samples(e, v) >> FM_LFO_TICK_SHIFT;
+        e->mod.delay_ticks = fm_ms_to_samples(v, e->sample_rate) >> FM_LFO_TICK_SHIFT;
         /* fades in over as long as the delay; the divisor is at least 1 */
         e->mod.fade_step = e->mod.delay_ticks
                                ? (int32_t)(FM_LFO_FULL / e->mod.delay_ticks)
@@ -230,11 +225,11 @@ static void apply_param(fm_engine *e, uint16_t id)
             fm_voice_sync_filter_env(vc); /* current before it changes */
         switch (id) {
         case FM_PARAM_AMP_ATTACK_MS:
-            amp->attack_samples = ms_to_samples(e, v);
+            amp->attack_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = amp;
             break;
         case FM_PARAM_AMP_DECAY_MS:
-            amp->decay_samples = ms_to_samples(e, v);
+            amp->decay_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = amp;
             break;
         case FM_PARAM_AMP_SUSTAIN:
@@ -242,7 +237,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             changed = amp;
             break;
         case FM_PARAM_AMP_RELEASE_MS:
-            amp->release_samples = ms_to_samples(e, v);
+            amp->release_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = amp;
             break;
         case FM_PARAM_FILTER_CUTOFF_CENTS:
@@ -260,11 +255,11 @@ static void apply_param(fm_engine *e, uint16_t id)
             fm_filter_set_highpass(&vc->filter, (uint8_t)v, vc->rate_cents);
             break;
         case FM_PARAM_FILTER_ENV_ATTACK_MS:
-            flt->attack_samples = ms_to_samples(e, v);
+            flt->attack_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_DECAY_MS:
-            flt->decay_samples = ms_to_samples(e, v);
+            flt->decay_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_SUSTAIN:
@@ -272,7 +267,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_RELEASE_MS:
-            flt->release_samples = ms_to_samples(e, v);
+            flt->release_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
@@ -332,7 +327,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend = 0;
     e->bend_value = 0;
     unison_reset(e);
-    e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
+    e->fade_samples = fm_ms_to_samples(STEAL_FADE_MS, e->sample_rate);
     fm_lfo_reset(&e->lfo);
     e->tick_left = 0;
     e->ticks = 0;
