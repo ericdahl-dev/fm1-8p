@@ -18,20 +18,38 @@ static uint16_t le16(const uint8_t *p)
     return (uint16_t)(p[0] | p[1] << 8);
 }
 
-/* Reads a whole file into a malloc'd buffer; returns its size or 0. */
+/*
+ * Reads a whole file into a malloc'd buffer. Returns its size, or 0 with
+ * *data NULL if the file is missing, empty or unreadable.
+ */
 static size_t slurp(const char *path, uint8_t **data)
 {
     FILE *f = fopen(path, "rb");
-    long n;
+    long n = -1;
     *data = NULL;
     if (!f) return 0;
-    fseek(f, 0, SEEK_END);
-    n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    *data = malloc((size_t)n);
-    if (fread(*data, 1, (size_t)n, f) != (size_t)n) n = 0;
+    if (fseek(f, 0, SEEK_END) == 0) n = ftell(f);
+    if (n > 0 && fseek(f, 0, SEEK_SET) == 0) {
+        *data = malloc((size_t)n);
+        if (*data && fread(*data, 1, (size_t)n, f) != (size_t)n) {
+            free(*data);
+            *data = NULL;
+        }
+    }
     fclose(f);
-    return (size_t)n;
+    return *data ? (size_t)n : 0;
+}
+
+TT_TEST(slurp_fails_cleanly_on_missing_and_empty_files)
+{
+    uint8_t *d = (uint8_t *)1;
+    FILE *f = fopen("build/empty.bin", "wb");
+    fclose(f);
+    TT_CHECK_EQ(slurp("build/no-such-file.bin", &d), 0);
+    TT_CHECK(d == NULL);
+    d = (uint8_t *)1;
+    TT_CHECK_EQ(slurp("build/empty.bin", &d), 0);
+    TT_CHECK(d == NULL);
 }
 
 TT_TEST(wav_header_has_requested_rate_and_length)
@@ -90,10 +108,11 @@ static int16_t *read_wav_pcm(const char *path, uint32_t *frames, uint32_t *rate)
     uint8_t *d;
     size_t n = slurp(path, &d), i;
     int16_t *pcm;
-    if (n < 44) { free(d); return NULL; }
+    if (n < 44 || le32(d + 40) > n - 44) { free(d); return NULL; }
     *rate = le32(d + 24);
     *frames = le32(d + 40) / 4;
-    pcm = malloc((size_t)*frames * 4);
+    pcm = malloc((size_t)*frames * 4 + 4);
+    if (!pcm) { free(d); return NULL; }
     for (i = 0; i < (size_t)*frames * 2; i++) pcm[i] = (int16_t)le16(d + 44 + 2 * i);
     free(d);
     return pcm;
@@ -366,6 +385,7 @@ TT_TEST(parameter_settings_reject_out_of_range_values)
 
 static void run_host_tests(void)
 {
+    TT_RUN(slurp_fails_cleanly_on_missing_and_empty_files);
     TT_RUN(wav_header_has_requested_rate_and_length);
     TT_RUN(one_note_midi_file_renders_at_note_pitch);
     TT_RUN(render_applies_parameter_settings);
