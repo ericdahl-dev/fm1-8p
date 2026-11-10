@@ -5,6 +5,7 @@
  */
 #include "chorus.h"
 #include "fm1_8p.h"
+#include "units.h"
 
 /* Below 8 kHz slow LFO and delay settings lose precision. */
 #define MIN_SAMPLE_RATE 8000u
@@ -18,12 +19,6 @@
  * toolchain). Refuse to build where it is not.
  */
 typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
-
-/* Milliseconds to samples at the engine rate (fits: 10 s * 192 kHz). */
-static uint32_t ms_to_samples(const fm_engine *e, int32_t ms)
-{
-    return (uint32_t)(((uint64_t)(uint32_t)ms * e->sample_rate) / 1000u);
-}
 
 /* Pitch of voice `i` playing `note`, Q16.16 semitones: the note, the
  * bend and the voice's unison detune. Both oscillators follow it. */
@@ -133,13 +128,6 @@ typedef char fm_require_filter_env_params_in_a_run[
     FM_PARAM_FILTER_ENV_AMOUNT_CENTS - FM_PARAM_FILTER_ENV_ATTACK_MS == 4
         ? 1 : -1];
 
-/* Per mille (0..1000) -> Q1.30 (1000 -> 1.0), rounded down. */
-static int32_t permille_to_q30(int32_t permille)
-{
-    /* a multiply, not << 30: shifting a negative value is undefined */
-    return (int32_t)((int64_t)permille * (1 << 30) / 1000);
-}
-
 /* Recomputes the derived settings a parameter feeds. */
 static void apply_param(fm_engine *e, uint16_t id)
 {
@@ -165,9 +153,8 @@ static void apply_param(fm_engine *e, uint16_t id)
         retune_osc(e, 1);
         return;
     case FM_PARAM_OSC_XMOD:
-        for (i = 0; i < FM_MAX_VOICES; i++) /* per mille -> Q1.30 */
-            fm_osc_pair_set_xmod(&e->voices[i].osc,
-                                 (int32_t)(((int64_t)v << 30) / 1000));
+        for (i = 0; i < FM_MAX_VOICES; i++)
+            fm_osc_pair_set_xmod(&e->voices[i].osc, fm_permille_to_q30(v));
         return;
     case FM_PARAM_OSC_SYNC:
         for (i = 0; i < FM_MAX_VOICES; i++)
@@ -175,7 +162,7 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     case FM_PARAM_OSC_MIX:
         for (i = 0; i < FM_MAX_VOICES; i++) {
-            e->voices[i].mix_base = permille_to_q30(v);
+            e->voices[i].mix_base = fm_permille_to_q30(v);
             if (!e->voices[i].mix_env) { /* else the next tick glides there */
                 e->voices[i].mix_step = 0;
                 fm_osc_pair_set_mix(&e->voices[i].osc, e->voices[i].mix_base);
@@ -193,7 +180,7 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_OSC_MIX_ENV:
         for (i = 0; i < FM_MAX_VOICES; i++) {
             fm_voice_sync_filter_env(&e->voices[i]); /* stepped from now on */
-            e->voices[i].mix_env = permille_to_q30(v); /* off: glides back to osc_mix */
+            e->voices[i].mix_env = fm_permille_to_q30(v); /* off: glides back to osc_mix */
             fm_voice_mark_mix(&e->voices[i]);
         }
         return;
@@ -208,7 +195,7 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_lfo_set_rate(&e->lfo, v, e->sample_rate);
         return;
     case FM_PARAM_LFO_DELAY_MS:
-        e->mod.delay_ticks = ms_to_samples(e, v) >> FM_LFO_TICK_SHIFT;
+        e->mod.delay_ticks = fm_ms_to_samples(v, e->sample_rate) >> FM_LFO_TICK_SHIFT;
         /* fades in over as long as the delay; the divisor is at least 1 */
         e->mod.fade_step = e->mod.delay_ticks
                                ? (int32_t)(FM_LFO_FULL / e->mod.delay_ticks)
@@ -250,19 +237,19 @@ static void apply_param(fm_engine *e, uint16_t id)
             fm_voice_sync_filter_env(vc); /* current before it changes */
         switch (id) {
         case FM_PARAM_AMP_ATTACK_MS:
-            amp->attack_samples = ms_to_samples(e, v);
+            amp->attack_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = amp;
             break;
         case FM_PARAM_AMP_DECAY_MS:
-            amp->decay_samples = ms_to_samples(e, v);
+            amp->decay_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = amp;
             break;
         case FM_PARAM_AMP_SUSTAIN:
-            amp->sustain = permille_to_q30(v);
+            amp->sustain = fm_permille_to_q30(v);
             changed = amp;
             break;
         case FM_PARAM_AMP_RELEASE_MS:
-            amp->release_samples = ms_to_samples(e, v);
+            amp->release_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = amp;
             break;
         case FM_PARAM_FILTER_CUTOFF_CENTS:
@@ -281,19 +268,19 @@ static void apply_param(fm_engine *e, uint16_t id)
             fm_voice_mark(vc, FM_BUSY_FILTER, !fm_filter_is_wire(&vc->filter));
             break;
         case FM_PARAM_FILTER_ENV_ATTACK_MS:
-            flt->attack_samples = ms_to_samples(e, v);
+            flt->attack_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_DECAY_MS:
-            flt->decay_samples = ms_to_samples(e, v);
+            flt->decay_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_SUSTAIN:
-            flt->sustain = permille_to_q30(v);
+            flt->sustain = fm_permille_to_q30(v);
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_RELEASE_MS:
-            flt->release_samples = ms_to_samples(e, v);
+            flt->release_samples = fm_ms_to_samples(v, e->sample_rate);
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
@@ -354,7 +341,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend = 0;
     e->bend_value = 0;
     unison_reset(e);
-    e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
+    e->fade_samples = fm_ms_to_samples(STEAL_FADE_MS, e->sample_rate);
     fm_lfo_reset(&e->lfo);
     e->tick_left = 0;
     e->ticks = 0;
