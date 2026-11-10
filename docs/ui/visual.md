@@ -80,7 +80,7 @@ reads its bands from. Every position below is the same in both themes.
 
 | band | rows | contents |
 | --- | --- | --- |
-| header | 0-23 | the state or section chip, its context, and the transport on the right: a play or stop mark, step, tempo and clock source (`07 112 INT`). On EDIT pages a 12-segment strip on the header's bottom rule shows where the page sits in interaction.md's page order (`PAGE_ORDER` in `render.py`: 1A, 2A, 3A, 4A, 4B, 5A, 6A, 6B, 7A, 7B, 8A, 8B, so 4A VCF lights the 4th segment and 5A VCF ENV the 6th), and on GLO a 3-segment strip does the same. |
+| header | 0-23 | the state or section chip, its context, and the transport on the right: a play or stop mark, step, tempo and clock source (`07 112 INT`). On EDIT pages a 14-segment strip on the header's bottom rule shows where the page sits in interaction.md's page order (`PAGE_ORDER` in `render.py`: 1A, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 7B, 8A, 8B, so 4A VCF lights the 5th segment and 5A VCF ENV the 7th), and on GLO a 3-segment strip does the same. |
 | focus | 28-73 | a 64 x 46 LED window with the parameter number, then the section name, the full label, and the value in D24 with its unit |
 | slot | 78-133 | a single 230 x 56 canvas. It holds the filter response (VCF), the ADSR (VCF ENV and VCA), the art (PLAY) or the theme cards (GLO). |
 | knob columns | 138-221 | four 56 x 84 columns with 2 px gaps, left to right for KNOB1-4. Each column holds the number, the label, a meter, and the value in D24 with its unit. |
@@ -291,7 +291,7 @@ mirrors them in two places:
 - **The SEQ key strip** draws every key's state. Lit is the SEQ color, glow is a pale tint, and
   off is the key's own color. The mockups show a still frame: blinking states (a tie's off
   blink, the cursor's 4 Hz blink) show their lit phase.
-- **The edit pages** light the section button that owns the shown page, and the 12-segment page
+- **The edit pages** light the section button that owns the shown page, and the 14-segment page
   strip agrees with it.
 
 The meaning stays the same in both themes:
