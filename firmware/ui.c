@@ -78,6 +78,15 @@ void ui_format(uint16_t id, int32_t value, char *s)
             s = put_str(put_3(s, (mhz + 500u) / 1000u), " kHz");
         else
             s = put_str(put_3(s, mhz), " Hz");
+    } else if (id == FM_PARAM_FILTER_RESONANCE) {
+        s = put_u(s, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);
+    } else if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) {
+        uint32_t st = (uint32_t)(value < 0 ? -value : value) + 50u;
+        if (st >= 100u)                         /* (0 has no sign) */
+            *s++ = value < 0 ? '-' : '+';
+        s = put_str(put_u(s, st / 100u), " st");
+    } else if (id == FM_PARAM_FILTER_KEY_TRACK) {
+        s = put_str(put_u(s, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), " %");
     }
     *s = 0;
 }

@@ -114,8 +114,20 @@ TT_TEST(ui_cutoff_reads_in_hz_three_digits)
     TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 7800, "740 Hz"));
 }
 
+/* RESO 0..100 (10 per mille a step), ENV signed semitones, KEY a percentage. */
+TT_TEST(ui_reso_env_and_key_read_in_their_units)
+{
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_RESONANCE, 340, "34"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_RESONANCE, 1000, "100"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "+24 st"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 0, "0 st"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -9600, "-96 st"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50 %"));
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_reso_env_and_key_read_in_their_units);
     TT_RUN(ui_cutoff_reads_in_hz_three_digits);
     TT_RUN(ui_knob_clamps_at_the_ends_of_the_range);
     TT_RUN(ui_knobs_do_nothing_in_play);
