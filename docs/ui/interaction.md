@@ -328,7 +328,12 @@ is sounding, as fm1-dock's rules ask.
 | G31 | K1 | Velocity curve (the host's `sense_set` curve) | 50..200 % | the host's |
 | G32 | K2 | Fixed velocity, for keys with no force sensing | 1..127 | 100 |
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
-| G34 | K4 | reserved | | |
+| G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | NIGHT PANEL |
+
+**Theme (G34):** the screen's look for the whole instrument, not per patch.
+It takes effect at once, redrawing the whole screen, and is saved with the
+other GLO settings. The UI Designer owns what each theme looks like. The
+interaction model is the same in both.
 
 **Clock source:**
 
@@ -409,6 +414,10 @@ Button LEDs:
 - **REC:** lit while step record is armed, and glows otherwise.
 
 ### SEQ view
+
+The SEQ view's screen is a **piano roll**: steps across, pitch up and down. The
+visual details are in PR #53. This doc gives its content (section 6) and its
+controls.
 
 SEQ tap goes to SEQ view. SEQ tap in SEQ view goes back to the state SEQ was
 pressed from. In SEQ view:
@@ -644,6 +653,8 @@ Everywhere, unless the state says otherwise:
 
 - **Must:** that this is the global page. Global settings are not part of the
   patch.
+- **Must:** when G34 THEME changes, the whole screen (every state) redraws in
+  the new theme at once.
 - **Must:** the page and the four settings, each with its G-number, label and
   value.
 
@@ -651,6 +662,9 @@ Everywhere, unless the state says otherwise:
 
 - **Must:** the pattern number and name, PATTERN EDITED, and the queued next
   pattern if there is one. In SEQ view, PRESETS changes this, not the patch.
+- **Must:** a piano roll of the pattern (PR #53 has the visuals). It shows the
+  notes of every step against pitch, along with the 16-step strip content
+  below.
 - **Must:** a 16-step strip. For each step: rest, note, chord or tie, and
   whether it is past the length. Also the cursor, and the playhead while
   playing. It mirrors the key LEDs.
@@ -948,6 +962,11 @@ test.
 55. After `release()`, then `draw(full)`, every LED is sent again and the
     transport is STOPPED.
 
+56. Setting G34 THEME to MEMBRANE redraws the screen at once and saves the
+    settings once nothing sounds. After `init()` with that settings record
+    (a power cycle), THEME is MEMBRANE. With no settings record, it is
+    NIGHT PANEL.
+
 ## 10. Decisions (Eric, 2026-11-10)
 
 - **Q1, step key layout: split keyboard.** In SEQ view, F3..G#4 are silent
@@ -973,3 +992,10 @@ test.
   numbered 11..88. Starter patches are a read-only P group.
 - **Q10, DCO-2 coarse tune: yes.** -12..+12 semitones at slot 34. The DCO-2
   envelope level (#33) moves to slot 47. Eric is filing the engine issue.
+- **Pattern settings:** TEMPO, LENGTH, SWING and GATE are saved with the
+  pattern. TRANSPOSE is not.
+- **Key transpose reference:** C5 in SEQ view (the only C among the chord
+  keys), and C4 outside it.
+- **Themes:** two screen themes, MEMBRANE and NIGHT PANEL, set in GLO (G34),
+  instrument-wide, default NIGHT PANEL. The SEQ view is a piano roll (visuals
+  in PR #53).
