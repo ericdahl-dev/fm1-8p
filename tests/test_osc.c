@@ -256,6 +256,22 @@ TT_TEST(mix_env_at_full_depth_plays_osc2)
     TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
 }
 
+/* Depth back to 0 on a held note returns to the fixed mix (osc1 alone here). */
+TT_TEST(mix_env_back_to_zero_restores_the_fixed_mix)
+{
+    double want = RATE / note_hz(57);
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, 4410);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 0);
+    fm_engine_render(&eng, buf, RATE);
+    TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
+}
+
 /*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
@@ -837,6 +853,7 @@ static void run_osc_tests(void)
     TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(mix_env_at_full_depth_plays_osc2);
+    TT_RUN(mix_env_back_to_zero_restores_the_fixed_mix);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
