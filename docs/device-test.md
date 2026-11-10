@@ -21,8 +21,8 @@ For each step it shows the **worst** render time of any block, as a percentage o
 comment: unison does its divides when notes and the detune change, so a burst of note-ons inside one block is its
 worst case.
 
-What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 2.7 % per voice, 22.2 % at
-8 voices, 23.5 % for U. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
+What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.4 % per voice, 28.1 % at
+8 voices, 31.1 % for U. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
 itself: note it.
 
 ## 1. What you need
@@ -104,7 +104,7 @@ If the deploy is refused (an ABI or room error), go to route B.
 2. Wait **50 s**: 9 steps of 5 s, plus a little.
 3. The screen has one row per step: `1` to `8`, then `U`. Each row is the step's worst block, like `4   11.5 %`.
    The current step's row is white, the others gray. **Write down all 9 rows** once `U` has run its 5 s.
-4. Listen while it runs: a chord that gets richer for 40 s, then a buzzing 8-voice unison note for 5 s. Clicks,
+4. Listen while it runs: a chord that gets richer for 40 s, then a fast-retriggered 8-voice unison note for 5 s. Clicks,
    dropouts or the sine taking over mean an overrun: note at which step.
 
 ## 5. Pull the numbers off the FM-1
@@ -158,20 +158,20 @@ try again.
 
 | step | screen (worst %) | log (per mille) | fm1-emu strict (%) | device / emu |
 | --- | --- | --- | --- | --- |
-| 1 | | | 3.4 | |
-| 2 | | | 6.1 | |
-| 3 | | | 8.9 | |
-| 4 | | | 11.5 | |
-| 5 | | | 14.2 | |
-| 6 | | | 16.9 | |
-| 7 | | | 19.6 | |
-| 8 | | | 22.2 | |
-| U (unison burst) | | | 23.5 | |
+| 1 | | | 4.2 | |
+| 2 | | | 7.6 | |
+| 3 | | | 11.0 | |
+| 4 | | | 14.5 | |
+| 5 | | | 17.9 | |
+| 6 | | | 21.3 | |
+| 7 | | | 24.7 | |
+| 8 | | | 28.1 | |
+| U (unison burst) | | | 31.1 | |
 
 - `dock.py modules`: render worst __ % of a block, __ overruns
 - Heard any clicks, dropouts or the sine taking over? At which step?
 - Logs attached: fm1-8p-logs.txt, fm1-8p-modules.txt (fm1-8p-info.txt if it worked)
 ```
 
-The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `36ecce5` (unison, before #5's
-oscillators). If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `8ee3f5e` (unison and #5's oscillators,
+before the filter). If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
