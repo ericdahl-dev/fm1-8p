@@ -40,16 +40,29 @@ static uint32_t semitone_ratio_q30(uint32_t f)
 
 uint32_t fm_osc_pitch_inc(int32_t pitch, uint32_t sample_rate)
 {
+    const int32_t octave = 12 << 16;
+    int32_t up = 0, down = 0;
     uint32_t note, frac;
     uint64_t hz_q16, inc;
     if (sample_rate == 0) return 0; /* never divide by zero: no trap on pi32v2 */
-    if (pitch < 0) pitch = 0;
-    if (pitch > FM_OSC_MAX_PITCH) pitch = FM_OSC_MAX_PITCH;
+    /* beyond +-256 semitones the result is pinned anyway; keeps sums small */
+    if (pitch > (256 << 16)) pitch = 256 << 16;
+    if (pitch < -(256 << 16)) pitch = -(256 << 16);
+    /* fold into the table by whole octaves (exact factors of two) */
+    if (pitch > FM_OSC_MAX_PITCH) {
+        up = (pitch - FM_OSC_MAX_PITCH + octave - 1) / octave;
+        pitch -= up * octave;
+    } else if (pitch < 0) {
+        down = (octave - 1 - pitch) / octave;
+        pitch += down * octave;
+    }
     note = (uint32_t)pitch >> 16;
     frac = (uint32_t)pitch & 0xFFFFu;
     hz_q16 = note_hz_q16(note);
     if (frac) hz_q16 = (hz_q16 * semitone_ratio_q30(frac)) >> 30;
     inc = (hz_q16 << 16) / sample_rate;
+    if (up) inc = up > 16 ? FM_OSC_MAX_INC : inc << up;
+    inc >>= down;
     return inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)inc;
 }
 

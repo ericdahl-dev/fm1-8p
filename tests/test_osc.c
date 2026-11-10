@@ -146,6 +146,23 @@ TT_TEST(tuned_increment_matches_exact_pitch)
     TT_CHECK(worst < 0.01);
 }
 
+/*
+ * Tuning keeps its interval past the ends of the note table: two octaves
+ * up from note 110 is four times its frequency (not clamped at note 131),
+ * two down from note 20 a quarter. Above Nyquist the cap still holds.
+ */
+TT_TEST(octave_shifts_keep_their_ratio_at_the_extremes)
+{
+    double hi = fm_osc_pitch_inc(110 << 16, RATE);
+    double lo = fm_osc_pitch_inc(20 << 16, RATE);
+    TT_CHECK_NEAR(fm_osc_pitch_inc((110 + 24) << 16, RATE) / hi, 4.0, 1e-5);
+    TT_CHECK_NEAR(fm_osc_pitch_inc((20 - 24) * 65536, RATE) / lo, 0.25, 1e-5);
+    TT_CHECK_NEAR((double)fm_osc_pitch_inc((3 - 26) * 65536, RATE) /
+                      fm_osc_pitch_inc(3 << 16, RATE),
+                  pow(2.0, -26 / 12.0), 1e-4);
+    TT_CHECK_EQ(fm_osc_pitch_inc((127 + 26) << 16, RATE), FM_OSC_MAX_INC);
+}
+
 /* Retuning a held note takes effect at once, without a new note on. */
 TT_TEST(retuning_a_held_note_takes_effect)
 {
@@ -387,6 +404,7 @@ static void run_osc_tests(void)
     TT_RUN(square_ignores_pulse_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(tuned_increment_matches_exact_pitch);
+    TT_RUN(octave_shifts_keep_their_ratio_at_the_extremes);
     TT_RUN(retuning_a_held_note_takes_effect);
     TT_RUN(pitch_bend_moves_both_oscillators);
     TT_RUN(each_voice_makes_its_own_noise);
