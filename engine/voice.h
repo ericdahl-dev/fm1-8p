@@ -171,11 +171,21 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
 #define FM_BUSY_STEAL 0x04u      /* fading out a stolen note (pending) */
 #define FM_BUSY_GATE 0x08u       /* a release queued (gate_left) */
 #define FM_BUSY_FILTER 0x10u     /* the filter isn't a wire (fm_filter_is_wire) */
+#define FM_BUSY_MIX 0x20u        /* the mix envelope on, or a glide not landed */
 
 /* Sets or clears busy bit(s) `bits` of voice `v`. */
 static inline void fm_voice_mark(fm_voice *v, uint8_t bits, int on)
 {
     v->busy = (uint8_t)(on ? v->busy | bits : v->busy & ~bits);
+}
+
+/* Marks the mix busy while the mix envelope is on, a glide step is set or
+ * the mix is away from osc_mix; call after any of them changes (the glide
+ * itself moves the mix only while a step is set). */
+static inline void fm_voice_mark_mix(fm_voice *v)
+{
+    fm_voice_mark(v, FM_BUSY_MIX,
+                  v->mix_env || v->mix_step || v->osc.mix != v->mix_base);
 }
 
 /* Nonzero while any of the voice's processors is away from rest; a voice

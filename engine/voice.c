@@ -249,6 +249,7 @@ static void update_mix(fm_voice *v, int32_t env)
     v->mix_step = ((int32_t)m - v->osc.mix) / FILTER_CTRL_SAMPLES;
     if (!v->mix_step) /* within a glide's rounding: there now */
         fm_osc_pair_set_mix(&v->osc, (int32_t)m);
+    fm_voice_mark_mix(v);
 }
 
 void fm_voice_silence(fm_voice *v)
@@ -319,8 +320,7 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
  */
 uint32_t fm_voice_busy(const fm_voice *v)
 {
-    return v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
-           v->busy;
+    return v->busy;
 }
 
 static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
@@ -385,7 +385,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             if (v->env_amount || (v->busy & FM_BUSY_CUTOFF)) update_cutoff(v, fenv);
             /* the mix envelope, or a glide back to osc_mix after it (until
              * it lands: a glide can land exactly with its step still set) */
-            if (v->mix_env || v->mix_step || v->osc.mix != v->mix_base)
+            if (v->busy & FM_BUSY_MIX)
                 update_mix(v, v->mix_src ? amp_share(v, level) : fenv);
             if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
