@@ -43,6 +43,15 @@ typedef enum {
     FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
     FM_PARAM_VOICE_MODE, /* FM_VOICE_MODE_POLY or FM_VOICE_MODE_UNISON */
     FM_PARAM_UNISON_DETUNE_CENTS, /* unison spread, lowest to highest voice */
+    FM_PARAM_OSC1_WAVE, /* fm_wave: 0 saw, 1 pulse, 2 square, 3 noise */
+    FM_PARAM_OSC1_PULSE_WIDTH_PCT, /* pulse duty, percent of a cycle */
+    FM_PARAM_OSC1_OCTAVE,          /* -2..+2 octaves */
+    FM_PARAM_OSC1_FINE_CENTS,      /* -100..+100 cents */
+    FM_PARAM_OSC2_WAVE,            /* the same four for osc2 */
+    FM_PARAM_OSC2_PULSE_WIDTH_PCT,
+    FM_PARAM_OSC2_OCTAVE,
+    FM_PARAM_OSC2_FINE_CENTS,
+    FM_PARAM_OSC_MIX,              /* per mille: 0 osc1 only, 1000 osc2 only */
     /* lowpass cutoff, cents above MIDI note 0 (6900 = 440 Hz);
      * FM_FILTER_OPEN_CENTS (the maximum) is fully open */
     FM_PARAM_FILTER_CUTOFF_CENTS,
