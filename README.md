@@ -102,9 +102,19 @@ pulse width) and the velocity curve are in
 [docs/modulation.md](docs/modulation.md), for example
 `-s lfo_pitch_cents=20 -s lfo_delay_ms=300 -s amp_velocity_pct=70`.
 
+## FM-1 firmware: the synth
+
+`firmware/fm1_8p/` is the playable synth, the fm1-dock module **FM1-8P**: the FM-1's keys (with
+their velocity; OCT- and OCT+ move the octave, each key lights while held) and MIDI (note on and
+off, sustain CC 64, pitch bend; any channel, from whatever fm1-dock takes in: USB, Bluetooth or the
+jack) play the engine on 4 voices (`PLAY_VOICES` in `firmware/play.h`) with one default patch (the
+`PATCH` table in `firmware/play.c`: the engine's defaults plus a gentle filter envelope, the slow
+chorus and amp velocity). The screen shows the name, the voice count and the last note played. The
+key and MIDI mapping is plain C (`firmware/play.[ch]`), tested on the desktop by `make test`.
+
 ## FM-1 CPU-test firmware
 
-`firmware/` runs the unchanged engine on the FM-1 as an
+`firmware/fm1_8p_cpu/` runs the unchanged engine on the FM-1 as an
 [fm1-dock](https://github.com/joakimeriksson/fm1-dock) module and measures it: it holds a chord
 and steps from 1 to 8 voices, 5 s each, then runs the unison burst (row U: 8 voices in unison,
 8 note-ons and a detune change in every block), then the full patch (row F: a 6-voice chord, the
@@ -121,9 +131,11 @@ Python 3 with Pillow:
 
 ```sh
 tools/fm1-build.sh fetch     # fm1-dock, JieLi toolchain, AC79 SDK files into build/fm1-deps
-tools/fm1-build.sh build     # build/fm1/fm1_8p_cpu.dock and build/fm1/fm1-8p-cpu.fwsc
+tools/fm1-build.sh build     # build/fm1/fm1_8p.dock and fm1-8p.fwsc (the synth),
+                             # build/fm1/fm1_8p_cpu.dock and fm1-8p-cpu.fwsc (the CPU test)
 tools/fm1-build.sh canaries  # each firmware/canary module must fail fm1-dock's safety checks
 tools/fm1-build.sh emu       # the CPU test in fm1-emu, strict timing: build/fm1/emu-report.md
+tools/fm1-build.sh emu-play  # FM1-8P plays keys and MIDI in fm1-emu; fails on an overrun
 ```
 
 Every input is pinned in [firmware/pins.env](firmware/pins.env) and checked before a build:
@@ -164,8 +176,9 @@ the device (#13).
 - `engine/` - the synth engine: plain C99, fixed point, no hardware or OS code,
   no dynamic allocation. Public interface: `engine/fm1_8p.h`.
 - `host/` - the desktop render tool: Standard MIDI File reader, WAV writer.
-- `firmware/` - the FM-1 CPU test: `cpu_test.[ch]` (plain C, tested on the desktop),
-  `fm1_8p_cpu/` (the fm1-dock module), `canary/` (modules the build must reject), `pins.env`.
+- `firmware/` - the FM-1 modules: the synth, `play.[ch]` (plain C, tested on the desktop) and
+  `fm1_8p/` (the fm1-dock module); the CPU test, `cpu_test.[ch]` and `fm1_8p_cpu/`; `canary/`
+  (modules the build must reject), `pins.env`.
 - `tests/` - tests, run with a small single-header runner (`tests/tinytest.h`).
 - `tools/` - the float-free check, the FM-1 build (`fm1-build.sh`) and the scripts that
   generate the pitch table and `examples/demo.mid`.

@@ -1,15 +1,19 @@
 #!/bin/sh
-# fm1-build.sh - build fm1-8p's FM-1 CPU-test firmware from pinned, verified inputs.
+# fm1-build.sh - build fm1-8p's FM-1 firmware (the synth and the CPU test) from pinned, verified inputs.
 #
 # Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
 #
 # usage: tools/fm1-build.sh COMMAND
 #   fetch      download fm1-dock, the JieLi toolchain and the AC79 SDK files into $FM1_DEPS
 #              (default build/fm1-deps) and check each against firmware/pins.env
-#   build      the CPU test as a .dock (USB deploy) and a solo .fwsc, into build/fm1/
+#   build      the synth (FM1-8P) and the CPU test, each as a .dock (USB deploy) and a solo .fwsc,
+#              into build/fm1/
 #   canaries   each module in firmware/canary/ breaks an fm1-dock safety rule; its build must fail
 #   emu        run the CPU test in fm1-emu's strict timing mode; worst load per voice count
 #              into build/fm1/emu-report.md (report only)
+#   emu-play   play a scripted note sequence (keys and MIDI) into build/fm1/fm1-8p.fwsc (built if
+#              missing) in fm1-emu's strict timing
+#              mode; fails on an overrun (build/fm1/emu-play-report.md)
 #   all        fetch, build, canaries
 #
 # Already have the inputs? Point at them; they are checked all the same:
@@ -146,6 +150,16 @@ emu_report() {
     fi
 }
 
+# emu_play_report LOG: the playable module's run in fm1-emu: fm1-dock's render meter. Fails on any
+# overrun (a block that took longer than real time).
+emu_play_report() {
+    grep 'render: last' "$1" ||
+        { echo "**No render meter in the log (no \"render: last\"): the run ended before the host's stats.**"; return 1; }
+    grep -q 'fm1-8p: ready' "$1" || { echo "**The module never started (no \"fm1-8p: ready\").**"; return 1; }
+    ! grep 'too slow: stopped' "$1" || { echo "**The host stopped the module: too slow.**"; return 1; }
+    grep -q 'render: last.*, 0 overruns' "$1" || { echo "**Overruns: the module fell behind real time.**"; return 1; }
+}
+
 # check_module_symbols DIR: the module hbmod linked in DIR (module_02200000.elf) takes nothing from the
 # toolchain's libraries ($JIELI_TOOLCHAIN/pi32v2/lib/lib*.a) but allowed helpers: no soft-float, libm
 # or heap. It reads the linked image, not DIR's objects: hbmod never cleans DIR, so an object from an
@@ -275,17 +289,25 @@ dock() {        # run one of fm1-dock's tools from its checkout
     (cd "$FM1_DOCK" && JIELI_TOOLCHAIN=$JIELI_TOOLCHAIN AC79_SDK=$AC79_SDK "$PYTHON" "tools/$tool" "$@")
 }
 
+# build_module DIR NAME APP: firmware/DIR as a .dock (USB deploy) and a solo .fwsc NAME.fwsc, into $OUT.
+# Every step checks its own status: a caller's `||` turns `set -e` off in here, and a failed compile
+# would otherwise leave the last build's ELF to pass the symbol check and its .dock to be copied.
+build_module() {
+    stage_module "$ROOT/firmware/$1" "$OUT/modules/$1" "$ROOT/engine" || return 1
+    dock hbmod.py "$OUT/modules/$1" || return 1
+    check_module_symbols "$FM1_DOCK/build/modules/$1" || return 1
+    dock build.py --modules "$OUT/modules/$1" --name "$2" --app-name "$3" --identity "$FM1_IDENTITY" ||
+        return 1
+    cp "$FM1_DOCK/build/modules/$1.dock" "$FM1_DOCK/build/$2.fwsc" "$OUT/" || return 1
+    echo "fm1-build: $OUT/$1.dock $OUT/$2.fwsc ($FM1_IDENTITY)"
+}
+
 build_firmware() {
-    check_inputs
+    check_inputs || return 1
     ulimit -n 8192 2>/dev/null || true         # the parallel compiles open many files
-    mkdir -p "$OUT"
-    stage_module "$ROOT/firmware/fm1_8p_cpu" "$OUT/modules/fm1_8p_cpu" "$ROOT/engine"
-    dock hbmod.py "$OUT/modules/fm1_8p_cpu"
-    check_module_symbols "$FM1_DOCK/build/modules/fm1_8p_cpu" || return 1
-    dock build.py --modules "$OUT/modules/fm1_8p_cpu" --name fm1-8p-cpu --app-name "FM1-8P CPU" \
-        --identity "$FM1_IDENTITY"
-    cp "$FM1_DOCK/build/modules/fm1_8p_cpu.dock" "$FM1_DOCK/build/fm1-8p-cpu.fwsc" "$OUT/"
-    echo "fm1-build: $OUT/fm1_8p_cpu.dock $OUT/fm1-8p-cpu.fwsc ($FM1_IDENTITY)"
+    mkdir -p "$OUT" || return 1
+    build_module fm1_8p fm1-8p "FM1-8P" || return 1             # the playable synth
+    build_module fm1_8p_cpu fm1-8p-cpu "FM1-8P CPU" || return 1
 }
 
 run_canaries() {
@@ -334,6 +356,44 @@ run_emu() {
     [ "$emu_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
 }
 
+# The note sequence fm1-emu plays into FM1-8P (dock.py's --keys: `ms:id` presses note key id - 14, 0 = F3;
+# `ms:id^` lets it go; `ms:mHEX` is MIDI into the jack). Keys: a C major 7th chord (C4 E4 G4 B4) held 2 s.
+# MIDI: the same chord with a full bend up and back, the sustain pedal over the note offs, then five
+# notes on four voices (one stolen), on another channel.
+EMU_PLAY_MS=8000
+EMU_PLAY_KEYS="1000:21,1000:25,1000:28,1000:32,3000:21^,3000:25^,3000:28^,3000:32^,\
+3500:m903c64,3500:m904050,3500:m904364,3500:m904740,3700:me07f7f,4000:me00040,4200:mb0407f,\
+4300:m803c00,4300:m804000,4300:m804300,4300:m804700,4800:mb04000,\
+5200:m93306e,5250:m933464,5300:m93375a,5350:m933b50,5400:m933e46,\
+6500:m833000,6500:m833400,6500:m833700,6500:m833b00,6500:m833e00"
+
+# run_emu_play: plays $OUT/fm1-8p.fwsc, the one `build` made (run `build` again after a change); it
+# builds the synth first only when that file isn't there.
+run_emu_play() {
+    check_inputs || return 1
+    fetch_emu || return 1
+    ulimit -n 8192 2>/dev/null || true
+    mkdir -p "$OUT" || return 1
+    if [ ! -f "$OUT/fm1-8p.fwsc" ]; then
+        build_module fm1_8p fm1-8p "FM1-8P" || return 1
+    fi
+    emu_rc=0
+    (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
+        --fwsc "$OUT/fm1-8p.fwsc" --ms "$EMU_PLAY_MS" --keys "$EMU_PLAY_KEYS" --out "$OUT/emu-play") \
+        >"$OUT/emu-play.log" 2>&1 || emu_rc=$?
+    cat "$OUT/emu-play.log"
+    report_rc=0
+    emu_play_report "$OUT/emu-play.log" >"$OUT/emu-play-report.md" 2>&1 || report_rc=1
+    if ! verify_sha256 "$FM1_LIVE" "$FM1_LIVE_SHA256" 2>/dev/null; then
+        printf '\nNote: run with an unpinned fm1-live (%s).\n' "$FM1_LIVE" >>"$OUT/emu-play-report.md"
+    fi
+    if [ "$emu_rc" -ne 0 ]; then
+        printf '\n**The emulator run failed (exit %s).**\n' "$emu_rc" >>"$OUT/emu-play-report.md"
+    fi
+    cat "$OUT/emu-play-report.md"
+    [ "$emu_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
+}
+
 [ -n "${FM1_BUILD_LIB:-}" ] && return 0       # sourced by tests/test_fm1_build.sh
 
 set -eu
@@ -353,6 +413,7 @@ case "${1:-}" in
     build)    build_firmware ;;
     canaries) run_canaries ;;
     emu)      run_emu ;;
+    emu-play) run_emu_play ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
-    *)        sed -n '2,20s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *)        sed -n '2,23s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac
