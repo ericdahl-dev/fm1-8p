@@ -203,6 +203,25 @@ TT_TEST(osc2_coarse_zero_matches_no_coarse)
 }
 
 /*
+ * Coarse tune changed on a held note retunes osc2 from there on, without
+ * restarting its cycle: at sample 441 osc2 is 0.2 into a cycle, where a
+ * restart would jump about 0.4 of full scale and a saw moves about 0.01.
+ */
+TT_TEST(osc2_coarse_change_retunes_a_held_note_without_a_restart)
+{
+    static int16_t head[2 * 441];
+    double want = RATE / (note_hz(57) * pow(2.0, 7 / 12.0));
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, head, 441);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    fm_engine_render(&eng, buf, RATE);
+    TT_CHECK(abs(buf[0] - head[2 * 440]) < 1000);
+    TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
+}
+
+/*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
  * Today's worst, 0.005 cent, is the pitch table's rounding at note 0;
@@ -742,6 +761,7 @@ static void run_osc_tests(void)
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
+    TT_RUN(osc2_coarse_change_retunes_a_held_note_without_a_restart);
     TT_RUN(tuned_increment_matches_exact_pitch);
     TT_RUN(octave_shifts_keep_their_ratio_at_the_extremes);
     TT_RUN(retuning_a_held_note_takes_effect);
