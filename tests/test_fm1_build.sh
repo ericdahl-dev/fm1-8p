@@ -50,6 +50,35 @@ expect_ok "... and a listed source's" grep -qx "cflags $T/mod/shared.c = -O3" "$
 expect_ok "... and the module's cflags stay" grep -qx 'cflags = -O2' "$cfg"
 # The engine and the CPU test (the render path) build -O2, the screen and keys -Os (#34: -Os kept every
 # per-sample call out of line; -O2 took step F from 55.9 % to 44.1 % of core 0 in fm1-emu).
+# The linked module may pull in only integer and memory helpers beyond its own objects: no soft-float,
+# libm or heap (hbmod links libcompiler_rt without a word). A stand-in nm prints each file's FILE.nm.
+mkdir -p "$T/nm/mod"
+printf '#!/bin/sh\nfor f; do case "$f" in -*) ;; *) cat "$f.nm" ;; esac; done\n' >"$T/nm/nm"; chmod +x "$T/nm/nm"
+: >"$T/nm/mod/module_02200000.elf"; : >"$T/nm/mod/a.o"
+printf '02200000 T render\n02200100 t helper\n02200200 T __udivdi3\n02200300 T hb_module\n02200400 t _hb_text_end\n' >"$T/nm/mod/module_02200000.elf.nm"
+printf '00000000 T render\n00000010 t helper\n         U __udivdi3\n' >"$T/nm/mod/a.o.nm"
+with_nm() { NM="$T/nm/nm" "$@"; }
+expect_ok "a module with only integer helpers passes the symbol check" with_nm check_module_symbols "$T/nm/mod"
+cp "$T/nm/mod/module_02200000.elf.nm" "$T/nm/clean.nm"
+printf '02200500 T __addsf3\n' >>"$T/nm/mod/module_02200000.elf.nm"
+expect_fail "a module the link gave a soft-float helper fails it" with_nm check_module_symbols "$T/nm/mod"
+mkdir -p "$T/nm/none" && cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/none/"
+expect_fail "a module with no linked image fails it (nm can't read it)" with_nm check_module_symbols "$T/nm/none"
+# ... and a build runs it on the module it links: fm1-dock's tools stand in, linking the soft-float one.
+build_with_softfloat() (
+    ROOT=$(pwd) OUT=$T/bout FM1_DOCK=$T/fd NM=$T/nm/nm FM1_IDENTITY=test
+    check_inputs() { :; }
+    dock() {
+        case "$1" in
+        hbmod.py) d=$FM1_DOCK/build/modules/$(basename "$2"); mkdir -p "$d"
+                  cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/mod/module_02200000.elf" "$T/nm/mod/module_02200000.elf.nm" "$d/" ;;
+        build.py) : >"$FM1_DOCK/build/modules/fm1_8p_cpu.dock"; : >"$FM1_DOCK/build/fm1-8p-cpu.fwsc" ;;
+        esac
+    }
+    build_firmware
+)
+expect_fail "a build whose module links a soft-float helper fails" build_with_softfloat
+
 ui=$(abspath firmware/fm1_8p_cpu/fm1_8p_cpu.c)
 for m in firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
     stage_module "$m" "$T/staged/$(basename "$m")" engine >/dev/null 2>&1

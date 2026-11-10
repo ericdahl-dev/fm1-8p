@@ -142,6 +142,25 @@ emu_report() {
     fi
 }
 
+# check_module_symbols DIR: the module hbmod linked in DIR (module_02200000.elf) defines nothing beyond
+# its own objects (DIR/*.o) except allowed helpers. NM: the toolchain's nm.
+check_module_symbols() {
+    (
+        cd "$1" || exit 1
+        tmp=$(mktemp -d) || exit 1
+        trap 'rm -rf "$tmp"' EXIT
+        "$NM" *.o >"$tmp/own" && "$NM" module_02200000.elf >"$tmp/linked" || exit 1
+        awk 'NF == 3 { print $3 }' "$tmp/own" | sort -u >"$tmp/own.n"
+        awk 'NF == 3 { print $3 }' "$tmp/linked" | sort -u >"$tmp/linked.n"
+        # integer helpers (64-bit and division), memory helpers, and what hbmod's link script defines
+        bad=$(comm -23 "$tmp/linked.n" "$tmp/own.n" | grep -Ev \
+            '^(__(u?(div|mod|divmod)|mul|ashl|ashr|lshr|cmp|ucmp)(si|di)[34]|memset|memcpy|memmove|hb_module|_hb_.*|\..*)$')
+        [ -z "$bad" ] && exit 0
+        echo "fm1-build: the module links in symbols outside the allowlist (soft-float, libm or heap?):" $bad >&2
+        exit 1
+    )
+}
+
 # canary_caught LOG EXPECT: the canary's build log shows the check named in EXPECT (a fixed string),
 # so a canary that fails for another reason (a typo) doesn't count as caught.
 canary_caught() {
@@ -253,6 +272,7 @@ build_firmware() {
     mkdir -p "$OUT"
     stage_module "$ROOT/firmware/fm1_8p_cpu" "$OUT/modules/fm1_8p_cpu" "$ROOT/engine"
     dock hbmod.py "$OUT/modules/fm1_8p_cpu"
+    check_module_symbols "$FM1_DOCK/build/modules/fm1_8p_cpu" || return 1
     dock build.py --modules "$OUT/modules/fm1_8p_cpu" --name fm1-8p-cpu --app-name "FM1-8P CPU" \
         --identity "$FM1_IDENTITY"
     cp "$FM1_DOCK/build/modules/fm1_8p_cpu.dock" "$FM1_DOCK/build/fm1-8p-cpu.fwsc" "$OUT/"
@@ -314,6 +334,7 @@ JIELI_TOOLCHAIN=${JIELI_TOOLCHAIN:-$FM1_DEPS/jieli/toolchain}
 AC79_SDK=${AC79_SDK:-$FM1_DEPS/ac79-sdk}
 FM1_DOCK=${FM1_DOCK:-$FM1_DEPS/fm1-dock}
 PYTHON=${PYTHON:-python3}
+NM=${NM:-$JIELI_TOOLCHAIN/pi32v2/bin/nm}
 OUT=$ROOT/build/fm1
 mkdir -p "$OUT"
 
