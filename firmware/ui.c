@@ -281,3 +281,10 @@ uint32_t ui_led(const ui *u, uint32_t button)
         return UI_LED_OFF;
     }
 }
+
+uint32_t ui_take_full(ui *u, uint32_t ms)
+{
+    u->dirty = 0;
+    u->drawn_ms = ms;
+    return UI_D_ALL;
+}

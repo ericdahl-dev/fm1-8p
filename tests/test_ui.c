@@ -277,8 +277,19 @@ TT_TEST(ui_edit_led_shows_an_edited_patch)
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_EDIT), UI_LED_GLOW);
 }
 
+/* draw(full) draws everything: what was pending is drawn with it, not again after. */
+TT_TEST(ui_full_redraw_takes_the_pending_bits)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    TT_CHECK_EQ(ui_take_full(&ui_u, 100), UI_D_ALL);
+    TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_full_redraw_takes_the_pending_bits);
     TT_RUN(ui_edit_led_shows_an_edited_patch);
     TT_RUN(ui_section_leds_light_their_page);
     TT_RUN(ui_edit_hold_does_not_toggle);
