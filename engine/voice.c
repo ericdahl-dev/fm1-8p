@@ -360,13 +360,15 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             filter_env_gate_off(v);
         }
         level = fm_env_next(&v->amp_env);
-        if (v->env_amount || (v->mix_env && !v->mix_src)) {
-            fenv = fm_env_next(&v->filter_env);
-        } else { /* no effect on the sound: caught up when needed */
-            fenv = 0;
-            v->fenv_lag++;
-        }
+        /* the filter envelope is read only at the control rate: counted
+         * here, caught up exactly (fm_env_advance) when it is read */
+        v->fenv_lag++;
         if (v->ctrl_phase == 0) {
+            fenv = 0;
+            if (v->env_amount || (v->mix_env && !v->mix_src)) {
+                fm_voice_sync_filter_env(v);
+                fenv = v->filter_env.level;
+            }
             /* with no envelope amount the cutoff changes only when a
              * setting or the note does, which marks it dirty */
             if (v->env_amount || v->cutoff_dirty) update_cutoff(v, fenv);

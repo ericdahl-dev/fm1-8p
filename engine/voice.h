@@ -58,8 +58,8 @@ typedef struct {
     int32_t key_track;      /* per mille */
     int32_t env_amount;     /* filter envelope amount, cents */
     int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
-    uint32_t fenv_lag;      /* samples filter_env is behind: it is not
-                             * stepped while the amount is 0 */
+    uint32_t fenv_lag;      /* samples filter_env is behind: it is caught
+                             * up only when read (the control rate) */
     int32_t mix_base;       /* osc_mix, Q1.30 */
     int32_t mix_env;        /* the envelope's share of the mix, Q1.30, signed */
     int32_t mix_step;       /* the mix's glide each sample to its next target */

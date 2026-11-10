@@ -1167,13 +1167,14 @@ static void lag_patch(fm_engine *e, int32_t amount)
     fm_engine_set_param(e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, amount);
 }
 
-/* 1 if every voice's filter envelope matches between `a`, synced first,
- * and `b`. */
+/* 1 if every voice's filter envelope matches between `a` and `b`, both
+ * caught up first. */
 static int filter_envs_match(fm_engine *a, fm_engine *b)
 {
     uint8_t i;
     for (i = 0; i < FM_MAX_VOICES; i++) {
         fm_voice_sync_filter_env(&a->voices[i]);
+        fm_voice_sync_filter_env(&b->voices[i]);
         if (a->voices[i].filter_env.level != b->voices[i].filter_env.level ||
             a->voices[i].filter_env.stage != b->voices[i].filter_env.stage)
             return 0;
@@ -1187,7 +1188,8 @@ static int filter_envs_match(fm_engine *a, fm_engine *b)
  * (fm_env_advance) at each cutoff update and before anything that uses
  * its level: a gate, a setting change, the amount becoming non-zero. It
  * must stay exactly where it would have been: here against an engine
- * whose amount is non-zero all along, through notes, a retrigger, a
+ * whose amount is non-zero all along (itself checked against a per-sample
+ * envelope in filter_envelope_runs_at_the_control_rate_and_stays_exact), through notes, a retrigger, a
  * steal, a queued release, a setting change, and the amount turned up
  * mid-note.
  */
@@ -1231,13 +1233,79 @@ TT_TEST(filter_envelope_skipped_at_zero_amount_stays_in_time)
     fm_engine_set_param(&a, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 1200);
     fm_engine_render(&a, fbuf_a, 777);
     fm_engine_render(&b, fbuf_b, 777);
-    {
-        uint8_t i;
-        for (i = 0; i < FM_MAX_VOICES; i++)
-            if (a.voices[i].filter_env.level != b.voices[i].filter_env.level)
-                ok = 0; /* no sync: the amount is on, it steps every sample */
-    }
+    ok &= filter_envs_match(&a, &b);
     TT_CHECK(ok);
+}
+
+/* Renders `frames` and steps the reference `ref` once per sample, as the
+ * filter envelope ran before it moved to the control rate. */
+static void render_beside(fm_engine *e, fm_env *ref, uint32_t frames)
+{
+    uint32_t i;
+    fm_engine_render(e, fbuf_a, frames);
+    for (i = 0; i < frames; i++) fm_env_next(ref);
+}
+
+/* 1 if voice 0's filter envelope, caught up (on a copy: the engine is left
+ * as it is), equals `ref` in level and stage, and is at most one control
+ * period (16 samples) behind. */
+static int fenv_matches(const fm_engine *e, const fm_env *ref)
+{
+    fm_voice v = e->voices[0];
+    int near = v.fenv_lag < 16;
+    fm_voice_sync_filter_env(&v);
+    return near && v.filter_env.level == ref->level && v.filter_env.stage == ref->stage;
+}
+
+/*
+ * With an envelope amount the filter envelope runs at the control rate:
+ * it is caught up (fm_env_advance) once per cutoff update, every 16
+ * samples, not stepped every sample. Error bound: none. Caught up at any
+ * point it equals the same envelope stepped every sample, in level (0
+ * LSB) and stage, so every cutoff update reads exactly the level it read
+ * before (0 samples of timing error); in between it is at most 15 samples
+ * behind. Through a fast pluck's attack, a release from the attack, a
+ * retrigger from the release, decay into sustain, a retrigger from the
+ * sustain, and the release to idle.
+ */
+TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
+{
+    fm_env ref;
+    int ok = 1, lagged = 0;
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 2000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 4200);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 600);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 40);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 300);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_RELEASE_MS, 30);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
+    fm_engine_note_on(&feng, 48, 100);
+    ref = feng.voices[0].filter_env; /* gated on, not yet stepped */
+    render_beside(&feng, &ref, 23); /* in the attack */
+    ok &= fenv_matches(&feng, &ref);
+    lagged |= feng.voices[0].fenv_lag != 0;
+    fm_engine_note_off(&feng, 48); /* release from the attack */
+    fm_env_gate_off(&ref);
+    render_beside(&feng, &ref, 501);
+    ok &= fenv_matches(&feng, &ref);
+    lagged |= feng.voices[0].fenv_lag != 0;
+    fm_engine_note_on(&feng, 48, 100); /* retrigger from the release */
+    fm_env_gate_on(&ref);
+    render_beside(&feng, &ref, 3007); /* decay, then sustain */
+    ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_SUSTAIN;
+    lagged |= feng.voices[0].fenv_lag != 0;
+    fm_engine_note_on(&feng, 48, 100); /* retrigger from the sustain */
+    fm_env_gate_on(&ref);
+    render_beside(&feng, &ref, 211);
+    ok &= fenv_matches(&feng, &ref);
+    fm_engine_note_off(&feng, 48);
+    fm_env_gate_off(&ref);
+    render_beside(&feng, &ref, 2003); /* release to idle */
+    ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_IDLE;
+    TT_CHECK(ok);
+    TT_CHECK(lagged);
 }
 
 /*
@@ -1394,6 +1462,7 @@ static void run_filter_tests(void)
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
     TT_RUN(env_advance_retrigger_above_a_soft_peak_goes_to_decay);
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
+    TT_RUN(filter_envelope_runs_at_the_control_rate_and_stays_exact);
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
     TT_RUN(open_filter_with_sync_and_xmod_matches_the_full_render);
