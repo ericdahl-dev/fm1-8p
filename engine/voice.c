@@ -29,6 +29,8 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents)
     v->cutoff_cents = FM_FILTER_OPEN_CENTS;
     v->key_track = 0;
     v->env_amount = 0;
+    v->mix_base = 0;
+    v->mix_env = 0;
     v->key_note = 0;
     v->next_key = 0;
     fm_env_reset(&v->filter_env);
@@ -212,6 +214,15 @@ void fm_voice_release(fm_voice *v)
     }
 }
 
+/* The mix the mix envelope sets at filter envelope level `fenv`. */
+static void update_mix(fm_voice *v, int32_t fenv)
+{
+    int64_t m = v->mix_base + (((int64_t)v->mix_env * fenv) >> 30);
+    if (m < 0) m = 0;
+    if (m > FM_OSC_MIX_FULL) m = FM_OSC_MIX_FULL;
+    fm_osc_pair_set_mix(&v->osc, (int32_t)m);
+}
+
 void fm_voice_silence(fm_voice *v)
 {
     fm_env_reset(&v->amp_env);
@@ -280,7 +291,7 @@ static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
 {
     int32_t last = v->filter.s[3];
     uint32_t i;
-    if (v->env_amount || v->cutoff_dirty || v->pending || v->gate_left ||
+    if (v->env_amount || v->mix_env || v->cutoff_dirty || v->pending || v->gate_left ||
         v->filter.fade || v->filter.hp_g ||
         v->amp_env.stage == FM_ENV_IDLE)
         return 0;
@@ -327,7 +338,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             filter_env_gate_off(v);
         }
         level = fm_env_next(&v->amp_env);
-        if (v->env_amount) {
+        if (v->env_amount || v->mix_env) {
             fenv = fm_env_next(&v->filter_env);
         } else { /* no effect on the sound: caught up when needed */
             fenv = 0;
@@ -337,6 +348,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             /* with no envelope amount the cutoff changes only when a
              * setting or the note does, which marks it dirty */
             if (v->env_amount || v->cutoff_dirty) update_cutoff(v, fenv);
+            if (v->mix_env) update_mix(v, fenv);
             if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
         }
