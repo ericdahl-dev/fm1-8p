@@ -455,6 +455,31 @@ TT_TEST(mix_env_off_settles_at_the_fixed_mix)
 }
 
 /*
+ * After depth back to 0 from the edge (mix 0 plus depth +1000: osc2 alone)
+ * and its glide, the voice renders exactly as one that never had the mix
+ * envelope, and nothing of the mix envelope is left to keep it off the
+ * plain path (render_plain's conditions: depth, a glide step, the mix away
+ * from osc_mix). A step left pushing against the 0..1.0 clamp sounds right
+ * but costs the full path for good.
+ */
+TT_TEST(mix_env_off_renders_as_never_set)
+{
+    static int16_t a[2 * 8820], c[2 * 8820];
+    const fm_voice *v;
+    size_t i;
+    int same = 1;
+    render_mix_back(a, 0, 0, 4410, 8820);
+    render_mix_back(c, 0, 1000, 4410, 8820);
+    v = &eng.voices[0];
+    for (i = 2 * (4410 + 64); i < 2 * 8820; i++)
+        if (a[i] != c[i]) same = 0;
+    TT_CHECK(same);
+    TT_CHECK_EQ(v->mix_env, 0);
+    TT_CHECK_EQ(v->mix_step, 0);
+    TT_CHECK_EQ(v->osc.mix, v->mix_base);
+}
+
+/*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
  * Today's worst, 0.005 cent, is the pitch table's rounding at note 0;
@@ -1042,6 +1067,7 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_can_follow_the_amp_envelope);
     TT_RUN(mix_env_depth_change_glides_without_a_click);
     TT_RUN(mix_env_off_settles_at_the_fixed_mix);
+    TT_RUN(mix_env_off_renders_as_never_set);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
