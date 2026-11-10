@@ -179,7 +179,7 @@ divisions and no 64-bit divisions in the render path. The four stages form a
 serial chain of dependent multiplies, so on the device this is latency more
 than throughput. The device numbers come with the CPU spike.
 
-Two cases cost almost nothing, so the default patch costs about what it did
+Two cases cost almost nothing, so the default patch costs what it did
 before the filter:
 
 - **Wide open** (cutoff at the top, highpass off: the default). Every stage
@@ -196,11 +196,22 @@ before the filter:
   change to its settings or the amount, and at least every 2^24 samples. So
   turning the amount up mid-note finds it exactly where it would have been.
 
-`make bench` on a desktop i5-8350U (default patch, 6 voices, ns per voice
-and sample): 6.8 before the filter and 19.8 with the filter as first
-merged, on an idle machine. With these two cases, measured side by side on
-the same machine under load (pinned to one core, the best of seven
-interleaved runs): 9.4 before the filter against 10.0, about 6 % more.
+When both hold for a whole block, and no note waits for a steal fade and no
+release is queued, nothing about the filter can change in the block, so the
+voice renders it with a loop of just the amp envelope and the oscillators
+and does the filter's bookkeeping (its last sample, the envelope's lag, the
+control phase) once at the end. That loop calls nothing but those two: any
+other call in it costs a voice about 15 %, because the compiler must then
+reload the voice's fields every sample. It relies on the oscillator pair
+peaking within the soft clip's untouched +-2.0 (it peaks at 1.0;
+`extreme_osc_settings_stay_bounded_and_release` holds it there).
+`open_filter_without_envelope_matches_the_full_render` checks it against
+the full loop bit for bit, through setting changes on a control tick.
+
+`make bench` on a desktop i5-8350U (default patch, ns per voice and sample,
+pinned to one core, the best of seven interleaved runs): before the filter
+6.8 at 8 voices, 6.9 at 6 and 8.6 at 1; with the filter 6.7, 6.7 and 8.3.
+Without the block loop it was 9.6, 9.8 and 11.3.
 
 ### Parameter values
 
