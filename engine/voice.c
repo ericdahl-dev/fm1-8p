@@ -67,6 +67,20 @@ void fm_voice_take_back(fm_voice *v, uint32_t inc)
     start(v);
 }
 
+void fm_voice_change_note(fm_voice *v, uint8_t note, uint32_t inc,
+                          int retrigger)
+{
+    v->note = note;
+    v->key_down = 1;
+    v->sustained = 0;
+    v->gate_left = 0;
+    v->next_inc = inc;
+    if (v->pending) return; /* starts when the fade ends */
+    fm_osc_set_inc(&v->osc, inc);
+    if (retrigger || v->amp_env.stage == FM_ENV_IDLE)
+        fm_env_gate_on(&v->amp_env);
+}
+
 void fm_voice_key_up(fm_voice *v, int pedal_down)
 {
     if (pedal_down) {

@@ -26,6 +26,8 @@
 #define FM_MAX_VOICES 8
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
+/* Keys unison mode remembers for last-note priority (oldest dropped). */
+#define FM_HELD_MAX 16
 
 typedef enum {
     FM_OK = 0,
@@ -69,6 +71,8 @@ typedef struct {
     int32_t bend;          /* Q16.16 semitones added to every note */
     fm_voice voices[FM_MAX_VOICES];
     int32_t detune[FM_MAX_VOICES]; /* Q16.16 semitones each voice is off by */
+    uint8_t held[FM_HELD_MAX]; /* unison: keys down, oldest first */
+    uint8_t held_count;
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
 } fm_engine;
 

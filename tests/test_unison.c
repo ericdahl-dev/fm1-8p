@@ -65,8 +65,51 @@ TT_TEST(detune_spreads_voice_pitches_by_the_set_amount)
     }
 }
 
+/*
+ * Mono note rule in unison: last note wins. A new note moves every voice
+ * to its pitch and retriggers the envelope from its current level (no
+ * steal fade, no drop). Releasing it goes back to the newest note still
+ * held, legato: the pitch changes, the envelope carries on. Releasing the
+ * last held note releases the voices.
+ */
+TT_TEST(new_note_retriggers_and_release_returns_legato_to_held_note)
+{
+    int sustain, dip, rise, after;
+    init_unison(4, 0);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 100);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_DECAY_MS, 100);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_SUSTAIN, 300);
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_render(&poly, pbuf, PRATE / 2);
+    sustain = peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2);
+    TT_CHECK(sustain > 3000);
+
+    fm_engine_note_on(&poly, 64, 100); /* 60 still held */
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 4);
+    fm_engine_render(&poly, pbuf, PRATE / 2);
+    dip = peak_abs(pbuf, 0, 353);    /* first 8 ms: no fade out */
+    rise = peak_abs(pbuf, 2646, 3087); /* 60..70 ms: back near full */
+    printf("    sustain %d, first 8 ms %d, at 60 ms %d\n", sustain, dip, rise);
+    TT_CHECK(dip >= sustain * 95 / 100);
+    TT_CHECK(rise > sustain * 2);
+    TT_CHECK_NEAR(cents_from(64), 0, 2);
+
+    fm_engine_note_off(&poly, 64); /* back to 60, which is still held */
+    fm_engine_render(&poly, pbuf, PRATE / 5);
+    after = peak_abs(pbuf, 0, PRATE / 5);
+    TT_CHECK(after <= sustain * 105 / 100); /* no retrigger */
+    TT_CHECK(after >= sustain * 95 / 100);  /* and no release */
+    TT_CHECK_NEAR(cents_from(60), 0, 2);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 4);
+
+    fm_engine_note_off(&poly, 60); /* the last held note */
+    fm_engine_render(&poly, pbuf, PRATE / 10);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+}
+
 static void run_unison_tests(void)
 {
     TT_RUN(unison_note_uses_every_voice_and_no_more);
     TT_RUN(detune_spreads_voice_pitches_by_the_set_amount);
+    TT_RUN(new_note_retriggers_and_release_returns_legato_to_held_note);
 }
