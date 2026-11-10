@@ -414,6 +414,21 @@ static int32_t wave_at(fm_osc_pair *p, uint8_t which)
 }
 
 /*
+ * The polyBLEP osc2's first saw put on the sample just computed at phase
+ * `t` for a wrap due later in that sample, negated: a restart came first,
+ * so that wrap never happens. The same sum saw_at made (one division, as
+ * there), times the wave's gain.
+ */
+static int32_t unwrap_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
+{
+    int64_t x = (int64_t)(((uint64_t)(0u - t) << 16) / dt);
+    int64_t v = (((x * x) >> 16) - 2 * x + 65536) * 256; /* Q16 -> Q8.24 */
+    if (p->wave[1] == FM_WAVE_NOISE) return 0;
+    if (p->wave[1] == FM_WAVE_PULSE) v = (v * p->pw_gain[1]) >> 30;
+    return (int32_t)v;
+}
+
+/*
  * osc1 wrapped with sync on: restart osc2 at the same point of its own
  * cycle (osc1 is `t`, its new phase, into the sample, so osc2 is
  * t * inc2 / inc1 into its cycle) and set up the polyBLEP of osc2's jump.
@@ -424,17 +439,20 @@ static FM_NOINLINE int32_t sync_reset(fm_osc_pair *p, uint32_t t)
 {
     /* osc2's increment this sample (bent, with cross-mod) for both ends */
     uint32_t inc2 = p->osc[1].inc, cont = p->osc[1].phase + inc2, now;
-    int32_t half;
+    int32_t half, before;
     p->sync_x = (uint16_t)(((uint64_t)t << 16) / p->osc[0].inc); /* t < inc: under 1.0 */
     now = (uint32_t)(((uint64_t)p->sync_x * inc2) >> 16);
     /* osc2 was at cont - now when osc1 wrapped, and jumps to 0 there */
     half = (naive_at(p, 1, 0) - naive_at(p, 1, cont - now)) / 2;
     p->sync_step = half;
     p->sync_pend = 1;
+    /* the sample just computed, (1 - x) before the step: x^2 of the polyBLEP */
+    before = (int32_t)((half * (((int64_t)p->sync_x * p->sync_x) >> 16)) >> 16);
+    if (cont < p->osc[1].phase && cont < now)
+        before += unwrap_blep(p, p->osc[1].phase, inc2);
     p->osc[1].phase = now;
     p->osc[0].phase = t;
-    /* the sample just computed, (1 - x) before the step: x^2 of the polyBLEP */
-    return (int32_t)((half * (((int64_t)p->sync_x * p->sync_x) >> 16)) >> 16);
+    return before;
 }
 
 /* Moves both oscillators on one sample; returns sync's correction for it (0 without). */
