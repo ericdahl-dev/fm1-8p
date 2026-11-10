@@ -151,12 +151,12 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
         int32_t d;
         switch (e->stage) {
         case FM_ENV_ATTACK:
-            c = steps_before_landing(FM_ENV_FULL - e->level, e->step);
+            c = steps_before_landing(e->peak - e->level, e->step);
             if (n <= c) {
                 e->level += (int32_t)(n * (uint32_t)e->step);
                 return e->level;
             }
-            e->level = FM_ENV_FULL;
+            e->level = e->peak;
             enter_decay(e);
             n -= c + 1;
             break;

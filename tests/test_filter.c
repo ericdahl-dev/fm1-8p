@@ -1063,6 +1063,34 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
     TT_CHECK_EQ(mismatches, 0);
 }
 
+/* An envelope at `peak` (velocity) with the given times and sustain, gated on. */
+static void soft_env(fm_env *e, int32_t peak, int32_t sustain)
+{
+    fm_env_reset(e);
+    e->attack_samples = 1000;
+    e->decay_samples = 500;
+    e->release_samples = 300;
+    e->sustain = sustain;
+    e->peak = peak;
+    fm_env_gate_on(e);
+}
+
+/*
+ * With a peak below full (a soft note), advancing through the attack
+ * lands where stepping does: at the peak, entering the decay.
+ */
+TT_TEST(env_advance_attack_rises_to_a_soft_peak)
+{
+    static fm_env a, b;
+    uint32_t m = 0;
+    soft_env(&b, 600 << 20, 1 << 29);
+    a = b;
+    while (b.stage == FM_ENV_ATTACK) { fm_env_next(&b); m++; }
+    fm_env_advance(&a, m);
+    TT_CHECK_EQ(a.level, b.level);
+    TT_CHECK_EQ(a.stage, b.stage);
+}
+
 /* The patch of the skipped-envelope test, with filter env amount `amount`. */
 static void lag_patch(fm_engine *e, int32_t amount)
 {
@@ -1253,6 +1281,7 @@ static void run_filter_tests(void)
     TT_RUN(leaving_the_open_filter_continues_from_a_consistent_state);
     TT_RUN(unison_note_change_keeps_the_control_cadence);
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
+    TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
