@@ -127,6 +127,8 @@ void play_render(play *p, int32_t *out, uint32_t n)
         fm_engine_pitch_bend(&p->engine, 8192);         /* a lost center would leave it out of tune */
     }
     fm_engine_render(&p->engine, p->buf, n);
-    for (i = 0; i < 2u * n; i++)
-        out[i] += p->buf[i];
+    for (i = 0; i < 2u * n; i++) {
+        int32_t v = (int32_t)p->buf[i] * (1 << PLAY_GAIN_SHIFT);
+        out[i] += v > 32767 ? 32767 : v < -32767 ? -32767 : v;     /* saturate, never wrap */
+    }
 }

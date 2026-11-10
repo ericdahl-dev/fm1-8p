@@ -275,8 +275,35 @@ TT_TEST(play_last_note_skips_a_note_the_full_queue_dropped)
     TT_CHECK_EQ(play_last_note(&pl_a), 60);
 }
 
+/* The module's output gain: the engine's sound PLAY_GAIN_SHIFT doublings (+12 dB) louder, and
+ * past full scale it saturates instead of wrapping. */
+TT_TEST(play_output_gain_is_12_db_and_saturates)
+{
+    uint32_t i, k, louder = 0, clipped = 0;
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    /* a loud sound: wide open, resonant, every voice at full velocity */
+    (void)fm_engine_set_param(&pl_a.engine, FM_PARAM_FILTER_CUTOFF_CENTS, FM_FILTER_OPEN_CENTS);
+    (void)fm_engine_set_param(&pl_a.engine, FM_PARAM_OSC_MIX, 500);
+    for (k = 0; k < PLAY_VOICES; k++)
+        play_note(&pl_a, 40u + 7u * k, 127);
+    for (k = 0; k < 40; k++) {
+        pl_render(&pl_a);
+        for (i = 0; i < 2 * PLAY_BLOCK; i++) {
+            int32_t want = (int32_t)pl_a.buf[i] * (1 << PLAY_GAIN_SHIFT);
+            want = want > 32767 ? 32767 : want < -32767 ? -32767 : want;
+            TT_CHECK_EQ(pl_out[i], want);
+            louder |= pl_out[i] != pl_a.buf[i];
+            clipped |= pl_out[i] == 32767 || pl_out[i] == -32767;
+        }
+    }
+    TT_CHECK_EQ(PLAY_GAIN_SHIFT, 2);
+    TT_CHECK(louder);
+    TT_CHECK(clipped);                          /* the saturation was reached, not skipped */
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_output_gain_is_12_db_and_saturates);
     TT_RUN(play_last_note_skips_a_note_the_full_queue_dropped);
     TT_RUN(play_queue_overflow_lets_the_pedal_up_and_centers_the_bend);
     TT_RUN(play_note_name_spells_the_note);
