@@ -27,6 +27,9 @@ integer divided by 2^n.
 | Sync ratio | `uint32_t` | Q16.16 | 2^16 | osc2's increment over osc1's | Worked out on events; at each osc1 wrap osc2 restarts at `t * ratio >> 16`, where `t` is how far osc1 went past the wrap. |
 | Cross-mod depth | `int32_t` | Q1.30 | 2^30 | 0 to 1.0 | Times osc2's increment on events (`xmod_inc`), so each sample's bend is one multiply: `xmod_inc * osc1 >> 24`. |
 | Noise state | `uint32_t` | xorshift32 | | never 0 | Three shifts and three XORs a sample; the top bits, `>> 7`, are the Q8.24 sample. |
+| Filter pitch (cutoff, key tracking, envelope amount) | `int32_t` | cents above MIDI note 0 (8.18 Hz) | | cutoff 0 to 14400 | Cutoff, key tracking and the filter envelope add in this log domain, so one octave is always 1200 whatever the frequency. |
+| Filter stage coefficient `g` | `int32_t` | Q1.30 | 2^30 (fully open) | 0 to 1.0 | Same scale as the envelope; a stage is `y += (x - y) * g >> 30`. |
+| Resonance feedback `k` | `int32_t` | Q4.28 | 2^28 | 0 to 4.2 | 4.2 at resonance 1000. In theory the loop self-oscillates at about 4.0 across most of the range, dropping to 3.4 at the top; at the lowest cutoffs 4.2 is not enough (see Filter). |
 | Output | `int16_t` | Q1.15 | 32768 | -32768 to 32767 | What a codec or a WAV file takes. Q8.24 maps to it with `>> 9` and saturation. |
 
 Multiplies of two 32-bit values go through a 64-bit intermediate
@@ -66,11 +69,13 @@ the desktop, where a division by zero does trap.
 
 ### Gain staging
 
-Each voice is its oscillator mix (every waveform peaks at 1.0 in Q8.24) times its amp envelope (Q1.30). The voices are summed in Q8.24 and the
-sum is scaled by `0.5 / voice_count` (Q1.30), so even every voice at full
-level with lined-up peaks stays at or below half of full scale (-6 dBFS), with
-6 dB left for resonance and the chorus. The table and the reasoning are in
-[voices.md](voices.md#gain-staging).
+Each voice is its oscillator mix (every waveform peaks at 1.0 in Q8.24),
+through the filter, times its amp envelope (Q1.30). The voices are summed in
+Q8.24 and the sum is scaled by `0.5 / voice_count` (Q1.30), so even every
+voice at full level with lined-up peaks stays at or below half of full scale
+(-6 dBFS) without filter resonance. High resonance uses that 6 dB and can
+reach full scale, where the int16 conversion saturates (follow-up: #24). The
+table and the reasoning are in [voices.md](voices.md#gain-staging).
 The chorus (below) never raises the peak above its input's.
 
 The pulse is the difference of two saws, `saw(t) - saw(t + width)`, so it has
@@ -81,6 +86,137 @@ near +2.0 (a wide one near -2.0), twice the saw. A gain of 1 / (2 max(w,
 peak of 1.0, so switching between saw, square and pulse never jumps in level.
 At 50 % the gain is 1 (the square is +-1.0). The mix is a crossfade, so two
 oscillators together peak no higher than the louder one.
+
+### Filter
+
+`engine/filter.c` is a per-voice filter: a one-pole highpass, then a
+resonant 4-pole (24 dB/octave) lowpass.
+
+- **Lowpass.** Four one-pole stages in series with the last stage fed back
+  to the input times `-k`. Each stage is `m = x - (x - x1) / 4` (`x1`: its
+  input one sample ago), then `y += g * (m - y)`. The `x1` term puts a zero at
+  z = -1/3 in each stage. Without it the stages lag too little in phase at
+  high cutoffs, so the one-sample delay in the feedback made the loop buzz at
+  Nyquist there, and stay below self-oscillation at the bottom. With it,
+  resonance 1000 self-oscillates close to the cutoff and never at Nyquist.
+  Measured at 44.1 kHz (an impulse, then zero crossings 6 to 8 s later), the
+  ringing is within 2 cents of the cutoff from 16 Hz to 440 Hz (+1.7 cents at
+  16 Hz, -0.6 at 440 Hz), then increasingly flat: 4 cents at 880 Hz, 12 at
+  1.5 kHz, 23 at 2.1 kHz, 63 at 3.5 kHz and 286 at 8.4 kHz (it rings at
+  7.1 kHz). The test holds it within a semitone below 4 kHz. Cutoffs
+  above Nyquist ring at about fs/4 (11 kHz at 44.1 kHz) until the top-of-range
+  fade silences the feedback. At the bottom, the self-oscillation sustains
+  from about 15 Hz at 44.1 or 48 kHz and from about 33 Hz at 192 kHz; below
+  that, resonance 1000 rings down instead. The feedback sum goes through a soft clip: a wire up to
+  +-2.0 (a full-scale saw passes untouched), then a quadratic knee that
+  flattens at +-4.0. `m` is a weighted average of `x` and `x1`, and `y` of `m`
+  and the old `y`, so no state can pass the clip's limit. The filter cannot
+  overflow or run away at any resonance, and self-oscillation settles at a
+  fixed level (about 0.83 of full scale at mid cutoffs).
+- **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
+  env_amount * env_level`, all in cents, computed every 16 samples (a
+  2.8 kHz control rate at 44.1 kHz), not per sample. Key tracking follows the
+  MIDI note number only: pitch bend and each oscillator's octave and fine
+  tune move the oscillators but not the cutoff. The coefficient is the
+  matched-pole `g = 1 - e^(-2 pi fc / fs)`, worked out from two small
+  tables (`tools/gen_filter_tables.py`): `2^(cents / 1200)` in 16-cent steps,
+  and `(1 - e^-x) / x`, both linearly interpolated. The sample rate's own
+  pitch in cents is found once at init (`fm_filter_rate_cents`, a binary
+  search with no division), so the update needs only multiplies, shifts and
+  divisions by the constant 1200. Corners at or above Nyquist use the Nyquist
+  coefficient (about 0.957). Across the top 600 cents of the range (13800 to
+  14400) the stage zero, the feedback and `1 - g` fade linearly to zero, so
+  the maximum cutoff (14400, the default) is an exact wire and the default
+  patch sounds exactly as it did before the filter.
+- **Highpass.** `x - lowpass(x)` with a one-pole lowpass, so it cannot
+  resonate. Turning it on clears that lowpass, so the output starts equal to
+  the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
+  and 560 Hz (6 dB/octave).
+- **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
+  amp envelope; its amount is -9600 to +9600 cents (8 octaves either way).
+  It starts where the amp envelope does: from 0 on an idle voice or after a
+  steal fade (whatever level the last note left it at), from its level on a
+  retrigger. During a steal fade the old note keeps its own key-tracked
+  cutoff; the new note's applies when it starts, as its pitch does.
+
+Measured response (`tests/test_filter.c`, sines at 44.1 kHz, cutoff 440 Hz).
+The acceptance tolerance for the 24 dB/octave slope is: at resonance 0, each
+octave's drop within +-2 dB of the ideal 4-pole; at resonance 600, the octave
+above the cutoff 24 +-3 dB below the cutoff point.
+
+| Measurement | Measured | Ideal 4-pole | Test tolerance |
+| --- | --- | --- | --- |
+| 3 octaves below cutoff | -0.27 dB | -0.27 dB | above -0.5 dB |
+| At cutoff, no resonance | -12.0 dB | -12.0 dB | +-2 dB |
+| Drop over the 1st octave above cutoff (880 Hz: -28.0 dB) | 15.9 dB | 15.9 dB | +-2 dB |
+| Drop over the 2nd octave (1760 Hz: -49.3 dB) | 21.3 dB | 21.2 dB | +-2 dB |
+| Drop over the 3rd octave (3520 Hz: -73.0 dB) | 23.6 dB | 23.3 dB | +-2 dB |
+| Drop over the 1st octave, resonance 600 | 24.4 dB | 24.4 dB | 24 +-3 dB |
+| At cutoff, resonance 500 / 900 | -5.6 / +9.6 dB | -5.6 / +13.2 dB | each at least 5 / 12 dB above the previous |
+
+With no resonance, four equal poles meet at the cutoff, so the cutoff point
+itself is -12 dB and the slope approaches 24 dB/octave further up (23.6 dB
+over the third octave).
+A moderate resonance (around 600) lifts the cutoff point to about -3.4 dB,
+and the octave above it is then about 24 dB lower. Near self-oscillation the
+peak is lower than the ideal analog ladder's (+9.6 against +13.2 dB at 900):
+close to threshold, the small differences between the digital loop and the
+analog one matter most. Resonance also costs bass (the
+passband is `1 / (1 + k)` of the input; -14 dB at resonance 1000), as in the
+analog ladder it is modeled on; there is no gain compensation.
+
+Highpass gains: at 55 Hz, 0 / -6.4 / -13.2 / -20.6 dB for positions 0 to 3;
+at 110 Hz, 0 / -2.7 / -7.8 / -14.7 dB.
+
+Cost per sample, per voice: five 32x32->64 multiplies (four stages and the
+feedback) and about 40 adds, shifts and compares, plus one multiply for the
+highpass when it is on, one in the clip only above +-2.0, and the filter
+envelope step. Inside the top 600 cents of cutoff the stage zero takes a
+multiply instead of a shift (four more). The cutoff update every 16 samples
+adds about ten multiplies and three divisions by constants (1200 and 10,
+which compile to multiplies), under one multiply per sample on average; it
+is skipped when nothing feeding it changed, and the coefficients are not
+recomputed when the cutoff comes out the same. There are no per-sample
+divisions and no 64-bit divisions in the render path. The four stages form a
+serial chain of dependent multiplies, so on the device this is latency more
+than throughput. The device numbers come with the CPU spike.
+
+Two cases cost almost nothing, so the default patch costs what it did
+before the filter:
+
+- **Wide open** (cutoff at the top, highpass off: the default). Every stage
+  passes its input through exactly, so the render skips the filter
+  (`fm_filter_run`, inline: four compares, for the fade, the highpass and
+  the input's range) and keeps only the last sample.
+  When a setting ends that, the stages are filled from it, exactly the state
+  running the filter would have left, so the change is bit for bit the same
+  as if the filter had run all along.
+- **No envelope amount** (the default). The filter envelope cannot change
+  the sound, so it is not stepped every sample: it counts the samples it is
+  behind and is caught up by `fm_env_advance` (exactly that many steps, with
+  one 32-bit division per stage it crosses) before every gate and every
+  change to its settings or the amount, and at least every 2^24 samples. So
+  turning the amount up mid-note finds it exactly where it would have been.
+
+When both hold for a whole block, and no note waits for a steal fade and no
+release is queued, nothing about the filter can change in the block, so the
+voice renders it with a loop of just the amp envelope and the oscillators
+and does the filter's bookkeeping (its last sample, the envelope's lag, the
+control phase) once at the end. That loop calls nothing but those two: any
+other call in it costs a voice about 15 %, because the compiler must then
+reload the voice's fields every sample. It relies on the oscillator pair
+peaking within the soft clip's untouched +-2.0 (it peaks at 1.0, with sync
+and cross-mod too; `extreme_osc_settings_stay_bounded_and_release` and
+`max_xmod_and_sync_stay_in_range` hold it there).
+`open_filter_without_envelope_matches_the_full_render` (and
+`open_filter_with_sync_and_xmod_matches_the_full_render`, with osc2 synced
+and fully cross-modulated) checks it against the full loop bit for bit,
+through setting changes on a control tick.
+
+`make bench` on a desktop i5-8350U (default patch, ns per voice and sample,
+pinned to one core, the best of seven interleaved runs): before the filter
+6.8 at 8 voices, 6.9 at 6 and 8.6 at 1; with the filter 6.7, 6.7 and 8.3.
+Without the block loop it was 9.6, 9.8 and 11.3.
 
 ### Parameter values
 
@@ -184,7 +320,9 @@ How it works, per sample:
 
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 2.1 KiB (2072 bytes on x86-64), inside `fm_engine`, plus the 256-byte
-`mix_right` buffer. With the voices' LFO and velocity state and their sync and cross-mod state, that makes `fm_engine` about 4.1 KiB (4224 bytes), so
+`mix_right` buffer. With the voices' LFO and velocity state, their sync and
+cross-mod state and their filters (124 bytes each) that makes `fm_engine`
+about 5.1 KiB (5252 bytes), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
