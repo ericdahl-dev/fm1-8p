@@ -39,8 +39,19 @@ static uint32_t us_to_frames(uint64_t us, uint32_t rate)
     return (uint32_t)(us * rate / 1000000u);
 }
 
-static void dispatch(fm_engine *e, const smf_event *ev)
+/* Channel (0..15) of the first note on, or 0 if there is none. */
+static uint8_t first_note_channel(const smf_song *song)
 {
+    size_t i;
+    for (i = 0; i < song->count; i++)
+        if ((song->events[i].status & 0xF0) == 0x90)
+            return (uint8_t)(song->events[i].status & 0x0F);
+    return 0;
+}
+
+static void dispatch(fm_engine *e, const smf_event *ev, uint8_t channel)
+{
+    if ((ev->status & 0x0F) != channel) return;
     switch (ev->status & 0xF0) {
     case 0x90: fm_engine_note_on(e, ev->data1, ev->data2); break;
     case 0x80: fm_engine_note_off(e, ev->data1); break;
@@ -65,7 +76,13 @@ int render_midi_file(const char *midi_path, const char *wav_path,
     int16_t *pcm;
     int rc;
     uint32_t voices = o->voice_count ? o->voice_count : RENDER_DEFAULT_VOICES;
+    uint8_t channel;
 
+    if (o->channel > 16) {
+        fprintf(stderr, "MIDI channel %u out of range (1..16)\n",
+                (unsigned)o->channel);
+        return -1;
+    }
     if (voices > FM_MAX_VOICES) {
         fprintf(stderr, "voice count %u out of range (1..%d)\n",
                 (unsigned)voices, FM_MAX_VOICES);
@@ -87,6 +104,7 @@ int render_midi_file(const char *midi_path, const char *wav_path,
         fprintf(stderr, "%s: %s\n", midi_path, err);
         return -1;
     }
+    channel = o->channel ? (uint8_t)(o->channel - 1) : first_note_channel(&song);
     total_us = song.end_us + (uint64_t)o->tail_ms * 1000u;
     if (total_us > (uint64_t)MAX_SECONDS * 1000000u) {
         fprintf(stderr, "%s: longer than %u s\n", midi_path, MAX_SECONDS);
@@ -118,7 +136,7 @@ int render_midi_file(const char *midi_path, const char *wav_path,
             fm_engine_render(&eng, pcm + 2 * (size_t)done, at - done);
             done = at;
         }
-        if (i < song.count) dispatch(&eng, &song.events[i]);
+        if (i < song.count) dispatch(&eng, &song.events[i], channel);
     }
     smf_free(&song);
 
