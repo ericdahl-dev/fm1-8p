@@ -22,12 +22,6 @@ static uint32_t ms_to_samples(const fm_engine *e, int32_t ms)
     return (uint32_t)(((uint64_t)(uint32_t)ms * e->sample_rate) / 1000u);
 }
 
-/* Phase increment for `note` with the current bend. */
-static uint32_t note_inc(const fm_engine *e, uint8_t note)
-{
-    return fm_osc_pitch_inc(((int32_t)note << 16) + e->bend, e->sample_rate);
-}
-
 /* Phase increment for voice `i` playing `note`: the note, the bend and
  * the voice's unison detune. */
 static uint32_t voice_inc(const fm_engine *e, uint8_t i, uint8_t note)
@@ -109,6 +103,25 @@ static void apply_param(fm_engine *e, uint16_t id)
     }
 }
 
+/* Releases a voice's note and ages it from now. */
+static void release(fm_engine *e, fm_voice *v)
+{
+    v->stamp = ++e->stamp;
+    fm_voice_release(v);
+}
+
+/* Releases every note, held by a key or the pedal, and forgets the
+ * unison held keys. */
+static void release_all(fm_engine *e)
+{
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++) {
+        fm_voice *v = &e->voices[i];
+        if (v->key_down || v->sustained) release(e, v);
+    }
+    e->held_count = 0;
+}
+
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count)
 {
@@ -144,6 +157,8 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value)
     if (!e || !info) return FM_ERR_ARG;
     if (value < info->min) value = info->min;
     if (value > info->max) value = info->max;
+    if (id == FM_PARAM_VOICE_MODE && value != e->params[id])
+        release_all(e); /* a clean start in the new mode */
     e->params[id] = value;
     apply_param(e, id);
     return FM_OK;
@@ -152,13 +167,6 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value)
 int32_t fm_engine_get_param(const fm_engine *e, uint16_t id)
 {
     return (e && id < FM_PARAM_COUNT) ? e->params[id] : 0;
-}
-
-/* Releases a voice's note and ages it from now. */
-static void release(fm_engine *e, fm_voice *v)
-{
-    v->stamp = ++e->stamp;
-    fm_voice_release(v);
 }
 
 /* The sounding voice that has `note`, or null. At most one voice has a
@@ -206,6 +214,15 @@ static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
     return best;
 }
 
+/* Poly: voice `v` plays `note` in tune (no unison detune). */
+static void poly_play(fm_engine *e, fm_voice *v, uint8_t note)
+{
+    uint8_t i = (uint8_t)(v - e->voices);
+    e->detune[i] = 0;
+    v->stamp = ++e->stamp;
+    fm_voice_note_on(v, note, voice_inc(e, i, note), e->fade_samples);
+}
+
 /* The voice fading `note` out after a steal, or null. */
 static fm_voice *find_fading(fm_engine *e, uint8_t note)
 {
@@ -227,14 +244,15 @@ static fm_voice *find_fading(fm_engine *e, uint8_t note)
 static void take_back(fm_engine *e, fm_voice *f, uint8_t note)
 {
     uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
+    uint8_t fi = (uint8_t)(f - e->voices);
     fm_voice *w;
-    fm_voice_take_back(f, note_inc(e, note));
+    e->detune[fi] = 0;
+    fm_voice_take_back(f, voice_inc(e, fi, note));
     f->stamp = ++e->stamp;
     if (!key_down && !sustained) return;
     w = pick_voice(e, f);
     if (!w) return;
-    w->stamp = ++e->stamp;
-    fm_voice_note_on(w, moved, note_inc(e, moved), e->fade_samples);
+    poly_play(e, w, moved);
     if (!key_down) fm_voice_key_up(w, 1); /* held by the pedal */
 }
 
@@ -315,8 +333,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
             }
             v = pick_voice(e, 0);
         }
-        v->stamp = ++e->stamp;
-        fm_voice_note_on(v, note, note_inc(e, note), e->fade_samples);
+        poly_play(e, v, note);
     }
 }
 

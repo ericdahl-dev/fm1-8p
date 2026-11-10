@@ -169,6 +169,47 @@ TT_TEST(unison_at_full_velocity_never_clips)
     }
 }
 
+/*
+ * Switching modes releases every note, and poly mode then allocates as
+ * usual: one in-tune voice per note (a bend retunes without bringing
+ * back the unison detune). Back in unison, keys from before the switch
+ * are forgotten, so releasing a new note cannot fall back to one of them
+ * and leave it stuck.
+ */
+TT_TEST(switching_back_to_poly_restores_normal_allocation)
+{
+    static const int chord[8] = { 1, 1, 1, 1, 0, 0, 0, 0 };
+    double ref = solo_amp(4, 60);
+    int n;
+    init_unison(4, 100);
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_set_param(&poly, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY);
+    fm_engine_render(&poly, pbuf, PRATE / 10); /* 2 x the release */
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+    fm_engine_note_off(&poly, 60); /* its key, after the switch */
+
+    for (n = 0; n < 4; n++)
+        fm_engine_note_on(&poly, (uint8_t)(60 + n), 100);
+    fm_engine_pitch_bend(&poly, 8192); /* center: retunes every voice */
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 4);
+    TT_CHECK(check_sounding(ref, chord));
+    fm_engine_note_off(&poly, 61); /* releases 61 alone */
+    fm_engine_render(&poly, pbuf, PRATE / 10);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 3);
+
+    /* back to unison while 60, 62 and 63 are held */
+    fm_engine_set_param(&poly, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_render(&poly, pbuf, PRATE / 10);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+    fm_engine_note_on(&poly, 64, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 4);
+    fm_engine_note_off(&poly, 64); /* nothing from before to go back to */
+    fm_engine_render(&poly, pbuf, PRATE / 10);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+}
+
 static void run_unison_tests(void)
 {
     TT_RUN(unison_note_uses_every_voice_and_no_more);
@@ -176,4 +217,5 @@ static void run_unison_tests(void)
     TT_RUN(new_note_retriggers_and_release_returns_legato_to_held_note);
     TT_RUN(unison_note_changes_do_not_click);
     TT_RUN(unison_at_full_velocity_never_clips);
+    TT_RUN(switching_back_to_poly_restores_normal_allocation);
 }
