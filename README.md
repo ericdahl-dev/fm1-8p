@@ -26,8 +26,11 @@ make bench           # times the engine per voice count (see Benchmark)
 make render-demo     # renders examples/demo.mid to build/demo.wav
 
 ./build/fm1-8p-render -r 44100 -v 6 -s amp_attack_ms=200 -s amp_release_ms=800 \
-    song.mid song.wav
+    -s chorus_mode=1 song.mid song.wav
 ```
+
+`chorus_mode` is 0 (off, the default), 1 (slow), 2 (deep) or 3 (fast); the
+modes are described in [docs/fixed-point.md](docs/fixed-point.md#chorus).
 
 Run `./build/fm1-8p-render` with no arguments to list every option and
 parameter.

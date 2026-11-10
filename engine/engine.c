@@ -3,8 +3,11 @@
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  */
+#include "chorus.h"
 #include "fm1_8p.h"
 
+/* Below 8 kHz slow LFO and delay settings lose precision. */
+#define MIN_SAMPLE_RATE 8000u
 #define MAX_SAMPLE_RATE 192000u
 /* A stolen voice fades out over this long before its new note starts. */
 #define STEAL_FADE_MS 3
@@ -141,6 +144,10 @@ static void apply_param(fm_engine *e, uint16_t id)
             retune(e); /* a sounding unison note follows at once */
         return;
     }
+    if (id == FM_PARAM_CHORUS_MODE) {
+        fm_chorus_set_mode(&e->chorus, (uint8_t)v);
+        return;
+    }
     for (i = 0; i < e->voice_count; i++) {
         fm_env *env = &e->voices[i].amp_env;
         switch (id) {
@@ -198,7 +205,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
 {
     uint16_t id;
     uint8_t i;
-    if (!e || sample_rate == 0 || sample_rate > MAX_SAMPLE_RATE ||
+    if (!e || sample_rate < MIN_SAMPLE_RATE || sample_rate > MAX_SAMPLE_RATE ||
         voice_count == 0 || voice_count > FM_MAX_VOICES)
         return FM_ERR_ARG;
     e->sample_rate = sample_rate;
@@ -217,6 +224,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         fm_voice_reset(&e->voices[i], (uint32_t)(i + 1) * 0x9E3779B9u);
         e->detune[i] = 0;
     }
+    fm_chorus_init(&e->chorus, sample_rate);
     /* all defaults first: some settings combine several parameters */
     for (id = 0; id < FM_PARAM_COUNT; id++)
         e->params[id] = fm_param_info_get(id)->def;
@@ -431,6 +439,7 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
     uint8_t i;
     if (controller == 64) e->pedal_down = value >= 64;
     if (controller == 120 || controller == 123) unison_reset(e);
+    if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         switch (controller) {
@@ -482,12 +491,21 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_render_add(&e->voices[k], e->mix, n, e->sample_rate);
-        for (i = 0; i < n; i++) {
-            /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
-            int16_t s = to_int16(
-                (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30));
-            out[2 * i] = s;
-            out[2 * i + 1] = s;
+        /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
+        for (i = 0; i < n; i++)
+            e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
+        if (fm_chorus_is_on(&e->chorus)) {
+            fm_chorus_process_block(&e->chorus, e->mix, e->mix_right, n);
+            for (i = 0; i < n; i++) {
+                out[2 * i] = to_int16(e->mix[i]);
+                out[2 * i + 1] = to_int16(e->mix_right[i]);
+            }
+        } else {
+            for (i = 0; i < n; i++) {
+                int16_t s = to_int16(e->mix[i]);
+                out[2 * i] = s;
+                out[2 * i + 1] = s;
+            }
         }
         out += 2 * n;
         frames -= n;
