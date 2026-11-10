@@ -1316,6 +1316,38 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
 }
 
 /*
+ * A steal leaves the filter envelope running (only the amp fades) and a
+ * take-back (the stolen note played again mid fade) gates it on again
+ * from where it is: through both, mid control period, it stays equal to
+ * an envelope stepped every sample, and the take-back's first sample
+ * sets the cutoff from that envelope's level.
+ */
+TT_TEST(filter_envelope_through_a_steal_and_take_back_stays_exact)
+{
+    fm_env ref;
+    int ok = 1;
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 4200);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 40);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 300);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
+    fm_engine_note_on(&feng, 60, 100);
+    ref = feng.voices[0].filter_env; /* gated on, not yet stepped */
+    render_beside(&feng, &ref, 301); /* in the decay */
+    fm_engine_note_on(&feng, 64, 100); /* steals the only voice: a fade */
+    render_beside(&feng, &ref, 19);
+    ok &= fenv_matches(&feng, &ref);
+    fm_engine_note_on(&feng, 60, 100); /* taken back mid fade */
+    fm_env_gate_on(&ref);
+    render_beside(&feng, &ref, 1);
+    ok &= feng.voices[0].cutoff_now == fm_filter_voice_cents(4200, 0, 60, ref.level, 4800);
+    render_beside(&feng, &ref, 437);
+    ok &= fenv_matches(&feng, &ref);
+    TT_CHECK(ok);
+}
+
+/*
  * With no envelope amount but the osc mix following the filter envelope
  * (mix envelope on, source 0), the envelope is read at every control
  * point for the mix, so it is caught up there exactly as with an amount:
@@ -1532,6 +1564,7 @@ static void run_filter_tests(void)
     TT_RUN(filter_envelope_runs_at_the_control_rate_and_stays_exact);
     TT_RUN(legato_note_change_reads_the_current_filter_envelope);
     TT_RUN(filter_envelope_for_the_mix_alone_stays_exact);
+    TT_RUN(filter_envelope_through_a_steal_and_take_back_stays_exact);
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
     TT_RUN(open_filter_with_sync_and_xmod_matches_the_full_render);
