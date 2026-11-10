@@ -7,12 +7,20 @@
 #include "tinytest.h"
 #include "analysis.h"
 
+/* The public header gives callers the engine's storage, not the chorus
+ * functions: fm_chorus_* is internal (engine/chorus.h). */
+#include "../engine/fm1_8p.h"
+#ifdef FM_CHORUS_H
+#error "fm1_8p.h must not include engine/chorus.h"
+#endif
+
 #include "test_engine.c"
 #include "test_host.c"
 #include "test_poly.c"
 #include "test_unison.c"
 #include "test_cpu_test.c"
 #include "test_osc.c"
+#include "test_chorus.c"
 #include "test_filter.c"
 
 int main(void)
@@ -23,6 +31,7 @@ int main(void)
     run_unison_tests();
     run_cpu_test_tests();
     run_osc_tests();
+    run_chorus_tests();
     run_filter_tests();
     return tt_report();
 }

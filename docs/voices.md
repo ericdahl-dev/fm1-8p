@@ -270,10 +270,12 @@ voices are skipped. Per sample for the whole engine: one
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-`fm_engine` is about 2.2 KiB (2232 bytes on x86-64) with room for 8 voices.
-Unison adds 49 bytes (8 detune offsets and the 16 held keys). Each voice is
-224 bytes: the oscillator pair is 60, and the filter 108 (its state, its
-envelope and its settings); without the filter `fm_engine` is 1332 bytes.
+The voices take about 1.8 KiB with room for 8 (224 bytes each: the
+oscillator pair is 60 and the filter 108, its state, its envelope and its
+settings), and unison adds 49 bytes (8 detune offsets and the 16 held keys).
+With the chorus (its 2 KiB delay line and a 256-byte right-side buffer)
+`fm_engine` is about 4.5 KiB (4564 bytes on x86-64), so static storage is
+recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per
 voice (one per oscillator's pitch, plus one more for each pulse oscillator's

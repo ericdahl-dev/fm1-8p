@@ -4,9 +4,12 @@
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
- * allocation: the caller owns the fm_engine storage (static or on a task
- * stack) and fm_engine_init sets up everything inside it. See
- * docs/fixed-point.md for the number formats.
+ * allocation: the caller owns the fm_engine storage and fm_engine_init
+ * sets up everything inside it. fm_engine is about 4.5 KiB (4564 bytes on
+ * 32- and 64-bit desktops and on Cortex-M), almost half of it the chorus
+ * delay line and about 0.9 KiB the voices' filters, so static storage is
+ * recommended; a task stack must have room for it on
+ * top of its other use. See docs/fixed-point.md for the number formats.
  *
  * The struct layout is exposed only so callers can allocate it; treat
  * every field as private.
@@ -21,6 +24,7 @@
 
 #include <stdint.h>
 
+#include "chorus_state.h"
 #include "voice.h"
 
 #define FM_MAX_VOICES 8
@@ -52,6 +56,7 @@ typedef enum {
     FM_PARAM_OSC2_OCTAVE,
     FM_PARAM_OSC2_FINE_CENTS,
     FM_PARAM_OSC_MIX,              /* per mille: 0 osc1 only, 1000 osc2 only */
+    FM_PARAM_CHORUS_MODE, /* 0 = off, then the fm_chorus_mode modes */
     /* lowpass cutoff, cents above MIDI note 0 (6900 = 440 Hz);
      * FM_FILTER_OPEN_CENTS (the maximum) is fully open */
     FM_PARAM_FILTER_CUTOFF_CENTS,
@@ -96,11 +101,15 @@ typedef struct {
     uint8_t held[FM_HELD_MAX]; /* unison: keys down, oldest first */
     uint8_t held_count;
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
+    int32_t mix_right[FM_MIX_FRAMES]; /* the chorus's right side, Q8.24 */
+    /* output stage, after the voices are mixed: about 2.1 KiB, almost
+     * all of it the delay line (see chorus_state.h) */
+    fm_chorus chorus;
 } fm_engine;
 
 /*
  * Sets up `e` for `voice_count` voices (1..FM_MAX_VOICES) at
- * `sample_rate` Hz (1..192000) with every parameter at its default.
+ * `sample_rate` Hz (8000..192000) with every parameter at its default.
  * Each note takes a voice; with more notes than voices the engine steals
  * one (the rule is in docs/voices.md). In unison mode (FM_PARAM_VOICE_MODE)
  * every voice plays the newest note instead, detuned. Each voice is mixed at

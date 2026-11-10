@@ -27,6 +27,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_OSC2_OCTAVE,    "osc2_octave",        -2,    2,    0 },
     { FM_PARAM_OSC2_FINE_CENTS, "osc2_fine_cents",  -100,  100,   0 },
     { FM_PARAM_OSC_MIX,        "osc_mix_permille",    0, 1000,    0 },
+    { FM_PARAM_CHORUS_MODE,    "chorus_mode",         0, FM_CHORUS_MODE_COUNT - 1, 0 },
     { FM_PARAM_FILTER_CUTOFF_CENTS, "filter_cutoff_cents", 0,
       FM_FILTER_OPEN_CENTS, FM_FILTER_OPEN_CENTS },
     { FM_PARAM_FILTER_RESONANCE, "filter_resonance_permille", 0, 1000, 0 },
