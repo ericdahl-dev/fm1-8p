@@ -163,10 +163,11 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_OSC_MIX:
         for (i = 0; i < FM_MAX_VOICES; i++) {
             e->voices[i].mix_base = fm_permille_to_q30(v);
-            if (e->voices[i].mix_env)
-                continue; /* the next control tick glides there */
-            e->voices[i].mix_step = 0;
-            fm_osc_pair_set_mix(&e->voices[i].osc, e->voices[i].mix_base);
+            if (!e->voices[i].mix_env) { /* else the next tick glides there */
+                e->voices[i].mix_step = 0;
+                fm_osc_pair_set_mix(&e->voices[i].osc, e->voices[i].mix_base);
+            }
+            fm_voice_mark_mix(&e->voices[i]);
         }
         return;
     case FM_PARAM_OSC_MIX_ENV_SOURCE: /* the filter envelope is caught up when read */
@@ -174,8 +175,10 @@ static void apply_param(fm_engine *e, uint16_t id)
             e->voices[i].mix_src = (uint8_t)v;
         return;
     case FM_PARAM_OSC_MIX_ENV:
-        for (i = 0; i < FM_MAX_VOICES; i++)
+        for (i = 0; i < FM_MAX_VOICES; i++) {
             e->voices[i].mix_env = fm_permille_to_q30(v); /* off: glides back to osc_mix */
+            fm_voice_mark_mix(&e->voices[i]);
+        }
         return;
     default:
         break;
@@ -247,17 +250,17 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_FILTER_CUTOFF_CENTS:
             vc->cutoff_cents = v;
-            vc->cutoff_dirty = 1;
+            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         case FM_PARAM_FILTER_RESONANCE:
             fm_filter_set_resonance(&vc->filter, v);
             break;
         case FM_PARAM_FILTER_KEY_TRACK:
             vc->key_track = v;
-            vc->cutoff_dirty = 1;
+            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         case FM_PARAM_HIGHPASS_STEP:
-            fm_filter_set_highpass(&vc->filter, (uint8_t)v, vc->rate_cents);
+            fm_voice_set_highpass(vc, (uint8_t)v);
             break;
         case FM_PARAM_FILTER_ENV_ATTACK_MS:
             flt->attack_samples = fm_ms_to_samples(v, e->sample_rate);
@@ -277,7 +280,8 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
             vc->env_amount = v;
-            vc->cutoff_dirty = 1;
+            fm_voice_mark(vc, FM_BUSY_FILTER_ENV, v != 0);
+            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         default:
             break;

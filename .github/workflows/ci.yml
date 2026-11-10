@@ -32,7 +32,7 @@ jobs:
       - name: Tests with AddressSanitizer and UBSan
         run: |
           make clean
-          make test CFLAGS="-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all"
+          make test CFLAGS="-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DFM_CHECK_BUSY"
           make clean
 
       - name: Long benchmark run under UBSan (the output buffer must not pile up)
