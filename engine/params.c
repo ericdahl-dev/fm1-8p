@@ -32,6 +32,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_LFO_DELAY_MS,   "lfo_delay_ms",        0,  5000,    0 },
     { FM_PARAM_LFO_PITCH_CENTS, "lfo_pitch_cents",    0,  1200,    0 },
     { FM_PARAM_AMP_VELOCITY,   "amp_velocity_pct",    0,   100,    0 },
+    { FM_PARAM_LFO_PW_PCT,     "lfo_pw_pct",          0,    49,    0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)

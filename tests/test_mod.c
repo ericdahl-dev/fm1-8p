@@ -66,6 +66,16 @@ static size_t mod_phrase(int16_t *out)
 
 static int16_t mod_ref[MOD_RATE * 2 * 2];
 
+/* Both oscillators sounding: a 30 % pulse and a detuned saw, half and
+ * half, so every LFO target has something to change. */
+static void mod_osc_setup(void)
+{
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, 30);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_FINE_CENTS, 7);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 500);
+}
+
 /*
  * Renders the phrase with every LFO setting at its default into mod_ref,
  * then with `id` at `value` plus a fast square LFO and a delay, into
@@ -75,8 +85,10 @@ static int same_as_default(uint16_t id, int32_t value, size_t *frames)
 {
     size_t n;
     fm_engine_init(&mod_eng, MOD_RATE, 3);
+    mod_osc_setup();
     n = mod_phrase(mod_ref);
     fm_engine_init(&mod_eng, MOD_RATE, 3);
+    mod_osc_setup();
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 3000);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 20);
@@ -240,12 +252,53 @@ TT_TEST(unison_legato_return_keeps_the_last_strike_velocity)
     TT_CHECK_NEAR(back, soft, soft * 0.05);
 }
 
+TT_TEST(zero_pulse_width_depth_leaves_the_output_untouched)
+{
+    size_t n;
+    TT_CHECK(same_as_default(FM_PARAM_LFO_PW_PCT, 0, &n));
+    TT_CHECK(!same_as_default(FM_PARAM_LFO_PW_PCT, 20, &n));
+}
+
+/* Share of samples above zero over [from_ms, to_ms): a pulse's duty. */
+static double duty_between(const int16_t *stereo, double from_ms,
+                           double to_ms)
+{
+    size_t from = (size_t)(from_ms * MOD_RATE / 1000.0);
+    size_t to = (size_t)(to_ms * MOD_RATE / 1000.0), i, high = 0;
+    for (i = from; i < to; i++)
+        if (stereo[2 * i] > 0) high++;
+    return (double)high / (double)(to - from);
+}
+
+TT_TEST(lfo_to_pulse_width_moves_the_duty_by_the_depth)
+{
+    TT_CHECK_EQ(fm_engine_init(&mod_eng, MOD_RATE, 1), FM_OK);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, 50);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 100); /* 1 Hz */
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PW_PCT, 30);
+    fm_engine_note_on(&mod_eng, 45, 127); /* 110 Hz: 401 samples a cycle */
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE);
+    /* 50 % + 30 % for the first half second, 50 % - 30 % after */
+    TT_CHECK_NEAR(duty_between(mod_buf, 50, 450), 0.80, 0.01);
+    TT_CHECK_NEAR(duty_between(mod_buf, 550, 950), 0.20, 0.01);
+    /* and the pulse stays at its set level (peak 1.0 at any width) */
+    TT_CHECK_NEAR(peak_abs(mod_buf, MOD_RATE / 20, MOD_RATE * 9 / 20),
+                  peak_abs(mod_buf, MOD_RATE * 11 / 20, MOD_RATE * 19 / 20),
+                  200);
+}
+
 static void run_mod_tests(void)
 {
     TT_RUN(lfo_to_pitch_moves_the_pitch_by_the_depth);
     TT_RUN(zero_pitch_depth_leaves_the_output_untouched);
     TT_RUN(lfo_delay_holds_modulation_at_zero_then_fades_it_in);
     TT_RUN(block_size_does_not_change_lfo_output);
+    TT_RUN(zero_pulse_width_depth_leaves_the_output_untouched);
+    TT_RUN(lfo_to_pulse_width_moves_the_duty_by_the_depth);
     TT_RUN(higher_velocity_gives_louder_output);
     TT_RUN(softer_retrigger_glides_down_without_a_click);
     TT_RUN(unison_legato_return_keeps_the_last_strike_velocity);

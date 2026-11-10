@@ -56,6 +56,7 @@ typedef struct {
     int32_t mix;       /* share of the second oscillator, Q1.30 0..1.0 */
     uint32_t base[2];  /* increment before the pitch modulation */
     int32_t mod_oct;   /* pitch modulation (LFO), Q16.16 octaves */
+    int32_t pw_mod;    /* pulse width modulation (LFO), Q0.32 of a cycle */
     uint32_t noise;    /* xorshift32 state, never 0 */
     uint8_t wave[2];   /* fm_wave */
 } fm_osc_pair;
@@ -96,6 +97,14 @@ void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate);
  * unmodulated pitch (docs/modulation.md#pitch).
  */
 void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct);
+/*
+ * Pulse width modulation: `offset` (Q0.32 of a cycle, signed) is added
+ * to both oscillators' set widths, clamped to 1..99 % and the pitch
+ * limits. The gain that keeps a pulse at peak 1.0 then comes from a
+ * reciprocal by Newton's method (no divide), so it can run at the
+ * control rate. 0 restores the widths exactly.
+ */
+void fm_osc_pair_set_pw_mod(fm_osc_pair *p, int32_t offset);
 /* Next mixed sample, Q8.24. */
 int32_t fm_osc_pair_next(fm_osc_pair *p);
 

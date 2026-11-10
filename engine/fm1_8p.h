@@ -57,6 +57,7 @@ typedef enum {
     FM_PARAM_LFO_DELAY_MS,    /* zero for this long, then fades in as long */
     FM_PARAM_LFO_PITCH_CENTS, /* vibrato depth at full LFO, each way */
     FM_PARAM_AMP_VELOCITY,    /* percent: 0 ignores velocity, 100 full curve */
+    FM_PARAM_LFO_PW_PCT,      /* pulse width depth, percent of a cycle each way */
     FM_PARAM_COUNT
 } fm_param_id;
 

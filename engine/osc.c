@@ -122,6 +122,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
         p->base[i] = 0;
     }
     p->mod_oct = 0;
+    p->pw_mod = 0;
     p->mix = 0;
     p->noise = seed ? seed : 0x2545F491u;
 }
@@ -151,9 +152,32 @@ static int32_t pulse_gain(uint32_t w)
  * a 1% pulse is 0.2 samples wide. Above a quarter of the sample rate
  * there is room only for a square.
  */
+/*
+ * pulse_gain without the divide, for widths the LFO moves every control
+ * tick: 1 / (2 max(w, 1 - w)) from the seed 48/17 - 32/17 m and two
+ * Newton steps, x = x (2 - m x), good to about 1e-5 (0.0001 dB).
+ */
+static int32_t pulse_gain_fast(uint32_t w)
+{
+    int64_t m = (w >= 0x80000000u ? w : 0u - w) >> 2; /* Q30, 0.5..1 */
+    int64_t x = 3031741621ll - ((2021161081ll * m) >> 30); /* Q30 */
+    x = (x * ((1ll << 31) - ((m * x) >> 30))) >> 30;
+    x = (x * ((1ll << 31) - ((m * x) >> 30))) >> 30; /* 1 / m, Q30 */
+    return (int32_t)(x >> 1);
+}
+
+/* 1 % of a cycle, Q0.32: the narrowest pulse the LFO can make. */
+#define PW_MIN 42949673u
+
 static void update_pw(fm_osc_pair *p, uint8_t i)
 {
     uint32_t inc = p->osc[i].inc, w = p->width[i], lo;
+    if (p->pw_mod) {
+        int64_t m = (int64_t)w + p->pw_mod;
+        if (m < PW_MIN) m = PW_MIN;
+        if (m > 0x100000000ll - PW_MIN) m = 0x100000000ll - PW_MIN;
+        w = (uint32_t)m;
+    }
     if (inc >= 0x40000000u) {
         w = 0x80000000u;
     } else if (inc) { /* no pitch yet: nothing to limit (0 - 0 would be 0) */
@@ -162,7 +186,16 @@ static void update_pw(fm_osc_pair *p, uint8_t i)
         if (w > 0u - lo) w = 0u - lo;
     }
     p->pw[i] = w;
-    p->pw_gain[i] = pulse_gain(w);
+    p->pw_gain[i] = p->pw_mod ? pulse_gain_fast(w) : pulse_gain(w);
+}
+
+void fm_osc_pair_set_pw_mod(fm_osc_pair *p, int32_t offset)
+{
+    uint8_t i;
+    if (offset == p->pw_mod) return;
+    p->pw_mod = offset;
+    for (i = 0; i < 2; i++)
+        if (p->wave[i] == FM_WAVE_PULSE) update_pw(p, i);
 }
 
 /* Sets oscillator `i`'s increment for `pitch` plus its tuning. */
@@ -228,7 +261,9 @@ void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, int32_t pct)
 
 void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave)
 {
-    if (which < 2 && wave < FM_WAVE_COUNT) p->wave[which] = wave;
+    if (which >= 2 || wave >= FM_WAVE_COUNT) return;
+    p->wave[which] = wave;
+    if (wave == FM_WAVE_PULSE) update_pw(p, which); /* any LFO offset */
 }
 
 void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate)

@@ -15,6 +15,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed)
     v->wait = 0;
     v->gate_left = 0;
     v->pitch_oct = 0;
+    v->pw_off = 0;
     v->lfo_fade = 0;
     v->lfo_wait = 0;
     v->lfo_restart = 0;
@@ -31,10 +32,11 @@ int fm_voice_active(const fm_voice *v)
     return v->amp_env.stage != FM_ENV_IDLE || v->pending;
 }
 
-/* The oscillators apply the LFO's current pitch offset. */
+/* The oscillators apply the LFO's current offsets. */
 static void apply_pitch(fm_voice *v)
 {
     fm_osc_pair_set_pitch_mod(&v->osc, v->pitch_oct);
+    fm_osc_pair_set_pw_mod(&v->osc, v->pw_off);
 }
 
 /* A note starts: the LFO's pitch offset drops to 0 and its delay
@@ -42,6 +44,7 @@ static void apply_pitch(fm_voice *v)
 static void restart_lfo(fm_voice *v)
 {
     v->pitch_oct = 0;
+    v->pw_off = 0;
     v->lfo_restart = 1;
 }
 
@@ -149,7 +152,7 @@ void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
 
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m)
 {
-    int32_t pitch;
+    int32_t pitch, pw;
     if (v->lfo_restart) {
         v->lfo_restart = 0;
         v->lfo_wait = m->delay_ticks;
@@ -164,8 +167,11 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m)
         lfo = (int32_t)(((int64_t)lfo * v->lfo_fade) >> 30);
     /* Q1.30 * Q16.16 octaves -> Q16.16 octaves */
     pitch = (int32_t)(((int64_t)lfo * m->pitch_oct) >> 30);
-    if (pitch != v->pitch_oct) {
+    /* Q1.30 * Q0.32 -> Q0.32 */
+    pw = (int32_t)(((int64_t)lfo * m->pw) >> 30);
+    if (pitch != v->pitch_oct || pw != v->pw_off) {
         v->pitch_oct = pitch; /* a fading old note keeps its vibrato */
+        v->pw_off = pw;
         apply_pitch(v);
     }
 }

@@ -31,6 +31,7 @@ typedef struct {
     uint32_t wait;     /* length of the current steal fade, in samples */
     uint32_t gate_left; /* samples until a queued release (0: none) */
     int32_t pitch_oct; /* LFO pitch offset now applied, Q16.16 octaves */
+    int32_t pw_off;    /* LFO pulse width offset now applied, Q0.32 */
     int32_t lfo_fade;  /* LFO delay / fade-in level, Q1.30 */
     uint32_t lfo_wait; /* control ticks of LFO delay left */
     int32_t next_peak; /* amp peak (velocity) for the next note start */
@@ -45,6 +46,7 @@ typedef struct {
 /* What the LFO does to every voice, set by the engine from the patch. */
 typedef struct {
     int32_t pitch_oct;    /* pitch depth at full LFO, Q16.16 octaves */
+    int32_t pw;           /* pulse width depth at full LFO, Q0.32 */
     uint32_t delay_ticks; /* LFO delay, and fade-in time, in ticks */
     int32_t fade_step;    /* Q1.30 fade-in per tick after the delay */
 } fm_voice_mod;

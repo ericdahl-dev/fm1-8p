@@ -146,6 +146,9 @@ static void apply_param(fm_engine *e, uint16_t id)
                                ? (int32_t)(FM_LFO_FULL / e->mod.delay_ticks)
                                : FM_LFO_FULL;
         return;
+    case FM_PARAM_LFO_PW_PCT:
+        e->mod.pw = v * 42949673; /* percent -> Q0.32, at most 0.49 */
+        return;
     case FM_PARAM_LFO_PITCH_CENTS:
         /* cents -> Q16.16 octaves: exact for multiples of 75 cents */
         e->mod.pitch_oct = v * 65536 / 1200;
