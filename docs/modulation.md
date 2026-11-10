@@ -18,8 +18,8 @@ Every depth defaults to 0 and so does `amp_velocity_pct`, so a patch that
 does not set them renders byte-identical to an engine without this module
 (`zero_pitch_depth_leaves_the_output_untouched`,
 `zero_pulse_width_depth_leaves_the_output_untouched`, and the host's demo
-render). A cutoff route (`lfo_cutoff`) and filter velocity land with the
-filter (#7).
+render). A cutoff route (`lfo_cutoff`) and filter velocity land in #8
+after the filter.
 
 ## One LFO, a delay per voice
 
@@ -187,8 +187,8 @@ the level never jumps:
 is louder, that the level follows the curve within 1 %, that 50 %
 sensitivity goes halfway, and that 0 % ignores velocity.
 
-Filter velocity (velocity also opening the cutoff) lands with the filter
-(#7).
+Filter velocity (velocity also opening the cutoff) lands in #8 after the
+filter.
 
 ## Cost
 
