@@ -362,8 +362,21 @@ TT_TEST(ui_octave_change_marks_the_header)
     TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
 }
 
+/* The header's octave, as the host's line reads it: OCT -2 .. OCT +2, OCT +0 at the center. */
+TT_TEST(ui_octave_label_reads_like_the_hosts)
+{
+    char s[UI_VALUE_LEN];
+    ui_octave_label(-2, s);
+    TT_CHECK(strcmp(s, "OCT -2") == 0);
+    ui_octave_label(0, s);
+    TT_CHECK(strcmp(s, "OCT +0") == 0);
+    ui_octave_label(1, s);
+    TT_CHECK(strcmp(s, "OCT +1") == 0);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_octave_label_reads_like_the_hosts);
     TT_RUN(ui_octave_change_marks_the_header);
     TT_RUN(ui_new_last_note_marks_the_note_strip);
     TT_RUN(ui_env_on_4a_does_nothing);

@@ -325,3 +325,14 @@ uint32_t ui_next_band(uint32_t *pending)
     *pending &= ~b;
     return b;
 }
+
+void ui_octave_label(int32_t oct, char *s)
+{
+    static const char OCT[] = "OCT ";
+    uint32_t i;
+    for (i = 0; OCT[i]; i++)
+        s[i] = OCT[i];
+    s[i++] = oct < 0 ? '-' : '+';
+    s[i++] = (char)('0' + (oct < 0 ? -oct : oct));
+    s[i] = 0;
+}

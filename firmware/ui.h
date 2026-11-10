@@ -91,6 +91,8 @@ const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 /* the UI_D_* bits to redraw now (0: nothing, or the last redraw was under UI_FRAME_MS ago), taken */
 uint32_t ui_take(ui *u, uint32_t ms);
+/* the header's octave, as the host's line reads it ("OCT +1"); s: UI_VALUE_LEN */
+void ui_octave_label(int32_t oct, char *s);
 /* the host asked for all of it (draw(full)): UI_D_ALL, and nothing stays pending */
 uint32_t ui_take_full(ui *u, uint32_t ms);
 /* the next band to draw out of pending (UI_D_* bits, in drawing order), taken out of it; 0: none */
