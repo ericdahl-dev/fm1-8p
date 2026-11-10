@@ -49,7 +49,8 @@ abspath() {
     fi
 }
 
-# stage_module SRC DEST ENGINE_DIR: a copy of module SRC's module.cfg in DEST with every path absolute,
+# stage_module SRC DEST ENGINE_DIR: a copy of module SRC's module.cfg in DEST with every path absolute
+# (sources, includes and the file of each `cflags FILE =`),
 # its own .c files added, @ENGINE_SOURCES@ replaced by every ENGINE_DIR/*.c and @ENGINE@ by ENGINE_DIR.
 # So a new engine file is built with no firmware edit.
 stage_module() {
@@ -70,6 +71,11 @@ stage_module() {
                     esac
                 done
                 echo "$key =$out" ;;
+            cflags\ =*) echo "$line" ;;
+            cflags\ *=*)                         # hbmod's `cflags FILE =`: FILE relative to the module
+                file=${line#cflags } file=${file%% =*}
+                case "$file" in /*) ;; *) file=$(abspath "$src/$file") ;; esac
+                echo "cflags $file =${line#* =}" ;;
             *) echo "$line" ;;
         esac
     done <"$1/module.cfg" >"$2/module.cfg"

@@ -42,6 +42,22 @@ expect_ok "staged module keeps its other settings" grep -qx 'cflags = -Os' "$cfg
 : >"$T/eng/new.c"
 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
 expect_ok "a new engine file is built with no firmware edit" has " $(sed -n 's/^sources = //p' "$cfg") " "$T/eng/new.c"
+# hbmod's `cflags FILE =` names a file relative to the module, so staging makes it absolute too.
+printf 'name = x\nsources = ../shared.c\nincludes = ..\ncflags = -O2\ncflags own.c = -Os\ncflags ../shared.c = -O3\n' >"$T/mod/sub/module.cfg"
+stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
+expect_ok "a file's own cflags name its own file absolutely" grep -qx "cflags $T/mod/sub/own.c = -Os" "$cfg"
+expect_ok "... and a listed source's" grep -qx "cflags $T/mod/shared.c = -O3" "$cfg"
+expect_ok "... and the module's cflags stay" grep -qx 'cflags = -O2' "$cfg"
+# The engine and the CPU test (the render path) build -O2, the screen and keys -Os (#34: -Os kept every
+# per-sample call out of line; -O2 took step F from 55.9 % to 44.1 % of core 0 in fm1-emu).
+ui=$(abspath firmware/fm1_8p_cpu/fm1_8p_cpu.c)
+for m in firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
+    stage_module "$m" "$T/staged/$(basename "$m")" engine >/dev/null 2>&1
+    flags=" $(sed -n 's/^cflags = //p' "$T/staged/$(basename "$m")/module.cfg") "
+    expect_ok "$m builds the engine -O2" has "$flags" -O2
+    expect_fail "... not -Os" has "$flags" -Os
+    expect_ok "... and its screen and keys -Os" grep -qx "cflags $ui = -Os" "$T/staged/$(basename "$m")/module.cfg"
+done
 for m in firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
     expect_ok "$m takes the engine's sources from engine/" grep -q '@ENGINE_SOURCES@' "$m/module.cfg"
 done
