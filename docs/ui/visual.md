@@ -1,309 +1,305 @@
-# On-device UI: visual directions
+# On-device UI: visual design
 
-This document covers how fm1-8p looks on the FM-1's 240 x 240 screen and how its LEDs behave.
-It sets out three directions, each with four mockup screens, and recommends one (**C, Night
-Panel**). What each control does is the interaction model's job (`docs/ui/interaction.md`).
-Where this document assumes something about controls, such as page order, parameter numbers or
-which keys are the 16 steps, it says so. Those assumptions give way to the interaction model.
+This document covers how fm1-8p looks on the FM-1's 240 x 240 screen. Eric's picks of
+2026-11-10 settled the three main choices:
+
+- **Two themes, switchable:** Membrane and Night Panel. There is one layout, and each theme is a
+  table of colors and style choices, so switching theme is a data swap rather than a second code
+  path.
+- **A piano-roll sequencer** in both themes.
+- **fm1-8p's own display font** for values and names. The host's Terminus stays for the small
+  labels.
+
+What each control does is the interaction model's job, in [`interaction.md`](interaction.md)
+(PR #51). This document follows it for:
+
+- the section names (DCO-1, DCO-2, MIX, VCF, VCF ENV, VCA, LFO, CTRL);
+- the two-digit parameter numbers, where the tens digit is the section (VCF is 41-44);
+- the 12-page order;
+- the split keyboard in SEQ view (F3..G#4 are the 16 step keys, and A4..G5 play chords);
+- the separate pattern slots;
+- the key LED rules;
+- the per-state screen content of its section 6.
 
 The look is inspired by a mid-80s two-oscillator polysynth panel and by synthwave. It copies no
-logo, wordmark, panel artwork or factory patch name. The device is called "fm1-8p" on screen,
-and every patch name here is invented.
+logo, wordmark, panel artwork or factory patch name. The device is called "fm1-8p" on screen.
+The patch and pattern names are invented, and the display font is an original design.
 
 ## Mockups
 
-`docs/ui/mockups/render.py` draws every screen with only what the fm1-dock host gives a module:
-`fill`, lines, pixels, the host's own fonts and `blit`. It then quantizes each screen to RGB565
-the way the panel shows it, so the PNGs show colors the device can actually display.
+Each theme has five screens. Every screen comes at 240 x 240 and as a 3x copy (720 x 720) for a
+phone. [`mockups/compare.png`](mockups/compare.png) shows all ten screens, one theme per row.
+
+| screen | Membrane | Night Panel |
+| --- | --- | --- |
+| PLAY (patch) | [1x](mockups/membrane/1-play.png) / [3x](mockups/membrane/1-play-3x.png) | [1x](mockups/night-panel/1-play.png) / [3x](mockups/night-panel/1-play-3x.png) |
+| EDIT 4A VCF | [1x](mockups/membrane/2-vcf.png) / [3x](mockups/membrane/2-vcf-3x.png) | [1x](mockups/night-panel/2-vcf.png) / [3x](mockups/night-panel/2-vcf-3x.png) |
+| EDIT 5A VCF ENV | [1x](mockups/membrane/3-env.png) / [3x](mockups/membrane/3-env-3x.png) | [1x](mockups/night-panel/3-env.png) / [3x](mockups/night-panel/3-env-3x.png) |
+| SEQ view (piano roll) | [1x](mockups/membrane/4-seq.png) / [3x](mockups/membrane/4-seq-3x.png) | [1x](mockups/night-panel/4-seq.png) / [3x](mockups/night-panel/4-seq-3x.png) |
+| GLO, THEME setting | [1x](mockups/membrane/5-glo.png) / [3x](mockups/membrane/5-glo-3x.png) | [1x](mockups/night-panel/5-glo.png) / [3x](mockups/night-panel/5-glo-3x.png) |
+
+The display font is shown in [`mockups/font-specimen-3x.png`](mockups/font-specimen-3x.png), and
+its data is in [`mockups/display_font.h`](mockups/display_font.h).
+
+`mockups/render.py` draws every screen with only what a module has: `fill`, lines, pixels,
+`blit`, and the host's Terminus 8x16. The script reads Terminus from fm1-dock's
+`firmware/gen/felucca_font.h`, and stops if that file is missing. It quantizes every pixel to
+RGB565 the way the panel shows it, so the PNGs show colors the device can actually display. The
+script also bakes the display font and writes `display_font.h`.
 
 ```sh
-python3 docs/ui/mockups/render.py            # needs Pillow and fm1-dock's firmware/gen/felucca_font.h
-python3 docs/ui/mockups/render.py --contrast # also prints the contrast and RGB565 tables
+python3 docs/ui/mockups/render.py             # needs Pillow; fm1-dock at ~/Projects/fm1-8p-ref/fm1-dock, $FM1_DOCK or --font
+python3 docs/ui/mockups/render.py --contrast  # also prints each theme's RGB565 values and contrast
 ```
 
-The script finds the font at `~/Projects/fm1-8p-ref/fm1-dock`, or at `$FM1_DOCK`, or at the path
-given with `--font`. If the font is missing, the script stops rather than draw in a different
-font.
+The mockups show one moment in both themes:
 
-| direction | patch | section page (VCF) | envelope (ENV-1) | sequencer |
+- **Patch:** 23 CHROME DUSK, edited.
+- **Pattern:** 41 NIGHT DRIVE, edited, playing at step 7, 112 BPM on the internal clock.
+- **Focus:** on the edit pages, knob 2 is the focus (42 RESO, 52 DECAY). On GLO the focus is
+  G34 THEME.
+- **SEQ view:**
+  - page S2;
+  - the cursor on step 5, a C minor 7 chord, tied into step 6;
+  - A4 C5 E5 held on the chord keys;
+  - pattern 42 queued next.
+
+## One layout
+
+All the screens share one grid (`LAYOUT` in `render.py`). Every position below is the same in
+both themes.
+
+| band | rows | contents |
+| --- | --- | --- |
+| header | 0-23 | the state or section chip, its context, and the transport on the right: a play or stop mark, step, tempo and clock source (`07 112 INT`). On EDIT pages a 12-segment strip on the header's bottom rule shows where the page sits in the page order, and on GLO a 3-segment strip does the same. |
+| focus | 28-73 | a 64 x 46 LED window with the parameter number, then the section name, the full label, and the value in D24 with its unit |
+| slot | 78-133 | a single 230 x 56 canvas. It holds the filter response (VCF), the ADSR (VCF ENV and VCA), the art (PLAY) or the theme cards (GLO). |
+| knob columns | 138-221 | four 56 x 84 columns with 2 px gaps, left to right for KNOB1-4. Each column holds the number, the label, a meter, and the value in D24 with its unit. |
+| footer | 224-239 | the patch number and name with `*` when edited, and the pattern number on the right. A 1.5 s banner (`SAVED 23`, and so on) replaces the footer. |
+
+The SEQ view keeps the header and footer, and uses its own body (see the piano roll below).
+
+- **Margins and widths:** the outer margin is 5 px. Labels are at most 7 characters, which
+  is 56 px in Terminus, the width of a column.
+- **The PLAY screen** uses the same bands:
+  - the LED window shows the patch number;
+  - the focus row shows the name in D20;
+  - the slot holds the art;
+  - the columns are the four performance knobs: 41 CUTOFF, 42 RESO, 43 ENV and 64 RELEASE, each
+    in its own section's color.
+
+  After a turn, the focus readout takes the name row for 3 s.
+- **Values:**
+  - a column shows the value in D24 with its unit in Terminus (`1.25k`, `480ms`, `+24st`);
+  - the focus row shows the unit in full (`1.25 kHz`);
+  - a choice too long for D24 in 56 px, such as `MEMB` or `NIGHT`, falls back to Terminus.
+- **Inactive and pending values:** an inactive value, such as 14 WIDTH when WAVE isn't PULSE,
+  is drawn in `dim` and has no meter. A pending parameter shows `--`. A reserved slot leaves
+  its column empty.
+
+## Two themes: the style table
+
+A theme is one table. These are all the keys, so they are also everything that differs between
+the two themes:
+
+| key | Membrane | Night Panel | what it changes |
+| --- | --- | --- | --- |
+| `bg` | `18E4` | `0863` | the screen |
+| `surface` | `2145` | `18C5` | columns, footer, cells |
+| `surface_hi` | `31A7` | `2107` | the focus column, legend chips |
+| `line` | `3A09` | `2969` | rules, frames, unlit meter |
+| `text` | `EF3A` cream | `EF7F` | values, focused labels |
+| `dim` | `A513` | `9CB7` | other labels |
+| `ink` | `1082` | `0863` | text on a chip or on the sunset |
+| `window` | `0861` | `0021` | LED and graph windows |
+| `led` | `F984` red | the section color | the 7-segment digits |
+| `ghost` | 10 % | 8 % | unlit segments, as this much of the LED color |
+| `header` | `chip` | `band` | the section name on a chip of its color, or in its color under a 3 px band |
+| `meter_segments`, `meter_gap` | 0, 0 (one bar) | 8, 2 (an LED ladder) | the knob meter |
+| `focus` | `(1.0, 1.0)` | `(1.0, 0.45, 0.2)` | frames inward from the focused element's edge, as mixes from `bg` to the accent: a 2 px frame, or a glow |
+| `hatch` | 0 | 16 % | the fill under graph curves |
+| `art` | `badge` | `sun` | the PLAY slot: six sunset bands with the device name, or the striped sun over a perspective grid |
+| `playhead`, `cursor` | `EF3A`, `F984` | `2EDF`, `EF7F` | the SEQ playhead and step cursor |
+| `sun` | `FE88 FD87 FC67 FB49 F24E D1D2` | `FEC9 FD88 FC48 FAEC F1F2 C198` | the sunset bands (PLAY only) |
+| `grid`, `horizon` | none | `5953`, `F9FB` | the perspective grid (PLAY only) |
+
+All values are RGB565, which is what `HB_RGB()` produces.
+
+### Section colors
+
+| section | Membrane | Night Panel |
+| --- | --- | --- |
+| 1x DCO-1 | `EC07` orange | `FAF4` pink |
+| 2x DCO-2 | `EDC7` amber | `FC47` orange |
+| 3x MIX | `CE15` stone | `DEBE` lilac white |
+| 4x VCF | `4D9A` steel blue | `2EDF` cyan |
+| 5x VCF ENV | `DB53` rose | `FE07` amber |
+| 6x VCA | `8E4C` green | `7F8F` green |
+| 7x LFO | `9C5C` lavender | `B3FF` violet |
+| 8x CTRL | `5657` teal | `3D1F` blue |
+| SEQ | `FB4D` red | `F9FB` magenta |
+| GLO | `CE15` stone | `DEBE` lilac white |
+| PLAY | `EF3A` cream | `F9FB` magenta |
+
+### Contrast
+
+All ratios are WCAG ratios, computed on the quantized RGB565 values.
+
+- **Text:** at least 10.2:1 on every surface in Membrane, and 13.9:1 in Night Panel.
+- **Dim labels:** at least 4.9:1 in Membrane and 5.6:1 in Night Panel.
+- **Section colors:** at least 4.7:1 on `surface` and 4.9:1 on `bg`.
+
+### Where the layouts differ, and why it stays minimal
+
+The theme changes only the following, and none of it moves anything:
+
+1. **The meter.** Membrane draws one continuous bar and Night Panel draws an 8-segment ladder.
+   Both are the same `meter()` call in the same 44 x 6 box, with a segment count from the table
+   (0 means continuous). A choice parameter always draws one segment per choice in both themes.
+2. **The header.** Membrane puts the name on a chip and Night Panel puts a band over colored
+   text. Both are 24 px tall, and the text starts at the same row.
+3. **Focus.** Membrane draws a 2 px frame and Night Panel draws a 3-step glow. Both are frames
+   drawn inward from the column's edge, at most 12 fills.
+4. **The PLAY art.** Membrane fills the slot with the badge and Night Panel with the sun. Both
+   fill the same slot and are drawn once.
+
+The text sizes, the positions, the fonts, the 7-segment window, the graphs, the piano roll and
+the key strip are identical.
+
+### THEME in GLO, and what a switch redraws
+
+THEME takes the reserved slot G34 (GLO page 3, K4): `MEMBRANE`, `NIGHT`. The default is Night
+Panel, and the setting is one byte in the settings record.
+
+| No. | Knob | Setting | Shown as | Default |
 | --- | --- | --- | --- | --- |
-| A Membrane | [1x](mockups/a-membrane/1-patch.png) / [3x](mockups/a-membrane/1-patch-3x.png) | [1x](mockups/a-membrane/2-vcf.png) / [3x](mockups/a-membrane/2-vcf-3x.png) | [1x](mockups/a-membrane/3-env.png) / [3x](mockups/a-membrane/3-env-3x.png) | [1x](mockups/a-membrane/4-seq.png) / [3x](mockups/a-membrane/4-seq-3x.png) |
-| B Outrun | [1x](mockups/b-outrun/1-patch.png) / [3x](mockups/b-outrun/1-patch-3x.png) | [1x](mockups/b-outrun/2-vcf.png) / [3x](mockups/b-outrun/2-vcf-3x.png) | [1x](mockups/b-outrun/3-env.png) / [3x](mockups/b-outrun/3-env-3x.png) | [1x](mockups/b-outrun/4-seq.png) / [3x](mockups/b-outrun/4-seq-3x.png) |
-| C Night Panel | [1x](mockups/c-night-panel/1-patch.png) / [3x](mockups/c-night-panel/1-patch-3x.png) | [1x](mockups/c-night-panel/2-vcf.png) / [3x](mockups/c-night-panel/2-vcf-3x.png) | [1x](mockups/c-night-panel/3-env.png) / [3x](mockups/c-night-panel/3-env-3x.png) | [1x](mockups/c-night-panel/4-seq.png) / [3x](mockups/c-night-panel/4-seq-3x.png) |
+| G34 | K4 | THEME | MEMBRANE, NIGHT (the column shows `MEMB` or `NIGHT`, and the focus row the full name) | NIGHT |
 
-[`mockups/compare.png`](mockups/compare.png) shows all twelve screens at 1x, one direction per
-row.
+- **The GLO slot shows a card for each theme,** each drawn in its own colors, with the chosen
+  card framed. You see both before you turn.
+- **A turn applies at once.** It changes the theme pointer and calls `draw(full)` once:
+  - everything is redrawn, about 57.6 k pixels;
+  - that includes the slot art the next time PLAY shows;
+  - it is debounced by 150 ms, so a fast turn back and forth redraws once.
+- **The LEDs do not change.** They are one color each in hardware, and their states don't depend
+  on the theme.
+- **The setting is saved** 2 s after the last change, once nothing sounds, as GLO's other
+  settings are.
 
-The mockups all show the same state, so the directions can be compared like for like:
+## The display font
 
-- **Patch:** A17.
-- **VCF page:** knob 2 (RESO, parameter 42) is being turned.
-- **ENV-1 page:** knob 2 (DECAY, parameter 62) is being turned.
-- **Sequencer:** 112 BPM and 16 steps. Step 5 holds a C minor 7 chord, tied into step 6, and
-  is open for editing. The playhead is on step 7. Steps 4 and 14 are ties, and steps 2, 8, 12
-  and 16 are rests.
+The display font is an original geometric face, upper case only. Glyphs are strokes on a grid 4
+units wide and 6 units tall (I is 2 units wide, M and W are 5), with 45° chamfers instead of
+curves. A square pen draws the strokes and the result is baked to 1 bit per pixel, so both sizes
+come from one design. It has 45 characters: space, `#%+-./:`, 0-9 and A-Z.
 
-## Shared foundations (all three directions)
+| size | use | cap height | pen | digit width | advance |
+| --- | --- | --- | --- | --- | --- |
+| D24 | values: column values, the focus value | 24 px | 3 px | 11 px | 13 px |
+| D20 | names: patch name, theme name, chord name | 20 px | 3 px | 11 px | 13 px |
 
-### Canvas and type
+The 3-digit value `480` is 37 px wide, so it fits a 56 px column with a Terminus unit after it.
+The longest names fit the focus row's 158 px: `NIGHT PANEL` takes 136 px, and 12 characters fit.
 
-- **Canvas:** 240 x 240, RGB565. All colors below are given as RGB565 hex, which is what the
-  `HB_RGB()` macro produces. Expect banding in any gradient. Every gradient here is drawn as
-  deliberate, hard-edged bands, one `fill` per band, so the banding is part of the look and
-  costs nothing per frame.
-- **Type:** only the host's two fonts, which are Terminus.
+- **Flash: 3960 bytes for both sizes,** under the 6 KB budget. D24 takes 2016 bytes of bitmaps
+  plus 132 bytes of tables (2148). D20 takes 1680 plus 132 (1812).
+- **Format (`display_font.h`):**
+  - `DFONT_CHARS` lists the characters, and a glyph's index is its place in it;
+  - per glyph, a width `W[i]` (u8) and an offset `OFF[i]` (u16) into `DATA`;
+  - the bitmap is 1 bit per pixel, MSB first, `ceil(w / 8)` bytes per row, and `H` rows;
+  - the advance is the width plus `GAP` (2 px);
+  - lower case folds to upper case, and any other character draws as a space.
+- **Drawing it: expand, then one `blit`.** The module expands the text into a RGB565 row buffer
+  the size of its box, high byte first as `blit` takes it, filled with the background, with
+  each set bit written in the foreground. Then it makes one `blit`.
+  - A 56 x 24 column value is 1344 pixels: a 2.7 KB buffer and one blit.
+  - A 158 x 24 focus value is 7.6 KB.
+  - Expanding is a few thousand cycles in the main loop, never in the audio interrupt.
+  - The alternatives cost more. `cv_pixel` would be one host call per lit pixel, about 400 for
+    a value. A fill per run would be about 100 host calls. One blit replaces the old value
+    without flicker, because the background is part of it.
+- **The host's Terminus (16 px)** stays for the small labels, numbers, units, the footer and the
+  note names. It is the only font with lower case (`Eb3`, `ms`).
+- **The 7-segment window stays fills-only.** It shows 2 digits at 16 x 36 with a 4 px stroke,
+  ghost segments, and a 1 px cut between segments. It costs at most 7 fills per digit, and only
+  the changed segments are redrawn.
 
-  | style | size | grid | use |
-  | --- | --- | --- | --- |
-  | S | 16 px tall | 8 px advance, 30 columns | labels and secondary values; lower case available |
-  | L | 32 px tall | 16 px advance, 15 columns | patch names and the focused value; upper case, digits and `ASCII 32..95` only |
+## The piano-roll sequencer (SEQ view)
 
-  Labels are at most 6 characters (48 px) so they fit a 53 px knob column.
-- **Custom fonts:** a module could draw its own font through `blit` or `cv_pixel`, as FM-106
-  does with Dinghy's `gfx.c`. These directions do not, to save flash and keep text the same
-  as the host's. The one extra glyph set is the 7-segment display below, which is drawn
-  entirely with `fill`.
+The SEQ view follows `interaction.md`'s SEQ list, top to bottom:
 
-### The 7-segment display
-
-The 7-segment display carries the panel DNA: a parameter number, a patch number or a step number
-on a dark LED window.
-
-- **Digit sizes:**
-
-  | size | width | height | stroke |
-  | --- | --- | --- | --- |
-  | large | 20 px | 40 px | 4 px |
-  | patch number in B | 18 px | 34 px | 3 px |
-  | B header | 9 px | 16 px | 2 px |
-
-- **Cut segments:** strokes of 3 px or more have a 1 px gap where segments meet, so they read
-  as separate LED segments.
-- **Ghost segments:** unlit segments are drawn as faint "ghost" segments, at 8-12 % of the lit
-  color mixed into the window. This makes the window read as a real LED and keeps each digit's
-  shape steady.
-- **Characters:** `0-9 A b C d E F P U -`. A patch shows as bank letter + two digits (`A17`).
-- **Cost:** at most 7 fills per digit, and only the segments that change are redrawn.
-
-### The glow
-
-The glow marks the active element. It is the element's frame in the accent color, plus two
-frames outside it at 45 % and 20 % of the accent mixed into the background.
-
-- **Cost:** 12 fills.
-- **Where it applies:** only to the element under the hand. That is the knob being turned, the
-  playing step, or the step being edited.
-- **One at a time:** there is never more than one glow per screen, apart from the playhead plus
-  the step being edited on the sequencer.
-
-### Layout grid
-
-- **Header and margins:** rows 0-23 are a header, which is the same band as the host's
-  `HB_TOP`. The page body starts at row 24 or below, so the layouts still work if the host
-  keeps its top line. The outer margin is 8 px on all sides.
-- **Knob order:** the four knobs map left to right, to four 53 px columns with 4 px gaps
-  (8 + 4 x 53 + 3 x 4 = 232) in C, and to rows K1-K4 in A. Wherever the layout allows, the
-  screen order matches the panel order.
-- **Graphs:** each graph fits in one off-screen canvas, which is at most 240 x 96.
-
-### Section colors and parameter numbers (assumed)
-
-Each section has its own accent, as a panel's sections do. The parameter number's tens digit is
-the section, so 4x is always VCF. The numbers are placeholders until `interaction.md` fixes the
-pages.
-
-| page | numbers | A Membrane | B Outrun | C Night Panel |
-| --- | --- | --- | --- | --- |
-| DCO-1 | 11-14 | `EC07` orange | `F95A` magenta | `FAF4` pink |
-| DCO-2 | 21-24 | `EDC7` amber | `B27F` violet | `FC47` orange |
-| MIX | 31-34 | `CE15` stone | `F77F` white | `DEBE` lilac white |
-| VCF | 41-44 | `4D9A` steel blue | `275F` cyan | `2EDF` cyan |
-| VCA | 51-54 | `8E4C` green | `3FF5` mint | `7F8F` green |
-| ENV-1 | 61-64 | `DB53` rose | `FC43` orange | `FE07` amber |
-| ENV-2 | 71-74 | `B399` purple | `FE87` yellow | `FF0E` pale yellow |
-| LFO | 81-84 | `9C5C` lavender | `FAD1` hot pink | `B3FF` violet |
-| CHORUS | 91-94 | `5657` teal | `4CDF` blue | `3D1F` blue |
-| SEQ | step no. | `EA8A` red | `F95A` magenta | `F9FB` magenta |
-
-Every section color reaches at least 4.9:1 contrast against its own direction's background.
-Text reaches at least 13.9:1, and dimmed text reaches at least 4.9:1 on every surface it is
-used on. These are WCAG AA ratios, computed on the quantized RGB565 values.
-
-### LEDs (the hardware)
-
-The key and button LEDs are one color each, and the firmware cannot change that color. Each LED
-has three states: off, lit (`led(id, 1)`) and glow (`led(id, 2)`, a dim light). Color coding
-therefore lives only on the screen. The LEDs follow these rules in every direction:
-
-| state | meaning |
+| rows | what |
 | --- | --- |
-| **lit** | where you are, or what is on: the current section's button, PLAY while playing, REC while recording, a step that has notes |
-| **glow** | what you can press now: the other section buttons, PLAY when stopped with a pattern, an empty step inside the pattern length |
-| **off** | nothing to do: a step beyond the length, a button that does nothing on this page |
+| 0-23 | `SEQ`, the SEQ page (`S2 STEP`), the transport |
+| 26-97 | the roll: 16 step columns of 14 px, pitch upward. The range fits the pattern's notes, at least an octave. Alternate groups of 4 steps are shaded as beats, with C lines. |
+| 101-153 | the cursor step: its number in the LED window, the chord name in D20 (`C MIN7`), the notes in Terminus (`C3 Eb3 G3 Bb3`), `TIE > 6`, and `HELD` with the chord held now |
+| 156-187 | the S1, S2 or S3 page's four knob values, one cell per knob |
+| 191-206 | what the section buttons mean here: `SEL REST`, `ENV TIE`, `LFO MOVE`, and `FX BACK` in REC (`--` otherwise) |
+| 209-223 | the 27-key strip, mirroring the key LEDs. The step keys F3..G#4 are underlined in the SEQ color and the chord keys A4..G5 in dim, so the split is visible. |
+| 224-239 | the pattern number and name with `*`, and `NEXT 42` while a pattern is queued |
 
-Sequencer details:
+The steps are drawn like this:
 
-- **Step keys (assumed):** the 16 white keys F3 to G5 are steps 1 to 16. The FM-1's 27 keys
-  hold exactly 16 white keys, which leaves the black keys free for other functions.
-- **Playhead:** the playhead inverts its step, so a lit step goes off and a glowing step goes
-  lit. The playhead reads as a moving "hole" across both filled and empty steps.
-- **Step being edited:** blinks between lit and glow at 2 Hz.
-- **On-screen keyboard:** every sequencer mockup draws the key strip with the same three states,
-  so the screen and the keys always agree.
+- **A note** is a 3 px block at its pitch.
+- **A chord** is a stack of blocks.
+- **A tie** runs the held step's blocks on through the gap at 45 %.
+- **A rest** is an empty column.
+- **Steps past the length** are drawn as `window` with no blocks.
+- **The playhead** shades its column in the playhead color, adds a 1 px center line, and
+  draws its notes in the playhead color.
+- **The cursor** gets a 1 px frame in `cursor`.
 
-### Redraw rules
+The patch number is not in SEQ view's footer. PRESETS browses patterns there, so the pattern
+takes the footer. The patch is still in the header of every other state. This is an open
+question below.
 
-The audio runs on the same CPU, so the screen does as little work as possible:
+**Redraw cost.** Each step column is its own 14 x 72 canvas. A playhead move redraws only:
 
-- **`draw(full)` only on a page change or the module's start.** The full frame is drawn once.
-  After that, `draw()` updates only what changed, tracked as "drawn" copies of each value.
-  Scintilla and Prophet do this the same way.
-- **Throttle.** A knob turn marks its column dirty. The screen redraws dirty items at most
-  every 33 ms (30 Hz), and coalesces fast turns into one redraw.
-- **Small strips.** Text that changes goes into a canvas the size of its box and is blitted in
-  one go (for example 53 x 32 for an L value), so there is no flicker from fill-then-text.
-- **Graphs.** The filter response redraws on its own canvas, and only when CUTOFF or RESO
-  changes. The ADSR graph does the same when A, D, S or R changes. Each graph is a polyline of
-  about 30-110 `cv_line` calls, with the hatch under the curve on every other column.
-- **The sunset and the grid** are drawn on the patch screen only, once on entry. That is about
-  90 row fills plus about 25 lines. Changing patch redraws the name strip (240 x 32) and the
-  LED digits, not the scene. No frame is ever a full-screen gradient.
-- **Sequencer.** Each step is a pad, so moving the playhead redraws two pads (the old and the
-  new). At 112 BPM in 16ths that is 7.5 steps a second, about 17 k pixels a second.
+- the two columns, the old step and the new (2 x 1008 pixels);
+- the header's step number (16 x 16);
+- two LED dots on the key strip (two fills).
 
-## Direction A: Membrane (panel first)
+That is about 2.3 k pixels per step. At 112 BPM in 16ths, which is 7.5 steps a second, it comes
+to about 17 k pixels a second, about 30 % of one full-screen redraw. The roll is never redrawn
+whole while it plays.
 
-This direction is a charcoal hardware panel with cream legends, a red LED window and raised
-membrane-key tiles. Synthwave appears only as a banded sunset badge on the patch screen.
+- **A step edit** redraws that column and the readout.
+- **A held chord** redraws the `HELD` line and the key dots.
+- **A pattern change** redraws the roll (16 columns) once.
 
-| token | RGB565 | use |
-| --- | --- | --- |
-| bg | `18E4` | panel |
-| panel | `2145` | tile, header, footer |
-| raised | `31A7` | focused tile, a step with notes |
-| line | `3A09` | rules, frames, bar track |
-| text | `EF3A` cream | labels, values (13.9:1) |
-| dim | `A513` | secondary labels (6.7:1 on bg, 4.9:1 on raised) |
-| led | `F984` red | 7-segment display, the playing step's LED dot |
-| led ghost | `2082` | unlit segments |
-| led bg | `0861` | LED windows, graph windows |
-| ink | `1082` | text on a section chip or on the sunset |
-| sunset badge | `FE88 FD87 FC67 FB49 F24E D1D2` | six bands, patch screen only |
+## LEDs
 
-- **Layout:** a header with the section name on a chip in the section's color (the panel's
-  colored section heading), and a footer with `< PREV  PAGE  NEXT >`. On parameter pages, a 66 x
-  50 LED window sits beside the graph window.
-- **Knobs:** four rows K1-K4, each 224 x 28. Each row has its number in a small LED cell, its
-  label, its value on the right, and a 3 px bar.
-- **Focus:** the focused row is raised and framed in the section color, and its number is full
-  red (the other numbers are at 45 % red). This is a mechanical "pressed key" look, not a glow.
-- **Sequencer:** 2 x 8 pads, each 26 x 34, showing the note name (`Eb3`, `Cm7`). A tie is a
-  red bar from the step before. The playing step is a cream pad with dark text and a red LED
-  dot. The step being edited is framed in red.
-- **Strength:** the most faithful to the panel, calm, and very readable.
-- **Weakness:** it is barely "synthwave". The rows do not match the left-to-right knobs.
+The key and button LEDs follow `interaction.md` section 5, "Key LEDs". Each LED is one color in
+hardware, which the theme cannot change, and has three states: off, lit and glow. The screen
+mirrors them in two places:
 
-## Direction B: Outrun (synthwave first)
+- **The SEQ key strip** draws every key's state. Lit is the SEQ color, glow is a pale tint, and
+  off is the key's own color. The mockups show a still frame: blinking states (a tie's off
+  blink, the cursor's 4 Hz blink) show their lit phase.
+- **The edit pages** light the section button that owns the shown page, and the 12-segment page
+  strip agrees with it.
 
-This direction is a deep indigo night with neon magenta, cyan and orange. It has arc knobs, a
-banded neon rule under the header, and a full sun and perspective grid on the patch screen.
+The meaning stays the same in both themes:
 
-| token | RGB565 | use |
-| --- | --- | --- |
-| bg | `0824` | night |
-| plate | `1066` | knob plates |
-| grid | `38CD` | knob tracks, grid lines, rules |
-| grid dim | `2089` | the floor under the filter curve, beat lines |
-| text | `F77F` | values (17.9:1) |
-| dim | `9C59` | labels (6.6:1) |
-| magenta | `F95A` | brand, notes |
-| cyan | `275F` | LED digits, playhead |
-| orange | `FC43` | chords, the step being edited |
-| yellow | `FE87` | rule band |
-| sun | `FF08 FE07 FD07 FBC9 FA8D F1D2 D157 A119` | eight bands, cut by widening gaps |
+- **lit** is where you are or what is on;
+- **glow** is what you can press now;
+- **off** is nothing to do.
 
-- **Header and footer:** the section name is in neon. The parameter number is a small cyan
-  7-segment display at the top right. Under the header runs a 4-color rule (four fills). The
-  footer has `< PREV` and `NEXT >` plus a strip of page dots in the section colors.
-- **Knobs:** a 2 x 2 layout of 112 x 58 plates. Each plate has a 270° arc (radius 24, 4 px)
-  with a pointer, the label in S and the value in L. The focused knob gets a glowing arc and the
-  plate glow.
-- **Graphs:** each curve is drawn three times, the center line plus two 35 % copies 2 px above
-  and below, for a neon bloom. The envelope has a scanline fill under it.
-- **Sequencer:** a 16 x 14 px piano-roll lane, pitch up. A chord is a stack of blocks, a tie
-  extends its block, and the playhead is a cyan column with a center line. A step-detail block
-  and the LED key strip sit below.
-- **Strength:** the most "synthwave" of the three, and the most fun.
-- **Weaknesses:** the arcs need a pixel table per knob and a 60 x 58 canvas redraw on every
-  value change, which is the most expensive of the three. The 2 x 2 grid does not match the four
-  knobs in a row. The 14 px piano-roll steps are hard to read at arm's length. Neon on neon
-  tires the eye over a long session.
+## Redraw rules (both themes)
 
-## Direction C: Night Panel (recommended)
-
-This direction keeps the panel's structure and lights it like synthwave. The blocks are
-indigo-black, and each section is marked by a 3 px band of its neon color across the top. The
-parameter number sits in a 7-segment LED window lit in the section color. Four vertical LED
-ladder columns stand for the four knobs, in the spirit of a programmer's sliders. The sun and
-the grid appear on the patch screen only.
-
-| token | RGB565 | use |
-| --- | --- | --- |
-| bg | `0863` | night panel |
-| panel | `18C5` | knob columns, rest steps |
-| raised | `2107` | the focused column, unlit ladder segments, steps with notes |
-| line | `2969` | rules, frames |
-| text | `EF7F` | values, focused labels (17.2:1) |
-| dim | `9CB7` | other labels (7.0:1 on bg, 5.6:1 on raised) |
-| led bg | `0021` | LED and graph windows |
-| LED digits | the section color | ghost segments at 8 % |
-| sun | `FEC9 FD88 FC48 FAEC F1F2 C198` | six bands, patch screen only |
-| grid / horizon | `5953` / `F9FB` | patch screen only |
-
-- **Header:** a 3 px section band, then the section name in its color, its long name dimmed,
-  and the patch number on the right. The same band sits on every page, so you can tell the
-  section from across the room.
-- **Top block:** a 64 x 64 LED window showing the focused parameter's number, beside a 152 x
-  64 graph window. On the VCF page the graph is the filter response, on ENV pages it is the
-  ADSR, and on LFO pages it would be the wave shape.
-- **Knobs:** four columns (53 x 120), left to right, one per knob. Each column has the number
-  in S in the section color, the label in S, an 8-segment LED ladder, and the value in L.
-- **Focus:** the focused column is raised, its ladder is lit at full color (the others at
-  60 %), and it has the glow.
-- **ENV page:** a 224 x 96 ADSR graph with dotted stage dividers and stage letters. The active
-  stage is drawn thicker, in the full section color and with a denser hatch. The columns show
-  `61 ATK`, the value in L, a horizontal ladder, and the time in plain units (`480ms`).
-- **Page strip:** the footer is a row of nine small dots, one per section in its color, with
-  the current page drawn wide. It matches the section buttons' LEDs.
-- **Sequencer:** 2 x 8 pads, each 26 x 44. Each note is a bar, so a chord's stack of bars
-  shows how many notes it has. A tie continues the held bars at 45 % through the gap into the
-  next pad. The playing step gets the glow in cyan, and the step being edited a 2 px white
-  frame. Below sit the step number in the LED window, the chord name in L, its notes, and the
-  LED key strip.
-- **Patch screen:** the patch number in the LED window, the name in L, and the voices and
-  chorus mode. The banded sun and the purple grid fill the bottom 90 px, drawn once.
-
-### Why C
-
-1. **It maps to the hardware.** Four columns left to right match the FM-1's four knobs, so the
-   screen shows what each knob will do.
-2. **It has the most panel DNA per pixel.** It has section color bands, numbered parameters, the
-   LED window, and LED ladders that echo sliders and LED meters. It is recognizably the same
-   family as an 80s panel without copying one.
-3. **The synthwave goes where it counts.** It shows in the neon accents, the glow on the one
-   thing under your hand, and the sun and grid on the patch screen. It does not wash over every
-   page.
-4. **It is the most readable.** It has the highest contrast of the three (17.2:1 text, 7.0:1 dim
-   labels), its values are in L, and it needs no 14 px detail to read.
-5. **It is the cheapest to draw.** Columns and ladders are plain fills, with no arcs or pixel
-   tables. A value change costs at most 8 ladder fills plus one 53 x 32 value blit.
-
-## Open items for the interaction model
-
-These are assumed here and owned by `interaction.md`:
-
-- the page list and its order (DCO-1, DCO-2, MIX, VCF, VCA, ENV-1, ENV-2, LFO, CHORUS, then
-  SEQ)
-- the decade parameter numbering
-- the white keys as the 16 steps
-- how a page is chosen, which this document only shows as `< PREV  NEXT >` and the dot strip
+- **`draw(full)` only on a page change, a theme change, or a return from the host's picker.**
+  After that, `draw()` updates only what changed, tracked as "drawn" copies of each value, as
+  Scintilla and Prophet do.
+- **Coalesced knob turns.** A turn marks its column dirty. Dirty items redraw at most every
+  33 ms (30 Hz), and fast turns coalesce into one redraw.
+- **A value change** costs:
+  - a 56 x 24 blit for the value;
+  - at most 8 meter fills;
+  - a 158 x 24 blit for the focus value;
+  - the slot canvas (230 x 56, about 12.9 k pixels), only when the parameter shapes the graph:
+    41 and 42 for the filter response, 51-54 and 61-64 for the ADSR.
+- **The sun, the grid and the badge** are drawn once, on entering PLAY: about 90 row fills
+  and 25 lines. A patch change redraws only the name and the LED digits. No frame is ever a
+  full-screen gradient.
+- **Every gradient is deliberate, hard-edged bands,** one fill per band, so RGB565 banding is
+  part of the look and costs nothing per frame.

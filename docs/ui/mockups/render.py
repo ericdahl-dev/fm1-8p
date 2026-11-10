@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Render the fm1-8p on-device UI mockups: three visual directions x four screens.
+"""Render the fm1-8p on-device UI mockups: two themes x five screens, and the display font.
+
+One layout, two themes. Every screen function below draws from the shared grid (LAYOUT) and
+reads its colors and style choices from a theme table (THEMES). Switching theme swaps the
+table and nothing else, which is how the firmware is meant to do it.
 
 Every screen is drawn at the panel's own 240 x 240 with only what the fm1-dock host gives a
-module (fill, line, pixel, the host's 16 px and 32 px fonts, blit), then quantized to RGB565 and
-expanded back the way the panel shows it, so the PNGs are the colors the device can show.
-Each screen is saved at 1x and as a 3x nearest-neighbor upscale (720 x 720) for a phone.
+module (fill, line, pixel, the host's 16 px font, blit). It is then quantized to RGB565 and
+expanded back the way the panel shows it. Each screen is saved at 1x and as a 3x
+nearest-neighbor upscale (720 x 720) for a phone.
 
-    python3 docs/ui/mockups/render.py [--font PATH/TO/felucca_font.h]
+    python3 docs/ui/mockups/render.py [--font PATH/TO/felucca_font.h] [--contrast]
 
-Needs Pillow. The text is the host's own font (Terminus 8x16 and its 16x32 doubling), read from
-fm1-dock's firmware/gen/felucca_font.h: by default ~/Projects/fm1-8p-ref/fm1-dock, or $FM1_DOCK,
-or --font. Without it the script stops: a mockup in another font would mislead.
+Outputs, all next to this script:
+    membrane/*.png, night-panel/*.png   the screens (and *-3x.png)
+    compare.png                         both themes side by side
+    font-specimen.png (+ -3x)           the display font at both sizes
+    display_font.h                      the display font, 1-bit packed, as the firmware reads it
+
+Needs Pillow. The small text is the host's own font (Terminus 8x16), read from fm1-dock's
+firmware/gen/felucca_font.h: by default ~/Projects/fm1-8p-ref/fm1-dock, or $FM1_DOCK, or
+--font. Without it the script stops: a mockup in another font would mislead.
 """
 import argparse
 import math
@@ -41,7 +51,7 @@ def rgb565(c):
 
 
 def mix(a, b, t):
-    """a toward b by t (0..1), quantized: a glow step or a ghost segment."""
+    """a toward b by t (0..1), quantized: a glow step, a ghost segment, a dimmed accent."""
     a, b = q(a), q(b)
     return q(tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3)))
 
@@ -59,21 +69,148 @@ def contrast(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
-# ---------------------------------------------------------------- the host's font
-def load_font(path):
+# ---------------------------------------------------------------- the host's font (Terminus 8x16)
+def load_host_font(path):
     src = open(path).read()
 
     def arr(name):
         m = re.search(r"%s\[\d+\]\s*=\s*\{([^}]*)\}" % name, src)
         return [int(v, 0) for v in m.group(1).replace("\n", " ").split(",") if v.strip()]
 
-    def font(tag):
-        m = re.search(r"felucca_font_t FONT_%s\s*=\s*\{\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)" % tag, src)
-        h, pad, first, last = (int(v) for v in m.groups())
-        return dict(h=h, pad=pad, first=first, last=last, adv=arr("FONT_%s_ADV" % tag),
-                    bw=arr("FONT_%s_BW" % tag), off=arr("FONT_%s_OFF" % tag), data=arr("FONT_%s_DATA" % tag))
+    m = re.search(r"felucca_font_t FONT_S\s*=\s*\{\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)", src)
+    h, pad, first, last = (int(v) for v in m.groups())
+    return dict(h=h, pad=pad, first=first, last=last, adv=arr("FONT_S_ADV"), bw=arr("FONT_S_BW"),
+                off=arr("FONT_S_OFF"), data=arr("FONT_S_DATA"))
 
-    return font("S"), font("L")
+
+# ---------------------------------------------------------------- fm1-8p's own display font
+# An original geometric face, designed here as strokes on a grid 4 units wide (some glyphs wider
+# or narrower) and 6 units tall, with 45-degree chamfers in place of curves. Each size is the
+# same strokes drawn with a square pen and baked to 1 bit per pixel, so both sizes come from one
+# design. Upper case, digits and - + . % # / : and space only.
+GLYPHS = {
+    "0": (4, [[(1, 0), (3, 0), (4, 1), (4, 5), (3, 6), (1, 6), (0, 5), (0, 1), (1, 0)], [(1, 4.4), (3, 1.6)]]),
+    "1": (3, [[(0, 1.2), (1.5, 0), (1.5, 6)], [(0, 6), (3, 6)]]),
+    "2": (4, [[(0, 1), (1, 0), (3, 0), (4, 1), (4, 2.4), (0, 6), (4, 6)]]),
+    "3": (4, [[(0, 0), (4, 0), (1.6, 2.6), (3, 2.6), (4, 3.6), (4, 5), (3, 6), (1, 6), (0, 5)]]),
+    "4": (4, [[(3, 6), (3, 0), (0, 4), (4, 4)]]),
+    "5": (4, [[(4, 0), (0, 0), (0, 2.6), (3, 2.6), (4, 3.6), (4, 5), (3, 6), (0, 6)]]),
+    "6": (4, [[(3.6, 0), (1, 0), (0, 1), (0, 5), (1, 6), (3, 6), (4, 5), (4, 3.6), (3, 2.6), (0, 2.6)]]),
+    "7": (4, [[(0, 0), (4, 0), (4, 1), (1.6, 6)]]),
+    "8": (4, [[(1, 0), (3, 0), (4, 1), (4, 2), (3, 2.8), (1, 2.8), (0, 2), (0, 1), (1, 0)],
+              [(1, 2.8), (0, 3.8), (0, 5), (1, 6), (3, 6), (4, 5), (4, 3.8), (3, 2.8)]]),
+    "9": (4, [[(0.4, 6), (3, 6), (4, 5), (4, 1), (3, 0), (1, 0), (0, 1), (0, 2.4), (1, 3.4), (4, 3.4)]]),
+    "A": (4, [[(0, 6), (0, 1), (1, 0), (3, 0), (4, 1), (4, 6)], [(0, 3.4), (4, 3.4)]]),
+    "B": (4, [[(0, 3), (3, 3), (4, 2), (4, 1), (3, 0), (0, 0), (0, 6), (3, 6), (4, 5), (4, 4), (3, 3)]]),
+    "C": (4, [[(4, 0.8), (3.2, 0), (1, 0), (0, 1), (0, 5), (1, 6), (3.2, 6), (4, 5.2)]]),
+    "D": (4, [[(0, 0), (2.6, 0), (4, 1.4), (4, 4.6), (2.6, 6), (0, 6), (0, 0)]]),
+    "E": (4, [[(4, 0), (0, 0), (0, 6), (4, 6)], [(0, 3), (3, 3)]]),
+    "F": (4, [[(4, 0), (0, 0), (0, 6)], [(0, 3), (3, 3)]]),
+    "G": (4, [[(4, 0.8), (3.2, 0), (1, 0), (0, 1), (0, 5), (1, 6), (3, 6), (4, 5), (4, 3.2), (2.2, 3.2)]]),
+    "H": (4, [[(0, 0), (0, 6)], [(4, 0), (4, 6)], [(0, 3), (4, 3)]]),
+    "I": (2, [[(0, 0), (2, 0)], [(1, 0), (1, 6)], [(0, 6), (2, 6)]]),
+    "J": (4, [[(1.6, 0), (4, 0), (4, 5), (3, 6), (1, 6), (0, 5)]]),
+    "K": (4, [[(0, 0), (0, 6)], [(4, 0), (1, 3), (0, 3)], [(1, 3), (4, 6)]]),
+    "L": (4, [[(0, 0), (0, 6), (4, 6)]]),
+    "M": (5, [[(0, 6), (0, 0), (2.5, 2.6), (5, 0), (5, 6)]]),
+    "N": (4, [[(0, 6), (0, 0), (4, 6), (4, 0)]]),
+    "O": (4, [[(1, 0), (3, 0), (4, 1), (4, 5), (3, 6), (1, 6), (0, 5), (0, 1), (1, 0)]]),
+    "P": (4, [[(0, 6), (0, 0), (3, 0), (4, 1), (4, 2.4), (3, 3.4), (0, 3.4)]]),
+    "Q": (4, [[(1, 0), (3, 0), (4, 1), (4, 5), (3, 6), (1, 6), (0, 5), (0, 1), (1, 0)], [(2.4, 4.4), (4, 6)]]),
+    "R": (4, [[(0, 6), (0, 0), (3, 0), (4, 1), (4, 2.4), (3, 3.4), (0, 3.4)], [(2, 3.4), (4, 6)]]),
+    "S": (4, [[(4, 0.8), (3.2, 0), (1, 0), (0, 1), (0, 2), (1, 3), (3, 3), (4, 4), (4, 5), (3, 6), (0.8, 6), (0, 5.2)]]),
+    "T": (4, [[(0, 0), (4, 0)], [(2, 0), (2, 6)]]),
+    "U": (4, [[(0, 0), (0, 5), (1, 6), (3, 6), (4, 5), (4, 0)]]),
+    "V": (4, [[(0, 0), (0, 3.6), (2, 6), (4, 3.6), (4, 0)]]),
+    "W": (5, [[(0, 0), (0, 6), (2.5, 3.4), (5, 6), (5, 0)]]),
+    "X": (4, [[(0, 0), (0, 1), (4, 5), (4, 6)], [(4, 0), (4, 1), (0, 5), (0, 6)]]),
+    "Y": (4, [[(0, 0), (0, 1.4), (2, 3.4), (4, 1.4), (4, 0)], [(2, 3.4), (2, 6)]]),
+    "Z": (4, [[(0, 0), (4, 0), (4, 1), (0, 5), (0, 6), (4, 6)]]),
+    "-": (3, [[(0, 3.2), (3, 3.2)]]),
+    "+": (4, [[(0, 3.2), (4, 3.2)], [(2, 1.2), (2, 5.2)]]),
+    ".": (0, [[(0, 6)]]),
+    ":": (0, [[(0, 1.8)], [(0, 5)]]),
+    "%": (5, [[(0.6, 6), (4.4, 0)], [(0, 0.2)], [(5, 5.8)]]),
+    "#": (4, [[(1.2, 0), (1.2, 6)], [(2.8, 0), (2.8, 6)], [(0, 2), (4, 2)], [(0, 4), (4, 4)]]),
+    "/": (3, [[(0, 6), (3, 0)]]),
+    " ": (2, []),
+}
+FONT_ORDER = " #%+-./0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+# the two sizes: cap height in px, pen (stroke) in px, px per horizontal unit, gap after a glyph
+SIZES = {"D24": dict(h=24, pen=3, ux=2.0, gap=2), "D20": dict(h=20, pen=3, ux=2.0, gap=2)}
+
+
+def bake_font(spec):
+    h, pen, ux, gap = spec["h"], spec["pen"], spec["ux"], spec["gap"]
+    uy = (h - pen) / 6
+    font = {}
+    for ch in FONT_ORDER:
+        units, strokes = GLYPHS[ch]
+        w = round(units * ux) + pen if strokes else round(units * ux) + 1
+        bits = [[0] * w for _ in range(h)]
+        for path in strokes:
+            pts = [(round(x * ux), round(y * uy)) for x, y in path]
+            if len(pts) == 1:
+                pts = pts * 2
+            for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+                n = max(abs(x1 - x0), abs(y1 - y0), 1)
+                for i in range(n + 1):
+                    px = round(x0 + (x1 - x0) * i / n)
+                    py = round(y0 + (y1 - y0) * i / n)
+                    for dy in range(pen):
+                        for dx in range(pen):
+                            if 0 <= px + dx < w and 0 <= py + dy < h:
+                                bits[py + dy][px + dx] = 1
+        font[ch] = dict(w=w, adv=w + gap, bits=bits)
+    return font
+
+
+def pack_font(name, font, h):
+    """1 bit per pixel, MSB first, each row ceil(w / 8) bytes; a glyph's rows in order."""
+    data, offs, widths = [], [], []
+    for ch in FONT_ORDER:
+        g = font[ch]
+        offs.append(len(data))
+        widths.append(g["w"])
+        bpr = (g["w"] + 7) // 8
+        for row in g["bits"]:
+            for b in range(bpr):
+                byte = 0
+                for k in range(8):
+                    x = b * 8 + k
+                    if x < g["w"] and row[x]:
+                        byte |= 0x80 >> k
+                data.append(byte)
+    return data, offs, widths
+
+
+def write_font_header(path, fonts):
+    total = 0
+    out = ["/* SPDX-License-Identifier: GPL-3.0-only */",
+           "/* fm1-8p's display font, generated by docs/ui/mockups/render.py: an original geometric face,",
+           " * two sizes of one stroke design. Glyphs are 1 bit per pixel, MSB first, each row ceil(w / 8)",
+           " * bytes, rows top to bottom. A glyph's index is its place in DFONT_CHARS; the advance is",
+           " * width + DFONT_GAP. Lower case folds to upper case; anything else draws as a space. */",
+           "#pragma once", "#include <stdint.h>", "",
+           '#define DFONT_CHARS "%s"' % FONT_ORDER, "#define DFONT_N %d" % len(FONT_ORDER), ""]
+    for name, (font, spec) in fonts.items():
+        data, offs, widths = pack_font(name, font, spec["h"])
+        size = len(data) + 2 * len(offs) + len(widths)
+        total += size
+        out.append("/* %s: %d px tall, pen %d px; %d bytes of bitmaps + %d of tables = %d bytes */" % (
+            name, spec["h"], spec["pen"], len(data), 3 * len(offs), size))
+        out.append("#define %s_H %d" % (name, spec["h"]))
+        out.append("#define %s_GAP %d" % (name, spec["gap"]))
+        out.append("static const uint8_t %s_W[DFONT_N] = {%s};" % (name, ", ".join(map(str, widths))))
+        out.append("static const uint16_t %s_OFF[DFONT_N] = {%s};" % (name, ", ".join(map(str, offs))))
+        out.append("static const uint8_t %s_DATA[%d] = {" % (name, len(data)))
+        for i in range(0, len(data), 16):
+            out.append("    " + ", ".join("0x%02x" % v for v in data[i:i + 16]) + ",")
+        out.append("};")
+        out.append("")
+    out.insert(10, "/* total: %d bytes of flash */" % total)
+    open(path, "w").write("\n".join(out))
+    return total
 
 
 # ---------------------------------------------------------------- a screen, drawn as a module would
@@ -81,7 +218,7 @@ class Screen:
     def __init__(self, fonts, bg):
         self.img = Image.new("RGB", (W, H), q(bg))
         self.px = self.img.load()
-        self.fonts = fonts
+        self.host, self.dfont = fonts
 
     def pixel(self, x, y, c):
         if 0 <= x < W and 0 <= y < H:
@@ -98,12 +235,6 @@ class Screen:
         self.fill(x, y + h - t, w, t, c)
         self.fill(x, y, t, h, c)
         self.fill(x + w - t, y, t, h, c)
-
-    def glow(self, x, y, w, h, accent, bg, rings=(1.0, 0.45, 0.2)):
-        """The active element: its frame in the accent, then dimmer frames outside it.
-        Three frames = 12 fills on the device."""
-        for i, t in enumerate(rings):
-            self.frame(x - i, y - i, w + 2 * i, h + 2 * i, mix(bg, accent, t))
 
     def line(self, x0, y0, x1, y1, c):
         x0, y0, x1, y1 = int(round(x0)), int(round(y0)), int(round(x1)), int(round(y1))
@@ -127,31 +258,25 @@ class Screen:
             for o in range(thick):
                 self.line(a, b - o, c2, d - o, c)
 
-    def text_w(self, big, s):
-        f = self.fonts[1 if big else 0]
-        return sum(f["adv"][self._g(f, ch)] for ch in s)
-
-    @staticmethod
-    def _g(f, ch):
+    # the host's Terminus (S, 16 px)
+    def _g(self, ch):
+        f = self.host
         o = ord(ch)
-        if ord("a") <= o <= ord("z") and f["last"] < ord("a"):
-            o -= 32
         if o < f["first"] or o > f["last"]:
             o = ord("?")
         return o - f["first"]
 
-    def text(self, x, y, s, c, big=0, align="l", w=0):
-        f = self.fonts[1 if big else 0]
-        tw = self.text_w(big, s)
-        if align == "c":
-            x = x + (w - tw) // 2
-        elif align == "r":
-            x = x + w - tw
+    def text_w(self, s):
+        return sum(self.host["adv"][self._g(ch)] for ch in s)
+
+    def text(self, x, y, s, c, align="l", w=0):
+        f = self.host
+        tw = self.text_w(s)
+        x = x + (w - tw) // 2 if align == "c" else (x + w - tw if align == "r" else x)
         for ch in s:
-            gi = self._g(f, ch)
-            bw = f["bw"][gi]
+            gi = self._g(ch)
+            bw, off = f["bw"][gi], f["off"][gi]
             bpr = (bw + 7) // 8
-            off = f["off"][gi]
             for gy in range(f["h"]):
                 for gx in range(bw):
                     if f["data"][off + gy * bpr + gx // 8] >> (7 - (gx & 7)) & 1:
@@ -159,17 +284,36 @@ class Screen:
             x += f["adv"][gi]
         return x
 
-    # 7-segment LED digits, drawn with fills: lit segments in `on`, the rest as dim "ghost" segments
+    # fm1-8p's display font (D24 values, D20 names): what the firmware blits from a row buffer
+    def dtext_w(self, size, s):
+        f = self.dfont[size]
+        s = s.upper()
+        return sum(f[ch if ch in f else " "]["adv"] for ch in s) - (SIZES[size]["gap"] if s else 0)
+
+    def dtext(self, x, y, size, s, c, align="l", w=0):
+        f = self.dfont[size]
+        tw = self.dtext_w(size, s)
+        x = x + (w - tw) // 2 if align == "c" else (x + w - tw if align == "r" else x)
+        for ch in s.upper():
+            g = f[ch if ch in f else " "]
+            for gy, row in enumerate(g["bits"]):
+                for gx, b in enumerate(row):
+                    if b:
+                        self.pixel(x + gx, y + gy, c)
+            x += g["adv"]
+        return x
+
+    # 7-segment digits, drawn with fills: lit segments in `on`, the rest as faint ghost segments
     SEG = {"0": "abcdef", "1": "bc", "2": "abged", "3": "abgcd", "4": "fgbc", "5": "afgcd", "6": "afgedc",
            "7": "abc", "8": "abcdefg", "9": "abcdfg", "A": "abcefg", "b": "cdefg", "C": "adef", "d": "bcdeg",
-           "E": "adefg", "F": "aefg", "P": "abefg", "U": "bcdef", "-": "g", " ": ""}
+           "E": "adefg", "F": "aefg", "G": "acdef", "P": "abefg", "U": "bcdef", "-": "g", " ": ""}
 
     def seg7(self, x, y, s, dw, dh, t, on, ghost, gap=None):
         gap = t + 2 if gap is None else gap
+        hh = (dh - 3 * t) // 2
+        j = 1 if t >= 3 else 0                 # a hairline between segments, as on an LED
         for ch in s:
             lit = self.SEG.get(ch, "")
-            hh = (dh - 3 * t) // 2
-            j = 1 if t >= 3 else 0             # a hairline between segments, as on an LED
             segs = {
                 "a": (x + t + j, y, dw - 2 * t - 2 * j, t), "g": (x + t + j, y + t + hh, dw - 2 * t - 2 * j, t),
                 "d": (x + t + j, y + 2 * t + 2 * hh, dw - 2 * t - 2 * j, t),
@@ -184,23 +328,13 @@ class Screen:
             x += dw + gap
         return x
 
-    def seg7_w(self, n, dw, t, gap=None):
+    @staticmethod
+    def seg7_w(n, dw, t, gap=None):
         gap = t + 2 if gap is None else gap
         return n * dw + (n - 1) * gap
 
-    def arc(self, cx, cy, r, a0, a1, c, thick=3):
-        """Degrees, 0 = right, clockwise on screen. On the device: a canvas and a table of points."""
-        if a1 < a0:
-            return
-        steps = max(2, int((a1 - a0) * r / 30))
-        for i in range(steps + 1):
-            a = math.radians(a0 + (a1 - a0) * i / steps)
-            for k in range(thick):
-                rr = r - k
-                self.pixel(round(cx + rr * math.cos(a)), round(cy + rr * math.sin(a)), c)
-
-    def disc_rows(self, cx, cy, r, color_for_row, skip_row=lambda y: False, y_max=H):
-        """A disc as one fill per row (the synthwave sun): cheap on the device."""
+    def disc_rows(self, cx, cy, r, color_for_row, skip_row, y_max):
+        """A disc as one fill per row (the sun): cheap on the device."""
         for y in range(int(cy - r), int(cy + r) + 1):
             if y >= y_max or skip_row(y):
                 continue
@@ -212,67 +346,83 @@ class Screen:
         self.img.resize((W * 3, H * 3), Image.NEAREST).save(path + "-3x.png")
 
 
+# ================================================================ the themes: data, not code
+# Every key exists in both. A layout function never asks which theme it is drawing.
+THEMES = {
+    "membrane": dict(
+        name="MEMBRANE",
+        bg="#1B1D20", surface="#26292D", surface_hi="#30343A", line="#3C4148", text="#ECE6D6",
+        dim="#A6A298", ink="#121314", window="#0C0D0E",
+        led="#FF3020",              # one red for every LED window
+        ghost=0.10,                 # unlit segments: this much of the LED color in the window
+        header="chip",              # section name on a chip of its color
+        meter_segments=0,           # 0: one continuous bar
+        meter_gap=0,
+        focus=(1.0, 1.0),           # frames inward from the edge, as mixes of bg -> accent
+        hatch=0.0,                  # fill under graph curves (0: none)
+        art="badge",                # what fills the graph slot on PLAY
+        playhead="#ECE6D6", cursor="#FF3020", tie_mix=0.45,
+        sec={"DCO-1": "#E8823A", "DCO-2": "#E8B83A", "MIX": "#C8C0A8", "VCF": "#4FB0D0", "VCF ENV": "#D86A98",
+             "VCA": "#88C860", "LFO": "#9A88E0", "CTRL": "#50C8B8", "SEQ": "#F86A6A", "GLO": "#C8C0A8",
+             "PLAY": "#ECE6D6"},
+        sun=["#FFD040", "#FFB038", "#FF8C38", "#FF6848", "#F04870", "#D03890"], grid=None, horizon=None,
+    ),
+    "night-panel": dict(
+        name="NIGHT PANEL",
+        bg="#0E0E1A", surface="#181828", surface_hi="#22223A", line="#2E2E4C", text="#EEECF8",
+        dim="#9896B8", ink="#0E0E1A", window="#07070E",
+        led=None,                   # None: LED windows take the section's color
+        ghost=0.08,
+        header="band",              # a 3 px band of the section's color, the name in that color
+        meter_segments=8,           # an LED ladder
+        meter_gap=2,
+        focus=(1.0, 0.45, 0.2),     # a glow
+        hatch=0.16,
+        art="sun",
+        playhead="#2FD8FF", cursor="#EEECF8", tie_mix=0.45,
+        sec={"DCO-1": "#FF5FA0", "DCO-2": "#FF8A3D", "MIX": "#D8D4F0", "VCF": "#2FD8FF", "VCF ENV": "#FFC23D",
+             "VCA": "#7CF07C", "LFO": "#B07CFF", "CTRL": "#3DA0FF", "SEQ": "#FF3DD8", "GLO": "#D8D4F0",
+             "PLAY": "#FF3DD8"},
+        sun=["#FFD84A", "#FFB040", "#FF8840", "#FF5C60", "#F03C90", "#C030C0"], grid="#5A2A9A", horizon="#FF3DD8",
+    ),
+}
+
+# ================================================================ the shared grid
+M = 5                                     # outer margin
+HEADER = (0, 24)                          # rows 0..23, the host's HB_TOP band
+FOCUS = (28, 46)                          # LED window + focus readout
+SLOT = (78, 56)                           # graph / art / theme preview: one 230 x 56 canvas
+COLS = (138, 84)                          # four knob columns
+FOOTER = (224, 16)                        # status, or the banner for 1.5 s
+COL_W, COL_GAP = 56, 2
+
+
+def col_x(k):
+    return M + k * (COL_W + COL_GAP)
+
+
 # ---------------------------------------------------------------- what the screens show
-PATCH = {"a": ("A17", "GLASS HARBOR"), "b": ("A17", "NEON TIDE"), "c": ("A17", "CHROME DUSK")}
-VCF = [("41", "CUTOFF", 88), ("42", "RESO", 34), ("43", "ENV", 62), ("44", "KEYTRK", 50)]
-ACTIVE_VCF = 1          # knob 2 is being turned
-ENV1 = [("61", "ATK", 12, "40ms"), ("62", "DCY", 48, "480ms"), ("63", "SUS", 70, "70%"), ("64", "REL", 35, "350ms")]
-ACTIVE_ENV = 1
-# the 16-step pattern: (kind, label, notes as semitones from C3); a tie holds the step before it
-SEQ = [("n", "C3", [0]), ("r", "", []), ("n", "Eb3", [3]), ("t", "", [3]),
-       ("c", "Cm7", [0, 3, 7, 10]), ("t", "", [0, 3, 7, 10]), ("n", "G3", [7]), ("r", "", []),
-       ("n", "Ab2", [-4]), ("n", "C3", [0]), ("c", "Fm", [5, 8, 12]), ("r", "", []),
-       ("n", "G2", [-5]), ("t", "", [-5]), ("n", "Bb2", [-2]), ("r", "", [])]
-PLAYHEAD = 6
-EDIT_STEP = 4
-PAGES = ["DCO-1", "DCO-2", "MIX", "VCF", "VCA", "ENV-1", "ENV-2", "LFO", "CHORUS"]
-
-
-def filter_curve(cut, res, n=110):
-    """A 4-pole low-pass's response in dB over a log frequency axis, 0..1 -> list of dB."""
-    fc = 10 ** (-2.0 + 2.4 * cut / 127)
-    qv = 0.7 + 6.0 * (res / 127) ** 1.5
-    out = []
-    for i in range(n):
-        f = 10 ** (-2.0 + 2.6 * i / (n - 1))
-        x = f / fc
-        h2 = 1 / ((1 - x * x) ** 2 + (x / qv) ** 2)
-        out.append(10 * math.log10(h2 * h2) / 2)
-    return out
-
-
-def env_points(x0, y0, w, h, a, d, s, r):
-    """ADSR as a polyline: a linear attack, exponential decay and release (analog-style)."""
-    ta, td, tr = 6 + a * 0.5, 8 + d * 0.6, 8 + r * 0.6
-    hold = 34
-    scale = w / (ta + td + hold + tr)
-    ta, td, hold, tr = ta * scale, td * scale, hold * scale, tr * scale
-    sl = s / 127
-    pts = [(x0, y0 + h)]
-    pts.append((x0 + ta, y0))
-    for i in range(1, 13):
-        t = i / 12
-        lv = sl + (1 - sl) * math.exp(-4 * t)
-        pts.append((x0 + ta + td * t, y0 + h - lv * h))
-    xs = x0 + ta + td
-    pts.append((xs + hold, y0 + h - sl * h))
-    for i in range(1, 13):
-        t = i / 12
-        lv = sl * math.exp(-4 * t) * (1 - t)
-        pts.append((xs + hold + tr * t, y0 + h - lv * h))
-    marks = [x0 + ta, xs, xs + hold, xs + hold + tr]
-    return pts, marks
-
-
-def sun_cuts(hz, gaps=(4, 3, 3, 2, 2, 1), solid=(3, 4, 5, 6, 7, 8)):
-    """The rows cut out of the sun, from the horizon up: wide gaps low, thin ones high."""
-    rows, y = set(), hz - 1
-    for g, sl in zip(gaps, solid):
-        rows.update(range(y - g + 1, y + 1))
-        y -= g + sl
-    return rows
-
-
+PATCH = ("23", "CHROME DUSK", True)       # number, name, edited
+PATTERN = ("41", "NIGHT DRIVE", True)
+TRANSPORT = dict(playing=True, step=7, tempo=112, clock="INT")
+PERF = [("41", "CUTOFF", "1.25", "k", ("range", 0.62), "VCF"), ("42", "RESO", "34", "", ("range", 0.34), "VCF"),
+        ("43", "ENV", "+24", "st", ("bipolar", 0.25), "VCF"), ("64", "RELEASE", "350", "ms", ("range", 0.41), "VCA")]
+VCF = [("41", "CUTOFF", "1.25", "k", ("range", 0.62)), ("42", "RESO", "34", "", ("range", 0.34)),
+       ("43", "ENV", "+24", "st", ("bipolar", 0.25)), ("44", "KEY", "50", "%", ("range", 0.5))]
+VCF_FOCUS = (1, "RESONANCE", "34", "")
+ENV = [("51", "ATTACK", "40", "ms", ("range", 0.22)), ("52", "DECAY", "480", "ms", ("range", 0.47)),
+       ("53", "SUSTAIN", "70", "", ("range", 0.70)), ("54", "RELEASE", "350", "ms", ("range", 0.41))]
+ENV_FOCUS = (1, "DECAY", "480", "ms")
+GLO = [("G31", "CURVE", "100", "%", ("range", 0.33)), ("G32", "FIX VEL", "100", "", ("range", 0.78)),
+       ("G33", "KEY LED", "ON", "", ("choice", 1, 2)), ("G34", "THEME", "NIGHT", "", ("choice", 1, 2))]
+# the 16-step pattern: (kind, notes as semitones from C3); a tie holds the step before it
+SEQ = [("n", [0]), ("r", []), ("n", [3]), ("t", [3]), ("c", [0, 3, 7, 10]), ("t", [0, 3, 7, 10]),
+       ("n", [7]), ("r", []), ("n", [-4]), ("n", [0]), ("c", [5, 8, 12]), ("r", []),
+       ("n", [-5]), ("t", [-5]), ("n", [-2]), ("r", [])]
+LENGTH = 16
+PLAYHEAD = 6                              # step 7
+CURSOR = 4                                # step 5
+HELD = [16, 19, 23]                       # chord keys A4 C5 E5 held now
 NOTE_NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 
 
@@ -281,607 +431,494 @@ def note_name(semi):
     return NOTE_NAMES[n % 12] + str(n // 12 - 1)
 
 
-# white keys F3..G5: 16 of them, the FM-1's 27 keys
-def keyboard(sc, x, y, kw, kh, white, black, led_of_white, led_on, led_glow, led_off, frame_c):
-    for i in range(16):
-        sc.fill(x + i * kw, y, kw - 1, kh, white)
-        st = led_of_white(i)
-        c = {2: led_on, 1: led_glow, 0: led_off}[st]
-        sc.fill(x + i * kw + kw // 2 - 3, y + kh - 8, 5, 4, c)
-    # black keys after F, G, A (not B), C, D (not E): F3 index 0
-    pattern = [1, 1, 1, 0, 1, 1, 0]
-    for i in range(15):
-        if pattern[i % 7]:
-            sc.fill(x + i * kw + kw - 4, y, 7, kh * 3 // 5, black)
-    sc.frame(x - 1, y - 1, 16 * kw + 1, kh + 2, frame_c)
+def key_name(k):                          # key 0 = F3
+    return note_name(k + 5)
 
 
-def step_led(i):
-    """The key LED rules for the sequencer: 2 lit (a step with notes), 1 glow (an empty step in the
-    pattern), 0 off; the playhead flips its step (lit -> off, glow -> lit)."""
-    kind = SEQ[i][0]
-    st = 1 if kind == "r" else 2
-    if i == PLAYHEAD:
-        st = 0 if st == 2 else 2
+def filter_curve(cut, res, n):
+    fc = 10 ** (-2.0 + 2.4 * cut)
+    qv = 0.7 + 6.0 * res ** 1.5
+    out = []
+    for i in range(n):
+        x = 10 ** (-2.0 + 2.6 * i / (n - 1)) / fc
+        h2 = 1 / ((1 - x * x) ** 2 + (x / qv) ** 2)
+        out.append(10 * math.log10(h2 * h2) / 2)
+    return out
+
+
+def env_points(x0, y0, w, h, a, d, s, r):
+    """ADSR as a polyline: a linear attack, exponential decay and release."""
+    ta, td, tr, hold = 6 + a * 60, 8 + d * 70, 8 + r * 70, 34
+    sc = w / (ta + td + hold + tr)
+    ta, td, hold, tr = ta * sc, td * sc, hold * sc, tr * sc
+    pts = [(x0, y0 + h), (x0 + ta, y0)]
+    for i in range(1, 13):
+        t = i / 12
+        pts.append((x0 + ta + td * t, y0 + h - (s + (1 - s) * math.exp(-4 * t)) * h))
+    xs = x0 + ta + td
+    pts.append((xs + hold, y0 + h - s * h))
+    for i in range(1, 13):
+        t = i / 12
+        pts.append((xs + hold + tr * t, y0 + h - s * math.exp(-4 * t) * (1 - t) * h))
+    return pts, [x0 + ta, xs, xs + hold, xs + hold + tr]
+
+
+def sun_cuts(hz, gaps, solid):
+    rows, y = set(), hz - 1
+    for g, sl in zip(gaps, solid):
+        rows.update(range(y - g + 1, y + 1))
+        y -= g + sl
+    return rows
+
+
+# ================================================================ shared parts
+def accent(t, sec):
+    return t["sec"][sec]
+
+
+def led_color(t, sec):
+    return t["led"] or t["sec"][sec]
+
+
+def draw_transport(sc, t, right):
+    """Right-aligned in the header: play/stop mark, step, tempo, clock source."""
+    tr = TRANSPORT
+    s1, s2 = "%02d" % tr["step"], " %d %s" % (tr["tempo"], tr["clock"])
+    x = right - sc.text_w(s1 + s2) - 10
+    col = t["playhead"] if tr["playing"] else t["dim"]
+    if tr["playing"]:                     # a triangle: 5 fills
+        for i in range(5):
+            sc.fill(x, 7 + i, 1 + i, 1, col)
+            sc.fill(x, 15 - i, 1 + i, 1, col)
+        sc.fill(x, 12, 6, 1, col)
+    else:
+        sc.fill(x, 8, 7, 7, col)
+    x = sc.text(x + 10, 4, s1, t["text"])
+    sc.text(x, 4, s2, t["dim"])
+
+
+def draw_header(sc, t, sec, chip, context, page=None):
+    col = accent(t, sec)
+    if t["header"] == "chip":
+        sc.fill(0, 0, W, 24, t["surface"])
+        w = sc.text_w(chip) + 12
+        sc.fill(0, 0, w, 24, col)
+        sc.text(0, 4, chip, t["ink"], align="c", w=w)
+        x = w + 6
+    else:
+        sc.fill(0, 0, W, 3, col)
+        x = sc.text(M, 4, chip, col) + 8
+    for part, bright in (context if isinstance(context, list) else [(context, False)]):
+        x = sc.text(x, 4, part, t["text"] if bright else t["dim"])
+    draw_transport(sc, t, W - M)
+    sc.fill(0, 23, W, 1, t["line"])
+    if page is not None:                  # where the page sits in the 12: a strip on the header's rule
+        cur, n = page if isinstance(page, tuple) else (page, 12)
+        sw = (W - 2 * M - (n - 1) * 2) // n
+        for i in range(n):
+            sc.fill(M + i * (sw + 2), 22, sw, 2, col if i == cur else t["line"])
+
+
+def draw_footer(sc, t, left, right, right_c=None):
+    y = FOOTER[0]
+    sc.fill(0, y - 1, W, 1, t["line"])
+    sc.fill(0, y, W, FOOTER[1], t["surface"])
+    sc.text(M, y, left, t["text"])
+    sc.text(0, y, right, right_c or t["dim"], align="r", w=W - M)
+
+
+def status_footer(sc, t):
+    num, name, edited = PATCH
+    pn, _, ped = PATTERN
+    draw_footer(sc, t, "%s %s%s" % (num, name, "*" if edited else ""), "PTN %s%s" % (pn, "*" if ped else ""))
+
+
+def led_window(sc, t, x, y, w, h, s, sec, dw=16, dh=36, th=4):
+    sc.fill(x, y, w, h, t["window"])
+    sc.frame(x, y, w, h, t["line"])
+    on = led_color(t, sec)
+    sw = sc.seg7_w(len(s), dw, th)
+    sc.seg7(x + (w - sw) // 2, y + (h - dh) // 2, s, dw, dh, th, on, mix(t["window"], on, t["ghost"]))
+
+
+def focus_frames(sc, t, x, y, w, h, col, bg):
+    for i, m in enumerate(t["focus"]):
+        sc.frame(x + i, y + i, w - 2 * i, h - 2 * i, mix(bg, col, m))
+
+
+def meter(sc, t, x, y, w, h, val, col, active, bg):
+    """A knob's position. ('range', f), ('bipolar', f -1..1) or ('choice', i, n). A theme with
+    meter_segments 0 draws a continuous bar; a choice always draws one segment per choice."""
+    on_c = col if active else mix(bg, col, 0.6)
+    off_c = t["line"]
+    kind = val[0]
+    if kind == "choice":
+        _, i, n = val
+        g = 2
+        sw = (w - (n - 1) * g) // n
+        for k in range(n):
+            sc.fill(x + k * (sw + g), y, sw, h, on_c if k == i else off_c)
+        return
+    n, g = t["meter_segments"], t["meter_gap"]
+    if n == 0:
+        sc.fill(x, y, w, h, off_c)
+        if kind == "range":
+            sc.fill(x, y, round(w * val[1]), h, on_c)
+        else:
+            mid = x + w // 2
+            ww = round(w / 2 * val[1])
+            sc.fill(min(mid, mid + ww), y, abs(ww), h, on_c)
+            sc.fill(mid, y - 1, 1, h + 2, t["dim"])
+        return
+    sw = (w - (n - 1) * g) / n
+    for k in range(n):
+        sx = x + round(k * (sw + g))
+        if kind == "range":
+            lit = k < round(n * val[1])
+        else:
+            c = (k + 0.5) / n * 2 - 1     # -1..1 at the segment's middle
+            lit = (0 <= c <= val[1]) or (val[1] <= c <= 0)
+        sc.fill(sx, y, round(sw), h, on_c if lit else off_c)
+
+
+def value_text(sc, t, x, w, y, val, unit, col):
+    """D24 value with a Terminus unit after it, centered as one."""
+    tw = sc.dtext_w("D24", val) + (3 + sc.text_w(unit) if unit else 0)
+    x0 = x + (w - tw) // 2
+    xe = sc.dtext(x0, y, "D24", val, col)
+    if unit:
+        sc.text(xe + 1, y + 8, unit, mix(t["surface"], col, 0.7))
+
+
+def knob_columns(sc, t, rows, focus, sec_of=None):
+    y, h = COLS
+    for k, row in enumerate(rows):
+        n, label, val, unit, mval = row[:5]
+        sec = sec_of(k) if sec_of else None
+        col = accent(t, sec)
+        x = col_x(k)
+        act = k == focus
+        bg = t["surface_hi"] if act else t["surface"]
+        sc.fill(x, y, COL_W, h, bg)
+        sc.text(x, y + 3, n, col, align="c", w=COL_W)
+        sc.text(x, y + 19, label, t["text"] if act else t["dim"], align="c", w=COL_W)
+        meter(sc, t, x + 6, y + 40, COL_W - 12, 6, mval, col, act, bg)
+        if sc.dtext_w("D24", val) <= COL_W - 4 or not val.isalpha():
+            value_text(sc, t, x, COL_W, y + 52, val, unit, t["text"] if act else t["dim"])
+        else:                             # a long choice falls back to Terminus
+            sc.text(x, y + 56, val, t["text"] if act else t["dim"], align="c", w=COL_W)
+        if act:
+            focus_frames(sc, t, x, y, COL_W, h, col, t["bg"])
+
+
+def focus_block(sc, t, sec, secname, num, label, val, unit):
+    y, h = FOCUS
+    led_window(sc, t, M, y, 64, h, num, sec)
+    x = M + 72
+    col = accent(t, sec)
+    xe = sc.text(x, y, secname, col)
+    sc.text(xe + 8, y, label, t["text"])
+    xe = sc.dtext(x, y + 20, "D24", val, t["text"])
+    if unit:
+        sc.text(xe + 3, y + 28, unit, t["dim"])
+
+
+def slot_window(sc, t):
+    y, h = SLOT
+    sc.fill(M, y, W - 2 * M, h, t["window"])
+    sc.frame(M, y, W - 2 * M, h, t["line"])
+    return M, y, W - 2 * M, h
+
+
+# ================================================================ the screens
+def scr_play(fonts, t):
+    sc = Screen(fonts, t["bg"])
+    draw_header(sc, t, "PLAY", "PLAY", "fm1-8p")
+    num, name, edited = PATCH
+    y, h = FOCUS
+    led_window(sc, t, M, y, 64, h, num, "PLAY")
+    sc.text(M + 72, y, "PATCH %s" % num, t["dim"])
+    if edited:
+        sc.text(0, y, "EDITED", accent(t, "PLAY"), align="r", w=W - M)
+    sc.dtext(M + 72, y + 22, "D20", name, t["text"])
+    # the art: drawn once on entry, never per frame
+    x, y, w, h = M, SLOT[0], W - 2 * M, SLOT[1]
+    if t["art"] == "badge":
+        yy = y
+        for c, hgt in zip(t["sun"], (11, 11, 11, 9, 7, 4)):
+            sc.fill(x, yy, w, hgt, c)
+            yy += hgt + (0 if yy - y < 22 else 1)
+        sc.text(x, y + 9, "fm1-8p  POLY SYNTH", t["ink"], align="c", w=w)
+    else:
+        hz = y + 34
+        cy, r = hz + 4, 30
+        rows = len(t["sun"])
+        cuts = sun_cuts(hz, (3, 2, 2, 1, 1), (3, 3, 4, 5, 6))
+        sc.disc_rows(120, cy, r, lambda yy: t["sun"][min(rows - 1, max(0, (yy - (cy - r)) * rows // (hz - (cy - r))))],
+                     lambda yy: yy in cuts, hz)
+        sc.fill(x, hz, w, 1, t["horizon"])
+        for k in range(-8, 9):
+            sc.line(120 + k * 9, hz, 120 + k * 40, y + h + 22, t["grid"])
+        yy, step = hz + 2, 2.0
+        while yy < y + h:
+            sc.fill(x, int(yy), w, 1, t["grid"])
+            step *= 1.6
+            yy += step
+        sc.fill(0, y + h, W, COLS[0] - y - h, t["bg"])
+    knob_columns(sc, t, PERF, focus=-1, sec_of=lambda k: PERF[k][5])
+    status_footer(sc, t)
+    return sc
+
+
+def scr_vcf(fonts, t):
+    sc = Screen(fonts, t["bg"])
+    sec = "VCF"
+    draw_header(sc, t, sec, "4 VCF", [("A", True), ("/B", False)], page=3)
+    k, label, val, unit = VCF_FOCUS
+    focus_block(sc, t, sec, "VCF", VCF[k][0], label, val, unit)
+    x, y, w, h = slot_window(sc, t)
+    col = accent(t, sec)
+    db = filter_curve(VCF[0][4][1], VCF[1][4][1], n=w - 4)
+    yof = lambda d: y + 5 + min(h - 8, max(0, (12 - d) * (h - 8) / 48))
+    sc.fill(x + 2, int(yof(0)), w - 4, 1, t["line"])
+    pts = [(x + 2 + i, yof(d)) for i, d in enumerate(db)]
+    if t["hatch"]:
+        for i, (px, py) in enumerate(pts):
+            if i % 2 == 0:
+                sc.fill(px, int(py) + 2, 1, y + h - 2 - int(py) - 2, mix(t["window"], col, t["hatch"]))
+    sc.poly(pts, col, thick=2)
+    knob_columns(sc, t, VCF, focus=k, sec_of=lambda _: sec)
+    status_footer(sc, t)
+    return sc
+
+
+def scr_env(fonts, t):
+    sc = Screen(fonts, t["bg"])
+    sec = "VCF ENV"
+    draw_header(sc, t, sec, "5 VCF ENV", [("A", True)], page=5)
+    k, label, val, unit = ENV_FOCUS
+    focus_block(sc, t, sec, "VCF ENV", ENV[k][0], label, val, unit)
+    x, y, w, h = slot_window(sc, t)
+    col = accent(t, sec)
+    a, d, s, r = (e[4][1] for e in ENV)
+    base = y + h - 6
+    pts, marks = env_points(x + 6, y + 6, w - 40, base - y - 6, a, d, s, r)
+    for m in marks[:-1]:
+        for yy in range(y + 3, base, 4):
+            sc.fill(int(m), yy, 1, 2, t["line"])
+    if t["hatch"]:
+        for px in range(x + 6, int(marks[-1]), 2):
+            ys = [pt[1] for pt in pts if abs(pt[0] - px) < 3]
+            top = int(min(ys)) + 3 if ys else base
+            inside = marks[0] <= px <= marks[1]
+            if top < base:
+                sc.fill(px, top, 1, base - top, mix(t["window"], col, t["hatch"] * (1.8 if inside else 1)))
+    sc.fill(x + 6, base, w - 12, 1, t["line"])
+    sc.poly(pts, mix(t["window"], col, 0.55), thick=2)
+    sc.poly([p for p in pts if marks[0] <= p[0] <= marks[1]], col, thick=3)
+    for i, lab in enumerate("ADSR"):
+        x0 = x + 6 if i == 0 else marks[i - 1]
+        sc.text(int((x0 + marks[i]) / 2) - 4, y + 2, lab, col if i == k else t["dim"])
+    knob_columns(sc, t, ENV, focus=k, sec_of=lambda _: sec)
+    status_footer(sc, t)
+    return sc
+
+
+def scr_glo(fonts, t, themes):
+    sc = Screen(fonts, t["bg"])
+    sec = "GLO"
+    draw_header(sc, t, sec, "GLO", "GLOBAL", page=(2, 3))
+    y, h = FOCUS
+    led_window(sc, t, M, y, 64, h, "34", sec)
+    xe = sc.text(M + 72, y, "G34", accent(t, sec))
+    sc.text(xe + 8, y, "THEME", t["text"])
+    sc.dtext(M + 72, y + 22, "D20", t["name"], t["text"])
+    # the slot: a swatch card per theme, each in its own colors; the chosen one framed
+    sy, sh = SLOT
+    cw = (W - 2 * M - 4) // 2
+    for i, (key, th) in enumerate(themes.items()):
+        cx = M + i * (cw + 4)
+        sc.fill(cx, sy, cw, sh, th["bg"])
+        c = th["sec"]["VCF"]
+        if th["header"] == "chip":
+            sc.fill(cx, sy, cw, 10, th["surface"])
+            sc.fill(cx, sy, 26, 10, c)
+        else:
+            sc.fill(cx, sy, cw, 2, c)
+        for j in range(4):
+            jx = cx + 6 + j * ((cw - 12) // 4)
+            sc.fill(jx, sy + 14, (cw - 12) // 4 - 3, 20, th["surface_hi"] if j == 1 else th["surface"])
+            mx, mw = jx + 3, (cw - 12) // 4 - 9
+            if th["meter_segments"]:
+                for s in range(4):
+                    sc.fill(mx + s * (mw // 4), sy + 28, mw // 4 - 1, 3, c if s < 2 else th["line"])
+            else:
+                sc.fill(mx, sy + 28, mw, 3, th["line"])
+                sc.fill(mx, sy + 28, mw // 2, 3, c)
+        sc.seg7(cx + 6, sy + 16, "42", 5, 9, 1, th["led"] or c, None, gap=2)
+        sc.text(cx, sy + 38, th["name"], th["text"], align="c", w=cw)
+        if th is t:
+            focus_frames(sc, t, cx, sy, cw, sh, accent(t, sec), t["bg"])
+        else:
+            sc.frame(cx, sy, cw, sh, t["line"])
+    rows = list(GLO)
+    rows[3] = ("G34", "THEME", "NIGHT" if t["name"].startswith("NIGHT") else "MEMB", "",
+               ("choice", 1 if t["name"].startswith("NIGHT") else 0, 2))
+    knob_columns(sc, t, rows, focus=3, sec_of=lambda _: sec)
+    pn, _, ped = PATTERN
+    draw_footer(sc, t, "GLOBAL: NOT IN PATCH", "PTN %s%s" % (pn, "*" if ped else ""))
+    return sc
+
+
+def key_is_white(k):
+    return (k + 5) % 12 in (0, 2, 4, 5, 7, 9, 11)
+
+
+def key_led(k):
+    """Interaction.md's key LED rules in SEQ view (a still frame: blinks show their lit phase).
+    0 off, 1 lit, 2 glow, as hb_host_t.led takes them."""
+    if k >= 16:
+        return 1 if k in HELD else 2
+    if k >= LENGTH:
+        return 0
+    kind = SEQ[k][0]
+    st = 2 if kind == "r" else 1
+    if k == PLAYHEAD:
+        st = 0 if st == 1 else 1
     return st
 
 
-# ================================================================ direction A: MEMBRANE
-A = dict(bg="#1B1D20", panel="#26292D", raised="#30343A", line="#3C4148", text="#ECE6D6", dim="#A6A298",
-         led="#FF3020", led_ghost="#261010", led_bg="#0C0D0E", ink="#121314",
-         sec={"DCO-1": "#E8823A", "DCO-2": "#E8B83A", "MIX": "#C8C0A8", "VCF": "#4FB0D0", "VCA": "#88C860",
-              "ENV-1": "#D86A98", "ENV-2": "#B070C8", "LFO": "#9A88E0", "CHORUS": "#50C8B8", "SEQ": "#E85050"},
-         sun=["#FFD040", "#FFB038", "#FF8C38", "#FF6848", "#F04870", "#D03890"])
+def key_strip(sc, t, x, y, kw, kh, col):
+    """All 27 keys, F3..G5, each with its LED; the step keys (F3..G#4) underlined in the SEQ
+    color, the chord keys in dim. Mirrors the key LEDs."""
+    wx, pos = 0, {}
+    for k in range(27):
+        if key_is_white(k):
+            pos[k] = (x + wx * kw, True)
+            wx += 1
+        else:
+            pos[k] = (x + wx * kw - 4, False)
+    led_c = {1: col, 2: mix(t["text"], col, 0.35), 0: t["line"]}
+    for k in range(27):
+        px, white = pos[k]
+        if white:
+            sc.fill(px, y, kw - 1, kh, mix(t["bg"], t["text"], 0.85))
+            sc.fill(px + kw // 2 - 3, y + kh - 6, 5, 3, led_c[key_led(k)] if key_led(k) != 0 else mix(t["bg"], t["text"], 0.6))
+    for k in range(27):
+        px, white = pos[k]
+        if not white:
+            sc.fill(px, y, 7, kh * 3 // 5, t["ink"] if t["header"] == "chip" else t["bg"])
+            st = key_led(k)
+            sc.fill(px + 1, y + kh * 3 // 5 - 4, 5, 2, {1: col, 2: mix(t["bg"], col, 0.45), 0: t["line"]}[st])
+    split = pos[16][0]
+    sc.fill(x, y + kh + 1, split - x - 1, 2, col)
+    sc.fill(split, y + kh + 1, x + wx * kw - split - 1, 2, t["dim"])
 
 
-def a_header(sc, sec, right):
-    p = A
-    sc.fill(0, 0, W, 24, p["panel"])
-    col = p["sec"].get(sec, p["text"])
-    w = sc.text_w(0, sec) + 16
-    sc.fill(0, 0, w, 24, col)
-    sc.text(0, 4, sec, p["ink"], align="c", w=w)
-    sc.text(w + 8, 4, right, p["dim"])
-    sc.fill(0, 24, W, 1, p["line"])
-
-
-def a_footer(sc, left, mid, right):
-    p = A
-    sc.fill(0, 222, W, 18, p["panel"])
-    sc.fill(0, 221, W, 1, p["line"])
-    sc.text(4, 223, left, p["dim"])
-    sc.text(0, 223, mid, p["text"], align="c", w=W)
-    sc.text(0, 223, right, p["dim"], align="r", w=W - 4)
-
-
-def a_ledbox(sc, x, y, w, h, s, dw=20, dh=40, t=4):
-    p = A
-    sc.fill(x, y, w, h, p["led_bg"])
-    sc.frame(x, y, w, h, p["line"])
-    sw = sc.seg7_w(len(s), dw, t)
-    sc.seg7(x + (w - sw) // 2, y + (h - dh) // 2, s, dw, dh, t, p["led"], p["led_ghost"])
-
-
-def a_patch(fonts):
-    p = A
-    sc = Screen(fonts, p["bg"])
-    num, name = PATCH["a"]
-    sc.fill(0, 0, W, 24, p["panel"])
-    sc.text(8, 4, "fm1-8p", p["text"])
-    sc.text(0, 4, "PATCH", p["dim"], align="r", w=W - 8)
-    sc.fill(0, 24, W, 1, p["line"])
-    # the only synthwave here: a banded sunset badge
-    bx, by, bw, bh = 8, 32, 224, 36
-    yy = by
-    for c, hgt in zip(p["sun"], (8, 8, 8, 5, 4, 3)):
-        sc.fill(bx, yy, bw, hgt, c)
-        yy += hgt + (1 if hgt < 8 or c == p["sun"][2] else 0)
-    sc.text(bx, by + 4, "POLY 2-DCO SYNTH", p["ink"], align="c", w=bw)
-    a_ledbox(sc, 8, 78, 104, 52, num)
-    sc.text(124, 82, "BANK A", p["dim"])
-    sc.text(124, 100, "PATCH 17", p["text"])
-    sc.text(0, 142, name, p["text"], big=1, align="c", w=W)
-    sc.fill(8, 182, 224, 30, p["panel"])
-    sc.frame(8, 182, 224, 30, p["line"])
-    sc.text(16, 189, "6 VOICES", p["text"])
-    sc.text(0, 189, "CHORUS II", p["sec"]["CHORUS"], align="r", w=224)
-    a_footer(sc, "<", "PRESETS: BROWSE", ">")
-    return sc
-
-
-def a_vcf(fonts):
-    p = A
-    sc = Screen(fonts, p["bg"])
-    col = p["sec"]["VCF"]
-    a_header(sc, "VCF", "A17 GLASS HARBOR")
-    num = VCF[ACTIVE_VCF][0]
-    a_ledbox(sc, 8, 32, 66, 50, num)
-    # the response in a framed window
-    gx, gy, gw, gh = 82, 32, 150, 50
-    sc.fill(gx, gy, gw, gh, p["led_bg"])
-    sc.frame(gx, gy, gw, gh, p["line"])
-    db = filter_curve(VCF[0][2], VCF[1][2], n=gw - 4)
-    pts = [(gx + 2 + i, gy + 6 + min(gh - 9, max(0, (12 - d) * (gh - 9) / 48))) for i, d in enumerate(db)]
-    sc.fill(gx + 2, gy + 6 + 12 * (gh - 9) // 48, gw - 4, 1, p["line"])
-    sc.poly(pts, col, thick=2)
-    for k, (n, label, v) in enumerate(VCF):
-        y = 92 + k * 32
-        act = k == ACTIVE_VCF
-        sc.fill(8, y, 224, 28, p["raised"] if act else p["panel"])
-        sc.fill(8, y, 28, 28, p["led_bg"])
-        sc.text(8, y + 6, n, p["led"] if act else mix(p["led"], p["led_bg"], 0.55), align="c", w=28)
-        sc.text(44, y + 3, "K%d %s" % (k + 1, label), p["text"] if act else p["dim"])
-        sc.text(0, y + 3, "%3d" % v, p["text"], align="r", w=226)
-        bw = 182 * v // 127
-        sc.fill(44, y + 21, 182, 3, p["line"])
-        sc.fill(44, y + 21, bw, 3, col if act else mix(col, p["panel"], 0.4))
-        if act:
-            sc.frame(8, y, 224, 28, col)
-    a_footer(sc, "< MIX", "VCF", "VCA >")
-    return sc
-
-
-def a_env(fonts):
-    p = A
-    sc = Screen(fonts, p["bg"])
-    col = p["sec"]["ENV-1"]
-    a_header(sc, "ENV-1", "A17 GLASS HARBOR")
-    gx, gy, gw, gh = 8, 32, 224, 96
-    sc.fill(gx, gy, gw, gh, p["led_bg"])
-    sc.frame(gx, gy, gw, gh, p["line"])
-    a, d, s, r = (e[2] for e in ENV1)
-    pts, marks = env_points(gx + 6, gy + 10, gw - 12, gh - 22, a, d, s, r)
-    for m in marks[:-1]:
-        for yy in range(gy + 4, gy + gh - 4, 4):
-            sc.fill(int(m), yy, 1, 2, p["line"])
-    sc.poly(pts, mix(col, p["led_bg"], 0.25), thick=2)
-    seg = [pt for pt in pts if marks[0] <= pt[0] <= marks[1]]
-    sc.poly(seg, col, thick=3)
-    for k, lab in enumerate("ADSR"):
-        x0 = gx + 6 if k == 0 else marks[k - 1]
-        x1 = marks[k]
-        sc.text(int((x0 + x1) / 2) - 4, gy + gh - 18, lab, p["text"] if k == ACTIVE_ENV else p["dim"])
-    for k, (n, label, v, unit) in enumerate(ENV1):
-        x = 8 + k * 57
-        y = 136
-        act = k == ACTIVE_ENV
-        sc.fill(x, y, 53, 80, p["raised"] if act else p["panel"])
-        sc.fill(x, y, 53, 18, p["led_bg"])
-        sc.text(x, y + 1, n, p["led"] if act else mix(p["led"], p["led_bg"], 0.55), align="c", w=53)
-        sc.text(x, y + 22, label, p["text"] if act else p["dim"], align="c", w=53)
-        sc.text(x, y + 40, "%d" % v, p["text"], big=0, align="c", w=53)
-        sc.text(x, y + 58, unit, p["dim"], align="c", w=53)
-        sc.fill(x + 4, y + 75, 45, 2, p["line"])
-        sc.fill(x + 4, y + 75, 45 * v // 127, 2, col)
-        if act:
-            sc.frame(x, y, 53, 80, col)
-    a_footer(sc, "< VCA", "ENV-1", "ENV-2 >")
-    return sc
-
-
-def a_seq(fonts):
-    p = A
-    sc = Screen(fonts, p["bg"])
-    col = p["sec"]["SEQ"]
-    a_header(sc, "SEQ", "PLAY  112 BPM")
-    pw, ph, gap = 26, 34, 2
-    for i, (kind, lab, notes) in enumerate(SEQ):
-        x = 9 + (i % 8) * (pw + gap)
-        y = 32 + (i // 8) * (ph + 6)
-        play = i == PLAYHEAD
-        face = p["text"] if play else (p["raised"] if kind != "r" else p["panel"])
-        ink = p["ink"] if play else p["text"]
-        sc.fill(x, y, pw, ph, face)
-        sc.text(x + 2, y + 1, "%d" % (i + 1), p["ink"] if play else p["dim"])
-        if kind in "nc":
-            sc.text(x, y + 17, lab, ink, align="c", w=pw)
-        elif kind == "t":
-            sc.fill(x - gap, y + 23, pw + gap - 4, 3, col)
-            sc.text(x, y + 13, ">", col, align="r", w=pw - 1)
-        if i == EDIT_STEP:
-            sc.frame(x, y, pw, ph, col, 2)
-        if play:
-            sc.fill(x + pw - 7, y + 3, 4, 4, p["led"])
-    a_ledbox(sc, 8, 116, 66, 50, "05")
-    sc.text(84, 118, "STEP 5  CHORD", p["text"])
-    sc.text(84, 136, "C3 Eb3 G3 Bb3", col)
-    sc.text(84, 154, "TIED TO 6", p["dim"])
-    keyboard(sc, 8, 176, 14, 28, p["text"], p["ink"], step_led, p["led"], p["led_ghost"], p["raised"], p["line"])
-    a_footer(sc, "LEN 16", "", "SWING 54")
-    return sc
-
-
-# ================================================================ direction B: OUTRUN
-B = dict(bg="#0A0620", plate="#140C34", grid="#3A1A6A", grid_dim="#22104A", text="#F4ECFF", dim="#9A88C8",
-         mag="#FF2BD6", cyan="#20E8FF", orange="#FF8A1F", yellow="#FFD23F",
-         sec={"DCO-1": "#FF2BD6", "DCO-2": "#B04CFF", "MIX": "#F4ECFF", "VCF": "#20E8FF", "VCA": "#3DFFA8",
-              "ENV-1": "#FF8A1F", "ENV-2": "#FFD23F", "LFO": "#FF5A8A", "CHORUS": "#4D9BFF", "SEQ": "#FF2BD6"},
-         sun=["#FFE040", "#FFC038", "#FFA038", "#FF7848", "#FF5068", "#F03890", "#D028B8", "#A020C8"])
-
-
-def b_header(sc, sec, right, num=None):
-    p = B
-    col = p["sec"].get(sec, p["text"])
-    sc.text(8, 4, sec, col)
-    sc.text(sc.text_w(0, sec) + 16, 4, right, p["dim"])
-    if num:
-        sc.seg7(W - 8 - sc.seg7_w(2, 9, 2), 4, num, 9, 16, 2, p["cyan"], mix(p["cyan"], p["bg"], 0.9))
-    # a banded neon rule: four colors, four fills
-    for i, c in enumerate([p["mag"], p["orange"], p["yellow"], p["cyan"]]):
-        sc.fill(i * 60, 23, 60, 2, c)
-
-
-def b_grid(sc, y0, y1, horizon_c, line_c, cx=120):
-    sc.fill(0, y0, W, 1, horizon_c)
-    depth = y1 - y0
-    for k in range(-9, 10):
-        sc.line(cx + k * 8, y0, cx + k * 60, y1 + depth, line_c)
-    yy, step = y0 + 3, 3.0
-    while yy < y1:
-        sc.fill(0, int(yy), W, 1, line_c)
-        step *= 1.45
-        yy += step
-
-
-def b_glow_text(sc, x, y, s, c, big=1, align="l", w=0):
-    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        sc.text(x + dx, y + dy, s, mix(B["bg"], c, 0.35), big=big, align=align, w=w)
-    sc.text(x, y, s, c, big=big, align=align, w=w)
-
-
-def b_patch(fonts):
-    p = B
-    sc = Screen(fonts, p["bg"])
-    num, name = PATCH["b"]
-    sc.text(8, 4, "fm1-8p", p["mag"])
-    sc.text(0, 4, "PATCH", p["dim"], align="r", w=W - 8)
-    sc.seg7(8, 28, num, 18, 34, 3, p["cyan"], mix(p["cyan"], p["bg"], 0.9))
-    sc.text(86, 30, "BANK A / 17", p["dim"])
-    sc.text(86, 46, "6V  CHORUS II", p["cyan"])
-    b_glow_text(sc, 0, 74, name, p["text"], align="c", w=W)
-    # the sun: one fill per row, cut by widening gaps, banded in 8 colors
-    hz = 168
-    cy, r = 162, 54
-    def row_c(y):
-        i = min(len(p["sun"]) - 1, max(0, (y - (cy - r)) * len(p["sun"]) // (hz - (cy - r))))
-        return p["sun"][i]
-    cuts = sun_cuts(hz)
-    sc.disc_rows(120, cy, r, row_c, lambda y: y in cuts, y_max=hz)
-    sc.fill(0, hz + 1, W, H - hz - 1, p["bg"])
-    b_grid(sc, hz, H, p["mag"], p["grid"])
-    sc.fill(0, 222, W, 18, p["bg"])
-    sc.text(0, 223, "< PRESETS >", p["text"], align="c", w=W)
-    return sc
-
-
-def b_knob(sc, x, y, w, h, n, label, v, col, act):
-    p = B
-    sc.fill(x, y, w, h, p["plate"])
-    cx, cy, r = x + 30, y + 32, 24
-    sc.arc(cx, cy, r, 135, 405, p["grid"], thick=4)
-    end = 135 + 270 * v / 127
-    if act:
-        sc.arc(cx, cy, r + 2, 135, end, mix(p["bg"], col, 0.4), thick=2)
-        sc.arc(cx, cy, r - 4, 135, end, mix(p["bg"], col, 0.4), thick=1)
-    sc.arc(cx, cy, r, 135, end, col if act else mix(col, p["bg"], 0.35), thick=4)
-    a = math.radians(end)
-    sc.line(cx, cy, cx + (r - 8) * math.cos(a), cy + (r - 8) * math.sin(a), p["text"] if act else p["dim"])
-    sc.text(cx - 12, cy + 14, n, col if act else p["dim"])
-    tx = x + 60
-    sc.text(tx, y + 6, label, p["text"] if act else p["dim"])
-    sc.text(tx, y + 26, "%d" % v, p["text"] if act else p["dim"], big=1)
-    if act:
-        sc.glow(x, y, w, h, col, p["bg"])
-
-
-def b_vcf(fonts):
-    p = B
-    sc = Screen(fonts, p["bg"])
-    col = p["sec"]["VCF"]
-    b_header(sc, "VCF", "NEON TIDE", VCF[ACTIVE_VCF][0])
-    # the response over a floor grid: one 240 x 64 canvas, redrawn when CUTOFF / RESO change
-    gy, gh = 30, 64
-    b_grid(sc, gy + gh - 18, gy + gh, p["grid_dim"], p["grid_dim"])
-    db = filter_curve(VCF[0][2], VCF[1][2], n=224)
-    pts = [(8 + i, gy + 4 + min(gh - 8, max(0, (12 - d) * (gh - 8) / 48))) for i, d in enumerate(db)]
-    sc.poly([(x, y + 2) for x, y in pts], mix(p["bg"], col, 0.3), thick=1)
-    sc.poly([(x, y - 2) for x, y in pts], mix(p["bg"], col, 0.3), thick=1)
-    sc.poly(pts, col, thick=2)
-    for k, (n, label, v) in enumerate(VCF):
-        x = 6 + (k % 2) * 116
-        y = 100 + (k // 2) * 62
-        b_knob(sc, x, y, 112, 58, n, label, v, col, k == ACTIVE_VCF)
-    sc.text(0, 225, "< MIX", p["dim"])
-    sc.text(0, 225, "VCA >", p["dim"], align="r", w=W)
-    for i, s in enumerate(PAGES):
-        c = p["sec"][s]
-        sc.fill(84 + i * 8, 231, 6 if s == "VCF" else 4, 6 if s == "VCF" else 4, c if s == "VCF" else mix(p["bg"], c, 0.5))
-    return sc
-
-
-def b_env(fonts):
-    p = B
-    sc = Screen(fonts, p["bg"])
-    col = p["sec"]["ENV-1"]
-    b_header(sc, "ENV-1", "NEON TIDE", ENV1[ACTIVE_ENV][0])
-    gx, gy, gw, gh = 8, 32, 224, 92
-    a, d, s, r = (e[2] for e in ENV1)
-    pts, marks = env_points(gx, gy + 6, gw, gh - 10, a, d, s, r)
-    # scanline fill under the curve: every other column, on a canvas
-    for x in range(gx, gx + gw, 2):
-        ys = [pt[1] for pt in pts if abs(pt[0] - x) < 3]
-        if ys:
-            top = int(min(ys)) + 3
-            sc.fill(x, top, 1, gy + gh - 4 - top, mix(p["bg"], col, 0.22))
-    sc.fill(gx, gy + gh - 4, gw, 1, p["grid"])
-    sc.poly([(x, y - 2) for x, y in pts], mix(p["bg"], col, 0.35))
-    sc.poly([(x, y + 2) for x, y in pts], mix(p["bg"], col, 0.35))
-    sc.poly(pts, col, thick=2)
-    seg = [pt for pt in pts if marks[0] <= pt[0] <= marks[1]]
-    sc.poly(seg, p["text"], thick=2)
-    for k, (n, label, v, unit) in enumerate(ENV1):
-        x = 6 + (k % 2) * 116
-        y = 130 + (k // 2) * 46
-        act = k == ACTIVE_ENV
-        sc.fill(x, y, 112, 42, p["plate"])
-        sc.text(x + 6, y + 4, n, col if act else p["dim"])
-        sc.text(x + 6, y + 22, label, p["text"] if act else p["dim"])
-        sc.text(x + 106 - sc.text_w(1, "%d" % v), y + 6, "%d" % v, p["text"] if act else p["dim"], big=1)
-        sc.text(x + 40, y + 22, unit, mix(p["bg"], col, 0.8) if act else p["dim"])
-        if act:
-            sc.glow(x, y, 112, 42, col, p["bg"])
-    sc.text(0, 225, "< VCA", p["dim"])
-    sc.text(0, 225, "ENV-2 >", p["dim"], align="r", w=W)
-    return sc
-
-
-def b_seq(fonts):
-    p = B
-    sc = Screen(fonts, p["bg"])
-    col = p["mag"]
-    b_header(sc, "SEQ", "112 BPM  LEN 16", "05")
-    # a piano-roll lane: 16 columns of 14 px, pitch up
-    lx, ly, lh = 8, 32, 96
+def scr_seq(fonts, t):
+    sc = Screen(fonts, t["bg"])
+    sec = "SEQ"
+    col = accent(t, sec)
+    pn, pname, ped = PATTERN
+    draw_header(sc, t, sec, "SEQ", "S2 STEP")
+    # the roll: 16 step columns of 14 px, each its own small canvas (14 x 72)
+    rx, ry, rh, cw = 8, 26, 72, 14
     lo, hi = -6, 13
-    def ny(semi):
-        return ly + lh - 6 - (semi - lo) * (lh - 10) // (hi - lo)
-    for semi in range(lo, hi + 1):
-        if semi % 12 == 0:
-            sc.fill(lx, ny(semi) + 2, 224, 1, p["grid"])
-    for i in range(17):
-        sc.fill(lx + i * 14 - 1, ly, 1, lh, p["grid"] if i % 4 == 0 else p["grid_dim"])
-    sc.fill(lx + PLAYHEAD * 14, ly, 13, lh, mix(p["bg"], p["cyan"], 0.18))
-    for i, (kind, lab, notes) in enumerate(SEQ):
-        x = lx + i * 14
-        c = p["cyan"] if i == PLAYHEAD else (p["orange"] if kind == "c" else col)
-        if kind == "t":
-            c = mix(c, p["bg"], 0.25)
+    ny = lambda semi: ry + rh - 5 - (semi - lo) * (rh - 8) // (hi - lo)
+    for i, (kind, notes) in enumerate(SEQ):
+        x = rx + i * cw
+        play = i == PLAYHEAD
+        bg = mix(t["window"], t["playhead"], 0.16) if play else (t["window"] if (i // 4) % 2 == 0 else t["surface"])
+        sc.fill(x, ry, cw - 1, rh, bg)
+        for semi in (0, 12):
+            sc.fill(x, ny(semi) + 1, cw - 1, 1, t["line"])
+        block = t["playhead"] if play else col
         for semi in notes:
-            sc.fill(x - (2 if kind == "t" else 0), ny(semi), 13 + (2 if kind == "t" else 0), 4, c)
-        if i == EDIT_STEP:
-            sc.glow(x - 1, ly + 1, 15, lh - 2, p["orange"], p["bg"], rings=(1.0, 0.4))
-    sc.fill(lx + PLAYHEAD * 14 + 6, ly, 1, lh, p["cyan"])
-    sc.text(8, 134, "STEP 5", p["dim"])
-    b_glow_text(sc, 8, 150, "C MIN7", p["orange"], big=1)
-    sc.text(120, 134, "C3 Eb3 G3 Bb3", p["text"])
-    sc.text(120, 152, "TIE > 6", p["orange"])
-    sc.text(120, 168, "SWING 54", p["dim"])
-    keyboard(sc, 8, 190, 14, 28, p["text"], p["bg"], step_led, p["mag"], mix(p["bg"], p["mag"], 0.4), p["grid_dim"], p["grid"])
-    sc.text(0, 223, "> PLAY", p["cyan"], align="c", w=W)
+            if kind == "t":               # a tie: the held notes run on from the left, through the gap
+                sc.fill(x - 1, ny(semi), cw - 2, 3, mix(t["window"], col, t["tie_mix"]))
+            else:
+                sc.fill(x + 1, ny(semi), cw - 3, 3, block)
+        if i == CURSOR:
+            sc.frame(x - 1, ry, cw + 1, rh, t["cursor"], 1)
+    sc.fill(rx + PLAYHEAD * cw + 6, ry, 1, rh, t["playhead"])
+    sc.fill(rx, ry + rh, 16 * cw - 1, 1, t["line"])
+    # the cursor step in detail
+    led_window(sc, t, M, 101, 52, 52, "05", sec)
+    x = M + 60
+    sc.dtext(x, 101, "D20", "C MIN7", t["text"])
+    sc.text(0, 103, "TIE > 6", col, align="r", w=W - M)
+    sc.text(x, 122, "C3 Eb3 G3 Bb3", col)
+    xe = sc.text(x, 138, "HELD ", t["dim"])
+    sc.text(xe, 138, " ".join(key_name(k) for k in HELD), t["text"])
+    # S2: the cursor step's four knobs
+    for k, (lab, val) in enumerate((("VEL", "100"), ("BEND", "+0%"), ("MOD", "0"), ("MOVE", "JUMP"))):
+        cx = col_x(k)
+        sc.fill(cx, 156, COL_W, 32, t["surface"])
+        sc.text(cx, 156, lab, t["dim"], align="c", w=COL_W)
+        sc.text(cx, 172, val, t["text"], align="c", w=COL_W)
+    # what the section buttons mean here
+    x = M
+    for b, m in (("SEL", "REST"), ("ENV", "TIE"), ("LFO", "MOVE"), ("FX", "--")):
+        w = sc.text_w(b) + 4
+        sc.fill(x, 191, w, 16, t["surface_hi"])
+        sc.text(x + 2, 191, b, t["dim"])
+        x = sc.text(x + w + 2, 191, m, t["text"] if m != "--" else t["dim"]) + 6
+    key_strip(sc, t, 8, 209, 14, 12, col)
+    draw_footer(sc, t, "PTN %s %s%s" % (pn, pname, "*" if ped else ""), "NEXT 42", col)
     return sc
 
 
-# ================================================================ direction C: NIGHT PANEL
-C = dict(bg="#0E0E1A", panel="#181828", raised="#22223A", line="#2E2E4C", text="#EEECF8", dim="#9896B8",
-         led_bg="#07070E",
-         sec={"DCO-1": "#FF5FA0", "DCO-2": "#FF8A3D", "MIX": "#D8D4F0", "VCF": "#2FD8FF", "VCA": "#7CF07C",
-              "ENV-1": "#FFC23D", "ENV-2": "#FFE070", "LFO": "#B07CFF", "CHORUS": "#3DA0FF", "SEQ": "#FF3DD8"},
-         sun=["#FFD84A", "#FFB040", "#FF8840", "#FF5C60", "#F03C90", "#C030C0"], grid="#5A2A9A", hz="#FF3DD8")
+SCREENS = [("1-play", scr_play), ("2-vcf", scr_vcf), ("3-env", scr_env), ("4-seq", scr_seq), ("5-glo", scr_glo)]
 
 
-def c_header(sc, sec, title, right):
-    p = C
-    col = p["sec"].get(sec, p["text"])
-    sc.fill(0, 0, W, 3, col)
-    sc.text(8, 5, sec, col)
-    sc.text(sc.text_w(0, sec) + 16, 5, title, p["dim"])
-    sc.text(0, 5, right, p["text"], align="r", w=W - 8)
-    sc.fill(0, 23, W, 1, p["line"])
-
-
-def c_pages(sc, cur):
-    """The section strip: one dot per page in its own color, the current one big (and the
-    section buttons' LEDs agree with it)."""
-    p = C
-    x = (W - (len(PAGES) * 12 - 4)) // 2
-    for i, s in enumerate(PAGES):
-        c = p["sec"][s]
-        if s == cur:
-            sc.fill(x + i * 12 - 1, 229, 10, 6, c)
-        else:
-            sc.fill(x + i * 12 + 1, 231, 6, 2, mix(p["bg"], c, 0.55))
-
-
-def c_ledbox(sc, x, y, w, h, s, col, dw=20, dh=40, t=4):
-    p = C
-    sc.fill(x, y, w, h, p["led_bg"])
-    sc.frame(x, y, w, h, p["line"])
-    sw = sc.seg7_w(len(s), dw, t)
-    sc.seg7(x + (w - sw) // 2, y + (h - dh) // 2, s, dw, dh, t, col, mix(p["led_bg"], col, 0.08))
-
-
-def c_ladder(sc, x, y, n, segw, segh, gap, v, col, act, vertical=True):
-    p = C
-    lit = round(n * v / 127)
-    for i in range(n):
-        on = i < lit
-        c = (col if act else mix(p["panel"], col, 0.6)) if on else p["raised"]
-        if vertical:
-            sc.fill(x, y + (n - 1 - i) * (segh + gap), segw, segh, c)
-        else:
-            sc.fill(x + i * (segw + gap), y, segw, segh, c)
-
-
-def c_sun_scene(sc, y0, y1):
-    p = C
-    hz = y0 + (y1 - y0) * 5 // 9
-    cy, r = hz + 6, 40
-    def row_c(y):
-        i = min(len(p["sun"]) - 1, max(0, (y - (cy - r)) * len(p["sun"]) // (hz - (cy - r))))
-        return p["sun"][i]
-    cuts = sun_cuts(hz, (3, 2, 2, 1, 1), (3, 4, 5, 6, 7))
-    sc.disc_rows(120, cy, r, row_c, lambda y: y in cuts, y_max=hz)
-    sc.fill(0, hz, W, 1, p["hz"])
-    for k in range(-8, 9):
-        sc.line(120 + k * 10, hz, 120 + k * 46, y1 + (y1 - hz), p["grid"])
-    yy, step = hz + 2, 2.0
-    while yy < y1:
-        sc.fill(0, int(yy), W, 1, p["grid"])
-        step *= 1.5
-        yy += step
-    sc.fill(0, y1, W, H - y1, p["bg"])
-
-
-def c_patch(fonts):
-    p = C
-    sc = Screen(fonts, p["bg"])
-    num, name = PATCH["c"]
-    col = p["sec"]["SEQ"]
-    sc.fill(0, 0, W, 3, col)
-    sc.text(8, 5, "fm1-8p", p["text"])
-    sc.text(0, 5, "PATCH", p["dim"], align="r", w=W - 8)
-    sc.fill(0, 23, W, 1, p["line"])
-    c_ledbox(sc, 8, 30, 104, 52, num, col)
-    sc.text(122, 34, "BANK A", p["dim"])
-    sc.text(122, 52, "6 VOICES", p["text"])
-    sc.text(122, 68, "CHORUS II", p["sec"]["CHORUS"])
-    sc.text(0, 92, name, p["text"], big=1, align="c", w=W)
-    c_sun_scene(sc, 130, 222)
-    sc.text(0, 223, "< PRESETS >", p["dim"], align="c", w=W)
-    return sc
-
-
-def c_vcf(fonts):
-    p = C
-    sc = Screen(fonts, p["bg"])
-    col = p["sec"]["VCF"]
-    c_header(sc, "VCF", "FILTER", "A17")
-    c_ledbox(sc, 8, 30, 64, 64, VCF[ACTIVE_VCF][0], col)
-    gx, gy, gw, gh = 80, 30, 152, 64
-    sc.fill(gx, gy, gw, gh, p["led_bg"])
-    sc.frame(gx, gy, gw, gh, p["line"])
-    db = filter_curve(VCF[0][2], VCF[1][2], n=gw - 4)
-    yof = lambda d: gy + 6 + min(gh - 10, max(0, (12 - d) * (gh - 10) / 48))
-    sc.fill(gx + 2, int(yof(0)), gw - 4, 1, p["line"])
-    pts = [(gx + 2 + i, yof(d)) for i, d in enumerate(db)]
-    for i, (x, y) in enumerate(pts):
-        if i % 2 == 0:
-            sc.fill(x, int(y) + 2, 1, gy + gh - 2 - int(y) - 2, mix(p["led_bg"], col, 0.16))
-    sc.poly(pts, col, thick=2)
-    for k, (n, label, v) in enumerate(VCF):
-        x = 8 + k * 57
-        act = k == ACTIVE_VCF
-        sc.fill(x, 102, 53, 120, p["raised"] if act else p["panel"])
-        sc.text(x, 104, n, col if act else mix(p["panel"], col, 0.6), align="c", w=53)
-        sc.text(x, 120, label, p["text"] if act else p["dim"], align="c", w=53)
-        c_ladder(sc, x + 15, 140, 8, 23, 4, 2, v, col, act)
-        sc.text(x, 190, "%d" % v, p["text"] if act else p["dim"], big=1, align="c", w=53)
-        if act:
-            sc.glow(x, 102, 53, 120, col, p["bg"])
-    c_pages(sc, "VCF")
-    return sc
-
-
-def c_env(fonts):
-    p = C
-    sc = Screen(fonts, p["bg"])
-    col = p["sec"]["ENV-1"]
-    c_header(sc, "ENV-1", "VCF+VCA", "A17")
-    gx, gy, gw, gh = 8, 30, 224, 96
-    sc.fill(gx, gy, gw, gh, p["led_bg"])
-    sc.frame(gx, gy, gw, gh, p["line"])
-    a, d, s, r = (e[2] for e in ENV1)
-    pts, marks = env_points(gx + 8, gy + 10, gw - 16, gh - 30, a, d, s, r)
-    for m in marks[:-1]:
-        for yy in range(gy + 4, gy + gh - 20, 4):
-            sc.fill(int(m), yy, 1, 2, p["line"])
-    base = gy + gh - 20
-    for x in range(gx + 8, gx + gw - 8, 2):
-        ys = [pt[1] for pt in pts if abs(pt[0] - x) < 3]
-        if ys:
-            top = int(min(ys)) + 3
-            if top < base:
-                inside = marks[0] <= x <= marks[1]
-                sc.fill(x, top, 1, base - top, mix(p["led_bg"], col, 0.28 if inside else 0.12))
-    sc.fill(gx + 8, base, gw - 16, 1, p["line"])
-    sc.poly(pts, mix(p["led_bg"], col, 0.6), thick=2)
-    seg = [pt for pt in pts if marks[0] <= pt[0] <= marks[1]]
-    sc.poly(seg, col, thick=3)
-    for k, lab in enumerate("ADSR"):
-        x0 = gx + 8 if k == 0 else marks[k - 1]
-        sc.text(int((x0 + marks[k]) / 2) - 4, base + 2, lab, col if k == ACTIVE_ENV else p["dim"])
-    for k, (n, label, v, unit) in enumerate(ENV1):
-        x = 8 + k * 57
-        act = k == ACTIVE_ENV
-        sc.fill(x, 132, 53, 90, p["raised"] if act else p["panel"])
-        sc.text(x, 134, "%s %s" % (n, label), p["text"] if act else p["dim"], align="c", w=53)
-        sc.text(x, 152, "%d" % v, p["text"] if act else p["dim"], big=1, align="c", w=53)
-        c_ladder(sc, x + 4, 188, 9, 3, 6, 2, v, col, act, vertical=False)
-        sc.text(x, 200, unit, col if act else p["dim"], align="c", w=53)
-        if act:
-            sc.glow(x, 132, 53, 90, col, p["bg"])
-    c_pages(sc, "ENV-1")
-    return sc
-
-
-def c_seq(fonts):
-    p = C
-    sc = Screen(fonts, p["bg"])
-    col = p["sec"]["SEQ"]
-    play = p["sec"]["VCF"]
-    c_header(sc, "SEQ", "> PLAY", "112 BPM")
-    pw, ph, gap = 26, 44, 2
-    for i, (kind, lab, notes) in enumerate(SEQ):
-        x = 9 + (i % 8) * (pw + gap)
-        y = 30 + (i // 8) * (ph + 6)
-        is_play = i == PLAYHEAD
-        face = p["raised"] if kind != "r" else p["panel"]
-        sc.fill(x, y, pw, ph, face)
-        sc.text(x, y + 1, "%d" % (i + 1), p["dim"] if not is_play else play, align="c", w=pw)
-        if kind == "t":
-            # a tie: the note's bars run on from the step before, through the gap
-            for j in range(len(notes)):
-                sc.fill(x - gap - 4, y + ph - 8 - j * 6, pw + gap, 4, mix(p["raised"], col, 0.45))
-        elif kind in "nc":
-            n = len(notes)
-            for j in range(n):
-                sc.fill(x + 4, y + ph - 8 - j * 6, pw - 8, 4, col)
-        if i == EDIT_STEP:
-            sc.frame(x, y, pw, ph, p["text"], 2)
-        if is_play:
-            sc.glow(x, y, pw, ph, play, p["bg"])
-    c_ledbox(sc, 8, 132, 64, 52, "05", col)
-    sc.text(80, 134, "STEP 5 CHORD", p["dim"])
-    sc.text(80, 150, "C MIN7", p["text"], big=1)
-    sc.text(0, 134, "L16", p["dim"], align="r", w=W - 8)
-    sc.text(80, 188, "C3 Eb3 G3 Bb3", col)
-    sc.text(0, 188, "SW54", p["dim"], align="r", w=W - 8)
-    keyboard(sc, 8, 206, 14, 22, p["text"], p["bg"], step_led, col, mix(p["bg"], col, 0.4), p["line"], p["line"])
-    return sc
-
-
-DIRECTIONS = [
-    ("a-membrane", [("1-patch", a_patch), ("2-vcf", a_vcf), ("3-env", a_env), ("4-seq", a_seq)]),
-    ("b-outrun", [("1-patch", b_patch), ("2-vcf", b_vcf), ("3-env", b_env), ("4-seq", b_seq)]),
-    ("c-night-panel", [("1-patch", c_patch), ("2-vcf", c_vcf), ("3-env", c_env), ("4-seq", c_seq)]),
-]
+def specimen(fonts):
+    img = Screen(fonts, "#0E0E1A")
+    img.text(5, 4, "fm1-8p display font", "#9896B8")
+    img.dtext(5, 26, "D24", "0123456789", "#EEECF8")
+    img.dtext(5, 54, "D24", "-+.%#/: 1.25 +24", "#2FD8FF")
+    img.dtext(5, 86, "D20", "ABCDEFGHIJKLM", "#EEECF8")
+    img.dtext(5, 110, "D20", "NOPQRSTUVWXYZ", "#EEECF8")
+    img.dtext(5, 140, "D20", "CHROME DUSK", "#FF3DD8")
+    img.dtext(5, 164, "D20", "NIGHT DRIVE", "#FFC23D")
+    img.dtext(5, 190, "D24", "480", "#EEECF8")
+    img.text(48, 198, "ms", "#9896B8")
+    img.text(80, 194, "24 px values", "#9896B8")
+    img.text(80, 210, "20 px names", "#9896B8")
+    return img
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     dock = os.environ.get("FM1_DOCK", os.path.expanduser("~/Projects/fm1-8p-ref/fm1-dock"))
     ap.add_argument("--font", default=os.path.join(dock, "firmware/gen/felucca_font.h"))
-    ap.add_argument("--contrast", action="store_true", help="print each palette's text contrast")
+    ap.add_argument("--contrast", action="store_true", help="print each theme's colors and contrast")
     args = ap.parse_args()
     if not os.path.exists(args.font):
         sys.exit("no host font at %s (set $FM1_DOCK or --font)" % args.font)
-    fonts = load_font(args.font)
-    sheet = Image.new("RGB", (4 * W + 5 * 8, 3 * H + 4 * 8), (40, 40, 40))
-    for row, (d, screens) in enumerate(DIRECTIONS):
-        os.makedirs(os.path.join(OUT, d), exist_ok=True)
-        for col, (name, fn) in enumerate(screens):
-            sc = fn(fonts)
-            sc.save(os.path.join(OUT, d, name))
-            sheet.paste(sc.img, (8 + col * (W + 8), 8 + row * (H + 8)))
-            print(os.path.join(d, name) + "-3x.png")
+    dfont = {k: bake_font(v) for k, v in SIZES.items()}
+    fonts = (load_host_font(args.font), dfont)
+    total = write_font_header(os.path.join(OUT, "display_font.h"), {k: (dfont[k], SIZES[k]) for k in SIZES})
+    print("display font: %d bytes" % total)
+    specimen(fonts).save(os.path.join(OUT, "font-specimen"))
+    sheet = Image.new("RGB", (5 * W + 6 * 8, 2 * H + 3 * 8), (40, 40, 40))
+    for row, (key, t) in enumerate(THEMES.items()):
+        os.makedirs(os.path.join(OUT, key), exist_ok=True)
+        for c, (name, fn) in enumerate(SCREENS):
+            sc = fn(fonts, t, THEMES) if fn is scr_glo else fn(fonts, t)
+            sc.save(os.path.join(OUT, key, name))
+            sheet.paste(sc.img, (8 + c * (W + 8), 8 + row * (H + 8)))
+            print(os.path.join(key, name) + "-3x.png")
     sheet.save(os.path.join(OUT, "compare.png"))
     if args.contrast:
-        for tag, p in (("A", A), ("B", B), ("C", C)):
-            bgs = [k for k in ("bg", "panel", "raised", "plate", "led_bg") if k in p]
+        for key, t in THEMES.items():
+            for k in ("bg", "surface", "surface_hi", "line", "text", "dim", "ink", "window"):
+                print(key, k, t[k], "0x%04X" % rgb565(t[k]))
             for fg in ("text", "dim"):
-                print(tag, fg, " ".join("%s %.1f" % (b, contrast(p[fg], p[b])) for b in bgs))
-            for s, c in p["sec"].items():
-                print(tag, s, "%04X" % rgb565(c), "%.1f" % contrast(c, p["bg"]))
+                print(key, fg, "on", " ".join("%s %.1f" % (b, contrast(t[fg], t[b]))
+                                             for b in ("bg", "surface", "surface_hi", "window")))
+            for s, c in t["sec"].items():
+                print(key, s, c, "0x%04X" % rgb565(c), "%.1f" % contrast(c, t["bg"]),
+                      "%.1f" % contrast(c, t["surface"]))
 
 
 if __name__ == "__main__":
