@@ -246,7 +246,6 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
     fm_lfo_reset(&e->lfo);
     e->tick_left = 0;
-    e->note_peak = FM_ENV_FULL;
     /* each voice its own noise (an odd multiplier: never 0), so unison
      * voices, which start together, never play the same stream */
     for (i = 0; i < FM_MAX_VOICES; i++) {
@@ -343,8 +342,7 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak)
 {
     uint8_t i = (uint8_t)(v - e->voices);
     v->stamp = ++e->stamp;
-    fm_voice_set_velocity(v, peak);
-    fm_voice_note_on(v, note, voice_pitch(e, i, note), e->sample_rate,
+    fm_voice_note_on(v, note, voice_pitch(e, i, note), peak, e->sample_rate,
                      e->fade_samples);
 }
 
@@ -364,21 +362,20 @@ static fm_voice *find_fading(fm_engine *e, uint8_t note)
  * takes it back, so one pitch is never on two voices, and the note that
  * was waiting for `f` gets a voice by the usual rule. With no other
  * voice (or if its key already came up) that waiting note is dropped:
- * the newest note wins.
+ * the newest note wins. `peak` is the new strike's; the waiting note keeps
+ * its own, which `f` still holds in next_peak.
  */
-static void take_back(fm_engine *e, fm_voice *f, uint8_t note)
+static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak)
 {
     uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
-    int32_t moved_peak = f->next_peak;
     fm_voice *w;
-    fm_voice_set_velocity(f, e->note_peak);
     fm_voice_take_back(f, voice_pitch(e, (uint8_t)(f - e->voices), note),
-                       e->sample_rate);
+                       peak, e->sample_rate);
     f->stamp = ++e->stamp;
     if (!key_down && !sustained) return;
     w = pick_voice(e, f);
     if (!w) return;
-    poly_play(e, w, moved, moved_peak);
+    poly_play(e, w, moved, f->next_peak);
     if (!key_down) fm_voice_key_up(w, 1); /* held by the pedal */
 }
 
@@ -394,20 +391,22 @@ static int forget_held(fm_engine *e, uint8_t note)
     return newest;
 }
 
-/* Every voice plays `note`, each at its detune. */
-static void unison_play(fm_engine *e, uint8_t note, int retrigger)
+/* Every voice plays `note`, each at its detune; a retrigger at amp peak
+ * `peak` (a legato change ignores it and keeps each voice's level). */
+static void unison_play(fm_engine *e, uint8_t note, int retrigger,
+                        int32_t peak)
 {
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         v->stamp = ++e->stamp;
-        fm_voice_change_note(v, note, voice_pitch(e, i, note), e->sample_rate,
-                             retrigger);
+        fm_voice_change_note(v, note, voice_pitch(e, i, note), peak,
+                             e->sample_rate, retrigger);
     }
 }
 
 /* Unison: the newest note wins and retriggers (docs/voices.md#unison). */
-static void unison_note_on(fm_engine *e, uint8_t note)
+static void unison_note_on(fm_engine *e, uint8_t note, int32_t peak)
 {
     uint8_t i;
     forget_held(e, note);
@@ -416,10 +415,7 @@ static void unison_note_on(fm_engine *e, uint8_t note)
         e->held_count--;
     }
     e->held[e->held_count++] = note;
-    /* the strike sets the level; a legato return later keeps it */
-    for (i = 0; i < e->voice_count; i++)
-        fm_voice_set_velocity(&e->voices[i], e->note_peak);
-    unison_play(e, note, 1);
+    unison_play(e, note, 1, peak); /* a legato return later keeps it */
 }
 
 /* Unison: releasing the sounding note goes back to the newest key still
@@ -429,7 +425,7 @@ static void unison_note_off(fm_engine *e, uint8_t note)
     uint8_t i;
     if (!forget_held(e, note)) return; /* not the sounding note */
     if (e->held_count) {
-        unison_play(e, e->held[e->held_count - 1], 0);
+        unison_play(e, e->held[e->held_count - 1], 0, 0);
         return;
     }
     for (i = 0; i < e->voice_count; i++) {
@@ -448,22 +444,22 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         fm_engine_note_off(e, note);
         return;
     }
-    e->note_peak = velocity_peak(e, velocity);
     if (e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON) {
-        unison_note_on(e, note);
+        unison_note_on(e, note, velocity_peak(e, velocity));
         return;
     }
     {
+        int32_t peak = velocity_peak(e, velocity);
         fm_voice *v = find_note(e, note);
         if (!v) {
             fm_voice *f = find_fading(e, note);
             if (f) {
-                take_back(e, f, note);
+                take_back(e, f, note, peak);
                 return;
             }
             v = pick_voice(e, 0);
         }
-        poly_play(e, v, note, e->note_peak);
+        poly_play(e, v, note, peak);
     }
 }
 

@@ -56,14 +56,14 @@ static void restart_lfo(fm_voice *v)
 /* Starts the note from the current level (0 when idle). A note whose
  * key came up while it waited for a steal fade queues its release for as
  * long as it waited, so it is heard rather than released at level 0. */
-static void start(fm_voice *v, uint32_t sample_rate)
+static void start(fm_voice *v, uint32_t sample_rate, int32_t peak)
 {
     v->pending = 0;
     restart_lfo(v);
     apply_pitch(v);
     v->pitch = v->next_pitch;
     fm_osc_pair_set_pitch(&v->osc, v->pitch, sample_rate);
-    v->amp_env.peak = v->next_peak;
+    v->amp_env.peak = peak;
     fm_env_gate_on(&v->amp_env);
     if (!v->key_down && !v->sustained) v->gate_left = v->wait ? v->wait : 1;
 }
@@ -78,15 +78,16 @@ static void hold(fm_voice *v, uint8_t note, int32_t pitch)
     v->next_pitch = pitch;
 }
 
-void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch,
+void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch, int32_t peak,
                       uint32_t sample_rate, uint32_t fade_samples)
 {
     int same = fm_voice_active(v) && v->note == note;
     uint8_t old = v->note;
     hold(v, note, pitch);
+    v->next_peak = peak;
     if (v->pending) return; /* starts when the fade ends */
     if (same || v->amp_env.stage == FM_ENV_IDLE) {
-        start(v, sample_rate);
+        start(v, sample_rate, peak);
     } else {
         v->old_note = old;
         v->pending = 1;
@@ -95,30 +96,27 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch,
     }
 }
 
-void fm_voice_take_back(fm_voice *v, int32_t pitch, uint32_t sample_rate)
+void fm_voice_take_back(fm_voice *v, int32_t pitch, int32_t peak,
+                        uint32_t sample_rate)
 {
     hold(v, v->old_note, pitch);
-    start(v, sample_rate);
+    start(v, sample_rate, peak); /* next_peak stays the dropped note's */
 }
 
 void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
-                          uint32_t sample_rate, int retrigger)
+                          int32_t peak, uint32_t sample_rate, int retrigger)
 {
     hold(v, note, pitch);
+    if (retrigger) v->next_peak = peak;
     if (v->pending) return; /* starts when the fade ends */
     if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
         restart_lfo(v); /* before the gate: it checks for silence */
         apply_pitch(v);
-        v->amp_env.peak = v->next_peak;
+        if (retrigger) v->amp_env.peak = peak; /* legato keeps its own */
         fm_env_gate_on(&v->amp_env);
     }
     v->pitch = pitch;
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
-}
-
-void fm_voice_set_velocity(fm_voice *v, int32_t peak)
-{
-    v->next_peak = peak;
 }
 
 void fm_voice_key_up(fm_voice *v, int pedal_down)
@@ -196,7 +194,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
         int32_t level, osc;
         if (v->amp_env.stage == FM_ENV_IDLE) {
             if (!v->pending) return;
-            start(v, sample_rate); /* the stolen note has faded out */
+            start(v, sample_rate, v->next_peak); /* the stolen note faded */
         }
         if (v->gate_left && --v->gate_left == 0)
             fm_env_gate_off(&v->amp_env); /* the queued release */

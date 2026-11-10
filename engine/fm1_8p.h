@@ -5,7 +5,7 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 4.0 KiB (4084 bytes on
+ * sets up everything inside it. fm_engine is about 4.0 KiB (4080 bytes on
  * 32- and 64-bit desktops), more than half of it the chorus delay line, so
  * static storage is recommended; a task stack must have room for it on
  * top of its other use. See docs/fixed-point.md for the number formats.
@@ -95,7 +95,6 @@ typedef struct {
     fm_lfo lfo;          /* one LFO for every voice (docs/modulation.md) */
     fm_voice_mod mod;    /* what the LFO does to each voice */
     uint32_t tick_left;  /* samples until the next control tick */
-    int32_t note_peak;   /* amp peak of the last note on, Q1.30 */
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
     int32_t mix_right[FM_MIX_FRAMES]; /* the chorus's right side, Q8.24 */
     /* output stage, after the voices are mixed: about 2.1 KiB, almost

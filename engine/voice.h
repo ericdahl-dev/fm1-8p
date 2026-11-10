@@ -34,7 +34,8 @@ typedef struct {
     int32_t pw_off;    /* LFO pulse width offset now applied, Q0.32 */
     int32_t lfo_fade;  /* LFO delay / fade-in level, Q1.30 */
     uint32_t lfo_wait; /* control ticks of LFO delay left */
-    int32_t next_peak; /* amp peak (velocity) for the next note start */
+    int32_t next_peak; /* amp peak (velocity) of `note`, Q1.30, kept while
+                        * an old note fades */
     uint8_t note;
     uint8_t old_note;  /* while pending: the stolen note fading out */
     uint8_t key_down;
@@ -58,7 +59,8 @@ void fm_voice_reset(fm_voice *v, uint32_t seed);
 int fm_voice_active(const fm_voice *v);
 
 /*
- * Plays `note` at `pitch` (Q16.16 semitones). An idle voice starts it at
+ * Plays `note` at `pitch` (Q16.16 semitones) with amp envelope peak
+ * `peak` (Q1.30, from its velocity). An idle voice starts it at
  * once, and a voice already playing the same note retriggers its attack
  * from the current level. Any other sounding voice is stolen: the old
  * note fades out over `fade_samples`, then the new one starts. A voice
@@ -66,34 +68,30 @@ int fm_voice_active(const fm_voice *v);
  * key comes up during the fade, the note still starts after it, holds
  * for the fade time (as long as it waited) and then releases.
  */
-void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch,
+void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch, int32_t peak,
                       uint32_t sample_rate, uint32_t fade_samples);
 
 /*
  * Takes a voice that is fading out a stolen note back for that note
  * (`old_note`, played again): the steal is called off and the note
- * restarts its attack from the current level at `pitch`. The note that was
- * waiting for the fade is dropped; the caller can give it another voice.
+ * restarts its attack from the current level at `pitch` and `peak`. The
+ * note that was waiting for the fade is dropped; the caller can give it
+ * another voice, at the peak still in `next_peak`.
  */
-void fm_voice_take_back(fm_voice *v, int32_t pitch, uint32_t sample_rate);
+void fm_voice_take_back(fm_voice *v, int32_t pitch, int32_t peak,
+                        uint32_t sample_rate);
 
 /*
  * Moves the voice to `note` at `pitch` (Q16.16 semitones) without a steal fade (unison mode,
  * where every voice follows one note). The oscillator keeps its phase,
  * so the pitch changes without a jump. With `retrigger` the envelope
- * restarts its attack from the current level; without, it carries on
- * (legato), unless the voice was idle. A voice still fading out a stolen
- * poly note starts `note` when the fade ends.
+ * restarts its attack from the current level toward `peak`; without, it
+ * carries on (legato) at its own peak and `peak` is ignored, unless the
+ * voice was idle. A voice still fading out a stolen poly note starts
+ * `note` when the fade ends.
  */
 void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
-                          uint32_t sample_rate, int retrigger);
-
-/*
- * Amp envelope peak (Q1.30, from the note's velocity) for the note the
- * next note on, take back or retriggering note change starts. A note
- * already sounding keeps its own.
- */
-void fm_voice_set_velocity(fm_voice *v, int32_t peak);
+                          int32_t peak, uint32_t sample_rate, int retrigger);
 
 /* The key came up: hold the note if the pedal is down, else release. */
 void fm_voice_key_up(fm_voice *v, int pedal_down);

@@ -206,6 +206,6 @@ is for the CPU test's next round (#13).
 Memory: each voice grows by 44 bytes (its LFO delay, fade, offsets and
 velocity peak; the oscillator pair's unmodulated increments and offsets; the
 envelope's peak and sustain target), and `fm_engine` holds the LFO (20
-bytes), its routing (16) and two counters. `fm_engine` is 4084 bytes, 420
-more than before. Nothing is allocated and the render path
+bytes), its routing (16) and the tick counter. `fm_engine` is 4080 bytes,
+416 more than before. Nothing is allocated and the render path
 adds no stack arrays.
