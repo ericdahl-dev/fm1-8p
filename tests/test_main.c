@@ -25,6 +25,7 @@
 #include "test_lfo.c"
 #include "test_mod.c"
 #include "test_filter.c"
+#include "test_filter_oracle.c"
 #include "test_play.c"
 
 int main(void)
@@ -40,6 +41,7 @@ int main(void)
     run_lfo_tests();
     run_mod_tests();
     run_filter_tests();
+    run_filter_oracle_tests();
     run_play_tests();
     return tt_report();
 }
