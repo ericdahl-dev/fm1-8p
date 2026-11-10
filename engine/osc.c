@@ -139,6 +139,10 @@ void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix)
 static void update_pw(fm_osc_pair *p, uint8_t i)
 {
     uint32_t inc = p->osc[i].inc, w = p->width[i], lo;
+    if (!inc) { /* no pitch yet: nothing to limit (0 - 0 would clamp to 0) */
+        p->pw[i] = w;
+        return;
+    }
     if (inc >= 0x40000000u) {
         p->pw[i] = 0x80000000u;
         return;
