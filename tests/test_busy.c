@@ -91,6 +91,20 @@ TT_TEST(busy_steal_fade_ends_at_rest)
     TT_CHECK_EQ(fm_voice_busy(v), 0);
 }
 
+/* Queued release: the new note's key comes up during the steal fade, so
+ * its release waits as long as the fade did (132 samples after it starts
+ * at 132). Busy while it waits; at rest once the release has begun. */
+TT_TEST(busy_queued_release_ends_at_rest)
+{
+    const fm_voice *v = busy_hold(64);
+    fm_engine_note_on(&beng, 60, 100);
+    fm_engine_note_off(&beng, 60);
+    fm_engine_render(&beng, bbuf, 200);
+    TT_CHECK(fm_voice_busy(v) != 0);
+    fm_engine_render(&beng, bbuf, 400);
+    TT_CHECK_EQ(fm_voice_busy(v), 0);
+}
+
 static void run_busy_tests(void)
 {
     TT_RUN(busy_default_patch_is_at_rest);
@@ -98,4 +112,5 @@ static void run_busy_tests(void)
     TT_RUN(busy_filter_back_to_a_wire_rests);
     TT_RUN(busy_mix_env_back_to_zero_rests);
     TT_RUN(busy_steal_fade_ends_at_rest);
+    TT_RUN(busy_queued_release_ends_at_rest);
 }
