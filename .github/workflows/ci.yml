@@ -65,7 +65,7 @@ jobs:
           path: build/demo.wav
           if-no-files-found: error
 
-  # The CPU-test firmware for the FM-1 (#12): pinned fm1-dock, JieLi toolchain and SDK files, each
+  # The FM-1 firmware: the playable synth (#44) and the CPU test (#12). Pinned fm1-dock, JieLi toolchain and SDK files, each
   # checked by hash; fm1-dock's safety checks must reject the canaries. Not a required check.
   fm1-firmware:
     runs-on: ubuntu-latest
@@ -111,6 +111,30 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
 
+      - name: FM1-8P plays a note sequence in fm1-emu (strict timing, report only)
+        continue-on-error: true
+        run: |
+          rc=0
+          tools/fm1-build.sh emu-play || rc=$?
+          {
+            echo "## FM1-8P in fm1-emu: keys and MIDI (strict timing, report only)"
+            echo
+            echo "A chord from the keys, then MIDI with bend, sustain and a stolen voice; must run with no overrun."
+            echo
+            cat build/fm1/emu-play-report.md 2>/dev/null || echo "**No report: the run failed before it (see the log).**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      - name: Upload the synth
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm1-8p
+          path: |
+            build/fm1/fm1_8p.dock
+            build/fm1/fm1-8p.fwsc
+          if-no-files-found: error
+
       - name: Upload firmware
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -129,4 +153,7 @@ jobs:
           path: |
             build/fm1/emu-report.md
             build/fm1/emu.log
+            build/fm1/emu-play-report.md
+            build/fm1/emu-play.log
+            build/fm1/emu-play/panel.png
           if-no-files-found: warn
