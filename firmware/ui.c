@@ -233,6 +233,7 @@ void ui_init(ui *u, play *p)
     u->drawn_ms = 0;
     for (i = 0; i < UI_BUTTONS; i++)
         u->down_ms[i] = 0;
+    u->shown_note = play_last_note(p);
 }
 
 static void show_page(ui *u, ui_state st)
@@ -275,7 +276,12 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 
 uint32_t ui_take(ui *u, uint32_t ms)
 {
-    uint32_t d = u->dirty;
+    uint32_t d;
+    if (u->state == UI_PLAY && play_last_note(u->p) != u->shown_note) {
+        u->shown_note = play_last_note(u->p);
+        u->dirty |= UI_D_NOTE;
+    }
+    d = u->dirty;
     if (!d || (!(d & UI_D_FULL) && ms - u->drawn_ms < UI_FRAME_MS))
         return 0;
     u->dirty = 0;
@@ -301,6 +307,7 @@ uint32_t ui_led(const ui *u, uint32_t button)
 
 uint32_t ui_take_full(ui *u, uint32_t ms)
 {
+    u->shown_note = play_last_note(u->p);
     u->dirty = 0;
     u->drawn_ms = ms;
     return UI_D_ALL;

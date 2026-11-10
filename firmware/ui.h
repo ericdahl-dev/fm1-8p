@@ -45,6 +45,7 @@ typedef struct {
     uint32_t dirty;                     /* UI_D_*: what to redraw */
     uint32_t drawn_ms;                  /* when ui_take last handed out a redraw */
     uint32_t down_ms[UI_BUTTONS];       /* when each button went down */
+    int32_t shown_note;                 /* PLAY: the last note as drawn */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
@@ -53,6 +54,7 @@ typedef struct {
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
 #define UI_D_COL(k) (0x10u << (k))      /* knob column k */
 #define UI_D_ALL    0xF7u               /* all of it */
+#define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
 #define UI_FRAME_MS 33u                 /* redraws are at least this far apart (visual.md: 30 a second) */
 

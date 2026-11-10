@@ -341,8 +341,20 @@ TT_TEST(ui_env_on_4a_does_nothing)
     TT_CHECK_EQ(ui_u.focus, 3u);
 }
 
+/* On PLAY a new last note marks the note's strip, coalesced like the other redraws, and only once. */
+TT_TEST(ui_new_last_note_marks_the_note_strip)
+{
+    ui_setup();
+    (void)ui_take_full(&ui_u, 0);
+    play_key_down(&ui_p, 3, 100);
+    TT_CHECK_EQ(ui_take(&ui_u, 10), 0u);       /* within the frame */
+    TT_CHECK_EQ(ui_take(&ui_u, 100), UI_D_NOTE);
+    TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_new_last_note_marks_the_note_strip);
     TT_RUN(ui_env_on_4a_does_nothing);
     TT_RUN(ui_home_hold_keeps_the_page);
     TT_RUN(ui_redraw_goes_one_band_at_a_time);
