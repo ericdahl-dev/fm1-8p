@@ -1,16 +1,17 @@
 /*
- * voice.c - one note: oscillator and amp envelope.
+ * voice.c - one note: oscillator pair and amp envelope.
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  */
 #include "voice.h"
 
-void fm_voice_reset(fm_voice *v)
+void fm_voice_reset(fm_voice *v, uint32_t seed)
 {
-    fm_osc_reset(&v->osc);
+    fm_osc_pair_reset(&v->osc, seed);
     fm_env_reset(&v->amp_env);
     v->stamp = 0;
-    v->next_inc = 0;
+    v->pitch = 0;
+    v->next_pitch = 0;
     v->wait = 0;
     v->gate_left = 0;
     v->note = 0;
@@ -28,33 +29,34 @@ int fm_voice_active(const fm_voice *v)
 /* Starts the note from the current level (0 when idle). A note whose
  * key came up while it waited for a steal fade queues its release for as
  * long as it waited, so it is heard rather than released at level 0. */
-static void start(fm_voice *v)
+static void start(fm_voice *v, uint32_t sample_rate)
 {
     v->pending = 0;
-    fm_osc_set_inc(&v->osc, v->next_inc);
+    v->pitch = v->next_pitch;
+    fm_osc_pair_set_pitch(&v->osc, v->pitch, sample_rate);
     fm_env_gate_on(&v->amp_env);
     if (!v->key_down && !v->sustained) v->gate_left = v->wait ? v->wait : 1;
 }
 
-/* The voice now plays `note` at `inc`, held by its key. */
-static void hold(fm_voice *v, uint8_t note, uint32_t inc)
+/* The voice now plays `note` at `pitch`, held by its key. */
+static void hold(fm_voice *v, uint8_t note, int32_t pitch)
 {
     v->note = note;
     v->key_down = 1;
     v->sustained = 0;
     v->gate_left = 0;
-    v->next_inc = inc;
+    v->next_pitch = pitch;
 }
 
-void fm_voice_note_on(fm_voice *v, uint8_t note, uint32_t inc,
-                      uint32_t fade_samples)
+void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch,
+                      uint32_t sample_rate, uint32_t fade_samples)
 {
     int same = fm_voice_active(v) && v->note == note;
     uint8_t old = v->note;
-    hold(v, note, inc);
+    hold(v, note, pitch);
     if (v->pending) return; /* starts when the fade ends */
     if (same || v->amp_env.stage == FM_ENV_IDLE) {
-        start(v);
+        start(v, sample_rate);
     } else {
         v->old_note = old;
         v->pending = 1;
@@ -63,18 +65,19 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, uint32_t inc,
     }
 }
 
-void fm_voice_take_back(fm_voice *v, uint32_t inc)
+void fm_voice_take_back(fm_voice *v, int32_t pitch, uint32_t sample_rate)
 {
-    hold(v, v->old_note, inc);
-    start(v);
+    hold(v, v->old_note, pitch);
+    start(v, sample_rate);
 }
 
-void fm_voice_change_note(fm_voice *v, uint8_t note, uint32_t inc,
-                          int retrigger)
+void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
+                          uint32_t sample_rate, int retrigger)
 {
-    hold(v, note, inc);
+    hold(v, note, pitch);
     if (v->pending) return; /* starts when the fade ends */
-    fm_osc_set_inc(&v->osc, inc);
+    v->pitch = pitch;
+    fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
     if (retrigger || v->amp_env.stage == FM_ENV_IDLE)
         fm_env_gate_on(&v->amp_env);
 }
@@ -105,26 +108,36 @@ void fm_voice_silence(fm_voice *v)
     v->sustained = 0;
 }
 
-void fm_voice_set_inc(fm_voice *v, uint32_t inc)
+void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
 {
-    v->next_inc = inc;
-    if (!v->pending) fm_osc_set_inc(&v->osc, inc);
+    v->next_pitch = pitch;
+    if (v->pending) return;
+    v->pitch = pitch;
+    fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
 }
 
-void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames)
+/* A fading old note retunes too: `pitch` is still its pitch. */
+void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
+                       uint32_t sample_rate)
+{
+    fm_osc_pair_set_tune(&v->osc, which, cents, v->pitch, sample_rate);
+}
+
+void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
+                         uint32_t sample_rate)
 {
     uint32_t i;
     for (i = 0; i < frames; i++) {
-        int32_t level, saw;
+        int32_t level, osc;
         if (v->amp_env.stage == FM_ENV_IDLE) {
             if (!v->pending) return;
-            start(v); /* the stolen note has faded out */
+            start(v, sample_rate); /* the stolen note has faded out */
         }
         if (v->gate_left && --v->gate_left == 0)
             fm_env_gate_off(&v->amp_env); /* the queued release */
         level = fm_env_next(&v->amp_env);
-        saw = fm_osc_saw_next(&v->osc);
+        osc = fm_osc_pair_next(&v->osc);
         /* Q8.24 * Q1.30 -> Q8.24 */
-        mix[i] += (int32_t)(((int64_t)saw * level) >> 30);
+        mix[i] += (int32_t)(((int64_t)osc * level) >> 30);
     }
 }

@@ -1,5 +1,5 @@
 /*
- * voice.h - one note: oscillator and amp envelope (internal to the
+ * voice.h - one note: oscillator pair and amp envelope (internal to the
  * engine).
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
@@ -22,10 +22,11 @@
 #define FM_VOICE_NO_NOTE 0xFF
 
 typedef struct {
-    fm_osc osc;
+    fm_osc_pair osc;
     fm_env amp_env;
     uint32_t stamp;    /* engine event count at the last note on or off */
-    uint32_t next_inc; /* pitch of `note` (kept while an old note fades) */
+    int32_t pitch;     /* sounding pitch, Q16.16 semitones (note + bend) */
+    int32_t next_pitch; /* pitch of `note` (kept while an old note fades) */
     uint32_t wait;     /* length of the current steal fade, in samples */
     uint32_t gate_left; /* samples until a queued release (0: none) */
     uint8_t note;
@@ -35,13 +36,14 @@ typedef struct {
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
 } fm_voice;
 
-void fm_voice_reset(fm_voice *v);
+/* `seed` starts the voice's noise; give each voice its own. */
+void fm_voice_reset(fm_voice *v, uint32_t seed);
 
 /* Sounding: attack through release, or fading out after a steal. */
 int fm_voice_active(const fm_voice *v);
 
 /*
- * Plays `note` at phase increment `inc`. An idle voice starts it at
+ * Plays `note` at `pitch` (Q16.16 semitones). An idle voice starts it at
  * once, and a voice already playing the same note retriggers its attack
  * from the current level. Any other sounding voice is stolen: the old
  * note fades out over `fade_samples`, then the new one starts. A voice
@@ -49,27 +51,27 @@ int fm_voice_active(const fm_voice *v);
  * key comes up during the fade, the note still starts after it, holds
  * for the fade time (as long as it waited) and then releases.
  */
-void fm_voice_note_on(fm_voice *v, uint8_t note, uint32_t inc,
-                      uint32_t fade_samples);
+void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch,
+                      uint32_t sample_rate, uint32_t fade_samples);
 
 /*
  * Takes a voice that is fading out a stolen note back for that note
  * (`old_note`, played again): the steal is called off and the note
- * restarts its attack from the current level at `inc`. The note that was
+ * restarts its attack from the current level at `pitch`. The note that was
  * waiting for the fade is dropped; the caller can give it another voice.
  */
-void fm_voice_take_back(fm_voice *v, uint32_t inc);
+void fm_voice_take_back(fm_voice *v, int32_t pitch, uint32_t sample_rate);
 
 /*
- * Moves the voice to `note` at `inc` without a steal fade (unison mode,
+ * Moves the voice to `note` at `pitch` (Q16.16 semitones) without a steal fade (unison mode,
  * where every voice follows one note). The oscillator keeps its phase,
  * so the pitch changes without a jump. With `retrigger` the envelope
  * restarts its attack from the current level; without, it carries on
  * (legato), unless the voice was idle. A voice still fading out a stolen
  * poly note starts `note` when the fade ends.
  */
-void fm_voice_change_note(fm_voice *v, uint8_t note, uint32_t inc,
-                          int retrigger);
+void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
+                          uint32_t sample_rate, int retrigger);
 
 /* The key came up: hold the note if the pedal is down, else release. */
 void fm_voice_key_up(fm_voice *v, int pedal_down);
@@ -81,9 +83,14 @@ void fm_voice_release(fm_voice *v);
 void fm_voice_silence(fm_voice *v);
 
 /* New pitch for the note (bend). An old note that is fading keeps its. */
-void fm_voice_set_inc(fm_voice *v, uint32_t inc);
+void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate);
+
+/* Retunes oscillator `which` (0 or 1) by `cents` from the voice's pitch. */
+void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
+                       uint32_t sample_rate);
 
 /* Adds `frames` samples of the voice (Q8.24) to `mix`. */
-void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames);
+void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
+                         uint32_t sample_rate);
 
 #endif /* FM_VOICE_H */
