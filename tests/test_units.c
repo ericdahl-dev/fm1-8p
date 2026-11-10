@@ -31,9 +31,23 @@ TT_TEST(units_us_to_samples_q16_edges)
     TT_CHECK(fm_us_to_samples_q16(10000, 192000u) == (uint64_t)1920 << 16);
 }
 
+/* A rate to a Q0.32 phase step: rate 0 gives 0 (no divide by zero), 1 Hz
+ * at 44.1 kHz truncated (2^32 / 44100 = 97391.55), the same as 1000 mHz,
+ * per 16-sample tick (shift 4: 1558264.77), and half the sample rate is
+ * exactly half a cycle. */
+TT_TEST(units_rate_to_phase_inc_edges)
+{
+    TT_CHECK(fm_rate_to_phase_inc(100, 100, 0, 0) == 0);
+    TT_CHECK(fm_rate_to_phase_inc(1, 1, 44100u, 0) == 97391);
+    TT_CHECK(fm_rate_to_phase_inc(1000, 1000, 44100u, 0) == 97391);
+    TT_CHECK(fm_rate_to_phase_inc(100, 100, 44100u, 4) == 1558264);
+    TT_CHECK(fm_rate_to_phase_inc(22050, 1, 44100u, 0) == (uint64_t)1 << 31);
+}
+
 static void run_units_tests(void)
 {
     TT_RUN(units_ms_to_samples_edges);
     TT_RUN(units_permille_to_q30_edges);
     TT_RUN(units_us_to_samples_q16_edges);
+    TT_RUN(units_rate_to_phase_inc_edges);
 }
