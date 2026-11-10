@@ -133,7 +133,6 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->mod_oct = 0;
     p->pw_mod = 0;
     p->mix = 0;
-    p->ratio = 1u << 16;
     p->sync = 0;
     p->sync_after = 0;
     p->sync_pend = 0;
@@ -141,6 +140,8 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->special = 0;
     p->only1 = 1;
     p->xmod_inc = 0;
+    p->recip0 = 0;
+    p->recip0_sh = 0;
     p->noise = seed ? seed : 0x2545F491u;
 }
 
@@ -168,13 +169,19 @@ static int32_t pulse_gain(uint32_t w)
  * tick: 1 / (2 max(w, 1 - w)) from the seed 48/17 - 32/17 m and two
  * Newton steps, x = x (2 - m x), good to about 1e-5 (0.0001 dB).
  */
+/* 1 / m for m in 0.5..1 (Q30), Q30, by `steps` Newton steps from the seed. */
+static int64_t recip_q30(int64_t m, int steps)
+{
+    int64_t x = 3031741621ll - ((2021161081ll * m) >> 30); /* Q30 */
+    while (steps-- > 0)
+        x = (x * ((1ll << 31) - ((m * x) >> 30))) >> 30;
+    return x;
+}
+
 static int32_t pulse_gain_fast(uint32_t w)
 {
     int64_t m = (w >= 0x80000000u ? w : 0u - w) >> 2; /* Q30, 0.5..1 */
-    int64_t x = 3031741621ll - ((2021161081ll * m) >> 30); /* Q30 */
-    x = (x * ((1ll << 31) - ((m * x) >> 30))) >> 30;
-    x = (x * ((1ll << 31) - ((m * x) >> 30))) >> 30; /* 1 / m, Q30 */
-    return (int32_t)(x >> 1);
+    return (int32_t)(recip_q30(m, 2) >> 1);
 }
 
 /* 1 % of a cycle, Q0.32: the narrowest pulse the LFO can make. */
@@ -209,13 +216,31 @@ static void update_pw(fm_osc_pair *p, uint8_t i)
     p->pw_gain[i] = p->pw_mod ? pulse_gain_fast(w) : pulse_gain(w);
 }
 
-/* osc2's increment over osc1's, Q16.16, for sync. One division, on events. */
-static void update_ratio(fm_osc_pair *p)
+/*
+ * What sync and cross-mod need from the increments, on every change of
+ * them while either is on (events and the LFO's control ticks; no
+ * division). recip0 / 2^recip0_sh is 1 / osc1's increment: osc1's increment
+ * shifted up to 2^31..2^32 is m, and 2^62 / m (2^30..2^31) comes from three
+ * Newton steps, good to the Q30 rounding. xmod_inc is osc2's increment
+ * times the cross-mod depth.
+ */
+static void update_derived(fm_osc_pair *p)
 {
-    uint64_t r;
-    if (p->osc[0].inc == 0) return;
-    r = ((uint64_t)p->osc[1].inc << 16) / p->osc[0].inc;
-    p->ratio = r > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)r;
+    uint32_t m = p->osc[0].inc;
+    uint8_t s = 0;
+    if (!p->special) return;
+    p->xmod_inc = (uint32_t)(((uint64_t)p->osc[1].inc * (uint32_t)p->xmod) >> 30);
+    if (m == 0) {
+        p->recip0 = 0;
+        p->recip0_sh = 0;
+        return;
+    }
+    while (!(m & 0x80000000u)) {
+        m <<= 1;
+        s++;
+    }
+    p->recip0 = (uint32_t)recip_q30(m >> 2, 3);
+    p->recip0_sh = (uint8_t)(46 - s); /* t / inc0 in Q16 = t * recip0 >> recip0_sh */
 }
 
 void fm_osc_pair_set_pw_mod(fm_osc_pair *p, int32_t offset)
@@ -260,8 +285,6 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
     p->base[i] = fm_osc_pitch_inc(pitch + p->tune[i], sample_rate);
     fm_osc_set_inc(&p->osc[i], mod_inc(p->base[i], p->mod_oct));
     update_pw(p, i);
-    update_ratio(p);
-    p->xmod_inc = (uint32_t)(((uint64_t)p->osc[1].inc * (uint32_t)p->xmod) >> 30);
 }
 
 /* sync or cross-mod on: fm_osc_pair_next takes the slower path */
@@ -270,6 +293,7 @@ static void update_special(fm_osc_pair *p)
     p->special = (uint8_t)(p->sync || p->xmod);
     p->sync_pend = 0;
     p->only1 = (uint8_t)(p->mix == 0 && !p->special);
+    update_derived(p);
 }
 
 void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on)
@@ -283,7 +307,6 @@ void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth)
     if (depth < 0) depth = 0;
     if (depth > FM_OSC_MIX_FULL) depth = FM_OSC_MIX_FULL;
     p->xmod = depth;
-    p->xmod_inc = (uint32_t)(((uint64_t)p->osc[1].inc * (uint32_t)depth) >> 30);
     update_special(p);
 }
 
@@ -293,7 +316,7 @@ void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct)
     p->mod_oct = oct;
     fm_osc_set_inc(&p->osc[0], mod_inc(p->base[0], oct));
     fm_osc_set_inc(&p->osc[1], mod_inc(p->base[1], oct));
-    p->xmod_inc = (uint32_t)(((uint64_t)p->osc[1].inc * (uint32_t)p->xmod) >> 30);
+    update_derived(p);
 }
 
 void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
@@ -304,6 +327,7 @@ void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
     if (cents > 12800) cents = 12800;
     p->tune[which] = cents * 65536 / 100; /* Q16.16 semitones */
     tune_osc(p, which, pitch, sample_rate);
+    update_derived(p);
 }
 
 void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, int32_t pct)
@@ -326,6 +350,7 @@ void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate)
 {
     tune_osc(p, 0, pitch, sample_rate);
     tune_osc(p, 1, pitch, sample_rate);
+    update_derived(p);
 }
 
 /*
@@ -451,7 +476,7 @@ static FM_NOINLINE int32_t sync_reset(fm_osc_pair *p, uint32_t t)
 {
     /* osc2's increment this sample (bent, with cross-mod) for both ends */
     uint32_t inc2 = p->osc[1].inc, cont = p->osc[1].phase + inc2, now;
-    int64_t x = (int64_t)(((uint64_t)t << 16) / p->osc[0].inc); /* t < inc: under 1.0, Q16 */
+    int64_t x = (int64_t)(((uint64_t)t * p->recip0) >> p->recip0_sh); /* t / inc0, Q16 */
     int32_t half, before;
     now = (uint32_t)(((uint64_t)x * inc2) >> 16);
     /* osc2 was at cont - now when osc1 wrapped, and jumps to 0 there */

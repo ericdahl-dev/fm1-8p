@@ -54,9 +54,9 @@ typedef struct {
     int32_t pw_gain[2]; /* Q1.30: brings the pulse's peak to 1.0 */
     int32_t tune[2];   /* offset from the played pitch, Q16.16 semitones */
     int32_t mix;       /* share of the second oscillator, Q1.30 0..1.0 */
-    uint32_t ratio;    /* osc2's increment over osc1's, Q16.16 (for sync) */
     int32_t xmod;      /* cross-mod depth, Q1.30 0..1.0 */
     uint32_t xmod_inc; /* osc2's increment times the depth: its largest bend */
+    uint32_t recip0;   /* 1 / osc1's increment, scaled by 2^recip0_sh (for sync) */
     uint32_t base[2];  /* increment before the pitch modulation */
     int32_t mod_oct;   /* pitch modulation (LFO), Q16.16 octaves */
     int32_t pw_mod;    /* pulse width modulation (LFO), Q0.32 of a cycle */
@@ -64,6 +64,7 @@ typedef struct {
     uint8_t wave[2];   /* fm_wave */
     uint8_t sync;      /* 1: osc2 restarts with every cycle of osc1 */
     uint8_t sync_pend; /* a restart's correction is due on the next osc2 sample */
+    uint8_t recip0_sh;
     uint8_t special;   /* sync or cross-mod on */
     uint8_t only1;     /* mix 0 and nothing special: osc1 alone, the fast path */
     int32_t sync_after; /* polyBLEP terms due on osc2's sample after a restart, Q8.24 */
