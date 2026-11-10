@@ -96,7 +96,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         return FM_ERR_ARG;
     e->sample_rate = sample_rate;
     e->voice_count = voice_count;
-    fm_osc_pair_reset(&e->osc);
+    fm_osc_pair_reset(&e->osc, 0);
     fm_env_reset(&e->amp_env);
     e->note = 0;
     /* all defaults first: some settings combine several parameters */

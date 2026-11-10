@@ -164,6 +164,44 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
 #undef MIX_FRAMES
 }
 
+/*
+ * Noise stays within full scale and does not repeat: over a 0.2 s window
+ * no lag up to 4096 samples correlates with the signal by more than 0.1.
+ * A pitched wave fails this at its period.
+ */
+TT_TEST(noise_is_bounded_and_not_periodic)
+{
+#define NOISE_FRAMES 8820
+#define NOISE_LAGS 4096
+    static double x[NOISE_FRAMES];
+    double energy = 0, worst = 0, mean = 0;
+    size_t i, lag;
+    osc_init();
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_NOISE),
+                FM_OK);
+    fm_engine_note_on(&eng, 60, 100);
+    fm_engine_render(&eng, buf, NOISE_FRAMES);
+    TT_CHECK(peak_abs(buf, 0, NOISE_FRAMES) <= 16384 + 64);
+    TT_CHECK(peak_abs(buf, 0, NOISE_FRAMES) > 8000);
+    for (i = 0; i < NOISE_FRAMES; i++) mean += buf[2 * i];
+    mean /= NOISE_FRAMES;
+    TT_CHECK(fabs(mean) < 300); /* no DC */
+    for (i = 0; i < NOISE_FRAMES; i++) {
+        x[i] = buf[2 * i] - mean;
+        energy += x[i] * x[i];
+    }
+    for (lag = 1; lag <= NOISE_LAGS; lag++) {
+        double r = 0;
+        for (i = 0; i + lag < NOISE_FRAMES; i++) r += x[i] * x[i + lag];
+        r = fabs(r) / energy;
+        if (r > worst) worst = r;
+    }
+    printf("    noise: worst autocorrelation %.3f\n", worst);
+    TT_CHECK(worst < 0.1);
+#undef NOISE_FRAMES
+#undef NOISE_LAGS
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -171,4 +209,5 @@ static void run_osc_tests(void)
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(retuning_a_held_note_takes_effect);
     TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
+    TT_RUN(noise_is_bounded_and_not_periodic);
 }

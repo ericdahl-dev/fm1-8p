@@ -49,11 +49,17 @@ typedef struct {
     int32_t cents[2];  /* tuning offset from the note */
     uint32_t sample_rate;
     int32_t mix;       /* share of osc 1 (the second), Q1.30 0..1.0 */
+    uint32_t noise;    /* xorshift32 state, never 0 */
     uint8_t wave[2];   /* fm_wave */
     uint8_t note;
 } fm_osc_pair;
 
-void fm_osc_pair_reset(fm_osc_pair *p);
+/*
+ * Saw on both, default tuning and width, mix fully to the first. `seed`
+ * starts the noise generator (0 picks a fixed non-zero seed); give each
+ * voice its own so noise chords don't sum in step.
+ */
+void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed);
 /* Selects oscillator `which`'s (0 or 1) waveform; others are ignored. */
 void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave);
 /* Pulse duty of oscillator `which` as a Q0.32 fraction of a cycle. */

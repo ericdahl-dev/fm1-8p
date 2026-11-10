@@ -103,7 +103,7 @@ static int32_t pulse_at(uint32_t t, uint32_t dt, uint32_t width)
     return saw_at(t, dt) - saw_at(t + width, dt);
 }
 
-void fm_osc_pair_reset(fm_osc_pair *p)
+void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
 {
     uint8_t i;
     for (i = 0; i < 2; i++) {
@@ -115,6 +115,7 @@ void fm_osc_pair_reset(fm_osc_pair *p)
     p->sample_rate = 0;
     p->mix = 0;
     p->note = 0;
+    p->noise = seed ? seed : 0x2545F491u;
 }
 
 void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix)
@@ -157,6 +158,20 @@ void fm_osc_pair_set_note(fm_osc_pair *p, uint8_t note, uint32_t sample_rate)
     retune(p);
 }
 
+/*
+ * White noise from a xorshift32 generator (period 2^32 - 1, three shifts
+ * and three XORs a sample), as Q8.24 in -1.0..+1.0. Pitch has no effect.
+ */
+static int32_t noise_next(fm_osc_pair *p)
+{
+    uint32_t x = p->noise;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    p->noise = x;
+    return (int32_t)x >> 7;
+}
+
 /* Next sample of oscillator `which`, Q8.24. */
 static int32_t wave_next(fm_osc_pair *p, uint8_t which)
 {
@@ -168,6 +183,8 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
         return pulse_at(t, o->inc, p->width[which]);
     case FM_WAVE_SQUARE:
         return pulse_at(t, o->inc, 0x80000000u);
+    case FM_WAVE_NOISE:
+        return noise_next(p);
     default:
         return saw_at(t, o->inc);
     }
