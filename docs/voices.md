@@ -129,9 +129,9 @@ before the pitch-to-increment lookup:
 The product is at most 100 * 65536 * 7 (about 46 million), inside
 `int32_t`; the divisor is at least 200 because one voice skips the divide;
 the division truncates toward zero, so the spread stays symmetric, and it is
-off by under 1/65536 of a semitone. The offsets are computed when a unison
-note starts or moves and when the detune changes (the change retunes a
-sounding unison note at once), never per sample. The pitch error between
+off by under 1/65536 of a semitone. The offsets are computed when
+`voice_mode` or the detune changes (a detune change retunes a sounding
+unison note at once), never per note or per sample. The pitch error between
 semitones (under 0.8 cents, see [Pitch bend](#pitch-bend)) applies to each
 voice. `detune_spreads_voice_pitches_by_the_set_amount` checks each voice's
 frequency for 2, 4 and 8 voices.
@@ -171,9 +171,12 @@ Changing `voice_mode` releases every note (as CC 123 does) and forgets the
 held keys, so each mode starts clean: the next poly note gets a voice by the
 usual rule, in tune, and the next unison note takes every voice. Notes that
 were sounding fade out with their release; a key that was down at the
-switch does nothing when it comes up. Setting the mode to the value it
-already has changes nothing. A poly note always plays with no detune, even
-on a voice still releasing a unison note.
+switch does nothing when it comes up. The voices still sounding belong to
+no note from then on: a note on never reuses one (it takes a voice by the
+usual rule, which may steal it), and a bend does not retune it, so a unison
+tail ends at its own detuned pitch instead of collapsing onto the new note.
+Setting the mode to the value it already has changes nothing, and neither
+does changing the detune in poly mode. In poly every voice's detune is 0.
 
 ### Gain
 
@@ -239,8 +242,9 @@ unison adds 49 of them (8 detune offsets and the 16 held keys).
 
 Divisions all happen on events: one 64-by-32 divide per note on (its pitch),
 and one per sounding voice for each pitch bend message. In unison a note on
-or a legato return, and a detune change, cost one 64-by-32 pitch divide and
-one 32-by-32 detune divide per voice (16 at 8 voices). Rendering in unison is
+or a legato return costs one 64-by-32 pitch divide per voice (8 at 8
+voices); a detune or mode change adds one 32-by-32 detune divide per voice,
+and the device CPU test should time a burst of these. Rendering in unison is
 no different from rendering the same number of poly voices. A fast bend sends a
 few hundred messages a second, so up to 8 divides each is far below the render's
 cost, but they run wherever the caller applies MIDI events.
