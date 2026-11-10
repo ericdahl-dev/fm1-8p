@@ -19,6 +19,10 @@ typedef struct {
     volatile uint32_t hold;             /* sweep: blocks per voice count, 0 = off */
     volatile uint32_t held;             /* ISR writes (blocks at the current count), main loop reads */
     volatile uint32_t worst[FM_MAX_VOICES + 1];   /* ISR writes, main loop reads; [voices] */
+    uint8_t fresh;                      /* ISR only: this block started a count (setup: not timed) */
+    volatile uint8_t done[FM_MAX_VOICES];   /* ISR writes: counts whose hold completed, a ring */
+    volatile uint32_t done_seq;         /* ISR: +1 per completed hold, after done[] */
+    uint32_t taken;                     /* main loop only: completions already taken */
 } cpu_test;
 
 int cpu_test_init(cpu_test *t);
@@ -27,14 +31,16 @@ void cpu_test_render(cpu_test *t, int32_t *out, uint32_t n);
 /* main loop: ask for 1..FM_MAX_VOICES voices (clamped); the next render applies it */
 void cpu_test_request_voices(cpu_test *t, int32_t n);
 uint8_t cpu_test_voices(const cpu_test *t);
-/* ISR, after a render: that block took `ticks` (24 MHz) at the current voice count */
+/* ISR, after a render: that block took `ticks` (24 MHz) at the current voice count. The block that
+ * started a count (engine init, note on) isn't counted; starting a count clears its worst. */
 void cpu_test_record(cpu_test *t, uint32_t ticks);
 /* worst block so far at `voices`, in per mille of the block's time (0: none, or out of range) */
 uint32_t cpu_test_worst_permille(const cpu_test *t, uint32_t voices);
 /* main loop: step 1 -> FM_MAX_VOICES by itself, `hold` blocks each (0: stop sweeping) */
 void cpu_test_sweep(cpu_test *t, uint32_t hold);
-/* 1 once a sweep has held the last voice count for its full hold, else 0. */
-int cpu_test_finished(const cpu_test *t);
+/* main loop: 1 and the count and its worst per mille, once for each count a sweep held for its
+ * full hold (counts picked by hand never complete); 0 when there is none new */
+int cpu_test_take_completed(cpu_test *t, uint32_t *voices, uint32_t *permille);
 /* the test's notes for k voices (k <= FM_MAX_VOICES): distinct, so each voice plays one; returns k */
 uint32_t cpu_test_chord(uint32_t k, uint8_t *notes);
 #endif

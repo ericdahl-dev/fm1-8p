@@ -15,13 +15,16 @@ uint32_t cpu_test_chord(uint32_t k, uint8_t *notes)
 
 static int start(cpu_test *t, uint8_t voices)
 {
-    uint32_t i;
+    uint8_t notes[FM_MAX_VOICES];
+    uint32_t i, k;
     if (fm_engine_init(&t->engine, CT_FS, voices) != FM_OK)
         return -1;
-    t->voices = voices;
     t->held = 0;
-    for (i = 0; i < voices; i++)
-        fm_engine_note_on(&t->engine, CHORD[i], 100);
+    t->worst[voices] = 0;                       /* a count started again measures afresh */
+    t->voices = voices;
+    k = cpu_test_chord(voices, notes);
+    for (i = 0; i < k; i++)
+        fm_engine_note_on(&t->engine, notes[i], 100);
     return 0;
 }
 
@@ -33,7 +36,9 @@ int cpu_test_init(cpu_test *t)
     t->want = 1;
     t->asks = t->seen = 0;
     t->hold = 0;
-    return start(t, 1);
+    t->done_seq = t->taken = 0;
+    t->fresh = 0;
+    return start(t, 1);                         /* here, outside the ISR: the first block is clean */
 }
 
 void cpu_test_request_voices(cpu_test *t, int32_t n)
@@ -50,11 +55,14 @@ void cpu_test_render(cpu_test *t, int32_t *out, uint32_t n)
     uint32_t asks = t->asks;                    /* one read: the main loop may write it any time */
     if (n > CT_BLOCK)
         n = CT_BLOCK;
+    t->fresh = 0;
     if (asks != t->seen) {                      /* a new request from the main loop wins */
         t->seen = asks;
         (void)start(t, t->want);                /* want is 1..FM_MAX_VOICES: cannot fail */
+        t->fresh = 1;                           /* this block's time includes setup */
     } else if (t->hold && t->held >= t->hold && t->voices < FM_MAX_VOICES) {
         (void)start(t, (uint8_t)(t->voices + 1u));
+        t->fresh = 1;
     }
     t->held++;
     fm_engine_render(&t->engine, t->buf, n);
@@ -64,8 +72,23 @@ void cpu_test_render(cpu_test *t, int32_t *out, uint32_t n)
 
 void cpu_test_record(cpu_test *t, uint32_t ticks)
 {
-    if (ticks > t->worst[t->voices])
-        t->worst[t->voices] = ticks;
+    uint8_t v = t->voices;
+    if (!t->fresh && ticks > t->worst[v])
+        t->worst[v] = ticks;
+    if (t->hold != 0u && t->held == t->hold) {  /* this count's hold is complete (once: held only grows) */
+        t->done[t->done_seq % FM_MAX_VOICES] = v;
+        t->done_seq = t->done_seq + 1u;         /* after the entry: the main loop never reads it early */
+    }
+}
+
+int cpu_test_take_completed(cpu_test *t, uint32_t *voices, uint32_t *permille)
+{
+    if (t->taken == t->done_seq)
+        return 0;
+    *voices = t->done[t->taken % FM_MAX_VOICES];
+    *permille = cpu_test_worst_permille(t, *voices);
+    t->taken++;
+    return 1;
 }
 
 uint32_t cpu_test_worst_permille(const cpu_test *t, uint32_t voices)
@@ -77,7 +100,3 @@ uint32_t cpu_test_worst_permille(const cpu_test *t, uint32_t voices)
 
 void cpu_test_sweep(cpu_test *t, uint32_t hold) { t->hold = hold; }
 
-int cpu_test_finished(const cpu_test *t)
-{
-    return t->hold != 0u && t->voices == FM_MAX_VOICES && t->held >= t->hold;
-}

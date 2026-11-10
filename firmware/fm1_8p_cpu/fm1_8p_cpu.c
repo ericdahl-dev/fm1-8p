@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* FM1-8P CPU: fm1-8p's engine under fm1-dock, sweeping 1..8 voices (5 s each) on a held chord, with
  * the worst render time per voice count on screen and in the log (tools/dock.py logs): one line
- * "fm1-8p voices/worst permille" = count << 16 | permille as each count finishes.
+ * "fm1-8p voices/worst permille" = count << 16 | permille for each count a sweep held in full.
+ * The block that starts a count (engine init, note on) is not timed.
  *   KNOB1     pick the voice count by hand (stops the sweep)
  *   PLAY      sweep again from 1 */
 #include "hb_module.h"
@@ -13,7 +14,7 @@
 
 static const hb_host_t *H;
 static cpu_test T;                              /* static: 2 KiB of buffer must not sit on the ISR stack */
-static uint32_t drawn[FM_MAX_VOICES + 1], drawn_v, logged_v, logged_last;
+static uint32_t drawn[FM_MAX_VOICES + 1], drawn_v;
 
 static void render(int32_t *out, uint32_t n)
 {
@@ -47,25 +48,17 @@ static void line(uint32_t v, uint32_t pm)       /* "N  NN.N %" */
 
 static void draw(uint32_t full)
 {
-    uint32_t v, cur = cpu_test_voices(&T);
+    uint32_t v, pm, cur = cpu_test_voices(&T);
     if (full) {
         H->fill(0, HB_TOP, 240, 240 - HB_TOP, 0);
         for (v = 0; v <= FM_MAX_VOICES; v++)
             drawn[v] = ~0u;
         drawn_v = ~0u;
     }
-    if (cur != logged_v) {                      /* a count is done: its worst into the log */
-        if (logged_v >= 1u && logged_v <= FM_MAX_VOICES)
-            H->log_u32("fm1-8p voices/worst permille", logged_v << 16 | cpu_test_worst_permille(&T, logged_v));
-        logged_v = cur;
-        logged_last = 0;
-    }
-    if (cpu_test_finished(&T) && !logged_last) {    /* the last count never changes: log it once held */
-        H->log_u32("fm1-8p voices/worst permille", cur << 16 | cpu_test_worst_permille(&T, cur));
-        logged_last = 1;
-    }
+    while (cpu_test_take_completed(&T, &v, &pm))   /* each count a sweep held in full, once */
+        H->log_u32("fm1-8p voices/worst permille", v << 16 | pm);
     for (v = 1; v <= FM_MAX_VOICES; v++) {
-        uint32_t pm = cpu_test_worst_permille(&T, v);
+        pm = cpu_test_worst_permille(&T, v);
         if (pm != drawn[v] || (cur != drawn_v && (v == cur || v == drawn_v))) {
             drawn[v] = pm;
             line(v, pm);

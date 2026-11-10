@@ -35,7 +35,8 @@ block size rules, and how the float-free check works are in
 `firmware/` runs the unchanged engine on the FM-1 as an
 [fm1-dock](https://github.com/joakimeriksson/fm1-dock) module and measures it: it holds a chord
 and steps from 1 to 8 voices, 5 s each, showing the worst render time per voice count on screen
-(as % of a 256-frame block, 5.8 ms) and logging it (`tools/dock.py logs` in fm1-dock). KNOB1
+(as % of a 256-frame block, 5.8 ms; the block that starts a count, engine init and note on, isn't
+timed) and logging each count a sweep held in full (`tools/dock.py logs` in fm1-dock). KNOB1
 picks a count by hand; PLAY sweeps again.
 
 Linux x86-64 (macOS through fm1-dock's Docker fallback, untested), with curl, git, tar, xz and
@@ -59,7 +60,17 @@ Every input is pinned in [firmware/pins.env](firmware/pins.env) and checked befo
 | Pillow | 13.0.0 |
 
 To use inputs you already have, set `JIELI_TOOLCHAIN`, `AC79_SDK`, `FM1_DOCK`, `PYTHON` or
-`FM1_LIVE`; they are checked the same way.
+`FM1_LIVE`. They are checked the same way, and `fetch` never changes them: a mismatch stops the
+build. `FM1_LIVE` must be the pinned fm1-live build unless `FM1_EMU_UNPINNED=1`, which the report
+then notes.
+
+The module lists no engine files: the build fills in every `engine/*.c`, so a new engine file needs
+no firmware edit.
+
+**Known risk:** JieLi's toolchain URL always serves their latest tarball. When they publish a new
+one, `fetch` stops with "JieLi published a new toolchain" (CI too, once its cache is gone). Review
+the new one, then update `JIELI_TOOLCHAIN_SHA256` and `JIELI_TOOLCHAIN_DIR` in `firmware/pins.env`.
+We don't mirror the tarball: its license for redistribution is unknown.
 
 - The **`.dock`** goes onto an FM-1 that runs fm1-dock, over USB, without flashing
   (`tools/dock.py deploy` in fm1-dock).

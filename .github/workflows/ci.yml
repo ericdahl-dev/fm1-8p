@@ -81,15 +81,17 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq libasound2t64
-          tools/fm1-build.sh emu
+          rc=0
+          tools/fm1-build.sh emu || rc=$?
           {
             echo "## CPU test in fm1-emu (strict timing, report only)"
             echo
             echo "Worst render time per voice count, 0.5 s held each. fm1-emu's strict mode read ~10-15 % below"
             echo "the device on FM-1 SID; this becomes a gate once #13 calibrates it against hardware."
             echo
-            cat build/fm1/emu-report.md
+            cat build/fm1/emu-report.md 2>/dev/null || echo "**No report: the run failed before it (see the log).**"
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
 
       - name: Upload firmware
         if: ${{ !cancelled() }}
