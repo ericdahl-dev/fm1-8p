@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../host/args.h"
 #include "../host/render.h"
 #include "../host/smf.h"
 #include "../host/wav.h"
@@ -263,6 +264,42 @@ TT_TEST(wav_rejects_sample_rate_out_of_range)
     TT_CHECK_EQ(wav_write_file("build/ok-rate.wav", pcm, 4, 192000), 0);
 }
 
+TT_TEST(numeric_options_reject_negative_and_out_of_range_values)
+{
+    uint32_t u = 7;
+    TT_CHECK_EQ(args_parse_u32("44100", &u), 0);
+    TT_CHECK_EQ(u, 44100);
+    TT_CHECK_EQ(args_parse_u32("4294967295", &u), 0);
+    TT_CHECK_EQ(u, 4294967295u);
+    TT_CHECK(args_parse_u32("4294967296", &u) != 0);
+    TT_CHECK(args_parse_u32("-4294967295", &u) != 0);
+    TT_CHECK(args_parse_u32("-1", &u) != 0);
+    TT_CHECK(args_parse_u32(" 5", &u) != 0);
+    TT_CHECK(args_parse_u32("+5", &u) != 0);
+    TT_CHECK(args_parse_u32("", &u) != 0);
+    TT_CHECK(args_parse_u32("12x", &u) != 0);
+}
+
+TT_TEST(parameter_settings_reject_out_of_range_values)
+{
+    render_opts o;
+    memset(&o, 0, sizeof o);
+    TT_CHECK_EQ(args_parse_setting("amp_attack_ms=200", &o), 0);
+    TT_CHECK_EQ(o.param_count, 1);
+    TT_CHECK_EQ(o.param_id[0], FM_PARAM_AMP_ATTACK_MS);
+    TT_CHECK_EQ(o.param_value[0], 200);
+    TT_CHECK_EQ(args_parse_setting("amp_sustain_permille=-2147483648", &o), 0);
+    TT_CHECK_EQ(o.param_value[1], -2147483647 - 1);
+    TT_CHECK(args_parse_setting("amp_attack_ms=4294967296", &o) != 0);
+    TT_CHECK(args_parse_setting("amp_attack_ms=99999999999", &o) != 0);
+    TT_CHECK(args_parse_setting("amp_attack_ms=2147483648", &o) != 0);
+    TT_CHECK(args_parse_setting("amp_attack_ms=", &o) != 0);
+    TT_CHECK(args_parse_setting("amp_attack_ms=1.5", &o) != 0);
+    TT_CHECK(args_parse_setting("no_such_param=1", &o) != 0);
+    TT_CHECK(args_parse_setting("amp_attack_ms", &o) != 0);
+    TT_CHECK_EQ(o.param_count, 2);
+}
+
 static void run_host_tests(void)
 {
     TT_RUN(wav_header_has_requested_rate_and_length);
@@ -277,4 +314,6 @@ static void run_host_tests(void)
     TT_RUN(smf_rejects_status_byte_in_data_position);
     TT_RUN(smf_rejects_tempo_with_wrong_length);
     TT_RUN(wav_rejects_sample_rate_out_of_range);
+    TT_RUN(numeric_options_reject_negative_and_out_of_range_values);
+    TT_RUN(parameter_settings_reject_out_of_range_values);
 }

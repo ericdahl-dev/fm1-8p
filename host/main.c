@@ -4,10 +4,10 @@
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  */
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "../engine/fm1_8p.h"
+#include "args.h"
 #include "render.h"
 
 static void usage(void)
@@ -25,37 +25,6 @@ static void usage(void)
     }
 }
 
-static int parse_u32(const char *s, uint32_t *out)
-{
-    char *end;
-    unsigned long v = strtoul(s, &end, 10);
-    if (*s == '\0' || *end != '\0' || v > 0xFFFFFFFFul) return -1;
-    *out = (uint32_t)v;
-    return 0;
-}
-
-static int parse_setting(const char *s, render_opts *o)
-{
-    const char *eq = strchr(s, '=');
-    uint16_t id;
-    char *end;
-    long v;
-    if (!eq || o->param_count >= RENDER_MAX_SETTINGS) return -1;
-    v = strtol(eq + 1, &end, 10);
-    if (eq[1] == '\0' || *end != '\0') return -1;
-    for (id = 0; id < FM_PARAM_COUNT; id++) {
-        const fm_param_info *p = fm_param_info_get(id);
-        if (strlen(p->name) == (size_t)(eq - s) &&
-            strncmp(p->name, s, (size_t)(eq - s)) == 0) {
-            o->param_id[o->param_count] = id;
-            o->param_value[o->param_count] = (int32_t)v;
-            o->param_count++;
-            return 0;
-        }
-    }
-    return -1;
-}
-
 int main(int argc, char **argv)
 {
     render_opts o;
@@ -71,17 +40,17 @@ int main(int argc, char **argv)
             return 2;
         }
         if (strcmp(opt, "-r") == 0) {
-            if (parse_u32(argv[++i], &o.sample_rate) != 0) {
+            if (args_parse_u32(argv[++i], &o.sample_rate) != 0) {
                 fprintf(stderr, "bad sample rate: %s\n", argv[i]);
                 return 2;
             }
         } else if (strcmp(opt, "-t") == 0) {
-            if (parse_u32(argv[++i], &o.tail_ms) != 0) {
+            if (args_parse_u32(argv[++i], &o.tail_ms) != 0) {
                 fprintf(stderr, "bad tail: %s\n", argv[i]);
                 return 2;
             }
         } else if (strcmp(opt, "-s") == 0) {
-            if (parse_setting(argv[++i], &o) != 0) {
+            if (args_parse_setting(argv[++i], &o) != 0) {
                 fprintf(stderr, "bad setting: %s\n", argv[i]);
                 usage();
                 return 2;

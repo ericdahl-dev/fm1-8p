@@ -16,7 +16,7 @@ BUILD   = build
 
 ENGINE_SRC = $(wildcard engine/*.c)
 ENGINE_HDR = $(wildcard engine/*.h)
-HOST_SRC   = host/wav.c host/smf.c host/render.c
+HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
 
