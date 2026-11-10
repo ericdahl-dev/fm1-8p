@@ -1022,8 +1022,9 @@ TT_TEST(unison_note_change_keeps_the_control_cadence)
 
 /*
  * fm_env_advance(e, n) is n calls of fm_env_next(e) at once: random
- * envelopes through every stage (gate on, retime, gate off, fade), with
- * random advance lengths, against stepping one sample at a time.
+ * envelopes through every stage (gate on at a random peak, as velocity
+ * sets it, retime, gate off, fade), with random advance lengths, against
+ * stepping one sample at a time.
  */
 TT_TEST(env_advance_matches_stepping_sample_by_sample)
 {
@@ -1041,7 +1042,11 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
         for (op = 0; op < 40; op++) {
             uint32_t n = ENV_RAND() % 400, k;
             switch (ENV_RAND() % 6) {
-            case 0: fm_env_gate_on(&a); fm_env_gate_on(&b); break;
+            case 0:
+                a.peak = b.peak = (int32_t)(ENV_RAND() % ((1u << 30) + 1));
+                fm_env_gate_on(&a);
+                fm_env_gate_on(&b);
+                break;
             case 1: fm_env_gate_off(&a); fm_env_gate_off(&b); break;
             case 2: fm_env_fade(&a, n); fm_env_fade(&b, n); break;
             case 3:
