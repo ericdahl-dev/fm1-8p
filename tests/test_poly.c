@@ -210,6 +210,42 @@ TT_TEST(note_released_during_a_steal_fade_still_sounds)
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
 }
 
+/*
+ * A note pressed again while a steal is still fading it out takes its
+ * voice back (so the same pitch is never on two voices), and the note
+ * that was waiting for that voice moves to another one.
+ */
+TT_TEST(note_pressed_again_during_its_steal_fade_takes_its_voice_back)
+{
+    static const int expect[8] = { 1, 0, 1, 0, 0, 0, 0, 0 };
+    double ref;
+    int full, early;
+    /* one voice: 60 never drops out, it carries on from where it was */
+    init_poly(1);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 200);
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_render(&poly, pbuf, PRATE / 2);
+    full = peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2);
+    fm_engine_note_on(&poly, 62, 100); /* steals 60's voice */
+    fm_engine_render(&poly, pbuf, 22);  /* 0.5 ms into the 3 ms fade */
+    fm_engine_note_on(&poly, 60, 100); /* 60 again */
+    fm_engine_render(&poly, pbuf, 882);
+    early = peak_abs(pbuf, 882 - 176, 882);
+    TT_CHECK((double)early / full > 0.7);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 1);
+
+    /* two voices: 62, which was waiting for 60's voice, steals 61's */
+    ref = solo_amp(2, 60);
+    init_poly(2);
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_note_on(&poly, 61, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_on(&poly, 62, 100); /* steals 60's voice (oldest) */
+    fm_engine_note_on(&poly, 60, 100);
+    TT_CHECK(check_sounding(ref, expect));
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 2);
+}
+
 TT_TEST(released_note_goes_silent_and_its_voice_idle)
 {
     size_t i;
@@ -426,6 +462,7 @@ static void run_poly_tests(void)
     TT_RUN(no_click_when_a_voice_starts_is_stolen_or_ends);
     TT_RUN(stolen_voice_fades_then_new_note_attacks_from_silence);
     TT_RUN(note_released_during_a_steal_fade_still_sounds);
+    TT_RUN(note_pressed_again_during_its_steal_fade_takes_its_voice_back);
     TT_RUN(released_note_goes_silent_and_its_voice_idle);
     TT_RUN(repeated_note_reuses_its_voice);
     TT_RUN(sustain_pedal_holds_released_notes_until_it_comes_up);

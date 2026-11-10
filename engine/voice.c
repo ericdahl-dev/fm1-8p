@@ -14,6 +14,7 @@ void fm_voice_reset(fm_voice *v)
     v->wait = 0;
     v->gate_left = 0;
     v->note = 0;
+    v->old_note = 0;
     v->key_down = 0;
     v->sustained = 0;
     v->pending = 0;
@@ -39,6 +40,7 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, uint32_t inc,
                       uint32_t fade_samples)
 {
     int same = fm_voice_active(v) && v->note == note;
+    uint8_t old = v->note;
     v->note = note;
     v->key_down = 1;
     v->sustained = 0;
@@ -48,10 +50,21 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, uint32_t inc,
     if (same || v->amp_env.stage == FM_ENV_IDLE) {
         start(v);
     } else {
+        v->old_note = old;
         v->pending = 1;
         v->wait = fade_samples;
         fm_env_fade(&v->amp_env, fade_samples);
     }
+}
+
+void fm_voice_take_back(fm_voice *v, uint32_t inc)
+{
+    v->note = v->old_note;
+    v->key_down = 1;
+    v->sustained = 0;
+    v->gate_left = 0;
+    v->next_inc = inc;
+    start(v);
 }
 
 void fm_voice_key_up(fm_voice *v, int pedal_down)

@@ -150,22 +150,56 @@ static int voice_rank(const fm_voice *v)
  * The voice a new note takes: an idle one if any, else the oldest
  * released one, else the oldest held one. "Oldest" is the longest since
  * its last note on or off (stamps compared as a wrapping difference).
+ * Never `skip`; null if there is no other voice.
  */
-static fm_voice *pick_voice(fm_engine *e)
+static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
 {
-    fm_voice *best = &e->voices[0];
-    int best_rank = voice_rank(best);
+    fm_voice *best = 0;
+    int best_rank = 0;
     uint8_t i;
-    for (i = 1; i < e->voice_count; i++) {
+    for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         int r = voice_rank(v);
-        if (r < best_rank ||
+        if (v == skip) continue;
+        if (!best || r < best_rank ||
             (r == best_rank && (int32_t)(v->stamp - best->stamp) < 0)) {
             best = v;
             best_rank = r;
         }
     }
     return best;
+}
+
+/* The voice fading `note` out after a steal, or null. */
+static fm_voice *find_fading(fm_engine *e, uint8_t note)
+{
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++) {
+        fm_voice *v = &e->voices[i];
+        if (v->pending && v->old_note == note) return v;
+    }
+    return 0;
+}
+
+/*
+ * `note` is played again while voice `f` fades it out for a steal: `f`
+ * takes it back, so one pitch is never on two voices, and the note that
+ * was waiting for `f` gets a voice by the usual rule. With no other
+ * voice (or if its key already came up) that waiting note is dropped:
+ * the newest note wins.
+ */
+static void take_back(fm_engine *e, fm_voice *f, uint8_t note)
+{
+    uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
+    fm_voice *w;
+    fm_voice_take_back(f, note_inc(e, note));
+    f->stamp = ++e->stamp;
+    if (!key_down && !sustained) return;
+    w = pick_voice(e, f);
+    if (!w) return;
+    w->stamp = ++e->stamp;
+    fm_voice_note_on(w, moved, note_inc(e, moved), e->fade_samples);
+    if (!key_down) fm_voice_key_up(w, 1); /* held by the pedal */
 }
 
 void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
@@ -178,7 +212,14 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
     }
     {
         fm_voice *v = find_note(e, note);
-        if (!v) v = pick_voice(e);
+        if (!v) {
+            fm_voice *f = find_fading(e, note);
+            if (f) {
+                take_back(e, f, note);
+                return;
+            }
+            v = pick_voice(e, 0);
+        }
         v->stamp = ++e->stamp;
         fm_voice_note_on(v, note, note_inc(e, note), e->fade_samples);
     }

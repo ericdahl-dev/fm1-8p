@@ -25,6 +25,7 @@ typedef struct {
     uint32_t wait;     /* length of the current steal fade, in samples */
     uint32_t gate_left; /* samples until a queued release (0: none) */
     uint8_t note;
+    uint8_t old_note;  /* while pending: the stolen note fading out */
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
@@ -46,6 +47,14 @@ int fm_voice_active(const fm_voice *v);
  */
 void fm_voice_note_on(fm_voice *v, uint8_t note, uint32_t inc,
                       uint32_t fade_samples);
+
+/*
+ * Takes a voice that is fading out a stolen note back for that note
+ * (`old_note`, played again): the steal is called off and the note
+ * restarts its attack from the current level at `inc`. The note that was
+ * waiting for the fade is dropped; the caller can give it another voice.
+ */
+void fm_voice_take_back(fm_voice *v, uint32_t inc);
 
 /* The key came up: hold the note if the pedal is down, else release. */
 void fm_voice_key_up(fm_voice *v, int pedal_down);
