@@ -144,6 +144,32 @@ static void apply_param(fm_engine *e, uint16_t id)
     default:
         break;
     }
+    switch (id) {
+    case FM_PARAM_LFO_WAVE:
+        fm_lfo_set_wave(&e->lfo, (uint8_t)v);
+        return;
+    case FM_PARAM_LFO_RATE_CENTIHZ:
+        fm_lfo_set_rate(&e->lfo, v, e->sample_rate);
+        return;
+    case FM_PARAM_LFO_DELAY_MS:
+        e->mod.delay_ticks = ms_to_samples(e, v) >> FM_LFO_TICK_SHIFT;
+        /* fades in over as long as the delay; the divisor is at least 1 */
+        e->mod.fade_step = e->mod.delay_ticks
+                               ? (int32_t)(FM_LFO_FULL / e->mod.delay_ticks)
+                               : FM_LFO_FULL;
+        return;
+    case FM_PARAM_LFO_PW_PCT:
+        e->mod.pw = v * 42949673; /* percent -> Q0.32, at most 0.49 */
+        return;
+    case FM_PARAM_LFO_PITCH_CENTS:
+        /* cents -> Q16.16 octaves: exact for multiples of 75 cents */
+        e->mod.pitch_oct = v * 65536 / 1200;
+        return;
+    case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
+        return;
+    default:
+        break;
+    }
     if (id == FM_PARAM_VOICE_MODE || id == FM_PARAM_UNISON_DETUNE_CENTS) {
         /* every voice's detune: the unison spread, or none in poly */
         int unison = e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON;
@@ -227,6 +253,10 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend_value = 0;
     unison_reset(e);
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
+    fm_lfo_reset(&e->lfo);
+    e->tick_left = 0;
+    e->ticks = 0;
+    e->mod_on = 0;
     /* each voice its own noise (an odd multiplier: never 0), so unison
      * voices, which start together, never play the same stream */
     for (i = 0; i < FM_MAX_VOICES; i++) {
@@ -305,13 +335,26 @@ static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
     return best;
 }
 
-/* Poly: voice `v` plays `note` (in poly every detune is 0). */
-static void poly_play(fm_engine *e, fm_voice *v, uint8_t note)
+/*
+ * Amp envelope peak (Q1.30) for a MIDI velocity 1..127: full level less
+ * amp_velocity percent of the way down the curve (velocity / 127)^2.
+ * Velocity 127 is always full. Two constant divides, per note on.
+ */
+static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
+{
+    int32_t sens = e->params[FM_PARAM_AMP_VELOCITY];
+    int64_t curve = (int64_t)velocity * velocity * FM_ENV_FULL / (127 * 127);
+    return FM_ENV_FULL - (int32_t)((FM_ENV_FULL - curve) * sens / 100);
+}
+
+/* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune
+ * is 0). */
+static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak)
 {
     uint8_t i = (uint8_t)(v - e->voices);
     v->stamp = ++e->stamp;
-    fm_voice_note_on(v, note, voice_pitch(e, i, note), e->sample_rate,
-                     e->fade_samples);
+    fm_voice_note_on(v, note, voice_pitch(e, i, note), peak, e->ticks + 1,
+                     e->sample_rate, e->fade_samples);
 }
 
 /* The voice fading `note` out after a steal, or null. */
@@ -330,19 +373,20 @@ static fm_voice *find_fading(fm_engine *e, uint8_t note)
  * takes it back, so one pitch is never on two voices, and the note that
  * was waiting for `f` gets a voice by the usual rule. With no other
  * voice (or if its key already came up) that waiting note is dropped:
- * the newest note wins.
+ * the newest note wins. `peak` is the new strike's; the waiting note keeps
+ * its own, which `f` still holds in next_peak.
  */
-static void take_back(fm_engine *e, fm_voice *f, uint8_t note)
+static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak)
 {
     uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
     fm_voice *w;
     fm_voice_take_back(f, voice_pitch(e, (uint8_t)(f - e->voices), note),
-                       e->sample_rate);
+                       peak, e->ticks + 1, e->sample_rate);
     f->stamp = ++e->stamp;
     if (!key_down && !sustained) return;
     w = pick_voice(e, f);
     if (!w) return;
-    poly_play(e, w, moved);
+    poly_play(e, w, moved, f->next_peak);
     if (!key_down) fm_voice_key_up(w, 1); /* held by the pedal */
 }
 
@@ -358,20 +402,22 @@ static int forget_held(fm_engine *e, uint8_t note)
     return newest;
 }
 
-/* Every voice plays `note`, each at its detune. */
-static void unison_play(fm_engine *e, uint8_t note, int retrigger)
+/* Every voice plays `note`, each at its detune; a retrigger at amp peak
+ * `peak` (a legato change ignores it and keeps each voice's level). */
+static void unison_play(fm_engine *e, uint8_t note, int retrigger,
+                        int32_t peak)
 {
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         v->stamp = ++e->stamp;
-        fm_voice_change_note(v, note, voice_pitch(e, i, note), e->sample_rate,
-                             retrigger);
+        fm_voice_change_note(v, note, voice_pitch(e, i, note), peak,
+                             e->ticks + 1, e->sample_rate, retrigger);
     }
 }
 
 /* Unison: the newest note wins and retriggers (docs/voices.md#unison). */
-static void unison_note_on(fm_engine *e, uint8_t note)
+static void unison_note_on(fm_engine *e, uint8_t note, int32_t peak)
 {
     uint8_t i;
     forget_held(e, note);
@@ -380,7 +426,7 @@ static void unison_note_on(fm_engine *e, uint8_t note)
         e->held_count--;
     }
     e->held[e->held_count++] = note;
-    unison_play(e, note, 1);
+    unison_play(e, note, 1, peak); /* a legato return later keeps it */
 }
 
 /* Unison: releasing the sounding note goes back to the newest key still
@@ -390,7 +436,7 @@ static void unison_note_off(fm_engine *e, uint8_t note)
     uint8_t i;
     if (!forget_held(e, note)) return; /* not the sounding note */
     if (e->held_count) {
-        unison_play(e, e->held[e->held_count - 1], 0);
+        unison_play(e, e->held[e->held_count - 1], 0, 0);
         return;
     }
     for (i = 0; i < e->voice_count; i++) {
@@ -410,20 +456,21 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         return;
     }
     if (e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON) {
-        unison_note_on(e, note);
+        unison_note_on(e, note, velocity_peak(e, velocity));
         return;
     }
     {
+        int32_t peak = velocity_peak(e, velocity);
         fm_voice *v = find_note(e, note);
         if (!v) {
             fm_voice *f = find_fading(e, note);
             if (f) {
-                take_back(e, f, note);
+                take_back(e, f, note, peak);
                 return;
             }
             v = pick_voice(e, 0);
         }
-        poly_play(e, v, note);
+        poly_play(e, v, note, peak);
     }
 }
 
@@ -491,15 +538,68 @@ static int16_t to_int16(int32_t q24)
     return (int16_t)s;
 }
 
+/*
+ * Control tick, every FM_LFO_TICK_FRAMES samples counted from init (so
+ * the caller's block size never moves it): the LFO advances and each
+ * sounding voice applies it.
+ */
+static void control_tick(fm_engine *e)
+{
+    int32_t lfo = fm_lfo_tick(&e->lfo);
+    int depth = e->mod.pitch_oct != 0 || e->mod.pw != 0;
+    uint8_t k;
+    e->ticks++;
+    e->tick_left = FM_LFO_TICK_FRAMES;
+    /* with every depth at 0 (after one tick that clears any offset still
+     * applied) the voices have nothing to do */
+    if (depth || e->mod_on)
+        for (k = 0; k < e->voice_count; k++)
+            if (fm_voice_active(&e->voices[k]))
+                fm_voice_tick(&e->voices[k], lfo, &e->mod, e->ticks);
+    e->mod_on = (uint8_t)depth;
+}
+
+/*
+ * Frames the next chunk renders. While the LFO modulates something (or
+ * an offset from before is still applied) a chunk stops at the next
+ * control tick, so the output never depends on the caller's block size.
+ * With every depth at 0 the ticks change no sample, so a chunk runs to
+ * FM_MIX_FRAMES and the ticks it passes run after it (they only advance
+ * the LFO and the tick count, so a voice still learns which tick its
+ * note started before): rendering costs what it did before the LFO
+ * existed.
+ */
+static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
+{
+    uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
+    if (e->tick_left == 0) control_tick(e);
+    if ((e->mod_on || e->mod.pitch_oct != 0 || e->mod.pw != 0) &&
+        n > e->tick_left)
+        n = e->tick_left;
+    return n;
+}
+
+/* After a chunk of `n` frames: the ticks a batched chunk passed. */
+static void advance_ticks(fm_engine *e, uint32_t n)
+{
+    while (n > e->tick_left) {
+        n -= e->tick_left;
+        control_tick(e);
+    }
+    e->tick_left -= n;
+}
+
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
 {
     while (frames) {
-        uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES, i;
+        uint32_t n, i;
         uint8_t k;
+        n = chunk_frames(e, frames);
         for (i = 0; i < n; i++) e->mix[i] = 0;
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
-                fm_voice_render_add(&e->voices[k], e->mix, n, e->sample_rate);
+                fm_voice_render_add(&e->voices[k], e->mix, n, e->sample_rate,
+                                    e->ticks + 1, e->tick_left);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
@@ -516,6 +616,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
                 out[2 * i + 1] = s;
             }
         }
+        advance_ticks(e, n);
         out += 2 * n;
         frames -= n;
     }

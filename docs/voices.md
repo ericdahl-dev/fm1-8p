@@ -215,9 +215,10 @@ The int16 conversion still saturates as a last guard.
 
 The cost of this is level: one note on a 6-voice engine peaks at
 `16384 / 6` = 2731, about -21.6 dBFS (-18 dBFS for 4 voices). That is normal
-for a polysynth without a limiter. Once velocity (#8) and the patch level
-exist, the output gain can be revisited with real patches and the CPU test's
-final voice count.
+for a polysynth without a limiter. Velocity
+([modulation.md](modulation.md#velocity)) only lowers a note from there. Once
+a patch level exists, the output gain can be revisited with real patches and
+the CPU test's final voice count.
 
 `full_chord_at_max_velocity_never_clips` plays every voice count from 1 to 8
 in octaves (whose saws wrap together, the worst case) and checks no sample
@@ -239,7 +240,9 @@ Per sounding voice, per sample: one envelope step, one sample of the
 oscillator pair (a saw has a 64-by-32 divide on the two samples around each
 wrap, a pulse or square on both edges, and the mix adds a multiply when both
 oscillators sound; see [fixed-point.md](fixed-point.md)), one 64-bit multiply, an add into the mix
-buffer, and a test for a queued release (the steal fade case above). Idle voices are skipped. Per sample for the whole engine: one
+buffer, and a test for a queued release (the steal fade case above). The LFO
+and velocity add nothing per sample; their per-tick cost is in
+[modulation.md](modulation.md#cost). Idle voices are skipped. Per sample for the whole engine: one
 64-bit multiply (the mix gain) and the int16 conversion.
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
@@ -248,7 +251,8 @@ The voices take about 1.4 KiB with room for 8 (two oscillators each, with
 sync and cross-mod state), and
 unison adds 49 bytes (8 detune offsets and the 16 held keys). With the chorus
 (its 2 KiB delay line and a 256-byte right-side buffer) `fm_engine` is about
-3.7 KiB (3832 bytes on x86-64), so static storage is recommended.
+4.0 KiB (4056 bytes on x86-64; the LFO and velocity state of #8 add 392), so
+static storage is recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per
 voice (one per oscillator's pitch, plus one more for each pulse oscillator's

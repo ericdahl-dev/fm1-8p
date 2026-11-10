@@ -57,6 +57,9 @@ typedef struct {
     uint32_t ratio;    /* osc2's increment over osc1's, Q16.16 (for sync) */
     int32_t xmod;      /* cross-mod depth, Q1.30 0..1.0 */
     uint32_t xmod_inc; /* osc2's increment times the depth: its largest bend */
+    uint32_t base[2];  /* increment before the pitch modulation */
+    int32_t mod_oct;   /* pitch modulation (LFO), Q16.16 octaves */
+    int32_t pw_mod;    /* pulse width modulation (LFO), Q0.32 of a cycle */
     uint32_t noise;    /* xorshift32 state, never 0 */
     uint16_t sync_x;   /* how far past the reset the next sample is, Q0.16 */
     uint8_t wave[2];   /* fm_wave */
@@ -107,6 +110,21 @@ void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on);
  * modulation, so sidebands at osc2 +- multiples of osc1). 0 is off.
  */
 void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth);
+/*
+ * Pitch modulation in Q16.16 octaves (0: none), on top of the pitch and
+ * tuning. Scales both increments by 2^x with no divide, so it can run
+ * at the control rate; the pulse width limits stay those of the
+ * unmodulated pitch (docs/modulation.md#pitch).
+ */
+void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct);
+/*
+ * Pulse width modulation: `offset` (Q0.32 of a cycle, signed) is added
+ * to both oscillators' set widths, clamped to 1..99 % and the pitch
+ * limits. The gain that keeps a pulse at peak 1.0 then comes from a
+ * reciprocal by Newton's method (no divide), so it can run at the
+ * control rate. 0 restores the widths exactly.
+ */
+void fm_osc_pair_set_pw_mod(fm_osc_pair *p, int32_t offset);
 /* Next mixed sample, Q8.24. */
 int32_t fm_osc_pair_next(fm_osc_pair *p);
 
