@@ -95,8 +95,53 @@ TT_TEST(resonance_raises_gain_near_cutoff)
     TT_CHECK_NEAR(at600 - oct600, 24.0, 3.0);
 }
 
+/*
+ * Maximum resonance self-oscillates; the soft clip in the feedback path
+ * must hold every output within +-4.0 (Q8.24) at any cutoff, for any
+ * input, for as long as it runs: 10 s per case, with a loud saw, loud
+ * noise and a single huge impulse followed by silence.
+ */
+#define FILTER_BOUND (4 << 24)
+
+TT_TEST(max_resonance_stays_bounded_over_a_long_render)
+{
+    static const int32_t cutoffs[] = { 0, 2400, 6900, 11000, 13600,
+                                       14399, FM_FILTER_OPEN_CENTS };
+    static fm_filter f;
+    size_t c, kind, i;
+    uint32_t noise = 12345;
+    for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
+        for (kind = 0; kind < 3; kind++) {
+            int32_t peak = 0, late_peak = 0;
+            lowpass_at(&f, cutoffs[c], 1000);
+            for (i = 0; i < 10 * (size_t)FRATE; i++) {
+                int32_t x, y;
+                if (kind == 0) { /* saw at +-1.0, 220 Hz */
+                    x = (int32_t)((i * 220 * 2 % FRATE) * (2u << 24) / FRATE) -
+                        (1 << 24);
+                } else if (kind == 1) { /* noise at +-2.0 */
+                    noise = noise * 1664525u + 1013904223u;
+                    x = (int32_t)(noise >> 6) - (1 << 25);
+                } else { /* impulse of 100.0, then silence */
+                    x = i == 0 ? 100 << 24 : 0;
+                }
+                y = fm_filter_process(&f, x);
+                if (y < 0) y = -y;
+                if (y > peak) peak = y;
+                if (i >= 9 * (size_t)FRATE && y > late_peak) late_peak = y;
+            }
+            if (peak > FILTER_BOUND || late_peak > FILTER_BOUND)
+                printf("    cutoff %d, input %d: peak %.3f, last second "
+                       "%.3f\n", (int)cutoffs[c], (int)kind,
+                       peak / 16777216.0, late_peak / 16777216.0);
+            TT_CHECK(peak <= FILTER_BOUND);
+        }
+    }
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
     TT_RUN(resonance_raises_gain_near_cutoff);
+    TT_RUN(max_resonance_stays_bounded_over_a_long_render);
 }
