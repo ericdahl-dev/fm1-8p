@@ -68,9 +68,9 @@ is in `engine/params.c`.
 
 ## Chorus
 
-`engine/chorus.c` is the last stage of `fm_engine_render`: the summed voices
-(one mono Q8.24 sample) go in, a left and a right Q8.24 sample come out, and
-each is saturated to int16 as before. The `chorus_mode` parameter selects:
+`engine/chorus.c` is the last stage of `fm_engine_render`: the mixed voices
+(mono Q8.24, after the mix gain) go in a block at a time, left and right
+Q8.24 come out, and each is saturated to int16 as before. The `chorus_mode` parameter selects:
 
 | Mode | LFO rate | Center delay | Sweep | Character |
 | --- | --- | --- | --- | --- |
@@ -99,10 +99,12 @@ How it works, per sample:
   2 dB (slow), 3 dB (deep) and 5 dB (fast) compared with chorus off; the
   polyphony slice's gain staging can add make-up gain if listening calls for
   it.
-- Cost: one 64-bit multiply (the sweep), two 32-bit multiplies (the
-  interpolations), a few shifts, adds and masks, and four reads and one write
-  of the delay line. Off costs one branch. Divisions run only when the mode
-  is set.
+- Cost, per sample with the chorus on: one 64-bit multiply (the sweep), two
+  32-bit multiplies (the interpolations), a few shifts, adds and masks, and
+  four reads and one write of the delay line. The engine runs it over each
+  64-frame mix block (`fm_chorus_process_block`, writing the right side to
+  `fm_engine.mix_right`); with the chorus off it skips the call entirely and
+  the block costs one check. Divisions run only when the mode is set.
 
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 2.1 KiB (2072 bytes on x86-64), inside `fm_engine`. Nothing is allocated and

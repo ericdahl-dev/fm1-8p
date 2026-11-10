@@ -106,15 +106,11 @@ static int32_t half_sum(int32_t a, int32_t b)
     return (a >> 1) + (b >> 1) + (((a & 1) + (b & 1) + 1) >> 1);
 }
 
-void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
+/* One sample with the chorus on. */
+static void process_on(fm_chorus *c, int32_t in, int32_t *left,
                        int32_t *right)
 {
     int32_t q, sweep;
-    if (c->mode == FM_CHORUS_OFF) {
-        *left = in;
-        *right = in;
-        return;
-    }
     /* Q8.24 -> line units (1.0 = 16384), rounded, saturating at +-2.0 */
     q = (in >> 10) + ((in >> 9) & 1);
     if (q > 32767) q = 32767;
@@ -127,4 +123,26 @@ void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
 
     *left = half_sum(in, tap(c, c->center + sweep));
     *right = half_sum(in, tap(c, c->center - sweep));
+}
+
+void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
+                       int32_t *right)
+{
+    if (c->mode == FM_CHORUS_OFF) {
+        *left = in;
+        *right = in;
+        return;
+    }
+    process_on(c, in, left, right);
+}
+
+void fm_chorus_process_block(fm_chorus *c, int32_t *left, int32_t *right,
+                             uint32_t frames)
+{
+    uint32_t i;
+    if (c->mode == FM_CHORUS_OFF) {
+        for (i = 0; i < frames; i++) right[i] = left[i];
+        return;
+    }
+    for (i = 0; i < frames; i++) process_on(c, left[i], &left[i], &right[i]);
 }

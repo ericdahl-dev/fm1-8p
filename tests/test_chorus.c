@@ -488,6 +488,41 @@ TT_TEST(chorus_line_has_headroom_for_the_loudest_mix)
         }
 }
 
+/*
+ * The engine runs the chorus a block at a time over its mix buffer.
+ * A block gives exactly what sample-by-sample processing gives, for any
+ * block length, in every mode (off copies the input to the right side).
+ */
+TT_TEST(chorus_block_matches_sample_by_sample)
+{
+    static fm_chorus one, blk;
+    static int32_t left[FM_MIX_FRAMES], right[FM_MIX_FRAMES];
+    static const uint32_t sizes[] = { 1, 7, FM_MIX_FRAMES, 33 };
+    uint32_t seed = 7;
+    int mode, same = 1;
+    for (mode = 0; mode < FM_CHORUS_MODE_COUNT; mode++) {
+        uint32_t done = 0, k = 0;
+        fm_chorus_init(&one, CH_RATE);
+        fm_chorus_init(&blk, CH_RATE);
+        fm_chorus_set_mode(&one, (uint8_t)mode);
+        fm_chorus_set_mode(&blk, (uint8_t)mode);
+        while (done < 20000) {
+            uint32_t n = sizes[k++ % 4], i;
+            int32_t want_l[FM_MIX_FRAMES], want_r[FM_MIX_FRAMES];
+            for (i = 0; i < n; i++) {
+                seed = seed * 1664525u + 1013904223u;
+                left[i] = (int32_t)(seed >> 7) - (1 << 24);
+                fm_chorus_process(&one, left[i], &want_l[i], &want_r[i]);
+            }
+            fm_chorus_process_block(&blk, left, right, n);
+            for (i = 0; i < n; i++)
+                if (left[i] != want_l[i] || right[i] != want_r[i]) same = 0;
+            done += n;
+        }
+    }
+    TT_CHECK(same);
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
@@ -502,4 +537,5 @@ static void run_chorus_tests(void)
     TT_RUN(all_sound_off_silences_the_chorus_tail);
     TT_RUN(chorus_adds_no_dc_offset);
     TT_RUN(chorus_line_has_headroom_for_the_loudest_mix);
+    TT_RUN(chorus_block_matches_sample_by_sample);
 }

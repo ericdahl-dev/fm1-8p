@@ -71,4 +71,15 @@ void fm_chorus_silence(fm_chorus *c);
 void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
                        int32_t *right);
 
+/*
+ * Processes a block in place: `left` holds `frames` Q8.24 input samples
+ * and gets the left output; `right` gets the right output. The same as
+ * calling fm_chorus_process on each sample.
+ */
+void fm_chorus_process_block(fm_chorus *c, int32_t *left, int32_t *right,
+                             uint32_t frames);
+
+/* Whether a mode is on (the engine skips the chorus entirely when off). */
+#define fm_chorus_is_on(c) ((c)->mode != FM_CHORUS_OFF)
+
 #endif /* FM_CHORUS_H */

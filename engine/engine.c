@@ -301,13 +301,21 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_render_add(&e->voices[k], e->mix, n);
-        for (i = 0; i < n; i++) {
-            /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
-            int32_t s = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
-            int32_t left, right;
-            fm_chorus_process(&e->chorus, s, &left, &right);
-            out[2 * i] = to_int16(left);
-            out[2 * i + 1] = to_int16(right);
+        /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
+        for (i = 0; i < n; i++)
+            e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
+        if (fm_chorus_is_on(&e->chorus)) {
+            fm_chorus_process_block(&e->chorus, e->mix, e->mix_right, n);
+            for (i = 0; i < n; i++) {
+                out[2 * i] = to_int16(e->mix[i]);
+                out[2 * i + 1] = to_int16(e->mix_right[i]);
+            }
+        } else {
+            for (i = 0; i < n; i++) {
+                int16_t s = to_int16(e->mix[i]);
+                out[2 * i] = s;
+                out[2 * i + 1] = s;
+            }
         }
         out += 2 * n;
         frames -= n;
