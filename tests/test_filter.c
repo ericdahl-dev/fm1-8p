@@ -296,6 +296,84 @@ TT_TEST(each_highpass_step_cuts_low_frequencies_more)
     TT_CHECK_EQ(fm_engine_get_param(&feng, FM_PARAM_HIGHPASS_STEP), 3);
 }
 
+/* Sets every filter control to something audible. */
+static void busy_filter_patch(fm_engine *e)
+{
+    fm_engine_set_param(e, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    fm_engine_set_param(e, FM_PARAM_FILTER_RESONANCE, 850);
+    fm_engine_set_param(e, FM_PARAM_FILTER_KEY_TRACK, 700);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_ATTACK_MS, 20);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_DECAY_MS, 150);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_SUSTAIN, 300);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_RELEASE_MS, 60);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600);
+    fm_engine_set_param(e, FM_PARAM_HIGHPASS_STEP, 1);
+}
+
+/* The cutoff updates at control rate on a counter kept in the engine,
+ * so the block size still must not change the output. */
+TT_TEST(filter_output_does_not_depend_on_block_size)
+{
+    static const uint32_t sizes[] = { 9000, 1, 15, 16, 17, 255, 256, 4096 };
+    size_t k;
+    for (k = 0; k < sizeof sizes / sizeof sizes[0]; k++) {
+        int16_t *out = k == 0 ? fbuf_a : fbuf_b;
+        uint32_t done = 0;
+        fm_engine_init(&feng, FRATE, 1);
+        busy_filter_patch(&feng);
+        while (done < 9000) {
+            uint32_t n = 9000 - done < sizes[k] ? 9000 - done : sizes[k];
+            if (done == 1000) fm_engine_note_on(&feng, 57, 100);
+            if (done == 6000) fm_engine_note_off(&feng, 57);
+            if (done < 1000 && done + n > 1000) n = 1000 - done;
+            if (done < 6000 && done + n > 6000) n = 6000 - done;
+            fm_engine_render(&feng, out + 2 * done, n);
+            done += n;
+        }
+        if (k > 0) TT_CHECK(memcmp(fbuf_a, fbuf_b, 9000 * 4) == 0);
+    }
+    TT_CHECK(peak_abs(fbuf_a, 2000, 5000) > 1000);
+}
+
+/*
+ * Every filter extreme at every sample rate the engine accepts: nothing
+ * may divide by zero (the desktop traps), and the voice must still fall
+ * silent after release. Includes the cutoff swept past both ends by key
+ * tracking and the envelope.
+ */
+TT_TEST(extreme_filter_settings_stay_bounded_and_release)
+{
+    static const uint32_t rates[] = { 1, 8000, 44100, 192000 };
+    static const uint8_t notes[] = { 0, 60, 127 };
+    static const int32_t cutoffs[] = { 0, FM_FILTER_OPEN_CENTS };
+    static const int32_t amounts[] = { -9600, 9600 };
+    size_t r, n, c, a, i;
+    for (r = 0; r < sizeof rates / sizeof rates[0]; r++)
+    for (n = 0; n < sizeof notes / sizeof notes[0]; n++)
+    for (c = 0; c < 2; c++)
+    for (a = 0; a < 2; a++) {
+        int loud_after = 0;
+        TT_CHECK_EQ(fm_engine_init(&feng, rates[r], 1), FM_OK);
+        fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 0);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, cutoffs[c]);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 1000);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 0);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
+                            amounts[a]);
+        fm_engine_set_param(&feng, FM_PARAM_HIGHPASS_STEP, 3);
+        fm_engine_note_on(&feng, notes[n], 127);
+        fm_engine_render(&feng, fbuf_a, 4000);
+        fm_engine_note_off(&feng, notes[n]);
+        fm_engine_render(&feng, fbuf_a, 2000);
+        for (i = 2; i < 2 * 2000; i++)
+            if (fbuf_a[i] != 0) loud_after = 1;
+        TT_CHECK(!loud_after);
+    }
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -304,4 +382,6 @@ static void run_filter_tests(void)
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
     TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);
+    TT_RUN(filter_output_does_not_depend_on_block_size);
+    TT_RUN(extreme_filter_settings_stay_bounded_and_release);
 }
