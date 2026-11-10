@@ -259,31 +259,34 @@ TT_TEST(chorus_output_stays_bounded_for_eight_full_scale_voices)
 }
 
 /*
- * Through the engine, initialized for FM_MAX_VOICES, at the loudest
- * settings in every mode: the chorus must not raise the peak over chorus
- * off. Until polyphony (#4) lands the engine plays one voice whatever the
- * count, so this is a single-voice check; the polyphony slice must extend
- * it to hold FM_MAX_VOICES notes at once. The eight-voice worst case is
- * covered at the module level above.
+ * Through the engine with every voice sounding: an eight-note chord
+ * (octaves and fifths of A, all starting together so their peaks line
+ * up) at full level, in every mode. The chorus must not raise the peak
+ * over chorus off (one LSB allowed for rounding). The module-level test
+ * above covers inputs far beyond what the mix can reach.
  */
-TT_TEST(chorus_engine_peak_does_not_rise_single_voice_until_polyphony)
+TT_TEST(chorus_engine_peak_does_not_rise_with_a_full_chord)
 {
+    static const uint8_t chord[FM_MAX_VOICES] = { 33, 45, 52, 57, 64, 69,
+                                                  76, 81 };
     int mode, peak_off = 0;
+    size_t k;
     for (mode = 0; mode < FM_CHORUS_MODE_COUNT; mode++) {
         int peak;
         TT_CHECK_EQ(fm_engine_init(&ch_eng, CH_RATE, FM_MAX_VOICES), FM_OK);
         fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, mode);
         fm_engine_set_param(&ch_eng, FM_PARAM_AMP_ATTACK_MS, 0);
         fm_engine_set_param(&ch_eng, FM_PARAM_AMP_SUSTAIN, 1000);
-        fm_engine_note_on(&ch_eng, 33, 127);
+        for (k = 0; k < FM_MAX_VOICES; k++)
+            fm_engine_note_on(&ch_eng, chord[k], 127);
+        TT_CHECK_EQ(fm_engine_active_voices(&ch_eng), FM_MAX_VOICES);
         fm_engine_render(&ch_eng, ch_buf, CH_RATE * 2);
-        fm_engine_note_on(&ch_eng, 96, 127);
-        fm_engine_render(&ch_eng, ch_buf + CH_RATE * 4, CH_RATE * 2);
-        peak = peak_abs(ch_buf, 0, CH_RATE * 4);
+        peak = peak_abs(ch_buf, 0, CH_RATE * 2);
         if (mode == 0) peak_off = peak;
-        printf("    chorus mode %d: peak %d\n", mode, peak);
-        TT_CHECK(peak > 8000);
-        TT_CHECK(peak <= peak_off);
+        printf("    chorus mode %d, %d voices: peak %d\n", mode,
+               FM_MAX_VOICES, peak);
+        TT_CHECK(peak > 6000);
+        TT_CHECK(peak <= peak_off + 1);
     }
 }
 
@@ -405,7 +408,7 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_on_makes_left_and_right_differ_for_a_mono_voice);
     TT_RUN(chorus_modes_differ_in_rate_and_depth);
     TT_RUN(chorus_output_stays_bounded_for_eight_full_scale_voices);
-    TT_RUN(chorus_engine_peak_does_not_rise_single_voice_until_polyphony);
+    TT_RUN(chorus_engine_peak_does_not_rise_with_a_full_chord);
     TT_RUN(chorus_handles_extreme_rates_and_unknown_modes);
     TT_RUN(chorus_memory_is_fixed_and_small);
     TT_RUN(chorus_delay_line_clamps_hot_input_to_two);
