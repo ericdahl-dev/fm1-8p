@@ -68,7 +68,8 @@ static char *put_3(char *s, uint32_t milli)
     return put_u(s, d % 10u);
 }
 
-void ui_value(uint16_t id, int32_t value, char *num, char *unit)
+/* ui_value; returns the end of num (the loop to find it would be strlen, which the firmware lacks) */
+static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
 {
     const char *u = "";
     if (id == FM_PARAM_FILTER_CUTOFF_CENTS) {
@@ -91,15 +92,19 @@ void ui_value(uint16_t id, int32_t value, char *num, char *unit)
     }
     *num = 0;
     *put_str(unit, u) = 0;
+    return num;
+}
+
+void ui_value(uint16_t id, int32_t value, char *num, char *unit)
+{
+    (void)value_parts(id, value, num, unit);
 }
 
 void ui_format(uint16_t id, int32_t value, char *s)
 {
     char unit[UI_VALUE_LEN];
-    ui_value(id, value, s, unit);
+    s = value_parts(id, value, s, unit);
     if (*unit) {
-        while (*s)
-            s++;
         *s++ = ' ';
         *put_str(s, unit) = 0;
     }
