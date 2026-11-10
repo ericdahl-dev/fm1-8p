@@ -275,6 +275,8 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_LFO:
     case UI_BTN_FX:                             /* none of their pages shows */
         return UI_LED_GLOW;
+    case UI_BTN_EDIT:                           /* lit while the sound differs from the stored patch */
+        return play_edited(u->p) ? UI_LED_LIT : UI_LED_GLOW;
     default:
         return UI_LED_OFF;
     }

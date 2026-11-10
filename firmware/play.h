@@ -36,6 +36,7 @@ typedef struct {
     /* params set from the main loop (the UI's knobs): the value asked for, which the ISR moves the
      * engine to */
     volatile int32_t target[FM_PARAM_COUNT];
+    int32_t stored[FM_PARAM_COUNT];     /* main loop: the stored patch's values (play_edited) */
     volatile uint32_t asked;            /* main loop: +1 per param set */
     uint32_t asked_seen;                /* ISR only: the last `asked` it applied */
 } play;
@@ -69,6 +70,8 @@ void play_note_name(int32_t note, char *s);
 void play_set_param(play *p, uint16_t id, int32_t value);
 /* main loop: a param's value as last set (the engine follows it), 0 for an unknown id */
 int32_t play_get_param(const play *p, uint16_t id);
+/* main loop: 1 while some param differs from the stored patch */
+uint32_t play_edited(const play *p);
 /* audio interrupt: add n (<= PLAY_BLOCK) stereo frames, Q15 in int32, into out */
 void play_render(play *p, int32_t *out, uint32_t n);
 #endif

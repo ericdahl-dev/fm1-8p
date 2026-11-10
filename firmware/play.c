@@ -40,7 +40,7 @@ int play_init(play *p)
         if (fm_engine_set_param(&p->engine, PATCH[i].id, PATCH[i].value) != FM_OK)
             return -1;
     for (i = 0; i < FM_PARAM_COUNT; i++)
-        p->target[i] = fm_engine_get_param(&p->engine, (uint16_t)i);
+        p->target[i] = p->stored[i] = fm_engine_get_param(&p->engine, (uint16_t)i);
     p->asked = p->asked_seen = 0;
     return 0;
 }
@@ -190,4 +190,13 @@ void play_render(play *p, int32_t *out, uint32_t n)
         int32_t v = (int32_t)p->buf[i] * (1 << PLAY_GAIN_SHIFT);
         out[i] += v > 32767 ? 32767 : v < -32767 ? -32767 : v;     /* saturate, never wrap */
     }
+}
+
+uint32_t play_edited(const play *p)
+{
+    uint32_t i;
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        if (p->target[i] != p->stored[i])
+            return 1;
+    return 0;
 }

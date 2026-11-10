@@ -264,8 +264,22 @@ TT_TEST(ui_section_leds_light_their_page)
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_GLOW);
 }
 
+/* The EDIT LED glows while the sound is the stored patch and is lit once it is edited; turning
+ * back to the stored value glows again. */
+TT_TEST(ui_edit_led_shows_an_edited_patch)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_EDIT), UI_LED_GLOW);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_EDIT), UI_LED_LIT);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -1, 0);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_EDIT), UI_LED_GLOW);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_edit_led_shows_an_edited_patch);
     TT_RUN(ui_section_leds_light_their_page);
     TT_RUN(ui_edit_hold_does_not_toggle);
     TT_RUN(ui_home_tap_returns_to_play);
