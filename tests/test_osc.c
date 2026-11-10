@@ -302,6 +302,32 @@ TT_TEST(mix_env_zero_matches_the_fixed_mix)
 }
 
 /*
+ * Over a held note, osc2's level follows the envelope: with a 1 s filter
+ * envelope attack, depth +1000 and mix 0, osc2 (a fifth up, so none of its
+ * tone is one of osc1's harmonics) grows from near silence to full.
+ */
+TT_TEST(mix_env_fades_osc2_in_with_the_envelope)
+{
+    static const double at[] = { 0.05, 0.3, 0.6, 0.95 };
+    double amp[4], hz2 = note_hz(57) * pow(2.0, 7 / 12.0);
+    size_t k;
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, RATE + 4096);
+    for (k = 0; k < 4; k++)
+        amp[k] = tone_amp(buf + 2 * (size_t)(at[k] * RATE), 2048, 0, hz2, RATE);
+    printf("    osc2 at 0.05 / 0.3 / 0.6 / 0.95 s: %.0f %.0f %.0f %.0f\n",
+           amp[0], amp[1], amp[2], amp[3]);
+    for (k = 1; k < 4; k++)
+        TT_CHECK(amp[k] > amp[k - 1] * 1.3);
+    TT_CHECK(amp[0] < amp[3] * 0.15);
+}
+
+/*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
  * Today's worst, 0.005 cent, is the pitch table's rounding at note 0;
@@ -884,6 +910,7 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_at_full_depth_plays_osc2);
     TT_RUN(mix_env_back_to_zero_restores_the_fixed_mix);
     TT_RUN(mix_env_zero_matches_the_fixed_mix);
+    TT_RUN(mix_env_fades_osc2_in_with_the_envelope);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
