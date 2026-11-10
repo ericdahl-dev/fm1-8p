@@ -275,11 +275,11 @@ the whole engine: one
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-The voices take about 2.4 KiB with room for 8 (316 bytes each: the
+The voices take about 2.4 KiB with room for 8 (312 bytes each: the
 oscillator pair is 96 with its sync and cross-mod state, and the filter 124,
 its state, its envelope and its settings), and unison adds 49 bytes (8
 detune offsets and the 16 held keys). With the chorus (its 2 KiB delay line
-and a 256-byte right-side buffer) `fm_engine` is about 5.2 KiB (5392 bytes
+and a 256-byte right-side buffer) `fm_engine` is about 5.2 KiB (5360 bytes
 on x86-64), so static storage is
 recommended.
 
