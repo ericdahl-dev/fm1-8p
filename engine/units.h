@@ -15,8 +15,8 @@
  * The longest setting, 10 s at 192 kHz, is 1920000 samples. */
 uint32_t fm_ms_to_samples(int32_t ms, uint32_t rate);
 
-/* Per mille (-1000..+1000) to Q1.30: 1000 is 1 << 30. A multiply, not a
- * shift: shifting a negative value left is undefined in C. */
+/* Per mille to Q1.30: 1000 is 1 << 30, clamped to -1000..+1000. A
+ * multiply, not a shift: shifting a negative value left is undefined in C. */
 int32_t fm_permille_to_q30(int32_t permille);
 
 /* Microseconds to samples at `rate` Hz, Q16.16. Exact while

@@ -75,11 +75,22 @@ TT_TEST(units_ms_to_samples_clamps)
     TT_CHECK_EQ(fm_ms_to_samples(0x7FFFFFFF, 192000u), 0xFFFFFFFFu);
 }
 
+/* Per mille past +-1000 clamps to +-1.0 instead of wrapping (above about
+ * 2000 the Q1.30 result would not fit 32 bits). */
+TT_TEST(units_permille_to_q30_clamps)
+{
+    TT_CHECK_EQ(fm_permille_to_q30(1001), 1 << 30);
+    TT_CHECK_EQ(fm_permille_to_q30(-1001), -(1 << 30));
+    TT_CHECK_EQ(fm_permille_to_q30(0x7FFFFFFF), 1 << 30);
+    TT_CHECK_EQ(fm_permille_to_q30(-0x7FFFFFFF - 1), -(1 << 30));
+}
+
 static void run_units_tests(void)
 {
     TT_RUN(units_ms_to_samples_edges);
     TT_RUN(units_ms_to_samples_clamps);
     TT_RUN(units_permille_to_q30_edges);
+    TT_RUN(units_permille_to_q30_clamps);
     TT_RUN(units_us_to_samples_q16_edges);
     TT_RUN(units_rate_to_phase_inc_edges);
     TT_RUN(units_rate_to_phase_inc_caps_at_half_a_cycle);

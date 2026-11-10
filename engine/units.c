@@ -11,6 +11,8 @@ uint32_t fm_ms_to_samples(int32_t ms, uint32_t rate)
 
 int32_t fm_permille_to_q30(int32_t permille)
 {
+    if (permille > 1000) permille = 1000;
+    if (permille < -1000) permille = -1000;
     return (int32_t)((int64_t)permille * (1 << 30) / 1000);
 }
 
