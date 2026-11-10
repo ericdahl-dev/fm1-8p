@@ -174,6 +174,32 @@ TT_TEST(stolen_voice_fades_then_new_note_attacks_from_silence)
     TT_CHECK((double)peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2) / full > 0.95);
 }
 
+/* A note released while its stolen voice is still fading neither sticks
+ * nor sounds on; with the pedal down it starts and is held. */
+TT_TEST(note_released_during_a_steal_fade_does_not_stick)
+{
+    init_poly(1);
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_on(&poly, 62, 100); /* steal */
+    fm_engine_note_off(&poly, 62);     /* before the 3 ms fade ends */
+    fm_engine_render(&poly, pbuf, 441);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+    TT_CHECK(peak_abs(pbuf, 200, 441) == 0);
+
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_controller(&poly, 64, 127);
+    fm_engine_note_on(&poly, 62, 100); /* steal */
+    fm_engine_note_off(&poly, 62);     /* held by the pedal */
+    fm_engine_render(&poly, pbuf, PRATE / 2);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 1);
+    TT_CHECK(peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2) > 10000);
+    fm_engine_controller(&poly, 64, 0);
+    fm_engine_render(&poly, pbuf, PRATE / 10);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+}
+
 TT_TEST(released_note_goes_silent_and_its_voice_idle)
 {
     size_t i;
@@ -389,6 +415,7 @@ static void run_poly_tests(void)
     TT_RUN(extra_note_steals_the_oldest_released_voice_before_held_ones);
     TT_RUN(no_click_when_a_voice_starts_is_stolen_or_ends);
     TT_RUN(stolen_voice_fades_then_new_note_attacks_from_silence);
+    TT_RUN(note_released_during_a_steal_fade_does_not_stick);
     TT_RUN(released_note_goes_silent_and_its_voice_idle);
     TT_RUN(repeated_note_reuses_its_voice);
     TT_RUN(sustain_pedal_holds_released_notes_until_it_comes_up);
