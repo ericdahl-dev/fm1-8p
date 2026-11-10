@@ -71,7 +71,8 @@ static void apply_bend(fm_engine *e, int32_t centered)
  * Oscillator `which`'s settings on every voice. Each oscillator's
  * parameters run in the same order (wave, pulse width, octave, fine), so
  * `rel` is the offset from its wave parameter. The typedefs below fail
- * the build if that order ever changes.
+ * the build if that order ever changes. osc2's coarse tune is outside that
+ * block (it came later): it retunes through retune_osc like octave and fine.
  */
 typedef char fm_require_osc1_width_at_1[
     FM_PARAM_OSC1_PULSE_WIDTH_PCT - FM_PARAM_OSC1_WAVE == 1 ? 1 : -1];
@@ -86,23 +87,41 @@ typedef char fm_require_osc2_octave_at_2[
 typedef char fm_require_osc2_fine_at_3[
     FM_PARAM_OSC2_FINE_CENTS - FM_PARAM_OSC2_WAVE == 3 ? 1 : -1];
 
+/* Oscillator `which`'s offset from the played note, in cents. */
+static int32_t osc_tune_cents(const fm_engine *e, uint8_t which)
+{
+    const int32_t *p = &e->params[which ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE];
+    int32_t cents = p[2] * 1200 + p[3];
+    if (which)
+        cents += e->params[FM_PARAM_OSC2_COARSE_SEMIS] * 100;
+    return cents;
+}
+
+/* Retunes oscillator `which` on every voice to its octave, coarse and fine. */
+static void retune_osc(fm_engine *e, uint8_t which)
+{
+    int32_t cents = osc_tune_cents(e, which);
+    uint8_t i;
+    for (i = 0; i < FM_MAX_VOICES; i++)
+        fm_voice_set_tune(&e->voices[i], which, cents, e->sample_rate);
+}
+
 static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
 {
     const int32_t *p = &e->params[which ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE];
     uint8_t i;
+    if (rel >= 2) { /* octave or fine */
+        retune_osc(e, which);
+        return;
+    }
     for (i = 0; i < FM_MAX_VOICES; i++) {
         fm_voice *v = &e->voices[i];
         switch (rel) {
         case 0:
             fm_osc_pair_set_wave(&v->osc, which, (uint8_t)p[0]);
             break;
-        case 1:
+        default: /* 1, the pulse width */
             fm_osc_pair_set_width(&v->osc, which, p[1]);
-            break;
-        default: /* octave, coarse (osc2 only) or fine tune */
-            fm_voice_set_tune(v, which, p[2] * 1200 + p[3] +
-                              (which ? e->params[FM_PARAM_OSC2_COARSE_SEMIS] * 100 : 0),
-                              e->sample_rate);
             break;
         }
     }
@@ -130,7 +149,7 @@ static void apply_param(fm_engine *e, uint16_t id)
         apply_osc_param(e, 1, id - FM_PARAM_OSC2_WAVE);
         return;
     case FM_PARAM_OSC2_COARSE_SEMIS:
-        apply_osc_param(e, 1, 3); /* the tune, as for octave and fine */
+        retune_osc(e, 1);
         return;
     case FM_PARAM_OSC_XMOD:
         for (i = 0; i < FM_MAX_VOICES; i++) /* per mille -> Q1.30 */
