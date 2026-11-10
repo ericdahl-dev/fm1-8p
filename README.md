@@ -7,8 +7,10 @@ by Roland or M-VAVE.
 ## Status
 
 On the desktop, the fixed-point engine plays band-limited saw voices with an
-ADSR amp envelope, up to 8 at once (6 by default), with voice stealing, the
-sustain pedal and pitch bend, rendered from a MIDI file to a WAV.
+ADSR amp envelope, a resonant 24 dB lowpass (with key tracking and its own
+envelope) and a 4-position highpass, up to 8 at once (6 by default), with
+voice stealing, the sustain pedal and pitch bend, rendered from a MIDI file
+to a WAV.
 
 ## Build and run
 
@@ -22,6 +24,8 @@ make render-demo     # renders examples/demo.mid to build/demo.wav
 
 ./build/fm1-8p-render -r 44100 -v 6 -s amp_attack_ms=200 -s amp_release_ms=800 \
     song.mid song.wav
+./build/fm1-8p-render -s filter_cutoff_cents=6000 -s filter_resonance_permille=700 \
+    -s filter_env_amount_cents=3600 song.mid song.wav
 ```
 
 Run `./build/fm1-8p-render` with no arguments to list every option and

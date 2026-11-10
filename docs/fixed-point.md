@@ -21,6 +21,9 @@ integer divided by 2^n.
 | Envelope level | `int32_t` | Q1.30 | 2^30 (`FM_ENV_FULL`) | 0 to 1.0 | Fine enough for a smooth 10 s segment at 192 kHz (the smallest step is about 560 LSB). |
 | Gain | `int32_t` | Q1.30 | 2^30 | 0 to 1.0 | Same as the envelope, so `sample * gain >> 30` keeps Q8.24. |
 | polyBLEP correction | `int64_t` | Q16 | 2^16 | -1.0 to +1.0 | Only computed on the two samples around each saw wrap. |
+| Filter pitch (cutoff, key tracking, envelope amount) | `int32_t` | cents above MIDI note 0 (8.18 Hz) | | cutoff 0 to 14400 | Cutoff, key tracking and the filter envelope add in this log domain, so one octave is always 1200 whatever the frequency. |
+| Filter stage coefficient `g` | `int32_t` | Q1.30 | 2^30 (fully open) | 0 to 1.0 | Same scale as the envelope; a stage is `y += (x - y) * g >> 30`. |
+| Resonance feedback `k` | `int32_t` | Q4.28 | 2^28 | 0 to 4.2 | The loop self-oscillates from about 3.4 (top of the range) to 4.2 (lowest cutoffs); 4.2 at resonance 1000. |
 | Output | `int16_t` | Q1.15 | 32768 | -32768 to 32767 | What a codec or a WAV file takes. Q8.24 maps to it with `>> 9` and saturation. |
 
 Multiplies of two 32-bit values go through a 64-bit intermediate
@@ -57,6 +60,82 @@ The voices are summed in Q8.24 and the sum is scaled by
 peaks stays at or below half of full scale (-6 dBFS), with 6 dB left for
 resonance and the chorus. The table and the reasoning are in
 [voices.md](voices.md#gain-staging).
+
+### Filter
+
+`engine/filter.c` is a per-voice filter: a one-pole highpass, then a
+resonant 4-pole (24 dB/octave) lowpass.
+
+- **Lowpass.** Four one-pole stages in series with the last stage fed back
+  to the input times `-k`. Each stage is `m = x - (x - x1) / 4` (`x1`: its
+  input one sample ago), then `y += g * (m - y)`. The `x1` term puts a zero at
+  z = -1/3 in each stage. Without it the stages lag too little in phase at
+  high cutoffs, so the one-sample delay in the feedback made the loop buzz at
+  Nyquist there, and stay below self-oscillation at the bottom. With it,
+  resonance 1000 self-oscillates within 30 cents of the cutoff up to
+  3.5 kHz (sharp at higher cutoffs: 7.1 kHz for an 8.4 kHz cutoff), and
+  never at Nyquist. The feedback sum goes through a soft clip: a wire up to
+  +-2.0 (a full-scale saw passes untouched), then a quadratic knee that
+  flattens at +-4.0. `m` is a weighted average of `x` and `x1`, and `y` of `m`
+  and the old `y`, so no state can pass the clip's limit. The filter cannot
+  overflow or run away at any resonance, and self-oscillation settles at a
+  fixed level (about 0.83 of full scale at mid cutoffs).
+- **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
+  env_amount * env_level`, all in cents, computed every 16 samples (a
+  2.8 kHz control rate at 44.1 kHz), not per sample. The coefficient is the
+  matched-pole `g = 1 - e^(-2 pi fc / fs)`, worked out from two small
+  tables (`tools/gen_filter_tables.py`): `2^(cents / 1200)` in 16-cent steps,
+  and `(1 - e^-x) / x`, both linearly interpolated. The sample rate's own
+  pitch in cents is found once at init (`fm_filter_rate_cents`, a binary
+  search with no division), so the update needs only multiplies, shifts and
+  divisions by the constant 1200. Corners at or above Nyquist use the Nyquist
+  coefficient (about 0.957). Across the top 600 cents of the range (13800 to
+  14400) the stage zero, the feedback and `1 - g` fade linearly to zero, so
+  the maximum cutoff (14400, the default) is an exact wire and the default
+  patch sounds exactly as it did before the filter.
+- **Highpass.** `x - lowpass(x)` with a one-pole lowpass, so it cannot
+  resonate. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
+  and 560 Hz (6 dB/octave).
+- **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
+  amp envelope; its amount is -9600 to +9600 cents (8 octaves either way).
+
+Measured response (`tests/test_filter.c`, sines at 44.1 kHz, cutoff 440 Hz):
+
+| Measurement | Measured | Ideal 4-pole | Test tolerance |
+| --- | --- | --- | --- |
+| 3 octaves below cutoff | -0.27 dB | -0.27 dB | above -0.5 dB |
+| At cutoff, no resonance | -12.0 dB | -12.0 dB | +-2 dB |
+| Drop over the 1st octave above cutoff | 15.9 dB | 15.9 dB | +-2 dB |
+| Drop over the 2nd octave | 21.2 dB | 21.2 dB | +-2 dB |
+| Drop over the 3rd octave | 23.0 dB | 23.3 dB | +-2 dB |
+| Drop over the 1st octave, resonance 600 | 24.4 dB | 24.4 dB | 24 +-3 dB |
+| At cutoff, resonance 500 / 900 | -5.6 / +9.6 dB | -5.6 / +13.2 dB | each at least 5 / 12 dB above the previous |
+
+With no resonance, four equal poles meet at the cutoff, so the cutoff point
+itself is -12 dB and the slope only reaches 24 dB/octave about two octaves up.
+A moderate resonance (around 600) lifts the cutoff point to about -3.4 dB,
+and the octave above it is then about 24 dB lower. Near self-oscillation the
+peak is lower than the ideal analog ladder's (+9.6 against +13.2 dB at 900):
+close to threshold, the small differences between the digital loop and the
+analog one matter most. Resonance also costs bass (the
+passband is `1 / (1 + k)` of the input; -14 dB at resonance 1000), as in the
+analog ladder it is modeled on; there is no gain compensation.
+
+Highpass gains: at 55 Hz, 0 / -6.4 / -13.2 / -20.6 dB for positions 0 to 3;
+at 110 Hz, 0 / -2.7 / -7.8 / -14.7 dB.
+
+Cost per sample, per voice: five 32x32->64 multiplies (four stages and the
+feedback) and about 40 adds, shifts and compares, plus one multiply for the
+highpass when it is on, one in the clip only above +-2.0, and the filter
+envelope step. Inside the top 600 cents of cutoff the stage zero takes a
+multiply instead of a shift (four more). The cutoff update every 16 samples
+adds about ten multiplies and three divisions by constants (1200 and 10,
+which compile to multiplies), under one multiply per sample on average. There are
+no per-sample divisions and no 64-bit divisions in the render path. On a
+desktop i5-8350U (a noisy laptop measurement) one voice rose from about 5-7 to
+19-23 ns per sample with every filter control in use; the four stages form a
+serial chain of dependent multiplies, so on the device this is latency more
+than throughput. The device numbers come with the CPU spike.
 
 ### Parameter values
 
