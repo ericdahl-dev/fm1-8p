@@ -83,14 +83,20 @@ burst_count() {
     echo $(( $(sed -n 's/^#define FM_MAX_VOICES \([0-9]*\).*/\1/p' "${ROOT:-.}/engine/fm1_8p.h") + 1 ))
 }
 
-# emu_window_ms HOLD: how long fm1-emu runs the CPU test: every step (1..8 and U) held HOLD blocks of
-# 256 frames at 44.1 kHz, plus 2 s for boot and the last log line.
+# full_count: the full patch's count, CT_FULL (CT_BURST + 1): the sweep's last step, so also the number
+# of steps.
+full_count() {
+    echo $(( $(burst_count) + 1 ))
+}
+
+# emu_window_ms HOLD: how long fm1-emu runs the CPU test: every step (1..8, U and F) held HOLD blocks
+# of 256 frames at 44.1 kHz, plus 2 s for boot and the last log line.
 emu_window_ms() {
-    echo $(( $(burst_count) * $1 * 256 * 1000 / 44100 + 2000 ))
+    echo $(( $(full_count) * $1 * 256 * 1000 / 44100 + 2000 ))
 }
 
 emu_report() {
-    burst=$(burst_count)
+    burst=$(burst_count) full=$(full_count)
     all=$(sed -n 's/.*fm1-8p voices\/worst permille \([0-9a-fA-F]\{8\}\).*/\1/p' "$1")
     [ -n "$all" ] || { echo "fm1-build: no voice counts in $1" >&2; return 1; }
     rows=                                        # the last sweep only: from its last count-1 line on
@@ -101,22 +107,26 @@ emu_report() {
     echo "| voices | worst permille | of a 256-frame block |"
     echo "| --- | --- | --- |"
     counts=
-    for v in $(seq 1 "$burst"); do
+    for v in $(seq 1 "$full"); do
         last=
         for h in $rows; do [ $((0x$h >> 16)) = "$v" ] && last=$h; done
         [ -n "$last" ] || continue
         counts="$counts $v "
         pm=$((0x$last & 0xFFFF)) label=$v
         [ "$v" = "$burst" ] && label="U (unison burst)"
+        [ "$v" = "$full" ] && label="F (full patch)"
         echo "| $label | $pm | $((pm / 10)).$((pm % 10)) % |"
     done
     echo
     grep 'render: last' "$1" || true
+    grep 'fm1-8p ERROR' "$1" || true             # a step that failed to start: not timed
     missing=
-    for v in $(seq 1 "$burst"); do
+    for v in $(seq 1 "$full"); do
         case "$counts" in
             *" $v "*) ;;
-            *) [ "$v" = "$burst" ] && missing="$missing U" || missing="$missing $v" ;;
+            *) if [ "$v" = "$burst" ]; then missing="$missing U"
+               elif [ "$v" = "$full" ]; then missing="$missing F"
+               else missing="$missing $v"; fi ;;
         esac
     done
     if [ -n "$missing" ]; then
