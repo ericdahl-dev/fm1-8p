@@ -214,6 +214,9 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
         0, 4335, 5851, 7318
     };
     if (step >= FM_FILTER_HIGHPASS_STEPS) step = FM_FILTER_HIGHPASS_STEPS - 1;
+    /* off -> on: start from the signal as it is (output = input), not
+     * from state left from the last time it was on, which would click */
+    if (!f->hp_g) f->hp = 0;
     f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
 }
 

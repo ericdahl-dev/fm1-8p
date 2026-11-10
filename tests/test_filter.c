@@ -777,6 +777,210 @@ TT_TEST(mode_switch_release_keeps_the_key_tracked_cutoff)
     TT_CHECK(memcmp(fbuf_a, fbuf_b, 13230 * 4) == 0);
 }
 
+/* The filter envelope patch of the steal tests: a 200 ms attack to full,
+ * held, sweeping a 3600-cent cutoff up 4800 cents. */
+static void sweep_patch(fm_engine *e)
+{
+    fm_engine_set_param(e, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(e, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(e, FM_PARAM_FILTER_CUTOFF_CENTS, 3600);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_ATTACK_MS, 200);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
+}
+
+/*
+ * A note that steals a voice mid-sustain starts its filter envelope from
+ * 0, as its amp envelope does after the steal fade, so its sweep is the
+ * same as on a fresh voice whichever voice it lands on.
+ */
+TT_TEST(stolen_voice_starts_the_filter_envelope_from_zero)
+{
+    static fm_engine fresh;
+    int guard = 0;
+    fm_engine_init(&feng, FRATE, 1);
+    sweep_patch(&feng);
+    fm_engine_note_on(&feng, 40, 100);
+    fm_engine_render(&feng, fbuf_a, 22050); /* held at full */
+    TT_CHECK_EQ(feng.voices[0].filter_env.level, FM_ENV_FULL);
+    fm_engine_note_on(&feng, 70, 100); /* steals the only voice */
+    while (feng.voices[0].pending && guard++ < 1000)
+        fm_engine_render(&feng, fbuf_a, 1); /* the new note starts in it */
+    TT_CHECK(!feng.voices[0].pending);
+    fm_engine_render(&feng, fbuf_a, 2000);
+
+    fm_engine_init(&fresh, FRATE, 1);
+    sweep_patch(&fresh);
+    fm_engine_note_on(&fresh, 70, 100);
+    fm_engine_render(&fresh, fbuf_b, 2001);
+    printf("    filter env 2001 samples into the note: stolen %ld, "
+           "fresh %ld\n", (long)feng.voices[0].filter_env.level,
+           (long)fresh.voices[0].filter_env.level);
+    TT_CHECK_EQ(feng.voices[0].filter_env.level,
+                fresh.voices[0].filter_env.level);
+}
+
+/*
+ * The same on a voice that went idle (its amp release ended) while its
+ * filter envelope was still releasing: the next note's filter envelope
+ * starts from 0, not from that leftover level.
+ */
+TT_TEST(idle_voice_starts_the_filter_envelope_from_zero)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    sweep_patch(&feng);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 10);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_RELEASE_MS, 5000);
+    fm_engine_note_on(&feng, 40, 100);
+    fm_engine_render(&feng, fbuf_a, 22050);
+    fm_engine_note_off(&feng, 40);
+    fm_engine_render(&feng, fbuf_a, 4410); /* amp idle, filter env high */
+    TT_CHECK(!fm_voice_active(&feng.voices[0]));
+    TT_CHECK(feng.voices[0].filter_env.level > FM_ENV_FULL / 2);
+    fm_engine_note_on(&feng, 40, 100);
+    TT_CHECK_EQ(feng.voices[0].filter_env.level, 0);
+}
+
+/*
+ * During a steal fade the old note keeps its own key-tracked cutoff; the
+ * new note's key tracking applies when the new note starts, as its pitch
+ * does. Full key tracking, note 36 stolen by note 96 (5 octaves up).
+ */
+TT_TEST(steal_fade_keeps_the_old_notes_key_tracked_cutoff)
+{
+    int32_t g_old;
+    int changed_in_fade = 0, guard = 0;
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
+    fm_engine_note_on(&feng, 36, 100);
+    fm_engine_render(&feng, fbuf_a, 4410);
+    g_old = feng.voices[0].filter.g;
+    fm_engine_note_on(&feng, 96, 100);
+    while (feng.voices[0].pending && guard++ < 1000) {
+        if (feng.voices[0].filter.g != g_old) changed_in_fade = 1;
+        fm_engine_render(&feng, fbuf_a, 1);
+    }
+    TT_CHECK(!changed_in_fade);
+    fm_engine_render(&feng, fbuf_a, 32);
+    TT_CHECK(feng.voices[0].filter.g > g_old); /* the new note's, higher */
+}
+
+/*
+ * A mode switch during a steal fade: the voice still starts the waiting
+ * note when the fade ends (it then belongs to no key), and its filter
+ * tracks that note, not the no-note marker.
+ */
+TT_TEST(mode_switch_during_a_steal_fade_tracks_the_waiting_note)
+{
+    static fm_filter want;
+    int guard = 0;
+    int32_t rate_cents = fm_filter_rate_cents(FRATE);
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
+    fm_engine_note_on(&feng, 36, 100);
+    fm_engine_render(&feng, fbuf_a, 4410);
+    fm_engine_note_on(&feng, 96, 100); /* steal: 96 waits for the fade */
+    fm_engine_set_param(&feng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    while (feng.voices[0].pending && guard++ < 1000)
+        fm_engine_render(&feng, fbuf_a, 1);
+    fm_engine_render(&feng, fbuf_a, 32);
+    fm_filter_reset(&want);
+    fm_filter_set_cutoff(&want, fm_filter_voice_cents(6000, 1000, 96, 0, 0),
+                         rate_cents);
+    TT_CHECK_EQ(feng.voices[0].filter.g, want.g);
+}
+
+/*
+ * Turning the highpass on mid-note starts it from the signal as it is:
+ * no step in the output from state left over from an earlier time it was
+ * on. A DC input of +0.5 with the highpass on, then -0.5 with it off,
+ * then on again: the output must move smoothly from -0.5.
+ */
+TT_TEST(highpass_turned_on_mid_note_does_not_click)
+{
+    static fm_filter f;
+    int32_t rate_cents = fm_filter_rate_cents(FRATE);
+    int32_t prev, y, worst = 0;
+    int i;
+    fm_filter_reset(&f);
+    fm_filter_set_highpass(&f, 3, rate_cents);
+    for (i = 0; i < (int)FRATE; i++) fm_filter_process(&f, 1 << 23);
+    fm_filter_set_highpass(&f, 0, rate_cents);
+    for (i = 0; i < (int)FRATE; i++) prev = fm_filter_process(&f, -(1 << 23));
+    fm_filter_set_highpass(&f, 1, rate_cents);
+    for (i = 0; i < 100; i++) {
+        int32_t d;
+        y = fm_filter_process(&f, -(1 << 23));
+        d = y > prev ? y - prev : prev - y;
+        if (d > worst) worst = d;
+        prev = y;
+    }
+    printf("    highpass on: largest step %.4f of full scale\n",
+           worst / 16777216.0);
+    TT_CHECK(worst < (1 << 24) / 100);
+}
+
+/*
+ * The wide-open default (cutoff at the top, no resonance, highpass off)
+ * is a wire, and the filter's state must stay what running the filter
+ * would leave: every stage input and output equal to the last sample. So
+ * moving the cutoff off the top is the same, bit for bit, as from a filter
+ * primed that way, and a sine passes the change without a step.
+ */
+TT_TEST(leaving_the_open_filter_continues_from_a_consistent_state)
+{
+    static fm_filter f, ref;
+    int32_t rate_cents = fm_filter_rate_cents(FRATE);
+    int32_t last = 0, prev = 0, worst = 0;
+    int i, j, same = 1, wire = 1;
+    fm_filter_reset(&f);
+    fm_filter_set_resonance(&f, 0);
+    fm_filter_set_cutoff(&f, FM_FILTER_OPEN_CENTS, rate_cents);
+    for (i = 0; i < 1000; i++) {
+        last = sine_q24(0.9, 220.0, (size_t)i);
+        prev = fm_filter_process(&f, last);
+        if (prev != last) wire = 0;
+    }
+    TT_CHECK(wire);
+    ref = f;
+    for (j = 0; j < 4; j++) ref.s[j] = ref.x1[j] = last;
+    fm_filter_set_resonance(&f, 700);
+    fm_filter_set_cutoff(&f, 9000, rate_cents);
+    fm_filter_set_resonance(&ref, 700);
+    fm_filter_set_cutoff(&ref, 9000, rate_cents);
+    for (; i < 2000; i++) {
+        int32_t x = sine_q24(0.9, 220.0, (size_t)i);
+        int32_t y = fm_filter_process(&f, x), d;
+        if (y != fm_filter_process(&ref, x)) same = 0;
+        d = y > prev ? y - prev : prev - y;
+        if (d > worst) worst = d;
+        prev = y;
+    }
+    TT_CHECK(same);
+    TT_CHECK(worst < (1 << 24) / 20); /* the sine moves under 0.03/sample */
+}
+
+/*
+ * A unison note change keeps the voice's 16-sample cutoff cadence (all
+ * voices stay spread as they were) and refreshes the cutoff once, at
+ * once, for the new note.
+ */
+TT_TEST(unison_note_change_keeps_the_control_cadence)
+{
+    uint8_t phase;
+    fm_engine_init(&feng, FRATE, 2);
+    fm_engine_set_param(&feng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 7700);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
+    fm_engine_note_on(&feng, 0, 100);
+    fm_engine_render(&feng, fbuf_a, 4405);
+    phase = feng.voices[0].ctrl_phase;
+    fm_engine_note_on(&feng, 127, 100);
+    TT_CHECK_EQ(feng.voices[0].ctrl_phase, phase);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -798,4 +1002,11 @@ static void run_filter_tests(void)
     TT_RUN(unison_retrigger_restarts_the_filter_envelope_and_legato_does_not);
     TT_RUN(unison_note_change_gets_its_cutoff_from_the_first_sample);
     TT_RUN(mode_switch_release_keeps_the_key_tracked_cutoff);
+    TT_RUN(stolen_voice_starts_the_filter_envelope_from_zero);
+    TT_RUN(idle_voice_starts_the_filter_envelope_from_zero);
+    TT_RUN(steal_fade_keeps_the_old_notes_key_tracked_cutoff);
+    TT_RUN(mode_switch_during_a_steal_fade_tracks_the_waiting_note);
+    TT_RUN(highpass_turned_on_mid_note_does_not_click);
+    TT_RUN(leaving_the_open_filter_continues_from_a_consistent_state);
+    TT_RUN(unison_note_change_keeps_the_control_cadence);
 }

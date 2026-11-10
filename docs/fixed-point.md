@@ -127,10 +127,15 @@ resonant 4-pole (24 dB/octave) lowpass.
   the maximum cutoff (14400, the default) is an exact wire and the default
   patch sounds exactly as it did before the filter.
 - **Highpass.** `x - lowpass(x)` with a one-pole lowpass, so it cannot
-  resonate. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
+  resonate. Turning it on clears that lowpass, so the output starts equal to
+  the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
   and 560 Hz (6 dB/octave).
 - **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
   amp envelope; its amount is -9600 to +9600 cents (8 octaves either way).
+  It starts where the amp envelope does: from 0 on an idle voice or after a
+  steal fade (whatever level the last note left it at), from its level on a
+  retrigger. During a steal fade the old note keeps its own key-tracked
+  cutoff; the new note's applies when it starts, as its pitch does.
 
 Measured response (`tests/test_filter.c`, sines at 44.1 kHz, cutoff 440 Hz).
 The acceptance tolerance for the 24 dB/octave slope is: at resonance 0, each

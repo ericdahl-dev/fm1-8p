@@ -42,9 +42,11 @@ typedef struct {
     int32_t cutoff_cents;   /* base cutoff */
     int32_t key_track;      /* per mille */
     int32_t env_amount;     /* filter envelope amount, cents */
-    uint8_t key_note;       /* the key the filter tracks: the last real
-                             * `note`, kept when a mode switch sets
+    uint8_t key_note;       /* the key the filter tracks: the sounding
+                             * note's, kept when a mode switch sets
                              * FM_VOICE_NO_NOTE */
+    uint8_t next_key;       /* `note` as set, for key_note when it starts
+                             * (after a steal fade, as next_pitch) */
     uint8_t ctrl_phase;     /* samples until the next cutoff update */
 } fm_voice;
 

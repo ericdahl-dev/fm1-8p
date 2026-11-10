@@ -1,5 +1,6 @@
 /*
- * voice.c - one note: oscillator pair and amp envelope.
+ * voice.c - one note: oscillator pair, filter and its envelope, and amp
+ * envelope.
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  */
@@ -25,6 +26,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents)
     v->key_track = 0;
     v->env_amount = 0;
     v->key_note = 0;
+    v->next_key = 0;
     fm_env_reset(&v->filter_env);
     v->ctrl_phase = 0;
 }
@@ -32,6 +34,30 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents)
 int fm_voice_active(const fm_voice *v)
 {
     return v->amp_env.stage != FM_ENV_IDLE || v->pending;
+}
+
+/* Samples between cutoff updates (control rate: 2756 Hz at 44.1 kHz). */
+#define FILTER_CTRL_SAMPLES 16
+
+/* Recomputes the cutoff from the settings, the voice's note and its
+ * filter envelope level `fenv`. */
+static void update_cutoff(fm_voice *v, int32_t fenv)
+{
+    fm_filter_set_cutoff(&v->filter,
+                         fm_filter_voice_cents(v->cutoff_cents, v->key_track,
+                                               v->key_note, fenv,
+                                               v->env_amount),
+                         v->rate_cents);
+}
+
+/* Gates both envelopes on. The filter envelope starts from where the amp
+ * envelope does: from its level on a retrigger, from 0 on an idle voice
+ * (fresh, or after a steal fade), whatever level it was left at. */
+static void gate_on(fm_voice *v)
+{
+    if (v->amp_env.stage == FM_ENV_IDLE) fm_env_reset(&v->filter_env);
+    fm_env_gate_on(&v->amp_env);
+    fm_env_gate_on(&v->filter_env);
 }
 
 /* Starts the note from the current level (0 when idle). A note whose
@@ -42,9 +68,9 @@ static void start(fm_voice *v, uint32_t sample_rate)
     v->pending = 0;
     v->ctrl_phase = 0; /* the new note's cutoff from its first sample */
     v->pitch = v->next_pitch;
+    v->key_note = v->next_key;
     fm_osc_pair_set_pitch(&v->osc, v->pitch, sample_rate);
-    fm_env_gate_on(&v->amp_env);
-    fm_env_gate_on(&v->filter_env);
+    gate_on(v);
     if (!v->key_down && !v->sustained) v->gate_left = v->wait ? v->wait : 1;
 }
 
@@ -52,7 +78,7 @@ static void start(fm_voice *v, uint32_t sample_rate)
 static void hold(fm_voice *v, uint8_t note, int32_t pitch)
 {
     v->note = note;
-    v->key_note = note;
+    v->next_key = note;
     v->key_down = 1;
     v->sustained = 0;
     v->gate_left = 0;
@@ -88,12 +114,11 @@ void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
     hold(v, note, pitch);
     if (v->pending) return; /* starts when the fade ends */
     v->pitch = pitch;
+    v->key_note = note;
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
-    v->ctrl_phase = 0; /* the new note's cutoff from its first sample */
-    if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
-        fm_env_gate_on(&v->amp_env);
-        fm_env_gate_on(&v->filter_env);
-    }
+    /* the new note's cutoff at once; the 16-sample cadence carries on */
+    update_cutoff(v, v->filter_env.level);
+    if (retrigger || v->amp_env.stage == FM_ENV_IDLE) gate_on(v);
 }
 
 void fm_voice_key_up(fm_voice *v, int pedal_down)
@@ -133,20 +158,6 @@ void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
     if (v->pending) return;
     v->pitch = pitch;
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
-}
-
-/* Samples between cutoff updates (control rate: 2756 Hz at 44.1 kHz). */
-#define FILTER_CTRL_SAMPLES 16
-
-/* Recomputes the cutoff from the settings, the voice's note and its
- * filter envelope level `fenv`. */
-static void update_cutoff(fm_voice *v, int32_t fenv)
-{
-    fm_filter_set_cutoff(&v->filter,
-                         fm_filter_voice_cents(v->cutoff_cents, v->key_track,
-                                               v->key_note, fenv,
-                                               v->env_amount),
-                         v->rate_cents);
 }
 
 /* A fading old note retunes too: `pitch` is still its pitch. */
