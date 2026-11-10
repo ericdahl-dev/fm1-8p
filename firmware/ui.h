@@ -42,6 +42,10 @@ void ui_init(ui *u, play *p);
 #define UI_VALUE_LEN 12u                /* room for a value as the focus row reads it, and its end */
 /* param id's value as the focus row reads it (interaction.md section 3), into s (UI_VALUE_LEN) */
 void ui_format(uint16_t id, int32_t value, char *s);
+#define UI_METER_SEGS 8u
+/* the knob meter's lit segments (bit k, left to right): a range from the left, a bipolar param
+ * (min = -max) out from the middle */
+uint32_t ui_meter(uint16_t id, int32_t value);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */

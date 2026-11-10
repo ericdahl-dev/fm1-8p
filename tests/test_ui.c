@@ -125,8 +125,22 @@ TT_TEST(ui_reso_env_and_key_read_in_their_units)
     TT_CHECK(ui_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50 %"));
 }
 
+/* The knob meter, an 8-segment ladder (bit k: segment k lit, left to right): a range lights from
+ * the left; ENV, bipolar, lights out from the middle. */
+TT_TEST(ui_meter_lights_the_value)
+{
+    TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_RESONANCE, 340), 0x07u);
+    TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_KEY_TRACK, 500), 0x0Fu);
+    TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_CUTOFF_CENTS, 9300), 0x1Fu);
+    TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_RESONANCE, 0), 0u);
+    TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400), 0x10u);
+    TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -9600), 0x0Fu);
+    TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 0), 0u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_meter_lights_the_value);
     TT_RUN(ui_reso_env_and_key_read_in_their_units);
     TT_RUN(ui_cutoff_reads_in_hz_three_digits);
     TT_RUN(ui_knob_clamps_at_the_ends_of_the_range);

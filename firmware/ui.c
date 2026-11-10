@@ -91,6 +91,26 @@ void ui_format(uint16_t id, int32_t value, char *s)
     *s = 0;
 }
 
+uint32_t ui_meter(uint16_t id, int32_t value)
+{
+    const fm_param_info *in = fm_param_info_get(id);
+    uint32_t k, lit = 0, span, at;
+    if (!in || in->max <= in->min)
+        return 0;
+    if (in->min == -in->max) {                  /* bipolar: each segment's middle against the value */
+        int32_t v = (int32_t)UI_METER_SEGS * value;
+        for (k = 0; k < UI_METER_SEGS; k++) {
+            int32_t c = (2 * (int32_t)k + 1 - (int32_t)UI_METER_SEGS) * in->max;
+            if ((c >= 0 && c <= v) || (c <= 0 && c >= v))
+                lit |= 1u << k;
+        }
+        return lit;
+    }
+    span = (uint32_t)(in->max - in->min);
+    at = value < in->min ? 0u : value > in->max ? span : (uint32_t)(value - in->min);
+    return (1u << ((2u * UI_METER_SEGS * at + span) / (2u * span))) - 1u;   /* rounded */
+}
+
 void ui_init(ui *u, play *p)
 {
     u->p = p;
