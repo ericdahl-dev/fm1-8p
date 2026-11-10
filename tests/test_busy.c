@@ -78,10 +78,24 @@ TT_TEST(busy_mix_env_back_to_zero_rests)
     }
 }
 
+/* Steal fade: with one voice a second note steals it; while the old note
+ * fades the voice is busy, and once the new one starts it rests (3 ms
+ * fade, 132 samples at 44.1 kHz). */
+TT_TEST(busy_steal_fade_ends_at_rest)
+{
+    const fm_voice *v = busy_hold(64);
+    fm_engine_note_on(&beng, 60, 100);
+    fm_engine_render(&beng, bbuf, 16);
+    TT_CHECK(fm_voice_busy(v) != 0);
+    fm_engine_render(&beng, bbuf, 256);
+    TT_CHECK_EQ(fm_voice_busy(v), 0);
+}
+
 static void run_busy_tests(void)
 {
     TT_RUN(busy_default_patch_is_at_rest);
     TT_RUN(busy_filter_env_amount_back_to_zero_rests);
     TT_RUN(busy_filter_back_to_a_wire_rests);
     TT_RUN(busy_mix_env_back_to_zero_rests);
+    TT_RUN(busy_steal_fade_ends_at_rest);
 }
