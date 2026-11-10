@@ -110,8 +110,12 @@ Turning the chorus on from off starts from a silent line, so no stale audio
 plays.
 
 `tests/test_chorus.c` measures each mode's rate, center and sweep by passing a
-slow ramp through the module (each tap then reads back its own delay
-exactly), and checks boundedness with eight summed full-scale voices.
+slow ramp through the module. Linear interpolation of a ramp is exact, so each
+tap reads back its own delay up to rounding (under 0.01 sample), and every
+sample's delay must stay within 0.05 sample of the ideal triangle (the LFO
+increment, rounded down, drifts by about 0.02 sample over the 8 s test).
+Without interpolation it would be off by up to half a sample. The tests also
+check boundedness with eight summed full-scale voices.
 
 ## Assumptions about the C implementation
 

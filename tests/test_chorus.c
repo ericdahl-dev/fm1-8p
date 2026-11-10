@@ -90,17 +90,33 @@ TT_TEST(chorus_on_makes_left_and_right_differ_for_a_mono_voice)
  * Measures a mode's delay sweep through the module API. The input is a
  * slow ramp (a long sawtooth), so each wet tap is the ramp value from
  * `delay` samples ago, and linear interpolation of a ramp is exact:
- * delay = now - position of the tapped value on the ramp.
+ * delay = now - position of the tapped value on the ramp. Only rounding
+ * remains (the halved wet signal and the Q0.15 fraction), well under
+ * 0.01 sample; without interpolation the error would be up to 0.5 sample.
+ *
+ * With `ideal` (rate Hz, center ms, sweep ms) it also reports the largest
+ * difference between the left delay and that ideal triangle, which starts
+ * at center - sweep.
  */
 #define CH_RAMP_PERIOD 4096
 #define CH_RAMP_STEP 8192 /* Q8.24 per sample: the ramp spans +-1.0 */
 
 typedef struct {
     double rate_hz, center_ms, depth_ms, mirror_err_ms;
+    double track_err_samples;
 } ch_sweep;
 
-static ch_sweep ch_measure_sweep(uint8_t mode, uint32_t rate)
+/* Ideal triangle, -1 at phase 0, +1 at half a cycle. */
+static double ch_ideal_triangle(double cycles)
 {
+    double p = cycles - floor(cycles);
+    return p < 0.5 ? 4 * p - 1 : 3 - 4 * p;
+}
+
+static ch_sweep ch_measure_sweep(uint8_t mode, uint32_t rate,
+                                 const double *ideal)
+{
+    double track = 0;
     static fm_chorus ch;
     const uint32_t frames = rate * 8;
     double lo = 1e9, hi = -1e9, sum = 0, mirror = 0, mean;
@@ -136,8 +152,14 @@ static ch_sweep ch_measure_sweep(uint8_t mode, uint32_t rate)
                 sum += d_l;
                 valid++;
             } else {
-                double err = fabs((d_l + d_r) / 2 - mean);
+                double err = fabs((d_l + d_r) / 2 - (lo + hi) / 2);
                 if (err > mirror) mirror = err;
+                if (ideal) {
+                    double want = (ideal[1] + ideal[2] *
+                        ch_ideal_triangle(ideal[0] * n / rate)) *
+                        rate / 1000.0;
+                    if (fabs(d_l - want) > track) track = fabs(d_l - want);
+                }
                 if (have_prev && prev < mean && d_l >= mean) {
                     if (first < 0) first = n;
                     last = n;
@@ -153,6 +175,7 @@ static ch_sweep ch_measure_sweep(uint8_t mode, uint32_t rate)
     out.rate_hz = crossings > 1
         ? (crossings - 1) * (double)rate / (last - first) : 0;
     out.mirror_err_ms = mirror * 1000.0 / rate;
+    out.track_err_samples = track;
     return out;
 }
 
@@ -165,14 +188,21 @@ TT_TEST(chorus_modes_differ_in_rate_and_depth)
     ch_sweep got[FM_CHORUS_MODE_COUNT];
     int a, b;
     for (a = 1; a < FM_CHORUS_MODE_COUNT; a++) {
-        got[a] = ch_measure_sweep((uint8_t)a, CH_RATE);
-        printf("    chorus mode %d: %.3f Hz, center %.3f ms, sweep +-%.3f ms\n",
-               a, got[a].rate_hz, got[a].center_ms, got[a].depth_ms);
+        got[a] = ch_measure_sweep((uint8_t)a, CH_RATE, spec[a]);
+        printf("    chorus mode %d: %.3f Hz, center %.3f ms, sweep +-%.3f ms,"
+               " off ideal by %.4f samples\n", a, got[a].rate_hz,
+               got[a].center_ms, got[a].depth_ms, got[a].track_err_samples);
         TT_CHECK_NEAR(got[a].rate_hz, spec[a][0], spec[a][0] * 0.02);
         TT_CHECK_NEAR(got[a].center_ms, spec[a][1], 0.05);
         TT_CHECK_NEAR(got[a].depth_ms, spec[a][2], 0.05);
         /* right sweeps opposite to left around the same center */
-        TT_CHECK(got[a].mirror_err_ms < 0.05);
+        TT_CHECK(got[a].mirror_err_ms < 0.005);
+        /*
+         * Every sample follows the ideal triangle, so interpolation works
+         * (a whole-sample tap would be off by up to 0.5). The LFO increment
+         * is rounded down, which drifts by about 0.02 sample over 8 s.
+         */
+        TT_CHECK(got[a].track_err_samples < 0.05);
     }
     for (a = 1; a < FM_CHORUS_MODE_COUNT; a++)
         for (b = a + 1; b < FM_CHORUS_MODE_COUNT; b++) {
@@ -280,7 +310,7 @@ TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
         }
     }
     /* deep at 192 kHz: scaled to the line, same rate and shape */
-    sw = ch_measure_sweep(FM_CHORUS_DEEP, 192000);
+    sw = ch_measure_sweep(FM_CHORUS_DEEP, 192000, NULL);
     TT_CHECK((sw.center_ms + sw.depth_ms) * 192.0 <= FM_CHORUS_DELAY_LEN - 2);
     TT_CHECK((sw.center_ms + sw.depth_ms) * 192.0 > FM_CHORUS_DELAY_LEN - 4);
     TT_CHECK_NEAR(sw.center_ms / sw.depth_ms, 2.0, 0.01);
