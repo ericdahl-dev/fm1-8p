@@ -7,6 +7,13 @@
 
 #define MAX_SAMPLE_RATE 192000u
 
+/*
+ * The engine relies on >> of a negative value being an arithmetic shift
+ * (implementation-defined in C99; true for GCC, Clang and the JieLi
+ * toolchain). Refuse to build where it is not.
+ */
+typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
+
 /* Milliseconds to samples at the engine rate (fits: 10 s * 192 kHz). */
 static uint32_t ms_to_samples(const fm_engine *e, int32_t ms)
 {

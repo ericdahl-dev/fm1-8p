@@ -56,7 +56,7 @@ int32_t fm_osc_saw_next(fm_osc *o)
             int64_t x = (int64_t)(((uint64_t)(0u - t) << 16) / dt);
             blep = ((x * x) >> 16) - 2 * x + 65536;
         }
-        v -= blep << 15;
+        v -= blep * 32768; /* Q16 -> Q0.31 (no left shift of negatives) */
     }
     o->phase = t + dt;
     return (int32_t)(v >> 7);
