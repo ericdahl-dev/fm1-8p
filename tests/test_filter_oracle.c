@@ -149,8 +149,56 @@ TT_TEST(full_resonance_8_voice_chord_stays_bounded)
     TT_CHECK(!loud_after);
 }
 
+/* Up to +-31.9 (far beyond any oscillator, which stays near +-1.0) the filter matches the reference
+ * exactly at full resonance with the strongest highpass: a square wave at that level through a
+ * cutoff swept over the whole range. */
+TT_TEST(loud_input_matches_the_reference_exactly)
+{
+    static fm_filter f;
+    static oracle_filter o;
+    int32_t rate = fm_filter_rate_cents(ORACLE_RATE);
+    size_t i;
+    int same = 1;
+    fm_filter_reset(&f);
+    oracle_filter_reset(&o);
+    fm_filter_set_resonance(&f, 1000);
+    oracle_filter_set_resonance(&o, 1000);
+    fm_filter_set_highpass(&f, 3, rate);
+    oracle_filter_set_highpass(&o, 3, rate);
+    for (i = 0; i < ORACLE_RATE; i++) {
+        int32_t x = (i / 50) % 2 ? (int32_t)(31.9 * 16777216.0) : -(int32_t)(31.9 * 16777216.0);
+        if (i % 16 == 0) {
+            int32_t c = (int32_t)(i * ORACLE_OPEN_CENTS / ORACLE_RATE);
+            fm_filter_set_cutoff(&f, c, rate);
+            oracle_filter_set_cutoff(&o, c, rate);
+        }
+        same &= fm_filter_run(&f, x) == oracle_filter_process(&o, x);
+    }
+    TT_CHECK(same);
+}
+
+/* Any int32 input, even the extremes, gives a bounded output: no overflow, whatever the setting. */
+TT_TEST(extreme_input_stays_bounded)
+{
+    static fm_filter f;
+    int32_t rate = fm_filter_rate_cents(ORACLE_RATE);
+    size_t i, c;
+    for (c = 0; c <= (size_t)ORACLE_OPEN_CENTS; c += 1200) {
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, 1000);
+        fm_filter_set_highpass(&f, 3, rate);
+        fm_filter_set_cutoff(&f, (int32_t)c, rate);
+        for (i = 0; i < 4096; i++) {
+            int32_t y = fm_filter_run(&f, (i / 7) % 2 ? INT32_MAX : INT32_MIN);
+            TT_CHECK(y <= FILTER_BOUND && y >= -FILTER_BOUND);
+        }
+    }
+}
+
 static void run_filter_oracle_tests(void)
 {
+    TT_RUN(loud_input_matches_the_reference_exactly);
+    TT_RUN(extreme_input_stays_bounded);
     TT_RUN(full_resonance_8_voice_chord_stays_bounded);
     TT_RUN(self_oscillation_pitch_matches_the_reference);
     TT_RUN(filter_matches_the_reference_on_the_default_patch);
