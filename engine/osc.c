@@ -97,13 +97,6 @@ static int32_t saw_at(uint32_t t, uint32_t dt)
     return (int32_t)(v >> 7);
 }
 
-int32_t fm_osc_saw_next(fm_osc *o)
-{
-    int32_t v = saw_at(o->phase, o->inc);
-    o->phase += o->inc;
-    return v;
-}
-
 /*
  * Pulse of duty `width` (Q0.32 of a cycle) as the difference of two
  * polyBLEP saws offset by the width: saw(t) - saw(t + width). That is

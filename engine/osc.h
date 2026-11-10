@@ -34,9 +34,6 @@ uint32_t fm_osc_pitch_inc(int32_t pitch, uint32_t sample_rate);
 void fm_osc_reset(fm_osc *o);
 void fm_osc_set_inc(fm_osc *o, uint32_t inc);
 
-/* Next sample of a polyBLEP saw, Q8.24 (nominal range -1.0..+1.0). */
-int32_t fm_osc_saw_next(fm_osc *o);
-
 /* Oscillator waveforms. Stable: the patch format stores them. */
 typedef enum {
     FM_WAVE_SAW = 0,
