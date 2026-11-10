@@ -38,6 +38,7 @@ int render_midi_file(const char *midi_path, const char *wav_path,
 typedef struct {
     uint32_t voice_count; /* after the default is applied */
     uint32_t channel;     /* MIDI channel played, 1..16 */
+    uint32_t unison;      /* 1 if the engine ended in unison mode */
 } render_info;
 
 /* render_midi_file, also filling `info` (if non-null) on success. */
@@ -46,7 +47,8 @@ int render_midi(const char *midi_path, const char *wav_path,
 
 /*
  * One line for the user: voice count, channel and the level one note
- * peaks at, since the mix gain is 1 / (2 x voices).
+ * peaks at, since the mix gain is 1 / (2 x voices) (in unison one note
+ * takes every voice, so it peaks at -6 dBFS).
  */
 void render_describe(const render_info *info, char *buf, size_t len);
 

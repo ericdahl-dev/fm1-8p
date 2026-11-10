@@ -5,7 +5,7 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 3.1 KiB (3120 bytes on
+ * sets up everything inside it. fm_engine is about 3.1 KiB (3180 bytes on
  * 32- and 64-bit desktops), two thirds of it the chorus delay line, so
  * static storage is recommended; a task stack must have room for it on
  * top of its other use. See docs/fixed-point.md for the number formats.
@@ -29,6 +29,8 @@
 #define FM_MAX_VOICES 8
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
+/* Keys unison mode remembers for last-note priority (oldest dropped). */
+#define FM_HELD_MAX 16
 
 typedef enum {
     FM_OK = 0,
@@ -42,9 +44,15 @@ typedef enum {
     FM_PARAM_AMP_SUSTAIN, /* per mille of full level, 0..1000 */
     FM_PARAM_AMP_RELEASE_MS,
     FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
+    FM_PARAM_VOICE_MODE, /* FM_VOICE_MODE_POLY or FM_VOICE_MODE_UNISON */
+    FM_PARAM_UNISON_DETUNE_CENTS, /* unison spread, lowest to highest voice */
     FM_PARAM_CHORUS_MODE, /* 0 = off, then the fm_chorus_mode modes */
     FM_PARAM_COUNT
 } fm_param_id;
+
+/* Values of FM_PARAM_VOICE_MODE (see docs/voices.md#unison). */
+#define FM_VOICE_MODE_POLY 0
+#define FM_VOICE_MODE_UNISON 1
 
 typedef struct {
     uint16_t id;
@@ -66,6 +74,9 @@ typedef struct {
     int32_t bend_value;    /* last pitch bend, -8192..8191 from center */
     int32_t bend;          /* Q16.16 semitones added to every note */
     fm_voice voices[FM_MAX_VOICES];
+    int32_t detune[FM_MAX_VOICES]; /* Q16.16 semitones each voice is off by */
+    uint8_t held[FM_HELD_MAX]; /* unison: keys down, oldest first */
+    uint8_t held_count;
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
     int32_t mix_right[FM_MIX_FRAMES]; /* the chorus's right side, Q8.24 */
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
@@ -77,7 +88,8 @@ typedef struct {
  * Sets up `e` for `voice_count` voices (1..FM_MAX_VOICES) at
  * `sample_rate` Hz (8000..192000) with every parameter at its default.
  * Each note takes a voice; with more notes than voices the engine steals
- * one (the rule is in docs/voices.md). Each voice is mixed at
+ * one (the rule is in docs/voices.md). In unison mode (FM_PARAM_VOICE_MODE)
+ * every voice plays the newest note instead, detuned. Each voice is mixed at
  * 1 / voice_count, then -6 dB, so a full chord never clips.
  */
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
