@@ -52,7 +52,8 @@ abspath() {
     fi
 }
 
-# stage_module SRC DEST ENGINE_DIR: a copy of module SRC's module.cfg in DEST with every path absolute,
+# stage_module SRC DEST ENGINE_DIR: a copy of module SRC's module.cfg in DEST with every path absolute
+# (sources, includes and the file of each `cflags FILE =`),
 # its own .c files added, @ENGINE_SOURCES@ replaced by every ENGINE_DIR/*.c and @ENGINE@ by ENGINE_DIR.
 # So a new engine file is built with no firmware edit.
 stage_module() {
@@ -73,6 +74,15 @@ stage_module() {
                     esac
                 done
                 echo "$key =$out" ;;
+            cflags*=*)                          # as hbmod reads it: split at the first '=', words of the key
+                set -f; val=$(echo ${line#*=}); set -- ${line%%=*}; set +f    # (no globbing: flags may hold *)
+                if [ "$#" -ge 2 ] && [ "$1" = cflags ]; then   # `cflags FILE =`: FILE relative to the module
+                    file=$2
+                    case "$file" in /*) ;; *) file=$(abspath "$src/$file") ;; esac
+                    echo "cflags $file = $val"
+                else
+                    echo "$line"
+                fi ;;
             *) echo "$line" ;;
         esac
     done <"$1/module.cfg" >"$2/module.cfg"
@@ -146,6 +156,29 @@ emu_play_report() {
     grep -q 'fm1-8p: ready' "$1" || { echo "**The module never started (no \"fm1-8p: ready\").**"; return 1; }
     ! grep 'too slow: stopped' "$1" || { echo "**The host stopped the module: too slow.**"; return 1; }
     grep -q 'render: last.*, 0 overruns' "$1" || { echo "**Overruns: the module fell behind real time.**"; return 1; }
+}
+
+# check_module_symbols DIR: the module hbmod linked in DIR (module_02200000.elf) takes nothing from the
+# toolchain's libraries ($JIELI_TOOLCHAIN/pi32v2/lib/lib*.a) but allowed helpers: no soft-float, libm
+# or heap. It reads the linked image, not DIR's objects: hbmod never cleans DIR, so an object from an
+# older build may sit there. It runs the toolchain's own nm.
+check_module_symbols() {
+    (
+        tmp=$(mktemp -d) || exit 1
+        trap 'rm -rf "$tmp"' EXIT
+        nm=$JIELI_TOOLCHAIN/pi32v2/bin/nm
+        "$nm" "$1/module_02200000.elf" >"$tmp/linked" && "$nm" "$JIELI_TOOLCHAIN"/pi32v2/lib/lib*.a >"$tmp/libs" ||
+            exit 1
+        awk 'NF == 3 { print $3 }' "$tmp/linked" | sort -u >"$tmp/linked.n"
+        # (a library's global definitions: only those can be pulled into a link)
+        awk 'NF == 3 && $2 ~ /^[A-TV-Z]$/ { print $3 }' "$tmp/libs" | sort -u >"$tmp/libs.n"
+        # integer helpers (64-bit, division and bit counts) and memory helpers
+        bad=$(comm -12 "$tmp/linked.n" "$tmp/libs.n" | grep -Ev \
+            '^(__(u?(div|mod|divmod)|mul|ashl|ashr|lshr|cmp|ucmp|neg)(si|di)[234]|__(clz|ctz|popcount|bswap|ffs|parity)(si|di)2|memset|memcpy|memmove)$')
+        [ -z "$bad" ] && exit 0
+        echo "fm1-build: the module links in symbols outside the allowlist (soft-float, libm or heap?):" $bad >&2
+        exit 1
+    )
 }
 
 # canary_caught LOG EXPECT: the canary's build log shows the check named in EXPECT (a fixed string),
@@ -240,6 +273,7 @@ check_inputs() {
         { echo "fm1-build: $FM1_DOCK is not fm1-dock $FM1_DOCK_SHA" >&2; rc=1; }
     verify_toolchain_dir "$JIELI_TOOLCHAIN" "$JIELI_TOOLCHAIN_DIR" || rc=1
     [ -x "$JIELI_TOOLCHAIN/pi32v2/bin/clang" ] || { echo "fm1-build: no clang in $JIELI_TOOLCHAIN" >&2; rc=1; }
+    [ -x "$JIELI_TOOLCHAIN/pi32v2/bin/nm" ] || { echo "fm1-build: no nm in $JIELI_TOOLCHAIN" >&2; rc=1; }
     for pin in $AC79_SDK_FILES; do
         verify_sha256 "$AC79_SDK/cpu/wl82/tools/${pin%%:*}" "${pin#*:}" || rc=1
     done
@@ -257,6 +291,7 @@ dock() {        # run one of fm1-dock's tools from its checkout
 build_module() {
     stage_module "$ROOT/firmware/$1" "$OUT/modules/$1" "$ROOT/engine"
     dock hbmod.py "$OUT/modules/$1"
+    check_module_symbols "$FM1_DOCK/build/modules/$1" || return 1
     dock build.py --modules "$OUT/modules/$1" --name "$2" --app-name "$3" --identity "$FM1_IDENTITY"
     cp "$FM1_DOCK/build/modules/$1.dock" "$FM1_DOCK/build/$2.fwsc" "$OUT/"
     echo "fm1-build: $OUT/$1.dock $OUT/$2.fwsc ($FM1_IDENTITY)"
@@ -266,7 +301,7 @@ build_firmware() {
     check_inputs
     ulimit -n 8192 2>/dev/null || true         # the parallel compiles open many files
     mkdir -p "$OUT"
-    build_module fm1_8p fm1-8p "FM1-8P"         # the playable synth
+    build_module fm1_8p fm1-8p "FM1-8P" || return 1   # the playable synth
     build_module fm1_8p_cpu fm1-8p-cpu "FM1-8P CPU"
 }
 
@@ -276,7 +311,8 @@ run_canaries() {
     for c in "$ROOT"/firmware/canary/*/; do
         canary=$(basename "$c")
         log=$OUT/canary-$canary.log
-        if dock hbmod.py "$c" >"$log" 2>&1; then
+        if dock hbmod.py "$c" >"$log" 2>&1 &&
+            check_module_symbols "$FM1_DOCK/build/modules/$canary" >>"$log" 2>&1; then
             echo "fm1-build: canary $canary built: the check was NOT applied" >&2
             rc=1
         elif canary_caught "$log" "$c/expect"; then
@@ -297,6 +333,7 @@ run_emu() {
     stage_module "$ROOT/firmware/fm1_8p_cpu_quick" "$OUT/modules/fm1_8p_cpu_quick" "$ROOT/engine"
     dock build.py --modules "$OUT/modules/fm1_8p_cpu_quick" --name fm1-8p-cpu-quick \
         --app-name "FM1-8P CPU" --identity "$FM1_IDENTITY"
+    check_module_symbols "$FM1_DOCK/build/modules/fm1_8p_cpu_quick" || return 1
     emu_rc=0      # (no pipefail in sh: the log goes to a file first, so a crash isn't hidden by tee)
     (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
         --fwsc build/fm1-8p-cpu-quick.fwsc --ms "${FM1_EMU_MS:-$(emu_window_ms "$(sed -n 's/.*-DCPU_HOLD_BLOCKS=\([0-9]*\)u.*/\1/p' "$ROOT/firmware/fm1_8p_cpu_quick/module.cfg")")}" --out "$OUT/emu") \
