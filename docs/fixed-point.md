@@ -64,8 +64,7 @@ the desktop, where a division by zero does trap.
 
 ### Gain staging
 
-Each voice is its oscillator mix (a saw, square or noise peaks at 1.0 in
-Q8.24) times its amp envelope (Q1.30). The voices are summed in Q8.24 and the
+Each voice is its oscillator mix (every waveform peaks at 1.0 in Q8.24) times its amp envelope (Q1.30). The voices are summed in Q8.24 and the
 sum is scaled by `0.5 / voice_count` (Q1.30), so even every voice at full
 level with lined-up peaks stays at or below half of full scale (-6 dBFS), with
 6 dB left for resonance and the chorus. The table and the reasoning are in
@@ -73,10 +72,12 @@ level with lined-up peaks stays at or below half of full scale (-6 dBFS), with
 
 The pulse is the difference of two saws, `saw(t) - saw(t + width)`, so it has
 no DC (like an AC-coupled analog pulse): it sits at +2(1 - w) for the last
-fraction w of the cycle and at -2w for the rest. Peak to peak is always 2.0,
-but a narrow pulse peaks near +2.0 (or a wide one near -2.0), about twice the
-saw. The mix is a crossfade, so two oscillators together peak no higher than
-the louder one.
+fraction w of the cycle and at -2w for the rest, so a narrow pulse would peak
+near +2.0 (a wide one near -2.0), twice the saw. A gain of 1 / (2 max(w,
+1 - w)), worked out with the width limit on events, brings every width to a
+peak of 1.0, so switching between saw, square and pulse never jumps in level.
+At 50 % the gain is 1 (the square is +-1.0). The mix is a crossfade, so two
+oscillators together peak no higher than the louder one.
 
 ### Parameter values
 

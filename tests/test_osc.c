@@ -100,6 +100,29 @@ TT_TEST(square_ignores_pulse_width)
     }
 }
 
+/* Peak of a held note 45 on osc1 with the given wave and width. */
+static int held_peak(int32_t wave, int32_t width)
+{
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, wave);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, width);
+    fm_engine_note_on(&eng, 45, 100);
+    fm_engine_render(&eng, buf, 4410 + 8820);
+    return peak_abs(buf, 4410, 4410 + 8820);
+}
+
+/* Switching saw to pulse or square never jumps in level: same peak. */
+TT_TEST(pulse_peaks_at_the_saw_level_at_every_width)
+{
+    static const int32_t widths[] = { 1, 10, 25, 50, 75, 90, 99 };
+    double saw = held_peak(FM_WAVE_SAW, 50);
+    size_t k;
+    TT_CHECK(saw > 1000);
+    TT_CHECK_NEAR(held_peak(FM_WAVE_SQUARE, 50) / saw, 1.0, 0.03);
+    for (k = 0; k < sizeof widths / sizeof widths[0]; k++)
+        TT_CHECK_NEAR(held_peak(FM_WAVE_PULSE, widths[k]) / saw, 1.0, 0.03);
+}
+
 /* Octave shifts by factors of two; fine tune by 2^(cents / 1200). */
 TT_TEST(octave_and_fine_tune_shift_pitch)
 {
@@ -402,6 +425,7 @@ static void run_osc_tests(void)
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
+    TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(tuned_increment_matches_exact_pitch);
     TT_RUN(octave_shifts_keep_their_ratio_at_the_extremes);

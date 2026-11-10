@@ -108,7 +108,8 @@ int32_t fm_osc_saw_next(fm_osc *o)
  * Pulse of duty `width` (Q0.32 of a cycle) as the difference of two
  * polyBLEP saws offset by the width: saw(t) - saw(t + width). That is
  * +2(1 - width) for the last `width` of the cycle and -2 width for the
- * rest: peak-to-peak 2.0 and no DC, like an AC-coupled analog pulse.
+ * rest: peak-to-peak 2.0 and no DC, like an AC-coupled analog pulse. At
+ * 50% that is +-1.0, the square; other widths are scaled by pw_gain.
  */
 static int32_t pulse_at(uint32_t t, uint32_t dt, uint32_t width)
 {
@@ -123,6 +124,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
         p->wave[i] = FM_WAVE_SAW;
         p->width[i] = 0x80000000u;
         p->pw[i] = 0x80000000u;
+        p->pw_gain[i] = 1 << 30;
         p->tune[i] = 0;
     }
     p->mix = 0;
@@ -137,6 +139,17 @@ void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix)
 }
 
 /*
+ * Gain (Q1.30) that brings a pulse of duty `w` to a peak of 1.0, like the
+ * saw: the pulse peaks at 2 max(w, 1 - w), so the gain is 1 / that. One
+ * division, on events only.
+ */
+static int32_t pulse_gain(uint32_t w)
+{
+    uint64_t m = w >= 0x80000000u ? w : 0u - w; /* max(w, 1 - w), Q0.32 */
+    return (int32_t)((1ull << 61) / m);
+}
+
+/*
  * The duty oscillator `i` plays: its width, kept at least two samples
  * (two increments) from either edge of the cycle. A narrower pulse falls
  * inside the polyBLEP's two-sample span, so it is mostly aliasing; at C7
@@ -146,18 +159,15 @@ void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix)
 static void update_pw(fm_osc_pair *p, uint8_t i)
 {
     uint32_t inc = p->osc[i].inc, w = p->width[i], lo;
-    if (!inc) { /* no pitch yet: nothing to limit (0 - 0 would clamp to 0) */
-        p->pw[i] = w;
-        return;
-    }
     if (inc >= 0x40000000u) {
-        p->pw[i] = 0x80000000u;
-        return;
+        w = 0x80000000u;
+    } else if (inc) { /* no pitch yet: nothing to limit (0 - 0 would be 0) */
+        lo = inc << 1;
+        if (w < lo) w = lo;
+        if (w > 0u - lo) w = 0u - lo;
     }
-    lo = inc << 1;
-    if (w < lo) w = lo;
-    if (w > 0u - lo) w = 0u - lo;
     p->pw[i] = w;
+    p->pw_gain[i] = pulse_gain(w);
 }
 
 /* Sets oscillator `i`'s increment for `pitch` plus its tuning. */
@@ -218,7 +228,8 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
     o->phase = t + o->inc;
     switch (p->wave[which]) {
     case FM_WAVE_PULSE:
-        return pulse_at(t, o->inc, p->pw[which]);
+        return (int32_t)(((int64_t)pulse_at(t, o->inc, p->pw[which]) *
+                          p->pw_gain[which]) >> 30);
     case FM_WAVE_SQUARE:
         return pulse_at(t, o->inc, 0x80000000u);
     case FM_WAVE_NOISE:

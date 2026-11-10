@@ -54,6 +54,7 @@ typedef struct {
     fm_osc osc[2];
     uint32_t width[2]; /* pulse duty as set, Q0.32 of a cycle */
     uint32_t pw[2];    /* duty played: width limited by the pitch */
+    int32_t pw_gain[2]; /* Q1.30: brings the pulse's peak to 1.0 */
     int32_t tune[2];   /* offset from the played pitch, Q16.16 semitones */
     int32_t mix;       /* share of the second oscillator, Q1.30 0..1.0 */
     uint32_t noise;    /* xorshift32 state, never 0 */

@@ -109,7 +109,7 @@ least significant first). Values above 16383 are ignored.
 | Stage | Format | Peak |
 | --- | --- | --- |
 | Saw | Q8.24 | 1.0 (polyBLEP keeps it within +-1.0) |
-| Voice: saw times amp envelope | Q8.24 | 1.0 |
+| Voice: oscillator mix times amp envelope | Q8.24 | 1.0 |
 | Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count`, at most 8.0, which uses 4 of the 7 headroom bits |
 | Mix gain | Q1.30 | `0.5 / voice_count` = `(1 << 29) / voice_count`, rounded down |
 | Output before conversion | Q8.24 | 0.5 |
