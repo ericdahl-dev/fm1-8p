@@ -7,6 +7,7 @@
 #   fetch      download fm1-dock, the JieLi toolchain and the AC79 SDK files into $FM1_DEPS
 #              (default build/fm1-deps) and check each against firmware/pins.env
 #   build      the synth (FM1-8P) and the CPU test, each as a .dock (USB deploy) and a solo .fwsc,
+#              (FM1_DEBUG=1: the debug variant, with timing in the log)
 #              into build/fm1/
 #   canaries   each module in firmware/canary/ breaks an fm1-dock safety rule; its build must fail
 #   emu        run the CPU test in fm1-emu's strict timing mode; worst load per voice count
@@ -80,9 +81,9 @@ stage_module() {
                 if [ "$#" -ge 2 ] && [ "$1" = cflags ]; then   # `cflags FILE =`: FILE relative to the module
                     file=$2
                     case "$file" in /*) ;; *) file=$(abspath "$src/$file") ;; esac
-                    echo "cflags $file = $val"
+                    echo "cflags $file = $val${FM1_DEBUG:+ -DFM1_DEBUG}"
                 else
-                    echo "$line"
+                    echo "$line${FM1_DEBUG:+ -DFM1_DEBUG}"      # (FM1_DEBUG=1: the timing logs)
                 fi ;;
             *) echo "$line" ;;
         esac
@@ -417,5 +418,5 @@ case "${1:-}" in
     emu)      run_emu ;;
     emu-play) run_emu_play ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
-    *)        sed -n '2,23s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *)        sed -n '2,24s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac
