@@ -13,6 +13,7 @@
 #include "test_unison.c"
 #include "test_cpu_test.c"
 #include "test_lfo.c"
+#include "test_mod.c"
 
 int main(void)
 {
@@ -22,5 +23,6 @@ int main(void)
     run_unison_tests();
     run_cpu_test_tests();
     run_lfo_tests();
+    run_mod_tests();
     return tt_report();
 }

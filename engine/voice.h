@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "env.h"
+#include "lfo.h"
 #include "osc.h"
 
 /* `note` of a voice left sounding by a voice-mode switch: it belongs to
@@ -28,12 +29,24 @@ typedef struct {
     uint32_t next_inc; /* pitch of `note` (kept while an old note fades) */
     uint32_t wait;     /* length of the current steal fade, in samples */
     uint32_t gate_left; /* samples until a queued release (0: none) */
+    uint32_t base_inc; /* increment of the sounding note before the LFO */
+    int32_t pitch_oct; /* LFO pitch offset now applied, Q16.16 octaves */
+    int32_t lfo_fade;  /* LFO delay / fade-in level, Q1.30 */
+    uint32_t lfo_wait; /* control ticks of LFO delay left */
     uint8_t note;
     uint8_t old_note;  /* while pending: the stolen note fading out */
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
+    uint8_t lfo_restart; /* a note started: restart the LFO delay */
 } fm_voice;
+
+/* What the LFO does to every voice, set by the engine from the patch. */
+typedef struct {
+    int32_t pitch_oct;    /* pitch depth at full LFO, Q16.16 octaves */
+    uint32_t delay_ticks; /* LFO delay, and fade-in time, in ticks */
+    int32_t fade_step;    /* Q1.30 fade-in per tick after the delay */
+} fm_voice_mod;
 
 void fm_voice_reset(fm_voice *v);
 
@@ -82,6 +95,13 @@ void fm_voice_silence(fm_voice *v);
 
 /* New pitch for the note (bend). An old note that is fading keeps its. */
 void fm_voice_set_inc(fm_voice *v, uint32_t inc);
+
+/*
+ * One control tick (every FM_LFO_TICK_FRAMES samples): advances the
+ * voice's LFO delay and fade-in and applies `lfo` (Q1.30, the shared
+ * LFO's value) at the depths in `m`. With zero depth nothing changes.
+ */
+void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m);
 
 /* Adds `frames` samples of the voice (Q8.24) to `mix`. */
 void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames);

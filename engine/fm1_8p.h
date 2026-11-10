@@ -43,6 +43,10 @@ typedef enum {
     FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
     FM_PARAM_VOICE_MODE, /* FM_VOICE_MODE_POLY or FM_VOICE_MODE_UNISON */
     FM_PARAM_UNISON_DETUNE_CENTS, /* unison spread, lowest to highest voice */
+    FM_PARAM_LFO_WAVE,        /* fm_lfo_wave (docs/modulation.md) */
+    FM_PARAM_LFO_RATE_CENTIHZ, /* hundredths of a hertz */
+    FM_PARAM_LFO_DELAY_MS,    /* zero for this long, then fades in as long */
+    FM_PARAM_LFO_PITCH_CENTS, /* vibrato depth at full LFO, each way */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -73,6 +77,9 @@ typedef struct {
     int32_t detune[FM_MAX_VOICES]; /* Q16.16 semitones each voice is off by */
     uint8_t held[FM_HELD_MAX]; /* unison: keys down, oldest first */
     uint8_t held_count;
+    fm_lfo lfo;          /* one LFO for every voice (docs/modulation.md) */
+    fm_voice_mod mod;    /* what the LFO does to each voice */
+    uint32_t tick_left;  /* samples until the next control tick */
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
 } fm_engine;
 

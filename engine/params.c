@@ -18,6 +18,10 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_BEND_RANGE,     "bend_range_semitones", 0,   24,    2 },
     { FM_PARAM_VOICE_MODE,     "voice_mode",          0,     1,    0 },
     { FM_PARAM_UNISON_DETUNE_CENTS, "unison_detune_cents", 0, 100, 20 },
+    { FM_PARAM_LFO_WAVE,       "lfo_wave",            0,     3,    0 },
+    { FM_PARAM_LFO_RATE_CENTIHZ, "lfo_rate_centihz",  1,  3000,  500 },
+    { FM_PARAM_LFO_DELAY_MS,   "lfo_delay_ms",        0,  5000,    0 },
+    { FM_PARAM_LFO_PITCH_CENTS, "lfo_pitch_cents",    0,  1200,    0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)

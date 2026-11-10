@@ -73,6 +73,27 @@ static void apply_param(fm_engine *e, uint16_t id)
         apply_bend(e, e->bend_value);
         return;
     }
+    switch (id) {
+    case FM_PARAM_LFO_WAVE:
+        fm_lfo_set_wave(&e->lfo, (uint8_t)v);
+        return;
+    case FM_PARAM_LFO_RATE_CENTIHZ:
+        fm_lfo_set_rate(&e->lfo, v, e->sample_rate);
+        return;
+    case FM_PARAM_LFO_DELAY_MS:
+        e->mod.delay_ticks = ms_to_samples(e, v) >> FM_LFO_TICK_SHIFT;
+        /* fades in over as long as the delay; the divisor is at least 1 */
+        e->mod.fade_step = e->mod.delay_ticks
+                               ? (int32_t)(FM_LFO_FULL / e->mod.delay_ticks)
+                               : FM_LFO_FULL;
+        return;
+    case FM_PARAM_LFO_PITCH_CENTS:
+        /* cents -> Q16.16 octaves: exact for multiples of 75 cents */
+        e->mod.pitch_oct = v * 65536 / 1200;
+        return;
+    default:
+        break;
+    }
     if (id == FM_PARAM_VOICE_MODE || id == FM_PARAM_UNISON_DETUNE_CENTS) {
         /* every voice's detune: the unison spread, or none in poly */
         int unison = e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON;
@@ -152,6 +173,8 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend_value = 0;
     unison_reset(e);
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
+    fm_lfo_reset(&e->lfo);
+    e->tick_left = 0;
     for (i = 0; i < FM_MAX_VOICES; i++) {
         fm_voice_reset(&e->voices[i]);
         e->detune[i] = 0;
@@ -408,11 +431,30 @@ static int16_t to_int16(int32_t q24)
     return (int16_t)s;
 }
 
+/*
+ * Control tick, every FM_LFO_TICK_FRAMES samples counted from init (so
+ * the caller's block size never moves it): the LFO advances and each
+ * sounding voice applies it.
+ */
+static void control_tick(fm_engine *e)
+{
+    int32_t lfo = fm_lfo_tick(&e->lfo);
+    uint8_t k;
+    for (k = 0; k < e->voice_count; k++)
+        if (fm_voice_active(&e->voices[k]))
+            fm_voice_tick(&e->voices[k], lfo, &e->mod);
+    e->tick_left = FM_LFO_TICK_FRAMES;
+}
+
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
 {
     while (frames) {
-        uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES, i;
+        uint32_t n, i;
         uint8_t k;
+        if (e->tick_left == 0) control_tick(e);
+        n = frames < e->tick_left ? frames : e->tick_left;
+        if (n > FM_MIX_FRAMES) n = FM_MIX_FRAMES;
+        e->tick_left -= n;
         for (i = 0; i < n; i++) e->mix[i] = 0;
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
