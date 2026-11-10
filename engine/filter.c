@@ -236,21 +236,22 @@ static int32_t soft_clip(int32_t u)
  * Every Q8.24 input (to +-128.0) gives exactly the output of the 64-bit
  * filter, with 32-bit sums on the usual path:
  * - The highpass state stays within the input's range. While both are
- *   within +-64.0 (an oscillator stays near +-1.0), x - hp and the
- *   highpass output fit 32 bits; beyond that the highpass runs in 64.
- * - Its output is then clamped to +-IN_MAX (32.0). That changes nothing:
- *   the feedback s[3] * k is within +-4.0 * 4.2, so a clamped input
- *   still drives the soft clip past its saturation (6.0) with the same
- *   sign, as the unclamped one does. And it keeps the lowpass input sum
- *   within 32 bits.
+ *   within +-32.0 (an oscillator stays near +-1.0), the highpass output
+ *   is within +-64.0, and less the feedback (within +-4.0 * 4.2) the
+ *   lowpass input sum still fits 32 bits.
+ * - Louder, the highpass runs in 64 bits and its output is clamped to
+ *   +-IN_MAX (32.0). That changes nothing: a clamped value less the
+ *   largest feedback still drives the soft clip past its saturation (6.0)
+ *   with the same sign, as the unclamped one does. With the highpass off
+ *   the input is clamped the same way.
  * Only the products need 64 bits, and each is one 32x32->64 multiply.
  */
 #define IN_MAX ((1 << 29) - 1)
-#define WITHIN_64(v) ((uint32_t)(v) + (1u << 30) < (1u << 31)) /* -64.0 <= v < 64.0 */
+#define WITHIN_32(v) ((uint32_t)(v) + (1u << 29) < (1u << 30)) /* -32.0 <= v < 32.0 */
 
-static int32_t clamp_in(int64_t x)
+static int32_t clamp_in(int32_t x)
 {
-    return x > IN_MAX ? IN_MAX : x < -IN_MAX ? -IN_MAX : (int32_t)x;
+    return x > IN_MAX ? IN_MAX : x < -IN_MAX ? -IN_MAX : x;
 }
 
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
@@ -297,12 +298,14 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
     }
     if (!f->hp_g) {
         x = clamp_in(in);
-    } else if (WITHIN_64(in) && WITHIN_64(f->hp)) { /* highpass = input minus a one-pole lowpass of it */
+    } else if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* highpass = input minus a one-pole lowpass of it */
         f->hp += mul_q30(in - f->hp, f->hp_g);
-        x = clamp_in(in - f->hp);
+        x = in - f->hp;
     } else { /* louder than any oscillator: the same in 64 bits */
+        int64_t d;
         f->hp += (int32_t)((((int64_t)in - f->hp) * f->hp_g) >> 30);
-        x = clamp_in((int64_t)in - f->hp);
+        d = (int64_t)in - f->hp;
+        x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
     }
     u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
     if (f->w == W_ZERO) { /* below the fade: w * d is d >> 2, exactly */

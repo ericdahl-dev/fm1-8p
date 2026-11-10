@@ -116,11 +116,13 @@ resonant 4-pole (24 dB/octave) lowpass.
   full scale at mid cutoffs).
 - **32-bit sums (#34).** The sums run in 32 bits; only the products need 64
   (one 32x32->64 multiply each). The highpass state stays within the input's
-  range, so while the input and that state are within +-64.0 (an oscillator
-  stays near +-1.0) the highpass fits 32 bits; louder, it runs in 64. Its
-  output is then clamped to +-32.0, which changes nothing: the feedback is
-  within +-4.0 * 4.2, so the clamped value still drives the soft clip past
-  its saturation (6.0) with the same sign. The output is bit for bit that
+  range, so while the input and that state are within +-32.0 (an oscillator
+  stays near +-1.0) the highpass output is within +-64.0 and, less the
+  feedback (within +-4.0 * 4.2), the lowpass input still fits 32 bits.
+  Louder, the highpass runs in 64 bits and its output is clamped to +-32.0
+  (with the highpass off, the input is), which changes nothing: the clamped
+  value less the largest feedback still drives the soft clip past its
+  saturation (6.0) with the same sign. The output is bit for bit that
   of the same filter in 64 bits over the whole +-128.0
   (`tests/test_filter_oracle.c` holds it to a 64-bit reference).
 - **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
