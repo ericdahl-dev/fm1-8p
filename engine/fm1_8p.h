@@ -65,7 +65,9 @@ typedef struct {
     int32_t bend;          /* Q16.16 semitones added to every note */
     fm_voice voices[FM_MAX_VOICES];
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
-    fm_chorus chorus; /* output stage, after the voices are mixed */
+    /* output stage, after the voices are mixed: about 2.1 KiB, almost
+     * all of it the delay line (see chorus.h) */
+    fm_chorus chorus;
 } fm_engine;
 
 /*

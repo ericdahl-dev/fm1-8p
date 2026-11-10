@@ -57,6 +57,7 @@ The voices are summed in Q8.24 and the sum is scaled by
 peaks stays at or below half of full scale (-6 dBFS), with 6 dB left for
 resonance and the chorus. The table and the reasoning are in
 [voices.md](voices.md#gain-staging).
+The chorus (below) never raises the peak above its input's.
 
 ### Parameter values
 
@@ -64,6 +65,53 @@ Parameters are plain integers in the unit their name gives, for example
 `amp_attack_ms` 0 to 10000 and `amp_sustain_permille` 0 to 1000. The engine
 converts them to samples or Q1.30 when they are set, not per sample. The table
 is in `engine/params.c`.
+
+## Chorus
+
+`engine/chorus.c` is the last stage of `fm_engine_render`: the summed voices
+(one mono Q8.24 sample) go in, a left and a right Q8.24 sample come out, and
+each is saturated to int16 as before. The `chorus_mode` parameter selects:
+
+| Mode | LFO rate | Center delay | Sweep | Character |
+| --- | --- | --- | --- | --- |
+| 0 off | | | | input passed to both sides unchanged (bit-exact with the engine before the chorus) |
+| 1 slow | 0.5 Hz | 5.0 ms | +-1.5 ms | gentle, slow movement |
+| 2 deep | 0.8 Hz | 5.0 ms | +-2.5 ms | wider and faster |
+| 3 fast | 6.0 Hz | 3.0 ms | +-0.3 ms | quick, shallow shimmer |
+
+How it works, per sample:
+
+- The input is written to one delay line of 1024 `int16_t` samples, in units
+  of Q8.24 >> 10 (1.0 = 16384), saturating at +-2.0. That keeps 14 fraction
+  bits, one fewer than the int16 output, on the wet signal only.
+- A triangle LFO (Q0.32 phase, one add per sample) sweeps two taps in opposite
+  directions: left at center + sweep, right at center - sweep. Delays are
+  Q16.16 samples; each tap reads two neighbors and interpolates linearly
+  (Q0.15 fraction, 32-bit math).
+- Each output is half the dry input plus half its tap. So an output never
+  exceeds half the input peak plus 1.0, which is at most the input peak for
+  inputs up to +-2.0, and stays far inside int32 for any input. Mixing
+  equal parts dry and wet lowers the RMS level of a sustained saw (A3) by
+  2 dB (slow), 3 dB (deep) and 5 dB (fast) compared with chorus off; the
+  polyphony slice's gain staging can add make-up gain if listening calls for
+  it.
+- Cost: one 64-bit multiply (the sweep), two 32-bit multiplies (the
+  interpolations), a few shifts, adds and masks, and four reads and one write
+  of the delay line. Off costs one branch. Divisions run only when the mode
+  is set.
+
+Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
+2.1 KiB (2072 bytes on x86-64), inside `fm_engine`. Nothing is allocated and
+the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
+deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
+are scaled down together to fit (rate and shape are kept). At very low rates
+the center is raised so the nearest tap stays at least one sample back.
+Turning the chorus on from off starts from a silent line, so no stale audio
+plays.
+
+`tests/test_chorus.c` measures each mode's rate, center and sweep by passing a
+slow ramp through the module (each tap then reads back its own delay
+exactly), and checks boundedness with eight summed full-scale voices.
 
 ## Assumptions about the C implementation
 
