@@ -99,7 +99,7 @@ static int16_t *read_wav_pcm(const char *path, uint32_t *frames, uint32_t *rate)
 
 TT_TEST(one_note_midi_file_renders_at_note_pitch)
 {
-    render_opts o = { 44100, 500 };
+    render_opts o = { .sample_rate = 44100, .tail_ms = 500 };
     uint32_t frames, rate;
     int16_t *pcm;
     double period;
@@ -115,8 +115,101 @@ TT_TEST(one_note_midi_file_renders_at_note_pitch)
     TT_CHECK_NEAR(period, 44100 / note_hz(69), 44100 / note_hz(69) * 0.0006);
 }
 
+/* Format 1: tempo track at 240 BPM, then a note track (running status). */
+static void write_two_track_smf(const char *path)
+{
+    static const uint8_t data[] = {
+        'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 1, 0, 2, 0x01, 0xE0,
+        'M', 'T', 'r', 'k', 0, 0, 0, 11,
+        0x00, 0xFF, 0x51, 0x03, 0x03, 0xD0, 0x90, /* 250000 us/quarter */
+        0x00, 0xFF, 0x2F, 0x00,
+        'M', 'T', 'r', 'k', 0, 0, 0, 19,
+        0x00, 0x90, 60, 90,        /* C4 on */
+        0x00, 64, 80,              /* E4 on, running status */
+        0x83, 0x60, 60, 0,         /* 480 ticks later: C4 off (vel 0) */
+        0x83, 0x60, 64, 0,         /* 480 ticks later: E4 off */
+        0x00, 0xFF, 0x2F, 0x00
+    };
+    FILE *f = fopen(path, "wb");
+    fwrite(data, 1, sizeof data, f);
+    fclose(f);
+}
+
+TT_TEST(render_applies_parameter_settings)
+{
+    render_opts o;
+    uint32_t frames, rate;
+    int16_t *pcm;
+    int early, later;
+    memset(&o, 0, sizeof o);
+    o.sample_rate = 48000;
+    o.param_count = 2;
+    o.param_id[0] = FM_PARAM_AMP_ATTACK_MS;
+    o.param_value[0] = 500;
+    o.param_id[1] = FM_PARAM_AMP_SUSTAIN;
+    o.param_value[1] = 1000;
+    write_smf("build/one-note.mid", one_note, sizeof one_note);
+    TT_CHECK_EQ(render_midi_file("build/one-note.mid", "build/attack.wav", &o), 0);
+    pcm = read_wav_pcm("build/attack.wav", &frames, &rate);
+    TT_CHECK(pcm != NULL);
+    early = peak_abs(pcm, 4800 - 150, 4800);   /* ~100 ms */
+    later = peak_abs(pcm, 28800 - 150, 28800); /* ~600 ms */
+    free(pcm);
+    TT_CHECK_NEAR((double)early / later, 0.2, 0.03);
+}
+
+TT_TEST(tempo_changes_set_the_song_length)
+{
+    render_opts o = { .sample_rate = 48000, .tail_ms = 250 };
+    uint32_t frames, rate;
+    int16_t *pcm;
+    write_two_track_smf("build/two-track.mid");
+    TT_CHECK_EQ(render_midi_file("build/two-track.mid", "build/two-track.wav", &o), 0);
+    pcm = read_wav_pcm("build/two-track.wav", &frames, &rate);
+    TT_CHECK(pcm != NULL);
+    free(pcm);
+    /* 960 ticks at 250 ms per 480 ticks = 0.5 s, plus 0.25 s tail */
+    TT_CHECK_EQ(frames, 24000 + 12000);
+}
+
+TT_TEST(same_midi_file_renders_byte_identical_wav)
+{
+    render_opts o = { .sample_rate = 48000, .tail_ms = 400 };
+    uint8_t *a, *b;
+    size_t na, nb;
+    write_two_track_smf("build/det.mid");
+    TT_CHECK_EQ(render_midi_file("build/det.mid", "build/det-a.wav", &o), 0);
+    TT_CHECK_EQ(render_midi_file("build/det.mid", "build/det-b.wav", &o), 0);
+    na = slurp("build/det-a.wav", &a);
+    nb = slurp("build/det-b.wav", &b);
+    TT_CHECK(na > 44);
+    TT_CHECK_EQ(na, nb);
+    TT_CHECK(memcmp(a, b, na) == 0);
+    free(a);
+    free(b);
+}
+
+TT_TEST(render_rejects_bad_input)
+{
+    static const uint8_t junk[] = { 'M', 'T', 'h', 'x', 1, 2, 3 };
+    render_opts o = { .sample_rate = 48000, .tail_ms = 0 };
+    FILE *f = fopen("build/junk.mid", "wb");
+    fwrite(junk, 1, sizeof junk, f);
+    fclose(f);
+    printf("    (expected error messages follow)\n");
+    TT_CHECK(render_midi_file("build/junk.mid", "build/junk.wav", &o) != 0);
+    TT_CHECK(render_midi_file("build/does-not-exist.mid", "build/x.wav", &o) != 0);
+    o.sample_rate = 1000;
+    write_smf("build/one-note.mid", one_note, sizeof one_note);
+    TT_CHECK(render_midi_file("build/one-note.mid", "build/x.wav", &o) != 0);
+}
+
 static void run_host_tests(void)
 {
     TT_RUN(wav_header_has_requested_rate_and_length);
     TT_RUN(one_note_midi_file_renders_at_note_pitch);
+    TT_RUN(render_applies_parameter_settings);
+    TT_RUN(tempo_changes_set_the_song_length);
+    TT_RUN(same_midi_file_renders_byte_identical_wav);
+    TT_RUN(render_rejects_bad_input);
 }

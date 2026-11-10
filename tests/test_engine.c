@@ -78,9 +78,56 @@ TT_TEST(amp_envelope_follows_adsr_settings)
     TT_CHECK(!loud_after);
 }
 
+TT_TEST(set_param_clamps_to_range_and_rejects_unknown_ids)
+{
+    const fm_param_info *info = fm_param_info_get(FM_PARAM_AMP_SUSTAIN);
+    uint16_t id;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    for (id = 0; id < FM_PARAM_COUNT; id++) {
+        const fm_param_info *p = fm_param_info_get(id);
+        TT_CHECK(p != NULL && p->name != NULL);
+        TT_CHECK(p->min <= p->def && p->def <= p->max);
+        TT_CHECK_EQ(fm_engine_get_param(&eng, id), p->def);
+    }
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 5000), FM_OK);
+    TT_CHECK_EQ(fm_engine_get_param(&eng, FM_PARAM_AMP_SUSTAIN), info->max);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, -7), FM_OK);
+    TT_CHECK_EQ(fm_engine_get_param(&eng, FM_PARAM_AMP_SUSTAIN), info->min);
+    TT_CHECK(fm_param_info_get(FM_PARAM_COUNT) == NULL);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_COUNT, 1), FM_ERR_ARG);
+}
+
+TT_TEST(init_rejects_bad_arguments)
+{
+    TT_CHECK_EQ(fm_engine_init(NULL, RATE, 1), FM_ERR_ARG);
+    TT_CHECK_EQ(fm_engine_init(&eng, 0, 1), FM_ERR_ARG);
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 0), FM_ERR_ARG);
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, FM_MAX_VOICES + 1), FM_ERR_ARG);
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, FM_MAX_VOICES), FM_OK);
+}
+
+TT_TEST(all_notes_off_controller_releases_the_note)
+{
+    size_t i;
+    int loud_after = 0;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 10), FM_OK);
+    fm_engine_note_on(&eng, 60, 100);
+    fm_engine_render(&eng, buf, 4800);
+    TT_CHECK(peak_abs(buf, 2400, 4800) > 1000);
+    fm_engine_controller(&eng, 123, 0); /* all notes off */
+    fm_engine_render(&eng, buf, 4800);
+    for (i = 2 * 480; i < 2 * 4800; i++)
+        if (buf[i] != 0) loud_after = 1;
+    TT_CHECK(!loud_after);
+}
+
 static void run_engine_tests(void)
 {
     TT_RUN(note_on_plays_saw_at_note_pitch);
     TT_RUN(high_saw_note_has_low_aliasing);
     TT_RUN(amp_envelope_follows_adsr_settings);
+    TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
+    TT_RUN(init_rejects_bad_arguments);
+    TT_RUN(all_notes_off_controller_releases_the_note);
 }

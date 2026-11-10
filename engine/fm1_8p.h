@@ -67,6 +67,13 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity);
 void fm_engine_note_off(fm_engine *e, uint8_t note);
 
 /*
+ * MIDI control change (controller and value 0..127). This slice handles
+ * 120 (all sound off: silence now) and 123 (all notes off: release);
+ * others are ignored. Sustain, mod wheel and bend come in later slices.
+ */
+void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value);
+
+/*
  * Sets a parameter; values outside its range are clamped. Returns
  * FM_ERR_ARG for an unknown id.
  */

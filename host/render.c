@@ -44,6 +44,7 @@ static void dispatch(fm_engine *e, const smf_event *ev)
     switch (ev->status & 0xF0) {
     case 0x90: fm_engine_note_on(e, ev->data1, ev->data2); break;
     case 0x80: fm_engine_note_off(e, ev->data1); break;
+    case 0xB0: fm_engine_controller(e, ev->data1, ev->data2); break;
     default: break;
     }
 }
@@ -90,6 +91,13 @@ int render_midi_file(const char *midi_path, const char *wav_path,
         free(pcm);
         smf_free(&song);
         return -1;
+    }
+
+    for (i = 0; i < o->param_count && i < RENDER_MAX_SETTINGS; i++) {
+        if (fm_engine_set_param(&eng, o->param_id[i], o->param_value[i]) !=
+            FM_OK)
+            fprintf(stderr, "ignoring unknown parameter id %u\n",
+                    (unsigned)o->param_id[i]);
     }
 
     for (i = 0; i <= song.count; i++) {

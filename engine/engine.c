@@ -88,6 +88,21 @@ void fm_engine_note_off(fm_engine *e, uint8_t note)
     if (note == e->note) fm_env_gate_off(&e->amp_env);
 }
 
+void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
+{
+    (void)value;
+    switch (controller) {
+    case 120: /* all sound off */
+        fm_env_reset(&e->amp_env);
+        break;
+    case 123: /* all notes off */
+        fm_env_gate_off(&e->amp_env);
+        break;
+    default:
+        break;
+    }
+}
+
 /* Q8.24 to int16 with saturation (1.0 maps to 32768). */
 static int16_t to_int16(int32_t q24)
 {

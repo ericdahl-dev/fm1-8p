@@ -8,9 +8,15 @@
 
 #include <stdint.h>
 
+#define RENDER_MAX_SETTINGS 32
+
 typedef struct {
     uint32_t sample_rate; /* Hz */
     uint32_t tail_ms;     /* extra time rendered after the song ends */
+    /* engine parameters set before the song starts, in order */
+    uint32_t param_count;
+    uint16_t param_id[RENDER_MAX_SETTINGS];
+    int32_t param_value[RENDER_MAX_SETTINGS];
 } render_opts;
 
 /*
