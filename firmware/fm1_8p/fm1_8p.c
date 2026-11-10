@@ -13,13 +13,12 @@
 #include "hb_module.h"
 #include "play.h"
 #include "ui.h"
+#define DFONT_NO_D20                            /* (only D24 is drawn here) */
 #include "display_font.h"
 
 static const hb_host_t *H;
 static play P;                                  /* static: the engine's 5 KiB must not sit on a stack */
 static ui U;
-static int32_t drawn_note;
-#define NOT_DRAWN (-2)                          /* drawn_note: the screen shows no note yet */
 
 /* Night Panel (visual.md's style table), RGB565 */
 #define C_BG     0x0863u
@@ -101,9 +100,10 @@ static int32_t d24(int32_t x, int32_t y, const char *s, uint16_t c)
     return x - D24_GAP;
 }
 
-static void text_c(int32_t x, int32_t w, int32_t y, const char *s, uint16_t c)   /* centered in w */
+/* text in size big (0: 16 px, 1: 32 px), centered in w */
+static void text_c(int32_t x, int32_t w, int32_t y, uint32_t big, const char *s, uint16_t c)
 {
-    H->cv_text(x + (w - H->text_w(0, s)) / 2, y, 0, s, c);
+    H->cv_text(x + (w - H->text_w(big, s)) / 2, y, big, s, c);
 }
 
 /* two digits on 7-segment LEDs, 16 x 36, 4 px strokes, the unlit ones as a ghost */
@@ -143,6 +143,7 @@ static void blit(int32_t x, int32_t y, int32_t w, int32_t h)
 /* rows 0..27: the header and the gap under it */
 static void header(const char *chip, uint16_t col, const char *a, const char *b, int32_t page)
 {
+    char o[UI_VALUE_LEN];
     int32_t x, w;
     uint32_t i;
     H->cv_begin(240, 28, C_BG);
@@ -151,6 +152,8 @@ static void header(const char *chip, uint16_t col, const char *a, const char *b,
     x = M + H->text_w(0, chip) + 8;
     H->cv_text(x, 4, 0, a, C_TEXT);
     H->cv_text(x + H->text_w(0, a), 4, 0, b, C_DIM);
+    ui_octave_label(P.oct, o);                  /* (HB_F_SCREEN hides the host's line, which had it) */
+    H->cv_text(240 - M - H->text_w(0, o), 4, 0, o, P.oct ? C_TEXT : C_DIM);
     H->cv_rect(0, 23, 240, 1, C_LINE);
     if (page >= 0)
         for (i = 0; i < UI_PAGES; i++) {
@@ -168,7 +171,7 @@ static void footer(void)
     H->cv_begin(240, 18, C_SURF);
     H->cv_rect(0, 0, 240, 1, C_BG);
     H->cv_rect(0, 1, 240, 1, C_LINE);
-    H->cv_text(M, 2, 0, "FM1-8P", C_TEXT);
+    H->cv_text(M, 2, 0, play_patch(&P)->name, C_TEXT);
     H->cv_text(240 - M - H->text_w(0, v), 2, 0, v, C_DIM);
     blit(0, 222, 240, 18);
 }
@@ -179,7 +182,7 @@ static void focus_row(void)
     const ui_slot *s = ui_page_slot(&U, U.focus);
     char num[3], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
     int32_t x;
-    num[0] = (char)('0' + s->num / 10u), num[1] = (char)('0' + s->num % 10u), num[2] = 0;
+    ui_slot_number(s, num);
     ui_value(s->id, play_get_param(&P, s->id), val, unit);
     H->cv_begin(240, 50, C_BG);
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
@@ -196,15 +199,16 @@ static void focus_row(void)
 /* rows 78..137, in SLOT_PARTS strips across: the filter curve, +12 dB at the top, -36 at the
  * bottom, hatched under */
 #define SLOT_PARTS 3u
+static ui_curve curve;                          /* the curve being drawn: one cutoff and resonance */
 static void slot(uint32_t part)
 {
     const int32_t w = 240 - 2 * M, h = 56, n = w - 4, pw = 240 / (int32_t)SLOT_PARTS;
     const int32_t x0 = (int32_t)part * pw;      /* the part's screen x */
-    int32_t cut = play_get_param(&P, FM_PARAM_FILTER_CUTOFF_CENTS);
-    int32_t res = play_get_param(&P, FM_PARAM_FILTER_RESONANCE), i, i0, i1, y, y0 = 0;
+    int32_t i, i0, i1, y, y0 = 0;
     uint16_t hatch = mix(C_WINDOW, C_VCF, 41);
-    ui_curve c;
-    ui_curve_begin(&c, cut, res, (uint32_t)n);
+    if (part == 0u)                             /* the values as they are now, for all three parts */
+        ui_curve_begin(&curve, play_get_param(&P, FM_PARAM_FILTER_CUTOFF_CENTS),
+                       play_get_param(&P, FM_PARAM_FILTER_RESONANCE), (uint32_t)n);
     H->cv_begin(pw, 60, C_BG);
     H->cv_rect(M - x0, 0, w, h, C_WINDOW);      /* (the canvas clips what isn't this part's) */
     frame(M - x0, 0, w, h, C_LINE);
@@ -214,7 +218,7 @@ static void slot(uint32_t part)
     i1 = x0 + pw - M - 2;
     i1 = i1 > n ? n : i1;
     for (; i < i1; i++) {
-        int32_t d = ui_curve_db(&c, (uint32_t)i), xi = M + 2 + i - x0;
+        int32_t d = ui_curve_db(&curve, (uint32_t)i), xi = M + 2 + i - x0;
         d = d > 120 ? 120 : d < -360 ? -360 : d;
         y = 5 + (120 - d) * (h - 8) / 480;
         if (!(i & 1))
@@ -242,9 +246,9 @@ static void column(uint32_t k)
     H->cv_begin(cw, 84, C_BG);
     H->cv_rect(x, 0, COL_W, 84, bg);
     if (s && s->kind != UI_RESERVED) {
-        num[0] = (char)('0' + s->num / 10u), num[1] = (char)('0' + s->num % 10u), num[2] = 0;
-        text_c(x, COL_W, 3, num, C_VCF);
-        text_c(x, COL_W, 19, s->label, act ? C_TEXT : C_DIM);
+        ui_slot_number(s, num);
+        text_c(x, COL_W, 3, 0, num, C_VCF);
+        text_c(x, COL_W, 19, 0, s->label, act ? C_TEXT : C_DIM);
         if (s->kind == UI_PENDING) {            /* (interaction.md: a pending parameter shows --) */
             d24(x + (COL_W - d24_w("--")) / 2, 52, "--", C_DIM);
         } else {
@@ -273,25 +277,24 @@ static void column(uint32_t k)
 static void play_part(uint32_t b, uint32_t part)
 {
     char s[PLAY_NOTE_NAME];
-    if (b == UI_D_FULL) {
-        if (part == 0u)
-            header("PLAY", C_PLAY, "FM1-8P", "", -1);
-        else
-            footer();
+    if (b == UI_D_FULL && part == 1u) {
+        footer();
+    } else if (b == UI_D_FULL || b == UI_D_HEAD) {
+        header("PLAY", C_PLAY, "FM1-8P", "", -1);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77 */
         H->cv_begin(240, 50, C_BG);
-        H->cv_text((240 - H->text_w(1, "FM1-8P")) / 2, 20, 1, "FM1-8P", HB_RGB(255, 176, 64));
+        text_c(0, 240, 20, 1, "FM1-8P", HB_RGB(255, 176, 64));
         blit(0, 28, 240, 50);
-    } else if (b == UI_D_SLOT) {                /* rows 78..137 */
+    } else if (b == UI_D_SLOT) {                /* rows 78..137: the patch */
         H->cv_begin(240, 60, C_BG);
-        H->cv_text((240 - H->text_w(0, "ENV: VCF PAGE")) / 2, 14, 0, "ENV: VCF PAGE", C_DIM);
+        text_c(0, 240, 8, 0, play_patch(&P)->name, C_TEXT);
+        text_c(0, 240, 34, 0, "ENV: VCF PAGE", C_DIM);
         blit(0, 78, 240, 60);
-    } else if (b == UI_D_COL(0)) {              /* rows 138..221: the last note */
-        drawn_note = play_last_note(&P);
-        play_note_name(drawn_note, s);
+    } else if (b == UI_D_NOTE) {                /* rows 138..221: the last note */
+        play_note_name(play_last_note(&P), s);
         H->cv_begin(240, 84, C_BG);
-        H->cv_text((240 - H->text_w(0, "LAST NOTE")) / 2, 2, 0, "LAST NOTE", C_DIM);
-        H->cv_text((240 - H->text_w(1, s)) / 2, 26, 1, s, 0xFFFFu);
+        text_c(0, 240, 2, 0, "LAST NOTE", C_DIM);
+        text_c(0, 240, 26, 1, s, 0xFFFFu);
         blit(0, 138, 240, 84);
     }
 }
@@ -300,11 +303,10 @@ static void play_part(uint32_t b, uint32_t part)
 static void vcf_part(uint32_t b, uint32_t part)
 {
     uint32_t k;
-    if (b == UI_D_FULL) {
-        if (part == 0u)
-            header("4 VCF", C_VCF, "A", "/B", (int32_t)UI_PAGE_4A);
-        else
-            footer();
+    if (b == UI_D_FULL && part == 1u) {
+        footer();
+    } else if (b == UI_D_FULL || b == UI_D_HEAD) {
+        header("4 VCF", C_VCF, "A", "/B", (int32_t)UI_PAGE_4A);
     } else if (b == UI_D_FOCUS) {
         focus_row();
     } else if (b == UI_D_SLOT) {
@@ -369,7 +371,11 @@ static void ui_ev(uint32_t ev, int32_t arg)
             return;
         }
         break;
-    default: break;
+    case HB_EV_BTN_UP:
+    case HB_EV_ENC:
+        break;
+    default:                                    /* a key's pressure, ...: nothing for the pages */
+        return;
     }
     ui_event(&U, ev, arg, H->ms());             /* pages and knobs */
     page_leds(0);
@@ -401,8 +407,6 @@ static void draw(uint32_t full)
     } else {
         pending |= d;
     }
-    if (U.state == UI_PLAY && play_last_note(&P) != drawn_note)
-        pending |= UI_D_COL(0);                 /* only when it changed: never per audio block */
     if (H->ticks() - blit_t < blit_wait)
         return;                                 /* the panel is still taking the last part */
     if (!band) {
@@ -428,7 +432,6 @@ static void draw(uint32_t full)
 static int init(const hb_host_t *h)
 {
     H = h;
-    drawn_note = NOT_DRAWN;
     pending = band = part = 0;
     blit_t = blit_wait = 0;
     if (play_init(&P) != 0) {
