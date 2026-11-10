@@ -167,6 +167,16 @@ TT_TEST(octave_and_fine_tune_shift_pitch)
     }
 }
 
+/* osc2's coarse tune moves it by whole semitones: +7 is a fifth up. */
+TT_TEST(osc2_coarse_tune_shifts_by_semitones)
+{
+    double want = RATE / (note_hz(57) * pow(2.0, 7 / 12.0));
+    osc_init();
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7), FM_OK);
+    TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
+}
+
 /*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
@@ -705,6 +715,7 @@ static void run_osc_tests(void)
     TT_RUN(pulse_width_outside_its_range_is_clamped);
     TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
+    TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(tuned_increment_matches_exact_pitch);
     TT_RUN(octave_shifts_keep_their_ratio_at_the_extremes);
     TT_RUN(retuning_a_held_note_takes_effect);

@@ -64,6 +64,7 @@ typedef enum {
     FM_PARAM_LFO_PW_PCT,      /* pulse width depth, percent of a cycle each way */
     FM_PARAM_OSC_SYNC,    /* 1: osc2 restarts with every cycle of osc1 */
     FM_PARAM_OSC_XMOD,    /* per mille: osc1 bends osc2's frequency by up to +-100 % */
+    FM_PARAM_OSC2_COARSE_SEMIS, /* -12..+12 semitones, on top of osc2's octave and fine */
     FM_PARAM_COUNT
 } fm_param_id;
 
