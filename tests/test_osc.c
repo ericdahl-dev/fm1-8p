@@ -327,6 +327,25 @@ TT_TEST(mix_env_fades_osc2_in_with_the_envelope)
     TT_CHECK(amp[0] < amp[3] * 0.15);
 }
 
+/* Negative depth fades osc2 out: mix 1000 and depth -1000 end on osc1 alone. */
+TT_TEST(mix_env_negative_depth_fades_osc2_out)
+{
+    double hz2 = note_hz(57) * pow(2.0, 7 / 12.0), early, late;
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, -1000);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, RATE + 4096);
+    early = tone_amp(buf + 2 * 2205, 2048, 0, hz2, RATE);
+    late = tone_amp(buf + 2 * (RATE + 1000), 2048, 0, hz2, RATE);
+    printf("    osc2 with depth -1000: %.0f early, %.0f after the attack\n", early, late);
+    TT_CHECK(early > 8000);
+    TT_CHECK(late < early * 0.02);
+}
+
 /*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
@@ -911,6 +930,7 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_back_to_zero_restores_the_fixed_mix);
     TT_RUN(mix_env_zero_matches_the_fixed_mix);
     TT_RUN(mix_env_fades_osc2_in_with_the_envelope);
+    TT_RUN(mix_env_negative_depth_fades_osc2_out);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
