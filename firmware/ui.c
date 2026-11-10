@@ -246,6 +246,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         show_page(u, UI_EDIT);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT))
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);
+    else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && u->state != UI_PLAY)
+        show_page(u, UI_PLAY);
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&
              u->state == UI_EDIT)
         turn(u, id - UI_ENC_KNOB1, arg);

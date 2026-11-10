@@ -228,8 +228,19 @@ TT_TEST(ui_seg7_digits)
     TT_CHECK_EQ(ui_seg7(' '), 0u);
 }
 
+/* HOME tap goes back to PLAY (interaction.md: EDIT --> PLAY on a HOME tap). */
+TT_TEST(ui_home_tap_returns_to_play)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_HOME, 0, 1000);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_HOME, 0, 1100);
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_home_tap_returns_to_play);
     TT_RUN(ui_page_strip_fills_the_rule);
     TT_RUN(ui_seg7_digits);
     TT_RUN(ui_column_value_is_short);

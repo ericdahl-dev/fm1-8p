@@ -12,6 +12,7 @@
 #define UI_EV_ENC      0x03000000u
 #define UI_BTN_ENV     4u
 #define UI_BTN_EDIT    6u
+#define UI_BTN_HOME    8u
 #define UI_ENC_KNOB1   2u
 #define UI_ENC_KNOB2   3u
 #define UI_ENC_KNOB3   4u
