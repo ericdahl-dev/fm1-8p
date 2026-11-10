@@ -457,10 +457,9 @@ TT_TEST(mix_env_off_settles_at_the_fixed_mix)
 /*
  * After depth back to 0 from the edge (mix 0 plus depth +1000: osc2 alone)
  * and its glide, the voice renders exactly as one that never had the mix
- * envelope, and nothing of the mix envelope is left to keep it off the
- * plain path (render_plain's conditions: depth, a glide step, the mix away
- * from osc_mix). A step left pushing against the 0..1.0 clamp sounds right
- * but costs the full path for good.
+ * envelope, and the voice is back at rest (fm_voice_busy): a glide step
+ * left pushing against the 0..1.0 clamp sounds right but costs the full
+ * path for good.
  */
 TT_TEST(mix_env_off_renders_as_never_set)
 {
@@ -474,9 +473,7 @@ TT_TEST(mix_env_off_renders_as_never_set)
     for (i = 2 * (4410 + 64); i < 2 * 8820; i++)
         if (a[i] != c[i]) same = 0;
     TT_CHECK(same);
-    TT_CHECK_EQ(v->mix_env, 0);
-    TT_CHECK_EQ(v->mix_step, 0);
-    TT_CHECK_EQ(v->osc.mix, v->mix_base);
+    TT_CHECK_EQ(fm_voice_busy(v), 0);
 }
 
 /*

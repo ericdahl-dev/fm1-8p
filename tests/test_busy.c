@@ -53,9 +53,35 @@ TT_TEST(busy_filter_back_to_a_wire_rests)
     TT_CHECK_EQ(fm_voice_busy(v), 0);
 }
 
+/* Mix glide: the mix envelope on makes the voice busy; depth back to 0, it
+ * rests once the glide lands. Both #65 cases: a glide landing exactly on
+ * osc_mix (mix 500, depth 500) and one pushing at the clamp (mix 0, depth
+ * +1000 plays osc2 alone). */
+TT_TEST(busy_mix_env_back_to_zero_rests)
+{
+    static const int32_t cases[][2] = { { 500, 500 }, { 0, 1000 } };
+    size_t k;
+    for (k = 0; k < sizeof cases / sizeof cases[0]; k++) {
+        const fm_voice *v;
+        fm_engine_init(&beng, 44100u, 1);
+        fm_engine_set_param(&beng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+        fm_engine_set_param(&beng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+        fm_engine_set_param(&beng, FM_PARAM_OSC_MIX, cases[k][0]);
+        fm_engine_set_param(&beng, FM_PARAM_OSC_MIX_ENV, cases[k][1]);
+        fm_engine_note_on(&beng, 57, 100);
+        fm_engine_render(&beng, bbuf, 4410);
+        v = &beng.voices[0];
+        TT_CHECK(fm_voice_busy(v) != 0);
+        fm_engine_set_param(&beng, FM_PARAM_OSC_MIX_ENV, 0);
+        fm_engine_render(&beng, bbuf, 64);
+        TT_CHECK_EQ(fm_voice_busy(v), 0);
+    }
+}
+
 static void run_busy_tests(void)
 {
     TT_RUN(busy_default_patch_is_at_rest);
     TT_RUN(busy_filter_env_amount_back_to_zero_rests);
     TT_RUN(busy_filter_back_to_a_wire_rests);
+    TT_RUN(busy_mix_env_back_to_zero_rests);
 }
