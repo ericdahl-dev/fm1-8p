@@ -273,6 +273,31 @@ TT_TEST(pitch_bend_shifts_pitch_by_its_range)
     TT_CHECK_NEAR(cents_from(57), 0, 1);
 }
 
+/*
+ * Every voice on at max velocity, full sustain and no attack, in
+ * octaves: all saws start together and wrap together, so their peaks
+ * line up, the worst case for the sum. No sample may reach full scale.
+ */
+TT_TEST(full_chord_at_max_velocity_never_clips)
+{
+    uint8_t voices;
+    for (voices = 1; voices <= FM_MAX_VOICES; voices++) {
+        size_t i;
+        int clipped = 0, n;
+        init_poly(voices);
+        fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 0);
+        for (n = 0; n < voices; n++)
+            fm_engine_note_on(&poly, (uint8_t)(24 + 12 * n), 127);
+        fm_engine_render(&poly, pbuf, PRATE);
+        for (i = 0; i < 2 * PRATE; i++)
+            if (pbuf[i] >= 32767 || pbuf[i] <= -32767) clipped = 1;
+        TT_CHECK(!clipped);
+        /* headroom left for filter resonance and chorus: -6 dBFS */
+        TT_CHECK(peak_abs(pbuf, 0, PRATE) <= 16384);
+        TT_CHECK(peak_abs(pbuf, 0, PRATE) > 16384 * 9 / 10);
+    }
+}
+
 static void run_poly_tests(void)
 {
     TT_RUN(every_note_of_a_full_chord_sounds);
@@ -284,4 +309,5 @@ static void run_poly_tests(void)
     TT_RUN(repeated_note_reuses_its_voice);
     TT_RUN(sustain_pedal_holds_released_notes_until_it_comes_up);
     TT_RUN(pitch_bend_shifts_pitch_by_its_range);
+    TT_RUN(full_chord_at_max_velocity_never_clips);
 }
