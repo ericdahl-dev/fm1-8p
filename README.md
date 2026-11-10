@@ -109,8 +109,13 @@ their velocity; OCT- and OCT+ move the octave, each key lights while held) and M
 off, sustain CC 64, pitch bend; any channel, from whatever fm1-dock takes in: USB, Bluetooth or the
 jack) play the engine on 4 voices (`PLAY_VOICES` in `firmware/play.h`) with one default patch (the
 `PATCH` table in `firmware/play.c`: the engine's defaults plus a gentle filter envelope, the slow
-chorus and amp velocity). The screen shows the name, the voice count and the last note played. The
+chorus and amp velocity). The PLAY screen shows the name and the last note played, with the voice count in the footer. The
 key and MIDI mapping is plain C (`firmware/play.[ch]`), tested on the desktop by `make test`.
+
+ENV opens page 4A, VCF (`docs/ui/interaction.md`), drawn in `docs/ui/visual.md`'s Night Panel
+theme: KNOB1-4 set CUTOFF, RESO, ENV and KEY, and EDIT goes back to the PLAY screen. The keys play
+on every page. What the knobs do, how values read, the meter, the filter curve and what to redraw
+are plain C in `firmware/ui.[ch]`, also tested by `make test`; the module draws what it says.
 
 ## FM-1 CPU-test firmware
 
