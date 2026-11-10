@@ -16,6 +16,8 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_AMP_SUSTAIN,    "amp_sustain_permille", 0, 1000, 700 },
     { FM_PARAM_AMP_RELEASE_MS, "amp_release_ms",      0, 10000,  300 },
     { FM_PARAM_BEND_RANGE,     "bend_range_semitones", 0,   24,    2 },
+    { FM_PARAM_VOICE_MODE,     "voice_mode",          0,     1,    0 },
+    { FM_PARAM_UNISON_DETUNE_CENTS, "unison_detune_cents", 0, 100, 20 },
     { FM_PARAM_OSC1_WAVE,      "osc1_wave",           0, FM_WAVE_COUNT - 1, FM_WAVE_SAW },
     { FM_PARAM_OSC1_PULSE_WIDTH_PCT, "osc1_pulse_width_pct", 1, 99, 50 },
     { FM_PARAM_OSC1_OCTAVE,    "osc1_octave",        -2,    2,    0 },

@@ -38,16 +38,22 @@ static void start(fm_voice *v, uint32_t sample_rate)
     if (!v->key_down && !v->sustained) v->gate_left = v->wait ? v->wait : 1;
 }
 
+/* The voice now plays `note` at `pitch`, held by its key. */
+static void hold(fm_voice *v, uint8_t note, int32_t pitch)
+{
+    v->note = note;
+    v->key_down = 1;
+    v->sustained = 0;
+    v->gate_left = 0;
+    v->next_pitch = pitch;
+}
+
 void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch,
                       uint32_t sample_rate, uint32_t fade_samples)
 {
     int same = fm_voice_active(v) && v->note == note;
     uint8_t old = v->note;
-    v->note = note;
-    v->key_down = 1;
-    v->sustained = 0;
-    v->next_pitch = pitch;
-    v->gate_left = 0;
+    hold(v, note, pitch);
     if (v->pending) return; /* starts when the fade ends */
     if (same || v->amp_env.stage == FM_ENV_IDLE) {
         start(v, sample_rate);
@@ -61,12 +67,19 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch,
 
 void fm_voice_take_back(fm_voice *v, int32_t pitch, uint32_t sample_rate)
 {
-    v->note = v->old_note;
-    v->key_down = 1;
-    v->sustained = 0;
-    v->gate_left = 0;
-    v->next_pitch = pitch;
+    hold(v, v->old_note, pitch);
     start(v, sample_rate);
+}
+
+void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
+                          uint32_t sample_rate, int retrigger)
+{
+    hold(v, note, pitch);
+    if (v->pending) return; /* starts when the fade ends */
+    v->pitch = pitch;
+    fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
+    if (retrigger || v->amp_env.stage == FM_ENV_IDLE)
+        fm_env_gate_on(&v->amp_env);
 }
 
 void fm_voice_key_up(fm_voice *v, int pedal_down)

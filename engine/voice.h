@@ -17,6 +17,10 @@
 #include "env.h"
 #include "osc.h"
 
+/* `note` of a voice left sounding by a voice-mode switch: it belongs to
+ * no key, so no note on reuses it and no bend retunes it. */
+#define FM_VOICE_NO_NOTE 0xFF
+
 typedef struct {
     fm_osc_pair osc;
     fm_env amp_env;
@@ -57,6 +61,17 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch,
  * waiting for the fade is dropped; the caller can give it another voice.
  */
 void fm_voice_take_back(fm_voice *v, int32_t pitch, uint32_t sample_rate);
+
+/*
+ * Moves the voice to `note` at `pitch` (Q16.16 semitones) without a steal fade (unison mode,
+ * where every voice follows one note). The oscillator keeps its phase,
+ * so the pitch changes without a jump. With `retrigger` the envelope
+ * restarts its attack from the current level; without, it carries on
+ * (legato), unless the voice was idle. A voice still fading out a stolen
+ * poly note starts `note` when the fade ends.
+ */
+void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
+                          uint32_t sample_rate, int retrigger);
 
 /* The key came up: hold the note if the pedal is down, else release. */
 void fm_voice_key_up(fm_voice *v, int pedal_down);
