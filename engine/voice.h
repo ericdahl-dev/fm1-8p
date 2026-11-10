@@ -62,6 +62,7 @@ typedef struct {
                              * stepped while the amount is 0 */
     int32_t mix_base;       /* osc_mix, Q1.30 */
     int32_t mix_env;        /* the envelope's share of the mix, Q1.30, signed */
+    int32_t mix_step;       /* the mix's glide each sample to its next target */
 } fm_voice;
 
 /* What the LFO does to every voice, set by the engine from the patch. */

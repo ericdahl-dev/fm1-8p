@@ -175,6 +175,7 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_OSC_MIX:
         for (i = 0; i < FM_MAX_VOICES; i++) {
             e->voices[i].mix_base = permille_to_q30(v);
+            e->voices[i].mix_step = 0;
             fm_osc_pair_set_mix(&e->voices[i].osc, e->voices[i].mix_base);
         }
         return;
@@ -185,9 +186,7 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_OSC_MIX_ENV:
         for (i = 0; i < FM_MAX_VOICES; i++) {
             fm_voice_sync_filter_env(&e->voices[i]); /* stepped from now on */
-            e->voices[i].mix_env = permille_to_q30(v);
-            if (!v) /* off: back to the fixed mix */
-                fm_osc_pair_set_mix(&e->voices[i].osc, e->voices[i].mix_base);
+            e->voices[i].mix_env = permille_to_q30(v); /* off: glides back to osc_mix */
         }
         return;
     default:

@@ -372,6 +372,48 @@ TT_TEST(mix_env_can_follow_the_amp_envelope)
     TT_CHECK(late > early * 4);
 }
 
+/* Note 57 with osc2 an octave up, the filter envelope full at once, the
+ * given mix; the mix envelope set to `depth` after `at` frames. */
+static void render_mix_step(int16_t *out, int32_t mix, uint32_t at, int32_t depth)
+{
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, out, at);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
+    fm_engine_render(&eng, out + 2 * at, 4410 - at);
+}
+
+/*
+ * No click when the depth changes on a held note: the mix glides instead of
+ * jumping. The output is osc1 + (osc2 - osc1) * m, so m can be read off
+ * against renders of each alone (where they differ enough to read it); it
+ * moves at most 1/16 of the way a sample (a control period's glide).
+ */
+TT_TEST(mix_env_depth_change_glides_without_a_click)
+{
+    static int16_t a[2 * 4410], b[2 * 4410];
+    double prev = 0, worst = 0;
+    size_t i, prev_i = 0;
+    render_mix_step(a, 0, 4410, 0);
+    render_mix_step(b, 1000, 4410, 0);
+    render_mix_step(buf, 0, 2264, 1000); /* where osc1 and osc2 differ most */
+    for (i = 2264 - 64; i < 2264 + 256; i++) {
+        double d = (double)b[2 * i] - a[2 * i], m;
+        if (d > -3000 && d < 3000) continue; /* too close to read m */
+        m = (buf[2 * i] - a[2 * i]) / d;
+        if (prev_i && fabs(m - prev) / (double)(i - prev_i) > worst)
+            worst = fabs(m - prev) / (double)(i - prev_i);
+        prev = m;
+        prev_i = i;
+    }
+    printf("    largest mix move per sample after a depth change: %.3f\n", worst);
+    TT_CHECK(worst <= 1.0 / 16 + 0.01);
+}
+
 /*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
@@ -958,6 +1000,7 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_fades_osc2_in_with_the_envelope);
     TT_RUN(mix_env_negative_depth_fades_osc2_out);
     TT_RUN(mix_env_can_follow_the_amp_envelope);
+    TT_RUN(mix_env_depth_change_glides_without_a_click);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
