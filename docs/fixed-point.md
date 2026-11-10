@@ -74,9 +74,11 @@ resonant 4-pole (24 dB/octave) lowpass.
   high cutoffs, so the one-sample delay in the feedback made the loop buzz at
   Nyquist there, and stay below self-oscillation at the bottom. With it,
   resonance 1000 self-oscillates close to the cutoff and never at Nyquist.
-  At 44.1 kHz the ringing is 0 to 12 cents flat of the cutoff up to 1.5 kHz,
-  63 cents flat at 3.5 kHz, and further flat above that (7.1 kHz for an
-  8.4 kHz cutoff); the test holds it within a semitone below 4 kHz. Cutoffs
+  Measured at 44.1 kHz (an impulse, then zero crossings 6 to 8 s later), the
+  ringing is within 2 cents of the cutoff from 16 Hz to 440 Hz (+1.7 cents at
+  16 Hz, -0.6 at 440 Hz), then increasingly flat: 4 cents at 880 Hz, 12 at
+  1.5 kHz, 23 at 2.1 kHz, 63 at 3.5 kHz and 286 at 8.4 kHz (it rings at
+  7.1 kHz). The test holds it within a semitone below 4 kHz. Cutoffs
   above Nyquist ring at about fs/4 (11 kHz at 44.1 kHz) until the top-of-range
   fade silences the feedback. At the bottom, the self-oscillation sustains
   from about 15 Hz at 44.1 or 48 kHz and from about 33 Hz at 192 kHz; below
@@ -88,7 +90,8 @@ resonant 4-pole (24 dB/octave) lowpass.
   fixed level (about 0.83 of full scale at mid cutoffs).
 - **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
   env_amount * env_level`, all in cents, computed every 16 samples (a
-  2.8 kHz control rate at 44.1 kHz), not per sample. The coefficient is the
+  2.8 kHz control rate at 44.1 kHz), not per sample. Key tracking follows the
+  MIDI note number only: pitch bend moves the oscillator but not the cutoff. The coefficient is the
   matched-pole `g = 1 - e^(-2 pi fc / fs)`, worked out from two small
   tables (`tools/gen_filter_tables.py`): `2^(cents / 1200)` in 16-cent steps,
   and `(1 - e^-x) / x`, both linearly interpolated. The sample rate's own

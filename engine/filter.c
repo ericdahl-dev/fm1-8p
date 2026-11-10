@@ -13,7 +13,8 @@
  * stages lag too little in phase at high cutoffs and the one-sample delay
  * in the feedback makes the loop oscillate at Nyquist; with it the loop
  * self-oscillates near the cutoff, at a feedback close to 4 (as in the
- * analog ladder), from the bass up to the top of the range. Across the
+ * analog ladder), over most of the range (flat at high cutoffs; at the
+ * lowest cutoffs it rings down; see docs/fixed-point.md). Across the
  * top FADE_CENTS of the cutoff range w, the feedback and 1 - g fade to
  * zero, so the fully open filter is an exact wire.
  *
@@ -71,7 +72,9 @@ static const uint32_t h_tab[65] = {
 #define FADE_CENTS   600
 #define W_ZERO       (1 << 28)   /* 1/4, Q1.30: the zero at z = -1/3 */
 /* Feedback at resonance 1000, per mille, Q4.28: 4.2 / 1000. Just above
- * the loop's self-oscillation threshold (3.4 .. 4.2 across the range). */
+ * the loop's self-oscillation threshold, which in theory is about 4.0
+ * over most of the range and falls to about 3.4 toward Nyquist. At the
+ * lowest cutoffs (below about 15 Hz at 44.1 kHz) 4.2 is not enough. */
 #define K_PER_MILLE  1127429
 #define OCTAVE       1200
 /* Offset that makes pitch differences non-negative before / and %. */
