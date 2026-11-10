@@ -107,7 +107,8 @@ deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
 are scaled down together to fit (rate and shape are kept). At very low rates
 the center is raised so the nearest tap stays at least one sample back.
 Turning the chorus on from off starts from a silent line, so no stale audio
-plays.
+plays. Switching between two "on" modes while sound is playing jumps the tap
+delays at once (there is no crossfade), so it can click.
 
 `tests/test_chorus.c` measures each mode's rate, center and sweep by passing a
 slow ramp through the module. Linear interpolation of a ramp is exact, so each

@@ -59,6 +59,8 @@ void fm_chorus_init(fm_chorus *c, uint32_t sample_rate);
 /*
  * Selects a mode; an unknown mode, or a zero sample rate, turns the
  * chorus off. Turning it on from off starts from a silent delay line.
+ * Switching between two "on" modes jumps the tap delays at once (no
+ * crossfade), so it can click while sound is playing.
  */
 void fm_chorus_set_mode(fm_chorus *c, uint8_t mode);
 

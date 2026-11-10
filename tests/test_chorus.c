@@ -259,10 +259,14 @@ TT_TEST(chorus_output_stays_bounded_for_eight_full_scale_voices)
 }
 
 /*
- * Through the engine at the full voice count: loudest settings, every
- * mode. The chorus must not raise the peak over chorus off.
+ * Through the engine, initialized for FM_MAX_VOICES, at the loudest
+ * settings in every mode: the chorus must not raise the peak over chorus
+ * off. Until polyphony (#4) lands the engine plays one voice whatever the
+ * count, so this is a single-voice check; the polyphony slice must extend
+ * it to hold FM_MAX_VOICES notes at once. The eight-voice worst case is
+ * covered at the module level above.
  */
-TT_TEST(chorus_engine_output_stays_bounded_at_full_voice_count)
+TT_TEST(chorus_engine_peak_does_not_rise_single_voice_until_polyphony)
 {
     int mode, peak_off = 0;
     for (mode = 0; mode < FM_CHORUS_MODE_COUNT; mode++) {
@@ -401,7 +405,7 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_on_makes_left_and_right_differ_for_a_mono_voice);
     TT_RUN(chorus_modes_differ_in_rate_and_depth);
     TT_RUN(chorus_output_stays_bounded_for_eight_full_scale_voices);
-    TT_RUN(chorus_engine_output_stays_bounded_at_full_voice_count);
+    TT_RUN(chorus_engine_peak_does_not_rise_single_voice_until_polyphony);
     TT_RUN(chorus_handles_extreme_rates_and_unknown_modes);
     TT_RUN(chorus_memory_is_fixed_and_small);
     TT_RUN(chorus_delay_line_clamps_hot_input_to_two);
