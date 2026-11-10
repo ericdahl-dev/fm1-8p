@@ -594,13 +594,13 @@ TT_TEST(chorus_reinit_then_on_starts_from_a_silent_line)
 }
 
 /*
- * fm_engine's documented size (fm1_8p.h: about 4.0 KiB, static storage
+ * fm_engine's documented size (fm1_8p.h: about 4.1 KiB, static storage
  * recommended). Growing past this budget must update that comment.
  */
 TT_TEST(engine_storage_stays_within_its_documented_size)
 {
     printf("    sizeof(fm_engine) = %u bytes\n", (unsigned)sizeof(fm_engine));
-    TT_CHECK(sizeof(fm_engine) <= 4200);
+    TT_CHECK(sizeof(fm_engine) <= 4300);
     TT_CHECK(sizeof(fm_engine) > sizeof(fm_chorus));
 }
 

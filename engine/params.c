@@ -34,6 +34,8 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_LFO_PITCH_CENTS, "lfo_pitch_cents",    0,  1200,    0 },
     { FM_PARAM_AMP_VELOCITY,   "amp_velocity_pct",    0,   100,    0 },
     { FM_PARAM_LFO_PW_PCT,     "lfo_pw_pct",          0,    49,    0 },
+    { FM_PARAM_OSC_SYNC,       "osc_sync",            0,     1,    0 },
+    { FM_PARAM_OSC_XMOD,       "osc_xmod_permille",   0, 1000,    0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)
