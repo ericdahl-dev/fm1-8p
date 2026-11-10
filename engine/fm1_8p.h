@@ -33,6 +33,7 @@ typedef enum {
     FM_PARAM_AMP_SUSTAIN, /* per mille of full level, 0..1000 */
     FM_PARAM_AMP_RELEASE_MS,
     FM_PARAM_OSC1_WAVE, /* fm_wave: 0 saw, 1 pulse, 2 square, 3 noise */
+    FM_PARAM_OSC1_PULSE_WIDTH_PCT, /* pulse duty, percent of a cycle */
     FM_PARAM_COUNT
 } fm_param_id;
 

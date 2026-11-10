@@ -32,7 +32,38 @@ TT_TEST(square_renders_at_note_pitch)
     TT_CHECK_NEAR(held_period(69), want, want * 0.0006); /* 1 cent */
 }
 
+/*
+ * Fraction of samples above zero over whole cycles. The pulse has no DC
+ * (it sits at +2(1 - w) for a fraction w of the cycle and -2w for the
+ * rest), so this is its duty cycle.
+ */
+static double duty_cycle(const int16_t *stereo, size_t frames)
+{
+    size_t i, high = 0;
+    for (i = 0; i < frames; i++)
+        if (stereo[2 * i] > 0) high++;
+    return (double)high / (double)frames;
+}
+
+TT_TEST(pulse_width_sets_duty_cycle)
+{
+    static const int32_t widths[] = { 10, 25, 50, 75, 90 };
+    size_t k;
+    for (k = 0; k < sizeof widths / sizeof widths[0]; k++) {
+        osc_init();
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT,
+                                        widths[k]), FM_OK);
+        /* 110 Hz is 400.9 samples a cycle; 100 cycles from 0.1 s */
+        fm_engine_note_on(&eng, 45, 100);
+        fm_engine_render(&eng, buf, 4410 + 40091);
+        TT_CHECK_NEAR(duty_cycle(buf + 2 * 4410, 40091), widths[k] / 100.0,
+                      0.005);
+    }
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(square_renders_at_note_pitch);
+    TT_RUN(pulse_width_sets_duty_cycle);
 }

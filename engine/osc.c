@@ -86,7 +86,13 @@ void fm_osc_pair_reset(fm_osc_pair *p)
     for (i = 0; i < 2; i++) {
         fm_osc_reset(&p->osc[i]);
         p->wave[i] = FM_WAVE_SAW;
+        p->width[i] = 0x80000000u;
     }
+}
+
+void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width)
+{
+    if (which < 2) p->width[which] = width;
 }
 
 void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave)
@@ -101,14 +107,23 @@ void fm_osc_pair_set_note(fm_osc_pair *p, uint8_t note, uint32_t sample_rate)
     fm_osc_set_inc(&p->osc[1], inc);
 }
 
+/* Next sample of oscillator `which`, Q8.24. */
+static int32_t wave_next(fm_osc_pair *p, uint8_t which)
+{
+    fm_osc *o = &p->osc[which];
+    uint32_t t = o->phase;
+    o->phase = t + o->inc;
+    switch (p->wave[which]) {
+    case FM_WAVE_PULSE:
+        return pulse_at(t, o->inc, p->width[which]);
+    case FM_WAVE_SQUARE:
+        return pulse_at(t, o->inc, 0x80000000u);
+    default:
+        return saw_at(t, o->inc);
+    }
+}
+
 int32_t fm_osc_pair_next(fm_osc_pair *p)
 {
-    fm_osc *o = &p->osc[0];
-    int32_t v;
-    if (p->wave[0] == FM_WAVE_SQUARE)
-        v = pulse_at(o->phase, o->inc, 0x80000000u);
-    else
-        v = saw_at(o->phase, o->inc);
-    o->phase += o->inc;
-    return v;
+    return wave_next(p, 0);
 }

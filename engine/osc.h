@@ -40,12 +40,15 @@ typedef enum {
  */
 typedef struct {
     fm_osc osc[2];
-    uint8_t wave[2]; /* fm_wave */
+    uint32_t width[2]; /* pulse duty, Q0.32 of a cycle */
+    uint8_t wave[2];   /* fm_wave */
 } fm_osc_pair;
 
 void fm_osc_pair_reset(fm_osc_pair *p);
 /* Selects oscillator `which`'s (0 or 1) waveform; others are ignored. */
 void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave);
+/* Pulse duty of oscillator `which` as a Q0.32 fraction of a cycle. */
+void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width);
 /* Plays a MIDI note at a sample rate: sets both oscillators' pitch. */
 void fm_osc_pair_set_note(fm_osc_pair *p, uint8_t note, uint32_t sample_rate);
 /* Next mixed sample, Q8.24. */

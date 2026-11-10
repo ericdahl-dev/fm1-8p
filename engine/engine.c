@@ -20,6 +20,12 @@ static uint32_t ms_to_samples(const fm_engine *e, int32_t ms)
     return (uint32_t)(((uint64_t)(uint32_t)ms * e->sample_rate) / 1000u);
 }
 
+/* Percent (0..100) to a Q0.32 fraction; 2^32 / 100 rounded. */
+static uint32_t pct_to_q32(int32_t pct)
+{
+    return (uint32_t)pct * 42949673u;
+}
+
 /* Recomputes the derived settings a parameter feeds. */
 static void apply_param(fm_engine *e, uint16_t id)
 {
@@ -40,6 +46,9 @@ static void apply_param(fm_engine *e, uint16_t id)
         break;
     case FM_PARAM_OSC1_WAVE:
         fm_osc_pair_set_wave(&e->osc, 0, (uint8_t)v);
+        break;
+    case FM_PARAM_OSC1_PULSE_WIDTH_PCT:
+        fm_osc_pair_set_width(&e->osc, 0, pct_to_q32(v));
         break;
     default:
         break;
