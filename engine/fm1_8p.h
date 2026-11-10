@@ -16,10 +16,11 @@
 
 #include <stdint.h>
 
-#include "env.h"
-#include "osc.h"
+#include "voice.h"
 
 #define FM_MAX_VOICES 8
+/* Frames mixed at a time inside fm_engine_render (any block size works). */
+#define FM_MIX_FRAMES 64
 
 typedef enum {
     FM_OK = 0,
@@ -46,17 +47,6 @@ typedef struct {
 const fm_param_info *fm_param_info_get(uint16_t id);
 
 typedef struct {
-    fm_osc osc;
-    fm_env amp_env;
-    uint32_t stamp;    /* engine event count at the last note on or off */
-    uint32_t next_inc; /* pitch of `note` while the old note fades */
-    uint8_t note;
-    uint8_t key_down;
-    uint8_t sustained; /* key up, held by the sustain pedal */
-    uint8_t pending;   /* fading out a stolen note; `note` starts after */
-} fm_voice;
-
-typedef struct {
     uint32_t sample_rate;
     uint8_t voice_count;
     int32_t params[FM_PARAM_COUNT];
@@ -67,6 +57,7 @@ typedef struct {
     int32_t bend_value;    /* last pitch bend, -8192..8191 from center */
     int32_t bend;          /* Q16.16 semitones added to every note */
     fm_voice voices[FM_MAX_VOICES];
+    int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
 } fm_engine;
 
 /*

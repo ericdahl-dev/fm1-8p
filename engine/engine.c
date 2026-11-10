@@ -33,11 +33,8 @@ static uint32_t note_inc(const fm_engine *e, uint8_t note)
 static void retune(fm_engine *e)
 {
     uint8_t i;
-    for (i = 0; i < e->voice_count; i++) {
-        fm_voice *v = &e->voices[i];
-        v->next_inc = note_inc(e, v->note);
-        if (!v->pending) fm_osc_set_inc(&v->osc, v->next_inc);
-    }
+    for (i = 0; i < e->voice_count; i++)
+        fm_voice_set_inc(&e->voices[i], note_inc(e, e->voices[i].note));
 }
 
 /* MIDI bend (-8192..8191 from center) to Q16.16 semitones: exact, since
@@ -97,16 +94,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend = 0;
     e->bend_value = 0;
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
-    for (i = 0; i < FM_MAX_VOICES; i++) {
-        fm_osc_reset(&e->voices[i].osc);
-        fm_env_reset(&e->voices[i].amp_env);
-        e->voices[i].note = 0;
-        e->voices[i].key_down = 0;
-        e->voices[i].stamp = 0;
-        e->voices[i].next_inc = 0;
-        e->voices[i].pending = 0;
-        e->voices[i].sustained = 0;
-    }
+    for (i = 0; i < FM_MAX_VOICES; i++) fm_voice_reset(&e->voices[i]);
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         e->params[id] = fm_param_info_get(id)->def;
         apply_param(e, id);
@@ -130,22 +118,11 @@ int32_t fm_engine_get_param(const fm_engine *e, uint16_t id)
     return (e && id < FM_PARAM_COUNT) ? e->params[id] : 0;
 }
 
-/* Starts the voice's note from silence (or retriggers it). */
-static void start_note(fm_voice *v)
+/* Releases a voice's note and ages it from now. */
+static void release(fm_engine *e, fm_voice *v)
 {
-    v->pending = 0;
-    fm_osc_set_inc(&v->osc, v->next_inc);
-    fm_env_gate_on(&v->amp_env);
-    if (!v->key_down && !v->sustained) fm_env_gate_off(&v->amp_env);
-}
-
-/* Lets go of a voice's note: it releases now, or once its fade ends. */
-static void release_voice(fm_engine *e, fm_voice *v)
-{
-    v->key_down = 0;
-    v->sustained = 0;
     v->stamp = ++e->stamp;
-    if (!v->pending) fm_env_gate_off(&v->amp_env);
+    fm_voice_release(v);
 }
 
 /* The sounding voice that has `note`, or null. At most one voice has a
@@ -155,9 +132,7 @@ static fm_voice *find_note(fm_engine *e, uint8_t note)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        if (v->note == note &&
-            (v->amp_env.stage != FM_ENV_IDLE || v->pending))
-            return v;
+        if (v->note == note && fm_voice_active(v)) return v;
     }
     return 0;
 }
@@ -165,7 +140,7 @@ static fm_voice *find_note(fm_engine *e, uint8_t note)
 /* Steal preference: lower ranks are taken first. */
 static int voice_rank(const fm_voice *v)
 {
-    if (v->amp_env.stage == FM_ENV_IDLE) return 0;
+    if (!fm_voice_active(v)) return 0;
     if (v->key_down) return 3;   /* held */
     if (v->sustained) return 2;  /* held by the pedal */
     return 1;                    /* releasing */
@@ -203,21 +178,9 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
     }
     {
         fm_voice *v = find_note(e, note);
-        int retrigger = v != 0;
         if (!v) v = pick_voice(e);
-        v->note = note;
-        v->key_down = 1;
-        v->sustained = 0;
         v->stamp = ++e->stamp;
-        v->next_inc = note_inc(e, note);
-        if (v->pending) {
-            /* already waiting for its fade to end */
-        } else if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
-            start_note(v); /* attack from the current level */
-        } else { /* steal: fade the old note out, start this one after */
-            v->pending = 1;
-            fm_env_fade(&v->amp_env, e->fade_samples);
-        }
+        fm_voice_note_on(v, note, note_inc(e, note), e->fade_samples);
     }
 }
 
@@ -227,13 +190,8 @@ void fm_engine_note_off(fm_engine *e, uint8_t note)
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         if (v->key_down && v->note == note) {
-            if (e->pedal_down) {
-                v->key_down = 0;
-                v->sustained = 1;
-                v->stamp = ++e->stamp;
-            } else {
-                release_voice(e, v);
-            }
+            v->stamp = ++e->stamp;
+            fm_voice_key_up(v, e->pedal_down);
         }
     }
 }
@@ -246,16 +204,13 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
         fm_voice *v = &e->voices[i];
         switch (controller) {
         case 64: /* sustain pedal: up lets go of the notes it held */
-            if (!e->pedal_down && v->sustained) release_voice(e, v);
+            if (!e->pedal_down && v->sustained) release(e, v);
             break;
         case 120: /* all sound off: silent now */
-            fm_env_reset(&v->amp_env);
-            v->pending = 0;
-            v->key_down = 0;
-            v->sustained = 0;
+            fm_voice_silence(v);
             break;
         case 123: /* all notes off: release, even notes the pedal holds */
-            if (v->key_down || v->sustained) release_voice(e, v);
+            if (v->key_down || v->sustained) release(e, v);
             break;
         default:
             break;
@@ -274,8 +229,7 @@ uint8_t fm_engine_active_voices(const fm_engine *e)
 {
     uint8_t i, n = 0;
     for (i = 0; i < e->voice_count; i++)
-        if (e->voices[i].amp_env.stage != FM_ENV_IDLE || e->voices[i].pending)
-            n++;
+        if (fm_voice_active(&e->voices[i])) n++;
     return n;
 }
 
@@ -290,24 +244,21 @@ static int16_t to_int16(int32_t q24)
 
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
 {
-    uint32_t i;
-    for (i = 0; i < frames; i++) {
-        int32_t sum = 0, s;
+    while (frames) {
+        uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES, i;
         uint8_t k;
-        for (k = 0; k < e->voice_count; k++) {
-            fm_voice *v = &e->voices[k];
-            int32_t level, saw;
-            if (v->amp_env.stage == FM_ENV_IDLE) {
-                if (!v->pending) continue;
-                start_note(v); /* a stolen voice has faded out */
-            }
-            level = fm_env_next(&v->amp_env);
-            saw = fm_osc_saw_next(&v->osc);
-            /* Q8.24 * Q1.30 -> Q8.24 */
-            sum += (int32_t)(((int64_t)saw * level) >> 30);
+        for (i = 0; i < n; i++) e->mix[i] = 0;
+        for (k = 0; k < e->voice_count; k++)
+            if (fm_voice_active(&e->voices[k]))
+                fm_voice_render_add(&e->voices[k], e->mix, n);
+        for (i = 0; i < n; i++) {
+            /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
+            int16_t s = to_int16(
+                (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30));
+            out[2 * i] = s;
+            out[2 * i + 1] = s;
         }
-        s = (int32_t)(((int64_t)sum * e->mix_gain) >> 30);
-        out[2 * i] = to_int16(s);
-        out[2 * i + 1] = out[2 * i];
+        out += 2 * n;
+        frames -= n;
     }
 }
