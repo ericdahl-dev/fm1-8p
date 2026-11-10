@@ -310,7 +310,7 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
  */
 uint32_t fm_voice_busy(const fm_voice *v)
 {
-    return v->env_amount || v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
+    return v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
            v->busy || v->pending || v->gate_left ||
            !fm_filter_is_wire(&v->filter);
 }

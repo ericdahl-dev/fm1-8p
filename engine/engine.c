@@ -295,6 +295,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
             vc->env_amount = v;
+            fm_voice_mark(vc, FM_BUSY_FILTER_ENV, v != 0);
             fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         default:

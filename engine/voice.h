@@ -166,7 +166,8 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
  * rest and clears it when it returns. A voice with none set (and sounding)
  * renders on the fast path.
  */
-#define FM_BUSY_CUTOFF 0x01u /* a setting or the note changed the cutoff */
+#define FM_BUSY_CUTOFF 0x01u     /* a setting or the note changed the cutoff */
+#define FM_BUSY_FILTER_ENV 0x02u /* the filter envelope moves the cutoff */
 
 /* Sets or clears busy bit(s) `bits` of voice `v`. */
 static inline void fm_voice_mark(fm_voice *v, uint8_t bits, int on)
