@@ -205,10 +205,13 @@ and does the filter's bookkeeping (its last sample, the envelope's lag, the
 control phase) once at the end. That loop calls nothing but those two: any
 other call in it costs a voice about 15 %, because the compiler must then
 reload the voice's fields every sample. It relies on the oscillator pair
-peaking within the soft clip's untouched +-2.0 (it peaks at 1.0;
-`extreme_osc_settings_stay_bounded_and_release` holds it there).
-`open_filter_without_envelope_matches_the_full_render` checks it against
-the full loop bit for bit, through setting changes on a control tick.
+peaking within the soft clip's untouched +-2.0 (it peaks at 1.0, with sync
+and cross-mod too; `extreme_osc_settings_stay_bounded_and_release` and
+`max_xmod_and_sync_stay_in_range` hold it there).
+`open_filter_without_envelope_matches_the_full_render` (and
+`open_filter_with_sync_and_xmod_matches_the_full_render`, with osc2 synced
+and fully cross-modulated) checks it against the full loop bit for bit,
+through setting changes on a control tick.
 
 `make bench` on a desktop i5-8350U (default patch, ns per voice and sample,
 pinned to one core, the best of seven interleaved runs): before the filter

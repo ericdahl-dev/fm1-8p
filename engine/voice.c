@@ -289,7 +289,9 @@ static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
         if (v->amp_env.stage == FM_ENV_IDLE) break; /* the release ended */
         level = fm_env_next(&v->amp_env);
         /* the wire: the pair peaks at 1.0, inside the soft clip's
-         * untouched +-2.0 (extreme_osc_settings_stay_bounded_and_release) */
+         * untouched +-2.0, sync and cross-mod included
+         * (extreme_osc_settings_stay_bounded_and_release,
+         * max_xmod_and_sync_stay_in_range) */
         last = fm_osc_pair_next(&v->osc);
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)last * level) >> 30);

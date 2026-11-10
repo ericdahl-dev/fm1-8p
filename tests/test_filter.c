@@ -1293,6 +1293,49 @@ TT_TEST(open_filter_without_envelope_matches_the_full_render)
     TT_CHECK(peak_abs(fbuf_a, 0, 4096) > 100); /* still sounding */
 }
 
+/*
+ * The same with osc2 synced and cross-modulated hard (and both
+ * oscillators heard, on a pulse and a saw): the render's cheapest path
+ * passes the pair's output straight through, which needs the pair to stay
+ * inside the soft clip's untouched +-2.0 (max_xmod_and_sync_stay_in_range
+ * holds it at 1.0), so it must match the full path bit for bit.
+ */
+TT_TEST(open_filter_with_sync_and_xmod_matches_the_full_render)
+{
+    static fm_engine a, b;
+    static const uint32_t blocks[] = { 1, 15, 64, 333, 1000, 4096 };
+    int k, same = 1;
+    for (k = 0; k < 2; k++) {
+        fm_engine *e = k ? &b : &a;
+        fm_engine_init(e, FRATE, 4);
+        fm_engine_set_param(e, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
+        fm_engine_set_param(e, FM_PARAM_OSC2_OCTAVE, 1);
+        fm_engine_set_param(e, FM_PARAM_OSC2_FINE_CENTS, -30);
+        fm_engine_set_param(e, FM_PARAM_OSC_MIX, 600);
+        fm_engine_set_param(e, FM_PARAM_OSC_SYNC, 1);
+        fm_engine_set_param(e, FM_PARAM_OSC_XMOD, 1000);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_DECAY_MS, 3000);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, k * 1200);
+        fm_engine_note_on(e, 36, 127);
+        fm_engine_note_on(e, 79, 64);
+    }
+    for (k = 0; k < 6; k++) {
+        size_t n = blocks[k];
+        fm_engine_render(&a, fbuf_a, n);
+        fm_engine_render(&b, fbuf_b, n);
+        if (memcmp(fbuf_a, fbuf_b, n * 4) != 0) same = 0;
+        if (k == 2) { /* 80 frames: on a control tick */
+            fm_engine_set_param(&a, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 1200);
+            fm_engine_set_param(&a, FM_PARAM_FILTER_CUTOFF_CENTS, 9000);
+            fm_engine_set_param(&b, FM_PARAM_FILTER_CUTOFF_CENTS, 9000);
+        }
+    }
+    TT_CHECK(same);
+    TT_CHECK(peak_abs(fbuf_a, 0, 4096) > 100); /* still sounding */
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -1328,4 +1371,5 @@ static void run_filter_tests(void)
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
+    TT_RUN(open_filter_with_sync_and_xmod_matches_the_full_render);
 }
