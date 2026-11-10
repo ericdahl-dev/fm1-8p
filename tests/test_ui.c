@@ -304,8 +304,22 @@ TT_TEST(ui_focus_value_splits_number_and_unit)
     TT_CHECK(strcmp(n, "34") == 0 && strcmp(u, "") == 0);
 }
 
+/* A redraw goes one band per draw() call, so the main loop gets back to the keys between bands:
+ * the frame first, then the focus row, the curve and the columns, each handed out once. */
+TT_TEST(ui_redraw_goes_one_band_at_a_time)
+{
+    uint32_t pending = UI_D_ALL, k;
+    TT_CHECK_EQ(ui_next_band(&pending), UI_D_FULL);
+    TT_CHECK_EQ(ui_next_band(&pending), UI_D_FOCUS);
+    TT_CHECK_EQ(ui_next_band(&pending), UI_D_SLOT);
+    for (k = 0; k < 4u; k++)
+        TT_CHECK_EQ(ui_next_band(&pending), UI_D_COL(k));
+    TT_CHECK_EQ(ui_next_band(&pending), 0u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_redraw_goes_one_band_at_a_time);
     TT_RUN(ui_focus_value_splits_number_and_unit);
     TT_RUN(ui_full_redraw_takes_the_pending_bits);
     TT_RUN(ui_edit_led_shows_an_edited_patch);

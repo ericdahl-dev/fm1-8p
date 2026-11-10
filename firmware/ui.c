@@ -302,3 +302,10 @@ uint32_t ui_take_full(ui *u, uint32_t ms)
     u->drawn_ms = ms;
     return UI_D_ALL;
 }
+
+uint32_t ui_next_band(uint32_t *pending)
+{
+    uint32_t b = *pending & (0u - *pending);    /* the lowest bit: FULL, FOCUS, SLOT, then the columns */
+    *pending &= ~b;
+    return b;
+}

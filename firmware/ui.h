@@ -51,7 +51,7 @@ typedef struct {
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
 #define UI_D_COL(k) (0x10u << (k))      /* knob column k */
-#define UI_D_ALL    0xFFu               /* all of it */
+#define UI_D_ALL    0xF7u               /* all of it */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
 #define UI_FRAME_MS 33u                 /* redraws are at least this far apart (visual.md: 30 a second) */
 
@@ -88,6 +88,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 uint32_t ui_take(ui *u, uint32_t ms);
 /* the host asked for all of it (draw(full)): UI_D_ALL, and nothing stays pending */
 uint32_t ui_take_full(ui *u, uint32_t ms);
+/* the next band to draw out of pending (UI_D_* bits, in drawing order), taken out of it; 0: none */
+uint32_t ui_next_band(uint32_t *pending);
 /* a button's LED (interaction.md): UI_LED_OFF, UI_LED_LIT or UI_LED_GLOW (dim) */
 enum { UI_LED_OFF = 0, UI_LED_LIT = 1, UI_LED_GLOW = 2 };
 uint32_t ui_led(const ui *u, uint32_t button);
