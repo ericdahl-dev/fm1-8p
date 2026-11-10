@@ -94,11 +94,17 @@ least significant first). Values above 16383 are ignored.
   and the largest value (24 semitones) is about 1.6 million, far inside
   `int32_t`.
 - **Pitch:** each voice's pitch is `note << 16` plus the bend, in Q16.16
-  semitones, clamped to notes 0 to 131. The frequency between two semitones
-  is a straight line between their table entries, which is at most about
-  0.7 cents off the exact exponential curve (in the middle of the semitone)
-  and exact on every semitone. `pitch_bend_shifts_pitch_by_its_range` checks
-  full down, full up, a semitone and an in-between value within 1 cent.
+  semitones; each oscillator adds its own tuning (octave and fine) to it.
+  A pitch outside the table's notes 0 to 131 folds back by whole octaves,
+  with the increment shifted by the same power of two, so intervals stay
+  exact up to the cap just under Nyquist. Between semitones the frequency is
+  the note below times 2^(f/12), by a cubic series (under 0.001 cent off),
+  and it is exact on whole notes (see
+  [fixed-point.md](fixed-point.md#formats)).
+  `pitch_bend_shifts_pitch_by_its_range` checks full down, full up, a
+  semitone and an in-between value within 1 cent;
+  `tuned_increment_matches_exact_pitch` checks every cent over two octaves
+  each way within 0.01 cent.
 - A bend retunes every sounding note at once and applies to new notes. A
   stolen voice's old note keeps its pitch for the 3 ms it is fading.
 - Changing `bend_range_semitones` applies the last bend value again with the
