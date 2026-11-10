@@ -11,7 +11,8 @@
 #   canaries   each module in firmware/canary/ breaks an fm1-dock safety rule; its build must fail
 #   emu        run the CPU test in fm1-emu's strict timing mode; worst load per voice count
 #              into build/fm1/emu-report.md (report only)
-#   emu-play   play a scripted note sequence (keys and MIDI) into FM1-8P in fm1-emu's strict timing
+#   emu-play   play a scripted note sequence (keys and MIDI) into build/fm1/fm1-8p.fwsc (built if
+#              missing) in fm1-emu's strict timing
 #              mode; fails on an overrun (build/fm1/emu-play-report.md)
 #   all        fetch, build, canaries
 #
@@ -366,15 +367,19 @@ EMU_PLAY_KEYS="1000:21,1000:25,1000:28,1000:32,3000:21^,3000:25^,3000:28^,3000:3
 5200:m93306e,5250:m933464,5300:m93375a,5350:m933b50,5400:m933e46,\
 6500:m833000,6500:m833400,6500:m833700,6500:m833b00,6500:m833e00"
 
+# run_emu_play: plays $OUT/fm1-8p.fwsc, the one `build` made (run `build` again after a change); it
+# builds the synth first only when that file isn't there.
 run_emu_play() {
-    check_inputs
-    fetch_emu
+    check_inputs || return 1
+    fetch_emu || return 1
     ulimit -n 8192 2>/dev/null || true
-    mkdir -p "$OUT"
-    build_module fm1_8p fm1-8p "FM1-8P"
+    mkdir -p "$OUT" || return 1
+    if [ ! -f "$OUT/fm1-8p.fwsc" ]; then
+        build_module fm1_8p fm1-8p "FM1-8P" || return 1
+    fi
     emu_rc=0
     (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
-        --fwsc build/fm1-8p.fwsc --ms "$EMU_PLAY_MS" --keys "$EMU_PLAY_KEYS" --out "$OUT/emu-play") \
+        --fwsc "$OUT/fm1-8p.fwsc" --ms "$EMU_PLAY_MS" --keys "$EMU_PLAY_KEYS" --out "$OUT/emu-play") \
         >"$OUT/emu-play.log" 2>&1 || emu_rc=$?
     cat "$OUT/emu-play.log"
     report_rc=0
@@ -407,5 +412,5 @@ case "${1:-}" in
     emu)      run_emu ;;
     emu-play) run_emu_play ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
-    *)        sed -n '2,22s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *)        sed -n '2,23s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac

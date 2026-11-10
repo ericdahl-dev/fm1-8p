@@ -290,6 +290,24 @@ grep -v 'ready' "$T/play.txt" >"$T/play-noinit.txt"
 expect_fail "emu play report fails when the module never started" emu_play_report "$T/play-noinit.txt"
 { cat "$T/play.txt"; echo "5000 too slow: stopped 00000000"; } >"$T/play-slow.txt"
 expect_fail "emu play report fails when the host stopped the module" emu_play_report "$T/play-slow.txt"
+# run_emu_play plays the synth that `build` made: with build/fm1/fm1-8p.fwsc there, nothing is
+# rebuilt and the emulator gets that file. fm1-dock's tools and fm1-live stand in.
+emu_play_with() (
+    ROOT=$(pwd) OUT=$T/epout FM1_DOCK=$T/fp JIELI_TOOLCHAIN=$T/nm/tc FM1_IDENTITY=test
+    FM1_LIVE=$T/live/fm1-live FM1_LIVE_SHA256=0
+    PYTHON=$T/ep-python; printf '#!/bin/sh\necho "$@" >"%s.args"\n' "$PYTHON" >"$PYTHON"; chmod +x "$PYTHON"
+    check_inputs() { :; }
+    fetch_emu() { :; }
+    dock() { echo "$1" >>"$T/ep-dock.calls"; }
+    mkdir -p "$FM1_DOCK" "$OUT"
+    run_emu_play
+)
+mkdir -p "$T/epout" && : >"$T/epout/fm1-8p.fwsc"
+: >"$T/ep-dock.calls"
+emu_play_with >/dev/null 2>&1
+expect_ok "emu-play reuses the built synth: nothing rebuilt" test ! -s "$T/ep-dock.calls"
+expect_ok "... and the emulator gets build/fm1's file" grep -q -- "--fwsc $T/epout/fm1-8p.fwsc" "$T/ep-python.args"
+
 grep -v 'render: last' "$T/play.txt" >"$T/play-nometer.txt"
 emu_play_report "$T/play-nometer.txt" >"$T/play-report.md" 2>&1
 expect_ok "emu play report says why when the render meter is missing" grep -q 'No render meter' "$T/play-report.md"
