@@ -250,7 +250,7 @@ the audio interrupt's stack holds only a few locals whatever the block size.
 The voices take about 1.3 KiB with room for 8 (two oscillators each), and
 unison adds 49 bytes (8 detune offsets and the 16 held keys). With the chorus
 (its 2 KiB delay line and a 256-byte right-side buffer) `fm_engine` is about
-4.0 KiB (4080 bytes on x86-64; the LFO and velocity state of #8 add 416), so
+4.0 KiB (4056 bytes on x86-64; the LFO and velocity state of #8 add 392), so
 static storage is recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per

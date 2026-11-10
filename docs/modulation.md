@@ -48,6 +48,16 @@ them (`block_size_does_not_change_lfo_output` renders blocks of 1, 31, 255,
 cycle still has 46 ticks; the steps of a vibrato are far below what the ear
 hears as zipper noise, and the oscillators keep their phase across each step.
 
+With every depth at 0 the ticks change no sample, so the engine does not
+split its 64-frame mix chunks at them: the ticks a chunk passes run after it
+and only advance the LFO and the tick count, without visiting the voices.
+That keeps the default patch's cost where it was before the LFO existed.
+Once a depth is set (and for one tick after it goes back to 0, to clear the
+offsets) the chunks stop at every tick again.
+`block_size_does_not_change_output_as_depths_come_and_go` turns the depths
+on and off mid-note and checks blocks of 1, 31, 100 and 4096 frames still
+render byte for byte the same.
+
 ## Waveforms
 
 The LFO value is Q1.30, -1.0..+1.0. Its phase is unsigned Q0.32 of a cycle,
@@ -78,7 +88,10 @@ its LFO level drops to zero and is held there for `lfo_delay_ms`, then rises
 in a straight line to full over another `lfo_delay_ms`. With a delay of 0 the
 LFO is at full depth at once. The delay is counted in ticks (rounded down),
 the fade step is `2^30 / delay_ticks`, both computed when the parameter is
-set, so the tick has no divide.
+set, so the tick has no divide. A voice keeps the tick its delay started at,
+not a running counter, so ticks without modulation have nothing to count.
+The start is taken at the voice's first tick with modulation on: for a note
+that starts while every depth is 0, the delay runs from when a depth is set.
 
 A note restruck while its voice still sounds (the same note again in poly,
 a note taken back during a steal fade, a unison retrigger) and a unison
@@ -178,34 +191,38 @@ Filter velocity (velocity also opening the cutoff) lands with the filter
 
 ## Cost
 
-Per control tick (every 32 samples), for the whole engine: one LFO step. Per
-sounding voice per tick: the delay counter or fade step, three 32-by-32
-multiplies into 64 bits (fade, pitch depth, width depth), and only when an
-offset changes, the 2^x quartic (five multiplies) and one multiply per
-oscillator, and for a pulse oscillator the clamp and the Newton reciprocal
-(five multiplies). Velocity adds nothing per sample (one multiply per note on
-and per sustain change, for the sustain target). No divides on the tick.
+Per control tick (every 32 samples), for the whole engine: one LFO step.
+Only while a depth is set, per sounding voice per tick: the delay and fade
+from its start tick (one multiply during the fade), two 32-by-32 multiplies
+into 64 bits (pitch and width depth), and only when an offset changes, the
+2^x quartic (five multiplies) and one multiply per oscillator, and for a
+pulse oscillator the clamp and the Newton reciprocal (five multiplies).
+Velocity adds nothing per sample (one multiply per note on and per sustain
+change, for the sustain target). No divides on the tick.
 
-Measured with `make bench` (`host/bench.c`, the FM-1 CPU test's held chord,
-7 runs of 2000 blocks of 256 frames, median) on an Intel i5-8350U desktop:
+Measured with `make bench` (`host/bench.c`, the FM-1 CPU test's held chord
+at 6 voices, 256-frame blocks) on an Intel i5-8350U desktop. The modulated
+rows come from a copy of `firmware/cpu_test.c` that sets those parameters.
+The machine was shared with other builds, so each figure is the best of
+several runs, and runs vary by 10 % or more:
 
-| Workload | 6 voices, ns / block | per voice per block |
+| Workload | ns / block, first run | ns / block, after review fixes (busier machine) |
 | --- | ---: | ---: |
-| main before #8, defaults (saw) | 10480 | 1747 |
-| with #8, defaults (all depths 0) | 9890 | 1648 |
-| with #8, osc 1 pulse, depths 0 | 13220-13440 | 2200-2240 |
-| with #8, osc 1 pulse, 30-cent vibrato, 30 % PWM at 6 Hz, velocity 100 % | 14090-15010 | 2350-2500 |
+| main before #8, defaults (saw) | 10480 | 13996 |
+| with #8, defaults (all depths 0) | 9890 | 13115 |
+| with #8, osc 1 pulse, depths 0 | 13220 | 18430 |
+| with #8, osc 1 pulse, 30-cent vibrato, 30 % PWM at 6 Hz, velocity 100 % | 14090 | 21079 |
 
-With every depth at 0 there is no measurable cost (the difference to main is
-noise and code layout). With pitch and pulse width modulated, the LFO adds
-about **150 to 260 ns per voice per 256-frame block** on this desktop, about
-7 to 11 % of a pulse voice. The FM-1 CPU test (`firmware/`) runs the default
-patch, so its numbers do not change; timing the modulated case on the device
-is for the CPU test's next round (#13).
+With every depth at 0 there is no measurable cost: the default patch renders
+as fast as main, within noise. With pitch and pulse width modulated, the LFO
+adds about **150 to 450 ns per voice per 256-frame block** on this desktop,
+about 7 to 14 % of a pulse voice. The FM-1 CPU test (`firmware/`) runs the
+default patch, so its numbers do not change; timing the modulated case on
+the device is for the CPU test's next round (#13).
 
-Memory: each voice grows by 44 bytes (its LFO delay, fade, offsets and
+Memory: each voice grows by 40 bytes (its LFO start tick, offsets and
 velocity peak; the oscillator pair's unmodulated increments and offsets; the
 envelope's peak and sustain target), and `fm_engine` holds the LFO (20
-bytes), its routing (16) and the tick counter. `fm_engine` is 4080 bytes,
-416 more than before. Nothing is allocated and the render path
+bytes), its routing (16) and two tick counters. `fm_engine` is 4056 bytes,
+392 more than before. Nothing is allocated and the render path
 adds no stack arrays.

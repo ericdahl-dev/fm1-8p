@@ -370,6 +370,47 @@ TT_TEST(velocity_setting_mid_note_leaves_the_note_alone)
     TT_CHECK(memcmp(mod_ref, mod_buf, (size_t)(MOD_RATE + MOD_RATE / 10) * 4) == 0);
 }
 
+/* Renders `frames` in blocks of `block` into `out`. */
+static void render_in_blocks(int16_t *out, uint32_t frames, uint32_t block)
+{
+    while (frames) {
+        uint32_t n = frames < block ? frames : block;
+        fm_engine_render(&mod_eng, out, n);
+        out += 2 * n;
+        frames -= n;
+    }
+}
+
+/* A note with the vibrato depth off, on, then off again. */
+static void depth_on_and_off_in_blocks(int16_t *out, uint32_t block)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 2);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 900);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 40);
+    render_in_blocks(out, 333, block);
+    fm_engine_note_on(&mod_eng, 60, 100);
+    render_in_blocks(out + 2 * 333, 7000, block);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 300);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PW_PCT, 20);
+    render_in_blocks(out + 2 * 7333, 9000, block);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PW_PCT, 0);
+    render_in_blocks(out + 2 * 16333, 6000, block);
+}
+
+TT_TEST(block_size_does_not_change_output_as_depths_come_and_go)
+{
+    /* with every depth at 0 the engine batches its control ticks; the
+     * output must still not depend on the block size around a change */
+    static const uint32_t blocks[] = { 1, 31, 100, 4096 };
+    size_t b, bytes = 22333u * 4;
+    depth_on_and_off_in_blocks(mod_ref, 64);
+    for (b = 0; b < 4; b++) {
+        depth_on_and_off_in_blocks(mod_buf, blocks[b]);
+        TT_CHECK(memcmp(mod_ref, mod_buf, bytes) == 0);
+    }
+}
+
 static void run_mod_tests(void)
 {
     TT_RUN(lfo_to_pitch_moves_the_pitch_by_the_depth);
@@ -384,4 +425,5 @@ static void run_mod_tests(void)
     TT_RUN(pulse_width_limits_do_not_depend_on_the_lfo_phase);
     TT_RUN(restriking_a_sounding_note_keeps_its_vibrato);
     TT_RUN(velocity_setting_mid_note_leaves_the_note_alone);
+    TT_RUN(block_size_does_not_change_output_as_depths_come_and_go);
 }

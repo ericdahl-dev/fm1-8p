@@ -246,6 +246,8 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
     fm_lfo_reset(&e->lfo);
     e->tick_left = 0;
+    e->ticks = 0;
+    e->mod_on = 0;
     /* each voice its own noise (an odd multiplier: never 0), so unison
      * voices, which start together, never play the same stream */
     for (i = 0; i < FM_MAX_VOICES; i++) {
@@ -535,11 +537,48 @@ static int16_t to_int16(int32_t q24)
 static void control_tick(fm_engine *e)
 {
     int32_t lfo = fm_lfo_tick(&e->lfo);
+    int depth = e->mod.pitch_oct != 0 || e->mod.pw != 0;
     uint8_t k;
-    for (k = 0; k < e->voice_count; k++)
-        if (fm_voice_active(&e->voices[k]))
-            fm_voice_tick(&e->voices[k], lfo, &e->mod);
+    e->ticks++;
     e->tick_left = FM_LFO_TICK_FRAMES;
+    /* with every depth at 0 (after one tick that clears any offset still
+     * applied) the voices have nothing to do */
+    if (depth || e->mod_on)
+        for (k = 0; k < e->voice_count; k++)
+            if (fm_voice_active(&e->voices[k]))
+                fm_voice_tick(&e->voices[k], lfo, &e->mod, e->ticks);
+    e->mod_on = (uint8_t)depth;
+}
+
+/*
+ * Frames the next chunk renders. While the LFO modulates something (or
+ * an offset from before is still applied) a chunk stops at the next
+ * control tick, so the output never depends on the caller's block size.
+ * With every depth at 0 the ticks change no sample, so a chunk runs to
+ * FM_MIX_FRAMES and the ticks it passes run after it (they only advance
+ * the LFO and the delay counters): rendering costs what it did before
+ * the LFO existed.
+ */
+static uint32_t chunk_frames(fm_engine *e, uint32_t frames, int *batched)
+{
+    uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
+    if (e->tick_left == 0) control_tick(e);
+    *batched = !e->mod_on && e->mod.pitch_oct == 0 && e->mod.pw == 0;
+    if (!*batched) {
+        if (n > e->tick_left) n = e->tick_left;
+        e->tick_left -= n;
+    }
+    return n;
+}
+
+/* After a batched chunk of `n` frames: the ticks it passed. */
+static void catch_up_ticks(fm_engine *e, uint32_t n)
+{
+    while (n > e->tick_left) {
+        n -= e->tick_left;
+        control_tick(e);
+    }
+    e->tick_left -= n;
 }
 
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
@@ -547,10 +586,8 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
     while (frames) {
         uint32_t n, i;
         uint8_t k;
-        if (e->tick_left == 0) control_tick(e);
-        n = frames < e->tick_left ? frames : e->tick_left;
-        if (n > FM_MIX_FRAMES) n = FM_MIX_FRAMES;
-        e->tick_left -= n;
+        int batched;
+        n = chunk_frames(e, frames, &batched);
         for (i = 0; i < n; i++) e->mix[i] = 0;
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
@@ -571,6 +608,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
                 out[2 * i + 1] = s;
             }
         }
+        if (batched) catch_up_ticks(e, n);
         out += 2 * n;
         frames -= n;
     }

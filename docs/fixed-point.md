@@ -139,7 +139,7 @@ How it works, per sample:
 
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 2.1 KiB (2072 bytes on x86-64), inside `fm_engine`, plus the 256-byte
-`mix_right` buffer. With the voices' LFO and velocity state that makes `fm_engine` about 4.0 KiB (4080 bytes), so
+`mix_right` buffer. With the voices' LFO and velocity state that makes `fm_engine` about 4.0 KiB (4056 bytes), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep

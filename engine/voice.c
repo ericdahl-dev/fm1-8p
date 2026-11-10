@@ -16,8 +16,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed)
     v->gate_left = 0;
     v->pitch_oct = 0;
     v->pw_off = 0;
-    v->lfo_fade = 0;
-    v->lfo_wait = 0;
+    v->lfo_start = 0;
     v->lfo_restart = 0;
     v->next_peak = FM_ENV_FULL;
     v->note = 0;
@@ -153,21 +152,25 @@ void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
 }
 
-void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m)
+void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
+                   uint32_t now)
 {
     int32_t pitch, pw;
+    uint32_t since;
     if (v->lfo_restart) {
         v->lfo_restart = 0;
-        v->lfo_wait = m->delay_ticks;
-        v->lfo_fade = m->delay_ticks ? 0 : FM_LFO_FULL;
-    } else if (v->lfo_wait) {
-        v->lfo_wait--;
-    } else if (v->lfo_fade < FM_LFO_FULL) {
-        v->lfo_fade = FM_LFO_FULL - v->lfo_fade <= m->fade_step
-                          ? FM_LFO_FULL : v->lfo_fade + m->fade_step;
+        v->lfo_start = now;
     }
-    if (v->lfo_fade != FM_LFO_FULL) /* Q1.30 * Q1.30 */
-        lfo = (int32_t)(((int64_t)lfo * v->lfo_fade) >> 30);
+    /* zero for delay_ticks, then up by fade_step a tick to full; kept as
+     * a start tick, so a tick without modulation has nothing to count */
+    since = now - v->lfo_start; /* wraps after 2^32 ticks (36 days) */
+    if (m->delay_ticks && since < 2 * m->delay_ticks) {
+        int64_t fade = since <= m->delay_ticks
+                           ? 0
+                           : (int64_t)(since - m->delay_ticks) * m->fade_step;
+        if (fade < FM_LFO_FULL) /* Q1.30 * Q1.30 */
+            lfo = (int32_t)(((int64_t)lfo * fade) >> 30);
+    }
     /* Q1.30 * Q16.16 octaves -> Q16.16 octaves */
     pitch = (int32_t)(((int64_t)lfo * m->pitch_oct) >> 30);
     /* Q1.30 * Q0.32 -> Q0.32 */

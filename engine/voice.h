@@ -32,8 +32,7 @@ typedef struct {
     uint32_t gate_left; /* samples until a queued release (0: none) */
     int32_t pitch_oct; /* LFO pitch offset now applied, Q16.16 octaves */
     int32_t pw_off;    /* LFO pulse width offset now applied, Q0.32 */
-    int32_t lfo_fade;  /* LFO delay / fade-in level, Q1.30 */
-    uint32_t lfo_wait; /* control ticks of LFO delay left */
+    uint32_t lfo_start; /* control tick the LFO delay started at */
     int32_t next_peak; /* amp peak (velocity) of `note`, Q1.30, kept while
                         * an old note fades */
     uint8_t note;
@@ -110,11 +109,14 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
                        uint32_t sample_rate);
 
 /*
- * One control tick (every FM_LFO_TICK_FRAMES samples): advances the
- * voice's LFO delay and fade-in and applies `lfo` (Q1.30, the shared
- * LFO's value) at the depths in `m`. With zero depth nothing changes.
+ * One control tick (every FM_LFO_TICK_FRAMES samples, numbered `now`):
+ * applies `lfo` (Q1.30, the shared LFO's value), scaled by the voice's
+ * delay and fade-in, at the depths in `m`. With zero depth nothing
+ * changes. A voice whose note started since its last tick counts its
+ * delay from `now`.
  */
-void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m);
+void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
+                   uint32_t now);
 
 /* Adds `frames` samples of the voice (Q8.24) to `mix`. */
 void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
