@@ -86,6 +86,12 @@ map is live in `engine/fm1_8p.h` and `engine/params.c`.
 | 47 | #33 (DCO-2 envelope level) |
 | 85-86 | #41 (mod wheel) |
 | 87 | #41, after 76 lands |
+| 25, 26 | #58 (pitch envelope) |
+| 48 | #59 (filter envelope source and invert) |
+| 55, 66 | #60 (envelope key follow) |
+| 67 | #63 (amp gate mode) |
+| 68, 77, 78 | #61 (aftertouch) |
+| 88 | #62 (portamento) |
 
 Until PR #25 lands, three of the PLAY performance knobs (K1-K3: 41, 42, 43)
 are pending too. Only K4 (64 RELEASE) works.
@@ -101,7 +107,7 @@ are pending too. Only K4 (64 RELEASE) works.
 | 13 | K3 | `osc1_fine_cents` | FINE | -100..+100 ct | 1 / 10 |
 | 14 | K4 | `osc1_pulse_width_pct` | WIDTH | 1..99 % (shown inactive unless WAVE is PULSE) | 1 / 5 |
 
-### 2x DCO-2 (page 2A)
+### 2x DCO-2 (pages 2A and 2B)
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
@@ -109,6 +115,9 @@ are pending too. Only K4 (64 RELEASE) works.
 | 22 | K2 | `osc2_octave` | RANGE | as 12 | 1 / 1 |
 | 23 | K3 | `osc2_fine_cents` | FINE | as 13 | 1 / 10 |
 | 24 | K4 | `osc2_pulse_width_pct` | WIDTH | as 14 | 1 / 5 |
+| 25 | K1 | pitch envelope amount (pending, #58) | P.ENV | -24..+24 st | 1 st / 4 st |
+| 26 | K2 | pitch envelope target (pending, #58) | P.ENV> | BOTH, D2 | 1 / 1 |
+| 27-28 | K3-K4 | reserved | | | |
 
 ### 3x MIX (page 3A)
 
@@ -132,9 +141,9 @@ are pending too. Only K4 (64 RELEASE) works.
 | 45 | K1 | `highpass_step` (pending, PR #25) | HPF | OFF, 100 Hz, 240 Hz, 560 Hz | 1 / 1 |
 | 46 | K2 | filter velocity amount (pending, #8) | VEL | 0..100 % | 1 / 5 |
 | 47 | K3 | DCO-2 envelope level (pending, #33) | D2 ENV | -- | - |
-| 48 | K4 | reserved | | | |
+| 48 | K4 | filter envelope source (pending, #59) | ENV SRC | ENV1, ENV1 INV, ENV2, ENV2 INV | 1 / 1 |
 
-### 5x VCF ENV (page 5A)
+### 5x VCF ENV (pages 5A and 5B)
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
@@ -142,6 +151,8 @@ are pending too. Only K4 (64 RELEASE) works.
 | 52 | K2 | `filter_env_decay_ms` (pending, PR #25) | DECAY | time | time table |
 | 53 | K3 | `filter_env_sustain_permille` (pending, PR #25) | SUSTAIN | 0..100 | 1 / 5 |
 | 54 | K4 | `filter_env_release_ms` (pending, PR #25) | RELEASE | time | time table |
+| 55 | K1 | envelope 1 key follow (pending, #60) | KEY | 0..100 % | 1 / 10 |
+| 56-58 | K2-K4 | reserved | | | |
 
 ### 6x VCA (pages 6A and 6B)
 
@@ -152,7 +163,9 @@ are pending too. Only K4 (64 RELEASE) works.
 | 63 | K3 | `amp_sustain_permille` | SUSTAIN | 0..100 | 1 / 5 |
 | 64 | K4 | `amp_release_ms` | RELEASE | time | time table |
 | 65 | K1 | `amp_velocity_pct` | VEL | 0..100 % | 1 / 5 |
-| 66-68 | K2-K4 | reserved | | | |
+| 66 | K2 | envelope 2 key follow (pending, #60) | KEY | 0..100 % | 1 / 10 |
+| 67 | K3 | amp gate mode (pending, #63) | AMP | ENV, GATE | 1 / 1 |
+| 68 | K4 | aftertouch to VCA (pending, #61) | AT>VCA | 0..100 % | 1 / 5 |
 
 ### 7x LFO (pages 7A and 7B)
 
@@ -164,7 +177,8 @@ are pending too. Only K4 (64 RELEASE) works.
 | 74 | K4 | `lfo_pitch_cents` | PITCH | 0..1200 ct | 1 to 99 ct: 1 / 10; then 10 / 50 |
 | 75 | K1 | `lfo_pw_pct` | PW | 0..49 % | 1 / 5 |
 | 76 | K2 | LFO to cutoff depth (pending, #8) | VCF | -- | - |
-| 77-78 | K3-K4 | reserved | | | |
+| 77 | K3 | aftertouch to vibrato (pending, #61) | AT>VIB | same unit as 74 | as 74 |
+| 78 | K4 | aftertouch to cutoff (pending, #61, and with 76 on #8) | AT>VCF | -- until 76 lands; then the same unit as 76 | as 76 |
 
 ### 8x CTRL (pages 8A and 8B)
 
@@ -177,7 +191,7 @@ are pending too. Only K4 (64 RELEASE) works.
 | 85 | K1 | wheel adds to vibrato (pending, #41) | W>PITCH | same unit as 74 | as 74 |
 | 86 | K2 | wheel adds to PW (pending, #41) | W>PW | same unit as 75 | as 75 |
 | 87 | K3 | wheel adds to cutoff (pending, #41, and with 76 on #8) | W>VCF | -- until 76 lands; then the same unit as 76 | as 76 |
-| 88 | K4 | reserved (aftertouch, later) | | | |
+| 88 | K4 | portamento time (pending, #62) | PORTA | time, 0..10.0 s; 0 shows `OFF` | time table |
 
 ### Units and value tables
 
@@ -206,7 +220,7 @@ are pending too. Only K4 (64 RELEASE) works.
 
 The SELECT encoder walks the pages in number order, and wraps at both ends:
 
-`1A, 2A, 3A, 4A, 4B, 5A, 6A, 6B, 7A, 7B, 8A, 8B`
+`1A, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 7B, 8A, 8B` (14 pages)
 
 ALGORITHM jumps by section (1..8, wrapping) to the section's page A.
 
@@ -221,8 +235,8 @@ is shown, and glows otherwise.
 
 | Button | Ring | Why |
 | --- | --- | --- |
-| SEL | 1A DCO-1, 2A DCO-2, 3A MIX | the oscillators: "select the source" |
-| ENV | 4A VCF, 4B VCF, 5A VCF ENV, 6A VCA, 6B VCA | the filter and amp, with their envelopes |
+| SEL | 1A DCO-1, 2A DCO-2, 2B DCO-2, 3A MIX | the oscillators: "select the source" |
+| ENV | 4A VCF, 4B VCF, 5A VCF ENV, 5B VCF ENV, 6A VCA, 6B VCA | the filter and amp, with their envelopes |
 | LFO | 7A LFO, 7B LFO, 8B WHEEL | modulation |
 | FX | 8A CTRL (chorus, voice mode, bend) | the output end |
 
@@ -681,7 +695,7 @@ Everywhere, unless the state says otherwise:
 - **Must:**
   - the section name and number (`4 VCF`);
   - the page (A or B) and how many pages the section has;
-  - where the page sits in the full page order (for example, 5 of 12).
+  - where the page sits in the full page order (for example, 5 of 14).
 - **Must:** for each of the four knobs:
   - its number, label and value as shown in the map;
   - a marker for an inactive value (14 WIDTH when WAVE isn't PULSE, 83
@@ -908,8 +922,8 @@ test.
 
 **Navigation**
 
-1. From PLAY, ENV tap shows page 4A. ENV again shows 4B, then 5A, 6A, 6B and
-   back to 4A.
+1. From PLAY, ENV tap shows page 4A. ENV again shows 4B, then 5A, 5B, 6A, 6B
+   and back to 4A.
 2. From page 7B, SEL tap shows 1A, the first page of SEL's ring, not the next
    page.
 3. SELECT +1 from 8B shows 1A, and SELECT -1 from 1A shows 8B.
@@ -918,7 +932,7 @@ test.
    shows 3A with 32 SYNC as the focus. No note-on is sent for those keys.
 6. Holding SEL, tapping C4 (digit 5) and releasing SEL shows 5A, and the
    focus is empty.
-7. Number 48 (reserved) shows page 4B, the focus is empty, and the banner is
+7. Number 27 (reserved) shows page 2B, the focus is empty, and the banner is
    `NO PARAMETER`.
 8. EDIT tap in PLAY shows the last edit page, and 4A on a fresh start. EDIT
    tap in EDIT shows PLAY.

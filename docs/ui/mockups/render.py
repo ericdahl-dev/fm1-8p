@@ -441,7 +441,7 @@ LAYOUT = dict(
 M = LAYOUT["margin"]
 FOCUS, SLOT, COLS, FOOTER = LAYOUT["focus"], LAYOUT["slot"], LAYOUT["cols"], LAYOUT["footer"]
 COL_W, COL_GAP = LAYOUT["col_w"], LAYOUT["col_gap"]
-PAGE_ORDER = ["1A", "2A", "3A", "4A", "4B", "5A", "6A", "6B", "7A", "7B", "8A", "8B"]   # interaction.md
+PAGE_ORDER = ["1A", "2A", "2B", "3A", "4A", "4B", "5A", "5B", "6A", "6B", "7A", "7B", "8A", "8B"]   # interaction.md
 
 
 def col_x(k):
@@ -746,7 +746,7 @@ def scr_vcf(fonts, t):
 def scr_env(fonts, t):
     sc = Screen(fonts, t["bg"])
     sec = "VCF ENV"
-    draw_header(sc, t, sec, "5 VCF ENV", [("A", True)], page="5A")
+    draw_header(sc, t, sec, "5 VCF ENV", [("A", True), ("/B", False)], page="5A")
     k, label, val, unit = ENV_FOCUS
     focus_block(sc, t, sec, "VCF ENV", ENV[k][0], label, val, unit)
     x, y, w, h = slot_window(sc, t)
