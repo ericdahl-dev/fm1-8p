@@ -11,7 +11,7 @@ CFLAGS  ?= -O2 -g
 STD     = -std=c99
 BUILD   = build
 
-ENGINE_SRC = engine/engine.c engine/osc.c
+ENGINE_SRC = engine/engine.c engine/osc.c engine/env.c engine/params.c
 HOST_SRC   = host/wav.c host/smf.c host/render.c
 HOST_MAIN  = host/main.c
 TEST_SRC   = tests/test_main.c
