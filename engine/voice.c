@@ -312,7 +312,7 @@ uint32_t fm_voice_busy(const fm_voice *v)
 {
     return v->env_amount || v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
            v->cutoff_dirty || v->pending || v->gate_left ||
-           v->filter.fade || v->filter.hp_g;
+           !fm_filter_is_wire(&v->filter);
 }
 
 static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)

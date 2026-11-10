@@ -162,6 +162,7 @@ void fm_filter_reset(fm_filter *f)
     f->k = f->k_res = 0;
     f->fade = 0;
     f->hp_g = 0;
+    f->wire = 1;
 }
 
 static int32_t mul_q30(int32_t a, int32_t b)
@@ -177,7 +178,7 @@ static int32_t mul_q30(int32_t a, int32_t b)
  * this fills in the rest when a setting change ends the fast path, so the
  * filter carries on as if it had run all along.
  */
-static int open_wire(const fm_filter *f)
+static uint8_t open_wire(const fm_filter *f)
 {
     return f->fade == 0 && f->hp_g == 0;
 }
@@ -192,7 +193,7 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                           int32_t rate_cents)
 {
     int32_t g;
-    int was_open = open_wire(f);
+    int was_open = f->wire;
     if (cutoff_cents < 0) cutoff_cents = 0;
     if (cutoff_cents > FM_FILTER_OPEN_CENTS) cutoff_cents = FM_FILTER_OPEN_CENTS;
     g = coef_for(cutoff_cents, rate_cents);
@@ -203,7 +204,8 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
     f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
     f->w = mul_q30(W_ZERO, f->fade);
     f->k = mul_q30(f->k_res, f->fade);
-    if (was_open && !open_wire(f)) leave_open(f);
+    f->wire = open_wire(f);
+    if (was_open && !f->wire) leave_open(f);
 }
 
 void fm_filter_set_resonance(fm_filter *f, int32_t permille)
@@ -265,9 +267,10 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
      * from state left from the last time it was on, which would click */
     if (!f->hp_g) {
         f->hp = 0;
-        if (step && f->fade == 0) leave_open(f);
+        if (step && f->wire) leave_open(f); /* was a wire: hp_g is 0 here */
     }
     f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
+    f->wire = open_wire(f);
 }
 
 /* One stage: m = x - w * (x - x1), y += g * (m - y). */

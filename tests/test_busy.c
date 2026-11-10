@@ -105,6 +105,24 @@ TT_TEST(busy_queued_release_ends_at_rest)
     TT_CHECK_EQ(fm_voice_busy(v), 0);
 }
 
+/* The filter decides when it is a wire (fully open, highpass off): reset,
+ * closed, open again, highpass on, and off. */
+TT_TEST(busy_filter_says_when_it_is_a_wire)
+{
+    fm_filter f;
+    int32_t rc = fm_filter_rate_cents(44100u);
+    fm_filter_reset(&f);
+    TT_CHECK(fm_filter_is_wire(&f));
+    fm_filter_set_cutoff(&f, 6000, rc);
+    TT_CHECK(!fm_filter_is_wire(&f));
+    fm_filter_set_cutoff(&f, FM_FILTER_OPEN_CENTS, rc);
+    TT_CHECK(fm_filter_is_wire(&f));
+    fm_filter_set_highpass(&f, 1, rc);
+    TT_CHECK(!fm_filter_is_wire(&f));
+    fm_filter_set_highpass(&f, 0, rc);
+    TT_CHECK(fm_filter_is_wire(&f));
+}
+
 static void run_busy_tests(void)
 {
     TT_RUN(busy_default_patch_is_at_rest);
@@ -113,4 +131,5 @@ static void run_busy_tests(void)
     TT_RUN(busy_mix_env_back_to_zero_rests);
     TT_RUN(busy_steal_fade_ends_at_rest);
     TT_RUN(busy_queued_release_ends_at_rest);
+    TT_RUN(busy_filter_says_when_it_is_a_wire);
 }

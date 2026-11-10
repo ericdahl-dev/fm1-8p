@@ -28,6 +28,7 @@ typedef struct {
     int32_t fade;  /* 1.0 below the top of the cutoff range, to 0 at open */
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
     int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
+    uint8_t wire; /* fully open with the highpass off: output = input */
 } fm_filter;
 
 /* Pitch of the sample rate in cents above MIDI note 0. Computed once
@@ -73,9 +74,16 @@ int32_t fm_filter_process(fm_filter *f, int32_t in);
  * the soft clip passes untouched (within +-2.0), and keeps only the last
  * sample as its state. Exactly the same output and state as the call.
  */
+/* Nonzero while the filter is a wire (fully open, highpass off): the one
+ * place that decides it, kept by the setters. */
+static inline int fm_filter_is_wire(const fm_filter *f)
+{
+    return f->wire;
+}
+
 static inline int32_t fm_filter_run(fm_filter *f, int32_t in)
 {
-    if (f->fade == 0 && f->hp_g == 0 && in <= (2 << 24) && in >= -(2 << 24)) {
+    if (f->wire && in <= (2 << 24) && in >= -(2 << 24)) {
         f->s[3] = in;
         return in;
     }
