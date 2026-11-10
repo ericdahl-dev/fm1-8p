@@ -147,10 +147,106 @@ TT_TEST(block_size_does_not_change_lfo_output)
     }
 }
 
+/* Peak of one held note at `velocity` with amp_velocity at `sens`, over
+ * 0.2..0.5 s (sustain, 70 % by default). */
+static int held_peak(int32_t sens, uint8_t velocity)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, sens);
+    fm_engine_note_on(&mod_eng, 69, velocity);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return peak_abs(mod_buf, MOD_RATE / 5, MOD_RATE / 2);
+}
+
+TT_TEST(higher_velocity_gives_louder_output)
+{
+    int full = held_peak(100, 127), prev = 0;
+    uint8_t vel;
+    TT_CHECK(full > 8000);
+    /* full velocity is full level whatever the sensitivity */
+    TT_CHECK_EQ(held_peak(0, 127), full);
+    TT_CHECK_EQ(held_peak(50, 127), full);
+    /* louder with every step up, following (velocity / 127)^2 */
+    for (vel = 8; vel <= 127; vel = (uint8_t)(vel + 17)) {
+        int p = held_peak(100, vel);
+        double expect = (vel / 127.0) * (vel / 127.0);
+        TT_CHECK(p > prev);
+        TT_CHECK_NEAR((double)p / full, expect, 0.01);
+        prev = p;
+    }
+    /* half sensitivity goes halfway to that curve */
+    TT_CHECK_NEAR((double)held_peak(50, 64) / full,
+                  1 - 0.5 * (1 - (64 / 127.0) * (64 / 127.0)), 0.01);
+    /* off: every velocity plays at full level */
+    TT_CHECK_EQ(held_peak(0, 1), full);
+}
+
+/* One voice holds note 2 at velocity 127, retriggers it at `again`
+ * after 2500 frames; returns the largest jump over the first 4500 frames
+ * and the peak over a full cycle 4.5k frames later in *level. */
+static int retrigger_at(uint8_t again, int *level)
+{
+    int jump;
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
+    /* one voice peaks at 16384, so a 20 ms attack keeps the start under
+     * CLICK_LSB too. Note 2 (9 Hz): its saw changes by about 7 LSB per
+     * sample and does not wrap inside the 4500 frames checked */
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_ATTACK_MS, 20);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_DECAY_MS, 50);
+    fm_engine_note_on(&mod_eng, 2, 127);
+    fm_engine_render(&mod_eng, mod_buf, 2500);
+    fm_engine_note_on(&mod_eng, 2, again);
+    fm_engine_render(&mod_eng, mod_buf + 2 * 2500, 2000);
+    jump = max_jump(mod_buf, 0, 4500);
+    fm_engine_render(&mod_eng, mod_buf, 10000);
+    *level = peak_abs(mod_buf, 4500, 10000);
+    return jump;
+}
+
+TT_TEST(softer_retrigger_glides_down_without_a_click)
+{
+    int loud, soft, jump;
+    retrigger_at(127, &loud);
+    jump = retrigger_at(20, &soft); /* same note, much softer */
+    printf("    largest jump: %d LSB\n", jump);
+    TT_CHECK(jump <= CLICK_LSB);
+    TT_CHECK(loud > 8000);
+    TT_CHECK_NEAR((double)soft / loud, (20 / 127.0) * (20 / 127.0), 0.002);
+}
+
+/* Peak over the last 0.1 s of `ms` more of rendering. */
+static int peak_after(uint32_t ms)
+{
+    uint32_t n = MOD_RATE / 1000 * ms;
+    fm_engine_render(&mod_eng, mod_buf, n);
+    return peak_abs(mod_buf, n - MOD_RATE / 10, n);
+}
+
+TT_TEST(unison_legato_return_keeps_the_last_strike_velocity)
+{
+    int loud, soft, back;
+    fm_engine_init(&mod_eng, MOD_RATE, 2);
+    fm_engine_set_param(&mod_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&mod_eng, FM_PARAM_UNISON_DETUNE_CENTS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
+    fm_engine_note_on(&mod_eng, 60, 127);
+    loud = peak_after(500);
+    fm_engine_note_on(&mod_eng, 64, 40); /* softer strike */
+    soft = peak_after(500);
+    fm_engine_note_off(&mod_eng, 64); /* back to 60, legato */
+    back = peak_after(500);
+    TT_CHECK(soft < loud / 4);
+    TT_CHECK_NEAR(back, soft, soft * 0.05);
+}
+
 static void run_mod_tests(void)
 {
     TT_RUN(lfo_to_pitch_moves_the_pitch_by_the_depth);
     TT_RUN(zero_pitch_depth_leaves_the_output_untouched);
     TT_RUN(lfo_delay_holds_modulation_at_zero_then_fades_it_in);
     TT_RUN(block_size_does_not_change_lfo_output);
+    TT_RUN(higher_velocity_gives_louder_output);
+    TT_RUN(softer_retrigger_glides_down_without_a_click);
+    TT_RUN(unison_legato_return_keeps_the_last_strike_velocity);
 }

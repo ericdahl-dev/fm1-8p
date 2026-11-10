@@ -47,6 +47,7 @@ typedef enum {
     FM_PARAM_LFO_RATE_CENTIHZ, /* hundredths of a hertz */
     FM_PARAM_LFO_DELAY_MS,    /* zero for this long, then fades in as long */
     FM_PARAM_LFO_PITCH_CENTS, /* vibrato depth at full LFO, each way */
+    FM_PARAM_AMP_VELOCITY,    /* percent: 0 ignores velocity, 100 full curve */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -80,6 +81,7 @@ typedef struct {
     fm_lfo lfo;          /* one LFO for every voice (docs/modulation.md) */
     fm_voice_mod mod;    /* what the LFO does to each voice */
     uint32_t tick_left;  /* samples until the next control tick */
+    int32_t note_peak;   /* amp peak of the last note on, Q1.30 */
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
 } fm_engine;
 
@@ -96,8 +98,8 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
 
 /*
  * Note numbers and velocities are MIDI 0..127; others are ignored.
- * Velocity 0 is a note off. Otherwise velocity has no effect in this
- * slice: every note plays at the same level (velocity lands in #8).
+ * Velocity 0 is a note off. Otherwise it scales the note's amp
+ * envelope by the amp_velocity curve (docs/modulation.md#velocity).
  */
 void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity);
 void fm_engine_note_off(fm_engine *e, uint8_t note);

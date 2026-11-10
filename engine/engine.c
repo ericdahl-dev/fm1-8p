@@ -175,6 +175,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
     fm_lfo_reset(&e->lfo);
     e->tick_left = 0;
+    e->note_peak = FM_ENV_FULL;
     for (i = 0; i < FM_MAX_VOICES; i++) {
         fm_voice_reset(&e->voices[i]);
         e->detune[i] = 0;
@@ -249,11 +250,25 @@ static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
     return best;
 }
 
-/* Poly: voice `v` plays `note` (in poly every detune is 0). */
-static void poly_play(fm_engine *e, fm_voice *v, uint8_t note)
+/*
+ * Amp envelope peak (Q1.30) for a MIDI velocity 1..127: full level less
+ * amp_velocity percent of the way down the curve (velocity / 127)^2.
+ * Velocity 127 is always full. Two constant divides, per note on.
+ */
+static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
+{
+    int32_t sens = e->params[FM_PARAM_AMP_VELOCITY];
+    int64_t curve = (int64_t)velocity * velocity * FM_ENV_FULL / (127 * 127);
+    return FM_ENV_FULL - (int32_t)((FM_ENV_FULL - curve) * sens / 100);
+}
+
+/* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune
+ * is 0). */
+static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak)
 {
     uint8_t i = (uint8_t)(v - e->voices);
     v->stamp = ++e->stamp;
+    fm_voice_set_velocity(v, peak);
     fm_voice_note_on(v, note, voice_inc(e, i, note), e->fade_samples);
 }
 
@@ -278,13 +293,15 @@ static fm_voice *find_fading(fm_engine *e, uint8_t note)
 static void take_back(fm_engine *e, fm_voice *f, uint8_t note)
 {
     uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
+    int32_t moved_peak = f->next_peak;
     fm_voice *w;
+    fm_voice_set_velocity(f, e->note_peak);
     fm_voice_take_back(f, voice_inc(e, (uint8_t)(f - e->voices), note));
     f->stamp = ++e->stamp;
     if (!key_down && !sustained) return;
     w = pick_voice(e, f);
     if (!w) return;
-    poly_play(e, w, moved);
+    poly_play(e, w, moved, moved_peak);
     if (!key_down) fm_voice_key_up(w, 1); /* held by the pedal */
 }
 
@@ -321,6 +338,9 @@ static void unison_note_on(fm_engine *e, uint8_t note)
         e->held_count--;
     }
     e->held[e->held_count++] = note;
+    /* the strike sets the level; a legato return later keeps it */
+    for (i = 0; i < e->voice_count; i++)
+        fm_voice_set_velocity(&e->voices[i], e->note_peak);
     unison_play(e, note, 1);
 }
 
@@ -350,6 +370,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         fm_engine_note_off(e, note);
         return;
     }
+    e->note_peak = velocity_peak(e, velocity);
     if (e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON) {
         unison_note_on(e, note);
         return;
@@ -364,7 +385,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
             }
             v = pick_voice(e, 0);
         }
-        poly_play(e, v, note);
+        poly_play(e, v, note, e->note_peak);
     }
 }
 

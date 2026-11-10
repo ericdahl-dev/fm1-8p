@@ -18,6 +18,7 @@ void fm_voice_reset(fm_voice *v)
     v->lfo_fade = 0;
     v->lfo_wait = 0;
     v->lfo_restart = 0;
+    v->next_peak = FM_ENV_FULL;
     v->note = 0;
     v->old_note = 0;
     v->key_down = 0;
@@ -78,6 +79,7 @@ static void start(fm_voice *v)
     v->base_inc = v->next_inc;
     restart_lfo(v);
     apply_pitch(v);
+    v->amp_env.peak = v->next_peak;
     fm_env_gate_on(&v->amp_env);
     if (!v->key_down && !v->sustained) v->gate_left = v->wait ? v->wait : 1;
 }
@@ -122,10 +124,16 @@ void fm_voice_change_note(fm_voice *v, uint8_t note, uint32_t inc,
     if (v->pending) return; /* starts when the fade ends */
     v->base_inc = inc;
     if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
+        v->amp_env.peak = v->next_peak;
         fm_env_gate_on(&v->amp_env);
         restart_lfo(v);
     }
     apply_pitch(v);
+}
+
+void fm_voice_set_velocity(fm_voice *v, int32_t peak)
+{
+    v->next_peak = peak;
 }
 
 void fm_voice_key_up(fm_voice *v, int pedal_down)

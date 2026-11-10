@@ -40,7 +40,10 @@ typedef struct {
     uint32_t decay_samples;
     uint32_t release_samples;
     int32_t sustain;
+    int32_t peak;  /* level the attack rises to (velocity), Q1.30; the
+                    * sustain level is scaled by it too */
     /* state */
+    int32_t sus_level; /* sustain * peak, set at gate on and retime */
     int32_t level;
     int32_t step;  /* per-sample change in the current stage */
     uint8_t stage; /* fm_env_stage */

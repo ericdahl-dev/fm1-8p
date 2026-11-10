@@ -33,6 +33,7 @@ typedef struct {
     int32_t pitch_oct; /* LFO pitch offset now applied, Q16.16 octaves */
     int32_t lfo_fade;  /* LFO delay / fade-in level, Q1.30 */
     uint32_t lfo_wait; /* control ticks of LFO delay left */
+    int32_t next_peak; /* amp peak (velocity) for the next note start */
     uint8_t note;
     uint8_t old_note;  /* while pending: the stolen note fading out */
     uint8_t key_down;
@@ -83,6 +84,13 @@ void fm_voice_take_back(fm_voice *v, uint32_t inc);
  */
 void fm_voice_change_note(fm_voice *v, uint8_t note, uint32_t inc,
                           int retrigger);
+
+/*
+ * Amp envelope peak (Q1.30, from the note's velocity) for the note the
+ * next note on, take back or retriggering note change starts. A note
+ * already sounding keeps its own.
+ */
+void fm_voice_set_velocity(fm_voice *v, int32_t peak);
 
 /* The key came up: hold the note if the pedal is down, else release. */
 void fm_voice_key_up(fm_voice *v, int pedal_down);
