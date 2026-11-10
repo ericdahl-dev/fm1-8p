@@ -27,6 +27,9 @@ TT_TEST(cpu_test_voice_request_clamps_and_applies_at_next_block)
     cpu_test_request_voices(&ct_a, 12);
     TT_CHECK_EQ(cpu_test_voices(&ct_a), 1);            /* the main loop asks; the ISR applies */
     cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    TT_CHECK_EQ(cpu_test_voices(&ct_a), CT_BURST);      /* the steps run 1..8, then U */
+    cpu_test_request_voices(&ct_a, (int32_t)CT_BURST - 1);
+    cpu_test_render(&ct_a, ct_out, CT_BLOCK);
     TT_CHECK_EQ(cpu_test_voices(&ct_a), FM_MAX_VOICES);
     cpu_test_request_voices(&ct_a, 0);
     cpu_test_render(&ct_a, ct_out, CT_BLOCK);
@@ -46,10 +49,10 @@ TT_TEST(cpu_test_keeps_worst_block_time_per_voice_count)
     TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, 1), 250);
     TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, 3), 500);
     TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, 2), 0);
-    TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, 9), 0);          /* out of range: nothing */
+    TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, CT_BURST + 1), 0); /* out of range: nothing */
 }
 
-TT_TEST(cpu_test_sweep_steps_up_one_voice_per_hold_and_stops_at_max)
+TT_TEST(cpu_test_sweep_steps_up_one_voice_per_hold_and_ends_at_the_burst)
 {
     uint32_t i;
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
@@ -62,7 +65,68 @@ TT_TEST(cpu_test_sweep_steps_up_one_voice_per_hold_and_stops_at_max)
     TT_CHECK_EQ(cpu_test_voices(&ct_a), 2);
     for (i = 0; i < 40; i++)
         cpu_test_render(&ct_a, ct_out, CT_BLOCK);
-    TT_CHECK_EQ(cpu_test_voices(&ct_a), FM_MAX_VOICES);
+    TT_CHECK_EQ(cpu_test_voices(&ct_a), CT_BURST);              /* after 8 voices: the unison burst */
+}
+
+static uint32_t take_all(uint32_t *counts, uint32_t *pms)
+{
+    uint32_t k = 0, v, pm;
+    while (k < 2u * FM_MAX_VOICES && cpu_test_take_completed(&ct_a, &v, &pm)) {
+        counts[k] = v;
+        pms[k] = pm;
+        k++;
+    }
+    return k;
+}
+
+static void sweep_to_burst(void)
+{
+    uint32_t i;
+    TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    cpu_test_sweep(&ct_a, 2);
+    for (i = 0; i < 2u * FM_MAX_VOICES + 1u; i++)                /* 1..8 held 2 blocks each, then U */
+        cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    TT_CHECK_EQ(cpu_test_voices(&ct_a), CT_BURST);
+}
+
+TT_TEST(cpu_test_burst_plays_all_voices_in_unison)
+{
+    sweep_to_burst();
+    cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_VOICE_MODE), FM_VOICE_MODE_UNISON);
+    TT_CHECK_EQ(fm_engine_active_voices(&ct_a.engine), FM_MAX_VOICES);
+}
+
+/* U picked by hand (no sweep, no hold) keeps bursting, a new detune every block. */
+TT_TEST(cpu_test_burst_changes_detune_every_block)
+{
+    int32_t a, b;
+    uint32_t i;
+    TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    cpu_test_request_voices(&ct_a, (int32_t)CT_BURST);
+    for (i = 0; i < 10; i++)
+        cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    TT_CHECK_EQ(cpu_test_voices(&ct_a), CT_BURST);
+    a = fm_engine_get_param(&ct_a.engine, FM_PARAM_UNISON_DETUNE_CENTS);
+    cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    b = fm_engine_get_param(&ct_a.engine, FM_PARAM_UNISON_DETUNE_CENTS);
+    TT_CHECK(a != b);
+}
+
+TT_TEST(cpu_test_burst_completes_as_its_own_count)
+{
+    uint32_t counts[2 * FM_MAX_VOICES], pms[2 * FM_MAX_VOICES], k, v, pm;
+    sweep_to_burst();
+    while (cpu_test_take_completed(&ct_a, &v, &pm))
+        ;
+    cpu_test_record(&ct_a, CT_BLOCK_TICKS);             /* the block that started U: setup, not timed */
+    cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    cpu_test_record(&ct_a, CT_BLOCK_TICKS / 4);         /* 250 per mille */
+    k = take_all(counts, pms);
+    TT_CHECK_EQ(k, 1);
+    TT_CHECK_EQ(counts[0], CT_BURST);
+    TT_CHECK_EQ(pms[0], 250);
+    TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, CT_BURST), 250);
 }
 
 TT_TEST(cpu_test_chord_gives_each_voice_its_own_note)
@@ -87,7 +151,7 @@ TT_TEST(cpu_test_request_after_sweep_still_applies)
     cpu_test_sweep(&ct_a, 1);
     for (i = 0; i < 20; i++)
         cpu_test_render(&ct_a, ct_out, CT_BLOCK);
-    TT_CHECK_EQ(cpu_test_voices(&ct_a), FM_MAX_VOICES);
+    TT_CHECK_EQ(cpu_test_voices(&ct_a), CT_BURST);
     cpu_test_sweep(&ct_a, 0);
     cpu_test_request_voices(&ct_a, 1);                          /* the same count as the last request */
     cpu_test_render(&ct_a, ct_out, CT_BLOCK);
@@ -124,17 +188,6 @@ TT_TEST(cpu_test_starting_a_count_again_forgets_its_old_worst)
     TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, 1), 0);
 }
 
-static uint32_t take_all(uint32_t *counts, uint32_t *pms)
-{
-    uint32_t k = 0, v, pm;
-    while (k < 2u * FM_MAX_VOICES && cpu_test_take_completed(&ct_a, &v, &pm)) {
-        counts[k] = v;
-        pms[k] = pm;
-        k++;
-    }
-    return k;
-}
-
 TT_TEST(cpu_test_each_held_count_completes_once)
 {
     uint32_t counts[2 * FM_MAX_VOICES], pms[2 * FM_MAX_VOICES], i, k;
@@ -153,7 +206,7 @@ TT_TEST(cpu_test_each_held_count_completes_once)
         cpu_test_record(&ct_a, 0);
     }
     k = take_all(counts, pms);
-    TT_CHECK_EQ(k, FM_MAX_VOICES - 1);                  /* 2..8, each once */
+    TT_CHECK_EQ(k, CT_BURST - 1);                       /* 2..8 and the burst, each once */
     for (i = 0; i < k; i++)
         TT_CHECK_EQ(counts[i], i + 2);
 }
@@ -170,16 +223,43 @@ TT_TEST(cpu_test_counts_picked_by_hand_never_complete)
     TT_CHECK_EQ(take_all(counts, pms), 0);
 }
 
+/* After its hold the burst stops: no more events, and row U holds what the log line said. */
+TT_TEST(cpu_test_burst_ends_after_its_hold)
+{
+    uint32_t v, pm, i;
+    int32_t a, b;
+    sweep_to_burst();                                   /* hold 2: U started (not timed) */
+    cpu_test_record(&ct_a, CT_BLOCK_TICKS);
+    cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    cpu_test_record(&ct_a, CT_BLOCK_TICKS / 4);         /* U's hold complete: 250 per mille */
+    while (cpu_test_take_completed(&ct_a, &v, &pm))
+        ;
+    for (i = 0; i < 4; i++) {
+        cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+        cpu_test_record(&ct_a, CT_BLOCK_TICKS / 2);     /* heavier, but after the hold */
+    }
+    TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, CT_BURST), 250);
+    a = fm_engine_get_param(&ct_a.engine, FM_PARAM_UNISON_DETUNE_CENTS);
+    cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    b = fm_engine_get_param(&ct_a.engine, FM_PARAM_UNISON_DETUNE_CENTS);
+    TT_CHECK_EQ(a, b);
+    TT_CHECK_EQ(cpu_test_take_completed(&ct_a, &v, &pm), 0);
+}
+
 static void run_cpu_test_tests(void)
 {
     TT_RUN(cpu_test_render_adds_engine_audio_into_host_buffer);
     TT_RUN(cpu_test_voice_request_clamps_and_applies_at_next_block);
     TT_RUN(cpu_test_keeps_worst_block_time_per_voice_count);
-    TT_RUN(cpu_test_sweep_steps_up_one_voice_per_hold_and_stops_at_max);
+    TT_RUN(cpu_test_sweep_steps_up_one_voice_per_hold_and_ends_at_the_burst);
     TT_RUN(cpu_test_chord_gives_each_voice_its_own_note);
     TT_RUN(cpu_test_request_after_sweep_still_applies);
     TT_RUN(cpu_test_block_that_starts_a_count_is_not_timed);
     TT_RUN(cpu_test_starting_a_count_again_forgets_its_old_worst);
     TT_RUN(cpu_test_each_held_count_completes_once);
     TT_RUN(cpu_test_counts_picked_by_hand_never_complete);
+    TT_RUN(cpu_test_burst_plays_all_voices_in_unison);
+    TT_RUN(cpu_test_burst_changes_detune_every_block);
+    TT_RUN(cpu_test_burst_completes_as_its_own_count);
+    TT_RUN(cpu_test_burst_ends_after_its_hold);
 }

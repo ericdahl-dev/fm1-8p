@@ -77,22 +77,46 @@ stage_module() {
 
 # emu_report LOG: the CPU test's log lines (count << 16 | worst permille) as a Markdown table, plus
 # fm1-dock's own render meter. Fails if no voice count was logged.
+# burst_count: the unison burst's count, CT_BURST (FM_MAX_VOICES + 1), read from the sources (run from
+# the repo root when sourced).
+burst_count() {
+    echo $(( $(sed -n 's/^#define FM_MAX_VOICES \([0-9]*\).*/\1/p' "${ROOT:-.}/engine/fm1_8p.h") + 1 ))
+}
+
+# emu_window_ms HOLD: how long fm1-emu runs the CPU test: every step (1..8 and U) held HOLD blocks of
+# 256 frames at 44.1 kHz, plus 2 s for boot and the last log line.
+emu_window_ms() {
+    echo $(( $(burst_count) * $1 * 256 * 1000 / 44100 + 2000 ))
+}
+
 emu_report() {
-    rows=$(sed -n 's/.*fm1-8p voices\/worst permille \([0-9a-fA-F]\{8\}\).*/\1/p' "$1")
-    [ -n "$rows" ] || { echo "fm1-build: no voice counts in $1" >&2; return 1; }
+    burst=$(burst_count)
+    all=$(sed -n 's/.*fm1-8p voices\/worst permille \([0-9a-fA-F]\{8\}\).*/\1/p' "$1")
+    [ -n "$all" ] || { echo "fm1-build: no voice counts in $1" >&2; return 1; }
+    rows=                                        # the last sweep only: from its last count-1 line on
+    for h in $all; do
+        [ $((0x$h >> 16)) = 1 ] && rows=
+        rows="$rows $h"
+    done
     echo "| voices | worst permille | of a 256-frame block |"
     echo "| --- | --- | --- |"
-    for h in $rows; do
-        v=$((0x$h >> 16)) pm=$((0x$h & 0xFFFF))
-        echo "| $v | $pm | $((pm / 10)).$((pm % 10)) % |"
+    counts=
+    for v in $(seq 1 "$burst"); do
+        last=
+        for h in $rows; do [ $((0x$h >> 16)) = "$v" ] && last=$h; done
+        [ -n "$last" ] || continue
+        counts="$counts $v "
+        pm=$((0x$last & 0xFFFF)) label=$v
+        [ "$v" = "$burst" ] && label="U (unison burst)"
+        echo "| $label | $pm | $((pm / 10)).$((pm % 10)) % |"
     done
     echo
     grep 'render: last' "$1" || true
     missing=
-    for v in 1 2 3 4 5 6 7 8; do
-        case " $(for h in $rows; do printf '%d ' $((0x$h >> 16)); done)" in
+    for v in $(seq 1 "$burst"); do
+        case "$counts" in
             *" $v "*) ;;
-            *) missing="$missing $v" ;;
+            *) [ "$v" = "$burst" ] && missing="$missing U" || missing="$missing $v" ;;
         esac
     done
     if [ -n "$missing" ]; then
@@ -248,7 +272,7 @@ run_emu() {
         --app-name "FM1-8P CPU" --identity "$FM1_IDENTITY"
     emu_rc=0      # (no pipefail in sh: the log goes to a file first, so a crash isn't hidden by tee)
     (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
-        --fwsc build/fm1-8p-cpu-quick.fwsc --ms "${FM1_EMU_MS:-5000}" --out "$OUT/emu") \
+        --fwsc build/fm1-8p-cpu-quick.fwsc --ms "${FM1_EMU_MS:-$(emu_window_ms "$(sed -n 's/.*-DCPU_HOLD_BLOCKS=\([0-9]*\)u.*/\1/p' "$ROOT/firmware/fm1_8p_cpu_quick/module.cfg")")}" --out "$OUT/emu") \
         >"$OUT/emu.log" 2>&1 || emu_rc=$?
     cat "$OUT/emu.log"
     report_rc=0
