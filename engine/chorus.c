@@ -60,8 +60,7 @@ void fm_chorus_set_mode(fm_chorus *c, uint8_t mode)
     c->mode = mode;
     if (mode == FM_CHORUS_OFF) return;
     m = &modes[mode];
-    c->lfo_inc = (uint32_t)fm_rate_to_phase_inc(m->rate_mhz, 1000u,
-                                                c->sample_rate, 0);
+    c->lfo_inc = fm_rate_to_phase_inc(m->rate_mhz, 1000u, c->sample_rate, 0);
     center = fm_us_to_samples_q16(m->center_us, c->sample_rate);
     depth = fm_us_to_samples_q16(m->depth_us, c->sample_rate);
     if (center + depth > longest) { /* very high rates: scale to fit */

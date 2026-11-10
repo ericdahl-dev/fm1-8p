@@ -41,7 +41,16 @@ TT_TEST(units_rate_to_phase_inc_edges)
     TT_CHECK(fm_rate_to_phase_inc(1, 1, 44100u, 0) == 97391);
     TT_CHECK(fm_rate_to_phase_inc(1000, 1000, 44100u, 0) == 97391);
     TT_CHECK(fm_rate_to_phase_inc(100, 100, 44100u, 4) == 1558264);
-    TT_CHECK(fm_rate_to_phase_inc(22050, 1, 44100u, 0) == (uint64_t)1 << 31);
+}
+
+/* Too fast a rate is capped at just under half a cycle per step, the same
+ * for every caller: half the sample rate, the sample rate itself (a chorus
+ * rate of 44.1 kHz in mHz: wrapped to 0 in 32 bits before) and above. */
+TT_TEST(units_rate_to_phase_inc_caps_at_half_a_cycle)
+{
+    TT_CHECK(fm_rate_to_phase_inc(22050, 1, 44100u, 0) == 0x7FFFFFFFu);
+    TT_CHECK(fm_rate_to_phase_inc(44100000u, 1000u, 44100u, 0) == 0x7FFFFFFFu);
+    TT_CHECK(fm_rate_to_phase_inc(100000000u, 1000u, 44100u, 0) == 0x7FFFFFFFu);
 }
 
 static void run_units_tests(void)
@@ -50,4 +59,5 @@ static void run_units_tests(void)
     TT_RUN(units_permille_to_q30_edges);
     TT_RUN(units_us_to_samples_q16_edges);
     TT_RUN(units_rate_to_phase_inc_edges);
+    TT_RUN(units_rate_to_phase_inc_caps_at_half_a_cycle);
 }

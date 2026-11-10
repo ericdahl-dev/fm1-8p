@@ -22,14 +22,17 @@ int32_t fm_permille_to_q30(int32_t permille);
  * us * rate < 2^48 (10 ms at 192 kHz is about 2^31). */
 uint64_t fm_us_to_samples_q16(uint32_t us, uint32_t rate);
 
+/* The fastest phase step: just under half a cycle per step. */
+#define FM_PHASE_INC_MAX 0x7FFFFFFFu
+
 /*
  * A rate of `value / per_hz` Hz to a Q0.32 phase step (cycles per step) at
- * `rate` Hz, a step being 2^shift samples. Rate 0 gives 0 (no divide by
- * zero: the FM-1's core doesn't trap on one). Exact while
- * value < 2^(32 - shift); the LFO's 3000 centihertz per 2^5-sample tick and
- * the chorus's millihertz per sample are far inside.
+ * `rate` Hz, a step being 2^shift samples, capped at FM_PHASE_INC_MAX.
+ * Rate 0 gives 0 (no divide by zero: the FM-1's core doesn't trap on one).
+ * Exact while value < 2^(32 - shift); the LFO's 3000 centihertz per
+ * 2^5-sample tick and the chorus's millihertz per sample are far inside.
  */
-uint64_t fm_rate_to_phase_inc(uint32_t value, uint32_t per_hz, uint32_t rate,
+uint32_t fm_rate_to_phase_inc(uint32_t value, uint32_t per_hz, uint32_t rate,
                               unsigned shift);
 
 #endif

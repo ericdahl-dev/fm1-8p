@@ -32,13 +32,11 @@ void fm_lfo_set_wave(fm_lfo *l, uint8_t wave)
 
 void fm_lfo_set_rate(fm_lfo *l, int32_t centihz, uint32_t sample_rate)
 {
-    uint64_t inc;
     if (centihz < 0) centihz = 0;
     if (centihz > FM_LFO_MAX_CENTIHZ) centihz = FM_LFO_MAX_CENTIHZ;
     /* cycles per tick (rate 0: none) */
-    inc = fm_rate_to_phase_inc((uint32_t)centihz, 100u, sample_rate,
-                               FM_LFO_TICK_SHIFT);
-    l->inc = inc > 0x7FFFFFFFu ? 0x7FFFFFFFu : (uint32_t)inc;
+    l->inc = fm_rate_to_phase_inc((uint32_t)centihz, 100u, sample_rate,
+                                  FM_LFO_TICK_SHIFT);
 }
 
 int32_t fm_lfo_tick(fm_lfo *l)
