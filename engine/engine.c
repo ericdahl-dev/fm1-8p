@@ -80,7 +80,8 @@ int32_t fm_engine_get_param(const fm_engine *e, uint16_t id)
 
 void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
 {
-    if (note > 127 || velocity > 127) return;
+    if (e->sample_rate == 0 || note > 127 || velocity > 127)
+        return; /* not initialized, or not MIDI */
     if (velocity == 0) {
         fm_engine_note_off(e, note);
         return;

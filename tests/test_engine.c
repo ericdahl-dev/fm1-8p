@@ -1,7 +1,7 @@
 /* Engine behavior tests, through the public interface only. */
 #include "../engine/fm1_8p.h"
 
-#define RATE 48000u
+#define RATE 44100u
 
 static fm_engine eng;
 static int16_t buf[RATE * 2 * 4]; /* up to 4 s of stereo */
@@ -19,10 +19,10 @@ TT_TEST(note_on_plays_saw_at_note_pitch)
 
 /*
  * Aliasing threshold for a high saw, as documented in docs/fixed-point.md:
- * energy away from the harmonics of C7 (2093 Hz) at 48 kHz must be at
+ * energy away from the harmonics of C7 (2093 Hz) at 44.1 kHz must be at
  * least ALIAS_LIMIT_DB below the total. On this measurement a naive
- * (non-band-limited) saw gives -12.9 dB and the 2-point polyBLEP saw
- * -28.5 dB, matching a double-precision polyBLEP model.
+ * (non-band-limited) saw gives -12.6 dB and the 2-point polyBLEP saw
+ * -27.9 dB, matching a double-precision polyBLEP model.
  */
 #define ALIAS_LIMIT_DB (-25.0)
 
@@ -33,7 +33,7 @@ TT_TEST(high_saw_note_has_low_aliasing)
     fm_engine_note_on(&eng, 96, 100);
     fm_engine_render(&eng, buf, 4800 + 32768);
     db = aliasing_db(buf + 2 * 4800, 32768, 0, note_hz(96), RATE, 6);
-    printf("    aliasing for note 96 at 48 kHz: %.1f dB\n", db);
+    printf("    aliasing for note 96 at 44.1 kHz: %.1f dB\n", db);
     TT_CHECK(db < ALIAS_LIMIT_DB);
 }
 
@@ -122,6 +122,92 @@ TT_TEST(all_notes_off_controller_releases_the_note)
     TT_CHECK(!loud_after);
 }
 
+/* Plays a short phrase, rendering in blocks of `block` frames. */
+static void render_phrase_in_blocks(int16_t *out, uint32_t frames,
+                                    uint32_t block)
+{
+    uint32_t done = 0;
+    fm_engine_init(&eng, RATE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 3);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 40);
+    while (done < frames) {
+        uint32_t n = frames - done < block ? frames - done : block;
+        /* events land on fixed frames, whatever the block size */
+        if (done == 1000) fm_engine_note_on(&eng, 57, 100);
+        if (done == 6000) fm_engine_note_off(&eng, 57);
+        if (done < 1000 && done + n > 1000) n = 1000 - done;
+        if (done < 6000 && done + n > 6000) n = 6000 - done;
+        fm_engine_render(&eng, out + 2 * done, n);
+        done += n;
+    }
+}
+
+TT_TEST(block_size_does_not_change_output)
+{
+    static int16_t whole[2 * 9000], blocked[2 * 9000];
+    static const uint32_t sizes[] = { 256, 1, 255, 4096 };
+    size_t k;
+    render_phrase_in_blocks(whole, 9000, 9000);
+    TT_CHECK(peak_abs(whole, 2000, 5000) > 1000);
+    for (k = 0; k < sizeof sizes / sizeof sizes[0]; k++) {
+        render_phrase_in_blocks(blocked, 9000, sizes[k]);
+        TT_CHECK(memcmp(whole, blocked, sizeof whole) == 0);
+    }
+}
+
+/*
+ * Division by zero does not trap on the FM-1's CPU (it returns garbage),
+ * so every divisor must be non-zero by construction. Here the desktop
+ * would trap (SIGFPE) on any division by zero, and the output must stay
+ * bounded and fall silent after release at every extreme.
+ */
+TT_TEST(extreme_settings_stay_bounded_and_release)
+{
+    static const uint32_t rates[] = { 1, 8000, 44100, 192000 };
+    static const uint8_t notes[] = { 0, 1, 60, 126, 127 };
+    size_t r, n, i;
+    for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
+        for (n = 0; n < sizeof notes / sizeof notes[0]; n++) {
+            int loud_after = 0;
+            TT_CHECK_EQ(fm_engine_init(&eng, rates[r], 1), FM_OK);
+            fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+            fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
+            fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+            fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 0);
+            fm_engine_note_on(&eng, notes[n], 127);
+            fm_engine_render(&eng, buf, 2000);
+            TT_CHECK(peak_abs(buf, 0, 2000) <= 16384 + 64);
+            fm_engine_note_off(&eng, notes[n]);
+            fm_engine_render(&eng, buf, 2000);
+            for (i = 2; i < 2 * 2000; i++)
+                if (buf[i] != 0) loud_after = 1;
+            TT_CHECK(!loud_after);
+        }
+    }
+    /* longest times at the highest rate: steps must not round to zero */
+    TT_CHECK_EQ(fm_engine_init(&eng, 192000, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 10000);
+    fm_engine_note_on(&eng, 60, 100);
+    fm_engine_render(&eng, buf, RATE);
+    TT_CHECK(peak_abs(buf, RATE - 1000, RATE) > 0);
+}
+
+/* A zeroed engine (static storage before, or after a failed, init) must
+ * not divide by its zero sample rate. */
+TT_TEST(uninitialized_engine_is_silent_and_does_not_divide_by_zero)
+{
+    static fm_engine zero;
+    size_t i;
+    int loud = 0;
+    memset(&zero, 0, sizeof zero);
+    fm_engine_note_on(&zero, 60, 100);
+    fm_engine_set_param(&zero, FM_PARAM_AMP_RELEASE_MS, 100);
+    fm_engine_render(&zero, buf, 256);
+    for (i = 0; i < 2 * 256; i++)
+        if (buf[i] != 0) loud = 1;
+    TT_CHECK(!loud);
+}
+
 static void run_engine_tests(void)
 {
     TT_RUN(note_on_plays_saw_at_note_pitch);
@@ -130,4 +216,7 @@ static void run_engine_tests(void)
     TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
     TT_RUN(init_rejects_bad_arguments);
     TT_RUN(all_notes_off_controller_releases_the_note);
+    TT_RUN(block_size_does_not_change_output);
+    TT_RUN(extreme_settings_stay_bounded_and_release);
+    TT_RUN(uninitialized_engine_is_silent_and_does_not_divide_by_zero);
 }

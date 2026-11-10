@@ -142,7 +142,7 @@ TT_TEST(render_applies_parameter_settings)
     int16_t *pcm;
     int early, later;
     memset(&o, 0, sizeof o);
-    o.sample_rate = 48000;
+    o.sample_rate = 44100;
     o.param_count = 2;
     o.param_id[0] = FM_PARAM_AMP_ATTACK_MS;
     o.param_value[0] = 500;
@@ -152,15 +152,15 @@ TT_TEST(render_applies_parameter_settings)
     TT_CHECK_EQ(render_midi_file("build/one-note.mid", "build/attack.wav", &o), 0);
     pcm = read_wav_pcm("build/attack.wav", &frames, &rate);
     TT_CHECK(pcm != NULL);
-    early = peak_abs(pcm, 4800 - 150, 4800);   /* ~100 ms */
-    later = peak_abs(pcm, 28800 - 150, 28800); /* ~600 ms */
+    early = peak_abs(pcm, 4410 - 150, 4410);   /* ~100 ms */
+    later = peak_abs(pcm, 26460 - 150, 26460); /* ~600 ms */
     free(pcm);
     TT_CHECK_NEAR((double)early / later, 0.2, 0.03);
 }
 
 TT_TEST(tempo_changes_set_the_song_length)
 {
-    render_opts o = { .sample_rate = 48000, .tail_ms = 250 };
+    render_opts o = { .sample_rate = 44100, .tail_ms = 250 };
     uint32_t frames, rate;
     int16_t *pcm;
     write_two_track_smf("build/two-track.mid");
@@ -169,12 +169,12 @@ TT_TEST(tempo_changes_set_the_song_length)
     TT_CHECK(pcm != NULL);
     free(pcm);
     /* 960 ticks at 250 ms per 480 ticks = 0.5 s, plus 0.25 s tail */
-    TT_CHECK_EQ(frames, 24000 + 12000);
+    TT_CHECK_EQ(frames, 22050 + 11025);
 }
 
 TT_TEST(same_midi_file_renders_byte_identical_wav)
 {
-    render_opts o = { .sample_rate = 48000, .tail_ms = 400 };
+    render_opts o = { .sample_rate = 44100, .tail_ms = 400 };
     uint8_t *a, *b;
     size_t na, nb;
     write_two_track_smf("build/det.mid");
@@ -192,7 +192,7 @@ TT_TEST(same_midi_file_renders_byte_identical_wav)
 TT_TEST(render_rejects_bad_input)
 {
     static const uint8_t junk[] = { 'M', 'T', 'h', 'x', 1, 2, 3 };
-    render_opts o = { .sample_rate = 48000, .tail_ms = 0 };
+    render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
     FILE *f = fopen("build/junk.mid", "wb");
     fwrite(junk, 1, sizeof junk, f);
     fclose(f);

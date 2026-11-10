@@ -15,7 +15,7 @@ static void usage(void)
     uint16_t id;
     fprintf(stderr,
             "usage: fm1-8p-render [options] input.mid output.wav\n"
-            "  -r RATE        sample rate in Hz (default 48000)\n"
+            "  -r RATE        sample rate in Hz (default 44100)\n"
             "  -t MS          tail rendered after the song ends (default 1000)\n"
             "  -s NAME=VALUE  set a parameter (repeatable); parameters:\n");
     for (id = 0; id < FM_PARAM_COUNT; id++) {
@@ -61,7 +61,7 @@ int main(int argc, char **argv)
     render_opts o;
     int i;
     memset(&o, 0, sizeof o);
-    o.sample_rate = 48000;
+    o.sample_rate = 44100;
     o.tail_ms = 1000;
 
     for (i = 1; i < argc && argv[i][0] == '-' && argv[i][1] != '\0'; i++) {

@@ -24,6 +24,7 @@ uint32_t fm_osc_note_inc(uint8_t note, uint32_t sample_rate)
 {
     uint32_t hz_q16;
     uint64_t inc;
+    if (sample_rate == 0) return 0; /* never divide by zero: no trap on pi32v2 */
     if (note > 127) note = 127;
     hz_q16 = top_octave_hz_q16[note % 12] >> (10 - note / 12);
     inc = ((uint64_t)hz_q16 << 16) / sample_rate;
