@@ -5,8 +5,8 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 3.1 KiB (3180 bytes on
- * 32- and 64-bit desktops), two thirds of it the chorus delay line, so
+ * sets up everything inside it. fm_engine is about 3.6 KiB (3664 bytes on
+ * 32- and 64-bit desktops), more than half of it the chorus delay line, so
  * static storage is recommended; a task stack must have room for it on
  * top of its other use. See docs/fixed-point.md for the number formats.
  *
@@ -46,6 +46,15 @@ typedef enum {
     FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
     FM_PARAM_VOICE_MODE, /* FM_VOICE_MODE_POLY or FM_VOICE_MODE_UNISON */
     FM_PARAM_UNISON_DETUNE_CENTS, /* unison spread, lowest to highest voice */
+    FM_PARAM_OSC1_WAVE, /* fm_wave: 0 saw, 1 pulse, 2 square, 3 noise */
+    FM_PARAM_OSC1_PULSE_WIDTH_PCT, /* pulse duty, percent of a cycle */
+    FM_PARAM_OSC1_OCTAVE,          /* -2..+2 octaves */
+    FM_PARAM_OSC1_FINE_CENTS,      /* -100..+100 cents */
+    FM_PARAM_OSC2_WAVE,            /* the same four for osc2 */
+    FM_PARAM_OSC2_PULSE_WIDTH_PCT,
+    FM_PARAM_OSC2_OCTAVE,
+    FM_PARAM_OSC2_FINE_CENTS,
+    FM_PARAM_OSC_MIX,              /* per mille: 0 osc1 only, 1000 osc2 only */
     FM_PARAM_CHORUS_MODE, /* 0 = off, then the fm_chorus_mode modes */
     FM_PARAM_COUNT
 } fm_param_id;

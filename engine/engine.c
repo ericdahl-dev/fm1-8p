@@ -25,12 +25,11 @@ static uint32_t ms_to_samples(const fm_engine *e, int32_t ms)
     return (uint32_t)(((uint64_t)(uint32_t)ms * e->sample_rate) / 1000u);
 }
 
-/* Phase increment for voice `i` playing `note`: the note, the bend and
- * the voice's unison detune. */
-static uint32_t voice_inc(const fm_engine *e, uint8_t i, uint8_t note)
+/* Pitch of voice `i` playing `note`, Q16.16 semitones: the note, the
+ * bend and the voice's unison detune. Both oscillators follow it. */
+static int32_t voice_pitch(const fm_engine *e, uint8_t i, uint8_t note)
 {
-    return fm_osc_pitch_inc(((int32_t)note << 16) + e->bend + e->detune[i],
-                            e->sample_rate);
+    return ((int32_t)note << 16) + e->bend + e->detune[i];
 }
 
 /*
@@ -56,7 +55,8 @@ static void retune(fm_engine *e)
     for (i = 0; i < e->voice_count; i++) /* idle voices get theirs at note on */
         if (fm_voice_active(&e->voices[i]) &&
             e->voices[i].note != FM_VOICE_NO_NOTE)
-            fm_voice_set_inc(&e->voices[i], voice_inc(e, i, e->voices[i].note));
+            fm_voice_set_pitch(&e->voices[i], voice_pitch(e, i, e->voices[i].note),
+                               e->sample_rate);
 }
 
 /* MIDI bend (-8192..8191 from center) to Q16.16 semitones: exact, since
@@ -67,14 +67,73 @@ static void apply_bend(fm_engine *e, int32_t centered)
     retune(e);
 }
 
+/*
+ * Oscillator `which`'s settings on every voice. Each oscillator's
+ * parameters run in the same order (wave, pulse width, octave, fine), so
+ * `rel` is the offset from its wave parameter. The typedefs below fail
+ * the build if that order ever changes.
+ */
+typedef char fm_require_osc1_width_at_1[
+    FM_PARAM_OSC1_PULSE_WIDTH_PCT - FM_PARAM_OSC1_WAVE == 1 ? 1 : -1];
+typedef char fm_require_osc1_octave_at_2[
+    FM_PARAM_OSC1_OCTAVE - FM_PARAM_OSC1_WAVE == 2 ? 1 : -1];
+typedef char fm_require_osc1_fine_at_3[
+    FM_PARAM_OSC1_FINE_CENTS - FM_PARAM_OSC1_WAVE == 3 ? 1 : -1];
+typedef char fm_require_osc2_width_at_1[
+    FM_PARAM_OSC2_PULSE_WIDTH_PCT - FM_PARAM_OSC2_WAVE == 1 ? 1 : -1];
+typedef char fm_require_osc2_octave_at_2[
+    FM_PARAM_OSC2_OCTAVE - FM_PARAM_OSC2_WAVE == 2 ? 1 : -1];
+typedef char fm_require_osc2_fine_at_3[
+    FM_PARAM_OSC2_FINE_CENTS - FM_PARAM_OSC2_WAVE == 3 ? 1 : -1];
+
+static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
+{
+    const int32_t *p = &e->params[which ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE];
+    uint8_t i;
+    for (i = 0; i < FM_MAX_VOICES; i++) {
+        fm_voice *v = &e->voices[i];
+        switch (rel) {
+        case 0:
+            fm_osc_pair_set_wave(&v->osc, which, (uint8_t)p[0]);
+            break;
+        case 1:
+            fm_osc_pair_set_width(&v->osc, which, p[1]);
+            break;
+        default: /* octave or fine tune */
+            fm_voice_set_tune(v, which, p[2] * 1200 + p[3], e->sample_rate);
+            break;
+        }
+    }
+}
+
 /* Recomputes the derived settings a parameter feeds. */
 static void apply_param(fm_engine *e, uint16_t id)
 {
     int32_t v = e->params[id];
     uint8_t i;
-    if (id == FM_PARAM_BEND_RANGE) {
+    switch (id) {
+    case FM_PARAM_BEND_RANGE:
         apply_bend(e, e->bend_value);
         return;
+    case FM_PARAM_OSC1_WAVE:
+    case FM_PARAM_OSC1_PULSE_WIDTH_PCT:
+    case FM_PARAM_OSC1_OCTAVE:
+    case FM_PARAM_OSC1_FINE_CENTS:
+        apply_osc_param(e, 0, id - FM_PARAM_OSC1_WAVE);
+        return;
+    case FM_PARAM_OSC2_WAVE:
+    case FM_PARAM_OSC2_PULSE_WIDTH_PCT:
+    case FM_PARAM_OSC2_OCTAVE:
+    case FM_PARAM_OSC2_FINE_CENTS:
+        apply_osc_param(e, 1, id - FM_PARAM_OSC2_WAVE);
+        return;
+    case FM_PARAM_OSC_MIX:
+        for (i = 0; i < FM_MAX_VOICES; i++) /* per mille -> Q1.30 */
+            fm_osc_pair_set_mix(&e->voices[i].osc,
+                                (int32_t)(((int64_t)v << 30) / 1000));
+        return;
+    default:
+        break;
     }
     if (id == FM_PARAM_VOICE_MODE || id == FM_PARAM_UNISON_DETUNE_CENTS) {
         /* every voice's detune: the unison spread, or none in poly */
@@ -159,15 +218,18 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend_value = 0;
     unison_reset(e);
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
+    /* each voice its own noise (an odd multiplier: never 0), so unison
+     * voices, which start together, never play the same stream */
     for (i = 0; i < FM_MAX_VOICES; i++) {
-        fm_voice_reset(&e->voices[i]);
+        fm_voice_reset(&e->voices[i], (uint32_t)(i + 1) * 0x9E3779B9u);
         e->detune[i] = 0;
     }
     fm_chorus_init(&e->chorus, sample_rate);
-    for (id = 0; id < FM_PARAM_COUNT; id++) {
+    /* all defaults first: some settings combine several parameters */
+    for (id = 0; id < FM_PARAM_COUNT; id++)
         e->params[id] = fm_param_info_get(id)->def;
+    for (id = 0; id < FM_PARAM_COUNT; id++)
         apply_param(e, id);
-    }
     return FM_OK;
 }
 
@@ -239,7 +301,8 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note)
 {
     uint8_t i = (uint8_t)(v - e->voices);
     v->stamp = ++e->stamp;
-    fm_voice_note_on(v, note, voice_inc(e, i, note), e->fade_samples);
+    fm_voice_note_on(v, note, voice_pitch(e, i, note), e->sample_rate,
+                     e->fade_samples);
 }
 
 /* The voice fading `note` out after a steal, or null. */
@@ -264,7 +327,8 @@ static void take_back(fm_engine *e, fm_voice *f, uint8_t note)
 {
     uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
     fm_voice *w;
-    fm_voice_take_back(f, voice_inc(e, (uint8_t)(f - e->voices), note));
+    fm_voice_take_back(f, voice_pitch(e, (uint8_t)(f - e->voices), note),
+                       e->sample_rate);
     f->stamp = ++e->stamp;
     if (!key_down && !sustained) return;
     w = pick_voice(e, f);
@@ -292,7 +356,8 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger)
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         v->stamp = ++e->stamp;
-        fm_voice_change_note(v, note, voice_inc(e, i, note), retrigger);
+        fm_voice_change_note(v, note, voice_pitch(e, i, note), e->sample_rate,
+                             retrigger);
     }
 }
 
@@ -425,7 +490,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (i = 0; i < n; i++) e->mix[i] = 0;
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
-                fm_voice_render_add(&e->voices[k], e->mix, n);
+                fm_voice_render_add(&e->voices[k], e->mix, n, e->sample_rate);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);

@@ -15,22 +15,35 @@ integer divided by 2^n.
 | --- | --- | --- | --- | --- | --- |
 | Oscillator phase | `uint32_t` | unsigned Q0.32 | one full cycle = 2^32 | 0 to just under 1 cycle | Wraps for free on overflow; 32 bits give a frequency step of rate / 2^32 (about 10 uHz at 44.1 kHz). |
 | Phase increment | `uint32_t` | unsigned Q0.32 per sample | | capped at `0x7FFF0000`, just under Nyquist | Same scale as the phase, so one add per sample. |
-| Pitch (note plus bend) | `int32_t` | Q16.16 semitones | one semitone = 2^16 | MIDI notes 0 to 131 | Pitch bend is exact in this format (see [voices.md](voices.md#pitch-bend)). Between semitones the frequency is interpolated on the note table. |
+| Pitch (note plus bend plus tuning) | `int32_t` | Q16.16 semitones | one semitone = 2^16 | any; the table covers notes 0 to 131 | Outside the table the pitch folds back by whole octaves and the increment shifts by the same power of two, so intervals stay exact up to the Nyquist cap. Pitch bend is exact in this format (see [voices.md](voices.md#pitch-bend)). Between semitones the frequency is the note below times 2^(f/12), by the same cubic series as the tuning (under 0.001 cent). |
 | Note frequency | `uint32_t` | unsigned Q16.16 Hz | | up to 15.8 kHz (note 131) | A 12-entry table for notes 120 to 131 (`tools/gen_pitch_table.py`); lower octaves are exact right shifts, so no `pow()`. The increment is `(hz_q16 << 16) / rate`, computed once per note on. |
 | Audio sample (inside the engine) | `int32_t` | Q8.24 | 2^24 | about -128 to +128 | 24 fraction bits keep far more resolution than the 16-bit output, and 7 bits of headroom above 1.0 leave room to sum voices, filter resonance and chorus in later slices before the final clamp. |
 | Envelope level | `int32_t` | Q1.30 | 2^30 (`FM_ENV_FULL`) | 0 to 1.0 | Fine enough for a smooth 10 s segment at 192 kHz (the smallest step is about 560 LSB). |
 | Gain | `int32_t` | Q1.30 | 2^30 | 0 to 1.0 | Same as the envelope, so `sample * gain >> 30` keeps Q8.24. |
 | polyBLEP correction | `int64_t` | Q16 | 2^16 | -1.0 to +1.0 | Only computed on the two samples around each saw wrap. |
+| Pulse width | `uint32_t` | unsigned Q0.32 | one full cycle = 2^32 | 2 increments to 1 cycle minus 2 increments | Same scale as the phase, so the second saw of a pulse is just `phase + width`. Set from `oscN_pulse_width_pct` and limited by the pitch on events (see [Aliasing threshold](#aliasing-threshold)). |
+| Tuning | `int32_t` | Q16.16 semitones | one semitone = 2^16 | -25 to +25 semitones (2 octaves and 100 cents) | Set in cents (`octave * 1200 + fine`) and added to the voice's pitch on events, so tuning and bend combine by one add. The fraction of a semitone becomes a ratio 2^(f/12) by a cubic series in Q2.30 (error under 0.001 cent), so no extra table and no `pow()`. |
+| Oscillator mix | `int32_t` | Q1.30 | 2^30 (`FM_OSC_MIX_FULL`) | 0 to 1.0 | `a + (b - a) * mix >> 30`: exactly one oscillator at either end. |
+| Noise state | `uint32_t` | xorshift32 | | never 0 | Three shifts and three XORs a sample; the top bits, `>> 7`, are the Q8.24 sample. |
 | Output | `int16_t` | Q1.15 | 32768 | -32768 to 32767 | What a codec or a WAV file takes. Q8.24 maps to it with `>> 9` and saturation. |
 
 Multiplies of two 32-bit values go through a 64-bit intermediate
 (`(int64_t)a * b >> n`). Divisions happen only on events (note on, pitch
 bend, a parameter change, an envelope stage change), except the polyBLEP correction, which does
-one 64-by-32 division on each of the two samples around every saw wrap. On
-the JieLi clang toolchain these compile to the native divide, and the branch
-links with no `__*di3` or float helpers (checked by the #12 firmware work).
-If the CPU test shows the divides cost too much, a reciprocal of the
-increment computed once per note on (or once per block) can replace them.
+one 64-by-32 division on each of the two samples around every saw wrap. That
+is 2 divisions a cycle for a saw and 4 for a pulse or square (two saws, one
+per edge), so up to 8 a cycle for a voice with two pulse oscillators. Per
+sample that is 2 x increment for a saw and 4 x increment for a pulse, where
+the increment is in cycles per sample. High notes add up: the highest pitch
+is note 127 (12.5 kHz, an increment of 0.284 at 44.1 kHz), which is above a
+quarter of the sample rate, so the pulse is forced to a square and divides on
+more than every other sample. The worst case is about 2.28 divisions per
+sample per voice (two pulse or square oscillators at note 127). On the JieLi
+clang toolchain these compile to the native divide, and the branch links with
+no `__*di3` or float helpers (checked by the #12 firmware work). If the CPU
+measurement (#13) shows the divides cost too much, the planned fix is a
+reciprocal of each increment computed on note and retune events, which turns
+every polyBLEP division into a multiply.
 
 Every divisor is non-zero by construction, because division by zero does not
 trap on pi32v2; it returns garbage:
@@ -51,13 +64,21 @@ the desktop, where a division by zero does trap.
 
 ### Gain staging
 
-Each voice is the saw (peak 1.0 in Q8.24) times its amp envelope (Q1.30).
-The voices are summed in Q8.24 and the sum is scaled by
-`0.5 / voice_count` (Q1.30), so even every voice at full level with lined-up
-peaks stays at or below half of full scale (-6 dBFS), with 6 dB left for
-resonance and the chorus. The table and the reasoning are in
+Each voice is its oscillator mix (every waveform peaks at 1.0 in Q8.24) times its amp envelope (Q1.30). The voices are summed in Q8.24 and the
+sum is scaled by `0.5 / voice_count` (Q1.30), so even every voice at full
+level with lined-up peaks stays at or below half of full scale (-6 dBFS), with
+6 dB left for resonance and the chorus. The table and the reasoning are in
 [voices.md](voices.md#gain-staging).
 The chorus (below) never raises the peak above its input's.
+
+The pulse is the difference of two saws, `saw(t) - saw(t + width)`, so it has
+no DC (like an AC-coupled analog pulse): it sits at +2(1 - w) for the last
+fraction w of the cycle and at -2w for the rest, so a narrow pulse would peak
+near +2.0 (a wide one near -2.0), twice the saw. A gain of 1 / (2 max(w,
+1 - w)), worked out with the width limit on events, brings every width to a
+peak of 1.0, so switching between saw, square and pulse never jumps in level.
+At 50 % the gain is 1 (the square is +-1.0). The mix is a crossfade, so two
+oscillators together peak no higher than the louder one.
 
 ### Parameter values
 
@@ -65,6 +86,17 @@ Parameters are plain integers in the unit their name gives, for example
 `amp_attack_ms` 0 to 10000 and `amp_sustain_permille` 0 to 1000. The engine
 converts them to samples or Q1.30 when they are set, not per sample. The table
 is in `engine/params.c`.
+
+Each voice has two oscillators. `osc1_wave` and `osc2_wave` pick 0 saw,
+1 pulse, 2 square or 3 noise; `oscN_octave` (-2 to +2) and `oscN_fine_cents`
+(-100 to +100) tune each from the played note; `oscN_pulse_width_pct` (1 to 99)
+sets the pulse duty; and `osc_mix_permille` crossfades from osc1 alone (0, the
+default) to osc2 alone (1000). For example:
+
+```sh
+./build/fm1-8p-render -s osc1_wave=1 -s osc1_pulse_width_pct=25 \
+    -s osc2_octave=1 -s osc2_fine_cents=7 -s osc_mix_permille=500 song.mid song.wav
+```
 
 ## Chorus
 
@@ -108,7 +140,7 @@ How it works, per sample:
 
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 2.1 KiB (2072 bytes on x86-64), inside `fm_engine`, plus the 256-byte
-`mix_right` buffer. That makes `fm_engine` about 3.1 KiB (3180 bytes), so
+`mix_right` buffer. That makes `fm_engine` about 3.6 KiB (3664 bytes), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
@@ -187,6 +219,28 @@ The fixed-point saw matches the floating-point model, so the remaining
 aliasing is a property of 2-point polyBLEP, not of the number format. A
 stronger method (a wider BLEP, or oversampling) can lower the threshold later
 if listening tests call for it.
+
+The pulse and square are held to the same **-25 dB** limit with the same
+measurement (`high_pulse_and_square_notes_have_low_aliasing` in
+`tests/test_osc.c`). Each is two polyBLEP saws, so each edge gets the same
+correction as the saw's wrap.
+
+| Wave at C7 | Naive | polyBLEP, double model | This engine |
+| --- | --- | --- | --- |
+| Square (50 %) | -14.2 dB | -28.6 dB | -28.6 dB |
+| Pulse 25 % | -13.3 dB | -29.4 dB | -29.4 dB |
+| Pulse 10 % or 90 % | -9.8 dB | -26.4 dB | -26.4 dB |
+| Pulse 1 % or 99 %, unlimited | -1.2 dB | -12.9 dB | -12.9 dB |
+| Pulse 1 % or 99 %, limited | | | -28.0 dB |
+
+A 1 % pulse at C7 is 0.2 samples wide, inside the two-sample polyBLEP span, so
+it is mostly aliasing whatever the precision. The oscillator therefore plays a
+width at least two phase increments (two samples) from either edge of the
+cycle, worked out when the note or the width changes; above a quarter of the
+sample rate only a square fits. At 44.1 kHz the limit reaches a 1 % setting
+only above 220 Hz (A3), and a 10 % setting only above 2.2 kHz.
+
+Noise is white and is not measured for aliasing.
 
 ## Float-free check
 
