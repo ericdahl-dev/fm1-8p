@@ -70,9 +70,9 @@ TT_TEST(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave)
 /*
  * Resonance feeds the last stage back to the input, which lifts the
  * response at the cutoff (theory for the analog ladder: 0.25 / (1 - k/4)
- * at feedback k; k = 4 at resonance 1000) and costs some bass. Midway,
+ * at feedback k; k = 4.2 at resonance 1000) and costs some bass. Midway,
  * where the cutoff point is near the passband level, the octave above
- * cutoff is about 24 dB below the cutoff point (theory 23.6 dB at 600).
+ * cutoff is about 24 dB below the cutoff point (theory 24.4 dB at 600).
  */
 TT_TEST(resonance_raises_gain_near_cutoff)
 {
@@ -90,8 +90,8 @@ TT_TEST(resonance_raises_gain_near_cutoff)
     printf("    gain at cutoff: res 0 %.2f dB, 500 %.2f, 900 %.2f; "
            "res 600: cutoff %.2f, octave above %.2f\n",
            at0, at500, at900, at600, oct600);
-    TT_CHECK(at500 > at0 + 5.0);  /* theory +6.0 dB */
-    TT_CHECK(at900 > at500 + 12.0); /* theory +14.0 dB */
+    TT_CHECK(at500 > at0 + 5.0);    /* theory +6.5 dB */
+    TT_CHECK(at900 > at500 + 12.0); /* theory +18.7 dB */
     TT_CHECK_NEAR(at600 - oct600, 24.0, 3.0);
 }
 
@@ -136,6 +136,47 @@ TT_TEST(max_resonance_stays_bounded_over_a_long_render)
                        peak / 16777216.0, late_peak / 16777216.0);
             TT_CHECK(peak <= FILTER_BOUND);
         }
+    }
+}
+
+/*
+ * Resonance 1000 self-oscillates: a single click sets the filter ringing
+ * at a steady level near the cutoff frequency, and never at Nyquist (the
+ * one-sample feedback delay can make a naive 4-pole loop buzz there).
+ */
+TT_TEST(max_resonance_self_oscillates_near_cutoff)
+{
+    static const int32_t cutoffs[] = { 2400, 4800, 6900, 9000, 10500, 12000,
+                                       13000 };
+    static fm_filter f;
+    size_t c, i;
+    for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
+        double fc = 440.0 * pow(2.0, (cutoffs[c] - 6900) / 1200.0);
+        double first = -1, last = -1, hz;
+        int32_t prev = 0, peak = 0;
+        int crossings = 0;
+        lowpass_at(&f, cutoffs[c], 1000);
+        for (i = 0; i < 4 * (size_t)FRATE; i++) {
+            int32_t y = fm_filter_process(&f, i == 0 ? 1 << 24 : 0);
+            if (i >= 3 * (size_t)FRATE) {
+                if (prev < 0 && y >= 0) {
+                    double t = (double)i - 1 +
+                               (double)-prev / ((double)y - prev);
+                    if (first < 0) first = t;
+                    last = t;
+                    crossings++;
+                }
+                if ((y < 0 ? -y : y) > peak) peak = y < 0 ? -y : y;
+            }
+            prev = y;
+        }
+        hz = crossings > 1 ? FRATE * (crossings - 1) / (last - first) : 0;
+        printf("    cutoff %5d (%7.1f Hz): rings at %7.1f Hz, peak %.3f\n",
+               (int)cutoffs[c], fc, hz, peak / 16777216.0);
+        TT_CHECK(peak > (1 << 24) / 10); /* still ringing after 3 s */
+        TT_CHECK(hz < 15000.0);           /* not a Nyquist buzz */
+        if (fc < 4000.0) /* tuned within a semitone up to a few kHz */
+            TT_CHECK(fabs(1200.0 * log2(hz / fc)) < 100.0);
     }
 }
 
@@ -379,6 +420,7 @@ static void run_filter_tests(void)
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
     TT_RUN(resonance_raises_gain_near_cutoff);
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
+    TT_RUN(max_resonance_self_oscillates_near_cutoff);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
     TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);

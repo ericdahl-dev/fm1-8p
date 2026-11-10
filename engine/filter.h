@@ -19,9 +19,13 @@
 #define FM_FILTER_OPEN_CENTS 14400
 
 typedef struct {
-    int32_t s[4]; /* lowpass stage outputs, Q8.24 */
-    int32_t g;    /* lowpass stage coefficient, Q1.30 (1.0 = open) */
-    int32_t k;    /* resonance feedback, Q4.28 (0 .. 4.0) */
+    int32_t s[4];  /* lowpass stage outputs, Q8.24 */
+    int32_t x1[4]; /* lowpass stage inputs one sample ago, Q8.24 */
+    int32_t g;     /* lowpass stage coefficient, Q1.30 (1.0 = open) */
+    int32_t w;     /* weight of the previous input in a stage, Q1.30 */
+    int32_t k;     /* resonance feedback in use, Q4.28 (0 .. 4.2) */
+    int32_t k_res; /* feedback the resonance setting asks for, Q4.28 */
+    int32_t fade;  /* 1.0 below the top of the cutoff range, to 0 at open */
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
     int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
 } fm_filter;
@@ -49,7 +53,8 @@ void fm_filter_clear(fm_filter *f);
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                           int32_t rate_cents);
 
-/* Resonance, per mille (0 = none, 1000 = self-oscillation). */
+/* Resonance, per mille (0 = none, 1000 = self-oscillation near the
+ * cutoff; the feedback fades out over the top 600 cents of cutoff). */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
 /* Highpass position 0..3 (higher is clamped to 3): 0 is off (a wire),

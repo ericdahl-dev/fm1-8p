@@ -3,10 +3,22 @@
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
- * The lowpass is four one-pole stages in series, y += g * (x - y), with
- * the last stage fed back to the input (times -k) for resonance. Each
- * stage output is a weighted average of its input and its old output,
- * so with 0 <= g <= 1 no stage can exceed its input. The feedback sum
+ * The lowpass is four one-pole stages in series with the last stage fed
+ * back to the input (times -k) for resonance. Each stage is
+ *
+ *     m = (1 - w) * x + w * x1      (x1: the stage input one sample ago)
+ *     y += g * (m - y)
+ *
+ * The w = 1/4 term puts a zero at z = -1/3 in each stage. Without it, the
+ * stages lag too little in phase at high cutoffs and the one-sample delay
+ * in the feedback makes the loop oscillate at Nyquist; with it the loop
+ * self-oscillates near the cutoff, at a feedback close to 4 (as in the
+ * analog ladder), from the bass up to the top of the range. Across the
+ * top FADE_CENTS of the cutoff range w, the feedback and 1 - g fade to
+ * zero, so the fully open filter is an exact wire.
+ *
+ * m is a weighted average of x and x1, and y of m and the old y, so with
+ * 0 <= w, g <= 1 no stage can exceed its input. The feedback sum
  * goes through a soft clip that never exceeds CLIP_MAX, so every state
  * stays within +-CLIP_MAX whatever the resonance: no overflow, no
  * runaway. See docs/fixed-point.md for the formats and the measured
@@ -56,6 +68,11 @@ static const uint32_t h_tab[65] = {
 #define NOTE0_HZ_Q16 535809u      /* MIDI note 0, 8.1758 Hz, Q16.16 */
 #define TWO_PI_Q29   3373259426u  /* 2 pi, Q3.29 */
 #define ONE_Q30      (1 << 30)
+#define FADE_CENTS   600
+#define W_ZERO       (1 << 28)   /* 1/4, Q1.30: the zero at z = -1/3 */
+/* Feedback at resonance 1000, per mille, Q4.28: 4.2 / 1000. Just above
+ * the loop's self-oscillation threshold (3.4 .. 4.2 across the range). */
+#define K_PER_MILLE  1127429
 #define OCTAVE       1200
 /* Offset that makes pitch differences non-negative before / and %. */
 #define OCT_BIAS     32
@@ -125,7 +142,7 @@ int32_t fm_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
 void fm_filter_clear(fm_filter *f)
 {
     int i;
-    for (i = 0; i < 4; i++) f->s[i] = 0;
+    for (i = 0; i < 4; i++) f->s[i] = f->x1[i] = 0;
     f->hp = 0;
 }
 
@@ -133,24 +150,39 @@ void fm_filter_reset(fm_filter *f)
 {
     fm_filter_clear(f);
     f->g = ONE_Q30;
-    f->k = 0;
+    f->w = 0;
+    f->k = f->k_res = 0;
+    f->fade = 0;
     f->hp_g = 0;
+}
+
+static int32_t mul_q30(int32_t a, int32_t b)
+{
+    return (int32_t)(((int64_t)a * b) >> 30);
 }
 
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                           int32_t rate_cents)
 {
+    int32_t g;
     if (cutoff_cents < 0) cutoff_cents = 0;
-    f->g = cutoff_cents >= FM_FILTER_OPEN_CENTS
-               ? ONE_Q30
-               : coef_for(cutoff_cents, rate_cents);
+    if (cutoff_cents > FM_FILTER_OPEN_CENTS) cutoff_cents = FM_FILTER_OPEN_CENTS;
+    g = coef_for(cutoff_cents, rate_cents);
+    /* 1.0 up to the fade, then down to 0 at open; 2^30 / 600 per cent */
+    f->fade = cutoff_cents <= FM_FILTER_OPEN_CENTS - FADE_CENTS
+                  ? ONE_Q30
+                  : (FM_FILTER_OPEN_CENTS - cutoff_cents) * 1789569;
+    f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
+    f->w = mul_q30(W_ZERO, f->fade);
+    f->k = mul_q30(f->k_res, f->fade);
 }
 
 void fm_filter_set_resonance(fm_filter *f, int32_t permille)
 {
     if (permille < 0) permille = 0;
     if (permille > 1000) permille = 1000;
-    f->k = permille * 1073741; /* 4.0 * permille / 1000, Q4.28 */
+    f->k_res = permille * K_PER_MILLE;
+    f->k = mul_q30(f->k_res, f->fade);
 }
 
 /*
@@ -182,10 +214,13 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
     f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
 }
 
-/* One stage: y += g * (x - y). */
-static int32_t stage(int32_t *y, int32_t x, int32_t g)
+/* One stage: m = x - w * (x - x1), y += g * (m - y). */
+static int32_t stage(int32_t *y, int32_t *x1, int32_t x, int32_t w,
+                     int32_t g)
 {
-    *y += (int32_t)(((int64_t)(x - *y) * g) >> 30);
+    int32_t m = x - mul_q30(x - *x1, w);
+    *x1 = x;
+    *y += mul_q30(m - *y, g);
     return *y;
 }
 
@@ -198,8 +233,8 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         x -= f->hp;
     }
     u = soft_clip(x - (((int64_t)f->s[3] * f->k) >> 28));
-    int32_t y = stage(&f->s[0], u, f->g);
-    y = stage(&f->s[1], y, f->g);
-    y = stage(&f->s[2], y, f->g);
-    return stage(&f->s[3], y, f->g);
+    u = stage(&f->s[0], &f->x1[0], u, f->w, f->g);
+    u = stage(&f->s[1], &f->x1[1], u, f->w, f->g);
+    u = stage(&f->s[2], &f->x1[2], u, f->w, f->g);
+    return stage(&f->s[3], &f->x1[3], u, f->w, f->g);
 }
