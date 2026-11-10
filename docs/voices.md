@@ -143,17 +143,19 @@ of a few ms; a 0 ms attack or release is a deliberate hard edge.
 
 ## Cost
 
-Per sounding voice, per sample: one envelope step, one saw sample (with a
-64-by-32 divide on the two samples around each wrap, see
-[fixed-point.md](fixed-point.md)), one 64-bit multiply, an add into the mix
+Per sounding voice, per sample: one envelope step, one sample of the
+oscillator pair (a saw has a 64-by-32 divide on the two samples around each
+wrap, a pulse or square on both edges, and the mix adds a multiply when both
+oscillators sound; see [fixed-point.md](fixed-point.md)), one 64-bit multiply, an add into the mix
 buffer, and a test for a queued release (the steal fade case above). Idle voices are skipped. Per sample for the whole engine: one
 64-bit multiply (the mix gain) and the int16 conversion.
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-`fm_engine` is about 0.7 KiB (692 bytes on x86-64) with room for 8 voices.
+`fm_engine` is about 1.2 KiB (1272 bytes on x86-64) with room for 8 voices.
 
-Divisions all happen on events: one 64-by-32 divide per note on (its pitch),
-and one per sounding voice for each pitch bend message. A fast bend sends a
-few hundred messages a second, so up to 8 divides each is far below the render's
-cost, but they run wherever the caller applies MIDI events.
+Divisions all happen on events: two 64-by-32 divides per note on (one per
+oscillator's pitch, plus one for each pulse gain), and the same per sounding
+voice for each pitch bend message. A fast bend sends a few hundred messages a
+second, so up to a few dozen divides each is far below the render's cost, but
+they run wherever the caller applies MIDI events.
