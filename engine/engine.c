@@ -28,6 +28,29 @@ static uint32_t note_inc(const fm_engine *e, uint8_t note)
     return fm_osc_pitch_inc(((int32_t)note << 16) + e->bend, e->sample_rate);
 }
 
+/* Phase increment for voice `i` playing `note`: the note, the bend and
+ * the voice's unison detune. */
+static uint32_t voice_inc(const fm_engine *e, uint8_t i, uint8_t note)
+{
+    return fm_osc_pitch_inc(((int32_t)note << 16) + e->bend + e->detune[i],
+                            e->sample_rate);
+}
+
+/*
+ * Unison detune of voice `i`, Q16.16 semitones: the voices spread evenly
+ * over `unison_detune_cents`, lowest to highest, centered on the note.
+ * cents * 65536 / 100 * (2i - (n - 1)) / (2 (n - 1)), at most
+ * 100 * 65536 * 7 before the divide, inside int32_t; the divisor is at
+ * least 200.
+ */
+static int32_t unison_detune(const fm_engine *e, uint8_t i)
+{
+    int32_t n = e->voice_count;
+    if (n < 2) return 0;
+    return e->params[FM_PARAM_UNISON_DETUNE_CENTS] * 65536 *
+           (2 * (int32_t)i - (n - 1)) / (200 * (n - 1));
+}
+
 /* Retunes every sounding voice after the bend changes. A stolen voice's old note
  * keeps its pitch for the few ms it takes to fade. */
 static void retune(fm_engine *e)
@@ -35,7 +58,7 @@ static void retune(fm_engine *e)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) /* idle voices get theirs at note on */
         if (fm_voice_active(&e->voices[i]))
-            fm_voice_set_inc(&e->voices[i], note_inc(e, e->voices[i].note));
+            fm_voice_set_inc(&e->voices[i], voice_inc(e, i, e->voices[i].note));
 }
 
 /* MIDI bend (-8192..8191 from center) to Q16.16 semitones: exact, since
@@ -53,6 +76,14 @@ static void apply_param(fm_engine *e, uint16_t id)
     uint8_t i;
     if (id == FM_PARAM_BEND_RANGE) {
         apply_bend(e, e->bend_value);
+        return;
+    }
+    if (id == FM_PARAM_UNISON_DETUNE_CENTS) {
+        if (e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON) {
+            for (i = 0; i < e->voice_count; i++)
+                e->detune[i] = unison_detune(e, i);
+            retune(e);
+        }
         return;
     }
     for (i = 0; i < e->voice_count; i++) {
@@ -95,7 +126,10 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend = 0;
     e->bend_value = 0;
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
-    for (i = 0; i < FM_MAX_VOICES; i++) fm_voice_reset(&e->voices[i]);
+    for (i = 0; i < FM_MAX_VOICES; i++) {
+        fm_voice_reset(&e->voices[i]);
+        e->detune[i] = 0;
+    }
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         e->params[id] = fm_param_info_get(id)->def;
         apply_param(e, id);
@@ -209,6 +243,15 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         return; /* not initialized, or not MIDI */
     if (velocity == 0) {
         fm_engine_note_off(e, note);
+        return;
+    }
+    if (e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON) {
+        uint8_t i;
+        for (i = 0; i < e->voice_count; i++) {
+            e->detune[i] = unison_detune(e, i);
+            fm_voice_note_on(&e->voices[i], note, voice_inc(e, i, note),
+                             e->fade_samples);
+        }
         return;
     }
     {

@@ -39,8 +39,14 @@ typedef enum {
     FM_PARAM_AMP_SUSTAIN, /* per mille of full level, 0..1000 */
     FM_PARAM_AMP_RELEASE_MS,
     FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
+    FM_PARAM_VOICE_MODE, /* FM_VOICE_MODE_POLY or FM_VOICE_MODE_UNISON */
+    FM_PARAM_UNISON_DETUNE_CENTS, /* unison spread, lowest to highest voice */
     FM_PARAM_COUNT
 } fm_param_id;
+
+/* Values of FM_PARAM_VOICE_MODE (see docs/voices.md#unison). */
+#define FM_VOICE_MODE_POLY 0
+#define FM_VOICE_MODE_UNISON 1
 
 typedef struct {
     uint16_t id;
@@ -62,6 +68,7 @@ typedef struct {
     int32_t bend_value;    /* last pitch bend, -8192..8191 from center */
     int32_t bend;          /* Q16.16 semitones added to every note */
     fm_voice voices[FM_MAX_VOICES];
+    int32_t detune[FM_MAX_VOICES]; /* Q16.16 semitones each voice is off by */
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
 } fm_engine;
 
