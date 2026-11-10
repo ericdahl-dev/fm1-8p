@@ -39,10 +39,15 @@ static void apply_pitch(fm_voice *v)
     fm_osc_pair_set_pw_mod(&v->osc, v->pw_off);
 }
 
-/* A note starts: the LFO's pitch offset drops to 0 and its delay
- * restarts at the next control tick. */
+/*
+ * A note starts from silence: the LFO's offsets drop to 0 and its delay
+ * restarts at the next control tick. A note restruck while it still
+ * sounds (the same note again, a take back, a unison retrigger) skips
+ * this, so the vibrato carries on from where it is instead of jumping.
+ */
 static void restart_lfo(fm_voice *v)
 {
+    if (v->amp_env.stage != FM_ENV_IDLE) return;
     v->pitch_oct = 0;
     v->pw_off = 0;
     v->lfo_restart = 1;
@@ -102,10 +107,10 @@ void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
     hold(v, note, pitch);
     if (v->pending) return; /* starts when the fade ends */
     if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
+        restart_lfo(v); /* before the gate: it checks for silence */
+        apply_pitch(v);
         v->amp_env.peak = v->next_peak;
         fm_env_gate_on(&v->amp_env);
-        restart_lfo(v);
-        apply_pitch(v);
     }
     v->pitch = pitch;
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);

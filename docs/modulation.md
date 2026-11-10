@@ -73,13 +73,19 @@ count within one cycle.
 
 ## Delay and fade-in
 
-When a voice starts a note (from idle, after a steal fade, a retrigger of the
-same note, or a unison note on), its LFO level drops to zero and is held there
-for `lfo_delay_ms`, then rises in a straight line to full over another
-`lfo_delay_ms`. With a delay of 0 the LFO is at full depth at once. The delay
-is counted in ticks (rounded down), the fade step is
-`2^30 / delay_ticks`, both computed when the parameter is set, so the tick has
-no divide. A unison legato return does not restart the delay.
+When a voice starts a note from silence (from idle, or after a steal fade),
+its LFO level drops to zero and is held there for `lfo_delay_ms`, then rises
+in a straight line to full over another `lfo_delay_ms`. With a delay of 0 the
+LFO is at full depth at once. The delay is counted in ticks (rounded down),
+the fade step is `2^30 / delay_ticks`, both computed when the parameter is
+set, so the tick has no divide.
+
+A note restruck while its voice still sounds (the same note again in poly,
+a note taken back during a steal fade, a unison retrigger) and a unison
+legato return do not restart the delay: the vibrato and pulse width carry on
+from where they are, so the pitch never jumps by up to the full depth in one
+sample. `restriking_a_sounding_note_keeps_its_vibrato` restrikes a note at
+the top of a one-octave vibrato and checks the pitch stays there.
 
 `lfo_delay_holds_modulation_at_zero_then_fades_it_in` plays a note with a
 5 Hz square vibrato, a 100-cent depth and a 400 ms delay, and checks the

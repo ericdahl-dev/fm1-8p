@@ -327,6 +327,27 @@ TT_TEST(pulse_width_limits_do_not_depend_on_the_lfo_phase)
     TT_CHECK(low > 0.024);
 }
 
+TT_TEST(restriking_a_sounding_note_keeps_its_vibrato)
+{
+    double before, after;
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200); /* 2 Hz */
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 1200);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 10);
+    fm_engine_note_on(&mod_eng, 57, 127);
+    /* after the 10 + 10 ms delay and fade, the triangle peaks (+1 octave)
+     * at 125 ms: restrike there */
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 8);
+    fm_engine_note_on(&mod_eng, 57, 127);
+    fm_engine_render(&mod_eng, mod_buf + 2 * (MOD_RATE / 8), MOD_RATE / 8);
+    before = hz_between(mod_buf, 110, 125);
+    after = hz_between(mod_buf, 125, 140);
+    printf("    %.1f Hz before the restrike, %.1f Hz after\n", before, after);
+    /* the pitch carries on from the top of the vibrato (a 15 ms window
+     * moves about 30 cents there) instead of dropping an octave */
+    TT_CHECK(fabs(cents(after, before)) < 60);
+}
+
 static void run_mod_tests(void)
 {
     TT_RUN(lfo_to_pitch_moves_the_pitch_by_the_depth);
@@ -339,4 +360,5 @@ static void run_mod_tests(void)
     TT_RUN(softer_retrigger_glides_down_without_a_click);
     TT_RUN(unison_legato_return_keeps_the_last_strike_velocity);
     TT_RUN(pulse_width_limits_do_not_depend_on_the_lfo_phase);
+    TT_RUN(restriking_a_sounding_note_keeps_its_vibrato);
 }
