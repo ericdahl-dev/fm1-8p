@@ -223,15 +223,24 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
 #define KNEE_SPAN (4 << 24)
 #define CLIP_MAX  (4 << 24)
 
-static int32_t soft_clip(int64_t u)
+static int32_t soft_clip(int32_t u)
 {
-    int64_t a = (u < 0 ? -u : u) - KNEE;
-    int32_t m;
-    if (a <= 0) return (int32_t)u;
-    m = a >= KNEE_SPAN ? CLIP_MAX
-                       : KNEE + (int32_t)(a - ((a * a) >> 27)); /* a - a^2/8 */
+    int32_t a = (u < 0 ? -u : u) - KNEE, m;
+    if (a <= 0) return u;
+    m = a >= KNEE_SPAN ? CLIP_MAX                     /* a < 2^26 below: a^2 in one 32x32->64 multiply */
+                       : KNEE + a - (int32_t)(((int64_t)a * a) >> 27); /* a - a^2/8 */
     return u < 0 ? -m : m;
 }
+
+/*
+ * The input is clamped to +-IN_MAX (32.0; an oscillator stays near +-1.0).
+ * Then every sum in fm_filter_process fits 32 bits: the highpass state
+ * stays within the input's range, so x - hp is within +-2^30, and the
+ * feedback s[3] * k is within +-4.0 * 4.2, so the lowpass input stays
+ * within +-2^31. Only the products need 64 bits, and each is one
+ * 32x32->64 multiply.
+ */
+#define IN_MAX ((1 << 29) - 1)
 
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
 {
@@ -270,17 +279,17 @@ static int32_t stage_quarter(int32_t *y, int32_t *x1, int32_t x, int32_t g)
 
 int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
-    int64_t x = in;
+    int32_t x = in > IN_MAX ? IN_MAX : in < -IN_MAX ? -IN_MAX : in;
     int32_t u;
     if (open_wire(f)) { /* the default patch: a wire (see leave_open) */
         f->s[3] = soft_clip(x);
         return f->s[3];
     }
     if (f->hp_g) { /* highpass = input minus a one-pole lowpass of it */
-        f->hp += (int32_t)(((x - f->hp) * f->hp_g) >> 30);
+        f->hp += mul_q30(x - f->hp, f->hp_g);
         x -= f->hp;
     }
-    u = soft_clip(x - (((int64_t)f->s[3] * f->k) >> 28));
+    u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
     if (f->w == W_ZERO) { /* below the fade: w * d is d >> 2, exactly */
         u = stage_quarter(&f->s[0], &f->x1[0], u, f->g);
         u = stage_quarter(&f->s[1], &f->x1[1], u, f->g);
