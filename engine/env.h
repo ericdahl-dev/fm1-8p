@@ -56,4 +56,12 @@ void fm_env_retime(fm_env *e);
 /* Advances one sample and returns the new level (Q1.30). */
 int32_t fm_env_next(fm_env *e);
 
+/*
+ * Advances `n` samples at once: exactly `n` calls of fm_env_next, in a
+ * few operations per stage crossed (one 32-bit division each) instead of
+ * `n` steps. For an envelope that only needs to be current at times, not
+ * every sample. Returns the level.
+ */
+int32_t fm_env_advance(fm_env *e, uint32_t n);
+
 #endif /* FM_ENV_H */

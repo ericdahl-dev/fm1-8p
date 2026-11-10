@@ -28,7 +28,24 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents)
     v->key_note = 0;
     v->next_key = 0;
     fm_env_reset(&v->filter_env);
+    v->cutoff_now = INT32_MIN;
+    v->cutoff_dirty = 1;
     v->ctrl_phase = 0;
+    v->fenv_lag = 0;
+}
+
+void fm_voice_sync_filter_env(fm_voice *v)
+{
+    if (v->fenv_lag) {
+        fm_env_advance(&v->filter_env, v->fenv_lag);
+        v->fenv_lag = 0;
+    }
+}
+
+static void filter_env_gate_off(fm_voice *v)
+{
+    fm_voice_sync_filter_env(v);
+    fm_env_gate_off(&v->filter_env);
 }
 
 int fm_voice_active(const fm_voice *v)
@@ -39,15 +56,20 @@ int fm_voice_active(const fm_voice *v)
 /* Samples between cutoff updates (control rate: 2756 Hz at 44.1 kHz). */
 #define FILTER_CTRL_SAMPLES 16
 
+/* A skipped filter envelope is caught up at least this often (6 minutes
+ * at 44.1 kHz), so fenv_lag never wraps. */
+#define FENV_LAG_MAX (1u << 24)
+
 /* Recomputes the cutoff from the settings, the voice's note and its
  * filter envelope level `fenv`. */
 static void update_cutoff(fm_voice *v, int32_t fenv)
 {
-    fm_filter_set_cutoff(&v->filter,
-                         fm_filter_voice_cents(v->cutoff_cents, v->key_track,
-                                               v->key_note, fenv,
-                                               v->env_amount),
-                         v->rate_cents);
+    int32_t cents = fm_filter_voice_cents(v->cutoff_cents, v->key_track,
+                                          v->key_note, fenv, v->env_amount);
+    v->cutoff_dirty = 0;
+    if (cents == v->cutoff_now) return; /* the coefficients stand */
+    v->cutoff_now = cents;
+    fm_filter_set_cutoff(&v->filter, cents, v->rate_cents);
 }
 
 /* Gates both envelopes on. The filter envelope starts from where the amp
@@ -55,7 +77,11 @@ static void update_cutoff(fm_voice *v, int32_t fenv)
  * (fresh, or after a steal fade), whatever level it was left at. */
 static void gate_on(fm_voice *v)
 {
-    if (v->amp_env.stage == FM_ENV_IDLE) fm_env_reset(&v->filter_env);
+    if (v->amp_env.stage == FM_ENV_IDLE) {
+        fm_env_reset(&v->filter_env);
+        v->fenv_lag = 0;
+    }
+    fm_voice_sync_filter_env(v);
     fm_env_gate_on(&v->amp_env);
     fm_env_gate_on(&v->filter_env);
 }
@@ -69,6 +95,7 @@ static void start(fm_voice *v, uint32_t sample_rate)
     v->ctrl_phase = 0; /* the new note's cutoff from its first sample */
     v->pitch = v->next_pitch;
     v->key_note = v->next_key;
+    v->cutoff_dirty = 1;
     fm_osc_pair_set_pitch(&v->osc, v->pitch, sample_rate);
     gate_on(v);
     if (!v->key_down && !v->sustained) v->gate_left = v->wait ? v->wait : 1;
@@ -137,7 +164,7 @@ void fm_voice_release(fm_voice *v)
     v->sustained = 0;
     if (!v->pending) {
         fm_env_gate_off(&v->amp_env);
-        fm_env_gate_off(&v->filter_env);
+        filter_env_gate_off(v);
     }
 }
 
@@ -145,6 +172,7 @@ void fm_voice_silence(fm_voice *v)
 {
     fm_env_reset(&v->amp_env);
     fm_env_reset(&v->filter_env);
+    v->fenv_lag = 0;
     fm_filter_clear(&v->filter); /* no ringing left for the next note */
     v->pending = 0;
     v->gate_left = 0;
@@ -179,16 +207,24 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
         }
         if (v->gate_left && --v->gate_left == 0) { /* the queued release */
             fm_env_gate_off(&v->amp_env);
-            fm_env_gate_off(&v->filter_env);
+            filter_env_gate_off(v);
         }
         level = fm_env_next(&v->amp_env);
-        fenv = fm_env_next(&v->filter_env);
+        if (v->env_amount) {
+            fenv = fm_env_next(&v->filter_env);
+        } else { /* no effect on the sound: caught up when needed */
+            fenv = 0;
+            v->fenv_lag++;
+        }
         if (v->ctrl_phase == 0) {
-            update_cutoff(v, fenv);
+            /* with no envelope amount the cutoff changes only when a
+             * setting or the note does, which marks it dirty */
+            if (v->env_amount || v->cutoff_dirty) update_cutoff(v, fenv);
+            if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
         }
         v->ctrl_phase--;
-        osc = fm_filter_process(&v->filter, fm_osc_pair_next(&v->osc));
+        osc = fm_filter_run(&v->filter, fm_osc_pair_next(&v->osc));
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)osc * level) >> 30);
     }

@@ -169,10 +169,30 @@ static int32_t mul_q30(int32_t a, int32_t b)
     return (int32_t)(((int64_t)a * b) >> 30);
 }
 
+/*
+ * Wide open (fade 0: g = 1, w = 0, k = 0) with the highpass off, each
+ * stage passes its input through exactly, so running the filter leaves
+ * every stage input and output equal to the last sample. The fast path in
+ * fm_filter_process skips that and keeps only the last sample, in s[3];
+ * this fills in the rest when a setting change ends the fast path, so the
+ * filter carries on as if it had run all along.
+ */
+static int open_wire(const fm_filter *f)
+{
+    return f->fade == 0 && f->hp_g == 0;
+}
+
+static void leave_open(fm_filter *f)
+{
+    int i;
+    for (i = 0; i < 4; i++) f->s[i] = f->x1[i] = f->s[3];
+}
+
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                           int32_t rate_cents)
 {
     int32_t g;
+    int was_open = open_wire(f);
     if (cutoff_cents < 0) cutoff_cents = 0;
     if (cutoff_cents > FM_FILTER_OPEN_CENTS) cutoff_cents = FM_FILTER_OPEN_CENTS;
     g = coef_for(cutoff_cents, rate_cents);
@@ -183,6 +203,7 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
     f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
     f->w = mul_q30(W_ZERO, f->fade);
     f->k = mul_q30(f->k_res, f->fade);
+    if (was_open && !open_wire(f)) leave_open(f);
 }
 
 void fm_filter_set_resonance(fm_filter *f, int32_t permille)
@@ -221,7 +242,10 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
     if (step >= FM_FILTER_HIGHPASS_STEPS) step = FM_FILTER_HIGHPASS_STEPS - 1;
     /* off -> on: start from the signal as it is (output = input), not
      * from state left from the last time it was on, which would click */
-    if (!f->hp_g) f->hp = 0;
+    if (!f->hp_g) {
+        f->hp = 0;
+        if (step && f->fade == 0) leave_open(f);
+    }
     f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
 }
 
@@ -248,6 +272,10 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
     int64_t x = in;
     int32_t u;
+    if (open_wire(f)) { /* the default patch: a wire (see leave_open) */
+        f->s[3] = soft_clip(x);
+        return f->s[3];
+    }
     if (f->hp_g) { /* highpass = input minus a one-pole lowpass of it */
         f->hp += (int32_t)(((x - f->hp) * f->hp_g) >> 30);
         x -= f->hp;

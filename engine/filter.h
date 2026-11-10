@@ -65,4 +65,19 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents);
 /* Filters one Q8.24 sample: highpass, then lowpass. */
 int32_t fm_filter_process(fm_filter *f, int32_t in);
 
+/*
+ * fm_filter_process with its wide-open case inline, for the render loop:
+ * open (fade 0) with the highpass off, the filter is a wire for any input
+ * the soft clip passes untouched (within +-2.0), and keeps only the last
+ * sample as its state. Exactly the same output and state as the call.
+ */
+static inline int32_t fm_filter_run(fm_filter *f, int32_t in)
+{
+    if (f->fade == 0 && f->hp_g == 0 && in <= (2 << 24) && in >= -(2 << 24)) {
+        f->s[3] = in;
+        return in;
+    }
+    return fm_filter_process(f, in);
+}
+
 #endif /* FM_FILTER_H */

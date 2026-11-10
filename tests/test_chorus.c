@@ -600,7 +600,7 @@ TT_TEST(chorus_reinit_then_on_starts_from_a_silent_line)
 TT_TEST(engine_storage_stays_within_its_documented_size)
 {
     printf("    sizeof(fm_engine) = %u bytes\n", (unsigned)sizeof(fm_engine));
-    TT_CHECK(sizeof(fm_engine) <= 4600);
+    TT_CHECK(sizeof(fm_engine) <= 4650);
     TT_CHECK(sizeof(fm_engine) > sizeof(fm_chorus));
 }
 

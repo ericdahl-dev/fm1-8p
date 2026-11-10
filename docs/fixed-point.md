@@ -172,12 +172,34 @@ highpass when it is on, one in the clip only above +-2.0, and the filter
 envelope step. Inside the top 600 cents of cutoff the stage zero takes a
 multiply instead of a shift (four more). The cutoff update every 16 samples
 adds about ten multiplies and three divisions by constants (1200 and 10,
-which compile to multiplies), under one multiply per sample on average. There are
-no per-sample divisions and no 64-bit divisions in the render path. On a
-desktop i5-8350U (a noisy laptop measurement) one voice rose from about 5-7 to
-19-23 ns per sample with every filter control in use; the four stages form a
+which compile to multiplies), under one multiply per sample on average; it
+is skipped when nothing feeding it changed, and the coefficients are not
+recomputed when the cutoff comes out the same. There are no per-sample
+divisions and no 64-bit divisions in the render path. The four stages form a
 serial chain of dependent multiplies, so on the device this is latency more
 than throughput. The device numbers come with the CPU spike.
+
+Two cases cost almost nothing, so the default patch costs about what it did
+before the filter:
+
+- **Wide open** (cutoff at the top, highpass off: the default). Every stage
+  passes its input through exactly, so the render skips the filter
+  (`fm_filter_run`, inline: two compares) and keeps only the last sample.
+  When a setting ends that, the stages are filled from it, exactly the state
+  running the filter would have left, so the change is bit for bit the same
+  as if the filter had run all along.
+- **No envelope amount** (the default). The filter envelope cannot change
+  the sound, so it is not stepped every sample: it counts the samples it is
+  behind and is caught up by `fm_env_advance` (exactly that many steps, with
+  one 32-bit division per stage it crosses) before every gate and every
+  change to its settings or the amount, and at least every 2^24 samples. So
+  turning the amount up mid-note finds it exactly where it would have been.
+
+`make bench` on a desktop i5-8350U (default patch, 6 voices, ns per voice
+and sample): 6.8 before the filter and 19.8 with the filter as first
+merged, on an idle machine. With these two cases, measured side by side on
+the same machine under load (pinned to one core, the best of seven
+interleaved runs): 9.4 before the filter against 10.0, about 6 % more.
 
 ### Parameter values
 
@@ -238,8 +260,8 @@ How it works, per sample:
 
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 2.1 KiB (2072 bytes on x86-64), inside `fm_engine`, plus the 256-byte
-`mix_right` buffer. With the voices' filters (108 bytes each) that makes
-`fm_engine` about 4.5 KiB (4564 bytes), so static storage is recommended over
+`mix_right` buffer. With the voices' filters (116 bytes each) that makes
+`fm_engine` about 4.5 KiB (4628 bytes), so static storage is recommended over
 a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep

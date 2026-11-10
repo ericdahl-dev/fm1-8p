@@ -5,7 +5,7 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 4.5 KiB (4564 bytes on
+ * sets up everything inside it. fm_engine is about 4.5 KiB (4628 bytes on
  * 32- and 64-bit desktops and on Cortex-M), almost half of it the chorus
  * delay line and about 0.9 KiB the voices' filters, so static storage is
  * recommended; a task stack must have room for it on

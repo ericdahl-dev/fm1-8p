@@ -933,33 +933,41 @@ TT_TEST(leaving_the_open_filter_continues_from_a_consistent_state)
 {
     static fm_filter f, ref;
     int32_t rate_cents = fm_filter_rate_cents(FRATE);
-    int32_t last = 0, prev = 0, worst = 0;
-    int i, j, same = 1, wire = 1;
-    fm_filter_reset(&f);
-    fm_filter_set_resonance(&f, 0);
-    fm_filter_set_cutoff(&f, FM_FILTER_OPEN_CENTS, rate_cents);
-    for (i = 0; i < 1000; i++) {
-        last = sine_q24(0.9, 220.0, (size_t)i);
-        prev = fm_filter_process(&f, last);
-        if (prev != last) wire = 0;
+    int how;
+    /* 0: the cutoff leaves the top; 1: the highpass turns on and then,
+     * before another sample, the cutoff leaves the top */
+    for (how = 0; how < 2; how++) {
+        int32_t last = 0, prev = 0, worst = 0;
+        int i, j, same = 1, wire = 1;
+        fm_filter_reset(&f);
+        fm_filter_set_cutoff(&f, FM_FILTER_OPEN_CENTS, rate_cents);
+        for (i = 0; i < 1000; i++) {
+            last = sine_q24(0.9, 220.0, (size_t)i);
+            prev = fm_filter_process(&f, last);
+            if (prev != last) wire = 0;
+        }
+        TT_CHECK(wire);
+        ref = f;
+        for (j = 0; j < 4; j++) ref.s[j] = ref.x1[j] = last;
+        if (how) {
+            fm_filter_set_highpass(&f, 1, rate_cents);
+            fm_filter_set_highpass(&ref, 1, rate_cents);
+        }
+        fm_filter_set_resonance(&f, 700);
+        fm_filter_set_cutoff(&f, 9000, rate_cents);
+        fm_filter_set_resonance(&ref, 700);
+        fm_filter_set_cutoff(&ref, 9000, rate_cents);
+        for (; i < 2000; i++) {
+            int32_t x = sine_q24(0.9, 220.0, (size_t)i);
+            int32_t y = fm_filter_process(&f, x), d;
+            if (y != fm_filter_process(&ref, x)) same = 0;
+            d = y > prev ? y - prev : prev - y;
+            if (d > worst) worst = d;
+            prev = y;
+        }
+        TT_CHECK(same);
+        TT_CHECK(worst < (1 << 24) / 20); /* the sine moves < 0.03/sample */
     }
-    TT_CHECK(wire);
-    ref = f;
-    for (j = 0; j < 4; j++) ref.s[j] = ref.x1[j] = last;
-    fm_filter_set_resonance(&f, 700);
-    fm_filter_set_cutoff(&f, 9000, rate_cents);
-    fm_filter_set_resonance(&ref, 700);
-    fm_filter_set_cutoff(&ref, 9000, rate_cents);
-    for (; i < 2000; i++) {
-        int32_t x = sine_q24(0.9, 220.0, (size_t)i);
-        int32_t y = fm_filter_process(&f, x), d;
-        if (y != fm_filter_process(&ref, x)) same = 0;
-        d = y > prev ? y - prev : prev - y;
-        if (d > worst) worst = d;
-        prev = y;
-    }
-    TT_CHECK(same);
-    TT_CHECK(worst < (1 << 24) / 20); /* the sine moves under 0.03/sample */
 }
 
 /*
@@ -979,6 +987,156 @@ TT_TEST(unison_note_change_keeps_the_control_cadence)
     phase = feng.voices[0].ctrl_phase;
     fm_engine_note_on(&feng, 127, 100);
     TT_CHECK_EQ(feng.voices[0].ctrl_phase, phase);
+}
+
+/*
+ * fm_env_advance(e, n) is n calls of fm_env_next(e) at once: random
+ * envelopes through every stage (gate on, retime, gate off, fade), with
+ * random advance lengths, against stepping one sample at a time.
+ */
+TT_TEST(env_advance_matches_stepping_sample_by_sample)
+{
+    static fm_env a, b;
+    uint32_t seed = 12345;
+    int trial, op, mismatches = 0;
+#define ENV_RAND() (seed = seed * 1664525u + 1013904223u, seed >> 8)
+    for (trial = 0; trial < 300; trial++) {
+        fm_env_reset(&a);
+        a.attack_samples = ENV_RAND() % 3000;
+        a.decay_samples = ENV_RAND() % 3000;
+        a.release_samples = ENV_RAND() % 3000;
+        a.sustain = (int32_t)(ENV_RAND() % ((1u << 30) + 1));
+        b = a;
+        for (op = 0; op < 40; op++) {
+            uint32_t n = ENV_RAND() % 400, k;
+            switch (ENV_RAND() % 6) {
+            case 0: fm_env_gate_on(&a); fm_env_gate_on(&b); break;
+            case 1: fm_env_gate_off(&a); fm_env_gate_off(&b); break;
+            case 2: fm_env_fade(&a, n); fm_env_fade(&b, n); break;
+            case 3:
+                a.sustain = b.sustain =
+                    (int32_t)(ENV_RAND() % ((1u << 30) + 1));
+                fm_env_retime(&a);
+                fm_env_retime(&b);
+                break;
+            default: break;
+            }
+            fm_env_advance(&a, n);
+            for (k = 0; k < n; k++) fm_env_next(&b);
+            if (a.level != b.level || a.stage != b.stage ||
+                a.step != b.step)
+                mismatches++;
+        }
+    }
+#undef ENV_RAND
+    TT_CHECK_EQ(mismatches, 0);
+}
+
+/* The patch of the skipped-envelope test, with filter env amount `amount`. */
+static void lag_patch(fm_engine *e, int32_t amount)
+{
+    fm_engine_set_param(e, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_ATTACK_MS, 30);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_DECAY_MS, 70);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_SUSTAIN, 400);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_RELEASE_MS, 50);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, amount);
+}
+
+/* 1 if every voice's filter envelope matches between `a`, synced first,
+ * and `b`. */
+static int filter_envs_match(fm_engine *a, fm_engine *b)
+{
+    uint8_t i;
+    for (i = 0; i < FM_MAX_VOICES; i++) {
+        fm_voice_sync_filter_env(&a->voices[i]);
+        if (a->voices[i].filter_env.level != b->voices[i].filter_env.level ||
+            a->voices[i].filter_env.stage != b->voices[i].filter_env.stage)
+            return 0;
+    }
+    return 1;
+}
+
+/*
+ * With the filter envelope amount at 0 the envelope does not change the
+ * sound, so the render skips stepping it every sample and catches it up
+ * (fm_env_advance) at each cutoff update and before anything that uses
+ * its level: a gate, a setting change, the amount becoming non-zero. It
+ * must stay exactly where it would have been: here against an engine
+ * whose amount is non-zero all along, through notes, a retrigger, a
+ * steal, a queued release, a setting change, and the amount turned up
+ * mid-note.
+ */
+TT_TEST(filter_envelope_skipped_at_zero_amount_stays_in_time)
+{
+    static fm_engine a, b;
+    int ok = 1;
+    fm_engine_init(&a, FRATE, 2);
+    fm_engine_init(&b, FRATE, 2);
+    lag_patch(&a, 0);
+    lag_patch(&b, 1200);
+    fm_engine_note_on(&a, 60, 100);
+    fm_engine_note_on(&b, 60, 100);
+    fm_engine_render(&a, fbuf_a, 37);
+    fm_engine_render(&b, fbuf_b, 37);
+    fm_engine_set_param(&a, FM_PARAM_FILTER_ENV_ATTACK_MS, 5); /* retime */
+    fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_ATTACK_MS, 5);
+    fm_engine_render(&a, fbuf_a, 1001);
+    fm_engine_render(&b, fbuf_b, 1001);
+    ok &= filter_envs_match(&a, &b);
+    fm_engine_render(&a, fbuf_a, 1205); /* in decay, mid control period */
+    fm_engine_render(&b, fbuf_b, 1205);
+    fm_engine_note_on(&a, 60, 100); /* retrigger from the current level */
+    fm_engine_note_on(&b, 60, 100);
+    fm_engine_render(&a, fbuf_a, 50);
+    fm_engine_render(&b, fbuf_b, 50);
+    ok &= filter_envs_match(&a, &b);
+    fm_engine_note_on(&a, 64, 100);
+    fm_engine_note_on(&b, 64, 100);
+    fm_engine_note_on(&a, 67, 100); /* steals: waits for the fade */
+    fm_engine_note_on(&b, 67, 100);
+    fm_engine_note_off(&a, 67); /* queued release */
+    fm_engine_note_off(&b, 67);
+    fm_engine_render(&a, fbuf_a, 333);
+    fm_engine_render(&b, fbuf_b, 333);
+    ok &= filter_envs_match(&a, &b);
+    fm_engine_note_off(&a, 64);
+    fm_engine_note_off(&b, 64);
+    fm_engine_render(&a, fbuf_a, 21);
+    fm_engine_render(&b, fbuf_b, 21);
+    fm_engine_set_param(&a, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 1200);
+    fm_engine_render(&a, fbuf_a, 777);
+    fm_engine_render(&b, fbuf_b, 777);
+    {
+        uint8_t i;
+        for (i = 0; i < FM_MAX_VOICES; i++)
+            if (a.voices[i].filter_env.level != b.voices[i].filter_env.level)
+                ok = 0; /* no sync: the amount is on, it steps every sample */
+    }
+    TT_CHECK(ok);
+}
+
+/*
+ * Turning the envelope amount down to 0 mid-note takes the envelope's
+ * part out of the cutoff within one control period, as any cutoff change
+ * does: the cutoff returns to the bare setting.
+ */
+TT_TEST(envelope_amount_to_zero_returns_the_cutoff_to_its_setting)
+{
+    static fm_filter want;
+    int32_t rate_cents = fm_filter_rate_cents(FRATE);
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400);
+    fm_engine_note_on(&feng, 60, 100);
+    fm_engine_render(&feng, fbuf_a, 4410);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 0);
+    fm_engine_render(&feng, fbuf_a, 16);
+    fm_filter_reset(&want);
+    fm_filter_set_cutoff(&want, 6000, rate_cents);
+    TT_CHECK_EQ(feng.voices[0].filter.g, want.g);
 }
 
 static void run_filter_tests(void)
@@ -1009,4 +1167,7 @@ static void run_filter_tests(void)
     TT_RUN(highpass_turned_on_mid_note_does_not_click);
     TT_RUN(leaving_the_open_filter_continues_from_a_consistent_state);
     TT_RUN(unison_note_change_keeps_the_control_cadence);
+    TT_RUN(env_advance_matches_stepping_sample_by_sample);
+    TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
+    TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
 }

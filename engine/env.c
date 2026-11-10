@@ -115,3 +115,63 @@ int32_t fm_env_next(fm_env *e)
     }
     return e->level;
 }
+
+/*
+ * Steps the stepping stages take before the one that lands on `target`,
+ * from `d` (the distance to it, >= 0) at `step` (>= 1) a sample: a call
+ * lands when the distance left is at most `step`, so ceil((d - step) /
+ * step) calls go by first, or none when d <= step.
+ */
+static uint32_t steps_before_landing(int32_t d, int32_t step)
+{
+    if (d <= step) return 0;
+    return ((uint32_t)(d - step) + (uint32_t)step - 1) / (uint32_t)step;
+}
+
+int32_t fm_env_advance(fm_env *e, uint32_t n)
+{
+    while (n > 0) {
+        uint32_t c;
+        int32_t d;
+        switch (e->stage) {
+        case FM_ENV_ATTACK:
+            c = steps_before_landing(FM_ENV_FULL - e->level, e->step);
+            if (n <= c) {
+                e->level += (int32_t)(n * (uint32_t)e->step);
+                return e->level;
+            }
+            e->level = FM_ENV_FULL;
+            enter_decay(e);
+            n -= c + 1;
+            break;
+        case FM_ENV_DECAY:
+            d = e->level >= e->sustain ? e->level - e->sustain
+                                       : e->sustain - e->level;
+            c = steps_before_landing(d, e->step);
+            if (n <= c) {
+                int32_t move = (int32_t)(n * (uint32_t)e->step);
+                e->level += e->level >= e->sustain ? -move : move;
+                return e->level;
+            }
+            e->level = e->sustain;
+            e->stage = FM_ENV_SUSTAIN;
+            return e->level; /* sustain holds */
+        case FM_ENV_SUSTAIN:
+            return e->level;
+        case FM_ENV_RELEASE:
+        case FM_ENV_FADE:
+            c = steps_before_landing(e->level, e->step);
+            if (n <= c) {
+                e->level -= (int32_t)(n * (uint32_t)e->step);
+                return e->level;
+            }
+            e->level = 0;
+            e->stage = FM_ENV_IDLE;
+            return 0;
+        default:
+            e->level = 0;
+            return 0;
+        }
+    }
+    return e->level;
+}

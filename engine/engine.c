@@ -106,6 +106,12 @@ static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
     }
 }
 
+/* The filter envelope's parameters, attack to amount, are one run (the
+ * sync before they change relies on it). */
+typedef char fm_require_filter_env_params_in_a_run[
+    FM_PARAM_FILTER_ENV_AMOUNT_CENTS - FM_PARAM_FILTER_ENV_ATTACK_MS == 4
+        ? 1 : -1];
+
 /* Per mille (0..1000) -> Q1.30 (1000 -> 1.0), rounded down. */
 static int32_t permille_to_q30(int32_t permille)
 {
@@ -160,6 +166,9 @@ static void apply_param(fm_engine *e, uint16_t id)
         /* the envelope whose setting changed, to retime; only that one,
          * since a retime restarts the running segment from its level */
         fm_env *changed = 0;
+        if (id >= FM_PARAM_FILTER_ENV_ATTACK_MS &&
+            id <= FM_PARAM_FILTER_ENV_AMOUNT_CENTS)
+            fm_voice_sync_filter_env(vc); /* current before it changes */
         switch (id) {
         case FM_PARAM_AMP_ATTACK_MS:
             amp->attack_samples = ms_to_samples(e, v);
@@ -179,12 +188,14 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_FILTER_CUTOFF_CENTS:
             vc->cutoff_cents = v;
+            vc->cutoff_dirty = 1;
             break;
         case FM_PARAM_FILTER_RESONANCE:
             fm_filter_set_resonance(&vc->filter, v);
             break;
         case FM_PARAM_FILTER_KEY_TRACK:
             vc->key_track = v;
+            vc->cutoff_dirty = 1;
             break;
         case FM_PARAM_HIGHPASS_STEP:
             fm_filter_set_highpass(&vc->filter, (uint8_t)v, vc->rate_cents);
@@ -207,6 +218,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
             vc->env_amount = v;
+            vc->cutoff_dirty = 1;
             break;
         default:
             break;
