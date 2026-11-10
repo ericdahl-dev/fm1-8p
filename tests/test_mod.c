@@ -291,6 +291,42 @@ TT_TEST(lfo_to_pulse_width_moves_the_duty_by_the_depth)
                   200);
 }
 
+/*
+ * Duty of a 1 % pulse on A4 under a 1 Hz square vibrato of an octave,
+ * over the low half of the second LFO cycle, after a small bend sent at
+ * `bend_ms` (which recomputes the oscillator's pitch and width).
+ */
+static double duty_after_bend_at(uint32_t bend_ms)
+{
+    uint32_t at = MOD_RATE / 1000 * bend_ms;
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 100);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 1200);
+    fm_engine_note_on(&mod_eng, 69, 127);
+    fm_engine_render(&mod_eng, mod_buf, at);
+    fm_engine_pitch_bend(&mod_eng, 8193);
+    fm_engine_render(&mod_eng, mod_buf + 2 * at, 2 * MOD_RATE - at);
+    return duty_between(mod_buf, 1550, 1950);
+}
+
+TT_TEST(pulse_width_limits_do_not_depend_on_the_lfo_phase)
+{
+    /* a bend at the top of the vibrato and one at the bottom: the
+     * width limit (two samples from each edge) comes from the
+     * unmodulated 440 Hz, 2.0 %, either way */
+    double high = duty_after_bend_at(250), low = duty_after_bend_at(750);
+    printf("    duty after a bend at the top %.4f, at the bottom %.4f\n",
+           high, low);
+    TT_CHECK_NEAR(high, low, 0.002);
+    /* the 1 % the bottom (220 Hz) would allow reads about 0.0185 here
+     * (the polyBLEP edges add about 0.8 %); 2.0 % reads about 0.028 */
+    TT_CHECK(low > 0.024);
+}
+
 static void run_mod_tests(void)
 {
     TT_RUN(lfo_to_pitch_moves_the_pitch_by_the_depth);
@@ -302,4 +338,5 @@ static void run_mod_tests(void)
     TT_RUN(higher_velocity_gives_louder_output);
     TT_RUN(softer_retrigger_glides_down_without_a_click);
     TT_RUN(unison_legato_return_keeps_the_last_strike_velocity);
+    TT_RUN(pulse_width_limits_do_not_depend_on_the_lfo_phase);
 }

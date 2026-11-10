@@ -171,7 +171,9 @@ static int32_t pulse_gain_fast(uint32_t w)
 
 static void update_pw(fm_osc_pair *p, uint8_t i)
 {
-    uint32_t inc = p->osc[i].inc, w = p->width[i], lo;
+    /* limits from the unmodulated pitch: the LFO's phase never sets the
+     * timbre (docs/modulation.md#pitch) */
+    uint32_t inc = p->base[i], w = p->width[i], lo;
     if (p->pw_mod) {
         int64_t m = (int64_t)w + p->pw_mod;
         if (m < PW_MIN) m = PW_MIN;
