@@ -169,6 +169,7 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
 #define FM_BUSY_CUTOFF 0x01u     /* a setting or the note changed the cutoff */
 #define FM_BUSY_FILTER_ENV 0x02u /* the filter envelope moves the cutoff */
 #define FM_BUSY_STEAL 0x04u      /* fading out a stolen note (pending) */
+#define FM_BUSY_GATE 0x08u       /* a release queued (gate_left) */
 
 /* Sets or clears busy bit(s) `bits` of voice `v`. */
 static inline void fm_voice_mark(fm_voice *v, uint8_t bits, int on)
