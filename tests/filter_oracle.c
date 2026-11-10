@@ -1,0 +1,301 @@
+/*
+ * filter_oracle.c - the filter as merged in #25 (engine/filter.c at 7af3bd1), kept as a test-only
+ * reference: its 64-bit lowpass, soft clip and highpass, with every name prefixed oracle_ so it
+ * links beside the engine. Never built into the engine. Tests hold the engine's filter to it within
+ * a stated error (test_filter_oracle.c), so the engine can change its arithmetic and still be held
+ * to the sound that shipped.
+ */
+#include <stdint.h>
+
+typedef struct {
+    int32_t s[4];  /* lowpass oracle_stage outputs, Q8.24 */
+    int32_t x1[4]; /* lowpass oracle_stage inputs one sample ago, Q8.24 */
+    int32_t g;     /* lowpass oracle_stage coefficient, Q1.30 (1.0 = open) */
+    int32_t w;     /* weight of the previous input in a oracle_stage, Q1.30 */
+    int32_t k;     /* resonance feedback in use, Q4.28 (0 .. 4.2) */
+    int32_t k_res; /* feedback the resonance setting asks for, Q4.28 */
+    int32_t fade;  /* 1.0 below the top of the cutoff range, to 0 at open */
+    int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
+    int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
+} oracle_filter;
+
+#define ORACLE_OPEN_CENTS 14400
+#define ORACLE_HIGHPASS_STEPS 4
+/* Tables from tools/gen_filter_tables.py. */
+
+/* 2^(16 i / 1200), Q2.30: one entry per 16 cents across an octave. */
+static const uint32_t oracle_exp2_16c[76] = {
+    1073741824u, 1083711303u, 1093773347u, 1103928816u, 1114178575u,
+    1124523502u, 1134964479u, 1145502398u, 1156138160u, 1166872673u,
+    1177706854u, 1188641628u, 1199677930u, 1210816701u, 1222058893u,
+    1233405467u, 1244857391u, 1256415645u, 1268081214u, 1279855096u,
+    1291738297u, 1303731830u, 1315836721u, 1328054003u, 1340384721u,
+    1352829926u, 1365390683u, 1378068064u, 1390863152u, 1403777040u,
+    1416810831u, 1429965638u, 1443242585u, 1456642805u, 1470167444u,
+    1483817656u, 1497594608u, 1511499477u, 1525533449u, 1539697724u,
+    1553993511u, 1568422032u, 1582984518u, 1597682215u, 1612516377u,
+    1627488271u, 1642599176u, 1657850383u, 1673243194u, 1688778924u,
+    1704458901u, 1720284463u, 1736256962u, 1752377763u, 1768648242u,
+    1785069790u, 1801643808u, 1818371712u, 1835254932u, 1852294909u,
+    1869493099u, 1886850971u, 1904370007u, 1922051704u, 1939897572u,
+    1957909136u, 1976087933u, 1994435516u, 2012953454u, 2031643326u,
+    2050506731u, 2069545278u, 2088760595u, 2108154322u, 2127728115u,
+    2147483648u
+};
+
+/* (1 - e^-x) / x at x = i / 16, Q1.30. */
+static const uint32_t oracle_h_tab[65] = {
+    1073741824u, 1040875655u, 1009343921u, 979085795u, 950043403u,
+    922161677u, 895388214u, 869673137u, 844968974u, 821230532u,
+    798414786u, 776480768u, 755389467u, 735103727u, 715588158u,
+    696809050u, 678734282u, 661333251u, 644576792u, 628437111u,
+    612887713u, 597903339u, 583459909u, 569534460u, 556105093u,
+    543150919u, 530652014u, 518589368u, 506944842u, 495701125u,
+    484841697u, 474350786u, 464213335u, 454414967u, 444941953u,
+    435781179u, 426920119u, 418346805u, 410049801u, 402018178u,
+    394241491u, 386709754u, 379413420u, 372343358u, 365490838u,
+    358847508u, 352405376u, 346156797u, 340094455u, 334211347u,
+    328500768u, 322956300u, 317571795u, 312341368u, 307259378u,
+    302320422u, 297519323u, 292851119u, 288311055u, 283894569u,
+    279597290u, 275415024u, 271343748u, 267379604u, 263518889u
+};
+
+#define ORACLE_NOTE0_HZ_Q16 535809u      /* MIDI note 0, 8.1758 Hz, Q16.16 */
+#define ORACLE_TWO_PI_Q29   3373259426u  /* 2 pi, Q3.29 */
+#define ORACLE_ONE_Q30      (1 << 30)
+#define ORACLE_FADE_CENTS   600
+/* fade per cent below the top: 2^30 / 600, rounded down (1789569) */
+#define ORACLE_FADE_STEP    (ORACLE_ONE_Q30 / ORACLE_FADE_CENTS)
+/* (top - cutoff) * ORACLE_FADE_STEP is at most ORACLE_FADE_CENTS * ORACLE_FADE_STEP <= 2^30 */
+typedef char oracle_fm_require_fade_fits_q30[
+    (int64_t)ORACLE_FADE_CENTS * ORACLE_FADE_STEP <= ORACLE_ONE_Q30 ? 1 : -1];
+#define ORACLE_W_ZERO       (1 << 28)   /* 1/4, Q1.30: the zero at z = -1/3 */
+/* Feedback at resonance 1000, per mille, Q4.28: 4.2 / 1000. Just above
+ * the loop's self-oscillation threshold, which in theory is about 4.0
+ * over most of the range and falls to about 3.4 toward Nyquist. At the
+ * lowest cutoffs (below about 15 Hz at 44.1 kHz) 4.2 is not enough. */
+#define ORACLE_K_PER_MILLE  1127429
+#define ORACLE_OCTAVE       1200
+/* Offset that makes pitch differences non-negative before / and %. */
+#define ORACLE_OCT_BIAS     32
+
+/* 2^(f / 1200) for f in 0..1199 cents, Q2.30 (1.0 .. just under 2.0). */
+static uint32_t oracle_exp2_cents(uint32_t f)
+{
+    uint32_t i = f >> 4, r = f & 15u;
+    return oracle_exp2_16c[i] + (((oracle_exp2_16c[i + 1] - oracle_exp2_16c[i]) * r) >> 4);
+}
+
+/* Frequency of a pitch, Q16.16 Hz; c in -12000..19200 (init only). */
+static uint64_t oracle_cents_hz_q16(int32_t c)
+{
+    uint32_t t = (uint32_t)(c + 16 * ORACLE_OCTAVE);
+    uint32_t oct = t / ORACLE_OCTAVE;
+    uint64_t hz = ((uint64_t)ORACLE_NOTE0_HZ_Q16 * oracle_exp2_cents(t % ORACLE_OCTAVE)) >> 30;
+    return oct >= 16 ? hz << (oct - 16) : hz >> (16 - oct);
+}
+
+static int32_t oracle_filter_rate_cents(uint32_t sample_rate)
+{
+    /* largest pitch at or below the rate: a binary search, init only */
+    uint64_t rate_q16 = (uint64_t)sample_rate << 16;
+    int32_t lo = -12000, hi = 19200;
+    while (lo < hi) {
+        int32_t mid = lo + (hi - lo + 1) / 2;
+        if (oracle_cents_hz_q16(mid) <= rate_q16)
+            lo = mid;
+        else
+            hi = mid - 1;
+    }
+    return lo;
+}
+
+/*
+ * One-pole coefficient for a corner `cents`, Q1.30: g = 1 - e^-x with
+ * x = 2 pi fc / fs, as x * h(x). Corners at or above Nyquist use the
+ * Nyquist value (about 0.957).
+ */
+static int32_t oracle_coef_for(int32_t cents, int32_t rate_cents)
+{
+    int32_t d = cents - rate_cents; /* pitch of fc / fs */
+    uint32_t t, oct, r, x, i, frac, h;
+    if (d > -ORACLE_OCTAVE) d = -ORACLE_OCTAVE;
+    if (d < -(ORACLE_OCT_BIAS - 1) * ORACLE_OCTAVE) return 0;
+    t = (uint32_t)(d + ORACLE_OCT_BIAS * ORACLE_OCTAVE);
+    oct = t / ORACLE_OCTAVE; /* <= 31 */
+    r = oracle_exp2_cents(t % ORACLE_OCTAVE) >> (ORACLE_OCT_BIAS - oct); /* fc / fs, Q2.30 */
+    x = (uint32_t)(((uint64_t)r * ORACLE_TWO_PI_Q29) >> 29); /* <= pi, Q2.30 */
+    i = x >> 26;
+    frac = x & 0x3FFFFFFu;
+    h = oracle_h_tab[i] - (uint32_t)(((uint64_t)(oracle_h_tab[i] - oracle_h_tab[i + 1]) * frac) >> 26);
+    return (int32_t)(((uint64_t)x * h) >> 30);
+}
+
+static int32_t oracle_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
+                              uint8_t note, int32_t env_level,
+                              int32_t env_amount_cents)
+{
+    /* 100 cents per semitone, per mille: track * (note - 60) / 10 */
+    int32_t track = track_permille * ((int32_t)note - 60) / 10;
+    int32_t env = (int32_t)(((int64_t)env_amount_cents * env_level) >> 30);
+    return cutoff_cents + track + env;
+}
+
+static void oracle_filter_clear(oracle_filter *f)
+{
+    int i;
+    for (i = 0; i < 4; i++) f->s[i] = f->x1[i] = 0;
+    f->hp = 0;
+}
+
+static void oracle_filter_reset(oracle_filter *f)
+{
+    oracle_filter_clear(f);
+    f->g = ORACLE_ONE_Q30;
+    f->w = 0;
+    f->k = f->k_res = 0;
+    f->fade = 0;
+    f->hp_g = 0;
+}
+
+static int32_t oracle_mul_q30(int32_t a, int32_t b)
+{
+    return (int32_t)(((int64_t)a * b) >> 30);
+}
+
+/*
+ * Wide open (fade 0: g = 1, w = 0, k = 0) with the highpass off, each
+ * oracle_stage passes its input through exactly, so running the filter leaves
+ * every oracle_stage input and output equal to the last sample. The fast path in
+ * oracle_filter_process skips that and keeps only the last sample, in s[3];
+ * this fills in the rest when a setting change ends the fast path, so the
+ * filter carries on as if it had run all along.
+ */
+static int oracle_open_wire(const oracle_filter *f)
+{
+    return f->fade == 0 && f->hp_g == 0;
+}
+
+static void oracle_leave_open(oracle_filter *f)
+{
+    int i;
+    for (i = 0; i < 4; i++) f->s[i] = f->x1[i] = f->s[3];
+}
+
+static void oracle_filter_set_cutoff(oracle_filter *f, int32_t cutoff_cents,
+                          int32_t rate_cents)
+{
+    int32_t g;
+    int was_open = oracle_open_wire(f);
+    if (cutoff_cents < 0) cutoff_cents = 0;
+    if (cutoff_cents > ORACLE_OPEN_CENTS) cutoff_cents = ORACLE_OPEN_CENTS;
+    g = oracle_coef_for(cutoff_cents, rate_cents);
+    /* 1.0 up to the fade, then down to 0 at open */
+    f->fade = cutoff_cents <= ORACLE_OPEN_CENTS - ORACLE_FADE_CENTS
+                  ? ORACLE_ONE_Q30
+                  : (ORACLE_OPEN_CENTS - cutoff_cents) * ORACLE_FADE_STEP;
+    f->g = ORACLE_ONE_Q30 - oracle_mul_q30(ORACLE_ONE_Q30 - g, f->fade);
+    f->w = oracle_mul_q30(ORACLE_W_ZERO, f->fade);
+    f->k = oracle_mul_q30(f->k_res, f->fade);
+    if (was_open && !oracle_open_wire(f)) oracle_leave_open(f);
+}
+
+static void oracle_filter_set_resonance(oracle_filter *f, int32_t permille)
+{
+    if (permille < 0) permille = 0;
+    if (permille > 1000) permille = 1000;
+    f->k_res = permille * ORACLE_K_PER_MILLE;
+    f->k = oracle_mul_q30(f->k_res, f->fade);
+}
+
+/*
+ * Soft clip, Q8.24: a wire up to +-2.0 (so a full-scale input passes
+ * untouched), then a quadratic knee that flattens out at +-4.0 for
+ * inputs of +-6.0 and beyond. Continuous, with a continuous slope.
+ */
+#define ORACLE_KNEE      (2 << 24)
+#define ORACLE_KNEE_SPAN (4 << 24)
+#define ORACLE_CLIP_MAX  (4 << 24)
+
+static int32_t oracle_soft_clip(int64_t u)
+{
+    int64_t a = (u < 0 ? -u : u) - ORACLE_KNEE;
+    int32_t m;
+    if (a <= 0) return (int32_t)u;
+    m = a >= ORACLE_KNEE_SPAN ? ORACLE_CLIP_MAX
+                       : ORACLE_KNEE + (int32_t)(a - ((a * a) >> 27)); /* a - a^2/8 */
+    return u < 0 ? -m : m;
+}
+
+static void oracle_filter_set_highpass(oracle_filter *f, uint8_t step, int32_t rate_cents)
+{
+    /* corners in cents: off, 100 Hz, 240 Hz, 560 Hz */
+    static const int32_t corner[ORACLE_HIGHPASS_STEPS] = {
+        0, 4335, 5851, 7318
+    };
+    if (step >= ORACLE_HIGHPASS_STEPS) step = ORACLE_HIGHPASS_STEPS - 1;
+    /* off -> on: start from the signal as it is (output = input), not
+     * from state left from the last time it was on, which would click */
+    if (!f->hp_g) {
+        f->hp = 0;
+        if (step && f->fade == 0) oracle_leave_open(f);
+    }
+    f->hp_g = step ? oracle_coef_for(corner[step], rate_cents) : 0;
+}
+
+/* One oracle_stage: m = x - w * (x - x1), y += g * (m - y). */
+static int32_t oracle_stage(int32_t *y, int32_t *x1, int32_t x, int32_t w,
+                     int32_t g)
+{
+    int32_t m = x - oracle_mul_q30(x - *x1, w);
+    *x1 = x;
+    *y += oracle_mul_q30(m - *y, g);
+    return *y;
+}
+
+/* oracle_stage() with w = 1/4, as a shift. */
+static int32_t oracle_stage_quarter(int32_t *y, int32_t *x1, int32_t x, int32_t g)
+{
+    int32_t m = x - ((x - *x1) >> 2);
+    *x1 = x;
+    *y += oracle_mul_q30(m - *y, g);
+    return *y;
+}
+
+static int32_t oracle_filter_process(oracle_filter *f, int32_t in)
+{
+    int64_t x = in;
+    int32_t u;
+    if (oracle_open_wire(f)) { /* the default patch: a wire (see oracle_leave_open) */
+        f->s[3] = oracle_soft_clip(x);
+        return f->s[3];
+    }
+    if (f->hp_g) { /* highpass = input minus a one-pole lowpass of it */
+        f->hp += (int32_t)(((x - f->hp) * f->hp_g) >> 30);
+        x -= f->hp;
+    }
+    u = oracle_soft_clip(x - (((int64_t)f->s[3] * f->k) >> 28));
+    if (f->w == ORACLE_W_ZERO) { /* below the fade: w * d is d >> 2, exactly */
+        u = oracle_stage_quarter(&f->s[0], &f->x1[0], u, f->g);
+        u = oracle_stage_quarter(&f->s[1], &f->x1[1], u, f->g);
+        u = oracle_stage_quarter(&f->s[2], &f->x1[2], u, f->g);
+        return oracle_stage_quarter(&f->s[3], &f->x1[3], u, f->g);
+    }
+    u = oracle_stage(&f->s[0], &f->x1[0], u, f->w, f->g);
+    u = oracle_stage(&f->s[1], &f->x1[1], u, f->w, f->g);
+    u = oracle_stage(&f->s[2], &f->x1[2], u, f->w, f->g);
+    return oracle_stage(&f->s[3], &f->x1[3], u, f->w, f->g);
+}
+
+#undef ORACLE_NOTE0_HZ_Q16
+#undef ORACLE_TWO_PI_Q29
+#undef ORACLE_ONE_Q30
+#undef ORACLE_FADE_CENTS
+#undef ORACLE_FADE_STEP
+#undef ORACLE_W_ZERO
+#undef ORACLE_K_PER_MILLE
+#undef ORACLE_OCTAVE
+#undef ORACLE_OCT_BIAS
+#undef ORACLE_KNEE
+#undef ORACLE_KNEE_SPAN
+#undef ORACLE_CLIP_MAX
