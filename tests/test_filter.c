@@ -548,6 +548,135 @@ TT_TEST(default_patch_is_unfiltered_even_with_resonance)
     }
 }
 
+/* Sets a patch where the filter envelope alone decides the brightness:
+ * amp full and slow to release, cutoff 4800 cents plus 6000 from a
+ * filter envelope that holds full and releases in 30 ms. */
+static void release_patch(fm_engine *e)
+{
+    fm_engine_set_param(e, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(e, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(e, FM_PARAM_AMP_RELEASE_MS, 3000);
+    fm_engine_set_param(e, FM_PARAM_FILTER_CUTOFF_CENTS, 4800);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_DECAY_MS, 0);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_RELEASE_MS, 30);
+    fm_engine_set_param(e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 6000);
+}
+
+/*
+ * Every way a note is released also releases its filter envelope: the
+ * key coming up, the sustain pedal coming up, and a note whose key came
+ * up while it waited for a steal fade (its release is queued). After the
+ * release the tone darkens to the bare cutoff while the amp still sounds.
+ */
+TT_TEST(every_release_path_releases_the_filter_envelope)
+{
+    double held, direct, pedal, queued;
+    /* the key comes up at 300 ms */
+    fm_engine_init(&feng, FRATE, 1);
+    release_patch(&feng);
+    fm_engine_note_on(&feng, 36, 100);
+    fm_engine_render(&feng, fbuf_a, 13230);
+    fm_engine_note_off(&feng, 36);
+    fm_engine_render(&feng, fbuf_a + 2 * 13230, 13230);
+    held = brightness(fbuf_a, 2205, 13230);
+    direct = brightness(fbuf_a, 13230 + 8820, 26460);
+    /* held by the pedal, which comes up at 300 ms */
+    fm_engine_init(&feng, FRATE, 1);
+    release_patch(&feng);
+    fm_engine_controller(&feng, 64, 127);
+    fm_engine_note_on(&feng, 36, 100);
+    fm_engine_note_off(&feng, 36);
+    fm_engine_render(&feng, fbuf_b, 13230);
+    fm_engine_controller(&feng, 64, 0);
+    fm_engine_render(&feng, fbuf_b + 2 * 13230, 13230);
+    pedal = brightness(fbuf_b, 13230 + 8820, 26460);
+    /* one voice: note 36 steals it and its key comes up during the fade */
+    fm_engine_init(&feng, FRATE, 1);
+    release_patch(&feng);
+    fm_engine_note_on(&feng, 40, 100);
+    fm_engine_render(&feng, fbuf_b, 2000);
+    fm_engine_note_on(&feng, 36, 100);
+    fm_engine_note_off(&feng, 36);
+    fm_engine_render(&feng, fbuf_b, 13230);
+    queued = brightness(fbuf_b, 8820, 13230);
+    printf("    brightness held %.4f; after release: key %.4f, pedal %.4f, "
+           "queued %.4f\n", held, direct, pedal, queued);
+    TT_CHECK(peak_abs(fbuf_a, 13230 + 8820, 26460) > 5000); /* amp sounds */
+    TT_CHECK(direct < 0.5 * held);
+    TT_CHECK(pedal < 0.5 * held);
+    TT_CHECK(queued < 0.5 * held);
+}
+
+/*
+ * All sound off (CC 120) also clears the filter's state, so a self-
+ * oscillating filter does not ring into the next note: after it, a note
+ * sounds the same whatever the filter was doing before. (The oscillator
+ * keeps its phase, so the reference plays the same notes, with the
+ * filter quiet before the controller.)
+ */
+TT_TEST(all_sound_off_clears_the_filter_ringing)
+{
+    int ring;
+    for (ring = 0; ring < 2; ring++) {
+        int16_t *out = ring ? fbuf_a : fbuf_b;
+        fm_engine_init(&feng, FRATE, 1);
+        fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 6900);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, ring ? 1000 : 0);
+        fm_engine_note_on(&feng, 48, 100);
+        fm_engine_render(&feng, out, FRATE / 4);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 1000);
+        fm_engine_controller(&feng, 120, 0);
+        fm_engine_note_on(&feng, 48, 100);
+        fm_engine_render(&feng, out, 4410);
+    }
+    TT_CHECK(peak_abs(fbuf_a, 0, 4410) > 1000);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, 4410 * 4) == 0);
+}
+
+/*
+ * A note's cutoff applies from its first sample, even when it starts in
+ * the middle of a control period: here the previous note left the
+ * counter partway through, and the new note's filter is nearly closed
+ * where the old one was open.
+ */
+TT_TEST(new_note_gets_its_cutoff_from_the_first_sample)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_note_on(&feng, 60, 100);
+    fm_engine_render(&feng, fbuf_a, 5); /* 5 of 16 samples into a period */
+    TT_CHECK(peak_abs(fbuf_a, 0, 5) > 1000); /* open */
+    fm_engine_controller(&feng, 120, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 0);
+    fm_engine_note_on(&feng, 60, 100);
+    fm_engine_render(&feng, fbuf_a, 16);
+    TT_CHECK(peak_abs(fbuf_a, 0, 16) < 100);
+}
+
+/*
+ * The cutoff follows its controls at a 16-sample control rate: a cutoff
+ * change mid-note is heard within 16 samples.
+ */
+TT_TEST(cutoff_changes_apply_within_16_samples)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 0);
+    fm_engine_note_on(&feng, 60, 100);
+    fm_engine_render(&feng, fbuf_a, 100);
+    TT_CHECK(peak_abs(fbuf_a, 0, 100) < 100); /* nearly closed */
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS,
+                        FM_FILTER_OPEN_CENTS);
+    fm_engine_render(&feng, fbuf_a, 64);
+    /* open (a wire) from the next update on: the full saw */
+    TT_CHECK(peak_abs(fbuf_a, 16, 64) > 10000);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -562,4 +691,8 @@ static void run_filter_tests(void)
     TT_RUN(setting_a_param_does_not_restart_the_other_envelopes);
     TT_RUN(open_lowpass_is_an_exact_wire_at_any_resonance);
     TT_RUN(default_patch_is_unfiltered_even_with_resonance);
+    TT_RUN(every_release_path_releases_the_filter_envelope);
+    TT_RUN(all_sound_off_clears_the_filter_ringing);
+    TT_RUN(new_note_gets_its_cutoff_from_the_first_sample);
+    TT_RUN(cutoff_changes_apply_within_16_samples);
 }
