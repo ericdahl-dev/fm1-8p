@@ -42,7 +42,8 @@ int play_init(play *p)
 }
 
 /* Main loop: one event into the queue. When it is full the event is dropped and counted: the next
- * render then lets every note go (CC 123), so a lost note off never leaves a note hanging. */
+ * render then lets the pedal up, lets every note go and centers the bend, so a lost pedal-up, note
+ * off or bend center never leaves the synth stuck. */
 static void put(play *p, uint32_t st, uint32_t d1, uint32_t d2)
 {
     uint32_t h = p->head;
@@ -119,9 +120,11 @@ void play_render(play *p, int32_t *out, uint32_t n)
         apply(p, p->queue[t % PLAY_QUEUE]);
     BARRIER();                                  /* and done with before the tail frees them */
     p->tail = t;
-    if (p->lost != p->lost_seen) {              /* some events were dropped: let every note go */
+    if (p->lost != p->lost_seen) {              /* some events were dropped: back to a safe state */
         p->lost_seen = p->lost;
-        fm_engine_controller(&p->engine, 123, 0);
+        fm_engine_controller(&p->engine, 64, 0);        /* a lost pedal-up would hold every note */
+        fm_engine_controller(&p->engine, 123, 0);       /* a lost note off would hang one */
+        fm_engine_pitch_bend(&p->engine, 8192);         /* a lost center would leave it out of tune */
     }
     fm_engine_render(&p->engine, p->buf, n);
     for (i = 0; i < 2u * n; i++)

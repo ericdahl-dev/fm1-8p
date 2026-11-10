@@ -224,8 +224,49 @@ TT_TEST(play_note_name_spells_the_note)
     TT_CHECK(strcmp(s, "--") == 0);
 }
 
+/* The overflow's recovery lets the pedal up and centers the bend too: a lost pedal-up or bend
+ * center would otherwise hold every later note, or leave it out of tune. */
+TT_TEST(play_queue_overflow_lets_the_pedal_up_and_centers_the_bend)
+{
+    static play ref;
+    static int32_t ref_out[2 * PLAY_BLOCK];
+    uint32_t i, same = 1;
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    TT_CHECK_EQ(play_init(&ref), 0);
+    play_midi(&pl_a, 0xB0, 64, 127);            /* pedal down */
+    play_midi(&pl_a, 0xE0, 0x7F, 0x7F);         /* bend full up */
+    pl_render(&pl_a);
+    for (i = 0; i < PLAY_QUEUE + 1u; i++)
+        play_midi(&pl_a, 0xB0, 1, 0);           /* overflow: the pedal-up and the center are lost */
+    pl_render(&pl_a);
+    play_note(&pl_a, 60, 100);
+    pl_render(&pl_a);
+    play_note(&pl_a, 60, 0);
+    pl_render_for(&pl_a, 2u * PL_SECOND);
+    TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);     /* not held by a stuck pedal */
+    /* in tune: the same note as on an engine never bent */
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_midi(&pl_a, 0xE0, 0x7F, 0x7F);
+    pl_render(&pl_a);
+    for (i = 0; i < PLAY_QUEUE + 1u; i++)
+        play_midi(&pl_a, 0xB0, 1, 0);
+    pl_render(&pl_a);
+    play_note(&pl_a, 60, 100);
+    pl_render(&pl_a);
+    play_render(&ref, ref_out, PLAY_BLOCK);     /* the same blocks before the note: the chorus agrees */
+    play_render(&ref, ref_out, PLAY_BLOCK);
+    play_note(&ref, 60, 100);
+    for (i = 0; i < 2 * PLAY_BLOCK; i++)
+        ref_out[i] = 0;
+    play_render(&ref, ref_out, PLAY_BLOCK);
+    for (i = 0; i < 2 * PLAY_BLOCK; i++)
+        same &= ref_out[i] == pl_out[i];
+    TT_CHECK(same);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_queue_overflow_lets_the_pedal_up_and_centers_the_bend);
     TT_RUN(play_note_name_spells_the_note);
     TT_RUN(play_queue_overflow_never_leaves_a_note_hanging);
     TT_RUN(play_ignores_data_bytes_past_127);
