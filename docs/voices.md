@@ -95,11 +95,17 @@ least significant first). Values above 16383 are ignored.
   and the largest value (24 semitones) is about 1.6 million, far inside
   `int32_t`.
 - **Pitch:** each voice's pitch is `note << 16` plus the bend, in Q16.16
-  semitones, clamped to notes 0 to 131. The frequency between two semitones
-  is a straight line between their table entries, which is at most about
-  0.7 cents off the exact exponential curve (in the middle of the semitone)
-  and exact on every semitone. `pitch_bend_shifts_pitch_by_its_range` checks
-  full down, full up, a semitone and an in-between value within 1 cent.
+  semitones; each oscillator adds its own tuning (octave and fine) to it.
+  A pitch outside the table's notes 0 to 131 folds back by whole octaves,
+  with the increment shifted by the same power of two, so intervals stay
+  exact up to the cap just under Nyquist. Between semitones the frequency is
+  the note below times 2^(f/12), by a cubic series (under 0.001 cent off),
+  and it is exact on whole notes (see
+  [fixed-point.md](fixed-point.md#formats)).
+  `pitch_bend_shifts_pitch_by_its_range` checks full down, full up, a
+  semitone and an in-between value within 1 cent;
+  `tuned_increment_matches_exact_pitch` checks every cent over two octaves
+  each way within 0.01 cent.
 - A bend retunes every sounding note at once and applies to new notes. A
   stolen voice's old note keeps its pitch for the 3 ms it is fading.
 - Changing `bend_range_semitones` applies the last bend value again with the
@@ -195,7 +201,7 @@ voices at 0, 7 and 100 cents, through a retrigger.
 | Stage | Format | Peak |
 | --- | --- | --- |
 | Saw | Q8.24 | 1.0 (polyBLEP keeps it within +-1.0) |
-| Voice: saw times amp envelope | Q8.24 | 1.0 |
+| Voice: oscillator mix times amp envelope | Q8.24 | 1.0 |
 | Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count`, at most 8.0, which uses 4 of the 7 headroom bits |
 | Mix gain | Q1.30 | `0.5 / voice_count` = `(1 << 29) / voice_count`, rounded down |
 | Output before conversion | Q8.24 | 0.5 |
@@ -229,22 +235,25 @@ of a few ms; a 0 ms attack or release is a deliberate hard edge.
 
 ## Cost
 
-Per sounding voice, per sample: one envelope step, one saw sample (with a
-64-by-32 divide on the two samples around each wrap, see
-[fixed-point.md](fixed-point.md)), one 64-bit multiply, an add into the mix
+Per sounding voice, per sample: one envelope step, one sample of the
+oscillator pair (a saw has a 64-by-32 divide on the two samples around each
+wrap, a pulse or square on both edges, and the mix adds a multiply when both
+oscillators sound; see [fixed-point.md](fixed-point.md)), one 64-bit multiply, an add into the mix
 buffer, and a test for a queued release (the steal fade case above). Idle voices are skipped. Per sample for the whole engine: one
 64-bit multiply (the mix gain) and the int16 conversion.
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-`fm_engine` is about 0.8 KiB (848 bytes on x86-64) with room for 8 voices;
+`fm_engine` is about 1.3 KiB (1332 bytes on x86-64) with room for 8 voices;
 unison adds 49 of them (8 detune offsets and the 16 held keys).
 
-Divisions all happen on events: one 64-by-32 divide per note on (its pitch),
-and one per sounding voice for each pitch bend message. In unison a note on
-or a legato return costs one 64-by-32 pitch divide per voice (8 at 8
-voices); a detune or mode change adds one 32-by-32 detune divide per voice,
-and the device CPU test should time a burst of these. Rendering in unison is
-no different from rendering the same number of poly voices. A fast bend sends a
-few hundred messages a second, so up to 8 divides each is far below the render's
-cost, but they run wherever the caller applies MIDI events.
+Divisions all happen on events. A note on costs two 64-by-32 divides per
+voice (one per oscillator's pitch, plus one more for each pulse oscillator's
+gain), and a pitch bend message the same per sounding voice. In unison a note
+on or a legato return costs that for every voice (up to 32 divides at 8
+voices with two pulse oscillators); a detune or mode change adds one 32-by-32
+detune divide per voice, and the device CPU test should time a burst of these.
+Rendering in unison is no different from rendering the same number of poly
+voices. A fast bend sends a few hundred messages a second, so a few dozen
+divides each is far below the render's cost, but they run wherever the caller
+applies MIDI events.

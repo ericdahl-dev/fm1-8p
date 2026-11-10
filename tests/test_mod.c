@@ -149,7 +149,7 @@ TT_TEST(block_size_does_not_change_lfo_output)
 
 /* Peak of one held note at `velocity` with amp_velocity at `sens`, over
  * 0.2..0.5 s (sustain, 70 % by default). */
-static int held_peak(int32_t sens, uint8_t velocity)
+static int vel_peak(int32_t sens, uint8_t velocity)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 1);
     fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, sens);
@@ -160,25 +160,25 @@ static int held_peak(int32_t sens, uint8_t velocity)
 
 TT_TEST(higher_velocity_gives_louder_output)
 {
-    int full = held_peak(100, 127), prev = 0;
+    int full = vel_peak(100, 127), prev = 0;
     uint8_t vel;
     TT_CHECK(full > 8000);
     /* full velocity is full level whatever the sensitivity */
-    TT_CHECK_EQ(held_peak(0, 127), full);
-    TT_CHECK_EQ(held_peak(50, 127), full);
+    TT_CHECK_EQ(vel_peak(0, 127), full);
+    TT_CHECK_EQ(vel_peak(50, 127), full);
     /* louder with every step up, following (velocity / 127)^2 */
     for (vel = 8; vel <= 127; vel = (uint8_t)(vel + 17)) {
-        int p = held_peak(100, vel);
+        int p = vel_peak(100, vel);
         double expect = (vel / 127.0) * (vel / 127.0);
         TT_CHECK(p > prev);
         TT_CHECK_NEAR((double)p / full, expect, 0.01);
         prev = p;
     }
     /* half sensitivity goes halfway to that curve */
-    TT_CHECK_NEAR((double)held_peak(50, 64) / full,
+    TT_CHECK_NEAR((double)vel_peak(50, 64) / full,
                   1 - 0.5 * (1 - (64 / 127.0) * (64 / 127.0)), 0.01);
     /* off: every velocity plays at full level */
-    TT_CHECK_EQ(held_peak(0, 1), full);
+    TT_CHECK_EQ(vel_peak(0, 1), full);
 }
 
 /* One voice holds note 2 at velocity 127, retriggers it at `again`
