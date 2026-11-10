@@ -7,7 +7,9 @@ voices. The number formats are in [fixed-point.md](fixed-point.md).
 
 `fm_engine_init(e, sample_rate, voice_count)` sets the voice count, 1 to
 `FM_MAX_VOICES` (8). The FM-1 target is 6, with 4 as the fallback if the CPU
-test says 6 don't fit. The desktop render tool takes `-v VOICES` (default 6).
+test says 6 don't fit. The desktop render tool takes `-v VOICES` (default 6)
+and plays one MIDI channel, `-c CHANNEL` (default: the channel of the first
+note on); the engine itself has no notion of channels.
 All voice state is in the caller's `fm_engine`; nothing is allocated.
 
 ## Which voice a note gets
@@ -16,9 +18,11 @@ On a note on, in this order:
 
 1. **Same note.** If a voice is already sounding that note (held, held by
    the pedal, or releasing), it plays it again: its attack restarts from the
-   current level, so there is no click and no second voice. At most one voice
-   ever has a given note.
-2. **Idle voice.** Otherwise the first idle voice takes it.
+   current level, so there is no click and no second voice. The same goes for
+   a voice that a steal is still fading that note out on (see below). So at
+   most one voice ever has a given note.
+2. **Idle voice.** Otherwise an idle voice takes it: the one whose last note
+   on or off was longest ago (least recently used).
 3. **Steal.** Otherwise a sounding voice is stolen. The engine takes the
    first non-empty group, and within it the voice whose last note on or off
    was longest ago:
@@ -34,8 +38,17 @@ A stolen voice is not cut. Its old note fades from its current level to
 silence over **3 ms** (`STEAL_FADE_MS`, 132 samples at 44.1 kHz). Then the new
 note starts from silence with its own attack, so it sounds the same as a note
 on an idle voice, just 3 ms late. The new note always sounds: its key is
-remembered during the fade, and if its key comes up before the fade ends, it
-starts and releases at once (or is held, if the pedal is down).
+remembered during the fade. If its key comes up before the fade ends, the
+note still starts after the fade, holds for 3 ms (as long as it waited), then
+releases; if the pedal is down, it is held.
+
+If the stolen note is played again during the fade, the steal is called off:
+the voice takes that note back and restarts its attack from the current
+(partly faded) level, so it never sounds on two voices. The note that was
+waiting for the voice then gets one by the rules above, which may steal
+another voice. On a 1-voice engine there is none, so the newest note wins and
+the waiting note is dropped; it is also dropped if its key already came up
+(and the pedal is up).
 
 If yet another note arrives while every voice is busy and the chosen voice is
 already fading, that voice just switches to the newer note; the note it was
@@ -132,8 +145,8 @@ of a few ms; a 0 ms attack or release is a deliberate hard edge.
 
 Per sounding voice, per sample: one envelope step, one saw sample (with a
 64-by-32 divide on the two samples around each wrap, see
-[fixed-point.md](fixed-point.md)), one 64-bit multiply and an add into the
-mix buffer. Idle voices are skipped. Per sample for the whole engine: one
+[fixed-point.md](fixed-point.md)), one 64-bit multiply, an add into the mix
+buffer, and a test for a queued release (the steal fade case above). Idle voices are skipped. Per sample for the whole engine: one
 64-bit multiply (the mix gain) and the int16 conversion.
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
@@ -141,6 +154,6 @@ the audio interrupt's stack holds only a few locals whatever the block size.
 `fm_engine` is about 0.7 KiB (692 bytes on x86-64) with room for 8 voices.
 
 Divisions all happen on events: one 64-by-32 divide per note on (its pitch),
-and one per voice for each pitch bend message. A fast bend sends a few
-hundred messages a second, so up to 8 divides each is far below the render's
+and one per sounding voice for each pitch bend message. A fast bend sends a
+few hundred messages a second, so up to 8 divides each is far below the render's
 cost, but they run wherever the caller applies MIDI events.
