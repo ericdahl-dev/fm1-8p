@@ -35,8 +35,27 @@ TT_TEST(busy_filter_env_amount_back_to_zero_rests)
     TT_CHECK_EQ(fm_voice_busy(v), 0);
 }
 
+/* Filter: the highpass on, or the cutoff closed below open, makes the voice
+ * busy; back to off and fully open, it rests. */
+TT_TEST(busy_filter_back_to_a_wire_rests)
+{
+    const fm_voice *v = busy_hold(64);
+    fm_engine_set_param(&beng, FM_PARAM_HIGHPASS_STEP, 2);
+    fm_engine_set_param(&beng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    fm_engine_render(&beng, bbuf, 64);
+    TT_CHECK(fm_voice_busy(v) != 0);
+    fm_engine_set_param(&beng, FM_PARAM_HIGHPASS_STEP, 0);
+    fm_engine_render(&beng, bbuf, 64);
+    TT_CHECK(fm_voice_busy(v) != 0); /* still closed */
+    fm_engine_set_param(&beng, FM_PARAM_FILTER_CUTOFF_CENTS,
+                        fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->def);
+    fm_engine_render(&beng, bbuf, 64);
+    TT_CHECK_EQ(fm_voice_busy(v), 0);
+}
+
 static void run_busy_tests(void)
 {
     TT_RUN(busy_default_patch_is_at_rest);
     TT_RUN(busy_filter_env_amount_back_to_zero_rests);
+    TT_RUN(busy_filter_back_to_a_wire_rests);
 }
