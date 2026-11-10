@@ -48,7 +48,7 @@ typedef struct {
     uint8_t next_key;       /* `note` as set, for key_note when it starts
                              * (after a steal fade, as next_pitch) */
     uint8_t ctrl_phase;     /* samples until the next cutoff update */
-    uint8_t cutoff_dirty;   /* a setting or the note changed the cutoff */
+    uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
     uint8_t mix_src;        /* the mix envelope follows: 0 filter_env, 1 amp_env */
     /* filter: settings copied from the engine's parameters, and state */
     fm_filter filter;
@@ -161,6 +161,19 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
  * so a stolen note that starts mid-chunk knows which tick its LFO delay
  * counts from.
  */
+/*
+ * A voice's busy word: each per-voice processor sets its bit when it leaves
+ * rest and clears it when it returns. A voice with none set (and sounding)
+ * renders on the fast path.
+ */
+#define FM_BUSY_CUTOFF 0x01u /* a setting or the note changed the cutoff */
+
+/* Sets or clears busy bit(s) `bits` of voice `v`. */
+static inline void fm_voice_mark(fm_voice *v, uint8_t bits, int on)
+{
+    v->busy = (uint8_t)(on ? v->busy | bits : v->busy & ~bits);
+}
+
 /* Nonzero while any of the voice's processors is away from rest; a voice
  * at rest (and sounding) renders on the fast path. */
 uint32_t fm_voice_busy(const fm_voice *v);

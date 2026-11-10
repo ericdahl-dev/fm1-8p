@@ -37,7 +37,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents)
     v->next_key = 0;
     fm_env_reset(&v->filter_env);
     v->cutoff_now = INT32_MIN;
-    v->cutoff_dirty = 1;
+    v->busy = FM_BUSY_CUTOFF;
     v->ctrl_phase = 0;
     v->fenv_lag = 0;
 }
@@ -78,7 +78,7 @@ static void update_cutoff(fm_voice *v, int32_t fenv)
 {
     int32_t cents = fm_filter_voice_cents(v->cutoff_cents, v->key_track,
                                           v->key_note, fenv, v->env_amount);
-    v->cutoff_dirty = 0;
+    fm_voice_mark(v, FM_BUSY_CUTOFF, 0);
     if (cents == v->cutoff_now) return; /* the coefficients stand */
     v->cutoff_now = cents;
     fm_filter_set_cutoff(&v->filter, cents, v->rate_cents);
@@ -132,7 +132,7 @@ static void start(fm_voice *v, uint32_t sample_rate, int32_t peak,
     apply_pitch(v);
     v->pitch = v->next_pitch;
     v->key_note = v->next_key;
-    v->cutoff_dirty = 1;
+    fm_voice_mark(v, FM_BUSY_CUTOFF, 1);
     fm_osc_pair_set_pitch(&v->osc, v->pitch, sample_rate);
     v->amp_env.peak = peak;
     gate_on(v); /* both envelopes */
@@ -311,7 +311,7 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
 uint32_t fm_voice_busy(const fm_voice *v)
 {
     return v->env_amount || v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
-           v->cutoff_dirty || v->pending || v->gate_left ||
+           v->busy || v->pending || v->gate_left ||
            !fm_filter_is_wire(&v->filter);
 }
 
@@ -373,7 +373,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
         if (v->ctrl_phase == 0) {
             /* with no envelope amount the cutoff changes only when a
              * setting or the note does, which marks it dirty */
-            if (v->env_amount || v->cutoff_dirty) update_cutoff(v, fenv);
+            if (v->env_amount || (v->busy & FM_BUSY_CUTOFF)) update_cutoff(v, fenv);
             /* the mix envelope, or a glide back to osc_mix after it (until
              * it lands: a glide can land exactly with its step still set) */
             if (v->mix_env || v->mix_step || v->osc.mix != v->mix_base)

@@ -265,14 +265,14 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_FILTER_CUTOFF_CENTS:
             vc->cutoff_cents = v;
-            vc->cutoff_dirty = 1;
+            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         case FM_PARAM_FILTER_RESONANCE:
             fm_filter_set_resonance(&vc->filter, v);
             break;
         case FM_PARAM_FILTER_KEY_TRACK:
             vc->key_track = v;
-            vc->cutoff_dirty = 1;
+            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         case FM_PARAM_HIGHPASS_STEP:
             fm_filter_set_highpass(&vc->filter, (uint8_t)v, vc->rate_cents);
@@ -295,7 +295,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
             vc->env_amount = v;
-            vc->cutoff_dirty = 1;
+            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         default:
             break;
