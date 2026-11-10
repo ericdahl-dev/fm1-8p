@@ -49,6 +49,7 @@ typedef struct {
                              * (after a steal fade, as next_pitch) */
     uint8_t ctrl_phase;     /* samples until the next cutoff update */
     uint8_t cutoff_dirty;   /* a setting or the note changed the cutoff */
+    uint8_t mix_src;        /* the mix envelope follows: 0 filter_env, 1 amp_env */
     /* filter: settings copied from the engine's parameters, and state */
     fm_filter filter;
     fm_env filter_env;

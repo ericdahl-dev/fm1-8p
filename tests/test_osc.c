@@ -347,6 +347,32 @@ TT_TEST(mix_env_negative_depth_fades_osc2_out)
 }
 
 /*
+ * Source 1 drives the mix from the amp envelope instead: with a 1 s amp
+ * attack and the filter envelope at full at once, osc2's share of the tone
+ * (against osc1, both scaled by the amp envelope) grows over the attack.
+ */
+TT_TEST(mix_env_can_follow_the_amp_envelope)
+{
+    double hz1 = note_hz(57), hz2 = hz1 * pow(2.0, 7 / 12.0), early, late;
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV_SOURCE, 1), FM_OK);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, RATE);
+    early = tone_amp(buf + 2 * 8820, 2048, 0, hz2, RATE) /
+            tone_amp(buf + 2 * 8820, 2048, 0, hz1, RATE);
+    late = tone_amp(buf + 2 * 39690, 2048, 0, hz2, RATE) /
+           tone_amp(buf + 2 * 39690, 2048, 0, hz1, RATE);
+    printf("    osc2 / osc1 following the amp envelope: %.2f at 0.2 s, %.2f at 0.9 s\n",
+           early, late);
+    TT_CHECK(late > early * 4);
+}
+
+/*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
  * Today's worst, 0.005 cent, is the pitch table's rounding at note 0;
@@ -931,6 +957,7 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_zero_matches_the_fixed_mix);
     TT_RUN(mix_env_fades_osc2_in_with_the_envelope);
     TT_RUN(mix_env_negative_depth_fades_osc2_out);
+    TT_RUN(mix_env_can_follow_the_amp_envelope);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
