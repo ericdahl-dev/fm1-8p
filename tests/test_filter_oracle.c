@@ -114,38 +114,52 @@ TT_TEST(self_oscillation_pitch_matches_the_reference)
     }
 }
 
+/* 1 if every voice's filter state (the four stages and the highpass) is within the soft clip's
+ * bound. */
+static int oracle_states_bounded(const fm_engine *e)
+{
+    size_t v, i;
+    for (v = 0; v < FM_MAX_VOICES; v++) {
+        const fm_filter *f = &e->voices[v].filter;
+        if (f->hp > FILTER_BOUND || f->hp < -FILTER_BOUND) return 0;
+        for (i = 0; i < 4; i++)
+            if (f->s[i] > FILTER_BOUND || f->s[i] < -FILTER_BOUND) return 0;
+    }
+    return 1;
+}
+
 /* Full resonance on an 8-voice chord of loud saws, the filter swept by its envelope and the
- * highpass on: every voice's filter state stays within the soft clip's bound (no overflow, no
- * runaway) the whole time, and the chord goes silent once released. */
+ * highpass on: after every sample, every voice's filter state, the highpass's too, stays within
+ * the soft clip's bound (no overflow, no runaway), held for 2 s and through a 250 ms release, and
+ * the chord is silent in the last half second. */
 TT_TEST(full_resonance_8_voice_chord_stays_bounded)
 {
     static const uint8_t chord[8] = { 36, 43, 48, 52, 55, 60, 64, 67 };
     static fm_engine e;
-    static int16_t out[2 * 256];
-    size_t b, i, v;
-    int loud_after = 0;
+    int16_t out[2];
+    size_t n, i;
+    int bounded = 1, loud_after = 0;
     TT_CHECK_EQ(fm_engine_init(&e, ORACLE_RATE, 8), FM_OK);
     fm_engine_set_param(&e, FM_PARAM_FILTER_CUTOFF_CENTS, 6900);
     fm_engine_set_param(&e, FM_PARAM_FILTER_RESONANCE, 1000);
     fm_engine_set_param(&e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600);
     fm_engine_set_param(&e, FM_PARAM_HIGHPASS_STEP, 1);
-    fm_engine_set_param(&e, FM_PARAM_AMP_RELEASE_MS, 0);
+    fm_engine_set_param(&e, FM_PARAM_AMP_RELEASE_MS, 250);
     for (i = 0; i < 8; i++)
         fm_engine_note_on(&e, chord[i], 127);
-    for (b = 0; b < 2 * ORACLE_RATE / 256; b++) {               /* 2 s held */
-        fm_engine_render(&e, out, 256);
-        for (v = 0; v < 8; v++)
-            for (i = 0; i < 4; i++)
-                TT_CHECK(e.voices[v].filter.s[i] <= FILTER_BOUND && e.voices[v].filter.s[i] >= -FILTER_BOUND);
+    for (n = 0; n < 2 * (size_t)ORACLE_RATE; n++) {           /* 2 s held */
+        fm_engine_render(&e, out, 1);
+        bounded &= oracle_states_bounded(&e);
     }
     for (i = 0; i < 8; i++)
         fm_engine_note_off(&e, chord[i]);
-    for (b = 0; b < ORACLE_RATE / 256; b++) {                   /* 1 s released */
-        fm_engine_render(&e, out, 256);
-        if (b >= ORACLE_RATE / 512)                             /* the last half second */
-            for (i = 0; i < 2 * 256; i++)
-                loud_after |= out[i] != 0;
+    for (n = 0; n < ORACLE_RATE; n++) {                       /* 1 s released */
+        fm_engine_render(&e, out, 1);
+        bounded &= oracle_states_bounded(&e);
+        if (n >= ORACLE_RATE / 2)                             /* the last half second */
+            loud_after |= out[0] != 0 || out[1] != 0;
     }
+    TT_CHECK(bounded);
     TT_CHECK(!loud_after);
 }
 
