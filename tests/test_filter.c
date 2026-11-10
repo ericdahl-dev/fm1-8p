@@ -415,6 +415,75 @@ TT_TEST(extreme_filter_settings_stay_bounded_and_release)
     }
 }
 
+/*
+ * Plays note 57 with every filter control in use, setting parameter `id`
+ * again to the value it already has every 10 ms (none if `id` is
+ * FM_PARAM_COUNT). That must change nothing: in particular it must not
+ * restart a running segment of either envelope.
+ *
+ * Re-setting an envelope's own setting does restart its running segment
+ * (fm_env_retime: a new time applies at once), so each case keeps the
+ * envelope being touched steady and the other one moving:
+ *   0  a filter control: both envelopes releasing (note off at 200 ms)
+ *   1  an amp setting: amp sustaining, filter envelope mid-decay
+ *   2  a filter envelope setting: filter envelope sustaining, then idle
+ *      (0 ms release), amp mid-decay and then releasing
+ */
+#define RESET_FRAMES 52920 /* 1.2 s */
+
+static void play_resetting(int16_t *out, uint16_t id, int scenario)
+{
+    uint32_t done = 0, off = scenario == 1 ? 39690 : 8820;
+    fm_engine_init(&feng, FRATE, 1);
+    busy_filter_patch(&feng);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_DECAY_MS, scenario == 1 ? 20 : 400);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 300);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 300);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS,
+                        scenario == 2 ? 20 : 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_RELEASE_MS,
+                        scenario == 2 ? 0 : 500);
+    fm_engine_note_on(&feng, 57, 100);
+    while (done < RESET_FRAMES) {
+        if (done == off) fm_engine_note_off(&feng, 57);
+        /* scenario 1 stops before the amp envelope releases */
+        if (done >= 4410 && id != FM_PARAM_COUNT && (scenario != 1 || done < off))
+            fm_engine_set_param(&feng, id, fm_engine_get_param(&feng, id));
+        fm_engine_render(&feng, out + 2 * done, 441);
+        done += 441;
+    }
+}
+
+TT_TEST(setting_a_param_does_not_restart_the_other_envelopes)
+{
+    static int16_t untouched[2 * RESET_FRAMES], touched[2 * RESET_FRAMES];
+    static const struct { uint16_t id; int scenario; } cases[] = {
+        { FM_PARAM_FILTER_CUTOFF_CENTS, 0 }, { FM_PARAM_FILTER_RESONANCE, 0 },
+        { FM_PARAM_FILTER_KEY_TRACK, 0 }, { FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 0 },
+        { FM_PARAM_HIGHPASS_STEP, 0 }, { FM_PARAM_BEND_RANGE, 0 },
+        { FM_PARAM_AMP_ATTACK_MS, 1 }, { FM_PARAM_AMP_SUSTAIN, 1 },
+        { FM_PARAM_AMP_RELEASE_MS, 1 },
+        { FM_PARAM_FILTER_ENV_ATTACK_MS, 2 }, { FM_PARAM_FILTER_ENV_SUSTAIN, 2 },
+        { FM_PARAM_FILTER_ENV_DECAY_MS, 2 }
+    };
+    size_t k;
+    int scenario;
+    for (scenario = 0; scenario < 3; scenario++) {
+        play_resetting(untouched, FM_PARAM_COUNT, scenario);
+        TT_CHECK(peak_abs(untouched, 2000, 8000) > 1000);
+        if (scenario != 1) /* the release has ended */
+            TT_CHECK(peak_abs(untouched, 30000, RESET_FRAMES) == 0);
+        for (k = 0; k < sizeof cases / sizeof cases[0]; k++) {
+            if (cases[k].scenario != scenario) continue;
+            play_resetting(touched, cases[k].id, scenario);
+            if (memcmp(untouched, touched, sizeof untouched) != 0)
+                printf("    setting %s changed the output\n",
+                       fm_param_info_get(cases[k].id)->name);
+            TT_CHECK(memcmp(untouched, touched, sizeof untouched) == 0);
+        }
+    }
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -426,4 +495,5 @@ static void run_filter_tests(void)
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);
     TT_RUN(filter_output_does_not_depend_on_block_size);
     TT_RUN(extreme_filter_settings_stay_bounded_and_release);
+    TT_RUN(setting_a_param_does_not_restart_the_other_envelopes);
 }
