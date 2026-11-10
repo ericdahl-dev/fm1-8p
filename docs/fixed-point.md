@@ -111,8 +111,20 @@ resonant 4-pole (24 dB/octave) lowpass.
   +-2.0 (a full-scale saw passes untouched), then a quadratic knee that
   flattens at +-4.0. `m` is a weighted average of `x` and `x1`, and `y` of `m`
   and the old `y`, so no state can pass the clip's limit. The filter cannot
-  overflow or run away at any resonance, and self-oscillation settles at a
-  fixed level (about 0.83 of full scale at mid cutoffs).
+  overflow or run away at any resonance, for any Q8.24 input (the whole
+  +-128.0), and self-oscillation settles at a fixed level (about 0.83 of
+  full scale at mid cutoffs).
+- **32-bit sums (#34).** The sums run in 32 bits; only the products need 64
+  (one 32x32->64 multiply each). The highpass state stays within the input's
+  range, so while the input and that state are within +-32.0 (an oscillator
+  stays near +-1.0) the highpass output is within +-64.0 and, less the
+  feedback (within +-4.0 * 4.2), the lowpass input still fits 32 bits.
+  Louder, the highpass runs in 64 bits and its output is clamped to +-32.0
+  (with the highpass off, the input is), which changes nothing: the clamped
+  value less the largest feedback still drives the soft clip past its
+  saturation (6.0) with the same sign. The output is bit for bit that
+  of the same filter in 64 bits over the whole +-128.0
+  (`tests/test_filter_oracle.c` holds it to a 64-bit reference).
 - **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
   env_amount * env_level`, all in cents, computed every 16 samples (a
   2.8 kHz control rate at 44.1 kHz), not per sample. Key tracking follows the
@@ -238,6 +250,40 @@ fifth (+7) or a fourth (+5). For example:
     -s osc2_octave=1 -s osc2_fine_cents=7 -s osc_mix_permille=500 song.mid song.wav
 ```
 
+### Mix envelope
+
+`osc_mix_env_permille` (-1000 to +1000, default 0) lets an envelope move the
+mix: each voice's mix is `osc_mix_permille` plus that share of the envelope's
+level, clamped to 0..1000. Positive depth fades osc2 in as the envelope rises
+(a swell where the tone thickens), negative fades it out.
+`osc_mix_env_source` picks the envelope: 0 the filter envelope (the default),
+1 the amp envelope. The amp envelope is read against the note's own peak, so
+a soft note gets the same depth as a hard one (velocity changes the
+loudness, not the mix). For example, a pad whose second oscillator blooms over
+two seconds:
+
+```sh
+./build/fm1-8p-render -s osc2_fine_cents=-12 -s osc_mix_env_permille=800 \
+    -s filter_env_attack_ms=2000 -s filter_env_sustain_permille=1000 song.mid song.wav
+```
+
+The mix is worked out at the filter's control rate (every 16 samples) and
+glides there a sample at a time, so a change of depth or of `osc_mix_permille`
+doesn't click and the envelope doesn't step. No divide runs per sample: the
+glide's step is a division by the constant 16, once a tick, and the amp
+source's reading against the peak is one divide a tick. At depth 0 a voice
+renders exactly as with the fixed mix, on the same path; after depth goes
+back to 0 it glides to `osc_mix_permille` and returns to that path.
+
+Above 0 the voice leaves the plain path for the full one, even in a flat
+sustain (left to the speed pass, #34). With the amp source and no filter
+envelope amount the filter envelope stays unstepped. In fm1-emu's strict mode
+the CPU test's step F (full patch with the filter, 6 voices) measures 77.2 %
+on main before this, 79.0 % at depth 0 and 82.5 % with
+`osc_mix_env_permille=500`, the same on two code layouts. Of the 1.8 points
+at depth 0, about 1.2 is the per-sample glide check and 0.8 the control
+tick's (#34).
+
 ### Sync and cross-mod
 
 `osc_sync` (0 or 1) restarts osc2 every time osc1 starts a cycle, so the pair
@@ -321,8 +367,8 @@ How it works, per sample:
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 2.1 KiB (2072 bytes on x86-64), inside `fm_engine`, plus the 256-byte
 `mix_right` buffer. With the voices' LFO and velocity state, their sync and
-cross-mod state and their filters (124 bytes each) that makes `fm_engine`
-about 5.1 KiB (5252 bytes), so
+cross-mod state, their filters (124 bytes each) and their mix envelope
+settings, that makes `fm_engine` about 5.2 KiB (5360 bytes), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
