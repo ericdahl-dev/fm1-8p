@@ -17,7 +17,7 @@ typedef enum {
     PATCH_OSC1_WAVE,                    /* fm_wave */
     PATCH_OSC1_PULSE_WIDTH_PCT,
     PATCH_OSC1_OCTAVE,
-    PATCH_OSC1_COARSE_SEMIS,            /* waits: DCO-1 coarse tune (no issue yet) */
+    PATCH_OSC1_COARSE_SEMIS,            /* waits: what osc1 lacks of DCO-1 tune, folded into osc2 */
     PATCH_OSC2_WAVE,
     PATCH_OSC2_PULSE_WIDTH_PCT,
     PATCH_OSC2_OCTAVE,
@@ -46,7 +46,8 @@ typedef enum {
     PATCH_LFO_WAVE,
     PATCH_LFO_RATE_CENTIHZ,
     PATCH_LFO_DELAY_MS,
-    PATCH_LFO_PITCH_CENTS,
+    PATCH_LFO_PITCH_CENTS,              /* DCO-1's LFO depth: the engine's one moves both oscillators */
+    PATCH_LFO_PITCH_OSC2_CENTS,         /* waits: DCO-2's LFO depth (no issue yet) */
     PATCH_PITCH_ENV_OSC1_CENTS,         /* waits #58: signed, at full envelope */
     PATCH_PITCH_ENV_OSC2_CENTS,         /* waits #58 */
     PATCH_PITCH_ENV_SOURCE,             /* waits #58: as FILTER_ENV_SOURCE */

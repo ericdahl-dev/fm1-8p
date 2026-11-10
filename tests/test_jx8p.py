@@ -1,7 +1,9 @@
 """Tests for tools/jx8p.py, the JX-8P factory patch converter (run by `make check-patches`)."""
+import functools
 import os
 import re
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,9 +14,10 @@ import jx8p  # noqa: E402
 SYX = os.path.join(ROOT, "data", "jx8p-factory-1-32.syx")
 
 
+@functools.lru_cache(maxsize=None)
 def factory():
     with open(SYX, "rb") as f:
-        return jx8p.parse_syx(f.read())
+        return tuple(jx8p.parse_syx(f.read()))
 
 
 class ParseTest(unittest.TestCase):
@@ -24,6 +27,12 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(tones[0].name, "PIANO 1")
         self.assertEqual(tones[16].name, "SOUNDTRACK")
         self.assertEqual(tones[31].name, "PSYCHMELLO")
+
+    # a cut-off dump: the message that has no F7 is named by file and offset
+    def test_a_message_without_f7_names_the_file_and_offset(self):
+        data = b"\xf0\x7d\x01\xf7" + b"\xf0\x41\x35\x00\x21"
+        with self.assertRaisesRegex(ValueError, r"cut\.syx: the SysEx message at offset 4 has no F7"):
+            jx8p.parse_syx(data, "cut.syx")
 
 
 def patch(name):
@@ -59,6 +68,19 @@ class MapTest(unittest.TestCase):
         self.assertEqual(pitch(e, 2), pitch(e, 1))
         e = patch("SOUNDTRACK")                 # DCO1 8' tune 0, DCO2 8' tune 2: both -12
         self.assertEqual((pitch(e, 1), pitch(e, 2)), (-12, -12))
+
+    # The engine has no osc1 coarse: osc1 plays the octave nearest its pitch that leaves osc2 in
+    # range, and osc2 moves by what osc1 lacks, so the interval holds. OSC1_COARSE_SEMIS keeps what
+    # osc1 lacks, for when the engine has it.
+    def test_dco1_tune_folds_into_osc2_and_keeps_the_interval(self):
+        def sounding(e):                        # each oscillator's pitch as the engine plays it
+            return 12 * e["OSC1_OCTAVE"], 12 * e["OSC2_OCTAVE"] + e["OSC2_COARSE_SEMIS"]
+        e = patch("MUSIC BOX")                  # DCO-1 2' +4, DCO-2 2' +8
+        self.assertEqual(sounding(e), (24, 28))
+        self.assertEqual(e["OSC1_COARSE_SEMIS"], 4)
+        e = patch("WINDCHIMES")                 # DCO-1 2' -3, DCO-2 2' +12: 15 apart
+        self.assertEqual(sounding(e), (12, 27))
+        self.assertEqual(e["OSC1_COARSE_SEMIS"], 9)
 
     def test_dco2_fine_tune_is_plus_minus_50_cents_around_64(self):
         self.assertEqual(patch("HI STRINGS")["OSC2_FINE_CENTS"], 15)    # 83
@@ -131,7 +153,8 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["FILTER_ENV_DECAY_MS"], e["AMP_DECAY_MS"])
 
     # LFO: random, square, triangle (2 positions); rate 0.1..20 Hz exponential; delay cubic to 3 s;
-    # depth to pitch quadratic to 1200 cents, the larger of the two DCOs' (the engine has one)
+    # depth to pitch quadratic to 1200 cents. The engine has one vibrato depth, for both
+    # oscillators: DCO-1's sets it, DCO-2's waits (one per oscillator, no issue yet)
     def test_lfo_shape_rate_delay_and_vibrato_depth(self):
         e = patch("SOUNDTRACK")                 # triangle, delay 78, rate 103, depths 0
         self.assertEqual((e["LFO_WAVE"], e["LFO_RATE_CENTIHZ"], e["LFO_DELAY_MS"]), (0, 735, 695))
@@ -139,7 +162,8 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch("CLAV")["LFO_WAVE"], 3)          # 0: random (engine FM_LFO_RANDOM)
         self.assertEqual(patch("ORGAN 2")["LFO_WAVE"], 2)       # 32: square
         self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 1200)
-        self.assertEqual(patch("CELLO SECT")["LFO_PITCH_CENTS"], 86)   # DCO-1 2, DCO-2 34
+        e = patch("CELLO SECT")                 # DCO-1 2, DCO-2 34: only DCO-2 wobbles
+        self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (0, 86))
 
     # CHORUS off, 1, 2 -> the engine's off, slow, deep; VCA DYNAMICS off, 1, 2, 3 -> 0..100 %
     def test_chorus_and_vca_dynamics(self):
@@ -177,6 +201,22 @@ class MapTest(unittest.TestCase):
         self.assertEqual((e["OSC_MIX_PERMILLE"], e["OSC_MIX_ENV_PERMILLE"]), (508, -195))
         self.assertEqual(patch("ORGAN 2")["OSC_MIX_ENV_SOURCE"], 0)         # ENV-2, VCA on GATE
 
+    # MIX ENV MODE names ENV-1 but VCF ENV MODE names ENV-2 (PIANO 1, PIANO 3, TIMBALES, WINDCHIMES,
+    # E. BASS, SOFT BRASS, CHURCHBELL): no engine envelope runs ENV-1's times (the filter one runs
+    # ENV-2's, the amp one ENV-2's or the gate), so the mix follows the filter envelope, with
+    # ENV-2's times. An approximation (docs/patches.md); exact once #59 gives the engine both.
+    def test_mix_env_on_env1_while_the_filter_runs_env2_takes_the_filter_envelope(self):
+        e = patch("PIANO 1")                    # MIX ENV MODE ENV-1, VCF ENV MODE ENV-2
+        self.assertEqual(e["OSC_MIX_ENV_SOURCE"], 0)
+        self.assertEqual(e["FILTER_ENV_SOURCE"], 1)
+
+    # DCO-1 at 0: only DCO-2 sounds, so the mix is osc2 only at rest too, even when MIX ENV takes
+    # DCO-2's level to 0 there (the engine has no silence in its mix)
+    def test_with_dco1_off_the_mix_is_osc2_only(self):
+        for name in ("TIMBALES", "MUSIC BOX", "WINDCHIMES", "SYNC LEAD"):
+            e = patch(name)                     # DCO-1 0, MIX ENV 127
+            self.assertEqual((e["OSC_MIX_PERMILLE"], e["OSC_MIX_ENV_PERMILLE"]), (1000, 0), name)
+
     # Kept for LFO to cutoff and filter velocity (#8), envelope key follow (#60) and the VCA level
     def test_other_features_the_engine_lacks_are_kept_for_later(self):
         e = patch("SOUNDTRACK")
@@ -188,6 +228,17 @@ class MapTest(unittest.TestCase):
 
 
 class RangeTest(unittest.TestCase):
+    # the ranges of the fields the engine has come from engine/params.c, not copies of it
+    def test_engine_ranges_are_read_from_params_c(self):
+        ranges = jx8p.engine_ranges()
+        self.assertEqual(ranges["OSC1_WAVE"], (0, 3))                       # FM_WAVE_COUNT - 1
+        self.assertEqual(ranges["FILTER_CUTOFF_CENTS"], (0, 14400))         # FM_FILTER_OPEN_CENTS
+        self.assertEqual(ranges["HIGHPASS_STEP"], (0, 3))
+        self.assertEqual(ranges["OSC_MIX_ENV"], (-1000, 1000))
+        for f in jx8p.FIELDS:
+            if f.param:
+                self.assertEqual((f.lo, f.hi), ranges[f.param], f.name)
+
     # every tone sets every field, in the field's range (the engine's range from engine/params.c
     # for the fields it has)
     def test_every_field_of_every_tone_is_in_range(self):
@@ -217,6 +268,19 @@ class TableTest(unittest.TestCase):
         body = text[text.index("typedef enum {"):text.index("} patch_field;")]
         names = re.findall(r"^\s*PATCH_(\w+),", body, re.M)
         self.assertEqual(names, [f.name for f in jx8p.FIELDS] + ["FIELD_COUNT"])
+
+    # a dump the converter refuses leaves the output as it was (generated first, then written)
+    def test_a_bad_dump_leaves_the_output_untouched(self):
+        with tempfile.TemporaryDirectory() as d:
+            bad, out = os.path.join(d, "bad.syx"), os.path.join(d, "patches.c")
+            with open(bad, "wb") as f:
+                f.write(b"")                    # no tones
+            with open(out, "w") as f:
+                f.write("before")
+            with self.assertRaises(ValueError):
+                jx8p.main(["jx8p.py", bad, out])
+            with open(out) as f:
+                self.assertEqual(f.read(), "before")
 
     # firmware/patches.c is checked in: it must be what the converter makes from the dump now
     def test_the_checked_in_table_is_up_to_date(self):

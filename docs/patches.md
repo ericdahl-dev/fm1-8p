@@ -111,11 +111,11 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 
 | JX-8P | Engine field | Mapping |
 | --- | --- | --- |
-| RANGE + TUNE | `osc1_octave`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; whole octaves of range + tune go to the octave, the rest to coarse. DCO-1 has no coarse in the engine yet: `PATCH_OSC1_COARSE_SEMIS` waits. Two tones need it: MUSIC BOX (+4) and WINDCHIMES (-3) |
+| RANGE + TUNE | `osc1_octave`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; whole octaves of range + tune go to the octave, the rest to coarse. DCO-1 has no coarse in the engine yet: osc1 plays the whole octave nearest its pitch that leaves osc2 in range, and osc2 moves by what osc1 lacks, so the interval holds and only the whole patch shifts: MUSIC BOX 4 semitones down, WINDCHIMES 9 down. `PATCH_OSC1_COARSE_SEMIS` keeps that amount |
 | WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse (25 % wide, *est.*), saw |
 | FINE TUNE | `osc2_fine_cents` | (value - 64) x 50 / 64 |
 | MIX DCO-1, DCO-2 | `osc_mix_permille` | DCO-2 / (DCO-1 + DCO-2), with MIX ENV's envelope at rest; the overall level is lost |
-| MIX ENV, MIX ENV MODE | `osc_mix_env_permille`, `osc_mix_env_source` | the envelope scales DCO-2's level from 1 - depth (at rest) to 1 (at the peak), the other way when inverted (*est.*); `osc_mix_env_permille` is the mix's change from rest to peak. It follows the amp envelope for ENV-2 when the VCA follows ENV-2, else the filter envelope (exact when VCF ENV MODE names the same envelope, *est.* otherwise). 19 of the 32 tones use MIX ENV at full depth on ENV-1, so DCO-2 swells in with the filter envelope |
+| MIX ENV, MIX ENV MODE | `osc_mix_env_permille`, `osc_mix_env_source` | the envelope scales DCO-2's level from 1 - depth (at rest) to 1 (at the peak), the other way when inverted (*est.*); `osc_mix_env_permille` is the mix's change from rest to peak. It follows the amp envelope for ENV-2 when the VCA follows ENV-2, else the filter envelope (exact when VCF ENV MODE names the same envelope. When MIX ENV MODE names ENV-1 and VCF ENV MODE ENV-2, no engine envelope has ENV-1's times: the mix follows the filter envelope with ENV-2's, an approximation in PIANO 1, PIANO 3, TIMBALES, WINDCHIMES, E. BASS, SOFT BRASS and CHURCHBELL until #59). 19 of the 32 tones use MIX ENV at full depth on ENV-1, so DCO-2 swells in with the filter envelope. With DCO-1 at 0 the mix is osc2 only (the engine has no silent mix) |
 | CROSS MOD | `osc_sync` | on for SYNC 1 and SYNC 2. The JX-8P's X-MOD is reportedly amplitude modulation (ring-mod-like), not the engine's FM (`osc_xmod`), so it waits in `PATCH_XMOD_AM` (SYNC 2 and X-MOD) |
 | HPF | `highpass_step` | position 0..3 |
 | VCF FREQ | `filter_cutoff_cents` | 1200 + 100 x value: a semitone per step from MIDI note 12 (16 Hz) (*est.*) |
@@ -128,7 +128,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | LFO WAVEFORM | `lfo_wave` | random, square, triangle |
 | LFO RATE | `lfo_rate_centihz` | 0.1..20 Hz, exponential (*est.*) |
 | LFO DELAY | `lfo_delay_ms` | cubic, 0..3000 ms (*est.*) |
-| DCO-1 LFO, DCO-2 LFO | `lfo_pitch_cents` | the larger of the two, quadratic to 1200 cents (*est.*); the engine has one vibrato depth for both |
+| DCO-1 LFO | `lfo_pitch_cents` | quadratic to 1200 cents (*est.*). The engine has one vibrato depth, which moves both oscillators, so DCO-1's sets it; DCO-2's waits in `LFO_PITCH_OSC2_CENTS` (CELLO SECT wobbles DCO-2 only on the JX-8P) |
 
 ## What waits for the engine
 
@@ -148,6 +148,7 @@ returns `PATCH_NONE` for them; when a feature lands, its field gets the new `fm_
 | `XMOD_AM` | CROSS MOD SYNC 2 and X-MOD | the JX-8P's cross mod (no issue yet) |
 | `OSC1_COARSE_SEMIS` | DCO-1 TUNE | DCO-1 coarse tune (no issue yet) |
 | `AMP_LEVEL_PERMILLE` | VCA LEVEL | a patch level (no issue yet) |
+| `LFO_PITCH_OSC2_CENTS` | DCO-2 LFO | a vibrato depth per oscillator (no issue yet) |
 
 Aftertouch (#61) and portamento (#62) are not tone data on the JX-8P: they are panel settings
 (the AFTER TOUCH buttons and the PORTAMENTO switch and knob), so no factory tone carries them, and
@@ -155,8 +156,8 @@ the table has no fields for them.
 
 ## Storage
 
-Each patch is its name (12 characters and the end) and one `uint16_t` per field, 45 fields:
-104 bytes with padding, 3328 bytes for the 32. A value is stored with a bias of 32768 (`patch_value()` takes
+Each patch is its name (12 characters and the end) and one `uint16_t` per field, 46 fields:
+106 bytes, 3392 bytes for the 32. A value is stored with a bias of 32768 (`patch_value()` takes
 it off): stored as plain `int16_t`, a value of -64..-49 next to another can make a 32-bit word
 in 0xFFC00000..0xFFCFFFFF, which fm1-dock rejects as a ROM address (`make check-float-free`
 catches it on the desktop).

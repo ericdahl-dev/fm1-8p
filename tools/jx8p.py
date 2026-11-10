@@ -4,6 +4,8 @@
 Reads a SysEx dump of JX-8P tones (APR messages, F0 41 35 0n 21 20 01 <59 bytes> F7) and converts
 each tone to fm1-8p engine values. The dump is data only: nothing in it is run.
 """
+import ast
+import glob
 import hashlib
 import math
 import os
@@ -18,16 +20,18 @@ APR_LEN = 67                                # header 7, data 59, F7
 NAME_LEN = 10
 
 
-def parse_syx(data):
+def parse_syx(data, source="the dump"):
     """Every APR message in data, in order, as Tones. Other messages (the 0x34 program writes
-    that follow each tone in a bank dump) are skipped."""
+    that follow each tone in a bank dump) are skipped. source names data in errors."""
     tones = []
     i = 0
     while True:
         start = data.find(0xF0, i)
         if start < 0:
             return tones
-        end = data.index(0xF7, start)
+        end = data.find(0xF7, start)
+        if end < 0:
+            raise ValueError("%s: the SysEx message at offset %d has no F7" % (source, start))
         msg = data[start:end + 1]
         if msg[:3] == APR_HEADER and len(msg) == APR_LEN:
             params = msg[7:-1]
@@ -59,50 +63,101 @@ DYNAMICS_PCT = [0, 33, 67, 100]             # DYNAMICS off, 1, 2, 3
 WAVE = [3, 2, 1, 0]                         # position -> engine fm_wave (noise, square, pulse, saw)
 
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def c_constants(root=ROOT):
+    """The integer #defines and enum members of engine/*.h, by name."""
+    names = {}
+    for path in sorted(glob.glob(os.path.join(root, "engine", "*.h"))):
+        with open(path) as f:
+            text = re.sub(r"/\*.*?\*/|//[^\n]*", "", f.read(), flags=re.S)
+        for name, v in re.findall(r"^\s*#define\s+(\w+)\s+\(?(-?\d+)u?\)?\s*$", text, re.M):
+            names[name] = int(v)
+        for body in re.findall(r"enum\s*\w*\s*\{([^}]*)\}", text):
+            n = 0
+            for member in body.split(","):
+                m = re.match(r"\s*(\w+)\s*(?:=\s*(-?\d+))?\s*$", member)
+                if m:
+                    n = int(m.group(2)) if m.group(2) else n
+                    names[m.group(1)] = n
+                    n += 1
+    return names
+
+
+def c_int(expr, names):
+    """A C integer expression of numbers, names and + - * ( ) as its value."""
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, int):
+            return n.value
+        if isinstance(n, ast.Name):
+            return names[n.id]
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
+            return -ev(n.operand)
+        if isinstance(n, ast.BinOp) and type(n.op) in (ast.Add, ast.Sub, ast.Mult):
+            a, b = ev(n.left), ev(n.right)
+            return a + b if isinstance(n.op, ast.Add) else a - b if isinstance(n.op, ast.Sub) else a * b
+        raise ValueError("not a plain C integer expression: %r" % expr)
+    return ev(ast.parse(expr.strip(), mode="eval").body)
+
+
+def engine_ranges(root=ROOT):
+    """Each engine param's (min, max) from engine/params.c's table, by FM_PARAM_ suffix."""
+    with open(os.path.join(root, "engine", "params.c")) as f:
+        text = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
+    names = c_constants(root)
+    ranges = {}
+    for param, lo, hi in re.findall(r"\{\s*FM_PARAM_(\w+)\s*,\s*\"[^\"]*\"\s*,([^,]+),([^,]+),[^}]*\}", text):
+        ranges[param] = (c_int(lo, names), c_int(hi, names))
+    return ranges
+
+
 # The patch table's fields, in firmware/patches.h's order (PATCH_<name>). param: the engine's
 # fm_param_id (FM_PARAM_<param>) the field sets, or None while the engine lacks the feature (the
-# field waits for the issue). lo, hi: the engine's range (engine/params.c), or the field's own.
+# field waits for the issue). lo, hi: the field's own range; for the fields the engine has, its range
+# from engine/params.c (filled in below).
 Field = namedtuple("Field", "name param lo hi waits")
 FIELDS = [
-    Field("OSC1_WAVE", "OSC1_WAVE", 0, 3, None),
-    Field("OSC1_PULSE_WIDTH_PCT", "OSC1_PULSE_WIDTH_PCT", 1, 99, None),
-    Field("OSC1_OCTAVE", "OSC1_OCTAVE", -2, 2, None),
-    Field("OSC1_COARSE_SEMIS", None, -12, 12, "DCO-1 coarse tune (no issue yet)"),
-    Field("OSC2_WAVE", "OSC2_WAVE", 0, 3, None),
-    Field("OSC2_PULSE_WIDTH_PCT", "OSC2_PULSE_WIDTH_PCT", 1, 99, None),
-    Field("OSC2_OCTAVE", "OSC2_OCTAVE", -2, 2, None),
-    Field("OSC2_COARSE_SEMIS", "OSC2_COARSE_SEMIS", -12, 12, None),
-    Field("OSC2_FINE_CENTS", "OSC2_FINE_CENTS", -100, 100, None),
-    Field("OSC_MIX_PERMILLE", "OSC_MIX", 0, 1000, None),
-    Field("OSC_SYNC", "OSC_SYNC", 0, 1, None),
+    Field("OSC1_WAVE", "OSC1_WAVE", None, None, None),
+    Field("OSC1_PULSE_WIDTH_PCT", "OSC1_PULSE_WIDTH_PCT", None, None, None),
+    Field("OSC1_OCTAVE", "OSC1_OCTAVE", None, None, None),
+    Field("OSC1_COARSE_SEMIS", None, -12, 12, "DCO-1 coarse tune, folded into osc2 for now (no issue yet)"),
+    Field("OSC2_WAVE", "OSC2_WAVE", None, None, None),
+    Field("OSC2_PULSE_WIDTH_PCT", "OSC2_PULSE_WIDTH_PCT", None, None, None),
+    Field("OSC2_OCTAVE", "OSC2_OCTAVE", None, None, None),
+    Field("OSC2_COARSE_SEMIS", "OSC2_COARSE_SEMIS", None, None, None),
+    Field("OSC2_FINE_CENTS", "OSC2_FINE_CENTS", None, None, None),
+    Field("OSC_MIX_PERMILLE", "OSC_MIX", None, None, None),
+    Field("OSC_SYNC", "OSC_SYNC", None, None, None),
     Field("XMOD_AM", None, 0, 1, "cross mod as the JX-8P does it (no issue yet)"),
-    Field("HIGHPASS_STEP", "HIGHPASS_STEP", 0, 3, None),
-    Field("FILTER_CUTOFF_CENTS", "FILTER_CUTOFF_CENTS", 0, 14400, None),
-    Field("FILTER_RESONANCE_PERMILLE", "FILTER_RESONANCE", 0, 1000, None),
-    Field("FILTER_KEY_TRACK_PERMILLE", "FILTER_KEY_TRACK", 0, 1000, None),
-    Field("FILTER_ENV_AMOUNT_CENTS", "FILTER_ENV_AMOUNT_CENTS", -9600, 9600, None),
-    Field("FILTER_ENV_ATTACK_MS", "FILTER_ENV_ATTACK_MS", 0, 10000, None),
-    Field("FILTER_ENV_DECAY_MS", "FILTER_ENV_DECAY_MS", 0, 10000, None),
-    Field("FILTER_ENV_SUSTAIN_PERMILLE", "FILTER_ENV_SUSTAIN", 0, 1000, None),
-    Field("FILTER_ENV_RELEASE_MS", "FILTER_ENV_RELEASE_MS", 0, 10000, None),
+    Field("HIGHPASS_STEP", "HIGHPASS_STEP", None, None, None),
+    Field("FILTER_CUTOFF_CENTS", "FILTER_CUTOFF_CENTS", None, None, None),
+    Field("FILTER_RESONANCE_PERMILLE", "FILTER_RESONANCE", None, None, None),
+    Field("FILTER_KEY_TRACK_PERMILLE", "FILTER_KEY_TRACK", None, None, None),
+    Field("FILTER_ENV_AMOUNT_CENTS", "FILTER_ENV_AMOUNT_CENTS", None, None, None),
+    Field("FILTER_ENV_ATTACK_MS", "FILTER_ENV_ATTACK_MS", None, None, None),
+    Field("FILTER_ENV_DECAY_MS", "FILTER_ENV_DECAY_MS", None, None, None),
+    Field("FILTER_ENV_SUSTAIN_PERMILLE", "FILTER_ENV_SUSTAIN", None, None, None),
+    Field("FILTER_ENV_RELEASE_MS", "FILTER_ENV_RELEASE_MS", None, None, None),
     Field("FILTER_ENV_SOURCE", None, 0, 3, "#59"),
-    Field("AMP_ATTACK_MS", "AMP_ATTACK_MS", 0, 10000, None),
-    Field("AMP_DECAY_MS", "AMP_DECAY_MS", 0, 10000, None),
-    Field("AMP_SUSTAIN_PERMILLE", "AMP_SUSTAIN", 0, 1000, None),
-    Field("AMP_RELEASE_MS", "AMP_RELEASE_MS", 0, 10000, None),
-    Field("AMP_VELOCITY_PCT", "AMP_VELOCITY", 0, 100, None),
+    Field("AMP_ATTACK_MS", "AMP_ATTACK_MS", None, None, None),
+    Field("AMP_DECAY_MS", "AMP_DECAY_MS", None, None, None),
+    Field("AMP_SUSTAIN_PERMILLE", "AMP_SUSTAIN", None, None, None),
+    Field("AMP_RELEASE_MS", "AMP_RELEASE_MS", None, None, None),
+    Field("AMP_VELOCITY_PCT", "AMP_VELOCITY", None, None, None),
     Field("AMP_GATE", None, 0, 1, "#63"),
-    Field("CHORUS_MODE", "CHORUS_MODE", 0, 3, None),
-    Field("LFO_WAVE", "LFO_WAVE", 0, 3, None),
-    Field("LFO_RATE_CENTIHZ", "LFO_RATE_CENTIHZ", 1, 3000, None),
-    Field("LFO_DELAY_MS", "LFO_DELAY_MS", 0, 5000, None),
-    Field("LFO_PITCH_CENTS", "LFO_PITCH_CENTS", 0, 1200, None),
+    Field("CHORUS_MODE", "CHORUS_MODE", None, None, None),
+    Field("LFO_WAVE", "LFO_WAVE", None, None, None),
+    Field("LFO_RATE_CENTIHZ", "LFO_RATE_CENTIHZ", None, None, None),
+    Field("LFO_DELAY_MS", "LFO_DELAY_MS", None, None, None),
+    Field("LFO_PITCH_CENTS", "LFO_PITCH_CENTS", None, None, None),
+    Field("LFO_PITCH_OSC2_CENTS", None, 0, 1200, "a vibrato depth per oscillator (no issue yet)"),
     Field("PITCH_ENV_OSC1_CENTS", None, -2400, 2400, "#58"),
     Field("PITCH_ENV_OSC2_CENTS", None, -2400, 2400, "#58"),
     Field("PITCH_ENV_SOURCE", None, 0, 3, "#58"),
     Field("PITCH_ENV_VELOCITY_PCT", None, 0, 100, "#58"),
-    Field("OSC_MIX_ENV_PERMILLE", "OSC_MIX_ENV", -1000, 1000, None),
-    Field("OSC_MIX_ENV_SOURCE", "OSC_MIX_ENV_SOURCE", 0, 1, None),
+    Field("OSC_MIX_ENV_PERMILLE", "OSC_MIX_ENV", None, None, None),
+    Field("OSC_MIX_ENV_SOURCE", "OSC_MIX_ENV_SOURCE", None, None, None),
     Field("OSC_MIX_ENV_VELOCITY_PCT", None, 0, 100, "velocity on the mix envelope (no issue yet)"),
     Field("FILTER_LFO_PERMILLE", None, 0, 1000, "#8"),
     Field("FILTER_VELOCITY_PCT", None, 0, 100, "#8"),
@@ -110,6 +165,8 @@ FIELDS = [
     Field("ENV2_KEY_FOLLOW", None, 0, 3, "#60"),
     Field("AMP_LEVEL_PERMILLE", None, 0, 1000, "a VCA level (no issue yet)"),
 ]
+_RANGES = engine_ranges()
+FIELDS = [f._replace(lo=_RANGES[f.param][0], hi=_RANGES[f.param][1]) if f.param else f for f in FIELDS]
 
 
 NAME_MAX = 12                               # firmware/patches.h PATCH_NAME_MAX
@@ -203,8 +260,9 @@ def env_mode(v):
 
 
 def mix_permille(l1, l2):
-    """DCO levels as the engine's osc mix: DCO-2's share, per mille."""
-    return rnd(1000 * l2 / (l1 + l2)) if l1 + l2 else 0
+    """DCO levels as the engine's osc mix: DCO-2's share, per mille. DCO-1 off is osc2 only, whatever
+    DCO-2's level (the engine's mix has no silence)."""
+    return rnd(1000 * l2 / (l1 + l2)) if l1 else 1000
 
 
 def tune_semis(v):
@@ -219,10 +277,14 @@ def tune_semis(v):
     return 0
 
 
-def octave_and_semis(rng, v):
-    """Range (16' 8' 4' 2') and tune as engine octave (-2..+2) and semitones (-12..+12): whole
-    octaves of the total go to the octave, so a tune of -12 on 8' becomes 16'."""
-    total = 12 * (switch(rng) - 1) + tune_semis(v)
+def pitch_semis(rng, v):
+    """Range (16' 8' 4' 2') and tune as semitones from 8'."""
+    return 12 * (switch(rng) - 1) + tune_semis(v)
+
+
+def octave_and_semis(total):
+    """Semitones from 8' (-36..+36) as engine octave (-2..+2) and semitones (-12..+12): whole
+    octaves go to the octave, so a tune of -12 on 8' becomes 16'."""
     octave = max(-2, min(2, (total + 6) // 12))
     return octave, total - 12 * octave
 
@@ -236,8 +298,14 @@ def to_engine(tone):
     }
     for n in (1, 2):
         e["OSC%d_PULSE_WIDTH_PCT" % n] = 25 if e["OSC%d_WAVE" % n] == 1 else 50
-    e["OSC1_OCTAVE"], e["OSC1_COARSE_SEMIS"] = octave_and_semis(p[DCO1_RANGE], p[DCO1_TUNE])
-    e["OSC2_OCTAVE"], e["OSC2_COARSE_SEMIS"] = octave_and_semis(p[DCO2_RANGE], p[DCO2_TUNE])
+    # osc1 has no coarse: it plays whole octaves, the nearest to its pitch that leaves osc2 in range,
+    # and osc2 moves by what osc1 lacks so the interval holds. OSC1_COARSE_SEMIS keeps that amount.
+    pitch1, pitch2 = pitch_semis(p[DCO1_RANGE], p[DCO1_TUNE]), pitch_semis(p[DCO2_RANGE], p[DCO2_TUNE])
+    octave1 = min((o for o in range(-2, 3) if -36 <= pitch2 - (pitch1 - 12 * o) <= 36),
+                  key=lambda o: abs(pitch1 - 12 * o))
+    lack = pitch1 - 12 * octave1
+    e["OSC1_OCTAVE"], e["OSC1_COARSE_SEMIS"] = octave1, lack
+    e["OSC2_OCTAVE"], e["OSC2_COARSE_SEMIS"] = octave_and_semis(pitch2 - lack)
     e["OSC2_FINE_CENTS"] = max(-50, min(50, rnd((p[DCO2_FINE] - 64) * 50 / 64)))
     # MIX ENV scales DCO-2's level (est.): from 1 - depth to 1 as the envelope rises (inverted: the
     # other way). osc_mix is the mix with the envelope at rest, osc_mix_env the change at its peak.
@@ -268,7 +336,9 @@ def to_engine(tone):
     e["LFO_WAVE"] = LFO_WAVE[switch(p[LFO_WF])]
     e["LFO_RATE_CENTIHZ"] = rnd(10 * 200 ** (p[LFO_RATE] / 127))
     e["LFO_DELAY_MS"] = rnd(3000 * (p[LFO_DELAY] / 127) ** 3)
-    e["LFO_PITCH_CENTS"] = rnd(1200 * (max(p[DCO1_LFO], p[DCO2_LFO]) / 127) ** 2)
+    # the engine's one vibrato depth moves both oscillators: DCO-1's sets it, DCO-2's waits
+    e["LFO_PITCH_CENTS"] = rnd(1200 * (p[DCO1_LFO] / 127) ** 2)
+    e["LFO_PITCH_OSC2_CENTS"] = rnd(1200 * (p[DCO2_LFO] / 127) ** 2)
     e["CHORUS_MODE"] = min(switch(p[CHORUS]), 2)
     e["AMP_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[VCA_DYNA])]
     # waiting for the pitch envelope (#58)
@@ -292,7 +362,7 @@ def generate(syx_path):
     """firmware/patches.c's text from the dump at syx_path."""
     with open(syx_path, "rb") as f:
         data = f.read()
-    tones = parse_syx(data)
+    tones = parse_syx(data, syx_path)
     if len(tones) != 32:
         raise ValueError("%s: %d tones, not 32" % (syx_path, len(tones)))
     return emit_c(tones, "data/" + os.path.basename(syx_path), hashlib.sha256(data).hexdigest())
@@ -302,8 +372,9 @@ def main(argv):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     syx = argv[1] if len(argv) > 1 else os.path.join(root, "data", "jx8p-factory-1-32.syx")
     out = argv[2] if len(argv) > 2 else os.path.join(root, "firmware", "patches.c")
+    text = generate(syx)                    # first: a refused dump leaves the old table
     with open(out, "w") as f:
-        f.write(generate(syx))
+        f.write(text)
     print("wrote", out)
 
 

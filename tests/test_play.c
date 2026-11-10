@@ -54,10 +54,10 @@ TT_TEST(play_midi_note_on_any_channel_plays)
 
 /* blocks of PLAY_BLOCK frames for about one second */
 #define PL_SECOND (PLAY_FS / PLAY_BLOCK + 1u)
-/* blocks past the default patch's release, and a second more */
-#define PL_RELEASED ((uint32_t)patch_value(&PATCHES[PATCH_SOUNDTRACK], PATCH_AMP_RELEASE_MS) \
-                     * PLAY_FS / 1000u \
-                     / PLAY_BLOCK + PL_SECOND)
+/* The release tests' amp release, short and known (not the default patch's), and blocks well
+ * past it */
+#define PL_RELEASE_MS 50
+#define PL_RELEASED PL_SECOND
 
 static void pl_render_for(play *p, uint32_t blocks)
 {
@@ -65,9 +65,17 @@ static void pl_render_for(play *p, uint32_t blocks)
         pl_render(p);
 }
 
+/* play_init with the amp release at PL_RELEASE_MS */
+static int pl_init_short_release(play *p)
+{
+    if (play_init(p) != 0)
+        return -1;
+    return fm_engine_set_param(&p->engine, FM_PARAM_AMP_RELEASE_MS, PL_RELEASE_MS) == FM_OK ? 0 : -1;
+}
+
 TT_TEST(play_midi_note_off_releases_the_note)
 {
-    TT_CHECK_EQ(play_init(&pl_a), 0);
+    TT_CHECK_EQ(pl_init_short_release(&pl_a), 0);
     play_midi(&pl_a, 0x90, 60, 100);
     play_midi(&pl_a, 0x91, 64, 100);
     pl_render(&pl_a);
@@ -78,7 +86,7 @@ TT_TEST(play_midi_note_off_releases_the_note)
 
 TT_TEST(play_midi_sustain_pedal_holds_released_notes)
 {
-    TT_CHECK_EQ(play_init(&pl_a), 0);
+    TT_CHECK_EQ(pl_init_short_release(&pl_a), 0);
     play_midi(&pl_a, 0x90, 60, 100);
     play_midi(&pl_a, 0xB0, 64, 127);
     play_midi(&pl_a, 0x80, 60, 0);
@@ -196,7 +204,7 @@ TT_TEST(play_ignores_data_bytes_past_127)
 TT_TEST(play_queue_overflow_never_leaves_a_note_hanging)
 {
     uint32_t i;
-    TT_CHECK_EQ(play_init(&pl_a), 0);
+    TT_CHECK_EQ(pl_init_short_release(&pl_a), 0);
     for (i = 0; i < PLAY_QUEUE; i++)
         play_midi(&pl_a, 0xB0, 1, 0);           /* fill the queue (CC 1: no effect yet) */
     play_note(&pl_a, 60, 100);                  /* lost */
@@ -235,7 +243,7 @@ TT_TEST(play_queue_overflow_lets_the_pedal_up_and_centers_the_bend)
     static play ref;
     static int32_t ref_out[2 * PLAY_BLOCK];
     uint32_t i, same = 1;
-    TT_CHECK_EQ(play_init(&pl_a), 0);
+    TT_CHECK_EQ(pl_init_short_release(&pl_a), 0);
     TT_CHECK_EQ(play_init(&ref), 0);
     play_midi(&pl_a, 0xB0, 64, 127);            /* pedal down */
     play_midi(&pl_a, 0xE0, 0x7F, 0x7F);         /* bend full up */
@@ -327,7 +335,7 @@ TT_TEST(play_octave_leds_follow_the_octave)
  * the octave moved. An unsensed key (velocity 0) plays at 100, as the host's keys do. */
 TT_TEST(play_keys_play_from_the_octave)
 {
-    TT_CHECK_EQ(play_init(&pl_a), 0);
+    TT_CHECK_EQ(pl_init_short_release(&pl_a), 0);
     play_key_down(&pl_a, 0, 90);                /* F3 */
     TT_CHECK_EQ(play_last_note(&pl_a), 53);
     play_octave(&pl_a, +1);
