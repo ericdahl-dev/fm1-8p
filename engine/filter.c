@@ -224,6 +224,15 @@ static int32_t stage(int32_t *y, int32_t *x1, int32_t x, int32_t w,
     return *y;
 }
 
+/* stage() with w = 1/4, as a shift. */
+static int32_t stage_quarter(int32_t *y, int32_t *x1, int32_t x, int32_t g)
+{
+    int32_t m = x - ((x - *x1) >> 2);
+    *x1 = x;
+    *y += mul_q30(m - *y, g);
+    return *y;
+}
+
 int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
     int64_t x = in;
@@ -233,6 +242,12 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         x -= f->hp;
     }
     u = soft_clip(x - (((int64_t)f->s[3] * f->k) >> 28));
+    if (f->w == W_ZERO) { /* below the fade: w * d is d >> 2, exactly */
+        u = stage_quarter(&f->s[0], &f->x1[0], u, f->g);
+        u = stage_quarter(&f->s[1], &f->x1[1], u, f->g);
+        u = stage_quarter(&f->s[2], &f->x1[2], u, f->g);
+        return stage_quarter(&f->s[3], &f->x1[3], u, f->g);
+    }
     u = stage(&f->s[0], &f->x1[0], u, f->w, f->g);
     u = stage(&f->s[1], &f->x1[1], u, f->w, f->g);
     u = stage(&f->s[2], &f->x1[2], u, f->w, f->g);
