@@ -11,6 +11,12 @@
 
 #define TEMPO_EVENT 0xFF /* internal marker for a set-tempo meta event */
 #define DEFAULT_TEMPO_US 500000u /* 120 BPM */
+/*
+ * Longest song in ticks. With tempos below 2^24 us per quarter, a tick
+ * span times a tempo then stays below 2^56 and cannot wrap uint64. That
+ * is still days of music; the render length cap rejects long songs.
+ */
+#define MAX_TICKS 0xFFFFFFFFu
 
 typedef struct {
     uint64_t tick;
@@ -88,6 +94,7 @@ static int parse_track(const uint8_t *p, size_t len, uint64_t track,
         if (read_vlq(p, len, &pos, &delta) != 0)
             return fail(err, err_len, "bad delta time");
         tick += delta;
+        if (tick > MAX_TICKS) return fail(err, err_len, "song too long");
         if (pos >= len) return fail(err, err_len, "truncated event");
 
         memset(&e, 0, sizeof e);

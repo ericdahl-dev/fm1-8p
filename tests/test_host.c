@@ -280,6 +280,45 @@ TT_TEST(smf_orders_note_offs_before_note_ons_at_the_same_tick)
     smf_free(&song);
 }
 
+/*
+ * A crafted file whose tick count times tempo is exactly 2^64 used to
+ * wrap the song length to 0, slipping past the render length cap.
+ * Ticks: 8192 deltas of 2^28 - 1 plus one of 8192 = 2^41; tempo 2^23.
+ */
+TT_TEST(huge_tick_counts_are_rejected_not_wrapped)
+{
+    const size_t events = 8192;
+    size_t n = 22 + 7 + events * 7 + 5 + 4, pos = 0, i;
+    uint8_t *d = malloc(n);
+    size_t body = n - 22;
+    FILE *f;
+    render_opts o = { .sample_rate = 44100, .tail_ms = 0 };
+    static const uint8_t hdr[] = { 'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1,
+                                   0, 1, 'M', 'T', 'r', 'k' };
+    TT_CHECK(d != NULL);
+    memcpy(d, hdr, sizeof hdr);
+    pos = sizeof hdr;
+    d[pos++] = (uint8_t)(body >> 24); d[pos++] = (uint8_t)(body >> 16);
+    d[pos++] = (uint8_t)(body >> 8);  d[pos++] = (uint8_t)body;
+    /* tempo 0x800000 us per quarter at tick 0 */
+    d[pos++] = 0; d[pos++] = 0xFF; d[pos++] = 0x51; d[pos++] = 3;
+    d[pos++] = 0x80; d[pos++] = 0; d[pos++] = 0;
+    for (i = 0; i < events; i++) { /* delta 0x0FFFFFFF, empty text */
+        d[pos++] = 0xFF; d[pos++] = 0xFF; d[pos++] = 0xFF; d[pos++] = 0x7F;
+        d[pos++] = 0xFF; d[pos++] = 0x01; d[pos++] = 0;
+    }
+    /* delta 8192 = 0xC0 0x00, then end of track */
+    d[pos++] = 0xC0; d[pos++] = 0x00; d[pos++] = 0xFF; d[pos++] = 0x01;
+    d[pos++] = 0;
+    d[pos++] = 0x00; d[pos++] = 0xFF; d[pos++] = 0x2F; d[pos++] = 0x00;
+    TT_CHECK_EQ(pos, n);
+    f = fopen("build/huge-ticks.mid", "wb");
+    fwrite(d, 1, n, f);
+    fclose(f);
+    free(d);
+    TT_CHECK(render_midi_file("build/huge-ticks.mid", "build/huge-ticks.wav", &o) != 0);
+}
+
 TT_TEST(wav_rejects_sample_rate_out_of_range)
 {
     static int16_t pcm[2 * 4];
@@ -339,6 +378,7 @@ static void run_host_tests(void)
     TT_RUN(smf_rejects_status_byte_in_data_position);
     TT_RUN(smf_rejects_tempo_with_wrong_length);
     TT_RUN(smf_orders_note_offs_before_note_ons_at_the_same_tick);
+    TT_RUN(huge_tick_counts_are_rejected_not_wrapped);
     TT_RUN(wav_rejects_sample_rate_out_of_range);
     TT_RUN(numeric_options_reject_negative_and_out_of_range_values);
     TT_RUN(parameter_settings_reject_out_of_range_values);
