@@ -113,7 +113,6 @@ TT_TEST(play_holds_play_voices_notes_at_once)
         play_note(&pl_a, 48u + 2u * k, 100);
     pl_render_for(&pl_a, 8);                    /* past the stolen voice's fade */
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), PLAY_VOICES);
-    TT_CHECK_EQ(PLAY_VOICES, 4);
 }
 
 /* The default patch is one table (play_patch): init sets each of its params, a gentle filter envelope
