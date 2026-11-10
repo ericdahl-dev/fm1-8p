@@ -45,7 +45,8 @@ typedef enum {
  */
 typedef struct {
     fm_osc osc[2];
-    uint32_t width[2]; /* pulse duty, Q0.32 of a cycle */
+    uint32_t width[2]; /* pulse duty as set, Q0.32 of a cycle */
+    uint32_t pw[2];    /* duty played: width limited by the pitch */
     int32_t cents[2];  /* tuning offset from the note */
     uint32_t sample_rate;
     int32_t mix;       /* share of osc 1 (the second), Q1.30 0..1.0 */

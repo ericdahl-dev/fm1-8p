@@ -202,6 +202,37 @@ TT_TEST(noise_is_bounded_and_not_periodic)
 #undef NOISE_LAGS
 }
 
+/*
+ * Pulse and square aliasing, measured exactly as
+ * high_saw_note_has_low_aliasing measures the saw (C7 at 44.1 kHz,
+ * 32768-point Blackman-Harris FFT, energy more than 6 bins from a
+ * harmonic counts as aliasing) and held to the same ALIAS_LIMIT_DB
+ * (-25 dB). Figures are in docs/fixed-point.md. At C7 a 1% pulse would
+ * be 0.2 samples wide; the oscillator keeps every pulse at least two
+ * samples wide, which is what holds the extremes under the limit.
+ */
+TT_TEST(high_pulse_and_square_notes_have_low_aliasing)
+{
+    static const struct { uint8_t wave; int32_t width; } cases[] = {
+        { FM_WAVE_SQUARE, 50 }, { FM_WAVE_PULSE, 25 }, { FM_WAVE_PULSE, 10 },
+        { FM_WAVE_PULSE, 90 }, { FM_WAVE_PULSE, 1 }, { FM_WAVE_PULSE, 99 }
+    };
+    size_t k;
+    for (k = 0; k < sizeof cases / sizeof cases[0]; k++) {
+        double db;
+        osc_init();
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, cases[k].wave);
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, cases[k].width);
+        fm_engine_note_on(&eng, 96, 100);
+        fm_engine_render(&eng, buf, 4800 + 32768);
+        db = aliasing_db(buf + 2 * 4800, 32768, 0, note_hz(96), RATE, 6);
+        printf("    aliasing for %s %d%% at note 96: %.1f dB\n",
+               cases[k].wave == FM_WAVE_SQUARE ? "square" : "pulse",
+               (int)cases[k].width, db);
+        TT_CHECK(db < ALIAS_LIMIT_DB);
+    }
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -210,4 +241,5 @@ static void run_osc_tests(void)
     TT_RUN(retuning_a_held_note_takes_effect);
     TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
     TT_RUN(noise_is_bounded_and_not_periodic);
+    TT_RUN(high_pulse_and_square_notes_have_low_aliasing);
 }

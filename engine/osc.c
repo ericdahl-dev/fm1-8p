@@ -110,6 +110,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
         fm_osc_reset(&p->osc[i]);
         p->wave[i] = FM_WAVE_SAW;
         p->width[i] = 0x80000000u;
+        p->pw[i] = 0x80000000u;
         p->cents[i] = 0;
     }
     p->sample_rate = 0;
@@ -125,13 +126,35 @@ void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix)
     p->mix = mix;
 }
 
+/*
+ * The duty oscillator `i` plays: its width, kept at least two samples
+ * (two increments) from either edge of the cycle. A narrower pulse falls
+ * inside the polyBLEP's two-sample span, so it is mostly aliasing; at C7
+ * a 1% pulse is 0.2 samples wide. Above a quarter of the sample rate
+ * there is room only for a square.
+ */
+static void update_pw(fm_osc_pair *p, uint8_t i)
+{
+    uint32_t inc = p->osc[i].inc, w = p->width[i], lo;
+    if (inc >= 0x40000000u) {
+        p->pw[i] = 0x80000000u;
+        return;
+    }
+    lo = inc << 1;
+    if (w < lo) w = lo;
+    if (w > 0u - lo) w = 0u - lo;
+    p->pw[i] = w;
+}
+
 /* Recomputes both oscillators' increments from the note and tuning. */
 static void retune(fm_osc_pair *p)
 {
     uint8_t i;
-    for (i = 0; i < 2; i++)
+    for (i = 0; i < 2; i++) {
         fm_osc_set_inc(&p->osc[i],
                        fm_osc_tuned_inc(p->note, p->cents[i], p->sample_rate));
+        update_pw(p, i);
+    }
 }
 
 void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents)
@@ -143,7 +166,9 @@ void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents)
 
 void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width)
 {
-    if (which < 2) p->width[which] = width;
+    if (which >= 2) return;
+    p->width[which] = width;
+    update_pw(p, which);
 }
 
 void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave)
@@ -180,7 +205,7 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
     o->phase = t + o->inc;
     switch (p->wave[which]) {
     case FM_WAVE_PULSE:
-        return pulse_at(t, o->inc, p->width[which]);
+        return pulse_at(t, o->inc, p->pw[which]);
     case FM_WAVE_SQUARE:
         return pulse_at(t, o->inc, 0x80000000u);
     case FM_WAVE_NOISE:
