@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "play.h"
 
+/* A compiler barrier: the stores (or loads) before it are done before those after it. The main loop
+ * and the audio interrupt share one core, so this is all the queue needs: an entry is written before
+ * the head that publishes it, and read after the head that says it is there. */
+#define BARRIER() __asm__ volatile("" ::: "memory")
+
 /* The default patch: the engine's defaults (one saw, the amp envelope) plus a gentle filter envelope
  * that opens each note and settles, the slow chorus, and the keys' velocity on the level. */
 static const play_param PATCH[] = {
@@ -50,6 +55,7 @@ static void put(play *p, uint32_t st, uint32_t d1, uint32_t d2)
         return;
     }
     p->queue[h % PLAY_QUEUE] = st << 16 | d1 << 8 | d2;
+    BARRIER();
     p->head = h + 1u;                           /* after the entry: the ISR never reads it early */
 }
 
@@ -108,8 +114,10 @@ void play_render(play *p, int32_t *out, uint32_t n)
     uint32_t h = p->head, t = p->tail;          /* one read: the main loop may write it any time */
     if (n > PLAY_BLOCK)
         n = PLAY_BLOCK;
+    BARRIER();                                  /* the entries are read after the head */
     for (; t != h; t++)
         apply(p, p->queue[t % PLAY_QUEUE]);
+    BARRIER();                                  /* and done with before the tail frees them */
     p->tail = t;
     if (p->lost != p->lost_seen) {              /* some events were dropped: let every note go */
         p->lost_seen = p->lost;
