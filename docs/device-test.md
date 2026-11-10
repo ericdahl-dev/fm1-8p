@@ -25,17 +25,19 @@ The module `FM1-8P CPU` holds a chord and steps through 10 steps, 5 s each:
 | --- | --- |
 | 1 to 8 | 1 to 8 voices, one note each (C3 up in thirds), poly mode |
 | U | the unison burst: 8 voices in unison; in every block the 8 keys go up, go down again (each note-on retriggers every voice) and the unison detune changes |
-| F | the full patch: the 8-voice chord (poly mode) with every modulation on: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, and the deep chorus. After its 5 s the chord rings on; the F row no longer changes |
+| F | the full patch on 6 voices, the target polyphony: the first 6 notes of the chord (poly mode) with every modulation on: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, a resonant lowpass (cutoff 10500 cents, resonance 700, its envelope sweeping it up 3600 cents into the top of its range) with the first highpass step, and the deep chorus. After its 5 s the chord rings on; the F row no longer changes |
 
 For each step it shows the **worst** render time of any block, as a percentage of one 256-frame block (5.8 ms at
 44.1 kHz). The block that starts a step (engine setup, first note-on) is not timed. Step U is the case from the #13
 comment: unison does its divides when notes and the detune change, so a burst of note-ons inside one block is its
-worst case. Step F is the modulation cost: with every depth at 0 (steps 1 to 8) the LFO costs nothing, so only F
-measures vibrato, pulse-width modulation, velocity and the chorus together. `make bench` times the same patch on the
-desktop at every voice count (`make bench-full`).
+worst case. Step F answers "do 6 voices of a real patch fit". Its main cost is the filter: with the filter open and every
+depth at 0 (steps 1 to 8) the filter is a wire and the LFO costs nothing, so only F measures the filter, vibrato,
+pulse-width modulation, velocity and the chorus together. It plays 6 voices, not 8, because fm1-dock stops a module
+that renders slower than real time (section 2). `make bench-full` times the same patch on the desktop at every voice
+count up to 8.
 
-What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.4 % per voice, 28.1 % at
-8 voices, 31.1 % for U, 60.5 % for F. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
+What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.1 % per voice, 25.8 % at
+8 voices, 31.4 % for U, 77.3 % for F (6 voices). On the device, expect roughly 1.15 times those. A big difference from that is a finding in
 itself: note it.
 
 ## 1. What you need
@@ -122,7 +124,8 @@ If the deploy is refused (an ABI or room error), go to route B.
    `4   11.5 %`. The current step's row is white, the others gray. **Write down all 10 rows** once `F` has run its
    5 s.
 4. Listen while it runs: a chord that gets richer for 40 s, then a fast-retriggered 8-voice unison note for 5 s, then
-   the full chord again with vibrato and chorus, its notes at different loudness. Clicks, dropouts or the sine taking
+   a 6-note chord with the filter sweeping open and closing to a resonant tone, vibrato and chorus, its notes at
+   different loudness. Clicks, dropouts or the sine taking
    over mean an overrun: note at which step.
 
 ## 5. Pull the numbers off the FM-1
@@ -182,16 +185,16 @@ try again.
 
 | step | screen (worst %) | log (per mille) | fm1-emu strict (%) | device / emu |
 | --- | --- | --- | --- | --- |
-| 1 | | | 4.2 | |
-| 2 | | | 7.6 | |
-| 3 | | | 11.0 | |
-| 4 | | | 14.5 | |
-| 5 | | | 17.9 | |
-| 6 | | | 21.3 | |
-| 7 | | | 24.7 | |
-| 8 | | | 28.1 | |
-| U (unison burst) | | | 31.1 | |
-| F (full patch) | | | 60.5 | |
+| 1 | | | 4.4 | |
+| 2 | | | 7.3 | |
+| 3 | | | 10.3 | |
+| 4 | | | 13.4 | |
+| 5 | | | 16.5 | |
+| 6 | | | 19.6 | |
+| 7 | | | 22.7 | |
+| 8 | | | 25.8 | |
+| U (unison burst) | | | 31.4 | |
+| F (full patch) | | | 77.3 | |
 
 - `dock.py modules`: render worst __ % of a block, __ overruns
 - Heard any clicks, dropouts or the sine taking over? At which step?
@@ -199,6 +202,5 @@ try again.
   if it worked)
 ```
 
-The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `8ee3f5e` (unison and #5's oscillators,
-before the filter); row F's from the same fm1-emu with the engine at `14ac94b` (#8's LFO and velocity, still before
-the filter), in PR #32's CI run. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `d5ee372` (#25's filter), with row F
+playing the filter on 6 voices. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
