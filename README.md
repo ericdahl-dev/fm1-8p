@@ -6,7 +6,38 @@ by Roland or M-VAVE.
 
 ## Status
 
-Planning. Nothing builds yet.
+The first slice works on the desktop: one band-limited saw voice with an ADSR
+amp envelope, rendered from a MIDI file to a WAV by the fixed-point engine.
+
+## Build and run
+
+Linux or macOS, with a C compiler (gcc or clang) and GNU make. No other
+dependencies.
+
+```sh
+make                 # builds build/fm1-8p-render
+make check           # runs the tests and the float-free engine check
+make render-demo     # renders examples/demo.mid to build/demo.wav
+
+./build/fm1-8p-render -r 44100 -s amp_attack_ms=200 -s amp_release_ms=800 \
+    song.mid song.wav
+```
+
+Run `./build/fm1-8p-render` with no arguments to list every option and
+parameter.
+
+The engine uses only integer math. Its number formats, the sample rate and
+block size rules, and how the float-free check works are in
+[docs/fixed-point.md](docs/fixed-point.md).
+
+## Layout
+
+- `engine/` - the synth engine: plain C99, fixed point, no hardware or OS code,
+  no dynamic allocation. Public interface: `engine/fm1_8p.h`.
+- `host/` - the desktop render tool: Standard MIDI File reader, WAV writer.
+- `tests/` - tests, run with a small single-header runner (`tests/tinytest.h`).
+- `tools/` - the float-free check and the scripts that generate the pitch
+  table and `examples/demo.mid`.
 
 ## Plan
 
