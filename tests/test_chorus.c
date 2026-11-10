@@ -459,6 +459,35 @@ TT_TEST(chorus_adds_no_dc_offset)
     }
 }
 
+/*
+ * The chorus sits after the mix gain, so its input peaks at 0.5: every
+ * voice at full level with lined-up peaks (8 x 1.0) times the engine's
+ * 0.5 / voice_count (docs/voices.md). The delay line must pass that, and
+ * four times it (12 dB kept for filter resonance), without clamping:
+ * the wet part of a held level equals the level, in both directions.
+ */
+TT_TEST(chorus_line_has_headroom_for_the_loudest_mix)
+{
+    static fm_chorus ch;
+    const int32_t loudest_mix = FM_MAX_VOICES * (1 << 24) / FM_MAX_VOICES / 2;
+    static const int32_t times[] = { 1, 2, 3, 4 };
+    size_t k;
+    int sign;
+    for (k = 0; k < sizeof times / sizeof times[0]; k++)
+        for (sign = -1; sign <= 1; sign += 2) {
+            int32_t x = sign * loudest_mix * times[k], l = 0, r = 0;
+            uint32_t n;
+            if (x == 4 * loudest_mix) x -= 1024; /* +2.0 itself is 1 unit over */
+            fm_chorus_init(&ch, CH_RATE);
+            fm_chorus_set_mode(&ch, FM_CHORUS_DEEP);
+            for (n = 0; n < FM_CHORUS_DELAY_LEN + 100; n++)
+                fm_chorus_process(&ch, x, &l, &r);
+            /* the wet part is 2 * out - x; one line unit (1024) of rounding */
+            TT_CHECK(llabs(2LL * l - x - x) <= 1024 + 1);
+            TT_CHECK(llabs(2LL * r - x - x) <= 1024 + 1);
+        }
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
@@ -472,4 +501,5 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_turned_on_again_starts_from_a_silent_line);
     TT_RUN(all_sound_off_silences_the_chorus_tail);
     TT_RUN(chorus_adds_no_dc_offset);
+    TT_RUN(chorus_line_has_headroom_for_the_loudest_mix);
 }
