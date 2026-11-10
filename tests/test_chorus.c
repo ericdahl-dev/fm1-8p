@@ -342,6 +342,59 @@ TT_TEST(chorus_memory_is_fixed_and_small)
     TT_CHECK(sizeof(fm_chorus) <= 2048 + 64);
 }
 
+/*
+ * The delay line holds +-2.0 at most: a hot input (+-4.0, two full-scale
+ * voices at once) comes back from the taps clamped to about +-2.0 with
+ * its sign kept, not wrapped around.
+ */
+TT_TEST(chorus_delay_line_clamps_hot_input_to_two)
+{
+    static fm_chorus ch;
+    static const int32_t inputs[] = { 4 << 24, -(4 << 24) };
+    size_t k;
+    uint32_t n;
+    for (k = 0; k < 2; k++) {
+        const int32_t x = inputs[k];
+        int32_t l = 0, r = 0;
+        double wet_l, wet_r, want = x > 0 ? 2.0 : -2.0;
+        fm_chorus_init(&ch, CH_RATE);
+        fm_chorus_set_mode(&ch, FM_CHORUS_DEEP);
+        for (n = 0; n < FM_CHORUS_DELAY_LEN + 100; n++)
+            fm_chorus_process(&ch, x, &l, &r);
+        /* each output is half the input plus half the tap */
+        wet_l = (2.0 * l - x) / (1 << 24);
+        wet_r = (2.0 * r - x) / (1 << 24);
+        printf("    chorus input %+.1f: wet %+.4f / %+.4f\n",
+               (double)x / (1 << 24), wet_l, wet_r);
+        TT_CHECK_NEAR(wet_l, want, 0.001);
+        TT_CHECK_NEAR(wet_r, want, 0.001);
+    }
+}
+
+/*
+ * The chorus stops writing its delay line while off, so turning it back
+ * on must start from silence, not replay what was there before.
+ */
+TT_TEST(chorus_turned_on_again_starts_from_a_silent_line)
+{
+    static fm_chorus ch;
+    uint32_t n;
+    int32_t l, r;
+    int silent = 1;
+    fm_chorus_init(&ch, CH_RATE);
+    fm_chorus_set_mode(&ch, FM_CHORUS_SLOW);
+    for (n = 0; n < 3000; n++)
+        fm_chorus_process(&ch, (n / 50) % 2 ? (1 << 24) : -(1 << 24), &l, &r);
+    fm_chorus_set_mode(&ch, FM_CHORUS_OFF);
+    for (n = 0; n < 500; n++) fm_chorus_process(&ch, 0, &l, &r);
+    fm_chorus_set_mode(&ch, FM_CHORUS_DEEP);
+    for (n = 0; n < FM_CHORUS_DELAY_LEN; n++) {
+        fm_chorus_process(&ch, 0, &l, &r);
+        if (l != 0 || r != 0) silent = 0;
+    }
+    TT_CHECK(silent);
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
@@ -351,4 +404,6 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_engine_output_stays_bounded_at_full_voice_count);
     TT_RUN(chorus_handles_extreme_rates_and_unknown_modes);
     TT_RUN(chorus_memory_is_fixed_and_small);
+    TT_RUN(chorus_delay_line_clamps_hot_input_to_two);
+    TT_RUN(chorus_turned_on_again_starts_from_a_silent_line);
 }
