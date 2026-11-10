@@ -91,6 +91,21 @@ void ui_format(uint16_t id, int32_t value, char *s)
     *s = 0;
 }
 
+void ui_strip(uint32_t i, int32_t *x, int32_t *w)
+{
+    const uint32_t span = 230u - (UI_PAGES - 1u) * 2u, sw = span / UI_PAGES, extra = span % UI_PAGES;
+    *x = (int32_t)(5u + i * (sw + 2u) + (i < extra ? i : extra));
+    *w = (int32_t)(sw + (i < extra ? 1u : 0u));
+}
+
+uint32_t ui_seg7(char c)
+{
+    static const uint8_t DIGIT[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};
+    if (c >= '0' && c <= '9')
+        return DIGIT[c - '0'];
+    return c == '-' ? 0x40u : 0u;
+}
+
 void ui_column(uint16_t id, int32_t value, char *num, char *unit)
 {
     char s[UI_VALUE_LEN];

@@ -58,6 +58,12 @@ void ui_column(uint16_t id, int32_t value, char *num, char *unit);
 /* the slot's filter curve, as docs/ui/mockups/render.py draws it: its level at column i of n, in
  * tenths of a dB (0 flat, + the resonant bump) */
 int32_t ui_curve_db(int32_t cutoff_cents, int32_t reso_permille, uint32_t i, uint32_t n);
+/* the header's page strip: segment i (interaction.md's page order, 1A .. 8B) at x, w px wide */
+#define UI_PAGES 14u
+#define UI_PAGE_4A 4u
+void ui_strip(uint32_t i, int32_t *x, int32_t *w);
+/* a 7-segment digit's lit segments, bits a..g = 0..6 (0 for one it can't show) */
+uint32_t ui_seg7(char c);
 #define UI_METER_SEGS 8u
 /* the knob meter's lit segments (bit k, left to right): a range from the left, a bipolar param
  * (min = -max) out from the middle */

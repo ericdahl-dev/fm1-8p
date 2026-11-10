@@ -203,8 +203,35 @@ TT_TEST(ui_column_value_is_short)
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50", "%"));
 }
 
+/* The header's page strip: 14 segments with 2 px gaps share 230 px from x 5 (the leftover px one
+ * each to the first); 4A is the 5th. */
+TT_TEST(ui_page_strip_fills_the_rule)
+{
+    int32_t x, w, end = 5;
+    uint32_t i;
+    for (i = 0; i < UI_PAGES; i++) {
+        ui_strip(i, &x, &w);
+        TT_CHECK_EQ(x, end);
+        end = x + w + 2;
+    }
+    TT_CHECK_EQ(end - 2, 235);
+    TT_CHECK_EQ(UI_PAGE_4A, 4u);
+}
+
+/* The LED window's 7-segment digits (bits a..g = 0..6). */
+TT_TEST(ui_seg7_digits)
+{
+    TT_CHECK_EQ(ui_seg7('4'), 0x66u);           /* f g b c */
+    TT_CHECK_EQ(ui_seg7('2'), 0x5Bu);           /* a b g e d */
+    TT_CHECK_EQ(ui_seg7('8'), 0x7Fu);
+    TT_CHECK_EQ(ui_seg7('-'), 0x40u);
+    TT_CHECK_EQ(ui_seg7(' '), 0u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_page_strip_fills_the_rule);
+    TT_RUN(ui_seg7_digits);
     TT_RUN(ui_column_value_is_short);
     TT_RUN(ui_curve_follows_the_mockup);
     TT_RUN(ui_redraws_only_what_a_turn_changed);
