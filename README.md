@@ -13,8 +13,8 @@ amp envelope, rendered from a MIDI file to a WAV by the fixed-point engine.
 
 Linux or macOS, with a C compiler (gcc or clang) and GNU make. No other
 dependencies. On macOS, the Xcode command line tools (`xcode-select --install`)
-give clang and make; CI builds and tests on both (`build-test` on Ubuntu with
-gcc and clang, `macos` on macos-latest).
+give clang and make. CI builds and tests on both: `build-test (gcc)` and
+`build-test (clang)` on Ubuntu, `build-test (macos-latest, clang)` on macOS.
 
 ```sh
 make                 # builds build/fm1-8p-render and build/fm1-8p-bench
@@ -31,7 +31,7 @@ parameter.
 
 ### Benchmark
 
-`build/fm1-8p-bench [-b BLOCKS] [-r RUNS]` times the engine on the FM-1 CPU
+`build/fm1-8p-bench [-b BLOCKS] [-r RUNS]` (`-h` for help) times the engine on the FM-1 CPU
 test's workload (`firmware/cpu_test.c`): the same held chord at 1 to 8 voices,
 44 100 Hz, 256-frame blocks. For each run and voice count it renders one block
 untimed (the notes start there), then times `BLOCKS` blocks one by one
@@ -44,6 +44,11 @@ untimed (the notes start there), then times `BLOCKS` blocks one by one
 | ns / frame | ns / block divided by 256: compare with the FM-1's 22 676 ns per frame |
 | ns / voice-frame | ns / frame divided by the voice count |
 | spread | (slowest run - fastest run) / median, in % |
+
+The clock is `CLOCK_MONOTONIC` on Linux and `CLOCK_UPTIME_RAW` on macOS (whose
+`CLOCK_MONOTONIC` ticks in microseconds, too coarse for a 1-2 µs block). The
+first line of the output gives the clock's smallest step. If a voice count's
+blocks read as 0 ns, the bench says "timer too coarse" and exits with 1.
 
 Repeatability, measured on a ThinkPad T480s (i5-8350U, Linux, other jobs
 running): over three runs of the default workload, each voice count's

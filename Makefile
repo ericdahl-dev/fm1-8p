@@ -20,7 +20,8 @@ BUILD   = build
 
 ENGINE_SRC = $(wildcard engine/*.c)
 ENGINE_HDR = $(wildcard engine/*.h)
-HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c host/bench.c
+HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
+BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
 FW_SRC     = firmware/cpu_test.c
@@ -28,6 +29,7 @@ FW_HDR     = firmware/cpu_test.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
+BENCH_OBJ  = $(BENCH_SRC:%.c=$(BUILD)/%.o)
 FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
@@ -40,19 +42,19 @@ $(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR) $(FW_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@
 
-$(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ) -o $@
+$(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ)
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -o $@
 
-$(BENCH): host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ) -o $@
+$(BENCH): host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -o $@
 
 bench: $(BENCH)
 	./$(BENCH)
 
 # Tests may use double and libm (never the engine itself).
-$(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ)
+$(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
 	$(CC) $(STD) -Wall -Wextra -Werror -Wno-unused-function $(CFLAGS) \
-		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ) -lm -o $@
+		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@
 
 test: $(BUILD)/run-tests
 	./$(BUILD)/run-tests
