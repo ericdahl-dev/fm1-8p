@@ -308,14 +308,18 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
  * (No call in the loop but the two every voice makes: one more costs a
  * voice about 15 %, as the compiler must then reload the voice's fields.)
  */
+uint32_t fm_voice_busy(const fm_voice *v)
+{
+    return v->env_amount || v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
+           v->cutoff_dirty || v->pending || v->gate_left ||
+           v->filter.fade || v->filter.hp_g;
+}
+
 static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
 {
     int32_t last = v->filter.s[3];
     uint32_t i;
-    if (v->env_amount || v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
-        v->cutoff_dirty || v->pending || v->gate_left ||
-        v->filter.fade || v->filter.hp_g ||
-        v->amp_env.stage == FM_ENV_IDLE)
+    if (fm_voice_busy(v) || v->amp_env.stage == FM_ENV_IDLE)
         return 0;
     for (i = 0; i < frames; i++) {
         int32_t level;

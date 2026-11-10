@@ -161,6 +161,10 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
  * so a stolen note that starts mid-chunk knows which tick its LFO delay
  * counts from.
  */
+/* Nonzero while any of the voice's processors is away from rest; a voice
+ * at rest (and sounding) renders on the fast path. */
+uint32_t fm_voice_busy(const fm_voice *v);
+
 void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
                          uint32_t sample_rate, uint32_t next_tick,
                          uint32_t tick_left);
