@@ -91,8 +91,32 @@ TT_TEST(ui_knobs_do_nothing_in_play)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), before);
 }
 
+static int ui_shows(uint16_t id, int32_t value, const char *want)
+{
+    char s[UI_VALUE_LEN];
+    ui_format(id, value, s);
+    if (strcmp(s, want) != 0) {
+        printf("    %d shows \"%s\", not \"%s\"\n", (int)value, s, want);
+        return 0;
+    }
+    return 1;
+}
+
+/* CUTOFF reads in Hz from 8.18 x 2^(cents / 1200), three significant digits; OPEN at the top. */
+TT_TEST(ui_cutoff_reads_in_hz_three_digits)
+{
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 6900, "440 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 14400, "OPEN"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 0, "8.18 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 9100, "1.57 kHz"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 13200, "16.7 kHz"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 3300, "55.0 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 7800, "740 Hz"));
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_cutoff_reads_in_hz_three_digits);
     TT_RUN(ui_knob_clamps_at_the_ends_of_the_range);
     TT_RUN(ui_knobs_do_nothing_in_play);
     TT_RUN(ui_fast_turn_moves_the_fast_step_per_click);

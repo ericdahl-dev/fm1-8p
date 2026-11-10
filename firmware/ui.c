@@ -19,6 +19,69 @@ const ui_slot *ui_page_slot(const ui *u, uint32_t k)
     return k < 4u ? &VCF_SLOTS[k] : 0;
 }
 
+/* 8.1758 Hz x 2^(s / 12), s = 0..12, in mHz x 16: CUTOFF's semitones in its lowest octave */
+static const uint32_t SEMI[13] = {130813, 138591, 146832, 155563, 164814, 174614, 184997,
+                                  195998, 207652, 220000, 233082, 246942, 261626};
+
+/* cutoff cents (0..14400) as mHz: the octave a shift, the semitone from SEMI, the cents between
+ * two semitones a straight line (under 0.05 % off) */
+static uint32_t cutoff_mhz(int32_t cents)
+{
+    uint32_t c = cents < 0 ? 0u : (uint32_t)cents, o = c / 1200u, r = c % 1200u, k = r / 100u;
+    uint32_t v = SEMI[k] + (SEMI[k + 1u] - SEMI[k]) * (r % 100u) / 100u;
+    return (v << o) >> 4;
+}
+
+static char *put_u(char *s, uint32_t v)        /* v in decimal */
+{
+    char d[10];
+    uint32_t n = 0;
+    do d[n++] = (char)('0' + v % 10u); while ((v /= 10u) != 0);
+    while (n)
+        *s++ = d[--n];
+    return s;
+}
+
+static char *put_str(char *s, const char *t)
+{
+    while (*t)
+        *s++ = *t++;
+    return s;
+}
+
+/* milli (1000 = 1.00 of the unit, under 1 000 000) to three significant digits: 440, 55.0, 8.18 */
+static char *put_3(char *s, uint32_t milli)
+{
+    uint32_t d;
+    if (milli >= 99500u)
+        return put_u(s, (milli + 500u) / 1000u);
+    if (milli >= 9950u) {
+        d = (milli + 50u) / 100u;
+        s = put_u(s, d / 10u);
+        *s++ = '.';
+        return put_u(s, d % 10u);
+    }
+    d = (milli + 5u) / 10u;
+    s = put_u(s, d / 100u);
+    *s++ = '.';
+    *s++ = (char)('0' + d / 10u % 10u);
+    return put_u(s, d % 10u);
+}
+
+void ui_format(uint16_t id, int32_t value, char *s)
+{
+    if (id == FM_PARAM_FILTER_CUTOFF_CENTS) {
+        uint32_t mhz = cutoff_mhz(value);
+        if (value >= FM_FILTER_OPEN_CENTS)
+            s = put_str(s, "OPEN");
+        else if (mhz >= 999500u)
+            s = put_str(put_3(s, (mhz + 500u) / 1000u), " kHz");
+        else
+            s = put_str(put_3(s, mhz), " Hz");
+    }
+    *s = 0;
+}
+
 void ui_init(ui *u, play *p)
 {
     u->p = p;

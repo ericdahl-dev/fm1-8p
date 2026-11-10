@@ -39,6 +39,9 @@ typedef struct {
 } ui;
 
 void ui_init(ui *u, play *p);
+#define UI_VALUE_LEN 12u                /* room for a value as the focus row reads it, and its end */
+/* param id's value as the focus row reads it (interaction.md section 3), into s (UI_VALUE_LEN) */
+void ui_format(uint16_t id, int32_t value, char *s);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
