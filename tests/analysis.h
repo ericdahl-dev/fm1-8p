@@ -119,4 +119,28 @@ static double aliasing_db(const int16_t *stereo, size_t n, int channel,
     return 10.0 * log10(alias / total);
 }
 
+/*
+ * Amplitude of the component at `hz` in n frames of one channel, from a
+ * Blackman-Harris windowed single-bin DFT, scaled so a sine of peak A
+ * reads about A. Its main lobe is +-4 bins (rate / n each), so tones
+ * further apart than that are measured separately.
+ */
+static double tone_amp(const int16_t *stereo, size_t n, int channel,
+                       double hz, double rate)
+{
+    double re = 0, im = 0, wsum = 0;
+    size_t i;
+    for (i = 0; i < n; i++) {
+        double x = 2.0 * AN_PI * (double)i / (double)(n - 1);
+        double w = 0.35875 - 0.48829 * cos(x) + 0.14128 * cos(2 * x)
+                 - 0.01168 * cos(3 * x);
+        double ph = 2.0 * AN_PI * hz * (double)i / rate;
+        double v = w * stereo[i * 2 + channel];
+        re += v * cos(ph);
+        im -= v * sin(ph);
+        wsum += w;
+    }
+    return 2.0 * sqrt(re * re + im * im) / wsum;
+}
+
 #endif /* ANALYSIS_H */

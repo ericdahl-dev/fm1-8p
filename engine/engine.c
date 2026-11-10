@@ -24,38 +24,47 @@ static uint32_t ms_to_samples(const fm_engine *e, int32_t ms)
 static void apply_param(fm_engine *e, uint16_t id)
 {
     int32_t v = e->params[id];
-    switch (id) {
-    case FM_PARAM_AMP_ATTACK_MS:
-        e->amp_env.attack_samples = ms_to_samples(e, v);
-        break;
-    case FM_PARAM_AMP_DECAY_MS:
-        e->amp_env.decay_samples = ms_to_samples(e, v);
-        break;
-    case FM_PARAM_AMP_SUSTAIN:
-        /* per mille -> Q1.30 */
-        e->amp_env.sustain = (int32_t)(((int64_t)v << 30) / 1000);
-        break;
-    case FM_PARAM_AMP_RELEASE_MS:
-        e->amp_env.release_samples = ms_to_samples(e, v);
-        break;
-    default:
-        break;
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++) {
+        fm_env *env = &e->voices[i].amp_env;
+        switch (id) {
+        case FM_PARAM_AMP_ATTACK_MS:
+            env->attack_samples = ms_to_samples(e, v);
+            break;
+        case FM_PARAM_AMP_DECAY_MS:
+            env->decay_samples = ms_to_samples(e, v);
+            break;
+        case FM_PARAM_AMP_SUSTAIN:
+            /* per mille -> Q1.30 */
+            env->sustain = (int32_t)(((int64_t)v << 30) / 1000);
+            break;
+        case FM_PARAM_AMP_RELEASE_MS:
+            env->release_samples = ms_to_samples(e, v);
+            break;
+        default:
+            break;
+        }
+        fm_env_retime(env);
     }
-    fm_env_retime(&e->amp_env);
 }
 
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count)
 {
     uint16_t id;
+    uint8_t i;
     if (!e || sample_rate == 0 || sample_rate > MAX_SAMPLE_RATE ||
         voice_count == 0 || voice_count > FM_MAX_VOICES)
         return FM_ERR_ARG;
     e->sample_rate = sample_rate;
     e->voice_count = voice_count;
-    fm_osc_reset(&e->osc);
-    fm_env_reset(&e->amp_env);
-    e->note = 0;
+    /* each voice at 1 / voice_count, then -6 dB of headroom */
+    e->mix_gain = (int32_t)((1u << 29) / voice_count);
+    for (i = 0; i < FM_MAX_VOICES; i++) {
+        fm_osc_reset(&e->voices[i].osc);
+        fm_env_reset(&e->voices[i].amp_env);
+        e->voices[i].note = 0;
+    }
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         e->params[id] = fm_param_info_get(id)->def;
         apply_param(e, id);
@@ -87,28 +96,43 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         fm_engine_note_off(e, note);
         return;
     }
-    e->note = note;
-    fm_osc_set_inc(&e->osc, fm_osc_note_inc(note, e->sample_rate));
-    fm_env_gate_on(&e->amp_env);
+    {
+        fm_voice *v = &e->voices[0];
+        uint8_t i;
+        for (i = 0; i < e->voice_count; i++) {
+            if (e->voices[i].amp_env.stage == FM_ENV_IDLE) {
+                v = &e->voices[i];
+                break;
+            }
+        }
+        v->note = note;
+        fm_osc_set_inc(&v->osc, fm_osc_note_inc(note, e->sample_rate));
+        fm_env_gate_on(&v->amp_env);
+    }
 }
 
 void fm_engine_note_off(fm_engine *e, uint8_t note)
 {
-    if (note == e->note) fm_env_gate_off(&e->amp_env);
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++)
+        if (e->voices[i].note == note) fm_env_gate_off(&e->voices[i].amp_env);
 }
 
 void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
 {
+    uint8_t i;
     (void)value;
-    switch (controller) {
-    case 120: /* all sound off */
-        fm_env_reset(&e->amp_env);
-        break;
-    case 123: /* all notes off */
-        fm_env_gate_off(&e->amp_env);
-        break;
-    default:
-        break;
+    for (i = 0; i < e->voice_count; i++) {
+        switch (controller) {
+        case 120: /* all sound off */
+            fm_env_reset(&e->voices[i].amp_env);
+            break;
+        case 123: /* all notes off */
+            fm_env_gate_off(&e->voices[i].amp_env);
+            break;
+        default:
+            break;
+        }
     }
 }
 
@@ -125,13 +149,18 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
 {
     uint32_t i;
     for (i = 0; i < frames; i++) {
-        int32_t level = fm_env_next(&e->amp_env);
-        int32_t s = 0;
-        if (e->amp_env.stage != FM_ENV_IDLE) {
-            int32_t saw = fm_osc_saw_next(&e->osc);
-            /* Q8.24 * Q1.30 -> Q8.24, then the fixed voice gain of 0.5 */
-            s = (int32_t)(((int64_t)saw * level) >> 31);
+        int32_t sum = 0, s;
+        uint8_t k;
+        for (k = 0; k < e->voice_count; k++) {
+            fm_voice *v = &e->voices[k];
+            int32_t level = fm_env_next(&v->amp_env);
+            if (v->amp_env.stage != FM_ENV_IDLE) {
+                int32_t saw = fm_osc_saw_next(&v->osc);
+                /* Q8.24 * Q1.30 -> Q8.24 */
+                sum += (int32_t)(((int64_t)saw * level) >> 30);
+            }
         }
+        s = (int32_t)(((int64_t)sum * e->mix_gain) >> 30);
         out[2 * i] = to_int16(s);
         out[2 * i + 1] = out[2 * i];
     }

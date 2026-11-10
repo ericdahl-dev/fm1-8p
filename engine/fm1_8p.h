@@ -45,13 +45,17 @@ typedef struct {
 const fm_param_info *fm_param_info_get(uint16_t id);
 
 typedef struct {
-    uint32_t sample_rate;
-    uint8_t voice_count;
-    int32_t params[FM_PARAM_COUNT];
-    /* the one voice of this slice */
     fm_osc osc;
     fm_env amp_env;
     uint8_t note;
+} fm_voice;
+
+typedef struct {
+    uint32_t sample_rate;
+    uint8_t voice_count;
+    int32_t params[FM_PARAM_COUNT];
+    int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
+    fm_voice voices[FM_MAX_VOICES];
 } fm_engine;
 
 /*
