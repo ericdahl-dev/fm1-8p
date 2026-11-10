@@ -8,7 +8,8 @@ by Roland or M-VAVE.
 
 On the desktop, the fixed-point engine plays band-limited saw voices with an
 ADSR amp envelope, up to 8 at once (6 by default), with voice stealing, the
-sustain pedal and pitch bend, rendered from a MIDI file to a WAV.
+sustain pedal, pitch bend and a unison mode, rendered from a MIDI file to a
+WAV.
 
 ## Build and run
 
@@ -36,8 +37,9 @@ the tool prints the voice count, channel and that level.
 The engine uses only integer math. Its number formats, the sample rate and
 block size rules, and how the float-free check works are in
 [docs/fixed-point.md](docs/fixed-point.md).
-How notes get voices (the stealing rule), the sustain pedal, pitch bend and
-the output gain staging are in [docs/voices.md](docs/voices.md).
+How notes get voices (the stealing rule), the sustain pedal, pitch bend,
+unison mode (`-s voice_mode=1 -s unison_detune_cents=20`) and the output gain
+staging are in [docs/voices.md](docs/voices.md).
 
 ## FM-1 CPU-test firmware
 

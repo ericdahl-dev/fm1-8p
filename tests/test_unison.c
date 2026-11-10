@@ -249,6 +249,85 @@ TT_TEST(unison_pedal_and_all_notes_off)
     }
 }
 
+/*
+ * Pseudo-random playing that switches between poly and unison, with
+ * pedal, bend and detune changes (fixed seed): after every event at most
+ * voice_count voices sound, the output stays under the -6 dBFS ceiling,
+ * all notes off ends in silence, and the block size does not matter.
+ * Returns the frames rendered into `out`.
+ */
+static size_t play_random_modes(int16_t *out, uint8_t voices, uint32_t block,
+                                int *too_many)
+{
+    uint32_t seed = 777, i;
+    size_t done = 0;
+    for (i = 0; i < 400; i++) {
+        uint32_t r, left = 100;
+        seed = seed * 1103515245u + 12345u;
+        r = seed >> 8;
+        switch (r % 10) {
+        case 0: case 1: case 2:
+            fm_engine_note_on(&poly, (uint8_t)(36 + (r >> 4) % 24), 127);
+            break;
+        case 3: case 4:
+            fm_engine_note_off(&poly, (uint8_t)(36 + (r >> 4) % 24));
+            break;
+        case 5:
+            fm_engine_controller(&poly, 64, (uint8_t)((r >> 4) % 128));
+            break;
+        case 6:
+            fm_engine_pitch_bend(&poly, (uint16_t)((r >> 4) % 16384));
+            break;
+        case 7:
+            fm_engine_set_param(&poly, FM_PARAM_UNISON_DETUNE_CENTS,
+                                (int32_t)((r >> 4) % 101));
+            break;
+        case 8:
+            if ((r >> 4) % 4 == 0)
+                fm_engine_set_param(&poly, FM_PARAM_VOICE_MODE,
+                                    (int32_t)((r >> 6) % 2));
+            break;
+        default:
+            break;
+        }
+        if (fm_engine_active_voices(&poly) > voices) *too_many = 1;
+        while (left) {
+            uint32_t m = left < block ? left : block;
+            fm_engine_render(&poly, out + 2 * done, m);
+            done += m;
+            left -= m;
+        }
+    }
+    return done;
+}
+
+TT_TEST(random_unison_playing_stays_within_its_voices_and_bounds)
+{
+    static int16_t whole[2 * 400 * 100], blocked[2 * 400 * 100];
+    static const uint8_t counts[] = { 1, 4, 6, 8 };
+    size_t c, i, n;
+    for (c = 0; c < sizeof counts; c++) {
+        int too_many = 0, clipped = 0;
+        init_unison(counts[c], 20);
+        fm_engine_set_param(&poly, FM_PARAM_BEND_RANGE, 24);
+        n = play_random_modes(whole, counts[c], 100, &too_many);
+        TT_CHECK(!too_many);
+        for (i = 0; i < 2 * n; i++)
+            if (whole[i] >= 32767 || whole[i] <= -32767) clipped = 1;
+        TT_CHECK(!clipped);
+        TT_CHECK(peak_abs(whole, 0, n) <= 16384);
+        fm_engine_controller(&poly, 64, 0);
+        fm_engine_controller(&poly, 123, 0);
+        fm_engine_render(&poly, pbuf, PRATE / 10);
+        TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+
+        init_unison(counts[c], 20);
+        fm_engine_set_param(&poly, FM_PARAM_BEND_RANGE, 24);
+        play_random_modes(blocked, counts[c], 7, &too_many);
+        TT_CHECK(memcmp(whole, blocked, sizeof whole) == 0);
+    }
+}
+
 static void run_unison_tests(void)
 {
     TT_RUN(unison_note_uses_every_voice_and_no_more);
@@ -258,4 +337,5 @@ static void run_unison_tests(void)
     TT_RUN(unison_at_full_velocity_never_clips);
     TT_RUN(switching_back_to_poly_restores_normal_allocation);
     TT_RUN(unison_pedal_and_all_notes_off);
+    TT_RUN(random_unison_playing_stays_within_its_voices_and_bounds);
 }
