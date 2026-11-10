@@ -152,7 +152,8 @@ emu_report() {
 # emu_play_report LOG: the playable module's run in fm1-emu: fm1-dock's render meter. Fails on any
 # overrun (a block that took longer than real time).
 emu_play_report() {
-    grep 'render: last' "$1" || return 1
+    grep 'render: last' "$1" ||
+        { echo "**No render meter in the log (no \"render: last\"): the run ended before the host's stats.**"; return 1; }
     grep -q 'fm1-8p: ready' "$1" || { echo "**The module never started (no \"fm1-8p: ready\").**"; return 1; }
     ! grep 'too slow: stopped' "$1" || { echo "**The host stopped the module: too slow.**"; return 1; }
     grep -q 'render: last.*, 0 overruns' "$1" || { echo "**Overruns: the module fell behind real time.**"; return 1; }

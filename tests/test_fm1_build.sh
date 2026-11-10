@@ -290,6 +290,9 @@ grep -v 'ready' "$T/play.txt" >"$T/play-noinit.txt"
 expect_fail "emu play report fails when the module never started" emu_play_report "$T/play-noinit.txt"
 { cat "$T/play.txt"; echo "5000 too slow: stopped 00000000"; } >"$T/play-slow.txt"
 expect_fail "emu play report fails when the host stopped the module" emu_play_report "$T/play-slow.txt"
+grep -v 'render: last' "$T/play.txt" >"$T/play-nometer.txt"
+emu_play_report "$T/play-nometer.txt" >"$T/play-report.md" 2>&1
+expect_ok "emu play report says why when the render meter is missing" grep -q 'No render meter' "$T/play-report.md"
 
 printf '  FAIL  rom_ref: reference to ROM address 0xffc01000\nhbmod: checks failed\n' >"$T/canary.log"
 printf 'reference to ROM address\n' >"$T/expect"
