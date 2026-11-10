@@ -7,7 +7,7 @@
  *          note on and off, sustain (CC 64), all sound / notes off (CC 120 / 123), pitch bend; any
  *          channel. With LOCAL OFF the host plays the keys through note(), on its own octave.
  *   pages  ENV opens page 4A VCF (docs/ui/interaction.md): KNOB1-4 set CUTOFF, RESO, ENV and KEY;
- *          EDIT goes back to PLAY. The keys play on every page.
+ *          a tap of EDIT or HOME goes back to PLAY. The keys play on every page.
  * The screen is the module's (HB_F_SCREEN), drawn in docs/ui/visual.md's Night Panel theme, and
  * only what changed is redrawn (firmware/ui.c says what), never once per audio block. */
 #include "hb_module.h"
