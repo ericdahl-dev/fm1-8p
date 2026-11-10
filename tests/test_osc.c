@@ -598,6 +598,24 @@ TT_TEST(synced_osc2_just_short_of_its_wrap_has_low_aliasing)
     TT_CHECK(db < ALIAS_LIMIT_DB);
 }
 
+/*
+ * osc2 an octave and 2 cents up (a ratio just over 2) wraps on its own just
+ * before each restart, inside the same sample: that wrap keeps its polyBLEP
+ * on both sides.
+ */
+TT_TEST(synced_osc2_just_past_its_wrap_has_low_aliasing)
+{
+    double db;
+    slave_init(RATE, FM_WAVE_SAW);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 2);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, 1);
+    fm_engine_note_on(&eng, 84, 100);
+    fm_engine_render(&eng, buf, 4800 + 32768);
+    db = aliasing_db(buf + 2 * 4800, 32768, 0, note_hz(84), RATE, 6);
+    printf("    aliasing for synced saw an octave and 2 cents up at note 84: %.1f dB\n", db);
+    TT_CHECK(db < ALIAS_LIMIT_DB);
+}
+
 /* Cross-mod set to 0 sounds exactly like cross-mod never touched. */
 TT_TEST(xmod_zero_matches_no_xmod)
 {
@@ -702,6 +720,7 @@ static void run_osc_tests(void)
     TT_RUN(sync_restarts_osc2_on_every_cycle_of_osc1);
     TT_RUN(synced_osc2_has_low_aliasing);
     TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
+    TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
     TT_RUN(xmod_zero_matches_no_xmod);
     TT_RUN(xmod_adds_sidebands);
     TT_RUN(max_xmod_and_sync_stay_in_range);

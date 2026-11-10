@@ -61,13 +61,12 @@ typedef struct {
     int32_t mod_oct;   /* pitch modulation (LFO), Q16.16 octaves */
     int32_t pw_mod;    /* pulse width modulation (LFO), Q0.32 of a cycle */
     uint32_t noise;    /* xorshift32 state, never 0 */
-    uint16_t sync_x;   /* how far past the reset the next sample is, Q0.16 */
     uint8_t wave[2];   /* fm_wave */
     uint8_t sync;      /* 1: osc2 restarts with every cycle of osc1 */
     uint8_t sync_pend; /* a restart's correction is due on the next osc2 sample */
     uint8_t special;   /* sync or cross-mod on */
     uint8_t only1;     /* mix 0 and nothing special: osc1 alone, the fast path */
-    int32_t sync_step; /* polyBLEP height for the sample after a sync reset, Q8.24; 0 = none */
+    int32_t sync_after; /* polyBLEP terms due on osc2's sample after a restart, Q8.24 */
 } fm_osc_pair;
 
 /*

@@ -135,9 +135,8 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->mix = 0;
     p->ratio = 1u << 16;
     p->sync = 0;
-    p->sync_step = 0;
+    p->sync_after = 0;
     p->sync_pend = 0;
-    p->sync_x = 0;
     p->xmod = 0;
     p->special = 0;
     p->only1 = 1;
@@ -367,22 +366,19 @@ static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0);
 /*
  * osc2's sample, with the polyBLEP of a sync reset in the last sample.
  * After a reset osc2's phase is under one increment, so its own polyBLEP
- * already treats the reset as a full wrap (a step of -2.0); sync_step
+ * already treats the reset as a full wrap (a step of -2.0); sync_after
  * replaces that with the real jump.
  */
 static int32_t osc2_at(fm_osc_pair *p)
 {
     int32_t v;
-    int64_t x, r;
     if (!p->sync_pend)
         return wave_at(p, 1);
     /* the first sample after a restart: no polyBLEP of osc2's own for the
      * restart (dt 0 for the saw that starts there), the restart's instead */
     v = wave_at_dt(p, 1, 0);
-    x = p->sync_x; /* samples since the restart, Q16 */
-    r = 2 * x - ((x * x) >> 16) - 65536; /* -1..0, Q16 */
     p->sync_pend = 0;
-    return v + (int32_t)((p->sync_step * r) >> 16);
+    return v + p->sync_after;
 }
 
 /*
@@ -413,6 +409,14 @@ static int32_t wave_at(fm_osc_pair *p, uint8_t which)
     return wave_at_dt(p, which, p->osc[which].inc);
 }
 
+/* A polyBLEP term of osc2's first saw (Q8.24 at unit gain) at osc2's gain. */
+static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
+{
+    if (p->wave[1] == FM_WAVE_NOISE) return 0;
+    if (p->wave[1] == FM_WAVE_PULSE) v = (v * p->pw_gain[1]) >> 30;
+    return (int32_t)v;
+}
+
 /*
  * The polyBLEP osc2's first saw put on the sample just computed at phase
  * `t` for a wrap due later in that sample, negated: a restart came first,
@@ -422,10 +426,18 @@ static int32_t wave_at(fm_osc_pair *p, uint8_t which)
 static int32_t unwrap_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
 {
     int64_t x = (int64_t)(((uint64_t)(0u - t) << 16) / dt);
-    int64_t v = (((x * x) >> 16) - 2 * x + 65536) * 256; /* Q16 -> Q8.24 */
-    if (p->wave[1] == FM_WAVE_NOISE) return 0;
-    if (p->wave[1] == FM_WAVE_PULSE) v = (v * p->pw_gain[1]) >> 30;
-    return (int32_t)v;
+    return osc2_gain(p, (((x * x) >> 16) - 2 * x + 65536) * 256); /* Q16 -> Q8.24 */
+}
+
+/*
+ * The after side of the polyBLEP of osc2's own wrap, `t` (its phase now)
+ * past it: what saw_at would have added on the next sample, had a restart
+ * not followed the wrap within the sample (one division, as there).
+ */
+static int32_t wrap_after_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
+{
+    int64_t x = (int64_t)(((uint64_t)t << 16) / dt);
+    return osc2_gain(p, -(2 * x - ((x * x) >> 16) - 65536) * 256);
 }
 
 /*
@@ -439,17 +451,23 @@ static FM_NOINLINE int32_t sync_reset(fm_osc_pair *p, uint32_t t)
 {
     /* osc2's increment this sample (bent, with cross-mod) for both ends */
     uint32_t inc2 = p->osc[1].inc, cont = p->osc[1].phase + inc2, now;
+    int64_t x = (int64_t)(((uint64_t)t << 16) / p->osc[0].inc); /* t < inc: under 1.0, Q16 */
     int32_t half, before;
-    p->sync_x = (uint16_t)(((uint64_t)t << 16) / p->osc[0].inc); /* t < inc: under 1.0 */
-    now = (uint32_t)(((uint64_t)p->sync_x * inc2) >> 16);
+    now = (uint32_t)(((uint64_t)x * inc2) >> 16);
     /* osc2 was at cont - now when osc1 wrapped, and jumps to 0 there */
     half = (naive_at(p, 1, 0) - naive_at(p, 1, cont - now)) / 2;
-    p->sync_step = half;
+    /* the sample just computed, (1 - x) before the step: x^2 of the polyBLEP;
+     * the next one, x after it: 2x - x^2 - 1 */
+    before = (int32_t)((half * ((x * x) >> 16)) >> 16);
+    p->sync_after = (int32_t)((half * (2 * x - ((x * x) >> 16) - 65536)) >> 16);
     p->sync_pend = 1;
-    /* the sample just computed, (1 - x) before the step: x^2 of the polyBLEP */
-    before = (int32_t)((half * (((int64_t)p->sync_x * p->sync_x) >> 16)) >> 16);
-    if (cont < p->osc[1].phase && cont < now)
-        before += unwrap_blep(p, p->osc[1].phase, inc2);
+    if (cont < p->osc[1].phase) { /* osc2's own wrap was due in this sample */
+        if (cont < now) /* the restart came first: that wrap never happens */
+            before += unwrap_blep(p, p->osc[1].phase, inc2);
+        else /* it came first: its polyBLEP's after side, `cont` (where osc2
+              * would be now without the restart) past it */
+            p->sync_after += wrap_after_blep(p, cont, inc2);
+    }
     p->osc[1].phase = now;
     p->osc[0].phase = t;
     return before;
