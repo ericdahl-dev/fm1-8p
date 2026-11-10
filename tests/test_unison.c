@@ -107,9 +107,73 @@ TT_TEST(new_note_retriggers_and_release_returns_legato_to_held_note)
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
 }
 
+/*
+ * Unison note changes are click-free: a start, a retrigger to a new note,
+ * a legato return and the final release, on 4 detuned voices. Notes 0..4
+ * as in no_click_when_a_voice_starts_is_stolen_or_ends: no saw wraps in
+ * the 4000 frames, so any jump over CLICK_LSB is the engine's. The four
+ * voices start in phase, so together they reach full scale (16384), four
+ * times one poly voice: the attack is 10 ms rather than 5 to keep the
+ * ramp itself (16384 / 441 per sample) as gentle as in the poly test.
+ */
+TT_TEST(unison_note_changes_do_not_click)
+{
+    init_unison(4, 10);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 10);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_DECAY_MS, 50);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_SUSTAIN, 500);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 20);
+    fm_engine_note_on(&poly, 0, 127);
+    fm_engine_render(&poly, pbuf, 1000);
+    fm_engine_note_on(&poly, 4, 127); /* retrigger, new pitch */
+    fm_engine_render(&poly, pbuf + 2 * 1000, 1000);
+    TT_CHECK(peak_abs(pbuf, 1000, 2000) > 4000);
+    fm_engine_note_off(&poly, 4); /* legato back to 0 */
+    fm_engine_render(&poly, pbuf + 2 * 2000, 1000);
+    fm_engine_note_off(&poly, 0); /* release */
+    fm_engine_render(&poly, pbuf + 2 * 3000, 1000);
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+    printf("    largest jump: %d LSB\n", max_jump(pbuf, 0, 4000));
+    TT_CHECK(max_jump(pbuf, 0, 4000) <= CLICK_LSB);
+}
+
+/*
+ * A unison note at full velocity peaks no higher than a full chord: every
+ * voice at 1 / voice_count, -6 dB. With no detune all saws line up (the
+ * worst case, reaching the -6 dBFS ceiling); with detune they drift in
+ * and out of phase but can only reach the same ceiling. A retrigger to
+ * another note on the way must not push past it either.
+ */
+TT_TEST(unison_at_full_velocity_never_clips)
+{
+    static const int32_t spreads[] = { 0, 7, 100 };
+    uint8_t voices;
+    size_t d;
+    for (voices = 1; voices <= FM_MAX_VOICES; voices++) {
+        for (d = 0; d < sizeof spreads / sizeof spreads[0]; d++) {
+            size_t i;
+            int clipped = 0;
+            init_unison(voices, spreads[d]);
+            fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 0);
+            fm_engine_note_on(&poly, 36, 127);
+            fm_engine_render(&poly, pbuf, PRATE / 2);
+            fm_engine_note_on(&poly, 48, 127);
+            fm_engine_render(&poly, pbuf + PRATE, PRATE / 2);
+            for (i = 0; i < 2 * PRATE; i++)
+                if (pbuf[i] >= 32767 || pbuf[i] <= -32767) clipped = 1;
+            TT_CHECK(!clipped);
+            TT_CHECK(peak_abs(pbuf, 0, PRATE) <= 16384);
+            if (spreads[d] == 0)
+                TT_CHECK(peak_abs(pbuf, 0, PRATE) > 16384 * 9 / 10);
+        }
+    }
+}
+
 static void run_unison_tests(void)
 {
     TT_RUN(unison_note_uses_every_voice_and_no_more);
     TT_RUN(detune_spreads_voice_pitches_by_the_set_amount);
     TT_RUN(new_note_retriggers_and_release_returns_legato_to_held_note);
+    TT_RUN(unison_note_changes_do_not_click);
+    TT_RUN(unison_at_full_velocity_never_clips);
 }
