@@ -63,6 +63,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     /* each voice at 1 / voice_count, then -6 dB of headroom */
     e->mix_gain = (int32_t)((1u << 29) / voice_count);
     e->stamp = 0;
+    e->pedal_down = 0;
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
     for (i = 0; i < FM_MAX_VOICES; i++) {
         fm_osc_reset(&e->voices[i].osc);
@@ -72,6 +73,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         e->voices[i].stamp = 0;
         e->voices[i].next_inc = 0;
         e->voices[i].pending = 0;
+        e->voices[i].sustained = 0;
     }
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         e->params[id] = fm_param_info_get(id)->def;
@@ -102,7 +104,16 @@ static void start_note(fm_voice *v)
     v->pending = 0;
     fm_osc_set_inc(&v->osc, v->next_inc);
     fm_env_gate_on(&v->amp_env);
-    if (!v->key_down) fm_env_gate_off(&v->amp_env);
+    if (!v->key_down && !v->sustained) fm_env_gate_off(&v->amp_env);
+}
+
+/* Lets go of a voice's note: it releases now, or once its fade ends. */
+static void release_voice(fm_engine *e, fm_voice *v)
+{
+    v->key_down = 0;
+    v->sustained = 0;
+    v->stamp = ++e->stamp;
+    if (!v->pending) fm_env_gate_off(&v->amp_env);
 }
 
 /* The sounding voice that has `note`, or null. At most one voice has a
@@ -123,8 +134,9 @@ static fm_voice *find_note(fm_engine *e, uint8_t note)
 static int voice_rank(const fm_voice *v)
 {
     if (v->amp_env.stage == FM_ENV_IDLE) return 0;
-    if (!v->key_down) return 1; /* releasing */
-    return 2;                   /* held */
+    if (v->key_down) return 3;   /* held */
+    if (v->sustained) return 2;  /* held by the pedal */
+    return 1;                    /* releasing */
 }
 
 /*
@@ -163,6 +175,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         if (!v) v = pick_voice(e);
         v->note = note;
         v->key_down = 1;
+        v->sustained = 0;
         v->stamp = ++e->stamp;
         v->next_inc = fm_osc_note_inc(note, e->sample_rate);
         if (v->pending) {
@@ -182,9 +195,13 @@ void fm_engine_note_off(fm_engine *e, uint8_t note)
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         if (v->key_down && v->note == note) {
-            v->key_down = 0;
-            v->stamp = ++e->stamp;
-            if (!v->pending) fm_env_gate_off(&v->amp_env);
+            if (e->pedal_down) {
+                v->key_down = 0;
+                v->sustained = 1;
+                v->stamp = ++e->stamp;
+            } else {
+                release_voice(e, v);
+            }
         }
     }
 }
@@ -192,14 +209,21 @@ void fm_engine_note_off(fm_engine *e, uint8_t note)
 void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
 {
     uint8_t i;
-    (void)value;
+    if (controller == 64) e->pedal_down = value >= 64;
     for (i = 0; i < e->voice_count; i++) {
+        fm_voice *v = &e->voices[i];
         switch (controller) {
-        case 120: /* all sound off */
-            fm_env_reset(&e->voices[i].amp_env);
+        case 64: /* sustain pedal: up lets go of the notes it held */
+            if (!e->pedal_down && v->sustained) release_voice(e, v);
             break;
-        case 123: /* all notes off */
-            fm_env_gate_off(&e->voices[i].amp_env);
+        case 120: /* all sound off: silent now */
+            fm_env_reset(&v->amp_env);
+            v->pending = 0;
+            v->key_down = 0;
+            v->sustained = 0;
+            break;
+        case 123: /* all notes off: release, even notes the pedal holds */
+            if (v->key_down || v->sustained) release_voice(e, v);
             break;
         default:
             break;

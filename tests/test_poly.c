@@ -212,6 +212,28 @@ TT_TEST(repeated_note_reuses_its_voice)
     TT_CHECK(peak_abs(pbuf, 220, 441) > 3000);
 }
 
+TT_TEST(sustain_pedal_holds_released_notes_until_it_comes_up)
+{
+    static const int held[8] = { 1, 0, 1, 0, 1, 0, 0, 0 };
+    static const int after[8] = { 0, 0, 0, 0, 1, 0, 0, 0 };
+    double ref = solo_amp(4, 60);
+    init_poly(4);
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_controller(&poly, 64, 127); /* pedal down */
+    fm_engine_note_on(&poly, 62, 100);
+    fm_engine_note_on(&poly, 64, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_off(&poly, 60); /* held before the pedal went down */
+    fm_engine_note_off(&poly, 62); /* pressed while it was down */
+    /* 64 stays held by its key */
+    fm_engine_render(&poly, pbuf, PRATE / 2); /* 10 x the release time */
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 3);
+    TT_CHECK(check_sounding(ref, held));
+    fm_engine_controller(&poly, 64, 0); /* pedal up */
+    TT_CHECK(check_sounding(ref, after));
+    TT_CHECK_EQ(fm_engine_active_voices(&poly), 1);
+}
+
 static void run_poly_tests(void)
 {
     TT_RUN(every_note_of_a_full_chord_sounds);
@@ -221,4 +243,5 @@ static void run_poly_tests(void)
     TT_RUN(stolen_voice_fades_then_new_note_attacks_from_silence);
     TT_RUN(released_note_goes_silent_and_its_voice_idle);
     TT_RUN(repeated_note_reuses_its_voice);
+    TT_RUN(sustain_pedal_holds_released_notes_until_it_comes_up);
 }

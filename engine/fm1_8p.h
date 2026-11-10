@@ -51,6 +51,7 @@ typedef struct {
     uint32_t next_inc; /* pitch of `note` while the old note fades */
     uint8_t note;
     uint8_t key_down;
+    uint8_t sustained; /* key up, held by the sustain pedal */
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
 } fm_voice;
 
@@ -61,6 +62,7 @@ typedef struct {
     int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
     uint32_t stamp;   /* counts note ons and offs, to age the voices */
     uint32_t fade_samples; /* fast fade of a stolen voice */
+    uint8_t pedal_down;    /* sustain pedal (CC 64 >= 64) */
     fm_voice voices[FM_MAX_VOICES];
 } fm_engine;
 
