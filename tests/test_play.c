@@ -301,8 +301,44 @@ TT_TEST(play_output_gain_is_12_db_and_saturates)
     TT_CHECK(clipped);                          /* the saturation was reached, not skipped */
 }
 
+/* The OCT- / OCT+ LEDs say where the octave is: OCT- lit below 0, OCT+ above, both dark at 0. */
+TT_TEST(play_octave_leds_follow_the_octave)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    TT_CHECK_EQ(play_oct_led(&pl_a, PLAY_OCT_DOWN), 0);
+    TT_CHECK_EQ(play_oct_led(&pl_a, PLAY_OCT_UP), 0);
+    play_octave(&pl_a, -1);
+    TT_CHECK_EQ(play_oct_led(&pl_a, PLAY_OCT_DOWN), 1);
+    TT_CHECK_EQ(play_oct_led(&pl_a, PLAY_OCT_UP), 0);
+    play_octave(&pl_a, +1);
+    play_octave(&pl_a, +1);
+    TT_CHECK_EQ(play_oct_led(&pl_a, PLAY_OCT_DOWN), 0);
+    TT_CHECK_EQ(play_oct_led(&pl_a, PLAY_OCT_UP), 1);
+}
+
+/* Key k plays F3 (53) + k, an octave a step; a key let go stops the note it started, even after
+ * the octave moved. An unsensed key (velocity 0) plays at 100, as the host's keys do. */
+TT_TEST(play_keys_play_from_the_octave)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_key_down(&pl_a, 0, 90);                /* F3 */
+    TT_CHECK_EQ(play_last_note(&pl_a), 53);
+    play_octave(&pl_a, +1);
+    play_key_down(&pl_a, 7, 0);                 /* C5: 53 + 12 + 7 */
+    TT_CHECK_EQ(play_last_note(&pl_a), 72);
+    pl_render(&pl_a);
+    TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 2);
+    play_octave(&pl_a, -2);                     /* moved while held */
+    play_key_up(&pl_a, 7);                     /* let go: stops the C5 it started */
+    play_key_up(&pl_a, 0);
+    pl_render_for(&pl_a, 2u * PL_SECOND);
+    TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_keys_play_from_the_octave);
+    TT_RUN(play_octave_leds_follow_the_octave);
     TT_RUN(play_output_gain_is_12_db_and_saturates);
     TT_RUN(play_last_note_skips_a_note_the_full_queue_dropped);
     TT_RUN(play_queue_overflow_lets_the_pedal_up_and_centers_the_bend);

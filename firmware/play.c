@@ -33,6 +33,7 @@ int play_init(play *p)
     p->head = p->tail = 0;
     p->lost = p->lost_seen = 0;
     p->last_note = -1;
+    p->oct = 0;
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
     for (i = 0; i < sizeof PATCH / sizeof PATCH[0]; i++)
@@ -108,6 +109,31 @@ void play_note_name(int32_t note, char *s)
 }
 
 int32_t play_last_note(const play *p) { return p->last_note; }
+
+void play_octave(play *p, int32_t step)
+{
+    int32_t o = p->oct + step;
+    p->oct = o < -2 ? -2 : o > 2 ? 2 : o;
+}
+
+void play_key_down(play *p, uint32_t k, uint32_t vel)
+{
+    if (k >= PLAY_KEYS)
+        return;
+    p->held[k] = (uint8_t)((int32_t)PLAY_KEY0 + 12 * p->oct + (int32_t)k);
+    play_note(p, p->held[k], vel ? vel : 100u);
+}
+
+void play_key_up(play *p, uint32_t k)
+{
+    if (k < PLAY_KEYS)
+        play_note(p, p->held[k], 0);
+}
+
+uint32_t play_oct_led(const play *p, uint32_t button)
+{
+    return button == PLAY_OCT_DOWN ? p->oct < 0 : p->oct > 0;
+}
 
 void play_render(play *p, int32_t *out, uint32_t n)
 {
