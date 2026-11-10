@@ -167,14 +167,18 @@ TT_TEST(octave_and_fine_tune_shift_pitch)
     }
 }
 
-/* osc2's coarse tune moves it by whole semitones: +7 is a fifth up. */
+/* osc2's coarse tune moves it by whole semitones: +7 a fifth up, -7 a fifth down. */
 TT_TEST(osc2_coarse_tune_shifts_by_semitones)
 {
-    double want = RATE / (note_hz(57) * pow(2.0, 7 / 12.0));
-    osc_init();
-    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000), FM_OK);
-    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7), FM_OK);
-    TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
+    static const int32_t semis[] = { 7, -7 };
+    size_t k;
+    for (k = 0; k < sizeof semis / sizeof semis[0]; k++) {
+        double want = RATE / (note_hz(57) * pow(2.0, semis[k] / 12.0));
+        osc_init();
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000), FM_OK);
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, semis[k]), FM_OK);
+        TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
+    }
 }
 
 /* Coarse tune back at 0 sounds exactly like coarse tune never touched. */
