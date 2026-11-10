@@ -167,6 +167,7 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
     const osc_setting sq = { FM_WAVE_SQUARE, 50, 0, 0 };
     const osc_setting saw_up = { FM_WAVE_SAW, 50, 1, 0 };
     const osc_setting pulse_detuned = { FM_WAVE_PULSE, 30, -1, 37 };
+    const osc_setting pulse_up_detuned = { FM_WAVE_PULSE, 30, 1, 37 };
     size_t i;
     int max_dev = 0, max_diff = 0;
 
@@ -180,6 +181,12 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
     TT_CHECK(memcmp(b, other, sizeof b) == 0);
     render_mix(other, MIX_FRAMES, pulse_detuned, saw_up, 1000);
     TT_CHECK(memcmp(b, other, sizeof b) == 0);
+
+    /* every osc2 setting (wave, width, octave, fine) acts like osc1's */
+    render_mix(b, MIX_FRAMES, sq, pulse_up_detuned, 1000);
+    render_mix(other, MIX_FRAMES, pulse_up_detuned, sq, 0);
+    TT_CHECK(memcmp(b, other, sizeof b) == 0);
+    render_mix(b, MIX_FRAMES, sq, saw_up, 1000);
 
     render_mix(m, MIX_FRAMES, sq, saw_up, 500);
     for (i = 0; i < 2 * MIX_FRAMES; i++) {
