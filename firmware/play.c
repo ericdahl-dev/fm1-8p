@@ -1,0 +1,103 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+#include "play.h"
+
+/* The default patch: the engine's defaults (one saw, the amp envelope) plus a gentle filter envelope
+ * that opens each note and settles, the slow chorus, and the keys' velocity on the level. */
+static const play_param PATCH[] = {
+    {FM_PARAM_AMP_VELOCITY, 70},
+    {FM_PARAM_FILTER_CUTOFF_CENTS, 7800},       /* about 740 Hz */
+    {FM_PARAM_FILTER_RESONANCE, 200},
+    {FM_PARAM_FILTER_KEY_TRACK, 500},
+    {FM_PARAM_FILTER_ENV_ATTACK_MS, 5},
+    {FM_PARAM_FILTER_ENV_DECAY_MS, 600},
+    {FM_PARAM_FILTER_ENV_SUSTAIN, 300},
+    {FM_PARAM_FILTER_ENV_RELEASE_MS, 400},
+    {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600},   /* three octaves up at the envelope's peak */
+    {FM_PARAM_CHORUS_MODE, FM_CHORUS_SLOW},
+};
+
+const play_param *play_patch(uint32_t *n)
+{
+    *n = (uint32_t)(sizeof PATCH / sizeof PATCH[0]);
+    return PATCH;
+}
+
+int play_init(play *p)
+{
+    uint32_t i;
+    p->head = p->tail = 0;
+    p->lost = p->lost_seen = 0;
+    p->last_note = -1;
+    if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
+        return -1;
+    for (i = 0; i < sizeof PATCH / sizeof PATCH[0]; i++)
+        if (fm_engine_set_param(&p->engine, PATCH[i].id, PATCH[i].value) != FM_OK)
+            return -1;
+    return 0;
+}
+
+/* Main loop: one event into the queue. When it is full the event is dropped and counted: the next
+ * render then lets every note go (CC 123), so a lost note off never leaves a note hanging. */
+static void put(play *p, uint32_t st, uint32_t d1, uint32_t d2)
+{
+    uint32_t h = p->head;
+    if (d1 > 127u || d2 > 127u)                 /* not MIDI data */
+        return;
+    if (st == 0x90u && d2 != 0u)
+        p->last_note = (int32_t)d1;
+    if (h - p->tail >= PLAY_QUEUE) {
+        p->lost = p->lost + 1u;
+        return;
+    }
+    p->queue[h % PLAY_QUEUE] = st << 16 | d1 << 8 | d2;
+    p->head = h + 1u;                           /* after the entry: the ISR never reads it early */
+}
+
+/* Audio interrupt: one event into the engine. */
+static void apply(play *p, uint32_t ev)
+{
+    uint8_t d1 = (uint8_t)(ev >> 8 & 0x7Fu), d2 = (uint8_t)(ev & 0x7Fu);
+    switch (ev >> 16) {
+    case 0x90u: fm_engine_note_on(&p->engine, d1, d2); break;
+    case 0x80u: fm_engine_note_off(&p->engine, d1); break;
+    case 0xB0u: fm_engine_controller(&p->engine, d1, d2); break;
+    case 0xE0u: fm_engine_pitch_bend(&p->engine, (uint16_t)(d2 << 7 | d1)); break;
+    default: break;
+    }
+}
+
+void play_note(play *p, uint32_t note, uint32_t vel)
+{
+    put(p, 0x90u, note, vel);
+}
+
+void play_midi(play *p, uint32_t st, uint32_t d1, uint32_t d2)
+{
+    switch (st & 0xF0u) {
+    case 0x90u:
+    case 0x80u:
+    case 0xB0u:
+    case 0xE0u: put(p, st & 0xF0u, d1, d2); break;
+    default: break;
+    }
+}
+
+int32_t play_last_note(const play *p) { return p->last_note; }
+
+void play_render(play *p, int32_t *out, uint32_t n)
+{
+    uint32_t i;
+    uint32_t h = p->head, t = p->tail;          /* one read: the main loop may write it any time */
+    if (n > PLAY_BLOCK)
+        n = PLAY_BLOCK;
+    for (; t != h; t++)
+        apply(p, p->queue[t % PLAY_QUEUE]);
+    p->tail = t;
+    if (p->lost != p->lost_seen) {              /* some events were dropped: let every note go */
+        p->lost_seen = p->lost;
+        fm_engine_controller(&p->engine, 123, 0);
+    }
+    fm_engine_render(&p->engine, p->buf, n);
+    for (i = 0; i < 2u * n; i++)
+        out[i] += p->buf[i];
+}

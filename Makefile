@@ -25,8 +25,8 @@ HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
 BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
-FW_SRC     = firmware/cpu_test.c
-FW_HDR     = firmware/cpu_test.h
+FW_SRC     = firmware/cpu_test.c firmware/play.c
+FW_HDR     = firmware/cpu_test.h firmware/play.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
