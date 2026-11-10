@@ -49,7 +49,8 @@ TT_TEST(ui_vcf_page_knobs_move_their_params_one_step)
         int32_t before;
         ui_setup();
         ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
-        before = play_get_param(&ui_p, K[k].id);
+        before = (fm_param_info_get(K[k].id)->min + fm_param_info_get(K[k].id)->max) / 2;
+        play_set_param(&ui_p, K[k].id, before);         /* away from the ends: the patch may sit at one */
         ui_event(&ui_u, UI_EV_ENC | K[k].enc, -1, 0);
         ui_settle();
         TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, K[k].id), before - K[k].step);
