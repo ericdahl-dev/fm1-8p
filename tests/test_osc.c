@@ -418,6 +418,19 @@ TT_TEST(pitch_bend_moves_both_oscillators)
     TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
 }
 
+/* Retuning a held, bent note keeps the bend: the new tuning adds to it. */
+TT_TEST(retuning_a_bent_note_keeps_the_bend)
+{
+    double want = RATE / (note_hz(57) * pow(2.0, (100.0 + 30) / 1200.0));
+    osc_init();
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_pitch_bend(&eng, 12288); /* +1 of the default 2 semitones */
+    fm_engine_render(&eng, buf, 441);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_FINE_CENTS, 30);
+    fm_engine_render(&eng, buf, RATE);
+    TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
+}
+
 /*
  * Two voices playing noise make different noise: summed, they are louder
  * than one by about sqrt(2) (3 dB), where identical streams would double.
@@ -456,6 +469,7 @@ static void run_osc_tests(void)
     TT_RUN(octave_shifts_keep_their_ratio_at_the_extremes);
     TT_RUN(retuning_a_held_note_takes_effect);
     TT_RUN(pitch_bend_moves_both_oscillators);
+    TT_RUN(retuning_a_bent_note_keeps_the_bend);
     TT_RUN(each_voice_makes_its_own_noise);
     TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
     TT_RUN(noise_is_bounded_and_not_periodic);
