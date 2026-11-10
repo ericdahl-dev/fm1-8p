@@ -53,6 +53,17 @@ TT_TEST(units_rate_to_phase_inc_caps_at_half_a_cycle)
     TT_CHECK(fm_rate_to_phase_inc(100000000u, 1000u, 44100u, 0) == 0x7FFFFFFFu);
 }
 
+/* Past the 64-bit shortcut (shift >= 32, or value >= 2^(32 - shift)) the
+ * step is still exact, or the cap: 1 Hz per 2^32-sample step, 2^28 Hz per
+ * 32-sample step at 44.1 kHz, and 2^28 / 10^6 Hz per 32-sample step at
+ * 48 kHz, 2^65 / 4.8e10 = 768614336.4. */
+TT_TEST(units_rate_to_phase_inc_wide_inputs)
+{
+    TT_CHECK(fm_rate_to_phase_inc(1, 1, 44100u, 32) == FM_PHASE_INC_MAX);
+    TT_CHECK(fm_rate_to_phase_inc(1u << 28, 1, 44100u, 5) == FM_PHASE_INC_MAX);
+    TT_CHECK(fm_rate_to_phase_inc(1u << 28, 1000000u, 48000u, 5) == 768614336u);
+}
+
 static void run_units_tests(void)
 {
     TT_RUN(units_ms_to_samples_edges);
@@ -60,4 +71,5 @@ static void run_units_tests(void)
     TT_RUN(units_us_to_samples_q16_edges);
     TT_RUN(units_rate_to_phase_inc_edges);
     TT_RUN(units_rate_to_phase_inc_caps_at_half_a_cycle);
+    TT_RUN(units_rate_to_phase_inc_wide_inputs);
 }
