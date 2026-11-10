@@ -366,8 +366,8 @@ TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
 }
 
 /*
- * The chorus lives in fm_engine, which may sit on a task stack: its
- * delay line is fixed (2048 bytes of int16 samples, as documented in
+ * The chorus lives in fm_engine, which is best kept in static storage
+ * (fm1_8p.h): its delay line is fixed (2048 bytes of int16 samples, as documented in
  * engine/chorus_state.h) and the whole struct stays within 2.1 KiB.
  */
 TT_TEST(chorus_memory_is_fixed_and_small)
@@ -457,8 +457,9 @@ TT_TEST(all_sound_off_silences_the_chorus_tail)
  * signs: the processing is linear, so an unbiased chorus gives exactly
  * opposite outputs and the mean of their sum is its DC offset, which must
  * stay under one Q8.24 LSB (1/512 of an output LSB) in every mode.
- * Rounding halves up leaves about +0.5 LSB; rounding by plain right
- * shifts, which floor, gives about -256 LSB.
+ * Rounding halves up leaves about +0.5 LSB. A floored line write alone
+ * (in >> 10) gives about -256 LSB: half a line unit, halved again by the
+ * dry/wet mix; floored taps and mix would add under 1 LSB more.
  */
 TT_TEST(chorus_adds_no_dc_offset)
 {
@@ -490,19 +491,34 @@ TT_TEST(chorus_adds_no_dc_offset)
 }
 
 /*
- * The chorus sits after the mix gain, so its input peaks at 0.5: every
- * voice at full level with lined-up peaks (8 x 1.0) times the engine's
- * 0.5 / voice_count (docs/voices.md). The delay line must pass that, and
- * four times it (12 dB kept for filter resonance), without clamping:
- * the wet part of a held level equals the level, in both directions.
+ * The chorus sits after the mix gain, so its input peaks at the loudest
+ * mix: every voice at full level (1.0) with lined-up peaks, times the
+ * engine's own mix gain, at the worst voice count (0.5 today; see
+ * docs/voices.md). The gain is read from an initialized engine, so a
+ * gain change trips this test. The delay line must pass that level, and
+ * four times it (12 dB kept for filter resonance), without clamping: the
+ * wet part of a held level equals the level, in both directions.
  */
 TT_TEST(chorus_line_has_headroom_for_the_loudest_mix)
 {
     static fm_chorus ch;
-    const int32_t loudest_mix = FM_MAX_VOICES * (1 << 24) / FM_MAX_VOICES / 2;
     static const int32_t times[] = { 1, 2, 3, 4 };
+    int64_t loudest = 0;
+    int32_t loudest_mix;
+    uint8_t voices;
     size_t k;
     int sign;
+    for (voices = 1; voices <= FM_MAX_VOICES; voices++) {
+        int64_t mix;
+        TT_CHECK_EQ(fm_engine_init(&ch_eng, CH_RATE, voices), FM_OK);
+        /* the engine's Q1.30 gain on the sum of `voices` full-scale voices */
+        mix = ((int64_t)voices * (1 << 24) * ch_eng.mix_gain) >> 30;
+        if (mix > loudest) loudest = mix;
+    }
+    printf("    loudest mix into the chorus: %.4f\n",
+           (double)loudest / (1 << 24));
+    TT_CHECK(loudest > 0 && loudest <= (1 << 24));
+    loudest_mix = (int32_t)loudest;
     for (k = 0; k < sizeof times / sizeof times[0]; k++)
         for (sign = -1; sign <= 1; sign += 2) {
             int32_t x = sign * loudest_mix * times[k], l = 0, r = 0;
