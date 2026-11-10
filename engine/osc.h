@@ -18,6 +18,11 @@ typedef struct {
 
 /* Phase increment (Q0.32 per sample) for a MIDI note at a sample rate. */
 uint32_t fm_osc_note_inc(uint8_t note, uint32_t sample_rate);
+/*
+ * Phase increment for a MIDI note shifted by `cents` (clamped to notes
+ * 0..127). Integer math only; meant for events, not per sample.
+ */
+uint32_t fm_osc_tuned_inc(uint8_t note, int32_t cents, uint32_t sample_rate);
 
 void fm_osc_reset(fm_osc *o);
 void fm_osc_set_inc(fm_osc *o, uint32_t inc);
@@ -41,7 +46,10 @@ typedef enum {
 typedef struct {
     fm_osc osc[2];
     uint32_t width[2]; /* pulse duty, Q0.32 of a cycle */
+    int32_t cents[2];  /* tuning offset from the note */
+    uint32_t sample_rate;
     uint8_t wave[2];   /* fm_wave */
+    uint8_t note;
 } fm_osc_pair;
 
 void fm_osc_pair_reset(fm_osc_pair *p);
@@ -49,6 +57,11 @@ void fm_osc_pair_reset(fm_osc_pair *p);
 void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave);
 /* Pulse duty of oscillator `which` as a Q0.32 fraction of a cycle. */
 void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width);
+/*
+ * Tuning of oscillator `which` in cents from the played note (an octave is
+ * 1200). Applies at once to a held note.
+ */
+void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents);
 /* Plays a MIDI note at a sample rate: sets both oscillators' pitch. */
 void fm_osc_pair_set_note(fm_osc_pair *p, uint8_t note, uint32_t sample_rate);
 /* Next mixed sample, Q8.24. */

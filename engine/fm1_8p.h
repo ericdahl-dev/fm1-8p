@@ -34,6 +34,8 @@ typedef enum {
     FM_PARAM_AMP_RELEASE_MS,
     FM_PARAM_OSC1_WAVE, /* fm_wave: 0 saw, 1 pulse, 2 square, 3 noise */
     FM_PARAM_OSC1_PULSE_WIDTH_PCT, /* pulse duty, percent of a cycle */
+    FM_PARAM_OSC1_OCTAVE,          /* -2..+2 octaves */
+    FM_PARAM_OSC1_FINE_CENTS,      /* -100..+100 cents */
     FM_PARAM_COUNT
 } fm_param_id;
 

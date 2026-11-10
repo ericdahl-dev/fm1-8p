@@ -31,6 +31,29 @@ uint32_t fm_osc_note_inc(uint8_t note, uint32_t sample_rate)
     return inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)inc;
 }
 
+/*
+ * 2^(c / 1200) in Q2.30 for c in 0..99 cents, by the series
+ * e^y = 1 + y + y^2/2 + y^3/6 with y = c * ln 2 / 1200 (y < 0.058, so
+ * the error is under 0.001 cent).
+ */
+static uint32_t cents_ratio_q30(uint32_t c)
+{
+    int64_t y = (int64_t)c * 620218; /* ln 2 / 1200 in Q30 */
+    int64_t y2 = (y * y) >> 30, y3 = (y2 * y) >> 30;
+    return (uint32_t)((1 << 30) + y + y2 / 2 + (int32_t)y3 / 6);
+}
+
+uint32_t fm_osc_tuned_inc(uint8_t note, int32_t cents, uint32_t sample_rate)
+{
+    int32_t total = (int32_t)note * 100 + cents;
+    uint64_t inc;
+    if (total < 0) total = 0;
+    if (total > 127 * 100) total = 127 * 100;
+    inc = fm_osc_note_inc((uint8_t)(total / 100), sample_rate);
+    inc = (inc * cents_ratio_q30((uint32_t)(total % 100))) >> 30;
+    return inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)inc;
+}
+
 void fm_osc_reset(fm_osc *o)
 {
     o->phase = 0;
@@ -87,7 +110,26 @@ void fm_osc_pair_reset(fm_osc_pair *p)
         fm_osc_reset(&p->osc[i]);
         p->wave[i] = FM_WAVE_SAW;
         p->width[i] = 0x80000000u;
+        p->cents[i] = 0;
     }
+    p->sample_rate = 0;
+    p->note = 0;
+}
+
+/* Recomputes both oscillators' increments from the note and tuning. */
+static void retune(fm_osc_pair *p)
+{
+    uint8_t i;
+    for (i = 0; i < 2; i++)
+        fm_osc_set_inc(&p->osc[i],
+                       fm_osc_tuned_inc(p->note, p->cents[i], p->sample_rate));
+}
+
+void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents)
+{
+    if (which >= 2) return;
+    p->cents[which] = cents;
+    retune(p);
 }
 
 void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width)
@@ -102,9 +144,9 @@ void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave)
 
 void fm_osc_pair_set_note(fm_osc_pair *p, uint8_t note, uint32_t sample_rate)
 {
-    uint32_t inc = fm_osc_note_inc(note, sample_rate);
-    fm_osc_set_inc(&p->osc[0], inc);
-    fm_osc_set_inc(&p->osc[1], inc);
+    p->note = note;
+    p->sample_rate = sample_rate;
+    retune(p);
 }
 
 /* Next sample of oscillator `which`, Q8.24. */

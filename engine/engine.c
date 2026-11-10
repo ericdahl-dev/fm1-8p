@@ -50,6 +50,12 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_OSC1_PULSE_WIDTH_PCT:
         fm_osc_pair_set_width(&e->osc, 0, pct_to_q32(v));
         break;
+    case FM_PARAM_OSC1_OCTAVE:
+    case FM_PARAM_OSC1_FINE_CENTS:
+        fm_osc_pair_set_tune(&e->osc, 0,
+                             e->params[FM_PARAM_OSC1_OCTAVE] * 1200 +
+                                 e->params[FM_PARAM_OSC1_FINE_CENTS]);
+        break;
     default:
         break;
     }

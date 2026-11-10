@@ -71,8 +71,42 @@ TT_TEST(pulse_width_sets_duty_cycle)
     }
 }
 
+/* Octave shifts by factors of two; fine tune by 2^(cents / 1200). */
+TT_TEST(octave_and_fine_tune_shift_pitch)
+{
+    static const struct { int32_t octave, cents; } cases[] = {
+        { 1, 0 }, { -1, 0 }, { 2, 0 }, { -2, 0 },
+        { 0, 50 }, { 0, -50 }, { 0, 100 }, { 0, -100 }, { 0, 7 }, { 1, -33 }
+    };
+    size_t k;
+    for (k = 0; k < sizeof cases / sizeof cases[0]; k++) {
+        double shift = cases[k].octave + cases[k].cents / 1200.0;
+        double want = RATE / (note_hz(57) * pow(2.0, shift));
+        osc_init();
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC1_OCTAVE,
+                                        cases[k].octave), FM_OK);
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC1_FINE_CENTS,
+                                        cases[k].cents), FM_OK);
+        TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
+    }
+}
+
+/* Retuning a held note takes effect at once, without a new note on. */
+TT_TEST(retuning_a_held_note_takes_effect)
+{
+    double want = RATE / (note_hz(57) * 2);
+    osc_init();
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, 441);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_OCTAVE, 1);
+    fm_engine_render(&eng, buf, RATE);
+    TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(pulse_width_sets_duty_cycle);
+    TT_RUN(octave_and_fine_tune_shift_pitch);
+    TT_RUN(retuning_a_held_note_takes_effect);
 }
