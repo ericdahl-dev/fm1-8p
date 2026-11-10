@@ -29,13 +29,20 @@ integer divided by 2^n.
 Multiplies of two 32-bit values go through a 64-bit intermediate
 (`(int64_t)a * b >> n`). Divisions happen only on events (note on, a parameter
 change, an envelope stage change), except the polyBLEP correction, which does
-one 64-by-32 division on each of the two samples around every saw wrap. A
-pulse or square is two saws, so it does that around both of its edges: four
-divisions a cycle. On
-the JieLi clang toolchain these compile to the native divide, and the branch
-links with no `__*di3` or float helpers (checked by the #12 firmware work).
-If the CPU test shows the divides cost too much, a reciprocal of the
-increment computed once per note on (or once per block) can replace them.
+one 64-by-32 division on each of the two samples around every saw wrap. That
+is 2 divisions a cycle for a saw and 4 for a pulse or square (two saws, one
+per edge), so up to 8 a cycle for a voice with two pulse oscillators. Per
+sample that is 2 x increment for a saw and 4 x increment for a pulse, where
+the increment is in cycles per sample. High notes add up: the highest pitch
+is note 127 (12.5 kHz, an increment of 0.284 at 44.1 kHz), which is above a
+quarter of the sample rate, so the pulse is forced to a square and divides on
+more than every other sample. The worst case is about 2.28 divisions per
+sample per voice (two pulse or square oscillators at note 127). On the JieLi
+clang toolchain these compile to the native divide, and the branch links with
+no `__*di3` or float helpers (checked by the #12 firmware work). If the CPU
+measurement (#13) shows the divides cost too much, the planned fix is a
+reciprocal of each increment computed on note and retune events, which turns
+every polyBLEP division into a multiply.
 
 Every divisor is non-zero by construction, because division by zero does not
 trap on pi32v2; it returns garbage:
