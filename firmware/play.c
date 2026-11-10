@@ -1,6 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "play.h"
 
+/* A compiler barrier: the stores (or loads) before it are done before those after it. The main loop
+ * and the audio interrupt share one core, so this is all the queue needs: an entry is written before
+ * the head that publishes it, and read after the head that says it is there. */
+#define BARRIER() __asm__ volatile("" ::: "memory")
+
 /* The default patch: the engine's defaults (one saw, the amp envelope) plus a gentle filter envelope
  * that opens each note and settles, the slow chorus, and the keys' velocity on the level. */
 static const play_param PATCH[] = {
@@ -28,6 +33,7 @@ int play_init(play *p)
     p->head = p->tail = 0;
     p->lost = p->lost_seen = 0;
     p->last_note = -1;
+    p->oct = 0;
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
     for (i = 0; i < sizeof PATCH / sizeof PATCH[0]; i++)
@@ -40,20 +46,22 @@ int play_init(play *p)
 }
 
 /* Main loop: one event into the queue. When it is full the event is dropped and counted: the next
- * render then lets every note go (CC 123), so a lost note off never leaves a note hanging. */
+ * render then lets the pedal up, lets every note go and centers the bend, so a lost pedal-up, note
+ * off or bend center never leaves the synth stuck. */
 static void put(play *p, uint32_t st, uint32_t d1, uint32_t d2)
 {
     uint32_t h = p->head;
     if (d1 > 127u || d2 > 127u)                 /* not MIDI data */
         return;
-    if (st == 0x90u && d2 != 0u)
-        p->last_note = (int32_t)d1;
     if (h - p->tail >= PLAY_QUEUE) {
         p->lost = p->lost + 1u;
         return;
     }
     p->queue[h % PLAY_QUEUE] = st << 16 | d1 << 8 | d2;
+    BARRIER();
     p->head = h + 1u;                           /* after the entry: the ISR never reads it early */
+    if (st == 0x90u && d2 != 0u)                /* queued: it will sound */
+        p->last_note = (int32_t)d1;
 }
 
 /* Audio interrupt: one event into the engine. */
@@ -109,6 +117,7 @@ void play_set_param(play *p, uint16_t id, int32_t value)
     if (!in)
         return;
     p->target[id] = value < in->min ? in->min : value > in->max ? in->max : value;
+    BARRIER();
     p->asked = p->asked + 1u;                   /* after the value: the ISR never sees an old one */
 }
 
@@ -125,6 +134,7 @@ static void apply_params(play *p)
     if (asked == p->asked_seen)
         return;
     p->asked_seen = asked;
+    BARRIER();                                  /* the values are read after `asked` */
     for (id = 0; id < FM_PARAM_COUNT; id++)
         if (p->target[id] != fm_engine_get_param(&p->engine, id))
             (void)fm_engine_set_param(&p->engine, id, p->target[id]);
@@ -132,21 +142,52 @@ static void apply_params(play *p)
 
 int32_t play_last_note(const play *p) { return p->last_note; }
 
+void play_octave(play *p, int32_t step)
+{
+    int32_t o = p->oct + step;
+    p->oct = o < -2 ? -2 : o > 2 ? 2 : o;
+}
+
+void play_key_down(play *p, uint32_t k, uint32_t vel)
+{
+    if (k >= PLAY_KEYS)
+        return;
+    p->held[k] = (uint8_t)((int32_t)PLAY_KEY0 + 12 * p->oct + (int32_t)k);
+    play_note(p, p->held[k], vel ? vel : 100u);
+}
+
+void play_key_up(play *p, uint32_t k)
+{
+    if (k < PLAY_KEYS)
+        play_note(p, p->held[k], 0);
+}
+
+uint32_t play_oct_led(const play *p, uint32_t button)
+{
+    return button == PLAY_OCT_DOWN ? p->oct < 0 : p->oct > 0;
+}
+
 void play_render(play *p, int32_t *out, uint32_t n)
 {
     uint32_t i;
     uint32_t h = p->head, t = p->tail;          /* one read: the main loop may write it any time */
     if (n > PLAY_BLOCK)
         n = PLAY_BLOCK;
+    BARRIER();                                  /* the entries are read after the head */
     for (; t != h; t++)
         apply(p, p->queue[t % PLAY_QUEUE]);
+    BARRIER();                                  /* and done with before the tail frees them */
     p->tail = t;
     apply_params(p);
-    if (p->lost != p->lost_seen) {              /* some events were dropped: let every note go */
+    if (p->lost != p->lost_seen) {              /* some events were dropped: back to a safe state */
         p->lost_seen = p->lost;
-        fm_engine_controller(&p->engine, 123, 0);
+        fm_engine_controller(&p->engine, 64, 0);        /* a lost pedal-up would hold every note */
+        fm_engine_controller(&p->engine, 123, 0);       /* a lost note off would hang one */
+        fm_engine_pitch_bend(&p->engine, 8192);         /* a lost center would leave it out of tune */
     }
     fm_engine_render(&p->engine, p->buf, n);
-    for (i = 0; i < 2u * n; i++)
-        out[i] += p->buf[i];
+    for (i = 0; i < 2u * n; i++) {
+        int32_t v = (int32_t)p->buf[i] * (1 << PLAY_GAIN_SHIFT);
+        out[i] += v > 32767 ? 32767 : v < -32767 ? -32767 : v;     /* saturate, never wrap */
+    }
 }

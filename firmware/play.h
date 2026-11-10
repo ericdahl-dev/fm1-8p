@@ -8,6 +8,11 @@
 #define PLAY_FS 44100u
 #define PLAY_BLOCK 256u                 /* frames per fm1-dock render call */
 #define PLAY_VOICES 4u                  /* polyphony on the device; 6 after the speed work (#34) */
+/* The module's output gain, in doublings: +12 dB over the engine, which mixes each voice at
+ * 1 / voice count and then -6 dB (a 4-note chord peaked near -25 dBFS on the FM-1). Saturates. */
+#define PLAY_GAIN_SHIFT 2
+#define PLAY_KEYS 27u                   /* the FM-1's note keys */
+#define PLAY_KEY0 53u                   /* key 0's note at octave 0: F3 */
 #define PLAY_QUEUE 64u                  /* events between two renders (a power of two) */
 
 /* One param of a patch: fm_param_id and its value. */
@@ -26,6 +31,8 @@ typedef struct {
     volatile uint32_t lost;             /* main loop: +1 per event the full queue dropped */
     uint32_t lost_seen;                 /* ISR only: the last `lost` it acted on */
     int32_t last_note;                  /* main loop: the last note on, -1 none */
+    int32_t oct;                        /* main loop: the keys' octave, -2..2 */
+    uint8_t held[PLAY_KEYS];            /* main loop: the note each key started */
     /* params set from the main loop (the UI's knobs): the value asked for, which the ISR moves the
      * engine to */
     volatile int32_t target[FM_PARAM_COUNT];
@@ -45,6 +52,16 @@ void play_note(play *p, uint32_t note, uint32_t vel);
 void play_midi(play *p, uint32_t st, uint32_t d1, uint32_t d2);
 /* main loop: the last note played (keys or MIDI; a note off leaves it), -1 none yet */
 int32_t play_last_note(const play *p);
+/* The keys' octave (the module owns it: fm1-dock lights OCT- / OCT+ only for its own octave):
+ * play_octave moves it by step, clamped to -2..2; play_oct_led says whether that button's LED is lit
+ * (OCT- below 0, OCT+ above). */
+enum { PLAY_OCT_DOWN = 0, PLAY_OCT_UP = 1 };
+void play_octave(play *p, int32_t step);
+uint32_t play_oct_led(const play *p, uint32_t button);
+/* Note key k (0 = F3 .. 26 = G5) down plays F3 + 12 x octave + k at vel (0, an unsensed key: 100);
+ * up stops the note that key started. */
+void play_key_down(play *p, uint32_t k, uint32_t vel);
+void play_key_up(play *p, uint32_t k);
 #define PLAY_NOTE_NAME 5u               /* room for a note's name: "C#-1" and its end */
 /* the note's name into s (PLAY_NOTE_NAME bytes): MIDI 60 is "C4", 61 "C#4"; outside 0..127 "--" */
 void play_note_name(int32_t note, char *s);
