@@ -56,8 +56,22 @@ static uint32_t pct_to_q32(int32_t pct)
 /*
  * Oscillator `which`'s settings on every voice. Each oscillator's
  * parameters run in the same order (wave, pulse width, octave, fine), so
- * `rel` is the offset from its wave parameter.
+ * `rel` is the offset from its wave parameter. The typedefs below fail
+ * the build if that order ever changes.
  */
+typedef char fm_require_osc1_width_at_1[
+    FM_PARAM_OSC1_PULSE_WIDTH_PCT - FM_PARAM_OSC1_WAVE == 1 ? 1 : -1];
+typedef char fm_require_osc1_octave_at_2[
+    FM_PARAM_OSC1_OCTAVE - FM_PARAM_OSC1_WAVE == 2 ? 1 : -1];
+typedef char fm_require_osc1_fine_at_3[
+    FM_PARAM_OSC1_FINE_CENTS - FM_PARAM_OSC1_WAVE == 3 ? 1 : -1];
+typedef char fm_require_osc2_width_at_1[
+    FM_PARAM_OSC2_PULSE_WIDTH_PCT - FM_PARAM_OSC2_WAVE == 1 ? 1 : -1];
+typedef char fm_require_osc2_octave_at_2[
+    FM_PARAM_OSC2_OCTAVE - FM_PARAM_OSC2_WAVE == 2 ? 1 : -1];
+typedef char fm_require_osc2_fine_at_3[
+    FM_PARAM_OSC2_FINE_CENTS - FM_PARAM_OSC2_WAVE == 3 ? 1 : -1];
+
 static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
 {
     const int32_t *p = &e->params[which ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE];
