@@ -68,27 +68,41 @@ static char *put_3(char *s, uint32_t milli)
     return put_u(s, d % 10u);
 }
 
-void ui_format(uint16_t id, int32_t value, char *s)
+void ui_value(uint16_t id, int32_t value, char *num, char *unit)
 {
+    const char *u = "";
     if (id == FM_PARAM_FILTER_CUTOFF_CENTS) {
         uint32_t mhz = cutoff_mhz(value);
         if (value >= FM_FILTER_OPEN_CENTS)
-            s = put_str(s, "OPEN");
+            num = put_str(num, "OPEN");
         else if (mhz >= 999500u)
-            s = put_str(put_3(s, (mhz + 500u) / 1000u), " kHz");
+            num = put_3(num, (mhz + 500u) / 1000u), u = "kHz";
         else
-            s = put_str(put_3(s, mhz), " Hz");
+            num = put_3(num, mhz), u = "Hz";
     } else if (id == FM_PARAM_FILTER_RESONANCE) {
-        s = put_u(s, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);
     } else if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) {
         uint32_t st = (uint32_t)(value < 0 ? -value : value) + 50u;
         if (st >= 100u)                         /* (0 has no sign) */
-            *s++ = value < 0 ? '-' : '+';
-        s = put_str(put_u(s, st / 100u), " st");
+            *num++ = value < 0 ? '-' : '+';
+        num = put_u(num, st / 100u), u = "st";
     } else if (id == FM_PARAM_FILTER_KEY_TRACK) {
-        s = put_str(put_u(s, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), " %");
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
     }
-    *s = 0;
+    *num = 0;
+    *put_str(unit, u) = 0;
+}
+
+void ui_format(uint16_t id, int32_t value, char *s)
+{
+    char unit[UI_VALUE_LEN];
+    ui_value(id, value, s, unit);
+    if (*unit) {
+        while (*s)
+            s++;
+        *s++ = ' ';
+        *put_str(s, unit) = 0;
+    }
 }
 
 void ui_strip(uint32_t i, int32_t *x, int32_t *w)
@@ -104,21 +118,6 @@ uint32_t ui_seg7(char c)
     if (c >= '0' && c <= '9')
         return DIGIT[c - '0'];
     return c == '-' ? 0x40u : 0u;
-}
-
-void ui_value(uint16_t id, int32_t value, char *num, char *unit)
-{
-    char s[UI_VALUE_LEN];
-    const char *p = s;
-    ui_format(id, value, s);
-    while (*p && *p != ' ')
-        *num++ = *p++;
-    *num = 0;
-    if (*p == ' ')
-        p++;
-    while (*p)
-        *unit++ = *p++;
-    *unit = 0;
 }
 
 void ui_column(uint16_t id, int32_t value, char *num, char *unit)
