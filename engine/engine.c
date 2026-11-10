@@ -26,6 +26,27 @@ static uint32_t pct_to_q32(int32_t pct)
     return (uint32_t)pct * 42949673u;
 }
 
+/*
+ * Oscillator `which`'s settings. Each oscillator's parameters run in the
+ * same order (wave, pulse width, octave, fine), so `rel` is the offset
+ * from its wave parameter.
+ */
+static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
+{
+    const int32_t *p = &e->params[which ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE];
+    switch (rel) {
+    case 0:
+        fm_osc_pair_set_wave(&e->osc, which, (uint8_t)p[0]);
+        break;
+    case 1:
+        fm_osc_pair_set_width(&e->osc, which, pct_to_q32(p[1]));
+        break;
+    default: /* octave or fine tune */
+        fm_osc_pair_set_tune(&e->osc, which, p[2] * 1200 + p[3]);
+        break;
+    }
+}
+
 /* Recomputes the derived settings a parameter feeds. */
 static void apply_param(fm_engine *e, uint16_t id)
 {
@@ -45,16 +66,20 @@ static void apply_param(fm_engine *e, uint16_t id)
         e->amp_env.release_samples = ms_to_samples(e, v);
         break;
     case FM_PARAM_OSC1_WAVE:
-        fm_osc_pair_set_wave(&e->osc, 0, (uint8_t)v);
-        break;
     case FM_PARAM_OSC1_PULSE_WIDTH_PCT:
-        fm_osc_pair_set_width(&e->osc, 0, pct_to_q32(v));
-        break;
     case FM_PARAM_OSC1_OCTAVE:
     case FM_PARAM_OSC1_FINE_CENTS:
-        fm_osc_pair_set_tune(&e->osc, 0,
-                             e->params[FM_PARAM_OSC1_OCTAVE] * 1200 +
-                                 e->params[FM_PARAM_OSC1_FINE_CENTS]);
+        apply_osc_param(e, 0, id - FM_PARAM_OSC1_WAVE);
+        break;
+    case FM_PARAM_OSC2_WAVE:
+    case FM_PARAM_OSC2_PULSE_WIDTH_PCT:
+    case FM_PARAM_OSC2_OCTAVE:
+    case FM_PARAM_OSC2_FINE_CENTS:
+        apply_osc_param(e, 1, id - FM_PARAM_OSC2_WAVE);
+        break;
+    case FM_PARAM_OSC_MIX:
+        /* per mille -> Q1.30 */
+        fm_osc_pair_set_mix(&e->osc, (int32_t)(((int64_t)v << 30) / 1000));
         break;
     default:
         break;
@@ -74,10 +99,11 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     fm_osc_pair_reset(&e->osc);
     fm_env_reset(&e->amp_env);
     e->note = 0;
-    for (id = 0; id < FM_PARAM_COUNT; id++) {
+    /* all defaults first: some settings combine several parameters */
+    for (id = 0; id < FM_PARAM_COUNT; id++)
         e->params[id] = fm_param_info_get(id)->def;
+    for (id = 0; id < FM_PARAM_COUNT; id++)
         apply_param(e, id);
-    }
     return FM_OK;
 }
 

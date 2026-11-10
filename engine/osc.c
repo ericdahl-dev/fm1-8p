@@ -113,7 +113,15 @@ void fm_osc_pair_reset(fm_osc_pair *p)
         p->cents[i] = 0;
     }
     p->sample_rate = 0;
+    p->mix = 0;
     p->note = 0;
+}
+
+void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix)
+{
+    if (mix < 0) mix = 0;
+    if (mix > FM_OSC_MIX_FULL) mix = FM_OSC_MIX_FULL;
+    p->mix = mix;
 }
 
 /* Recomputes both oscillators' increments from the note and tuning. */
@@ -165,7 +173,22 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
     }
 }
 
+/*
+ * a + (b - a) * mix: exactly a at 0 and b at full. An oscillator the mix
+ * silences only advances its phase, so it costs one add.
+ */
 int32_t fm_osc_pair_next(fm_osc_pair *p)
 {
-    return wave_next(p, 0);
+    int32_t a, b;
+    if (p->mix == 0) {
+        p->osc[1].phase += p->osc[1].inc;
+        return wave_next(p, 0);
+    }
+    if (p->mix == FM_OSC_MIX_FULL) {
+        p->osc[0].phase += p->osc[0].inc;
+        return wave_next(p, 1);
+    }
+    a = wave_next(p, 0);
+    b = wave_next(p, 1);
+    return a + (int32_t)(((int64_t)(b - a) * p->mix) >> 30);
 }

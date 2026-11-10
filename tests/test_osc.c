@@ -103,10 +103,72 @@ TT_TEST(retuning_a_held_note_takes_effect)
     TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
 }
 
+typedef struct {
+    int32_t wave, width, octave, cents;
+} osc_setting;
+
+/* Renders note 57 with both oscillators set and the given mix. */
+static void render_mix(int16_t *out, size_t frames, osc_setting o1,
+                       osc_setting o2, int32_t mix)
+{
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, o1.wave);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, o1.width);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_OCTAVE, o1.octave);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_FINE_CENTS, o1.cents);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_WAVE, o2.wave);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_PULSE_WIDTH_PCT, o2.width);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, o2.octave);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, o2.cents);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mix), FM_OK);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, out, (uint32_t)frames);
+}
+
+/*
+ * Mix 0 is osc1 alone and 1000 osc2 alone, whatever the other is set to
+ * (and osc2 sounds exactly as osc1 would with the same settings); 500
+ * is the average of the two.
+ */
+TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
+{
+#define MIX_FRAMES 8820
+    static int16_t a[2 * MIX_FRAMES], b[2 * MIX_FRAMES], m[2 * MIX_FRAMES];
+    static int16_t other[2 * MIX_FRAMES];
+    const osc_setting sq = { FM_WAVE_SQUARE, 50, 0, 0 };
+    const osc_setting saw_up = { FM_WAVE_SAW, 50, 1, 0 };
+    const osc_setting pulse_detuned = { FM_WAVE_PULSE, 30, -1, 37 };
+    size_t i;
+    int max_dev = 0, max_diff = 0;
+
+    render_mix(a, MIX_FRAMES, sq, saw_up, 0);
+    TT_CHECK(peak_abs(a, 0, MIX_FRAMES) > 10000);
+    render_mix(other, MIX_FRAMES, sq, pulse_detuned, 0);
+    TT_CHECK(memcmp(a, other, sizeof a) == 0);
+
+    render_mix(b, MIX_FRAMES, sq, saw_up, 1000);
+    render_mix(other, MIX_FRAMES, saw_up, sq, 0);
+    TT_CHECK(memcmp(b, other, sizeof b) == 0);
+    render_mix(other, MIX_FRAMES, pulse_detuned, saw_up, 1000);
+    TT_CHECK(memcmp(b, other, sizeof b) == 0);
+
+    render_mix(m, MIX_FRAMES, sq, saw_up, 500);
+    for (i = 0; i < 2 * MIX_FRAMES; i++) {
+        int dev = abs(2 * m[i] - (a[i] + b[i]));
+        int diff = abs(a[i] - b[i]);
+        if (dev > max_dev) max_dev = dev;
+        if (diff > max_diff) max_diff = diff;
+    }
+    TT_CHECK(max_diff > 10000); /* the two oscillators really differ */
+    TT_CHECK(max_dev <= 4);     /* 2 LSB of rounding on each side */
+#undef MIX_FRAMES
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(retuning_a_held_note_takes_effect);
+    TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
 }

@@ -36,6 +36,11 @@ typedef enum {
     FM_PARAM_OSC1_PULSE_WIDTH_PCT, /* pulse duty, percent of a cycle */
     FM_PARAM_OSC1_OCTAVE,          /* -2..+2 octaves */
     FM_PARAM_OSC1_FINE_CENTS,      /* -100..+100 cents */
+    FM_PARAM_OSC2_WAVE,            /* the same four for osc2 */
+    FM_PARAM_OSC2_PULSE_WIDTH_PCT,
+    FM_PARAM_OSC2_OCTAVE,
+    FM_PARAM_OSC2_FINE_CENTS,
+    FM_PARAM_OSC_MIX,              /* per mille: 0 osc1 only, 1000 osc2 only */
     FM_PARAM_COUNT
 } fm_param_id;
 

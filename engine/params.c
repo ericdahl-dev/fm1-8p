@@ -19,6 +19,11 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_OSC1_PULSE_WIDTH_PCT, "osc1_pulse_width_pct", 1, 99, 50 },
     { FM_PARAM_OSC1_OCTAVE,    "osc1_octave",        -2,    2,    0 },
     { FM_PARAM_OSC1_FINE_CENTS, "osc1_fine_cents",  -100,  100,   0 },
+    { FM_PARAM_OSC2_WAVE,      "osc2_wave",           0, FM_WAVE_COUNT - 1, FM_WAVE_SAW },
+    { FM_PARAM_OSC2_PULSE_WIDTH_PCT, "osc2_pulse_width_pct", 1, 99, 50 },
+    { FM_PARAM_OSC2_OCTAVE,    "osc2_octave",        -2,    2,    0 },
+    { FM_PARAM_OSC2_FINE_CENTS, "osc2_fine_cents",  -100,  100,   0 },
+    { FM_PARAM_OSC_MIX,        "osc_mix_permille",    0, 1000,    0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)

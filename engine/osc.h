@@ -48,6 +48,7 @@ typedef struct {
     uint32_t width[2]; /* pulse duty, Q0.32 of a cycle */
     int32_t cents[2];  /* tuning offset from the note */
     uint32_t sample_rate;
+    int32_t mix;       /* share of osc 1 (the second), Q1.30 0..1.0 */
     uint8_t wave[2];   /* fm_wave */
     uint8_t note;
 } fm_osc_pair;
@@ -62,6 +63,12 @@ void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width);
  * 1200). Applies at once to a held note.
  */
 void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents);
+/*
+ * Crossfade between the oscillators, Q1.30: 0 is the first alone,
+ * FM_OSC_MIX_FULL the second alone, values between a linear blend.
+ */
+#define FM_OSC_MIX_FULL (1 << 30)
+void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix);
 /* Plays a MIDI note at a sample rate: sets both oscillators' pitch. */
 void fm_osc_pair_set_note(fm_osc_pair *p, uint8_t note, uint32_t sample_rate);
 /* Next mixed sample, Q8.24. */
