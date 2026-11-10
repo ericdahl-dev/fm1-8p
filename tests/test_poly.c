@@ -298,6 +298,90 @@ TT_TEST(full_chord_at_max_velocity_never_clips)
     }
 }
 
+/*
+ * Plays a pseudo-random stream of note ons and offs, pedal and bend
+ * (fixed seed): `steps` events, `step` frames apart, each gap rendered in
+ * calls of at most `block` frames. Returns the frames rendered.
+ */
+static size_t play_random(int16_t *out, uint32_t steps, uint32_t step,
+                          uint32_t block)
+{
+    uint32_t seed = 12345, i;
+    size_t done = 0;
+    for (i = 0; i < steps; i++) {
+        uint32_t r, left = step;
+        seed = seed * 1103515245u + 12345u;
+        r = seed >> 8;
+        switch (r % 8) {
+        case 0: case 1: case 2:
+            fm_engine_note_on(&poly, (uint8_t)(36 + (r >> 4) % 48), 127);
+            break;
+        case 3: case 4:
+            fm_engine_note_off(&poly, (uint8_t)(36 + (r >> 4) % 48));
+            break;
+        case 5:
+            fm_engine_controller(&poly, 64, (uint8_t)((r >> 4) % 128));
+            break;
+        case 6:
+            fm_engine_pitch_bend(&poly, (uint16_t)((r >> 4) % 16384));
+            break;
+        default:
+            break;
+        }
+        while (left) {
+            uint32_t m = left < block ? left : block;
+            fm_engine_render(&poly, out + 2 * done, m);
+            done += m;
+            left -= m;
+        }
+    }
+    return done;
+}
+
+TT_TEST(random_playing_stays_bounded_and_ends_silent)
+{
+    static const uint32_t rates[] = { 8000, 44100, 192000 };
+    static const uint8_t counts[] = { 1, 4, 6, 8 };
+    size_t r, c, i, n;
+    for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
+        for (c = 0; c < sizeof counts; c++) {
+            int clipped = 0, loud_after = 0;
+            TT_CHECK_EQ(fm_engine_init(&poly, rates[r], counts[c]), FM_OK);
+            fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 0);
+            fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 20);
+            fm_engine_set_param(&poly, FM_PARAM_BEND_RANGE, 24);
+            n = play_random(pbuf, 400, 100, 100);
+            for (i = 0; i < 2 * n; i++)
+                if (pbuf[i] >= 32767 || pbuf[i] <= -32767) clipped = 1;
+            TT_CHECK(!clipped);
+            TT_CHECK(peak_abs(pbuf, 0, n) <= 16384);
+            fm_engine_controller(&poly, 64, 0);
+            fm_engine_controller(&poly, 123, 0);
+            fm_engine_render(&poly, pbuf, rates[r] / 20); /* 50 ms */
+            TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
+            fm_engine_render(&poly, pbuf, 256);
+            for (i = 0; i < 2 * 256; i++)
+                if (pbuf[i] != 0) loud_after = 1;
+            TT_CHECK(!loud_after);
+        }
+    }
+}
+
+/* Steals, pedal and bend give the same output whatever the block size. */
+TT_TEST(polyphonic_output_does_not_depend_on_block_size)
+{
+    static int16_t whole[2 * 400 * 64], blocked[2 * 400 * 64];
+    static const uint32_t sizes[] = { 1, 7, 256 };
+    size_t k;
+    init_poly(4);
+    play_random(whole, 400, 64, 64);
+    for (k = 0; k < sizeof sizes / sizeof sizes[0]; k++) {
+        init_poly(4);
+        play_random(blocked, 400, 64, sizes[k]);
+        TT_CHECK(memcmp(whole, blocked, sizeof whole) == 0);
+    }
+}
+
 static void run_poly_tests(void)
 {
     TT_RUN(every_note_of_a_full_chord_sounds);
@@ -310,4 +394,6 @@ static void run_poly_tests(void)
     TT_RUN(sustain_pedal_holds_released_notes_until_it_comes_up);
     TT_RUN(pitch_bend_shifts_pitch_by_its_range);
     TT_RUN(full_chord_at_max_velocity_never_clips);
+    TT_RUN(random_playing_stays_bounded_and_ends_silent);
+    TT_RUN(polyphonic_output_does_not_depend_on_block_size);
 }
