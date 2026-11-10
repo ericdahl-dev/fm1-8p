@@ -23,13 +23,22 @@ static double held_period(uint8_t note)
     return period_from_crossings(buf + 2 * 4410, RATE - 4410, 0);
 }
 
-TT_TEST(square_renders_at_note_pitch)
+/* Saw, square and a narrow pulse each repeat at the note's frequency. */
+TT_TEST(each_wave_renders_at_note_pitch)
 {
-    double want = RATE / note_hz(69);
-    osc_init();
-    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SQUARE),
-                FM_OK);
-    TT_CHECK_NEAR(held_period(69), want, want * 0.0006); /* 1 cent */
+    static const uint8_t waves[] = { FM_WAVE_SAW, FM_WAVE_PULSE, FM_WAVE_SQUARE };
+    static const uint8_t notes[] = { 33, 69, 93 };
+    size_t w, n;
+    for (w = 0; w < sizeof waves; w++) {
+        for (n = 0; n < sizeof notes; n++) {
+            double want = RATE / note_hz(notes[n]);
+            osc_init();
+            TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, waves[w]),
+                        FM_OK);
+            fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, 20);
+            TT_CHECK_NEAR(held_period(notes[n]), want, want * 0.0006); /* 1 cent */
+        }
+    }
 }
 
 /*
@@ -64,6 +73,6 @@ TT_TEST(pulse_width_sets_duty_cycle)
 
 static void run_osc_tests(void)
 {
-    TT_RUN(square_renders_at_note_pitch);
+    TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(pulse_width_sets_duty_cycle);
 }
