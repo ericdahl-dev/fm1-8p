@@ -537,6 +537,68 @@ TT_TEST(mix_env_from_the_amp_env_ignores_velocity)
 }
 
 /*
+ * A mix envelope that follows the amp envelope leaves the filter envelope
+ * lazy when nothing else reads it (filter env amount 0): it isn't stepped
+ * each sample, only counted and caught up when needed.
+ */
+TT_TEST(mix_env_from_the_amp_env_leaves_the_filter_env_lazy)
+{
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV_SOURCE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, 4410);
+    TT_CHECK(eng.voices[0].fenv_lag > 0);
+}
+
+/* Note 57, osc2 an octave up, amp at full at once, a 1 s filter envelope
+ * attack; the mix envelope at `depth` from source `src`, switched to source
+ * 0 after `at` frames (none if `at` is the whole length). */
+static void render_mix_src(int16_t *out, int32_t mix, int32_t depth, int32_t src,
+                           uint32_t at, uint32_t frames)
+{
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV_SOURCE, src);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
+    fm_engine_note_on(&eng, 57, 127);
+    fm_engine_render(&eng, out, at);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV_SOURCE, 0);
+    fm_engine_render(&eng, out + 2 * at, frames - at);
+}
+
+/*
+ * Switching the mix envelope from the amp to the filter envelope mid-note
+ * picks the filter envelope up where it really is (it went unstepped while
+ * the amp envelope drove the mix): after the glide the mix matches a voice
+ * that followed the filter envelope all along.
+ */
+TT_TEST(mix_env_source_switch_reads_the_filter_env_where_it_is)
+{
+    enum { AT = 22050, LEN = 22050 + 2205 };
+    static int16_t a[2 * LEN], b[2 * LEN], c[2 * LEN], d[2 * LEN];
+    double worst = 0;
+    size_t i;
+    render_mix_src(a, 0, 0, 0, LEN, LEN);
+    render_mix_src(b, 1000, 0, 0, LEN, LEN);
+    render_mix_src(c, 0, 1000, 0, LEN, LEN);
+    render_mix_src(d, 0, 1000, 1, AT, LEN);
+    for (i = AT + 64; i < LEN; i++) {
+        double r = (double)b[2 * i] - a[2 * i];
+        if (r > -3000 && r < 3000) continue;
+        if (fabs((d[2 * i] - c[2 * i]) / r) > worst)
+            worst = fabs((d[2 * i] - c[2 * i]) / r);
+    }
+    printf("    mix after the switch, furthest from filter-env-all-along: %.3f\n", worst);
+    TT_CHECK(worst < 0.02);
+}
+
+/*
  * fm_osc_pitch_inc against 2^(cents / 1200) in double precision, every
  * cent over +-2 octaves at low, middle and high notes: within 0.01 cent.
  * Today's worst, 0.005 cent, is the pitch table's rounding at note 0;
@@ -1127,6 +1189,8 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_off_renders_as_never_set);
     TT_RUN(osc_mix_change_with_the_mix_env_on_glides);
     TT_RUN(mix_env_from_the_amp_env_ignores_velocity);
+    TT_RUN(mix_env_from_the_amp_env_leaves_the_filter_env_lazy);
+    TT_RUN(mix_env_source_switch_reads_the_filter_env_where_it_is);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);

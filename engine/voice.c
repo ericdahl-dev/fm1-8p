@@ -360,7 +360,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
             filter_env_gate_off(v);
         }
         level = fm_env_next(&v->amp_env);
-        if (v->env_amount || v->mix_env) {
+        if (v->env_amount || (v->mix_env && !v->mix_src)) {
             fenv = fm_env_next(&v->filter_env);
         } else { /* no effect on the sound: caught up when needed */
             fenv = 0;
