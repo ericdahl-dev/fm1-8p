@@ -249,6 +249,7 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
 {
     uint8_t i;
     if (controller == 64) e->pedal_down = value >= 64;
+    if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         switch (controller) {

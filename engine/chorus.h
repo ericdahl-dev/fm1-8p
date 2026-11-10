@@ -64,6 +64,9 @@ void fm_chorus_init(fm_chorus *c, uint32_t sample_rate);
  */
 void fm_chorus_set_mode(fm_chorus *c, uint8_t mode);
 
+/* Empties the delay line (all sound off); the mode and LFO are kept. */
+void fm_chorus_silence(fm_chorus *c);
+
 /* Processes one sample: `in` is Q8.24, `left` and `right` get Q8.24. */
 void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
                        int32_t *right);

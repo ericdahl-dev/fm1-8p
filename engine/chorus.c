@@ -31,6 +31,11 @@ static void clear_line(fm_chorus *c)
     c->pos = 0;
 }
 
+void fm_chorus_silence(fm_chorus *c)
+{
+    clear_line(c);
+}
+
 void fm_chorus_init(fm_chorus *c, uint32_t sample_rate)
 {
     c->sample_rate = sample_rate;

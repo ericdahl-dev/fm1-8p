@@ -401,6 +401,27 @@ TT_TEST(chorus_turned_on_again_starts_from_a_silent_line)
     TT_CHECK(silent);
 }
 
+/* All sound off (CC 120) silences the chorus's wet tail too, at once. */
+TT_TEST(all_sound_off_silences_the_chorus_tail)
+{
+    int32_t mode;
+    for (mode = 1; mode < FM_CHORUS_MODE_COUNT; mode++) {
+        size_t i;
+        int loud = 0;
+        TT_CHECK_EQ(fm_engine_init(&ch_eng, CH_RATE, FM_MAX_VOICES), FM_OK);
+        fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, mode);
+        fm_engine_note_on(&ch_eng, 57, 100);
+        fm_engine_note_on(&ch_eng, 64, 100);
+        fm_engine_render(&ch_eng, ch_buf, 4410);
+        TT_CHECK(peak_abs(ch_buf, 2000, 4410) > 500);
+        fm_engine_controller(&ch_eng, 120, 0);
+        fm_engine_render(&ch_eng, ch_buf, 256);
+        for (i = 0; i < 2 * 256; i++)
+            if (ch_buf[i] != 0) loud = 1;
+        TT_CHECK(!loud);
+    }
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
@@ -412,4 +433,5 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_memory_is_fixed_and_small);
     TT_RUN(chorus_delay_line_clamps_hot_input_to_two);
     TT_RUN(chorus_turned_on_again_starts_from_a_silent_line);
+    TT_RUN(all_sound_off_silences_the_chorus_tail);
 }
