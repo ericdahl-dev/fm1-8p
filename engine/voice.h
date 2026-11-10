@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "env.h"
+#include "lfo.h"
 #include "osc.h"
 
 /* `note` of a voice left sounding by a voice-mode switch: it belongs to
@@ -29,12 +30,25 @@ typedef struct {
     int32_t next_pitch; /* pitch of `note` (kept while an old note fades) */
     uint32_t wait;     /* length of the current steal fade, in samples */
     uint32_t gate_left; /* samples until a queued release (0: none) */
+    int32_t pitch_oct; /* LFO pitch offset now applied, Q16.16 octaves */
+    int32_t pw_off;    /* LFO pulse width offset now applied, Q0.32 */
+    uint32_t lfo_start; /* control tick the LFO delay started at */
+    int32_t next_peak; /* amp peak (velocity) of `note`, Q1.30, kept while
+                        * an old note fades */
     uint8_t note;
     uint8_t old_note;  /* while pending: the stolen note fading out */
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
 } fm_voice;
+
+/* What the LFO does to every voice, set by the engine from the patch. */
+typedef struct {
+    int32_t pitch_oct;    /* pitch depth at full LFO, Q16.16 octaves */
+    int32_t pw;           /* pulse width depth at full LFO, Q0.32 */
+    uint32_t delay_ticks; /* LFO delay, and fade-in time, in ticks */
+    int32_t fade_step;    /* Q1.30 fade-in per tick after the delay */
+} fm_voice_mod;
 
 /* `seed` starts the voice's noise; give each voice its own. */
 void fm_voice_reset(fm_voice *v, uint32_t seed);
@@ -43,7 +57,11 @@ void fm_voice_reset(fm_voice *v, uint32_t seed);
 int fm_voice_active(const fm_voice *v);
 
 /*
- * Plays `note` at `pitch` (Q16.16 semitones). An idle voice starts it at
+ * `now` in the calls below is the number of the next control tick: a
+ * note that starts from silence counts its LFO delay from it.
+ *
+ * Plays `note` at `pitch` (Q16.16 semitones) with amp envelope peak
+ * `peak` (Q1.30, from its velocity). An idle voice starts it at
  * once, and a voice already playing the same note retriggers its attack
  * from the current level. Any other sounding voice is stolen: the old
  * note fades out over `fade_samples`, then the new one starts. A voice
@@ -51,27 +69,32 @@ int fm_voice_active(const fm_voice *v);
  * key comes up during the fade, the note still starts after it, holds
  * for the fade time (as long as it waited) and then releases.
  */
-void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch,
-                      uint32_t sample_rate, uint32_t fade_samples);
+void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch, int32_t peak,
+                      uint32_t now, uint32_t sample_rate,
+                      uint32_t fade_samples);
 
 /*
  * Takes a voice that is fading out a stolen note back for that note
  * (`old_note`, played again): the steal is called off and the note
- * restarts its attack from the current level at `pitch`. The note that was
- * waiting for the fade is dropped; the caller can give it another voice.
+ * restarts its attack from the current level at `pitch` and `peak`. The
+ * note that was waiting for the fade is dropped; the caller can give it
+ * another voice, at the peak still in `next_peak`.
  */
-void fm_voice_take_back(fm_voice *v, int32_t pitch, uint32_t sample_rate);
+void fm_voice_take_back(fm_voice *v, int32_t pitch, int32_t peak,
+                        uint32_t now, uint32_t sample_rate);
 
 /*
  * Moves the voice to `note` at `pitch` (Q16.16 semitones) without a steal fade (unison mode,
  * where every voice follows one note). The oscillator keeps its phase,
  * so the pitch changes without a jump. With `retrigger` the envelope
- * restarts its attack from the current level; without, it carries on
- * (legato), unless the voice was idle. A voice still fading out a stolen
- * poly note starts `note` when the fade ends.
+ * restarts its attack from the current level toward `peak`; without, it
+ * carries on (legato) at its own peak and `peak` is ignored, unless the
+ * voice was idle. A voice still fading out a stolen poly note starts
+ * `note` when the fade ends.
  */
 void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
-                          uint32_t sample_rate, int retrigger);
+                          int32_t peak, uint32_t now, uint32_t sample_rate,
+                          int retrigger);
 
 /* The key came up: hold the note if the pedal is down, else release. */
 void fm_voice_key_up(fm_voice *v, int pedal_down);
@@ -89,8 +112,23 @@ void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate);
 void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
                        uint32_t sample_rate);
 
-/* Adds `frames` samples of the voice (Q8.24) to `mix`. */
+/*
+ * One control tick (every FM_LFO_TICK_FRAMES samples, numbered `now`):
+ * applies `lfo` (Q1.30, the shared LFO's value), scaled by the voice's
+ * delay and fade-in, at the depths in `m`. With zero depth nothing
+ * changes.
+ */
+void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
+                   uint32_t now);
+
+/*
+ * Adds `frames` samples of the voice (Q8.24) to `mix`. `next_tick` is the
+ * number of the next control tick and `tick_left` the samples before it,
+ * so a stolen note that starts mid-chunk knows which tick its LFO delay
+ * counts from.
+ */
 void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
-                         uint32_t sample_rate);
+                         uint32_t sample_rate, uint32_t next_tick,
+                         uint32_t tick_left);
 
 #endif /* FM_VOICE_H */
