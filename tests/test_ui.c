@@ -352,8 +352,19 @@ TT_TEST(ui_new_last_note_marks_the_note_strip)
     TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
 }
 
+/* HB_F_SCREEN hides the host's line, so the header shows the octave: a change redraws it, once. */
+TT_TEST(ui_octave_change_marks_the_header)
+{
+    ui_setup();
+    (void)ui_take_full(&ui_u, 0);
+    play_octave(&ui_p, 1);
+    TT_CHECK_EQ(ui_take(&ui_u, 100), UI_D_HEAD);
+    TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_octave_change_marks_the_header);
     TT_RUN(ui_new_last_note_marks_the_note_strip);
     TT_RUN(ui_env_on_4a_does_nothing);
     TT_RUN(ui_home_hold_keeps_the_page);

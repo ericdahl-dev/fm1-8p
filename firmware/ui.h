@@ -46,12 +46,14 @@ typedef struct {
     uint32_t drawn_ms;                  /* when ui_take last handed out a redraw */
     uint32_t down_ms[UI_BUTTONS];       /* when each button went down */
     int32_t shown_note;                 /* PLAY: the last note as drawn */
+    int32_t shown_oct;                  /* the octave as the header shows it */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
+#define UI_D_HEAD   0x08u               /* the header alone (the octave changed) */
 #define UI_D_COL(k) (0x10u << (k))      /* knob column k */
 #define UI_D_ALL    0xF7u               /* all of it */
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
