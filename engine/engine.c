@@ -60,10 +60,13 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->voice_count = voice_count;
     /* each voice at 1 / voice_count, then -6 dB of headroom */
     e->mix_gain = (int32_t)((1u << 29) / voice_count);
+    e->stamp = 0;
     for (i = 0; i < FM_MAX_VOICES; i++) {
         fm_osc_reset(&e->voices[i].osc);
         fm_env_reset(&e->voices[i].amp_env);
         e->voices[i].note = 0;
+        e->voices[i].key_down = 0;
+        e->voices[i].stamp = 0;
     }
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         e->params[id] = fm_param_info_get(id)->def;
@@ -88,6 +91,36 @@ int32_t fm_engine_get_param(const fm_engine *e, uint16_t id)
     return (e && id < FM_PARAM_COUNT) ? e->params[id] : 0;
 }
 
+/* Steal preference: lower ranks are taken first. */
+static int voice_rank(const fm_voice *v)
+{
+    if (v->amp_env.stage == FM_ENV_IDLE) return 0;
+    if (!v->key_down) return 1; /* releasing */
+    return 2;                   /* held */
+}
+
+/*
+ * The voice a new note takes: an idle one if any, else the oldest
+ * released one, else the oldest held one. "Oldest" is the longest since
+ * its last note on or off (stamps compared as a wrapping difference).
+ */
+static fm_voice *pick_voice(fm_engine *e)
+{
+    fm_voice *best = &e->voices[0];
+    int best_rank = voice_rank(best);
+    uint8_t i;
+    for (i = 1; i < e->voice_count; i++) {
+        fm_voice *v = &e->voices[i];
+        int r = voice_rank(v);
+        if (r < best_rank ||
+            (r == best_rank && (int32_t)(v->stamp - best->stamp) < 0)) {
+            best = v;
+            best_rank = r;
+        }
+    }
+    return best;
+}
+
 void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
 {
     if (e->sample_rate == 0 || note > 127 || velocity > 127)
@@ -97,15 +130,10 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         return;
     }
     {
-        fm_voice *v = &e->voices[0];
-        uint8_t i;
-        for (i = 0; i < e->voice_count; i++) {
-            if (e->voices[i].amp_env.stage == FM_ENV_IDLE) {
-                v = &e->voices[i];
-                break;
-            }
-        }
+        fm_voice *v = pick_voice(e);
         v->note = note;
+        v->key_down = 1;
+        v->stamp = ++e->stamp;
         fm_osc_set_inc(&v->osc, fm_osc_note_inc(note, e->sample_rate));
         fm_env_gate_on(&v->amp_env);
     }
@@ -114,8 +142,14 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
 void fm_engine_note_off(fm_engine *e, uint8_t note)
 {
     uint8_t i;
-    for (i = 0; i < e->voice_count; i++)
-        if (e->voices[i].note == note) fm_env_gate_off(&e->voices[i].amp_env);
+    for (i = 0; i < e->voice_count; i++) {
+        fm_voice *v = &e->voices[i];
+        if (v->key_down && v->note == note) {
+            v->key_down = 0;
+            v->stamp = ++e->stamp;
+            fm_env_gate_off(&v->amp_env);
+        }
+    }
 }
 
 void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)

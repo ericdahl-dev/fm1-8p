@@ -47,7 +47,9 @@ const fm_param_info *fm_param_info_get(uint16_t id);
 typedef struct {
     fm_osc osc;
     fm_env amp_env;
+    uint32_t stamp; /* engine event count at the last note on or off */
     uint8_t note;
+    uint8_t key_down;
 } fm_voice;
 
 typedef struct {
@@ -55,6 +57,7 @@ typedef struct {
     uint8_t voice_count;
     int32_t params[FM_PARAM_COUNT];
     int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
+    uint32_t stamp;   /* counts note ons and offs, to age the voices */
     fm_voice voices[FM_MAX_VOICES];
 } fm_engine;
 
