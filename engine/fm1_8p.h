@@ -32,6 +32,7 @@ typedef enum {
     FM_PARAM_AMP_DECAY_MS,
     FM_PARAM_AMP_SUSTAIN, /* per mille of full level, 0..1000 */
     FM_PARAM_AMP_RELEASE_MS,
+    FM_PARAM_OSC1_WAVE, /* fm_wave: 0 saw, 1 pulse, 2 square, 3 noise */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -49,7 +50,7 @@ typedef struct {
     uint8_t voice_count;
     int32_t params[FM_PARAM_COUNT];
     /* the one voice of this slice */
-    fm_osc osc;
+    fm_osc_pair osc;
     fm_env amp_env;
     uint8_t note;
 } fm_engine;

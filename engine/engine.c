@@ -38,6 +38,9 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_AMP_RELEASE_MS:
         e->amp_env.release_samples = ms_to_samples(e, v);
         break;
+    case FM_PARAM_OSC1_WAVE:
+        fm_osc_pair_set_wave(&e->osc, 0, (uint8_t)v);
+        break;
     default:
         break;
     }
@@ -53,7 +56,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         return FM_ERR_ARG;
     e->sample_rate = sample_rate;
     e->voice_count = voice_count;
-    fm_osc_reset(&e->osc);
+    fm_osc_pair_reset(&e->osc);
     fm_env_reset(&e->amp_env);
     e->note = 0;
     for (id = 0; id < FM_PARAM_COUNT; id++) {
@@ -88,7 +91,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         return;
     }
     e->note = note;
-    fm_osc_set_inc(&e->osc, fm_osc_note_inc(note, e->sample_rate));
+    fm_osc_pair_set_note(&e->osc, note, e->sample_rate);
     fm_env_gate_on(&e->amp_env);
 }
 
@@ -128,9 +131,9 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         int32_t level = fm_env_next(&e->amp_env);
         int32_t s = 0;
         if (e->amp_env.stage != FM_ENV_IDLE) {
-            int32_t saw = fm_osc_saw_next(&e->osc);
+            int32_t osc = fm_osc_pair_next(&e->osc);
             /* Q8.24 * Q1.30 -> Q8.24, then the fixed voice gain of 0.5 */
-            s = (int32_t)(((int64_t)saw * level) >> 31);
+            s = (int32_t)(((int64_t)osc * level) >> 31);
         }
         out[2 * i] = to_int16(s);
         out[2 * i + 1] = out[2 * i];
