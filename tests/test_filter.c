@@ -1184,14 +1184,13 @@ static int filter_envs_match(fm_engine *a, fm_engine *b)
 
 /*
  * With the filter envelope amount at 0 the envelope does not change the
- * sound, so the render skips stepping it every sample and catches it up
- * (fm_env_advance) at each cutoff update and before anything that uses
- * its level: a gate, a setting change, the amount becoming non-zero. It
- * must stay exactly where it would have been: here against an engine
- * whose amount is non-zero all along (itself checked against a per-sample
- * envelope in filter_envelope_runs_at_the_control_rate_and_stays_exact), through notes, a retrigger, a
- * steal, a queued release, a setting change, and the amount turned up
- * mid-note.
+ * sound, and the render catches it up (fm_env_advance) only when it is
+ * read and before a gate or setting change. It must stay exactly where
+ * it would have been: against an engine whose amount is non-zero all
+ * along, through notes, a retrigger, a steal, a queued release, a
+ * setting change, and the amount turned up mid-note. Both engines are
+ * caught up the same way, so the first stretch also holds them to an
+ * envelope stepped every sample (`ref`), through the attack and a retime.
  */
 TT_TEST(filter_envelope_skipped_at_zero_amount_stays_in_time)
 {
@@ -1199,17 +1198,25 @@ TT_TEST(filter_envelope_skipped_at_zero_amount_stays_in_time)
     int ok = 1;
     fm_engine_init(&a, FRATE, 2);
     fm_engine_init(&b, FRATE, 2);
+    fm_env ref;
+    uint32_t n;
     lag_patch(&a, 0);
     lag_patch(&b, 1200);
     fm_engine_note_on(&a, 60, 100);
     fm_engine_note_on(&b, 60, 100);
+    ref = b.voices[0].filter_env; /* gated on, not yet stepped */
     fm_engine_render(&a, fbuf_a, 37);
     fm_engine_render(&b, fbuf_b, 37);
+    for (n = 0; n < 37; n++) fm_env_next(&ref);
     fm_engine_set_param(&a, FM_PARAM_FILTER_ENV_ATTACK_MS, 5); /* retime */
     fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_ATTACK_MS, 5);
+    ref.attack_samples = b.voices[0].filter_env.attack_samples;
+    fm_env_retime(&ref);
     fm_engine_render(&a, fbuf_a, 1001);
     fm_engine_render(&b, fbuf_b, 1001);
+    for (n = 0; n < 1001; n++) fm_env_next(&ref);
     ok &= filter_envs_match(&a, &b);
+    ok &= b.voices[0].filter_env.level == ref.level && b.voices[0].filter_env.stage == ref.stage;
     fm_engine_render(&a, fbuf_a, 1205); /* in decay, mid control period */
     fm_engine_render(&b, fbuf_b, 1205);
     fm_engine_note_on(&a, 60, 100); /* retrigger from the current level */
