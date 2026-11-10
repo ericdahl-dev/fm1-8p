@@ -177,6 +177,37 @@ TT_TEST(loud_input_matches_the_reference_exactly)
     TT_CHECK(same);
 }
 
+/* Q8.24 has headroom to +-128.0, and the filter must match the reference bit for bit over all of
+ * it: a loud DC offset (40.0) with a 0.5 sine through the strongest highpass, which takes the
+ * offset out, at every lowpass setting from open down to a resonant 2400 cents. */
+TT_TEST(input_beyond_32_matches_the_reference_exactly)
+{
+    static const int32_t cutoffs[] = { ORACLE_OPEN_CENTS, 14000, 9000, 2400 };
+    static const int32_t dcs[] = { 40, 100, -127 };
+    static fm_filter f;
+    static oracle_filter o;
+    int32_t rate = fm_filter_rate_cents(ORACLE_RATE);
+    size_t c, d, i, differ = 0;
+    for (d = 0; d < sizeof dcs / sizeof dcs[0]; d++)
+        for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
+            fm_filter_reset(&f);
+            oracle_filter_reset(&o);
+            fm_filter_set_resonance(&f, c == 3 ? 900 : 0);
+            oracle_filter_set_resonance(&o, c == 3 ? 900 : 0);
+            fm_filter_set_highpass(&f, 3, rate);
+            oracle_filter_set_highpass(&o, 3, rate);
+            fm_filter_set_cutoff(&f, cutoffs[c], rate);
+            oracle_filter_set_cutoff(&o, cutoffs[c], rate);
+            for (i = 0; i < ORACLE_RATE; i++) {
+                int32_t x = (int32_t)lround(16777216.0 * (dcs[d] + 0.5 * sin(6.283185307179586 * 440.0 * (double)i / ORACLE_RATE)));
+                differ += fm_filter_run(&f, x) != oracle_filter_process(&o, x);
+            }
+        }
+    printf("    input beyond 32: %lu of %lu samples differ from the reference\n", (unsigned long)differ,
+           (unsigned long)(12 * ORACLE_RATE));
+    TT_CHECK_EQ(differ, 0);
+}
+
 /* Any int32 input, even the extremes, gives a bounded output: no overflow, whatever the setting. */
 TT_TEST(extreme_input_stays_bounded)
 {
@@ -198,6 +229,7 @@ TT_TEST(extreme_input_stays_bounded)
 static void run_filter_oracle_tests(void)
 {
     TT_RUN(loud_input_matches_the_reference_exactly);
+    TT_RUN(input_beyond_32_matches_the_reference_exactly);
     TT_RUN(extreme_input_stays_bounded);
     TT_RUN(full_resonance_8_voice_chord_stays_bounded);
     TT_RUN(self_oscillation_pitch_matches_the_reference);
