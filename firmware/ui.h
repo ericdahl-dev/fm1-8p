@@ -10,7 +10,10 @@
 #define UI_EV_BTN_DOWN 0x01000000u
 #define UI_EV_BTN_UP   0x02000000u
 #define UI_EV_ENC      0x03000000u
+#define UI_BTN_FX      2u
+#define UI_BTN_SEL     3u
 #define UI_BTN_ENV     4u
+#define UI_BTN_LFO     5u
 #define UI_BTN_EDIT    6u
 #define UI_BTN_HOME    8u
 #define UI_ENC_KNOB1   2u
@@ -77,4 +80,7 @@ const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 /* the UI_D_* bits to redraw now (0: nothing, or the last redraw was under UI_FRAME_MS ago), taken */
 uint32_t ui_take(ui *u, uint32_t ms);
+/* a button's LED (interaction.md): UI_LED_OFF, UI_LED_LIT or UI_LED_GLOW (dim) */
+enum { UI_LED_OFF = 0, UI_LED_LIT = 1, UI_LED_GLOW = 2 };
+uint32_t ui_led(const ui *u, uint32_t button);
 #endif

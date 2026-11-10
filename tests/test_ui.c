@@ -251,8 +251,22 @@ TT_TEST(ui_edit_hold_does_not_toggle)
     TT_CHECK_EQ(ui_u.state, UI_EDIT);
 }
 
+/* A section button's LED is lit while one of its pages shows and glows otherwise (ENV: 4A). */
+TT_TEST(ui_section_leds_light_their_page)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_LFO), UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_FX), UI_LED_GLOW);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_LIT);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_GLOW);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_section_leds_light_their_page);
     TT_RUN(ui_edit_hold_does_not_toggle);
     TT_RUN(ui_home_tap_returns_to_play);
     TT_RUN(ui_page_strip_fills_the_rule);

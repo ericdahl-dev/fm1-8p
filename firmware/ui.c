@@ -265,3 +265,17 @@ uint32_t ui_take(ui *u, uint32_t ms)
     u->drawn_ms = ms;
     return d;
 }
+
+uint32_t ui_led(const ui *u, uint32_t button)
+{
+    switch (button) {
+    case UI_BTN_ENV:                            /* its ring starts at 4A, the one page here */
+        return u->state == UI_EDIT ? UI_LED_LIT : UI_LED_GLOW;
+    case UI_BTN_SEL:
+    case UI_BTN_LFO:
+    case UI_BTN_FX:                             /* none of their pages shows */
+        return UI_LED_GLOW;
+    default:
+        return UI_LED_OFF;
+    }
+}
