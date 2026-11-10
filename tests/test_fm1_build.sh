@@ -105,6 +105,10 @@ grep -v 'permille 000a' "$T/emu.txt" >"$T/emu-nofull.txt"
 expect_fail "emu report fails when the full patch is missing" emu_report "$T/emu-nofull.txt"
 emu_report "$T/emu-nofull.txt" >"$T/report.md" 2>&1
 expect_ok "... and names it F" grep -q 'Missing voice counts: F\*\*' "$T/report.md"
+{ grep -v 'permille 000a' "$T/emu.txt"; echo "45250 fm1-8p ERROR: step failed to start, not timed; count 0000000a"; } >"$T/emu-err.txt"
+expect_fail "emu report fails when a step failed to start" emu_report "$T/emu-err.txt"
+emu_report "$T/emu-err.txt" >"$T/report.md" 2>&1
+expect_ok "... and quotes the error line" grep -q 'ERROR: step failed to start, not timed; count 0000000a' "$T/report.md"
 emu_report "$T/emu.txt" >"$T/report.md"
 expect_ok "emu report keeps the host meter line" grep -q 'worst 4046 (2.9 %), 0 overruns' "$T/report.md"
 grep -v 'permille 000[4-6]' "$T/emu.txt" >"$T/emu-short.txt"

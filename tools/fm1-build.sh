@@ -119,6 +119,7 @@ emu_report() {
     done
     echo
     grep 'render: last' "$1" || true
+    grep 'fm1-8p ERROR' "$1" || true             # a step that failed to start: not timed
     missing=
     for v in $(seq 1 "$full"); do
         case "$counts" in

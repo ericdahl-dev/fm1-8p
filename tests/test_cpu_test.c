@@ -52,7 +52,7 @@ TT_TEST(cpu_test_keeps_worst_block_time_per_voice_count)
     TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, 1), 250);
     TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, 3), 500);
     TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, 2), 0);
-    TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, CT_BURST + 1), 0); /* out of range: nothing */
+    TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, CT_LAST + 1), 0);  /* out of range: nothing */
 }
 
 TT_TEST(cpu_test_sweep_steps_up_one_voice_per_hold_then_the_burst_then_the_full_patch)
@@ -351,8 +351,36 @@ TT_TEST(cpu_test_full_patch_can_play_at_any_voice_count)
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_AMP_VELOCITY), 0);
 }
 
+/* A full patch the engine refuses (here an unknown param) fails loudly: the step is marked failed and
+ * its blocks never count as the full patch's cost. */
+TT_TEST(cpu_test_full_patch_that_fails_is_not_timed)
+{
+    static const cpu_test_param BAD[] = {{FM_PARAM_OSC_MIX, 500}, {FM_PARAM_COUNT, 1}};
+    uint32_t v, pm, i;
+    TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    cpu_test_set_full_patch(&ct_a, BAD, 2);
+    TT_CHECK(!cpu_test_failed(&ct_a, CT_FULL));
+    cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
+    cpu_test_sweep(&ct_a, 2);
+    for (i = 0; i < 4; i++) {
+        cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+        cpu_test_record(&ct_a, CT_BLOCK_TICKS / 4);
+    }
+    TT_CHECK(cpu_test_failed(&ct_a, CT_FULL));
+    TT_CHECK_EQ(cpu_test_worst_permille(&ct_a, CT_FULL), 0);
+    TT_CHECK_EQ(cpu_test_take_completed(&ct_a, &v, &pm), 1);    /* the step still ends, so the log says so */
+    TT_CHECK_EQ(v, CT_FULL);
+    TT_CHECK_EQ(pm, 0);
+    cpu_test_set_full_patch(&ct_a, NULL, 0);                    /* back to the built-in patch */
+    cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
+    cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    TT_CHECK(!cpu_test_failed(&ct_a, CT_FULL));
+    TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_AMP_VELOCITY), 100);
+}
+
 static void run_cpu_test_tests(void)
 {
+    TT_RUN(cpu_test_full_patch_that_fails_is_not_timed);
     TT_RUN(cpu_test_full_patch_can_play_at_any_voice_count);
     TT_RUN(cpu_test_full_patch_strikes_varied_velocities);
     TT_RUN(cpu_test_default_steps_leave_the_patch_at_its_defaults);
