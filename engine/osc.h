@@ -69,8 +69,9 @@ typedef struct {
 void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed);
 /* Selects oscillator `which`'s (0 or 1) waveform; others are ignored. */
 void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave);
-/* Pulse duty of oscillator `which` as a Q0.32 fraction of a cycle. */
-void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width);
+/* Pulse duty of oscillator `which`, in percent of a cycle (1..99; values
+ * outside are clamped). */
+void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, int32_t pct);
 /*
  * Tuning of oscillator `which` in cents from the played pitch (an octave
  * is 1200). `pitch` (Q16.16 semitones) is what the pair plays now, so

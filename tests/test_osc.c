@@ -100,6 +100,30 @@ TT_TEST(square_ignores_pulse_width)
     }
 }
 
+/* Duty cycle of a pair's osc1 pulse at `pct`, note 45, over 100 cycles. */
+static double pair_duty(int32_t pct)
+{
+    static fm_osc_pair pair;
+    size_t i, high = 0;
+    fm_osc_pair_reset(&pair, 1);
+    fm_osc_pair_set_wave(&pair, 0, FM_WAVE_PULSE);
+    fm_osc_pair_set_width(&pair, 0, pct);
+    fm_osc_pair_set_pitch(&pair, 45 << 16, RATE);
+    for (i = 0; i < 40091; i++)
+        if (fm_osc_pair_next(&pair) > 0) high++;
+    return (double)high / 40091;
+}
+
+/* Widths outside 1..99% play as the nearest end of that range. */
+TT_TEST(pulse_width_outside_its_range_is_clamped)
+{
+    TT_CHECK_NEAR(pair_duty(100), pair_duty(99), 0.001);
+    TT_CHECK_NEAR(pair_duty(1000), pair_duty(99), 0.001);
+    TT_CHECK_NEAR(pair_duty(0), pair_duty(1), 0.001);
+    TT_CHECK_NEAR(pair_duty(-5), pair_duty(1), 0.001);
+    TT_CHECK_NEAR(pair_duty(99), 0.99, 0.005);
+}
+
 /* Peak of a held note 45 on osc1 with the given wave and width. */
 static int held_peak(int32_t wave, int32_t width)
 {
@@ -425,6 +449,7 @@ static void run_osc_tests(void)
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
+    TT_RUN(pulse_width_outside_its_range_is_clamped);
     TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
     TT_RUN(tuned_increment_matches_exact_pitch);

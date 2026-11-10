@@ -47,12 +47,6 @@ static void apply_bend(fm_engine *e, int32_t centered)
     retune(e);
 }
 
-/* Percent (0..100) to a Q0.32 fraction; 2^32 / 100 rounded. */
-static uint32_t pct_to_q32(int32_t pct)
-{
-    return (uint32_t)pct * 42949673u;
-}
-
 /*
  * Oscillator `which`'s settings on every voice. Each oscillator's
  * parameters run in the same order (wave, pulse width, octave, fine), so
@@ -83,7 +77,7 @@ static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
             fm_osc_pair_set_wave(&v->osc, which, (uint8_t)p[0]);
             break;
         case 1:
-            fm_osc_pair_set_width(&v->osc, which, pct_to_q32(p[1]));
+            fm_osc_pair_set_width(&v->osc, which, p[1]);
             break;
         default: /* octave or fine tune */
             fm_voice_set_tune(v, which, p[2] * 1200 + p[3], e->sample_rate);

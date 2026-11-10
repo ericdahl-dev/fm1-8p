@@ -188,10 +188,12 @@ void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
     tune_osc(p, which, pitch, sample_rate);
 }
 
-void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, uint32_t width)
+void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, int32_t pct)
 {
     if (which >= 2) return;
-    p->width[which] = width;
+    if (pct < 1) pct = 1; /* 100% would not fit Q0.32 (it wraps to 0) */
+    if (pct > 99) pct = 99;
+    p->width[which] = (uint32_t)pct * 42949673u; /* 2^32 / 100, rounded */
     update_pw(p, which);
 }
 
