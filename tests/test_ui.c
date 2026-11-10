@@ -171,15 +171,22 @@ TT_TEST(ui_edit_returns_to_play)
 /* The slot's filter curve, as render.py's filter_curve draws it (the cutoff and the resonance as
  * fractions of their range; column i of n across 2.6 decades): its level in tenths of a dB, to
  * half a dB of the mockup's floating point. */
+static int32_t ui_curve_at(int32_t cut, int32_t res, uint32_t i)
+{
+    ui_curve c;
+    ui_curve_begin(&c, cut, res, 226);
+    return ui_curve_db(&c, i);
+}
+
 TT_TEST(ui_curve_follows_the_mockup)
 {
-    TT_CHECK_NEAR(ui_curve_db(9300, 340, 0, 226), 0, 5);
-    TT_CHECK_NEAR(ui_curve_db(9300, 340, 120, 226), 39, 5);    /* the resonant bump */
-    TT_CHECK_NEAR(ui_curve_db(9300, 340, 150, 226), -38, 5);
-    TT_CHECK_NEAR(ui_curve_db(9300, 340, 200, 226), -302, 5);
-    TT_CHECK_NEAR(ui_curve_db(7800, 200, 140, 226), -114, 5);
-    TT_CHECK_NEAR(ui_curve_db(14400, 1000, 200, 226), 89, 5);
-    TT_CHECK_NEAR(ui_curve_db(0, 0, 50, 226), -231, 5);
+    TT_CHECK_NEAR(ui_curve_at(9300, 340, 0), 0, 5);
+    TT_CHECK_NEAR(ui_curve_at(9300, 340, 120), 39, 5);    /* the resonant bump */
+    TT_CHECK_NEAR(ui_curve_at(9300, 340, 150), -38, 5);
+    TT_CHECK_NEAR(ui_curve_at(9300, 340, 200), -302, 5);
+    TT_CHECK_NEAR(ui_curve_at(7800, 200, 140), -114, 5);
+    TT_CHECK_NEAR(ui_curve_at(14400, 1000, 200), 89, 5);
+    TT_CHECK_NEAR(ui_curve_at(0, 0, 50), -231, 5);
 }
 
 static int ui_column_shows(uint16_t id, int32_t value, const char *num, const char *unit)

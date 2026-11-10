@@ -183,13 +183,15 @@ static void slot(void)
 {
     const int32_t w = 240 - 2 * M, h = 56, n = w - 4;
     int32_t cut = play_get_param(&P, FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_curve c;
     int32_t res = play_get_param(&P, FM_PARAM_FILTER_RESONANCE), i, y0 = 0;
     uint16_t hatch = mix(C_WINDOW, C_VCF, 41);
+    ui_curve_begin(&c, cut, res, (uint32_t)n);
     H->cv_begin(w, h, C_WINDOW);
     frame(0, 0, w, h, C_LINE);
     H->cv_rect(2, 5 + 120 * (h - 8) / 480, w - 4, 1, C_LINE);
     for (i = 0; i < n; i++) {
-        int32_t d = ui_curve_db(cut, res, (uint32_t)i, (uint32_t)n), y;
+        int32_t d = ui_curve_db(&c, (uint32_t)i), y;
         d = d > 120 ? 120 : d < -360 ? -360 : d;
         y = 5 + (120 - d) * (h - 8) / 480;
         if (!(i & 1))

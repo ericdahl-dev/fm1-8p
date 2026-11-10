@@ -173,19 +173,27 @@ static uint32_t isqrt(uint32_t v)
     return r;
 }
 
-int32_t ui_curve_db(int32_t cutoff_cents, int32_t reso_permille, uint32_t i, uint32_t n)
+/* render.py: fc = 10^(-2 + 2.4 cut), x = 10^(-2 + 2.6 i / (n - 1)) / fc, q = 0.7 + 6 res^1.5,
+ * |H|^2 = 1 / ((1 - x^2)^2 + (x / q)^2); what doesn't depend on the column, once per curve */
+void ui_curve_begin(ui_curve *c, int32_t cutoff_cents, int32_t reso_permille, uint32_t n)
 {
-    /* render.py: fc = 10^(-2 + 2.4 cut), x = 10^(-2 + 2.6 i / (n - 1)) / fc, q = 0.7 + 6 res^1.5,
-     * |H|^2 = 1 / ((1 - x^2)^2 + (x / q)^2); here log2(x) in Q12 */
-    int32_t dec = (int32_t)(10650u * i / (n > 1u ? n - 1u : 1u)) - cutoff_cents * 9830 / 14400;
-    int32_t lx = dec * 13607 / 4096, a;
     uint32_t r = (uint32_t)(reso_permille < 0 ? 0 : reso_permille) * 4096u / 1000u;
-    uint32_t q = 2867u + 6u * (r * isqrt(r) / 64u), q2 = q * q >> 16, x2, d;
+    uint32_t q = 2867u + 6u * (r * isqrt(r) / 64u);
+    c->q2 = q * q >> 16;                        /* q^2, Q8 */
+    c->cut = cutoff_cents * 9830 / 14400;       /* 2.4 cut decades, Q12 */
+    c->n1 = n > 1u ? n - 1u : 1u;
+}
+
+int32_t ui_curve_db(const ui_curve *c, uint32_t i)
+{
+    int32_t dec = (int32_t)(10650u * i / c->n1) - c->cut;     /* decades, Q12 */
+    int32_t lx = dec * 13607 / 4096, a;                       /* log2(x), Q12 */
+    uint32_t x2, d;
     if (lx > 3 * 4096)                          /* x > 8: x^4 is all of it, -40 log10 x */
         return -(lx * 1204 / 40960);
     x2 = exp2_q8(2 * lx);                       /* x^2, Q8 */
     a = 256 - (int32_t)x2;
-    d = (uint32_t)(a * a) + (x2 << 16) / q2;    /* Q16 */
+    d = (uint32_t)(a * a) + (x2 << 16) / c->q2; /* Q16 */
     return -((log2_q12(d) - 16 * 4096) * 301 / 40960);   /* -100 log10 d, in tenths of a dB */
 }
 

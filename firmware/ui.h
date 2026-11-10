@@ -64,7 +64,10 @@ void ui_format(uint16_t id, int32_t value, char *s);
 void ui_column(uint16_t id, int32_t value, char *num, char *unit);
 /* the slot's filter curve, as docs/ui/mockups/render.py draws it: its level at column i of n, in
  * tenths of a dB (0 flat, + the resonant bump) */
-int32_t ui_curve_db(int32_t cutoff_cents, int32_t reso_permille, uint32_t i, uint32_t n);
+typedef struct { uint32_t q2, n1; int32_t cut; } ui_curve;
+/* set up for a cutoff and resonance across n columns; then column i's level */
+void ui_curve_begin(ui_curve *c, int32_t cutoff_cents, int32_t reso_permille, uint32_t n);
+int32_t ui_curve_db(const ui_curve *c, uint32_t i);
 /* the header's page strip: segment i (interaction.md's page order, 1A .. 8B) at x, w px wide */
 #define UI_PAGES 14u
 #define UI_PAGE_4A 4u
