@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: make
+
+      - name: Tests
+        run: make test
+
+      - name: Tests with AddressSanitizer and UBSan
+        run: |
+          make clean
+          make test CFLAGS="-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all"
+          make clean
+
+      - name: Float-free engine check
+        run: make check-float-free
+
+      - name: Sample render
+        run: |
+          make render-demo
+          ls -l build/demo.wav
+
+      - name: Upload sample render
+        if: matrix.cc == 'gcc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-wav
+          path: build/demo.wav
+          if-no-files-found: error
