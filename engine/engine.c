@@ -106,6 +106,12 @@ static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
     }
 }
 
+/* Per mille (0..1000) -> Q1.30 (1000 -> 1.0), rounded down. */
+static int32_t permille_to_q30(int32_t permille)
+{
+    return (int32_t)(((int64_t)permille << 30) / 1000);
+}
+
 /* Recomputes the derived settings a parameter feeds. */
 static void apply_param(fm_engine *e, uint16_t id)
 {
@@ -128,9 +134,9 @@ static void apply_param(fm_engine *e, uint16_t id)
         apply_osc_param(e, 1, id - FM_PARAM_OSC2_WAVE);
         return;
     case FM_PARAM_OSC_MIX:
-        for (i = 0; i < FM_MAX_VOICES; i++) /* per mille -> Q1.30 */
+        for (i = 0; i < FM_MAX_VOICES; i++)
             fm_osc_pair_set_mix(&e->voices[i].osc,
-                                (int32_t)(((int64_t)v << 30) / 1000));
+                                permille_to_q30(v));
         return;
     default:
         break;
@@ -164,8 +170,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             changed = amp;
             break;
         case FM_PARAM_AMP_SUSTAIN:
-            /* per mille -> Q1.30 */
-            amp->sustain = (int32_t)(((int64_t)v << 30) / 1000);
+            amp->sustain = permille_to_q30(v);
             changed = amp;
             break;
         case FM_PARAM_AMP_RELEASE_MS:
@@ -193,7 +198,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_SUSTAIN:
-            flt->sustain = (int32_t)(((int64_t)v << 30) / 1000);
+            flt->sustain = permille_to_q30(v);
             changed = flt;
             break;
         case FM_PARAM_FILTER_ENV_RELEASE_MS:

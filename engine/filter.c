@@ -70,6 +70,11 @@ static const uint32_t h_tab[65] = {
 #define TWO_PI_Q29   3373259426u  /* 2 pi, Q3.29 */
 #define ONE_Q30      (1 << 30)
 #define FADE_CENTS   600
+/* fade per cent below the top: 2^30 / 600, rounded down (1789569) */
+#define FADE_STEP    (ONE_Q30 / FADE_CENTS)
+/* (top - cutoff) * FADE_STEP is at most FADE_CENTS * FADE_STEP <= 2^30 */
+typedef char fm_require_fade_fits_q30[
+    (int64_t)FADE_CENTS * FADE_STEP <= ONE_Q30 ? 1 : -1];
 #define W_ZERO       (1 << 28)   /* 1/4, Q1.30: the zero at z = -1/3 */
 /* Feedback at resonance 1000, per mille, Q4.28: 4.2 / 1000. Just above
  * the loop's self-oscillation threshold, which in theory is about 4.0
@@ -171,10 +176,10 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
     if (cutoff_cents < 0) cutoff_cents = 0;
     if (cutoff_cents > FM_FILTER_OPEN_CENTS) cutoff_cents = FM_FILTER_OPEN_CENTS;
     g = coef_for(cutoff_cents, rate_cents);
-    /* 1.0 up to the fade, then down to 0 at open; 2^30 / 600 per cent */
+    /* 1.0 up to the fade, then down to 0 at open */
     f->fade = cutoff_cents <= FM_FILTER_OPEN_CENTS - FADE_CENTS
                   ? ONE_Q30
-                  : (FM_FILTER_OPEN_CENTS - cutoff_cents) * 1789569;
+                  : (FM_FILTER_OPEN_CENTS - cutoff_cents) * FADE_STEP;
     f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
     f->w = mul_q30(W_ZERO, f->fade);
     f->k = mul_q30(f->k_res, f->fade);
