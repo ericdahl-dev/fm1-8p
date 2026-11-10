@@ -227,6 +227,46 @@ TT_TEST(raising_sustain_mid_decay_does_not_overflow)
     TT_CHECK(peak_abs(buf, 0, 4410) <= 16384 + 64);
 }
 
+TT_TEST(shortening_release_mid_release_takes_effect)
+{
+    size_t i;
+    int loud_after = 0;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 10000);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, 4410);
+    fm_engine_note_off(&eng, 57);
+    fm_engine_render(&eng, buf, 441);
+    TT_CHECK(peak_abs(buf, 0, 441) > 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 0);
+    fm_engine_render(&eng, buf, 441);
+    for (i = 2 * 2; i < 2 * 441; i++)
+        if (buf[i] != 0) loud_after = 1;
+    TT_CHECK(!loud_after);
+}
+
+/*
+ * Raising sustain above the current level mid-decay moves the level
+ * there over the decay time instead of jumping (a click).
+ */
+TT_TEST(raising_sustain_mid_decay_glides_instead_of_jumping)
+{
+    double before, just_after, settled;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 0);
+    fm_engine_note_on(&eng, 69, 100); /* period < amp_at window */
+    fm_engine_render(&eng, buf, RATE / 2); /* level about 0.5 */
+    before = amp_at(buf, RATE, 500);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_render(&eng, buf, 2 * RATE);
+    just_after = amp_at(buf, RATE, 4);
+    settled = amp_at(buf, RATE, 1500);
+    TT_CHECK_NEAR(before / settled, 0.5, 0.05);
+    TT_CHECK_NEAR(just_after / settled, 0.5, 0.05);
+}
+
 static void run_engine_tests(void)
 {
     TT_RUN(note_on_plays_saw_at_note_pitch);
@@ -239,4 +279,6 @@ static void run_engine_tests(void)
     TT_RUN(extreme_settings_stay_bounded_and_release);
     TT_RUN(uninitialized_engine_is_silent_and_does_not_divide_by_zero);
     TT_RUN(raising_sustain_mid_decay_does_not_overflow);
+    TT_RUN(shortening_release_mid_release_takes_effect);
+    TT_RUN(raising_sustain_mid_decay_glides_instead_of_jumping);
 }

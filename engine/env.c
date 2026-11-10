@@ -35,6 +35,34 @@ void fm_env_gate_off(fm_env *e)
     e->step = step_for(e->level, e->release_samples);
 }
 
+/* Step for the DECAY stage: from the current level to sustain, in either
+ * direction, over the decay time. */
+static void enter_decay(fm_env *e)
+{
+    int32_t span = e->level > e->sustain ? e->level - e->sustain
+                                         : e->sustain - e->level;
+    e->stage = FM_ENV_DECAY;
+    e->step = step_for(span, e->decay_samples);
+}
+
+void fm_env_retime(fm_env *e)
+{
+    switch (e->stage) {
+    case FM_ENV_ATTACK:
+        e->step = step_for(FM_ENV_FULL, e->attack_samples);
+        break;
+    case FM_ENV_DECAY:
+    case FM_ENV_SUSTAIN:
+        if (e->level != e->sustain) enter_decay(e);
+        break;
+    case FM_ENV_RELEASE:
+        e->step = step_for(e->level, e->release_samples);
+        break;
+    default:
+        break;
+    }
+}
+
 int32_t fm_env_next(fm_env *e)
 {
     switch (e->stage) {
@@ -43,22 +71,27 @@ int32_t fm_env_next(fm_env *e)
          * difference cannot overflow where a sum could */
         if (FM_ENV_FULL - e->level <= e->step) {
             e->level = FM_ENV_FULL;
-            e->stage = FM_ENV_DECAY;
-            e->step = step_for(FM_ENV_FULL - e->sustain, e->decay_samples);
+            enter_decay(e);
         } else {
             e->level += e->step;
         }
         break;
     case FM_ENV_DECAY:
-        if (e->level - e->step <= e->sustain) {
+        if (e->level >= e->sustain) {
+            if (e->level - e->step <= e->sustain) {
+                e->level = e->sustain;
+                e->stage = FM_ENV_SUSTAIN;
+            } else {
+                e->level -= e->step;
+            }
+        } else if (e->sustain - e->level <= e->step) {
             e->level = e->sustain;
             e->stage = FM_ENV_SUSTAIN;
         } else {
-            e->level -= e->step;
+            e->level += e->step;
         }
         break;
-    case FM_ENV_SUSTAIN:
-        e->level = e->sustain;
+    case FM_ENV_SUSTAIN: /* holds; fm_env_retime starts a glide on change */
         break;
     case FM_ENV_RELEASE:
         if (e->level <= e->step) {

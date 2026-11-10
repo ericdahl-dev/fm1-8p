@@ -8,8 +8,13 @@
  *   attack  - rises at a rate that goes 0 -> full in the attack time
  *             (a retrigger starts from the current level, so no click)
  *   decay   - full -> sustain in the decay time
- *   sustain - holds the sustain level (follows changes to it)
+ *   sustain - holds the sustain level
  *   release - current level -> 0 in the release time, then idle
+ *
+ * When a setting changes, fm_env_retime recomputes the running stage from
+ * the current level: a new release time applies at once, and a sustain
+ * change (in decay or sustain) glides to the new level over the decay
+ * time rather than jumping. Full parameter smoothing comes later.
  */
 #ifndef FM_ENV_H
 #define FM_ENV_H
@@ -41,6 +46,8 @@ typedef struct {
 void fm_env_reset(fm_env *e);
 void fm_env_gate_on(fm_env *e);
 void fm_env_gate_off(fm_env *e);
+/* Call after changing any setting while the envelope may be running. */
+void fm_env_retime(fm_env *e);
 /* Advances one sample and returns the new level (Q1.30). */
 int32_t fm_env_next(fm_env *e);
 

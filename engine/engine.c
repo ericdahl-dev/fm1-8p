@@ -41,6 +41,7 @@ static void apply_param(fm_engine *e, uint16_t id)
     default:
         break;
     }
+    fm_env_retime(&e->amp_env);
 }
 
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
