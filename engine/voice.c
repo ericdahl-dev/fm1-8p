@@ -22,6 +22,8 @@ void fm_voice_reset(fm_voice *v, int32_t rate_cents)
     v->rate_cents = rate_cents;
     v->cutoff_cents = FM_FILTER_OPEN_CENTS;
     v->key_track = 0;
+    v->env_amount = 0;
+    fm_env_reset(&v->filter_env);
     v->ctrl_phase = 0;
 }
 
@@ -39,6 +41,7 @@ static void start(fm_voice *v)
     v->ctrl_phase = 0; /* the new note's cutoff from its first sample */
     fm_osc_set_inc(&v->osc, v->next_inc);
     fm_env_gate_on(&v->amp_env);
+    fm_env_gate_on(&v->filter_env);
     if (!v->key_down && !v->sustained) v->gate_left = v->wait ? v->wait : 1;
 }
 
@@ -87,12 +90,16 @@ void fm_voice_release(fm_voice *v)
 {
     v->key_down = 0;
     v->sustained = 0;
-    if (!v->pending) fm_env_gate_off(&v->amp_env);
+    if (!v->pending) {
+        fm_env_gate_off(&v->amp_env);
+        fm_env_gate_off(&v->filter_env);
+    }
 }
 
 void fm_voice_silence(fm_voice *v)
 {
     fm_env_reset(&v->amp_env);
+    fm_env_reset(&v->filter_env);
     v->pending = 0;
     v->gate_left = 0;
     v->key_down = 0;
@@ -108,12 +115,13 @@ void fm_voice_set_inc(fm_voice *v, uint32_t inc)
 /* Samples between cutoff updates (control rate: 2756 Hz at 44.1 kHz). */
 #define FILTER_CTRL_SAMPLES 16
 
-/* Recomputes the cutoff from the settings and the voice's note. */
-static void update_cutoff(fm_voice *v)
+/* Recomputes the cutoff from the settings, the voice's note and its
+ * filter envelope level `fenv`. */
+static void update_cutoff(fm_voice *v, int32_t fenv)
 {
     fm_filter_set_cutoff(&v->filter,
                          fm_filter_voice_cents(v->cutoff_cents, v->key_track,
-                                               v->note),
+                                               v->note, fenv, v->env_amount),
                          v->rate_cents);
 }
 
@@ -121,16 +129,19 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames)
 {
     uint32_t i;
     for (i = 0; i < frames; i++) {
-        int32_t level, saw;
+        int32_t level, fenv, saw;
         if (v->amp_env.stage == FM_ENV_IDLE) {
             if (!v->pending) return;
             start(v); /* the stolen note has faded out */
         }
-        if (v->gate_left && --v->gate_left == 0)
-            fm_env_gate_off(&v->amp_env); /* the queued release */
+        if (v->gate_left && --v->gate_left == 0) { /* the queued release */
+            fm_env_gate_off(&v->amp_env);
+            fm_env_gate_off(&v->filter_env);
+        }
         level = fm_env_next(&v->amp_env);
+        fenv = fm_env_next(&v->filter_env);
         if (v->ctrl_phase == 0) {
-            update_cutoff(v);
+            update_cutoff(v, fenv);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
         }
         v->ctrl_phase--;

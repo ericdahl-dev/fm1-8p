@@ -44,6 +44,13 @@ typedef enum {
     FM_PARAM_FILTER_CUTOFF_CENTS,
     FM_PARAM_FILTER_RESONANCE, /* per mille; 1000 self-oscillates */
     FM_PARAM_FILTER_KEY_TRACK, /* per mille; 1000 follows the note 1:1 */
+    FM_PARAM_FILTER_ENV_ATTACK_MS,
+    FM_PARAM_FILTER_ENV_DECAY_MS,
+    FM_PARAM_FILTER_ENV_SUSTAIN, /* per mille of full level, 0..1000 */
+    FM_PARAM_FILTER_ENV_RELEASE_MS,
+    /* cents the filter envelope adds to the cutoff at full level;
+     * negative sweeps the cutoff down */
+    FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
     FM_PARAM_COUNT
 } fm_param_id;
 

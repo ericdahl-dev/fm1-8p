@@ -81,10 +81,26 @@ static void apply_param(fm_engine *e, uint16_t id)
         case FM_PARAM_FILTER_KEY_TRACK:
             vc->key_track = v;
             break;
+        case FM_PARAM_FILTER_ENV_ATTACK_MS:
+            vc->filter_env.attack_samples = ms_to_samples(e, v);
+            break;
+        case FM_PARAM_FILTER_ENV_DECAY_MS:
+            vc->filter_env.decay_samples = ms_to_samples(e, v);
+            break;
+        case FM_PARAM_FILTER_ENV_SUSTAIN:
+            vc->filter_env.sustain = (int32_t)(((int64_t)v << 30) / 1000);
+            break;
+        case FM_PARAM_FILTER_ENV_RELEASE_MS:
+            vc->filter_env.release_samples = ms_to_samples(e, v);
+            break;
+        case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
+            vc->env_amount = v;
+            break;
         default:
             break;
         }
         fm_env_retime(env);
+        fm_env_retime(&vc->filter_env);
     }
 }
 

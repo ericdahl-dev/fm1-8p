@@ -196,10 +196,67 @@ TT_TEST(key_tracking_moves_cutoff_with_note_pitch)
              2.0 * rms(fbuf_b, 4410, FRAMES_HALF_S));
 }
 
+/* Brightness of one channel over frames [from, to): RMS of the sample
+ * differences over RMS of the signal (rises with high harmonics). */
+static double brightness(const int16_t *stereo, size_t from, size_t to)
+{
+    double d2 = 0, x2 = 0;
+    size_t i;
+    for (i = from + 1; i < to; i++) {
+        double d = (double)stereo[2 * i] - stereo[2 * (i - 1)];
+        d2 += d * d;
+        x2 += (double)stereo[2 * i] * stereo[2 * i];
+    }
+    return sqrt(d2 / x2);
+}
+
+/* Plays note 36 for one second with a decaying filter envelope (0 ms
+ * attack, 400 ms decay to zero sustain) of `amount` cents. */
+static void play_filter_env(int16_t *out, int32_t cutoff, int32_t amount)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, cutoff);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 400);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, amount);
+    fm_engine_note_on(&feng, 36, 100);
+    fm_engine_render(&feng, out, FRATE);
+}
+
+/*
+ * A positive amount opens the filter at the note start and sweeps the
+ * cutoff back down as the envelope decays (bright, then dark); a
+ * negative amount closes it and sweeps up (dark, then bright). With no
+ * amount the tone stays the same.
+ */
+TT_TEST(filter_envelope_sweeps_cutoff_up_or_down)
+{
+    double early, late;
+    play_filter_env(fbuf_a, 4800, 4800); /* 130 Hz + 4 octaves */
+    early = brightness(fbuf_a, 441, 2205);   /* 10..50 ms */
+    late = brightness(fbuf_a, 39690, 44100); /* 900..1000 ms */
+    printf("    env +4800: brightness early %.4f, late %.4f\n", early, late);
+    TT_CHECK(early > 2.0 * late);
+
+    play_filter_env(fbuf_a, 9600, -4800); /* 2.1 kHz - 4 octaves */
+    early = brightness(fbuf_a, 441, 2205);
+    late = brightness(fbuf_a, 39690, 44100);
+    printf("    env -4800: brightness early %.4f, late %.4f\n", early, late);
+    TT_CHECK(late > 2.0 * early);
+
+    play_filter_env(fbuf_a, 7200, 0);
+    early = brightness(fbuf_a, 441, 2205);
+    late = brightness(fbuf_a, 39690, 44100);
+    TT_CHECK_NEAR(early / late, 1.0, 0.05);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
     TT_RUN(resonance_raises_gain_near_cutoff);
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
+    TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
 }

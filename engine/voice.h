@@ -32,9 +32,11 @@ typedef struct {
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
     /* filter: settings copied from the engine's parameters, and state */
     fm_filter filter;
+    fm_env filter_env;
     int32_t rate_cents;     /* fm_filter_rate_cents(sample rate) */
     int32_t cutoff_cents;   /* base cutoff */
     int32_t key_track;      /* per mille */
+    int32_t env_amount;     /* filter envelope amount, cents */
     uint8_t ctrl_phase;     /* samples until the next cutoff update */
 } fm_voice;
 

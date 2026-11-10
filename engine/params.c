@@ -20,6 +20,13 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
       FM_FILTER_OPEN_CENTS, FM_FILTER_OPEN_CENTS },
     { FM_PARAM_FILTER_RESONANCE, "filter_resonance_permille", 0, 1000, 0 },
     { FM_PARAM_FILTER_KEY_TRACK, "filter_key_track_permille", 0, 1000, 0 },
+    { FM_PARAM_FILTER_ENV_ATTACK_MS,  "filter_env_attack_ms",  0, 10000,   5 },
+    { FM_PARAM_FILTER_ENV_DECAY_MS,   "filter_env_decay_ms",   0, 10000, 300 },
+    { FM_PARAM_FILTER_ENV_SUSTAIN,    "filter_env_sustain_permille", 0, 1000,
+      500 },
+    { FM_PARAM_FILTER_ENV_RELEASE_MS, "filter_env_release_ms", 0, 10000, 300 },
+    { FM_PARAM_FILTER_ENV_AMOUNT_CENTS, "filter_env_amount_cents", -9600, 9600,
+      0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)
