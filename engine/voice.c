@@ -50,7 +50,8 @@ void fm_voice_sync_filter_env(fm_voice *v)
     }
 }
 
-/* The filter envelope's level now: caught up first, so never stale. */
+/* The filter envelope's level now: caught up first, so never stale. The
+ * only place the voice reads it (it is behind between control points). */
 static int32_t filter_env_level(fm_voice *v)
 {
     fm_voice_sync_filter_env(v);
@@ -372,10 +373,8 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
         v->fenv_lag++;
         if (v->ctrl_phase == 0) {
             fenv = 0;
-            if (v->env_amount || (v->mix_env && !v->mix_src)) {
-                fm_voice_sync_filter_env(v);
-                fenv = v->filter_env.level;
-            }
+            if (v->env_amount || (v->mix_env && !v->mix_src))
+                fenv = filter_env_level(v);
             /* with no envelope amount the cutoff changes only when a
              * setting or the note does, which marks it dirty */
             if (v->env_amount || v->cutoff_dirty) update_cutoff(v, fenv);

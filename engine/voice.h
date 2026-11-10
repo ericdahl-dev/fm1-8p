@@ -79,10 +79,11 @@ typedef struct {
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents);
 
 /*
- * Brings filter_env up to date. While the filter envelope amount is 0 the
- * render does not step it every sample (it cannot change the sound); it
- * is caught up (fm_env_advance) before every gate and setting change.
- * Call this before reading or changing filter_env from outside the voice.
+ * Brings filter_env up to date. The render does not step it every sample:
+ * it counts the samples (fenv_lag) and catches it up (fm_env_advance,
+ * exactly that many steps) when it reads the level, at a control point or
+ * a note change, and before every gate and setting change. Call this
+ * before reading or changing filter_env from outside the voice.
  */
 void fm_voice_sync_filter_env(fm_voice *v);
 
