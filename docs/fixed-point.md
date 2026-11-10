@@ -15,6 +15,7 @@ integer divided by 2^n.
 | --- | --- | --- | --- | --- | --- |
 | Oscillator phase | `uint32_t` | unsigned Q0.32 | one full cycle = 2^32 | 0 to just under 1 cycle | Wraps for free on overflow; 32 bits give a frequency step of rate / 2^32 (about 10 uHz at 44.1 kHz). |
 | Phase increment | `uint32_t` | unsigned Q0.32 per sample | | capped at `0x7FFF0000`, just under Nyquist | Same scale as the phase, so one add per sample. |
+| Pitch (note plus bend) | `int32_t` | Q16.16 semitones | one semitone = 2^16 | MIDI notes 0 to 131 | Pitch bend is exact in this format (see [voices.md](voices.md#pitch-bend)). Between semitones the frequency is interpolated on the note table. |
 | Note frequency | `uint32_t` | unsigned Q16.16 Hz | | up to 15.8 kHz (note 131) | A 12-entry table for notes 120 to 131 (`tools/gen_pitch_table.py`); lower octaves are exact right shifts, so no `pow()`. The increment is `(hz_q16 << 16) / rate`, computed once per note on. |
 | Audio sample (inside the engine) | `int32_t` | Q8.24 | 2^24 | about -128 to +128 | 24 fraction bits keep far more resolution than the 16-bit output, and 7 bits of headroom above 1.0 leave room to sum voices, filter resonance and chorus in later slices before the final clamp. |
 | Envelope level | `int32_t` | Q1.30 | 2^30 (`FM_ENV_FULL`) | 0 to 1.0 | Fine enough for a smooth 10 s segment at 192 kHz (the smallest step is about 560 LSB). |
@@ -23,8 +24,8 @@ integer divided by 2^n.
 | Output | `int16_t` | Q1.15 | 32768 | -32768 to 32767 | What a codec or a WAV file takes. Q8.24 maps to it with `>> 9` and saturation. |
 
 Multiplies of two 32-bit values go through a 64-bit intermediate
-(`(int64_t)a * b >> n`). Divisions happen only on events (note on, a parameter
-change, an envelope stage change), except the polyBLEP correction, which does
+(`(int64_t)a * b >> n`). Divisions happen only on events (note on, pitch
+bend, a parameter change, an envelope stage change), except the polyBLEP correction, which does
 one 64-by-32 division on each of the two samples around every saw wrap. On
 the JieLi clang toolchain these compile to the native divide, and the branch
 links with no `__*di3` or float helpers (checked by the #12 firmware work).
@@ -38,20 +39,24 @@ trap on pi32v2; it returns garbage:
   for a zeroed (uninitialized) engine instead of dividing;
 - the oscillator increment: the polyBLEP division runs only when it is
   non-zero;
-- envelope times: a 0 ms segment jumps at once instead of dividing by 0
-  samples;
+- envelope times: a 0 ms segment (or the steal fade at a very low sample
+  rate) jumps at once instead of dividing by 0 samples;
+- the voice count: `fm_engine_init` rejects 0 before dividing by it for the
+  mix gain;
 - the remaining divisors are constants (1000).
 
 `extreme_settings_stay_bounded_and_release` and
 `uninitialized_engine_is_silent_and_does_not_divide_by_zero` cover these on
 the desktop, where a division by zero does trap.
 
-### Gain staging in this slice
+### Gain staging
 
-The one voice is the saw (peak 1.0 in Q8.24) times the amp envelope (Q1.30)
-times a fixed voice gain of 0.5, so the output peaks at about half of full
-scale (-6 dBFS). Gain staging for several voices and the chorus comes with the
-polyphony and chorus slices.
+Each voice is the saw (peak 1.0 in Q8.24) times its amp envelope (Q1.30).
+The voices are summed in Q8.24 and the sum is scaled by
+`0.5 / voice_count` (Q1.30), so even every voice at full level with lined-up
+peaks stays at or below half of full scale (-6 dBFS), with 6 dB left for
+resonance and the chorus. The table and the reasoning are in
+[voices.md](voices.md#gain-staging).
 
 ### Parameter values
 
@@ -90,8 +95,8 @@ is in `engine/params.c`.
   globals other than `const` tables, and allocates nothing.
 - On the device, `fm_engine_render` runs in the audio interrupt, which has
   about 7.75 KiB of stack. Render paths must keep no large locals (no
-  per-block arrays on the stack); today they use a few dozen bytes. Any scratch
-  buffer a later slice needs goes in `fm_engine`.
+  per-block arrays on the stack); today they use a few dozen bytes. Scratch
+  buffers go in `fm_engine`, like the 64-frame mix buffer.
 
 ## Constants the FM-1 build rejects
 

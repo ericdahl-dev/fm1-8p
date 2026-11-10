@@ -10,6 +10,11 @@
  *
  * The struct layout is exposed only so callers can allocate it; treat
  * every field as private.
+ *
+ * The engine takes no locks. Call every function from one context, or
+ * make sure no other call runs while fm_engine_render does (for example,
+ * queue MIDI events and apply them between blocks in the audio
+ * callback).
  */
 #ifndef FM1_8P_H
 #define FM1_8P_H
@@ -63,7 +68,9 @@ typedef struct {
 /*
  * Sets up `e` for `voice_count` voices (1..FM_MAX_VOICES) at
  * `sample_rate` Hz (1..192000) with every parameter at its default.
- * This slice plays one voice whatever the count.
+ * Each note takes a voice; with more notes than voices the engine steals
+ * one (the rule is in docs/voices.md). Each voice is mixed at
+ * 1 / voice_count, then -6 dB, so a full chord never clips.
  */
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count);
@@ -77,9 +84,10 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity);
 void fm_engine_note_off(fm_engine *e, uint8_t note);
 
 /*
- * MIDI control change (controller and value 0..127). This slice handles
- * 120 (all sound off: silence now) and 123 (all notes off: release);
- * others are ignored. Sustain, mod wheel and bend come in later slices.
+ * MIDI control change (controller and value 0..127). Handled: 64
+ * (sustain pedal, down at 64 or more), 120 (all sound off: silence now)
+ * and 123 (all notes off: release every note, even those the pedal
+ * holds). Others are ignored; the mod wheel comes in a later slice.
  */
 void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value);
 
