@@ -434,6 +434,15 @@ static int32_t wave_at(fm_osc_pair *p, uint8_t which)
     return wave_at_dt(p, which, p->osc[which].inc);
 }
 
+/*
+ * How far the next sample is past an osc1 wrap that left osc1 at phase t:
+ * t / osc1's increment in Q16 (0..1), from the reciprocal (no division).
+ */
+static uint64_t restart_x(const fm_osc_pair *p, uint32_t t)
+{
+    return ((uint64_t)t * p->recip0) >> p->recip0_sh;
+}
+
 /* A polyBLEP term of osc2's first saw (Q8.24 at unit gain) at osc2's gain. */
 static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
 {
@@ -476,7 +485,7 @@ static FM_NOINLINE int32_t sync_reset(fm_osc_pair *p, uint32_t t)
 {
     /* osc2's increment this sample (bent, with cross-mod) for both ends */
     uint32_t inc2 = p->osc[1].inc, cont = p->osc[1].phase + inc2, now;
-    int64_t x = (int64_t)(((uint64_t)t * p->recip0) >> p->recip0_sh); /* t / inc0, Q16 */
+    int64_t x = (int64_t)restart_x(p, t);
     int32_t half, before;
     now = (uint32_t)(((uint64_t)x * inc2) >> 16);
     /* osc2 was at cont - now when osc1 wrapped, and jumps to 0 there */
@@ -522,9 +531,14 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     int32_t a = 0, b;
     if (p->mix != FM_OSC_MIX_FULL || p->xmod)
         a = wave_at(p, 0);
-    if (p->mix == 0) {
+    if (p->mix == 0) { /* osc2 unheard: with sync, only its phase restarts */
+        uint32_t t = p->osc[0].phase + p->osc[0].inc;
+        if (p->sync && t < p->osc[0].phase)
+            p->osc[1].phase = (uint32_t)((restart_x(p, t) * p->osc[1].inc) >> 16);
+        else
+            p->osc[1].phase += p->osc[1].inc;
+        p->osc[0].phase = t;
         p->sync_pend = 0;
-        (void)advance(p);
         return a;
     }
     if (p->xmod) {
