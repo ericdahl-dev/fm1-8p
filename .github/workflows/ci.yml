@@ -31,6 +31,9 @@ jobs:
       - name: Float-free engine check
         run: make check-float-free
 
+      - name: FM-1 build script checks
+        run: make check-fm1-build
+
       - name: Sample render
         run: |
           make render-demo
@@ -43,3 +46,69 @@ jobs:
           name: demo-wav
           path: build/demo.wav
           if-no-files-found: error
+
+  # The CPU-test firmware for the FM-1 (#12): pinned fm1-dock, JieLi toolchain and SDK files, each
+  # checked by hash; fm1-dock's safety checks must reject the canaries. Not a required check.
+  fm1-firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python packages for fm1-dock
+        run: pip install "Pillow==$(sed -n 's/^PILLOW_VERSION=//p' firmware/pins.env)"
+
+      - name: Cache the JieLi toolchain
+        uses: actions/cache@v4
+        with:
+          path: build/fm1-deps/jieli
+          key: jieli-${{ hashFiles('firmware/pins.env') }}
+
+      - name: Fetch and check pinned inputs
+        run: tools/fm1-build.sh fetch
+
+      - name: Build .dock and .fwsc
+        run: tools/fm1-build.sh build
+
+      - name: Unsafe modules must fail the build
+        run: tools/fm1-build.sh canaries
+
+      - name: CPU budget in fm1-emu (strict timing, report only)
+        continue-on-error: true
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libasound2t64
+          rc=0
+          tools/fm1-build.sh emu || rc=$?
+          {
+            echo "## CPU test in fm1-emu (strict timing, report only)"
+            echo
+            echo "Worst render time per voice count, 0.5 s held each. fm1-emu's strict mode read ~10-15 % below"
+            echo "the device on FM-1 SID; this becomes a gate once #13 calibrates it against hardware."
+            echo
+            cat build/fm1/emu-report.md 2>/dev/null || echo "**No report: the run failed before it (see the log).**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
+      - name: Upload firmware
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm1-8p-cpu
+          path: |
+            build/fm1/fm1_8p_cpu.dock
+            build/fm1/fm1-8p-cpu.fwsc
+          if-no-files-found: error
+
+      - name: Upload fm1-emu report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm1-emu-report
+          path: |
+            build/fm1/emu-report.md
+            build/fm1/emu.log
+          if-no-files-found: warn

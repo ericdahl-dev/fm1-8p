@@ -5,7 +5,10 @@
 #   make test               build and run the tests
 #   make check-float-free   prove the engine has no floating point or heap
 #                           use, and that the check catches both
-#   make check              test + check-float-free
+#   make check-fm1-build    test the FM-1 build script's pin and report checks
+#   make check              test + check-float-free + check-fm1-build
+#
+# The FM-1 firmware itself is built by tools/fm1-build.sh (see README).
 #   make render-demo        render examples/demo.mid to build/demo.wav
 
 CC      ?= cc
@@ -19,16 +22,19 @@ ENGINE_HDR = $(wildcard engine/*.h)
 HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
+FW_SRC     = firmware/cpu_test.c
+FW_HDR     = firmware/cpu_test.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
+FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 
-.PHONY: all test check check-float-free render-demo clean
+.PHONY: all test check check-float-free check-fm1-build render-demo clean
 
 all: $(RENDER)
 
-$(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR)
+$(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR) $(FW_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@
 
@@ -36,9 +42,9 @@ $(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ)
 	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -o $@
 
 # Tests may use double and libm (never the engine itself).
-$(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) $(ENGINE_OBJ) $(HOST_OBJ)
+$(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ)
 	$(CC) $(STD) -Wall -Wextra -Werror -Wno-unused-function $(CFLAGS) \
-		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) -lm -o $@
+		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ) -lm -o $@
 
 test: $(BUILD)/run-tests
 	./$(BUILD)/run-tests
@@ -55,7 +61,10 @@ check-float-free:
 		echo "check-float-free: canary $$c caught as expected"; \
 	done
 
-check: test check-float-free
+check-fm1-build:
+	sh tests/test_fm1_build.sh
+
+check: test check-float-free check-fm1-build
 
 render-demo: $(RENDER)
 	./$(RENDER) examples/demo.mid $(BUILD)/demo.wav

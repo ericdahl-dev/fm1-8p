@@ -30,14 +30,68 @@ The engine uses only integer math. Its number formats, the sample rate and
 block size rules, and how the float-free check works are in
 [docs/fixed-point.md](docs/fixed-point.md).
 
+## FM-1 CPU-test firmware
+
+`firmware/` runs the unchanged engine on the FM-1 as an
+[fm1-dock](https://github.com/joakimeriksson/fm1-dock) module and measures it: it holds a chord
+and steps from 1 to 8 voices, 5 s each, showing the worst render time per voice count on screen
+(as % of a 256-frame block, 5.8 ms; the block that starts a count, engine init and note on, isn't
+timed) and logging each count a sweep held in full (`tools/dock.py logs` in fm1-dock). KNOB1
+picks a count by hand; PLAY sweeps again.
+
+Linux x86-64 (macOS through fm1-dock's Docker fallback, untested), with curl, git, tar, xz and
+Python 3 with Pillow:
+
+```sh
+tools/fm1-build.sh fetch     # fm1-dock, JieLi toolchain, AC79 SDK files into build/fm1-deps
+tools/fm1-build.sh build     # build/fm1/fm1_8p_cpu.dock and build/fm1/fm1-8p-cpu.fwsc
+tools/fm1-build.sh canaries  # each firmware/canary module must fail fm1-dock's safety checks
+tools/fm1-build.sh emu       # the CPU test in fm1-emu, strict timing: build/fm1/emu-report.md
+```
+
+Every input is pinned in [firmware/pins.env](firmware/pins.env) and checked before a build:
+
+| input | pin |
+| --- | --- |
+| fm1-dock (GPL-3.0-only) | commit `9e6e08e`, fetched, not vendored |
+| JieLi Linux toolchain, clang 4.0.1 for pi32v2 | tarball sha256 and directory `jieli-linux-toolchains-20260730.1` (the download URL always serves the latest) |
+| JieLi AC79 SDK `AC79NN_SDK_V1.2.1_2023-12-13` | commit `d179b448`; the 3 files the package needs, each by sha256 |
+| fm1-emu (MIT) | release v0.4.0, sha256 |
+| Pillow | 13.0.0 |
+
+To use inputs you already have, set `JIELI_TOOLCHAIN`, `AC79_SDK`, `FM1_DOCK`, `PYTHON` or
+`FM1_LIVE`. They are checked the same way, and `fetch` never changes them: a mismatch stops the
+build. `FM1_LIVE` must be the pinned fm1-live build unless `FM1_EMU_UNPINNED=1`, which the report
+then notes.
+
+The module lists no engine files: the build fills in every `engine/*.c`, so a new engine file needs
+no firmware edit.
+
+**Known risk:** JieLi's toolchain URL always serves their latest tarball. When they publish a new
+one, `fetch` stops with "JieLi published a new toolchain" (CI too, once its cache is gone). Review
+the new one, then update `JIELI_TOOLCHAIN_SHA256` and `JIELI_TOOLCHAIN_DIR` in `firmware/pins.env`.
+We don't mirror the tarball: its license for redistribution is unknown.
+
+- The **`.dock`** goes onto an FM-1 that runs fm1-dock, over USB, without flashing
+  (`tools/dock.py deploy` in fm1-dock).
+- The **`.fwsc`** is a solo firmware package, identity `FM-1_948`, with fm1-dock's safety checks
+  and rescue modes (OCT- at power-on: USB rescue; OCT+: safe start). Keep the stock firmware for
+  recovery.
+
+CI builds both on every push (job `fm1-firmware`, artifact `fm1-8p-cpu`) and runs the emulator
+step as a report in the job summary; it becomes a gate once the emulator is calibrated against
+the device (#13).
+
 ## Layout
 
 - `engine/` - the synth engine: plain C99, fixed point, no hardware or OS code,
   no dynamic allocation. Public interface: `engine/fm1_8p.h`.
 - `host/` - the desktop render tool: Standard MIDI File reader, WAV writer.
+- `firmware/` - the FM-1 CPU test: `cpu_test.[ch]` (plain C, tested on the desktop),
+  `fm1_8p_cpu/` (the fm1-dock module), `canary/` (modules the build must reject), `pins.env`.
 - `tests/` - tests, run with a small single-header runner (`tests/tinytest.h`).
-- `tools/` - the float-free check and the scripts that generate the pitch
-  table and `examples/demo.mid`.
+- `tools/` - the float-free check, the FM-1 build (`fm1-build.sh`) and the scripts that
+  generate the pitch table and `examples/demo.mid`.
 
 ## Plan
 
