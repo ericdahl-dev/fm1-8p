@@ -34,9 +34,10 @@ worst case. Step F is the modulation cost: with every depth at 0 (steps 1 to 8) 
 measures vibrato, pulse-width modulation, velocity and the chorus together. `make bench` times the same patch on the
 desktop at every voice count (`make bench-full`).
 
-What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.4 % per voice, 28.1 % at
-8 voices, 31.1 % for U, 60.5 % for F. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
-itself: note it.
+What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.1 % per voice, 25.7 % at
+8 voices, 31.3 % for U, 101.0 % for F. On the device, expect roughly 1.15 times those. A big difference from that is a finding in
+itself: note it. F, with the filter, is over a whole block: expect overruns and audible dropouts during step F, and note
+them; the steps before it should stay clean.
 
 ## 1. What you need
 
@@ -182,16 +183,16 @@ try again.
 
 | step | screen (worst %) | log (per mille) | fm1-emu strict (%) | device / emu |
 | --- | --- | --- | --- | --- |
-| 1 | | | 4.2 | |
-| 2 | | | 7.6 | |
-| 3 | | | 11.0 | |
-| 4 | | | 14.5 | |
-| 5 | | | 17.9 | |
-| 6 | | | 21.3 | |
-| 7 | | | 24.7 | |
-| 8 | | | 28.1 | |
-| U (unison burst) | | | 31.1 | |
-| F (full patch) | | | 60.5 | |
+| 1 | | | 4.4 | |
+| 2 | | | 7.2 | |
+| 3 | | | 10.3 | |
+| 4 | | | 13.4 | |
+| 5 | | | 16.5 | |
+| 6 | | | 19.6 | |
+| 7 | | | 22.7 | |
+| 8 | | | 25.7 | |
+| U (unison burst) | | | 31.3 | |
+| F (full patch) | | | 101.0 | |
 
 - `dock.py modules`: render worst __ % of a block, __ overruns
 - Heard any clicks, dropouts or the sine taking over? At which step?
@@ -199,6 +200,5 @@ try again.
   if it worked)
 ```
 
-The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `8ee3f5e` (unison and #5's oscillators,
-before the filter); row F's from the same fm1-emu with the engine at `14ac94b` (#8's LFO and velocity, still before
-the filter), in PR #32's CI run. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `d5ee372` (#25's filter), with row F
+playing the filter off its fast path. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
