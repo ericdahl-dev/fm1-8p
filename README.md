@@ -12,11 +12,14 @@ amp envelope, rendered from a MIDI file to a WAV by the fixed-point engine.
 ## Build and run
 
 Linux or macOS, with a C compiler (gcc or clang) and GNU make. No other
-dependencies.
+dependencies. On macOS, the Xcode command line tools (`xcode-select --install`)
+give clang and make; CI builds and tests on both (`build-test` on Ubuntu with
+gcc and clang, `macos` on macos-latest).
 
 ```sh
-make                 # builds build/fm1-8p-render
+make                 # builds build/fm1-8p-render and build/fm1-8p-bench
 make check           # runs the tests and the float-free engine check
+make bench           # times the engine per voice count (see Benchmark)
 make render-demo     # renders examples/demo.mid to build/demo.wav
 
 ./build/fm1-8p-render -r 44100 -s amp_attack_ms=200 -s amp_release_ms=800 \
@@ -25,6 +28,34 @@ make render-demo     # renders examples/demo.mid to build/demo.wav
 
 Run `./build/fm1-8p-render` with no arguments to list every option and
 parameter.
+
+### Benchmark
+
+`build/fm1-8p-bench [-b BLOCKS] [-r RUNS]` times the engine on the FM-1 CPU
+test's workload (`firmware/cpu_test.c`): the same held chord at 1 to 8 voices,
+44 100 Hz, 256-frame blocks. For each run and voice count it renders one block
+untimed (the notes start there), then times `BLOCKS` blocks one by one
+(default 2000) and keeps the median block. The table gives the median of the
+`RUNS` runs (default 5):
+
+| column | meaning |
+| --- | --- |
+| ns / block | time for one 256-frame block |
+| ns / frame | ns / block divided by 256: compare with the FM-1's 22 676 ns per frame |
+| ns / voice-frame | ns / frame divided by the voice count |
+| spread | (slowest run - fastest run) / median, in % |
+
+Repeatability, measured on a ThinkPad T480s (i5-8350U, Linux, other jobs
+running): over three runs of the default workload, each voice count's
+ns / block stayed within 0.2 %. The spread column is the warning light: a run
+that something else interrupted shows up there (one run in five often reads
+10-90 % slow on a busy machine), while the median ignores it. Compare numbers
+from the same machine only, and rerun when the spread is above a few percent.
+The FM-1's own numbers come from fm1-emu or the device (FM-1 CPU-test firmware
+below); the desktop numbers are for spotting changes in cost between commits.
+
+Until #4 makes the engine polyphonic, the engine plays one voice whatever the
+count, so the rows are nearly flat.
 
 The engine uses only integer math. Its number formats, the sample rate and
 block size rules, and how the float-free check works are in

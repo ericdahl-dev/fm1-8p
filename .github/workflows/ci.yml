@@ -39,6 +39,11 @@ jobs:
           make render-demo
           ls -l build/demo.wav
 
+      - name: Benchmark (short run; shared runners are too noisy to compare)
+        run: |
+          make build/fm1-8p-bench
+          ./build/fm1-8p-bench -b 200 -r 3
+
       - name: Upload sample render
         if: matrix.cc == 'gcc'
         uses: actions/upload-artifact@v4
@@ -46,6 +51,30 @@ jobs:
           name: demo-wav
           path: build/demo.wav
           if-no-files-found: error
+
+  # Build, tests and benchmark on macOS (Apple clang, arm64). A separate job, so the required
+  # checks keep their names.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: make
+
+      - name: Tests
+        run: make check
+
+      - name: Tests with AddressSanitizer and UBSan
+        run: |
+          make clean
+          make test CFLAGS="-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all"
+          make clean
+
+      - name: Benchmark (short run)
+        run: |
+          make build/fm1-8p-bench
+          ./build/fm1-8p-bench -b 200 -r 3
 
   # The CPU-test firmware for the FM-1 (#12): pinned fm1-dock, JieLi toolchain and SDK files, each
   # checked by hash; fm1-dock's safety checks must reject the canaries. Not a required check.

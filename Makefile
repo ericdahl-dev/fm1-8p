@@ -10,6 +10,7 @@
 #
 # The FM-1 firmware itself is built by tools/fm1-build.sh (see README).
 #   make render-demo        render examples/demo.mid to build/demo.wav
+#   make bench              time the engine per voice count, build/fm1-8p-bench
 
 CC      ?= cc
 CFLAGS  ?= -O2 -g
@@ -19,7 +20,7 @@ BUILD   = build
 
 ENGINE_SRC = $(wildcard engine/*.c)
 ENGINE_HDR = $(wildcard engine/*.h)
-HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
+HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
 FW_SRC     = firmware/cpu_test.c
@@ -29,17 +30,24 @@ ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
 FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
+BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all test check check-float-free check-fm1-build render-demo clean
+.PHONY: all bench test check check-float-free check-fm1-build render-demo clean
 
-all: $(RENDER)
+all: $(RENDER) $(BENCH)
 
 $(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR) $(FW_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@
 
-$(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -o $@
+$(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ)
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ) -o $@
+
+$(BENCH): host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ)
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ) -o $@
+
+bench: $(BENCH)
+	./$(BENCH)
 
 # Tests may use double and libm (never the engine itself).
 $(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) $(ENGINE_OBJ) $(HOST_OBJ) $(FW_OBJ)
