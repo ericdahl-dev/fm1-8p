@@ -42,6 +42,128 @@ expect_ok "staged module keeps its other settings" grep -qx 'cflags = -Os' "$cfg
 : >"$T/eng/new.c"
 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
 expect_ok "a new engine file is built with no firmware edit" has " $(sed -n 's/^sources = //p' "$cfg") " "$T/eng/new.c"
+# hbmod's `cflags FILE =` names a file relative to the module, so staging makes it absolute too.
+printf 'name = x\nsources = ../shared.c\nincludes = ..\ncflags = -O2\ncflags own.c = -Os\ncflags ../shared.c = -O3\n' >"$T/mod/sub/module.cfg"
+stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
+expect_ok "a file's own cflags name its own file absolutely" grep -qx "cflags $T/mod/sub/own.c = -Os" "$cfg"
+expect_ok "... and a listed source's" grep -qx "cflags $T/mod/shared.c = -O3" "$cfg"
+expect_ok "... and the module's cflags stay" grep -qx 'cflags = -O2' "$cfg"
+# hbmod splits each line at its first '=' and strips both sides, so spacing is free.
+printf 'name = x\nsources = ../shared.c\ncflags   own.c=-Os\n' >"$T/mod/sub/module.cfg"
+stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
+expect_ok "a file's own cflags with other spacing still name it absolutely" grep -qx "cflags $T/mod/sub/own.c = -Os" "$cfg"
+# The engine and the CPU test (the render path) build at hbmod's default -O2, which module.cfg doesn't
+# restate; the screen and keys stay -Os (#34: -O2 took step F, 6 voices with the filter, from 77.2 % to
+# 63.8 % of a block in fm1-emu strict).
+ui=$(abspath firmware/fm1_8p_cpu/fm1_8p_cpu.c)
+for m in firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
+    stage_module "$m" "$T/staged/$(basename "$m")" engine >/dev/null 2>&1
+    flags=" $(sed -n 's/^cflags = //p' "$T/staged/$(basename "$m")/module.cfg") "
+    expect_fail "$m leaves the engine at hbmod's default -O2 (no -O in its cflags)" grep -q -- ' -O' <<EOF2
+$flags
+EOF2
+    expect_ok "... and its screen and keys -Os" grep -qx "cflags $ui = -Os" "$T/staged/$(basename "$m")/module.cfg"
+done
+
+# The symbol check runs the pinned toolchain's own nm, so check_inputs requires it.
+mkdir -p "$T/tc-nonm/pi32v2/bin"
+( JIELI_TOOLCHAIN=$T/tc-nonm JIELI_TOOLCHAIN_DIR=x FM1_DOCK=$T/none FM1_DOCK_SHA=0 AC79_SDK=$T/none AC79_SDK_FILES= PYTHON=false; check_inputs ) >"$T/inputs.out" 2>&1
+expect_ok "check_inputs says when the toolchain has no nm" grep -q "no nm in $T/tc-nonm" "$T/inputs.out"
+
+# The linked module may take only integer and memory helpers from the toolchain's libraries: no
+# soft-float, libm or heap (hbmod links libcompiler_rt without a word). A stand-in nm prints each
+# file's FILE.nm.
+mkdir -p "$T/nm/mod"
+printf '#!/bin/sh\nfor f; do case "$f" in -*) ;; *) cat "$f.nm" ;; esac; done\n' >"$T/nm/nm"; chmod +x "$T/nm/nm"
+: >"$T/nm/mod/module_02200000.elf"; : >"$T/nm/mod/a.o"
+printf '02200000 T render\n02200100 t helper\n02200200 T __udivdi3\n02200300 T hb_module\n02200400 t _hb_text_end\n' >"$T/nm/mod/module_02200000.elf.nm"
+printf '00000000 T render\n00000010 t helper\n         U __udivdi3\n' >"$T/nm/mod/a.o.nm"
+mkdir -p "$T/nm/tc/pi32v2/lib"                 # the toolchain's libraries, as nm lists them
+for l in compiler_rt m c; do : >"$T/nm/tc/pi32v2/lib/lib$l.a"; done
+printf 'udivdi3.o:\n00000000 T __udivdi3\naddsf3.o:\n00000000 T __addsf3\n00000000 t local\n' >"$T/nm/tc/pi32v2/lib/libcompiler_rt.a.nm"
+printf 'sinf.o:\n00000000 T sinf\n         U __mulsf3\n' >"$T/nm/tc/pi32v2/lib/libm.a.nm"
+printf 'malloc.o:\n00000000 T malloc\nmemcpy.o:\n00000000 T memcpy\n' >"$T/nm/tc/pi32v2/lib/libc.a.nm"
+mkdir -p "$T/nm/tc/pi32v2/bin" && cp "$T/nm/nm" "$T/nm/tc/pi32v2/bin/nm"
+with_nm() { JIELI_TOOLCHAIN="$T/nm/tc" "$@"; }
+expect_ok "a module with only integer helpers passes the symbol check" with_nm check_module_symbols "$T/nm/mod"
+cp "$T/nm/mod/module_02200000.elf.nm" "$T/nm/clean.nm"
+printf '02200500 T __addsf3\n' >>"$T/nm/mod/module_02200000.elf.nm"
+expect_fail "a module the link gave a soft-float helper fails it" with_nm check_module_symbols "$T/nm/mod"
+# hbmod never cleans build/modules/NAME: an object left from an older build must not hide what the
+# link took from the toolchain's libraries.
+mkdir -p "$T/nm/stale" && cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/mod/module_02200000.elf" "$T/nm/stale/"
+cp "$T/nm/mod/module_02200000.elf.nm" "$T/nm/stale/"
+: >"$T/nm/stale/old.o"; printf '00000000 T __addsf3\n' >"$T/nm/stale/old.o.nm"
+expect_fail "a stale object defining a soft-float helper doesn't hide it" with_nm check_module_symbols "$T/nm/stale"
+# integer bit helpers (count leading zeros and the like) are integer code too: allowed
+mkdir -p "$T/nm/bits" && cp "$T/nm/mod/module_02200000.elf" "$T/nm/bits/"
+for h in __clzsi2 __ctzsi2 __popcountsi2 __bswapsi2 __negdi2 __ffssi2 __clzdi2; do
+    printf '00000000 T %s\n' "$h" >>"$T/nm/tc/pi32v2/lib/libcompiler_rt.a.nm"
+    printf '02200600 T %s\n' "$h" >>"$T/nm/bits/module_02200000.elf.nm"
+done
+expect_ok "a module linking integer bit helpers (clz, ctz, popcount, ...) passes" with_nm check_module_symbols "$T/nm/bits"
+# Only a library's global definitions can be pulled into a link: compiler-local labels that a
+# library also has (.L_MergedGlobals, jump tables) are the module's own.
+mkdir -p "$T/nm/locals" && cp "$T/nm/mod/module_02200000.elf" "$T/nm/locals/"
+cp "$T/nm/clean.nm" "$T/nm/locals/module_02200000.elf.nm"
+printf '02200700 d .L_MergedGlobals\n02200800 r .GJTIE2_0_0_\n02200900 t shared_local\n' >>"$T/nm/locals/module_02200000.elf.nm"
+printf 'x.o:\n00000000 d .L_MergedGlobals\n00000000 r .GJTIE2_0_0_\n00000000 t shared_local\n' >>"$T/nm/tc/pi32v2/lib/libc.a.nm"
+expect_ok "a module whose local labels a library also has locally passes" with_nm check_module_symbols "$T/nm/locals"
+mkdir -p "$T/nm/none" && cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/none/"
+expect_fail "a module with no linked image fails it (nm can't read it)" with_nm check_module_symbols "$T/nm/none"
+# ... and a build runs it on the module it links: fm1-dock's tools stand in, linking the module in
+# directory $1 (a clean one builds, so the soft-float one fails on the symbol check alone).
+build_with() (
+    ROOT=$(pwd) OUT=$T/bout FM1_DOCK=$T/fd JIELI_TOOLCHAIN=$T/nm/tc FM1_IDENTITY=test linked=$1
+    check_inputs() { :; }
+    dock() {
+        case "$1" in
+        hbmod.py) d=$FM1_DOCK/build/modules/$(basename "$2"); mkdir -p "$d"
+                  cp "$linked/module_02200000.elf" "$linked/module_02200000.elf.nm" "$d/" ;;
+        build.py) : >"$FM1_DOCK/build/modules/fm1_8p_cpu.dock"; : >"$FM1_DOCK/build/fm1-8p-cpu.fwsc" ;;
+        esac
+    }
+    build_firmware
+)
+mkdir -p "$T/nm/clean" && cp "$T/nm/mod/module_02200000.elf" "$T/nm/clean/" && cp "$T/nm/clean.nm" "$T/nm/clean/module_02200000.elf.nm"
+expect_ok   "a build whose module links only integer helpers succeeds" build_with "$T/nm/clean"
+expect_fail "a build whose module links a soft-float helper fails" build_with "$T/nm/mod"
+# The emulator run builds the quick module (the image fm1-emu and CI time) and checks it the same way:
+# a soft-float quick module fails before the emulator starts.
+emu_with() (
+    ROOT=$(pwd) OUT=$T/eout FM1_DOCK=$T/fe JIELI_TOOLCHAIN=$T/nm/tc FM1_IDENTITY=test linked=$1
+    FM1_LIVE=$T/live/fm1-live FM1_LIVE_SHA256=0
+    PYTHON=$T/emu-ran; printf '#!/bin/sh\n: >"%s.called"\n' "$PYTHON" >"$PYTHON"; chmod +x "$PYTHON"
+    check_inputs() { :; }
+    fetch_emu() { :; }
+    dock() {
+        d=$FM1_DOCK/build/modules/fm1_8p_cpu_quick; mkdir -p "$d"
+        cp "$linked/module_02200000.elf" "$linked/module_02200000.elf.nm" "$d/"
+    }
+    mkdir -p "$FM1_DOCK/build"
+    run_emu
+)
+# A canary hbmod builds is still caught when the symbol check refuses it (soft-float that the
+# compiler and linker accept): run_canaries checks every canary it builds.
+canaries_with() (
+    ROOT=$T/croot OUT=$T/cout FM1_DOCK=$T/fc JIELI_TOOLCHAIN=$T/nm/tc linked=$1
+    check_inputs() { :; }
+    dock() {
+        d=$FM1_DOCK/build/modules/$(basename "$2"); mkdir -p "$d"
+        cp "$linked/module_02200000.elf" "$linked/module_02200000.elf.nm" "$d/"
+    }
+    mkdir -p "$OUT" "$ROOT/firmware/canary/float_used"
+    printf 'outside the allowlist\n' >"$ROOT/firmware/canary/float_used/expect"
+    run_canaries
+)
+expect_ok   "a canary that links soft-float is caught by the symbol check" canaries_with "$T/nm/mod"
+expect_fail "... and one that links only integer helpers is not" canaries_with "$T/nm/clean"
+emu_with "$T/nm/clean" >"$T/emu-clean.out" 2>&1
+expect_ok "an emulator run whose quick module links only integer helpers starts the emulator" test -e "$T/emu-ran.called"
+rm -f "$T/emu-ran.called"
+emu_with "$T/nm/mod" >/dev/null 2>&1
+expect_ok "an emulator run whose quick module links a soft-float helper never starts the emulator" test ! -e "$T/emu-ran.called"
+
 for m in firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
     expect_ok "$m takes the engine's sources from engine/" grep -q '@ENGINE_SOURCES@' "$m/module.cfg"
 done
