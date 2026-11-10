@@ -244,10 +244,11 @@ buffer, and a test for a queued release (the steal fade case above). Idle voices
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-The voices take about 1.3 KiB with room for 8 (two oscillators each), and
+The voices take about 1.4 KiB with room for 8 (two oscillators each, with
+sync and cross-mod state), and
 unison adds 49 bytes (8 detune offsets and the 16 held keys). With the chorus
 (its 2 KiB delay line and a 256-byte right-side buffer) `fm_engine` is about
-3.6 KiB (3664 bytes on x86-64), so static storage is recommended.
+3.7 KiB (3832 bytes on x86-64), so static storage is recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per
 voice (one per oscillator's pitch, plus one more for each pulse oscillator's

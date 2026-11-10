@@ -5,7 +5,7 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 3.6 KiB (3664 bytes on
+ * sets up everything inside it. fm_engine is about 3.7 KiB (3832 bytes on
  * 32- and 64-bit desktops), more than half of it the chorus delay line, so
  * static storage is recommended; a task stack must have room for it on
  * top of its other use. See docs/fixed-point.md for the number formats.
@@ -56,6 +56,8 @@ typedef enum {
     FM_PARAM_OSC2_FINE_CENTS,
     FM_PARAM_OSC_MIX,              /* per mille: 0 osc1 only, 1000 osc2 only */
     FM_PARAM_CHORUS_MODE, /* 0 = off, then the fm_chorus_mode modes */
+    FM_PARAM_OSC_SYNC,    /* 1: osc2 restarts with every cycle of osc1 */
+    FM_PARAM_OSC_XMOD,    /* per mille: osc1 bends osc2's frequency by up to +-100 % */
     FM_PARAM_COUNT
 } fm_param_id;
 

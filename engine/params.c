@@ -28,6 +28,8 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_OSC2_FINE_CENTS, "osc2_fine_cents",  -100,  100,   0 },
     { FM_PARAM_OSC_MIX,        "osc_mix_permille",    0, 1000,    0 },
     { FM_PARAM_CHORUS_MODE,    "chorus_mode",         0, FM_CHORUS_MODE_COUNT - 1, 0 },
+    { FM_PARAM_OSC_SYNC,       "osc_sync",            0,     1,    0 },
+    { FM_PARAM_OSC_XMOD,       "osc_xmod_permille",   0, 1000,    0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)

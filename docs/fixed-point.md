@@ -24,6 +24,8 @@ integer divided by 2^n.
 | Pulse width | `uint32_t` | unsigned Q0.32 | one full cycle = 2^32 | 2 increments to 1 cycle minus 2 increments | Same scale as the phase, so the second saw of a pulse is just `phase + width`. Set from `oscN_pulse_width_pct` and limited by the pitch on events (see [Aliasing threshold](#aliasing-threshold)). |
 | Tuning | `int32_t` | Q16.16 semitones | one semitone = 2^16 | -25 to +25 semitones (2 octaves and 100 cents) | Set in cents (`octave * 1200 + fine`) and added to the voice's pitch on events, so tuning and bend combine by one add. The fraction of a semitone becomes a ratio 2^(f/12) by a cubic series in Q2.30 (error under 0.001 cent), so no extra table and no `pow()`. |
 | Oscillator mix | `int32_t` | Q1.30 | 2^30 (`FM_OSC_MIX_FULL`) | 0 to 1.0 | `a + (b - a) * mix >> 30`: exactly one oscillator at either end. |
+| Sync ratio | `uint32_t` | Q16.16 | 2^16 | osc2's increment over osc1's | Worked out on events; at each osc1 wrap osc2 restarts at `t * ratio >> 16`, where `t` is how far osc1 went past the wrap. |
+| Cross-mod depth | `int32_t` | Q1.30 | 2^30 | 0 to 1.0 | Times osc2's increment on events (`xmod_inc`), so each sample's bend is one multiply: `xmod_inc * osc1 >> 24`. |
 | Noise state | `uint32_t` | xorshift32 | | never 0 | Three shifts and three XORs a sample; the top bits, `>> 7`, are the Q8.24 sample. |
 | Output | `int16_t` | Q1.15 | 32768 | -32768 to 32767 | What a codec or a WAV file takes. Q8.24 maps to it with `>> 9` and saturation. |
 
@@ -98,6 +100,40 @@ default) to osc2 alone (1000). For example:
     -s osc2_octave=1 -s osc2_fine_cents=7 -s osc_mix_permille=500 song.mid song.wav
 ```
 
+### Sync and cross-mod
+
+`osc_sync` (0 or 1) restarts osc2 every time osc1 starts a cycle, so the pair
+sounds at osc1's pitch and osc2's tuning shapes the tone: sweep `osc2_octave`
+and `osc2_fine_cents` for the classic sync sound. The restart falls between
+samples, at the point where osc1 wrapped, and osc2's jump there gets a
+polyBLEP on the samples either side of it, like a saw's wrap (see
+[Aliasing threshold](#aliasing-threshold)).
+
+`osc_xmod_permille` (0 to 1000) is cross-modulation: osc1's output moves
+osc2's frequency every sample, by up to +-100 % of it at 1000. That is
+frequency modulation, so it adds sidebands at osc2's frequency plus and minus
+multiples of osc1's, from a little grit to a clangorous, bell-like tone.
+osc2's polyBLEPs follow the bent pitch. Both act on osc2, so they are heard
+only when `osc_mix_permille` is above 0, and they can be used together:
+
+```sh
+./build/fm1-8p-render -s osc_sync=1 -s osc2_octave=1 -s osc2_fine_cents=-30 \
+    -s osc_xmod_permille=200 -s osc_mix_permille=1000 song.mid song.wav
+```
+
+Cost, in fm1-emu's strict mode (the FM-1 CPU test's chord, worst block of
+256 frames; the device reads about 10-15 % higher):
+
+| Setting | 1 voice | 8 voices |
+| --- | --- | --- |
+| osc1 alone, sync and cross-mod off (the default) | 4.4 % | 28.6 % |
+| Both oscillators (mix 500) | 6.5 % | 45.2 % |
+| Both, with sync on and cross-mod 500 | 8.4 % | 59.8 % |
+
+With both off the engine takes the same path as before they existed (28.3 %
+at 8 voices before this change). They cost on top of playing both
+oscillators, which most patches that use them do anyway.
+
 ## Chorus
 
 `engine/chorus.c` is the last stage of `fm_engine_render`: the mixed voices
@@ -139,7 +175,7 @@ How it works, per sample:
 
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 2.1 KiB (2072 bytes on x86-64), inside `fm_engine`, plus the 256-byte
-`mix_right` buffer. That makes `fm_engine` about 3.6 KiB (3664 bytes), so
+`mix_right` buffer. That makes `fm_engine` about 3.7 KiB (3832 bytes), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
@@ -240,6 +276,22 @@ sample rate only a square fits. At 44.1 kHz the limit reaches a 1 % setting
 only above 220 Hz (A3), and a 10 % setting only above 2.2 kHz.
 
 Noise is white and is not measured for aliasing.
+
+Synced osc2 is held to the same **-25 dB** limit
+(`synced_osc2_has_low_aliasing`): osc1 at C6 (1047 Hz), osc2 alone and 11
+semitones up, so each restart catches it most of the way through its cycle, a
+near full-size jump. Aliasing counts against osc1's harmonics, the synced
+sound's fundamental.
+
+| Synced osc2 at C6, +11 semitones | No polyBLEP on the restart | Only the sample after it | This engine (both sides) |
+| --- | --- | --- | --- |
+| Saw | -20.9 dB | -20.3 dB | -29.1 dB |
+| Square (50 %) | | | -32.0 dB |
+| Pulse 25 % | | | -29.8 dB |
+
+After a restart osc2's phase is under one increment, so its own polyBLEP
+already treats the restart as a full wrap (a step of -2.0 for a saw); the
+restart's correction replaces that with the real jump.
 
 ## Float-free check
 

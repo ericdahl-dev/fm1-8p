@@ -9,6 +9,13 @@
  */
 #include "osc.h"
 
+/* Keeps a rare path out of line so the per-sample path around it stays small. */
+#if defined(__GNUC__) || defined(__clang__)
+#define FM_NOINLINE __attribute__((noinline))
+#else
+#define FM_NOINLINE
+#endif
+
 /*
  * Note frequencies for MIDI notes 120..131 in Q16.16 Hz
  * (440 * 2^((n - 69) / 12) * 65536, rounded). Lower octaves are exact
@@ -121,6 +128,14 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
         p->tune[i] = 0;
     }
     p->mix = 0;
+    p->ratio = 1u << 16;
+    p->sync = 0;
+    p->sync_step = 0;
+    p->sync_x = 0;
+    p->xmod = 0;
+    p->special = 0;
+    p->only1 = 1;
+    p->xmod_inc = 0;
     p->noise = seed ? seed : 0x2545F491u;
 }
 
@@ -129,6 +144,7 @@ void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix)
     if (mix < 0) mix = 0;
     if (mix > FM_OSC_MIX_FULL) mix = FM_OSC_MIX_FULL;
     p->mix = mix;
+    p->only1 = (uint8_t)(mix == 0 && !p->special);
 }
 
 /*
@@ -163,13 +179,48 @@ static void update_pw(fm_osc_pair *p, uint8_t i)
     p->pw_gain[i] = pulse_gain(w);
 }
 
+/* osc2's increment over osc1's, Q16.16, for sync. One division, on events. */
+static void update_ratio(fm_osc_pair *p)
+{
+    uint64_t r;
+    if (p->osc[0].inc == 0) return;
+    r = ((uint64_t)p->osc[1].inc << 16) / p->osc[0].inc;
+    p->ratio = r > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)r;
+}
+
 /* Sets oscillator `i`'s increment for `pitch` plus its tuning. */
 static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
                      uint32_t sample_rate)
 {
     fm_osc_set_inc(&p->osc[i], fm_osc_pitch_inc(pitch + p->tune[i], sample_rate));
     update_pw(p, i);
+    update_ratio(p);
+    p->xmod_inc = (uint32_t)(((uint64_t)p->osc[1].inc * (uint32_t)p->xmod) >> 30);
 }
+
+/* sync or cross-mod on: fm_osc_pair_next takes the slower path */
+static void update_special(fm_osc_pair *p)
+{
+    p->special = (uint8_t)(p->sync || p->xmod);
+    p->sync_step = 0;
+    p->only1 = (uint8_t)(p->mix == 0 && !p->special);
+}
+
+void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on)
+{
+    p->sync = on ? 1 : 0;
+    update_special(p);
+}
+
+void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth)
+{
+    if (depth < 0) depth = 0;
+    if (depth > FM_OSC_MIX_FULL) depth = FM_OSC_MIX_FULL;
+    p->xmod = depth;
+    p->xmod_inc = (uint32_t)(((uint64_t)p->osc[1].inc * (uint32_t)depth) >> 30);
+    update_special(p);
+}
+
 
 void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
                           int32_t pitch, uint32_t sample_rate)
@@ -215,12 +266,49 @@ static int32_t noise_next(fm_osc_pair *p)
     return (int32_t)x >> 7;
 }
 
-/* Next sample of oscillator `which`, Q8.24. */
-static int32_t wave_next(fm_osc_pair *p, uint8_t which)
+/* Oscillator `which`'s wave at phase t without band-limiting, Q8.24 (noise: 0). */
+static int32_t naive_at(const fm_osc_pair *p, uint8_t which, uint32_t t)
+{
+    int32_t saw = (int32_t)(t ^ 0x80000000u) >> 7;
+    uint32_t w = p->wave[which] == FM_WAVE_PULSE ? p->pw[which] : 0x80000000u;
+    int32_t pulse = saw - ((int32_t)((t + w) ^ 0x80000000u) >> 7);
+    switch (p->wave[which]) {
+    case FM_WAVE_PULSE:
+        return (int32_t)(((int64_t)pulse * p->pw_gain[which]) >> 30);
+    case FM_WAVE_SQUARE:
+        return pulse;
+    case FM_WAVE_NOISE:
+        return 0;
+    default:
+        return saw;
+    }
+}
+
+static int32_t wave_at(fm_osc_pair *p, uint8_t which);
+
+/*
+ * osc2's sample, with the polyBLEP of a sync reset in the last sample.
+ * After a reset osc2's phase is under one increment, so its own polyBLEP
+ * already treats the reset as a full wrap (a step of -2.0); sync_step
+ * replaces that with the real jump.
+ */
+static int32_t osc2_at(fm_osc_pair *p)
+{
+    int32_t v = wave_at(p, 1);
+    if (p->sync_step) {
+        int64_t x = p->sync_x; /* samples since the reset, Q16 */
+        int64_t r = 2 * x - ((x * x) >> 16) - 65536; /* -1..0, Q16 */
+        v += (int32_t)((p->sync_step * r) >> 16);
+        p->sync_step = 0;
+    }
+    return v;
+}
+
+/* Oscillator `which`'s sample at its current phase, Q8.24. */
+static int32_t wave_at(fm_osc_pair *p, uint8_t which)
 {
     fm_osc *o = &p->osc[which];
     uint32_t t = o->phase;
-    o->phase = t + o->inc;
     switch (p->wave[which]) {
     case FM_WAVE_PULSE:
         return (int32_t)(((int64_t)pulse_at(t, o->inc, p->pw[which]) *
@@ -235,16 +323,91 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
 }
 
 /*
+ * osc1 wrapped with sync on: restart osc2 at the same point of its own
+ * cycle (osc1 is `t`, its new phase, into the sample, so osc2 is
+ * t * inc2 / inc1 into its cycle) and set up the polyBLEP of osc2's jump.
+ * Returns the correction for the sample just computed. Once per osc1
+ * cycle, so kept out of the per-sample path.
+ */
+static FM_NOINLINE int32_t sync_reset(fm_osc_pair *p, uint32_t t)
+{
+    uint32_t cont = p->osc[1].phase + p->osc[1].inc;
+    uint32_t now = (uint32_t)(((uint64_t)t * p->ratio) >> 16);
+    /* osc2 was at cont - now when osc1 wrapped, and jumps to 0 there */
+    int32_t half = (naive_at(p, 1, 0) - naive_at(p, 1, cont - now)) / 2;
+    int32_t own = p->wave[1] == FM_WAVE_NOISE ? 0 : p->wave[1] == FM_WAVE_PULSE
+        ? (int32_t)(((int64_t)p->pw_gain[1] << 24) >> 30) : 1 << 24;
+    p->sync_x = (uint16_t)(((uint64_t)t << 16) / p->osc[0].inc); /* t < inc: under 1.0 */
+    p->sync_step = half + own;
+    p->osc[1].phase = now;
+    p->osc[0].phase = t;
+    /* the sample just computed, (1 - x) before the step: x^2 of the polyBLEP */
+    return (int32_t)((half * (((int64_t)p->sync_x * p->sync_x) >> 16)) >> 16);
+}
+
+/* Moves both oscillators on one sample; returns sync's correction for it (0 without). */
+static int32_t advance(fm_osc_pair *p)
+{
+    uint32_t t = p->osc[0].phase + p->osc[0].inc;
+    if (p->sync && t < p->osc[0].phase)
+        return sync_reset(p, t);
+    p->osc[1].phase += p->osc[1].inc;
+    p->osc[0].phase = t;
+    return 0;
+}
+
+/*
+ * One sample with sync or cross-mod on. Cross-mod runs osc2 this sample
+ * at its increment times (1 + depth * osc1), 0..2x and capped under
+ * Nyquist, so its polyBLEPs follow the bent pitch; the set increment is
+ * put back after. With osc1 alone (mix 0) neither changes the sound, but
+ * osc2 still moves with sync so its phase is right when the mix changes.
+ */
+static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
+{
+    uint32_t inc = p->osc[1].inc;
+    int32_t a = 0, b;
+    if (p->mix != FM_OSC_MIX_FULL || p->xmod)
+        a = wave_at(p, 0);
+    if (p->mix == 0) {
+        p->sync_step = 0;
+        (void)advance(p);
+        return a;
+    }
+    if (p->xmod) {
+        int64_t now = (int64_t)inc + (((int64_t)p->xmod_inc * a) >> 24);
+        p->osc[1].inc = now < 0 ? 0u : now > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)now;
+    }
+    b = osc2_at(p);
+    b += advance(p);
+    p->osc[1].inc = inc;
+    if (p->mix == FM_OSC_MIX_FULL) return b;
+    return a + (int32_t)(((int64_t)(b - a) * p->mix) >> 30);
+}
+
+/* Oscillator `which`'s sample, then its phase moves on (no sync). */
+static int32_t wave_next(fm_osc_pair *p, uint8_t which)
+{
+    int32_t v = wave_at(p, which);
+    p->osc[which].phase += p->osc[which].inc;
+    return v;
+}
+
+/*
  * a + (b - a) * mix: exactly a at 0 and b at full. An oscillator the mix
- * silences only advances its phase, so it costs one add.
+ * silences only advances its phase, so it costs one add. osc1 alone
+ * without sync or cross-mod, the most common setting, is the first test,
+ * so it costs no more than before those existed.
  */
 int32_t fm_osc_pair_next(fm_osc_pair *p)
 {
     int32_t a, b;
-    if (p->mix == 0) {
+    if (p->only1) {
         p->osc[1].phase += p->osc[1].inc;
         return wave_next(p, 0);
     }
+    if (p->special)
+        return next_special(p);
     if (p->mix == FM_OSC_MIX_FULL) {
         p->osc[0].phase += p->osc[0].inc;
         return wave_next(p, 1);

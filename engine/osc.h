@@ -54,8 +54,16 @@ typedef struct {
     int32_t pw_gain[2]; /* Q1.30: brings the pulse's peak to 1.0 */
     int32_t tune[2];   /* offset from the played pitch, Q16.16 semitones */
     int32_t mix;       /* share of the second oscillator, Q1.30 0..1.0 */
+    uint32_t ratio;    /* osc2's increment over osc1's, Q16.16 (for sync) */
+    int32_t xmod;      /* cross-mod depth, Q1.30 0..1.0 */
+    uint32_t xmod_inc; /* osc2's increment times the depth: its largest bend */
     uint32_t noise;    /* xorshift32 state, never 0 */
+    uint16_t sync_x;   /* how far past the reset the next sample is, Q0.16 */
     uint8_t wave[2];   /* fm_wave */
+    uint8_t sync;      /* 1: osc2 restarts with every cycle of osc1 */
+    uint8_t special;   /* sync or cross-mod on */
+    uint8_t only1;     /* mix 0 and nothing special: osc1 alone, the fast path */
+    int32_t sync_step; /* polyBLEP height for the sample after a sync reset, Q8.24; 0 = none */
 } fm_osc_pair;
 
 /*
@@ -87,6 +95,18 @@ void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix);
  * oscillator sounds at it plus its own tuning.
  */
 void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate);
+/*
+ * Hard sync: with `on`, osc2's phase restarts each time osc1 starts a
+ * cycle, at the point within the sample where osc1 wrapped, so the pair
+ * sounds at osc1's pitch with osc2's tuning shaping the tone.
+ */
+void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on);
+/*
+ * Cross-mod depth, Q1.30 (0..FM_OSC_MIX_FULL): osc1's output moves osc2's
+ * frequency each sample, by up to +-100 % of it at full depth (frequency
+ * modulation, so sidebands at osc2 +- multiples of osc1). 0 is off.
+ */
+void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth);
 /* Next mixed sample, Q8.24. */
 int32_t fm_osc_pair_next(fm_osc_pair *p);
 
