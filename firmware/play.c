@@ -25,13 +25,20 @@ static int use_patch(play *p, const patch *t)
 
 int play_init(play *p)
 {
+    uint32_t i;
     p->head = p->tail = 0;
     p->lost = p->lost_seen = 0;
     p->last_note = -1;
     p->oct = 0;
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
-    return use_patch(p, &PATCHES[PATCH_SOUNDTRACK]);
+    if (use_patch(p, &PATCHES[PATCH_SOUNDTRACK]) != 0)
+        return -1;
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        p->target[i] = p->stored[i] = fm_engine_get_param(&p->engine, (uint16_t)i);
+    for (i = 0; i < PLAY_PARAM_WORDS; i++)
+        p->asked[i] = 0;
+    return 0;
 }
 
 /* Main loop: one event into the queue. When it is full the event is dropped and counted: the next
@@ -100,6 +107,36 @@ void play_note_name(int32_t note, char *s)
     *s = 0;
 }
 
+void play_set_param(play *p, uint16_t id, int32_t value)
+{
+    const fm_param_info *in = fm_param_info_get(id);
+    if (!in)
+        return;
+    p->target[id] = value < in->min ? in->min : value > in->max ? in->max : value;
+    BARRIER();                                  /* the value before its bit: the ISR never sees an old one */
+    p->asked[id >> 5] = p->asked[id >> 5] | 1u << (id & 31u);
+}
+
+int32_t play_get_param(const play *p, uint16_t id)
+{
+    return id < FM_PARAM_COUNT ? p->target[id] : 0;
+}
+
+/* Audio interrupt: the params the main loop set, into the engine: only those whose bit is set. (The
+ * main loop's |= can put back a bit cleared here mid-way: that param is set again, the same value.) */
+static void apply_params(play *p)
+{
+    uint32_t w, b;
+    for (w = 0; w < PLAY_PARAM_WORDS; w++) {
+        uint32_t bits = p->asked[w];
+        p->asked[w] = 0;
+        BARRIER();                              /* the values are read after their bits */
+        for (b = w * 32u; bits; bits >>= 1, b++)
+            if (bits & 1u)
+                (void)fm_engine_set_param(&p->engine, (uint16_t)b, p->target[b]);
+    }
+}
+
 int32_t play_last_note(const play *p) { return p->last_note; }
 
 void play_octave(play *p, int32_t step)
@@ -138,6 +175,7 @@ void play_render(play *p, int32_t *out, uint32_t n)
         apply(p, p->queue[t % PLAY_QUEUE]);
     BARRIER();                                  /* and done with before the tail frees them */
     p->tail = t;
+    apply_params(p);
     if (p->lost != p->lost_seen) {              /* some events were dropped: back to a safe state */
         p->lost_seen = p->lost;
         fm_engine_controller(&p->engine, 64, 0);        /* a lost pedal-up would hold every note */
@@ -149,4 +187,13 @@ void play_render(play *p, int32_t *out, uint32_t n)
         int32_t v = (int32_t)p->buf[i] * (1 << PLAY_GAIN_SHIFT);
         out[i] += v > 32767 ? 32767 : v < -32767 ? -32767 : v;     /* saturate, never wrap */
     }
+}
+
+uint32_t play_edited(const play *p)
+{
+    uint32_t i;
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        if (p->target[i] != p->stored[i])
+            return 1;
+    return 0;
 }

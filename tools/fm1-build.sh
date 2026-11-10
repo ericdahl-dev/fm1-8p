@@ -7,6 +7,7 @@
 #   fetch      download fm1-dock, the JieLi toolchain and the AC79 SDK files into $FM1_DEPS
 #              (default build/fm1-deps) and check each against firmware/pins.env
 #   build      the synth (FM1-8P) and the CPU test, each as a .dock (USB deploy) and a solo .fwsc,
+#              (FM1_DEBUG=1: the debug variant, with timing in the log)
 #              into build/fm1/
 #   canaries   each module in firmware/canary/ breaks an fm1-dock safety rule; its build must fail
 #   emu        run the CPU test in fm1-emu's strict timing mode; worst load per voice count
@@ -59,6 +60,7 @@ abspath() {
 # So a new engine file is built with no firmware edit.
 stage_module() {
     src=$(abspath "$1") eng=$(abspath "$3")
+    dbg=; [ "${FM1_DEBUG:-}" = 1 ] && dbg=" -DFM1_DEBUG"   # only 1 is the debug build (0 is not)
     mkdir -p "$2" || return 1
     rm -f "$2"/module.cfg
     while IFS= read -r line || [ -n "$line" ]; do
@@ -80,9 +82,9 @@ stage_module() {
                 if [ "$#" -ge 2 ] && [ "$1" = cflags ]; then   # `cflags FILE =`: FILE relative to the module
                     file=$2
                     case "$file" in /*) ;; *) file=$(abspath "$src/$file") ;; esac
-                    echo "cflags $file = $val"
+                    echo "cflags $file = $val$dbg"
                 else
-                    echo "$line"
+                    echo "$line$dbg"      # (FM1_DEBUG=1: the timing logs)
                 fi ;;
             *) echo "$line" ;;
         esac
@@ -359,13 +361,15 @@ run_emu() {
 # The note sequence fm1-emu plays into FM1-8P (dock.py's --keys: `ms:id` presses note key id - 14, 0 = F3;
 # `ms:id^` lets it go; `ms:mHEX` is MIDI into the jack). Keys: a C major 7th chord (C4 E4 G4 B4) held 2 s.
 # MIDI: the same chord with a full bend up and back, the sustain pedal over the note offs, then five
-# notes on four voices (one stolen), on another channel.
+# notes on four voices (one stolen), on another channel. Then ENV opens the VCF page and a chord plays
+# while KNOB2, KNOB1, KNOB3 and KNOB4 turn (the page redraws as the audio runs).
 EMU_PLAY_MS=8000
 EMU_PLAY_KEYS="1000:21,1000:25,1000:28,1000:32,3000:21^,3000:25^,3000:28^,3000:32^,\
 3500:m903c64,3500:m904050,3500:m904364,3500:m904740,3700:me07f7f,4000:me00040,4200:mb0407f,\
 4300:m803c00,4300:m804000,4300:m804300,4300:m804700,4800:mb04000,\
 5200:m93306e,5250:m933464,5300:m93375a,5350:m933b50,5400:m933e46,\
-6500:m833000,6500:m833400,6500:m833700,6500:m833b00,6500:m833e00"
+6500:m833000,6500:m833400,6500:m833700,6500:m833b00,6500:m833e00,\
+6700:4,6750:4^,6800:21,6800:25,6800:28,7000:e3:3,7200:e2:-4,7300:e4:1,7400:e5:-2,7600:21^,7600:25^,7600:28^"
 
 # run_emu_play: plays $OUT/fm1-8p.fwsc, the one `build` made (run `build` again after a change); it
 # builds the synth first only when that file isn't there.
@@ -415,5 +419,5 @@ case "${1:-}" in
     emu)      run_emu ;;
     emu-play) run_emu_play ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
-    *)        sed -n '2,23s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *)        sed -n '2,24s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac
