@@ -85,6 +85,20 @@ TT_TEST(units_permille_to_q30_clamps)
     TT_CHECK_EQ(fm_permille_to_q30(-0x7FFFFFFF - 1), -(1 << 30));
 }
 
+/* The real operating points: the LFO's top rate (FM_LFO_MAX_CENTIHZ per
+ * FM_LFO_TICK_SHIFT tick) at 44.1 kHz and at the lowest engine rate, 8 kHz
+ * (still under the cap), and the chorus's fastest mode (6 Hz) at 8 kHz:
+ * 3000 << 37 / 4410000 = 93495886.7, / 800000 = 515396075.5, and
+ * 6000 << 32 / 8000000 = 3221225.5. */
+TT_TEST(units_rate_to_phase_inc_at_the_lfo_and_chorus_limits)
+{
+    TT_CHECK(fm_rate_to_phase_inc(FM_LFO_MAX_CENTIHZ, 100u, 44100u,
+                                  FM_LFO_TICK_SHIFT) == 93495886u);
+    TT_CHECK(fm_rate_to_phase_inc(FM_LFO_MAX_CENTIHZ, 100u, 8000u,
+                                  FM_LFO_TICK_SHIFT) == 515396075u);
+    TT_CHECK(fm_rate_to_phase_inc(6000u, 1000u, 8000u, 0) == 3221225u);
+}
+
 static void run_units_tests(void)
 {
     TT_RUN(units_ms_to_samples_edges);
@@ -95,4 +109,5 @@ static void run_units_tests(void)
     TT_RUN(units_rate_to_phase_inc_edges);
     TT_RUN(units_rate_to_phase_inc_caps_at_half_a_cycle);
     TT_RUN(units_rate_to_phase_inc_wide_inputs);
+    TT_RUN(units_rate_to_phase_inc_at_the_lfo_and_chorus_limits);
 }
