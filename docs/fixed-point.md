@@ -184,7 +184,8 @@ before the filter:
 
 - **Wide open** (cutoff at the top, highpass off: the default). Every stage
   passes its input through exactly, so the render skips the filter
-  (`fm_filter_run`, inline: two compares) and keeps only the last sample.
+  (`fm_filter_run`, inline: four compares, for the fade, the highpass and
+  the input's range) and keeps only the last sample.
   When a setting ends that, the stages are filled from it, exactly the state
   running the filter would have left, so the change is bit for bit the same
   as if the filter had run all along.

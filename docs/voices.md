@@ -261,7 +261,7 @@ wrap, a pulse or square on both edges, and the mix adds a multiply when both
 oscillators sound; see [fixed-point.md](fixed-point.md)), the filter (a
 filter-envelope step, five 32x32->64 multiplies for the 4-pole lowpass plus
 one for the highpass when it is on, and a cutoff update every 16 samples;
-wide open, as by default, it is two compares, and with no envelope amount
+wide open, as by default, it is four compares, and with no envelope amount
 the envelope is not stepped; see [fixed-point.md](fixed-point.md#filter)),
 one 64-bit multiply for the amp,
 an add into the mix buffer, and a test for a queued release (the steal fade

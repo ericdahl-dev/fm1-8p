@@ -844,26 +844,57 @@ TT_TEST(idle_voice_starts_the_filter_envelope_from_zero)
 /*
  * During a steal fade the old note keeps its own key-tracked cutoff; the
  * new note's key tracking applies when the new note starts, as its pitch
- * does. Full key tracking, note 36 stolen by note 96 (5 octaves up).
+ * does. Full key tracking, note 36 stolen by note 96 (5 octaves up), in
+ * three cases, since the cutoff is recomputed during the fade only when
+ * something asks for it: (0) nothing does, (1) a held filter envelope
+ * amount recomputes it every 16 samples, (2) the cutoff setting moves a
+ * cent in the middle of the fade. Throughout the fade the coefficient
+ * must be note 36's for the cutoff setting in force.
  */
 TT_TEST(steal_fade_keeps_the_old_notes_key_tracked_cutoff)
 {
-    int32_t g_old;
-    int changed_in_fade = 0, guard = 0;
-    fm_engine_init(&feng, FRATE, 1);
-    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
-    fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
-    fm_engine_note_on(&feng, 36, 100);
-    fm_engine_render(&feng, fbuf_a, 4410);
-    g_old = feng.voices[0].filter.g;
-    fm_engine_note_on(&feng, 96, 100);
-    while (feng.voices[0].pending && guard++ < 1000) {
-        if (feng.voices[0].filter.g != g_old) changed_in_fade = 1;
-        fm_engine_render(&feng, fbuf_a, 1);
+    static fm_filter want;
+    int32_t rate_cents = fm_filter_rate_cents(FRATE);
+    int how;
+    for (how = 0; how < 3; how++) {
+        int32_t g_old, base = 6000, env = how == 1 ? 1200 : 0;
+        int changed_in_fade = 0, guard = 0;
+        fm_engine_init(&feng, FRATE, 1);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
+        if (how == 1) { /* held at full: +1200 cents, constant */
+            fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+            fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+            fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
+                                1200);
+        }
+        fm_engine_note_on(&feng, 36, 100);
+        fm_engine_render(&feng, fbuf_a, 4410);
+        g_old = feng.voices[0].filter.g;
+        fm_engine_note_on(&feng, 96, 100);
+        while (feng.voices[0].pending && guard++ < 1000) {
+            if (how == 2 && guard == 40) {
+                base = 6001;
+                fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS,
+                                    base);
+            }
+            fm_engine_render(&feng, fbuf_a, 1);
+            if (!feng.voices[0].pending) break; /* 96 has started */
+            if (feng.voices[0].ctrl_phase == 15) {
+                /* just updated (every 16 samples): note 36's cutoff
+                 * for the setting in force */
+                fm_filter_reset(&want);
+                fm_filter_set_cutoff(&want, base + (36 - 60) * 100 + env,
+                                     rate_cents);
+                if (feng.voices[0].filter.g != want.g) changed_in_fade = 1;
+            }
+        }
+        if (changed_in_fade)
+            printf("    case %d: not note 36's cutoff in the fade\n", how);
+        TT_CHECK(!changed_in_fade);
+        fm_engine_render(&feng, fbuf_a, 32);
+        TT_CHECK(feng.voices[0].filter.g > g_old); /* the new note's */
     }
-    TT_CHECK(!changed_in_fade);
-    fm_engine_render(&feng, fbuf_a, 32);
-    TT_CHECK(feng.voices[0].filter.g > g_old); /* the new note's, higher */
 }
 
 /*
