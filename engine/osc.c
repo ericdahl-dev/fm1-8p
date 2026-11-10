@@ -45,8 +45,11 @@ static uint32_t cents_ratio_q30(uint32_t c)
 
 uint32_t fm_osc_tuned_inc(uint8_t note, int32_t cents, uint32_t sample_rate)
 {
-    int32_t total = (int32_t)note * 100 + cents;
+    int32_t total;
     uint64_t inc;
+    if (cents < -12800) cents = -12800; /* keeps the sum from overflowing */
+    if (cents > 12800) cents = 12800;
+    total = (int32_t)note * 100 + cents;
     if (total < 0) total = 0;
     if (total > 127 * 100) total = 127 * 100;
     inc = fm_osc_note_inc((uint8_t)(total / 100), sample_rate);
