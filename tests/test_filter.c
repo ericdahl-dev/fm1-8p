@@ -1092,6 +1092,53 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
     TT_CHECK_EQ(mismatches, 0);
 }
 
+/*
+ * fm_env_step (inline, for the render loop) is fm_env_next: the same level,
+ * stage and step after every sample, through random envelopes in every
+ * stage (gate on at a random peak, retime, gate off, fade), with the
+ * boundaries (landing on the peak, the sustain, 0) wherever they fall.
+ */
+TT_TEST(env_step_matches_env_next_sample_by_sample)
+{
+    static fm_env a, b;
+    uint32_t seed = 54321;
+    int trial, op, mismatches = 0;
+#define ENV_RAND() (seed = seed * 1664525u + 1013904223u, seed >> 8)
+    for (trial = 0; trial < 300; trial++) {
+        fm_env_reset(&a);
+        a.attack_samples = ENV_RAND() % 3000;
+        a.decay_samples = ENV_RAND() % 3000;
+        a.release_samples = ENV_RAND() % 3000;
+        a.sustain = (int32_t)(ENV_RAND() % ((1u << 30) + 1));
+        b = a;
+        for (op = 0; op < 40; op++) {
+            uint32_t n = ENV_RAND() % 400, k;
+            switch (ENV_RAND() % 6) {
+            case 0:
+                a.peak = b.peak = (int32_t)(ENV_RAND() % ((1u << 30) + 1));
+                fm_env_gate_on(&a);
+                fm_env_gate_on(&b);
+                break;
+            case 1: fm_env_gate_off(&a); fm_env_gate_off(&b); break;
+            case 2: fm_env_fade(&a, n); fm_env_fade(&b, n); break;
+            case 3:
+                a.sustain = b.sustain =
+                    (int32_t)(ENV_RAND() % ((1u << 30) + 1));
+                fm_env_retime(&a);
+                fm_env_retime(&b);
+                break;
+            default: break;
+            }
+            for (k = 0; k < n; k++)
+                if (fm_env_step(&a) != fm_env_next(&b) || a.stage != b.stage ||
+                    a.step != b.step)
+                    mismatches++;
+        }
+    }
+#undef ENV_RAND
+    TT_CHECK_EQ(mismatches, 0);
+}
+
 /* An envelope at `peak` (velocity) with the given times and sustain, gated on. */
 static void soft_env(fm_env *e, int32_t peak, int32_t sustain)
 {
@@ -1557,6 +1604,7 @@ static void run_filter_tests(void)
     TT_RUN(leaving_the_open_filter_continues_from_a_consistent_state);
     TT_RUN(unison_note_change_keeps_the_control_cadence);
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
+    TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
     TT_RUN(env_advance_retrigger_above_a_soft_peak_goes_to_decay);

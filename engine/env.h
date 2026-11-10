@@ -60,6 +60,37 @@ void fm_env_retime(fm_env *e);
 int32_t fm_env_next(fm_env *e);
 
 /*
+ * fm_env_next for the render loop, inline: a sample that only adds or
+ * subtracts the step (most of them) is done here, the same comparisons as
+ * fm_env_next; one that lands on the peak, the sustain or 0, or an idle
+ * envelope, calls it. Exactly the same level, stage and step.
+ */
+static inline int32_t fm_env_step(fm_env *e)
+{
+    switch (e->stage) {
+    case FM_ENV_SUSTAIN:
+        return e->level;
+    case FM_ENV_ATTACK:
+        if (e->peak - e->level > e->step) return e->level += e->step;
+        break;
+    case FM_ENV_DECAY:
+        if (e->level >= e->sus_level) {
+            if (e->level - e->step > e->sus_level) return e->level -= e->step;
+        } else if (e->sus_level - e->level > e->step) {
+            return e->level += e->step;
+        }
+        break;
+    case FM_ENV_RELEASE:
+    case FM_ENV_FADE:
+        if (e->level > e->step) return e->level -= e->step;
+        break;
+    default:
+        break;
+    }
+    return fm_env_next(e);
+}
+
+/*
  * Advances `n` samples at once: exactly `n` calls of fm_env_next, in a
  * few operations per stage crossed (one 32-bit division each) instead of
  * `n` steps. For an envelope that only needs to be current at times, not
