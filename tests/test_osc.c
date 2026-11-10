@@ -233,6 +233,50 @@ TT_TEST(high_pulse_and_square_notes_have_low_aliasing)
     }
 }
 
+/*
+ * Every wave at the extremes of tuning, width and rate stays bounded (no
+ * clipping), does not divide by zero, and falls silent after release.
+ */
+TT_TEST(extreme_osc_settings_stay_bounded_and_release)
+{
+    static const uint32_t rates[] = { 1, 8000, 44100, 192000 };
+    static const uint8_t notes[] = { 0, 127 };
+    static const int32_t tunes[][2] = { { -2, -100 }, { 2, 100 } };
+    static const int32_t widths[] = { 1, 99 };
+    static const int32_t mixes[] = { 0, 500, 1000 };
+    size_t r, n, t, w, wv, m, i;
+    for (r = 0; r < 4; r++)
+    for (n = 0; n < 2; n++)
+    for (t = 0; t < 2; t++)
+    for (w = 0; w < 2; w++)
+    for (wv = 0; wv < FM_WAVE_COUNT; wv++)
+    for (m = 0; m < 3; m++) {
+        int loud_after = 0;
+        TT_CHECK_EQ(fm_engine_init(&eng, rates[r], 1), FM_OK);
+        fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+        fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
+        fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+        fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 0);
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, (int32_t)wv);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_WAVE, (int32_t)(FM_WAVE_COUNT - 1 - wv));
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_OCTAVE, tunes[t][0]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_FINE_CENTS, tunes[t][1]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, tunes[1 - t][0]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, tunes[1 - t][1]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, widths[w]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_PULSE_WIDTH_PCT, widths[1 - w]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mixes[m]);
+        fm_engine_note_on(&eng, notes[n], 127);
+        fm_engine_render(&eng, buf, 2000);
+        TT_CHECK(peak_abs(buf, 0, 2000) < 32700);
+        fm_engine_note_off(&eng, notes[n]);
+        fm_engine_render(&eng, buf, 2000);
+        for (i = 2; i < 2 * 2000; i++)
+            if (buf[i] != 0) loud_after = 1;
+        TT_CHECK(!loud_after);
+    }
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -242,4 +286,5 @@ static void run_osc_tests(void)
     TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
     TT_RUN(noise_is_bounded_and_not_periodic);
     TT_RUN(high_pulse_and_square_notes_have_low_aliasing);
+    TT_RUN(extreme_osc_settings_stay_bounded_and_release);
 }
