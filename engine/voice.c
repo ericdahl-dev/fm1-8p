@@ -50,6 +50,13 @@ void fm_voice_sync_filter_env(fm_voice *v)
     }
 }
 
+/* The filter envelope's level now: caught up first, so never stale. */
+static int32_t filter_env_level(fm_voice *v)
+{
+    fm_voice_sync_filter_env(v);
+    return v->filter_env.level;
+}
+
 static void filter_env_gate_off(fm_voice *v)
 {
     fm_voice_sync_filter_env(v);
@@ -193,7 +200,7 @@ void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
     v->key_note = note;
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
     /* the new note's cutoff at once; the 16-sample cadence carries on */
-    update_cutoff(v, v->filter_env.level);
+    update_cutoff(v, filter_env_level(v));
 }
 
 void fm_voice_key_up(fm_voice *v, int pedal_down)
