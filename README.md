@@ -8,10 +8,11 @@ by Roland or M-VAVE.
 
 On the desktop, the fixed-point engine plays band-limited voices of two
 oscillators each (saw, pulse, square or noise, with octave, fine tune, pulse
-width and a mix between them) and an ADSR amp envelope, up to 8 at once (6 by
-default), with voice stealing, the sustain pedal, pitch bend, a unison
-mode, an LFO routed to pitch and pulse width with a delay, and velocity,
-rendered from a MIDI file to a WAV.
+width and a mix between them), a resonant 24 dB lowpass (with key tracking
+and its own envelope), a 4-position highpass and an ADSR amp envelope, up to
+8 at once (6 by default), with voice stealing, the sustain pedal, pitch bend,
+a unison mode, an LFO routed to pitch and pulse width with a delay, and
+velocity, rendered from a MIDI file to a WAV.
 
 ## Build and run
 
@@ -29,6 +30,8 @@ make render-demo     # renders examples/demo.mid to build/demo.wav
 
 ./build/fm1-8p-render -r 44100 -v 6 -s amp_attack_ms=200 -s amp_release_ms=800 \
     -s chorus_mode=1 song.mid song.wav
+./build/fm1-8p-render -s filter_cutoff_cents=6000 -s filter_resonance_permille=700 \
+    -s filter_env_amount_cents=3600 song.mid song.wav
 ```
 
 `chorus_mode` is 0 (off, the default), 1 (slow), 2 (deep) or 3 (fast); the
@@ -39,9 +42,12 @@ parameter.
 
 The render tool plays one MIDI channel (`-c`, by default the channel of the
 first note on) with 6 voices by default (`-v`). Each voice is mixed at
-1/(2 x voices) so a full chord never clips, which makes a single note quieter
-with more voices: -21.6 dBFS with 6, -6 dBFS with `-v 1` or in unison
-(`-s voice_mode=1`, where one note takes every voice). After each render
+1/(2 x voices), so with no filter resonance a full chord never clips. High
+resonance uses that headroom and can reach full scale, where the output
+saturates rather than wrapping (gain staging is a follow-up in #24). The
+mixing makes a single note quieter with more voices: -21.6 dBFS with 6, -6 dBFS
+with `-v 1` or in unison (`-s voice_mode=1`, where one note takes every
+voice). After each render
 the tool prints the voice count, channel and that level.
 
 ### Benchmark

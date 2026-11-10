@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "env.h"
+#include "filter.h"
 #include "lfo.h"
 #include "osc.h"
 
@@ -40,6 +41,24 @@ typedef struct {
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
+    /* the filter's byte-sized state, packed with the above */
+    uint8_t key_note;       /* the key the filter tracks: the sounding
+                             * note's, kept when a mode switch sets
+                             * FM_VOICE_NO_NOTE */
+    uint8_t next_key;       /* `note` as set, for key_note when it starts
+                             * (after a steal fade, as next_pitch) */
+    uint8_t ctrl_phase;     /* samples until the next cutoff update */
+    uint8_t cutoff_dirty;   /* a setting or the note changed the cutoff */
+    /* filter: settings copied from the engine's parameters, and state */
+    fm_filter filter;
+    fm_env filter_env;
+    int32_t rate_cents;     /* fm_filter_rate_cents(sample rate) */
+    int32_t cutoff_cents;   /* base cutoff */
+    int32_t key_track;      /* per mille */
+    int32_t env_amount;     /* filter envelope amount, cents */
+    int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
+    uint32_t fenv_lag;      /* samples filter_env is behind: it is not
+                             * stepped while the amount is 0 */
 } fm_voice;
 
 /* What the LFO does to every voice, set by the engine from the patch. */
@@ -50,8 +69,18 @@ typedef struct {
     int32_t fade_step;    /* Q1.30 fade-in per tick after the delay */
 } fm_voice_mod;
 
-/* `seed` starts the voice's noise; give each voice its own. */
-void fm_voice_reset(fm_voice *v, uint32_t seed);
+/* Idle, with the filter open. `seed` starts the voice's noise; give each
+ * voice its own. `rate_cents` is fm_filter_rate_cents of the engine's
+ * sample rate. */
+void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents);
+
+/*
+ * Brings filter_env up to date. While the filter envelope amount is 0 the
+ * render does not step it every sample (it cannot change the sound); it
+ * is caught up (fm_env_advance) before every gate and setting change.
+ * Call this before reading or changing filter_env from outside the voice.
+ */
+void fm_voice_sync_filter_env(fm_voice *v);
 
 /* Sounding: attack through release, or fading out after a steal. */
 int fm_voice_active(const fm_voice *v);
@@ -86,11 +115,12 @@ void fm_voice_take_back(fm_voice *v, int32_t pitch, int32_t peak,
 /*
  * Moves the voice to `note` at `pitch` (Q16.16 semitones) without a steal fade (unison mode,
  * where every voice follows one note). The oscillator keeps its phase,
- * so the pitch changes without a jump. With `retrigger` the envelope
- * restarts its attack from the current level toward `peak`; without, it
- * carries on (legato) at its own peak and `peak` is ignored, unless the
- * voice was idle. A voice still fading out a stolen poly note starts
- * `note` when the fade ends.
+ * so the pitch changes without a jump. With `retrigger` the amp and
+ * filter envelopes restart their attack from the current level (the amp
+ * envelope toward `peak`); without, they carry on (legato) and `peak` is
+ * ignored, unless the voice was idle. Either way the filter's key
+ * tracking follows `note` at once. A voice still fading out a stolen poly
+ * note starts `note` when the fade ends.
  */
 void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
                           int32_t peak, uint32_t now, uint32_t sample_rate,
