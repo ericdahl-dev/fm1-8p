@@ -73,11 +73,13 @@ int render_midi_file(const char *midi_path, const char *wav_path,
 void render_describe(const render_info *info, char *buf, size_t len)
 {
     unsigned n = (unsigned)info->voice_count;
+    /* one note sounds on one voice, or on all n in unison */
+    double note_gain = (info->unison ? n : 1.0) / (2.0 * n);
     snprintf(buf, len,
-             "%u voice%s, MIDI channel %u; each voice mixed at 1/%u "
+             "%u voice%s%s, MIDI channel %u; each voice mixed at 1/%u "
              "(one note peaks at %.1f dBFS)",
-             n, n == 1 ? "" : "s", (unsigned)info->channel, 2 * n,
-             -20.0 * log10(2.0 * n));
+             n, n == 1 ? "" : "s", info->unison ? " in unison" : "",
+             (unsigned)info->channel, 2 * n, 20.0 * log10(note_gain));
 }
 
 int render_midi(const char *midi_path, const char *wav_path,
@@ -163,6 +165,8 @@ int render_midi(const char *midi_path, const char *wav_path,
     if (rc == 0 && info) {
         info->voice_count = voices;
         info->channel = (uint32_t)channel + 1;
+        info->unison = fm_engine_get_param(&eng, FM_PARAM_VOICE_MODE) ==
+                       FM_VOICE_MODE_UNISON;
     }
     return rc;
 }

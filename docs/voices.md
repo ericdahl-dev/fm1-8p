@@ -1,7 +1,8 @@
-# Voices, stealing, sustain and bend
+# Voices, stealing, sustain, bend and unison
 
 How the engine (`engine/engine.c`, `engine/voice.c`) turns notes into
-voices. The number formats are in [fixed-point.md](fixed-point.md).
+voices. Everything up to [Unison](#unison) is poly mode, the default. The
+number formats are in [fixed-point.md](fixed-point.md).
 
 ## Voice count
 
@@ -104,6 +105,91 @@ least significant first). Values above 16383 are ignored.
 - Changing `bend_range_semitones` applies the last bend value again with the
   new range.
 
+## Unison
+
+The `voice_mode` parameter picks how notes get voices: 0 is poly (the
+default, everything above), 1 is unison. In unison every voice plays the
+same note, detuned, for big mono leads and basses. Exactly `voice_count`
+voices stack (the voices past it in `fm_engine` never sound), and the
+render still skips voices that are idle, so a unison note costs the same as
+a chord of `voice_count` notes and silence costs nothing.
+
+### Detune
+
+`unison_detune_cents`, 0 to 100, default 20, is the spread from the lowest
+voice to the highest. The voices sit evenly across it, centered on the note:
+voice `i` of `n` is offset by `cents * (i / (n - 1) - 1/2)`. With 4 voices
+and 60 cents they are at -30, -10, +10 and +30 cents; one voice has no
+detune. The offsets are kept per voice in `fm_engine.detune` as Q16.16
+semitones, the same format as the bend, and added to the note and bend
+before the pitch-to-increment lookup:
+
+    detune[i] = cents * 65536 * (2i - (n - 1)) / (200 * (n - 1))
+
+The product is at most 100 * 65536 * 7 (about 46 million), inside
+`int32_t`; the divisor is at least 200 because one voice skips the divide;
+the division truncates toward zero, so the spread stays symmetric, and it is
+off by under 1/65536 of a semitone. The offsets are computed when
+`voice_mode` or the detune changes (a detune change retunes a sounding
+unison note at once), never per note or per sample. The pitch error between
+semitones (under 0.8 cents, see [Pitch bend](#pitch-bend)) applies to each
+voice. `detune_spreads_voice_pitches_by_the_set_amount` checks each voice's
+frequency for 2, 4 and 8 voices.
+
+### Which note plays: last-note priority
+
+Unison is monophonic. The engine remembers which keys are down, oldest
+first (up to 16, `FM_HELD_MAX`; past that the oldest is forgotten):
+
+- **Note on: retrigger.** The new note always wins. Every voice moves to it
+  and its envelope restarts its attack from the current level, the same as
+  playing a note again in poly. There is no steal fade: the oscillators keep
+  their phase and only their increment changes, so the waveform has no jump
+  and the level only rises from where it was.
+- **Note off of the sounding note: legato.** If other keys are still down,
+  the voices go back to the newest of them without retriggering: the pitch
+  changes, the envelope carries on where it is. If no key is down, every
+  voice releases, or is held by the sustain pedal.
+- **Note off of any other key** just forgets that key.
+- **Sustain pedal:** it holds the note once the last key is up, and a new
+  note on while it holds retriggers as above. Pedal up releases it. A key
+  released while others are down does not stay as a pedal-held fallback.
+- **CC 123 / CC 120** release or silence every voice, as in poly, and forget
+  the keys that were down.
+- There is no glide (portamento): pitch changes are instant. A glide time
+  would fit in this same place later, moving each voice's increment toward
+  the target once per block.
+
+`new_note_retriggers_and_release_returns_legato_to_held_note` checks the
+retrigger, the legato return and both pitches, and
+`unison_note_changes_do_not_click` checks a start, a retrigger, a legato
+return and a release for jumps, as the poly click test does.
+
+### Switching modes
+
+Changing `voice_mode` releases every note (as CC 123 does) and forgets the
+held keys, so each mode starts clean: the next poly note gets a voice by the
+usual rule, in tune, and the next unison note takes every voice. Notes that
+were sounding fade out with their release; a key that was down at the
+switch does nothing when it comes up. The voices still sounding belong to
+no note from then on: a note on never reuses one (it takes a voice by the
+usual rule, which may steal it), and a bend does not retune it, so a unison
+tail ends at its own detuned pitch instead of collapsing onto the new note.
+Setting the mode to the value it already has changes nothing, and neither
+does changing the detune in poly mode. In poly every voice's detune is 0.
+
+### Gain
+
+Unison changes no gain. Each voice is still mixed at `0.5 / voice_count`,
+so a unison note at full level peaks exactly where a full chord does: at
+most 16384 (-6 dBFS) when the saws line up, which they do at 0 cents (all
+voices start a unison note from the same phase on a fresh engine). With
+detune the saws drift in and out of phase and the peak moves between that
+ceiling and well below it. That makes one unison note `voice_count` times
+(at 6 voices, 15.6 dB) louder than one poly note, as stacking oscillators
+on a real synth does. `unison_at_full_velocity_never_clips` checks 1 to 8
+voices at 0, 7 and 100 cents, through a retrigger.
+
 ## Gain staging
 
 | Stage | Format | Peak |
@@ -151,9 +237,14 @@ buffer, and a test for a queued release (the steal fade case above). Idle voices
 
 The mix buffer is 64 frames of `int32_t` inside `fm_engine` (256 bytes), so
 the audio interrupt's stack holds only a few locals whatever the block size.
-`fm_engine` is about 0.7 KiB (692 bytes on x86-64) with room for 8 voices.
+`fm_engine` is about 0.8 KiB (848 bytes on x86-64) with room for 8 voices;
+unison adds 49 of them (8 detune offsets and the 16 held keys).
 
 Divisions all happen on events: one 64-by-32 divide per note on (its pitch),
-and one per sounding voice for each pitch bend message. A fast bend sends a
+and one per sounding voice for each pitch bend message. In unison a note on
+or a legato return costs one 64-by-32 pitch divide per voice (8 at 8
+voices); a detune or mode change adds one 32-by-32 detune divide per voice,
+and the device CPU test should time a burst of these. Rendering in unison is
+no different from rendering the same number of poly voices. A fast bend sends a
 few hundred messages a second, so up to 8 divides each is far below the render's
 cost, but they run wherever the caller applies MIDI events.
