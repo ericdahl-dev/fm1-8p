@@ -50,7 +50,8 @@ expect_ok "... and a listed source's" grep -qx "cflags $T/mod/shared.c = -O3" "$
 expect_ok "... and the module's cflags stay" grep -qx 'cflags = -O2' "$cfg"
 # FM1_DEBUG=1 builds the debug variant: every cflags line also defines FM1_DEBUG (timing logs).
 printf 'name = x\nsources = ../shared.c\ncflags = -O2\ncflags own.c = -Os\n' >"$T/mod/sub/module.cfg"
-FM1_DEBUG=1 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
+(FM1_DEBUG=1 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng") >/dev/null 2>&1   # (a subshell: sh may keep a
+#                                                    function call's assignment after it, as macOS's does)
 expect_ok "a debug build defines FM1_DEBUG for the module" grep -qx 'cflags = -O2 -DFM1_DEBUG' "$cfg"
 expect_ok "... and for a file with its own cflags" grep -qx "cflags $T/mod/sub/own.c = -Os -DFM1_DEBUG" "$cfg"
 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
