@@ -13,7 +13,7 @@ looks.
 
 fm1-8p is inspired by mid-80s two-oscillator polysynths, and the JX-8P in
 particular. That synth had no knob per parameter. You called a parameter by
-its number, its number, name and value showed on the display, and one
+its number, name and value showed on the display, and one
 data-entry control changed it. An optional programmer gave each parameter its
 own control. Parameters were grouped by section: the two oscillators, the
 mixer, the filter, the amp, two envelopes, the LFO and the chorus.
@@ -53,7 +53,7 @@ From fm1-dock `hb_module.h` (ABI 2). fm1-8p registers with
 | Control | Kind | Notes |
 | --- | --- | --- |
 | FX, SEL, ENV, LFO, EDIT, GLO, SAVE, ARP, SEQ, PLAY, REC | buttons | each has an LED: 0 off, 1 lit, 2 glow (dim) |
-| SELECT, ALGORITHM, KNOB1-4, PRESETS | endless encoders | relative clicks, + is clockwise; \|clicks\| > 1 in one event means a fast turn |
+| SELECT, ALGORITHM, KNOB1-4, PRESETS | endless encoders | relative clicks, + is clockwise; \|clicks\| >= 3 in one event is a fast turn |
 | 27 keys, F3..G5 (key 0..26) | keys | velocity where force is sensed (else 0), aftertouch, one LED each |
 | OCT-, OCT+ | buttons | octave, -3..+3 |
 | HOME | button | tap: PLAY state; hold 1.5 s: host picker |
@@ -74,6 +74,21 @@ A fast step is used when one event carries 3 or more clicks.
 - **"Pending":** the parameter comes from an open PR or issue. Its knob and
   number are reserved now, so the map does not change when it lands. Until
   then the screen shows `--` and the knob does nothing.
+
+**Pending on main at `a94bd31`** (checked 2026-11-10). Everything else in the
+map is live in `engine/fm1_8p.h` and `engine/params.c`.
+
+| Slots | Waits for |
+| --- | --- |
+| 34 | #52 (DCO-2 coarse tune) |
+| 41-45, 51-54 | PR #25 (filter, open) |
+| 46, 76 | #8, its second PR (filter velocity, LFO to cutoff) |
+| 47 | #33 (DCO-2 envelope level) |
+| 85-86 | #41 (mod wheel) |
+| 87 | #41, after 76 lands |
+
+Until PR #25 lands, three of the PLAY performance knobs (K1-K3: 41, 42, 43)
+are pending too. Only K4 (64 RELEASE) works.
 - **"Reserved":** the slot is empty. It shows nothing and the knob does
   nothing.
 
@@ -100,21 +115,21 @@ A fast step is used when one event carries 3 or more clicks.
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
 | 31 | K1 | `osc_mix_permille` | MIX | `D1 70 : 30 D2` (0..100, 1 = 10 per mille) | 1 / 5 |
-| 32 | K2 | `osc_sync` (pending, PR #31) | SYNC | OFF, ON | 1 / 1 |
-| 33 | K3 | `osc_xmod_permille` (pending, PR #31) | X-MOD | 0..100 % | 1 / 5 |
-| 34 | K4 | DCO-2 coarse tune (pending, new engine issue) | COARSE | -12..+12 st | 1 / 1 |
+| 32 | K2 | `osc_sync` | SYNC | OFF, ON | 1 / 1 |
+| 33 | K3 | `osc_xmod_permille` | X-MOD | 0..100 % | 1 / 5 |
+| 34 | K4 | DCO-2 coarse tune (pending, #52) | COARSE | -12..+12 st | 1 / 1 |
 
 ### 4x VCF (pages 4A and 4B)
 
-All from PR #25 except 46 and 47.
+41-45 are pending until PR #25 lands. 46 and 47 are pending on their own issues.
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 41 | K1 | `filter_cutoff_cents` | CUTOFF | Hz, 3 significant digits (8.18 Hz .. 33.5 kHz); `OPEN` at 14400 | 100 ct / 400 ct |
-| 42 | K2 | `filter_resonance_permille` | RESO | 0..100 (100 self-oscillates) | 1 / 5 |
-| 43 | K3 | `filter_env_amount_cents` | ENV | -96..+96 st | 1 st / 6 st |
-| 44 | K4 | `filter_key_track_permille` | KEY | 0..100 % | 1 / 10 |
-| 45 | K1 | `highpass_step` | HPF | OFF, 100 Hz, 240 Hz, 560 Hz | 1 / 1 |
+| 41 | K1 | `filter_cutoff_cents` (pending, PR #25) | CUTOFF | Hz, 3 significant digits (8.18 Hz .. 33.5 kHz); `OPEN` at 14400 | 100 ct / 400 ct |
+| 42 | K2 | `filter_resonance_permille` (pending, PR #25) | RESO | 0..100 (100 self-oscillates) | 1 / 5 |
+| 43 | K3 | `filter_env_amount_cents` (pending, PR #25) | ENV | -96..+96 st | 1 st / 6 st |
+| 44 | K4 | `filter_key_track_permille` (pending, PR #25) | KEY | 0..100 % | 1 / 10 |
+| 45 | K1 | `highpass_step` (pending, PR #25) | HPF | OFF, 100 Hz, 240 Hz, 560 Hz | 1 / 1 |
 | 46 | K2 | filter velocity amount (pending, #8) | VEL | 0..100 % | 1 / 5 |
 | 47 | K3 | DCO-2 envelope level (pending, #33) | D2 ENV | -- | - |
 | 48 | K4 | reserved | | | |
@@ -123,10 +138,10 @@ All from PR #25 except 46 and 47.
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 51 | K1 | `filter_env_attack_ms` | ATTACK | time (see below) | time table |
-| 52 | K2 | `filter_env_decay_ms` | DECAY | time | time table |
-| 53 | K3 | `filter_env_sustain_permille` | SUSTAIN | 0..100 | 1 / 5 |
-| 54 | K4 | `filter_env_release_ms` | RELEASE | time | time table |
+| 51 | K1 | `filter_env_attack_ms` (pending, PR #25) | ATTACK | time (see below) | time table |
+| 52 | K2 | `filter_env_decay_ms` (pending, PR #25) | DECAY | time | time table |
+| 53 | K3 | `filter_env_sustain_permille` (pending, PR #25) | SUSTAIN | 0..100 | 1 / 5 |
+| 54 | K4 | `filter_env_release_ms` (pending, PR #25) | RELEASE | time | time table |
 
 ### 6x VCA (pages 6A and 6B)
 
@@ -161,7 +176,7 @@ All from PR #25 except 46 and 47.
 | 84 | K4 | `bend_range_semitones` | BEND | 0..24 st | 1 / 2 |
 | 85 | K1 | wheel adds to vibrato (pending, #41) | W>PITCH | same unit as 74 | as 74 |
 | 86 | K2 | wheel adds to PW (pending, #41) | W>PW | same unit as 75 | as 75 |
-| 87 | K3 | wheel adds to cutoff (pending, #41 after #8) | W>VCF | same unit as 76 | as 76 |
+| 87 | K3 | wheel adds to cutoff (pending, #41, and with 76 on #8) | W>VCF | -- until 76 lands; then the same unit as 76 | as 76 |
 | 88 | K4 | reserved (aftertouch, later) | | | |
 
 ### Units and value tables
@@ -249,13 +264,21 @@ In PLAY or EDIT:
 - **In PLAY and EDIT:** each click loads the next or previous patch at once
   (a fast turn moves 4). Patch numbers wrap. The page you are on stays, so you
   can compare a section across patches.
-- **Unsaved edits:** when the edit buffer is modified, the first click does
-  not load anything. It shows `EDITED: TURN AGAIN TO DISCARD`. Another click
-  in the same direction within 2 s discards the edits and loads. Anything
-  else cancels the warning (decision Q4).
+- **Unsaved edits:** when the edit buffer is modified, the first PRESETS
+  **event** does not load anything, whatever its click count (a fast +4 warns
+  just like +1). It shows `EDITED: TURN AGAIN TO DISCARD`.
+  - A **later** event in the same direction within 2 s discards the edits and
+    loads, moving by that event's clicks.
+  - Anything else cancels the warning (decision Q4).
 - **The edit buffer survives power-off** (decision Q4). It is kept with the
   module's settings, in the settings record if it fits in 240 bytes and in a
-  flash bank otherwise, and written only when nothing sounds.
+  flash bank otherwise. Flash wears out, so it is written only:
+  - when the module is released; or
+  - once the buffer has gone 10 s with no change since the last edit.
+
+  It is never written while any voice sounds or the sequencer plays; a write
+  that is due then waits for silence. The same rule covers the pattern edit
+  buffer.
 - **In SAVE:** PRESETS picks the destination slot.
 - **In GLO:** PRESETS browses patches as in PLAY.
 - **In SEQ view:** PRESETS browses **patterns**, not patches. See
@@ -270,6 +293,15 @@ In PLAY or EDIT:
   the P group, then wraps.
 - A starter patch can be edited and saved to a user slot. SAVE never offers a P
   slot as the destination.
+- **Program change mapping**, the same for receive and send (G23):
+  - PC 0..63 map to slots 11..88 in order: PC 0 = 11, PC 1 = 12 ... PC 7 = 18,
+    PC 8 = 21 ... PC 63 = 88. In other words, slot = 11 + 10 x (PC / 8) +
+    (PC mod 8).
+  - PC 64 and up are the P group: PC 64 = P1, PC 65 = P2, and so on.
+  - A received PC past the last P patch is ignored.
+  - With SEND or BOTH, loading a patch on the panel sends its PC by the same
+    mapping.
+  - Patterns have no program change.
 
 ### SAVE
 
@@ -287,7 +319,9 @@ view. The flow is the same for both; only the slots differ.
    - KNOB1: the character at the cursor (A-Z, 0-9, space, `-`).
    - KNOB2: inserts or deletes at the cursor. Clockwise inserts a space, and
      counterclockwise deletes.
-   - The other buttons do nothing and their LEDs are off.
+   - PLAY, OCT-, OCT+ and the keys work as usual, so the sound can be played
+     while naming it. Their LEDs follow their usual rules.
+   - Every other button does nothing in SAVE, and its LED is off.
 3. **SAVE tap again** writes the patch. If the destination holds another
    patch, the first tap shows `REPLACE 23 <NAME>? SAVE AGAIN`, and the second
    tap writes.
@@ -296,9 +330,22 @@ view. The flow is the same for both; only the slots differ.
    pressed.
 5. **Cancel:** HOME tap or EDIT tap. Nothing is written.
 6. **A write erases a flash bank,** which stalls the sound for about 100 ms.
-   - If any voice is sounding or the sequencer is playing, the write waits. It
-     shows `SAVING WHEN SILENT`, and is written on the first silent moment.
-   - A third SAVE tap writes at once anyway (decision Q5).
+   - **Waiting:** if any voice is sounding or the sequencer is playing, the
+     write waits.
+     - A **snapshot** of the patch (or pattern), its name and its destination
+       is taken at the confirming tap.
+     - The state goes back to where SAVE was pressed, and every screen shows
+       `SAVING WHEN SILENT` until the write happens.
+     - The snapshot is written on the first silent moment. Edits, a program
+       change or a patch or pattern change while waiting do not change what is
+       written.
+   - **Force:** holding SAVE for 1 s or more while `SAVING WHEN SILENT` shows
+     writes the snapshot at once, accepting the dropout (decision Q5). A SAVE
+     tap then does nothing; it does not open a second SAVE.
+   - **Cancel:** the first HOME tap while a write is waiting cancels it. It
+     shows `SAVE CANCELED` and does nothing else.
+   - **After the write:** the edit buffer is clean only if it still equals the
+     snapshot. Otherwise EDITED stays.
    - A failed write shows `SAVE FAILED` and keeps the edit buffer dirty.
 
 A patch never includes a pattern, and a pattern never includes a sound
@@ -463,7 +510,8 @@ There are two ways to write a step. Both use a **chord**: the chord keys and
 MIDI notes held at that moment, with the octave applied. In both:
 
 - **Note count:** only as many notes as the voice count are kept, the first
-  ones pressed. The rest are dropped, and the screen shows `MAX 6 NOTES`.
+  ones pressed. The rest are dropped, and the screen shows `MAX n NOTES`, where
+  n is the build's voice count (6 by default).
 - **Velocity:** the highest velocity among the chord's notes. A key with no
   force sensing uses G32.
 - **Bend and mod:** the live MIDI-in pitch bend and CC1 at the moment of
@@ -482,6 +530,8 @@ MIDI notes held at that moment, with the octave applied. In both:
 
 1. **Arming:** REC tap while stopped arms step record. If you are not in SEQ
    view, it goes there. The cursor stays where it is, and the REC LED is lit.
+   While playing, REC does nothing but show `STOP TO RECORD` (decision Q3), and
+   its LED is off.
 2. **Building a step:** play a note or chord on the chord keys or over MIDI.
    Each key down sounds and joins the step being built.
 3. **Writing:** when the last held chord key or MIDI note is released, the
@@ -514,8 +564,8 @@ Patterns have their own slots, separate from patches (decision Q2).
   - It survives power-off the same way (decision Q4).
 - **Browsing:** PRESETS in SEQ view.
   - **Stopped:** each click loads the next or previous pattern at once. With
-    PATTERN EDITED, the first click warns `PATTERN EDITED: TURN AGAIN TO
-    DISCARD`, as for patches.
+    PATTERN EDITED, the first event warns `PATTERN EDITED: TURN AGAIN TO
+    DISCARD`, per event as for patches.
   - **Playing:** the pattern doesn't change mid-pass. Clicks pick the **next
     pattern**, shown as `NEXT PATTERN 23`. It takes over when the running
     pattern ends its pass (after its last step).
@@ -543,15 +593,26 @@ Patterns have their own slots, separate from patches (decision Q2).
     sequencer starts on the next MIDI start or continue;
   - a second press disarms.
   - MIDI start, stop and continue act as #38 says, whatever the PLAY LED shows.
-- **Transpose:** S3 TRANSPOSE sets an offset.
-  - With KEY TRANSPOSE on and the sequencer playing, a played key does not
-    sound. It sets the transpose to the key minus a reference C, at the next
-    step (#37).
-  - The reference is C4 outside SEQ view, and C5 (the only C among the chord
-    keys) in SEQ view. Both are before the octave shift.
-  - In SEQ view only the chord keys transpose; the step keys stay step keys.
-    MIDI notes in transpose too.
-  - Releasing the key keeps the transpose.
+- **Transpose:** S3 TRANSPOSE sets an offset, -24..+24 semitones.
+  - With KEY TRANSPOSE on and the sequencer playing, played keys do not sound.
+    They set the transpose to the **lowest** key held minus a reference C, at
+    the next step (#37). The result is clamped to -24..+24.
+  - **The reference C:**
+    - outside SEQ view, C4 for panel keys;
+    - in SEQ view, C5 (the only C among the chord keys) for panel keys;
+    - for MIDI notes in, MIDI note 60 (C4), in any view.
+
+    Panel keys use their pitch before the octave shift.
+  - **Outside SEQ view** there are no step keys, so a key press transposes at
+    once.
+  - **In SEQ view, chord entry comes first:**
+    - Chord keys and MIDI notes are held without sounding and decided when the
+      last of them is released.
+    - If a step key was pressed while any of them was held, it was chord
+      entry: the chord was written at the step key, and nothing transposes.
+    - If no step key was pressed, it is a transpose to the lowest key held,
+      applied at the next step after the release.
+  - Releasing the keys keeps the transpose.
   - When stopped, keys play normally.
 - **Bend and mod per step (#42):**
   - JUMP steps set their bend and mod at the step start.
@@ -592,7 +653,9 @@ Everywhere, unless the state says otherwise:
   - `SAVED 23`, `SAVED PATTERN 23`
   - `EDITED: TURN AGAIN TO DISCARD`
   - `PATTERN EDITED: TURN AGAIN TO DISCARD`
-  - `MAX 6 NOTES`
+  - `MAX n NOTES` (n = the build's voice count)
+  - `SAVE CANCELED`
+  - `STOP TO RECORD`
   - `NO EDITS`
   - `NO PARAMETER`
   - `SAVING WHEN SILENT`
@@ -744,12 +807,12 @@ stateDiagram-v2
 | FX | CTRL page | same | BACK (in REC) | - | - |
 | EDIT | tap: last edit page; hold: compare | tap: PLAY; hold: compare | tap: last edit page | cancel | - |
 | GLO | GLO | GLO | GLO | - | back |
-| SAVE | save patch | save patch | save pattern | write, or confirm | - |
+| SAVE | tap: save patch; hold 1 s: force a waiting save | same | tap: save pattern; hold 1 s: force | write, or confirm | hold 1 s: force a waiting save |
 | ARP | - | - | - | - | - |
 | SEQ | SEQ view | SEQ view | back | - | - |
 | PLAY | start/stop | start/stop | start/stop | start/stop | start/stop |
-| REC | arm, go to SEQ | arm, go to SEQ | arm or disarm | - | - |
-| HOME tap | - | PLAY | PLAY | cancel | back |
+| REC | stopped: arm, go to SEQ; playing: `STOP TO RECORD` | same as PLAY | stopped: arm or disarm; playing: `STOP TO RECORD` | - | - |
+| HOME tap | - (cancels a waiting save) | PLAY (or cancels a waiting save) | PLAY (or cancels a waiting save) | cancel | back (or cancels a waiting save) |
 | OCT-/+ | octave | octave | octave (chord keys) | octave | octave |
 | PRESETS | patch | patch | pattern (queued while playing) | slot | patch |
 | Keys F3..G#4 | notes | notes | step keys | notes | notes |
@@ -827,7 +890,8 @@ See [Editing during playback](#editing-during-playback). Also:
 - **Tap or hold:** a press shorter than 400 ms is a tap; 400 ms or more is a
   hold.
 - **Buttons that act on press:** PLAY, REC, SAVE, GLO, ENV, LFO and FX, since
-  they have no hold meaning in that state.
+  they have no hold meaning in that state. The exception is SAVE while a save
+  is waiting: then only a hold of 1 s or more does anything.
 - **Buttons that act on release:** SEL and EDIT, in the states where they have
   a hold meaning. SEQ acts on press.
 - **Two buttons at once:** only SEL+key and HOME are combinations.
@@ -862,110 +926,142 @@ test.
 
 **Values**
 
-10. A KNOB1 +1 on page 4A raises `filter_cutoff_cents` by 100. An event of
-    +3 raises it by 1200, which is 3 x 400.
-11. A knob turn past the top of a range leaves the value at its maximum. Pages
+10. A knob turn past the top of a range leaves the value at its maximum. Pages
     wrap, values don't.
-12. An attack time of 13 ms (not in the table) turned +1 becomes the next
+11. An attack time of 13 ms (not in the table) turned +1 becomes the next
     table entry above 13, and turned -1 becomes the next entry below.
-13. Turning a knob on a pending or reserved slot sends no engine call.
-14. A knob turn makes that parameter the focus. A MIDI CC to another parameter
+12. Turning a knob on a pending or reserved slot sends no engine call.
+13. A knob turn makes that parameter the focus. A MIDI CC to another parameter
     does not change the focus.
-15. Cutoff 14400 shows `OPEN`, and 6900 shows `440 Hz`.
+14. On page 1A, a KNOB3 event of +1 raises FINE by 1 ct, and +2 raises it by
+    2 ct (both normal steps). +3 raises it by 30 ct (3 x the fast step 10).
 
 **Compare, edits and save**
 
-16. After an edit, holding EDIT for 400 ms sends the stored patch's values to
+15. After an edit, holding EDIT for 400 ms sends the stored patch's values to
     the engine. Releasing it sends the edit buffer's values back, and the
     engine's parameters then equal the edit buffer exactly.
-17. Holding EDIT with no edits sends no engine calls and shows `NO EDITS`.
-18. Knob turns during compare change nothing.
-19. With an edited buffer, one PRESETS click loads nothing and shows the
+16. Holding EDIT with no edits sends no engine calls and shows `NO EDITS`.
+17. Knob turns during compare change nothing.
+18. With an edited buffer, one PRESETS click loads nothing and shows the
     discard warning. A second click in the same direction within 2 s loads the
     next patch. After 2 s, a click shows the warning again.
-20. SAVE, then SAVE onto an occupied slot, asks to confirm. A third SAVE
-    writes. Onto the current or an empty slot, the second SAVE writes.
+19. With an edited buffer, a single PRESETS event of +4 loads nothing and
+    warns. A later event of +1 within 2 s loads the next patch.
+20. SAVE, then SAVE onto an occupied slot, asks to confirm, and a third SAVE
+    tap writes. Onto the current or an empty slot, the second SAVE writes.
+    While `SAVING WHEN SILENT` shows, a SAVE tap does nothing, and holding
+    SAVE 1 s writes at once.
 21. A SAVE confirmed while a voice is sounding writes nothing until the voices
     are silent, then writes once.
-22. After a write, EDITED is clear and the EDIT LED glows.
-23. KNOB4 +1 on page 3A raises DCO-2 COARSE by 1 semitone, clamped to -12..+12.
+22. A SAVE confirmed while sounding, followed by a knob edit and a program
+    change during the wait, writes the values, name and slot as they were at
+    the confirming tap. The edit buffer stays EDITED.
+23. HOME tap while a save is waiting writes nothing, shows `SAVE CANCELED`, and
+    does not change the state.
+24. The edit buffer is not written to flash 9 s after the last edit; it is
+    written once at 10 s if silent. If a voice sounds at 10 s, it is written
+    at the first silent moment. `release()` writes it at once.
+25. After a write, EDITED is clear and the EDIT LED glows.
 
 **Sequencer**
 
-24. PLAY sends the sequencer start on press, from every state. PLAY again
+26. PLAY sends the sequencer start on press, from every state. PLAY again
     stops it, and every note it started gets a note-off.
-25. In REC, holding chord keys C5 and E5, then releasing both, writes one step
+27. In REC, holding chord keys C5 and E5, then releasing both, writes one step
     with those two notes at the cursor, and the cursor moves +1.
-26. In REC with a 6-voice count, holding 8 chord keys writes the first 6
-    pressed and shows `MAX 6 NOTES`.
-27. In REC, SEL writes a rest and ENV writes a tie, and each advances the
+28. In REC with a voice count of n, holding n + 2 chord keys writes the first
+    n pressed and shows `MAX n NOTES`, with n from the build (run for n = 6 and
+    one other count).
+29. In REC, SEL writes a rest and ENV writes a tie, and each advances the
     cursor. FX moves the cursor back without writing.
-28. In REC, a key with velocity 0 (unsensed) writes the step with G32's
+30. In REC, a key with velocity 0 (unsensed) writes the step with G32's
     velocity.
-29. In REC with MIDI bend at +4096 and CC1 at 64, the written step holds bend
+31. In REC with MIDI bend at +4096 and CC1 at 64, the written step holds bend
     +4096 and mod 64.
-30. PLAY while REC is armed starts playback and disarms REC.
-31. In SEQ view with no chord held, pressing key 5 sends no note-on for
+32. PLAY while REC is armed starts playback and disarms REC.
+33. REC tap while playing, in any state, does not arm, and shows
+    `STOP TO RECORD`.
+34. In SEQ view with no chord held, pressing key 5 sends no note-on for
     A#3 and moves the cursor to step 6. Stopped and not in REC, it auditions
     step 6's notes; in REC it plays nothing.
-32. In SEQ view, holding chord keys A4 and C5 and pressing key 2 writes that
+35. In SEQ view, holding chord keys A4 and C5 and pressing key 2 writes that
     chord to step 3. Pressing key 7 while still holding writes it to step 8
     too. Releasing the chord writes nothing more.
-33. Outside SEQ view, key 0 (F3) sends a note-on for F3.
-34. A note held on F3 when SEQ view opens gets its note-off when F3 is
+36. Outside SEQ view, key 0 (F3) sends a note-on for F3.
+37. A note held on F3 when SEQ view opens gets its note-off when F3 is
     released.
-35. Chord + step key works while playing; the step plays the new chord the
+38. Chord + step key works while playing; the step plays the new chord the
     next time it comes round.
-36. Key LEDs in SEQ view, for a 12-step pattern with notes on 1 and 5 and a
+39. Key LEDs in SEQ view, for a 12-step pattern with notes on 1 and 5 and a
     tie on 6: key 0 lit, key 4 lit, key 5 tie-blink, keys 1-3 and 6-11 glow,
     keys 12-15 off, keys 16-26 glow, and a held chord key lit.
-37. While playing, the playhead key's LED is inverted for exactly its step, and
+40. While playing, the playhead key's LED is inverted for exactly its step, and
     the other keys keep their states.
-38. With KEY TRANSPOSE on and playing, outside SEQ view pressing D4 sends no
+41. With KEY TRANSPOSE on and playing, outside SEQ view pressing D4 sends no
     note-on and sets transpose +2 from the next step. In SEQ view, pressing
-    chord key D5 does the same.
-39. With G13 = MIDI and no clock, PLAY sets WAITING FOR CLOCK and sends no
+    and releasing chord key D5 does the same.
+42. With KEY TRANSPOSE on and playing in SEQ view, holding chord keys E5 and
+    G5, pressing step key 3 and releasing all writes E5 G5 to step 4 and leaves
+    the transpose unchanged. Holding E5 and G5 with no step key and releasing
+    sets the transpose to +4 (the lowest, E5, minus C5).
+43. With KEY TRANSPOSE on and playing, MIDI note 62 sets +2, and MIDI note 96
+    sets +24 (clamped).
+44. With G13 = MIDI and no clock, PLAY sets WAITING FOR CLOCK and sends no
     notes. MIDI start then starts the sequencer from step 1.
-40. A tempo knob turn under external clock changes nothing and shows the
+45. A tempo knob turn under external clock changes nothing and shows the
     banner.
-41. Setting LENGTH to 4 while the playhead is on step 9 plays step 1 next.
+46. Setting LENGTH to 4 while the playhead is on step 9 plays step 1 next.
 
 **Patterns**
 
-42. In SEQ view, stopped, PRESETS +1 loads the next pattern at once, and the
+47. In SEQ view, stopped, PRESETS +1 loads the next pattern at once, and the
     patch is unchanged.
-43. In SEQ view, playing, PRESETS +1 loads nothing yet and shows
+48. In SEQ view, playing, PRESETS +1 loads nothing yet and shows
     `NEXT PATTERN nn`. The new pattern's step 1 plays right after the running
     pattern's last step.
-44. While a next pattern is queued, turning PRESETS back to the running
+49. While a next pattern is queued, turning PRESETS back to the running
     pattern's number cancels it.
-45. Stopping with a next pattern queued loads it at once.
-46. A patch change (PRESETS outside SEQ view, or program change) while
+50. Stopping with a next pattern queued loads it at once.
+51. A patch change (PRESETS outside SEQ view, or program change) while
     playing leaves the running pattern, its step and its tempo unchanged.
-47. With PATTERN EDITED, the first PRESETS click in SEQ view loads nothing and
+52. With PATTERN EDITED, the first PRESETS click in SEQ view loads nothing and
     warns; a second click within 2 s proceeds.
-48. SAVE in SEQ view writes a pattern slot and never a patch slot; SAVE in
+53. SAVE in SEQ view writes a pattern slot and never a patch slot; SAVE in
     PLAY or EDIT writes a patch slot and never a pattern slot.
-49. An empty pattern slot loads as 16 rests with LENGTH 16.
+54. An empty pattern slot loads as 16 rests with LENGTH 16.
 
 **Keys and MIDI**
 
-50. A key pressed before SEL is held, and released while SEL is held, sends
+55. A key pressed before SEL is held, and released while SEL is held, sends
     its note-off.
-51. With G24 = PICKUP and cutoff at 64 (CC scale), CC74 = 20 is ignored, and
-    CC74 = 63, 64 or 65 takes over. After that, CC74 = 20 sets the value.
-52. With G24 = JUMP, CC74 = 20 sets cutoff at once.
-53. A CC during compare reaches the edit buffer. On EDIT release, the engine
+56. A CC during compare reaches the edit buffer. On EDIT release, the engine
     has the CC's value.
-54. Program change 5 loads patch 5 even with an edited buffer, when G23 is RECV
-    or BOTH.
-55. After `release()`, then `draw(full)`, every LED is sent again and the
+57. With G23 RECV or BOTH, program change 5 loads slot 16 even with an
+    edited buffer. PC 8 loads slot 21, PC 63 loads slot 88, and PC 64 loads P1.
+    A PC past the last P patch changes nothing.
+58. With G23 SEND or BOTH, loading slot 21 on the panel sends PC 8.
+59. After `release()`, then `draw(full)`, every LED is sent again and the
     transport is STOPPED.
-
-56. Setting G34 THEME to MEMBRANE redraws the screen at once and saves the
+60. Setting G34 THEME to MEMBRANE redraws the screen at once and saves the
     settings once nothing sounds. After `init()` with that settings record
     (a power cycle), THEME is MEMBRANE. With no settings record, it is
     NIGHT PANEL.
+
+**After the engine catches up**
+
+These tests use pending parameters. Each runs once the issue named lands, and
+until then test 12 (pending slots send nothing) covers those slots.
+
+61. After PR #25: a KNOB1 +1 on page 4A raises `filter_cutoff_cents` by 100.
+    An event of +3 raises it by 1200, which is 3 x 400.
+62. After PR #25: cutoff 14400 shows `OPEN`, and 6900 shows `440 Hz`.
+63. After PR #25: with G24 = PICKUP and cutoff at 64 (CC scale), CC74 = 20 is
+    ignored, and CC74 = 63, 64 or 65 takes over. After that, CC74 = 20 sets
+    the value.
+64. After PR #25: with G24 = JUMP, CC74 = 20 sets cutoff at once.
+65. After #52: KNOB4 +1 on page 3A raises DCO-2 COARSE by 1 semitone, clamped
+    to -12..+12.
 
 ## 10. Decisions (Eric, 2026-11-10)
 
@@ -981,7 +1077,8 @@ test.
   click with unsaved edits warns, and a second click within 2 s discards. The
   sound and pattern edit buffers survive a power cycle.
 - **Q5, SAVE while sound plays: wait for silence.** The write waits until
-  nothing sounds and the sequencer is stopped. A third SAVE forces it.
+  nothing sounds and the sequencer is stopped. It writes a snapshot taken at
+  the confirming tap. Holding SAVE 1 s forces the write, and HOME cancels it.
 - **Q6, external CC: JUMP by default,** with PICKUP in GLO (G24).
 - **Q7, live bend and mod over steps: the newest value wins** until the next
   step sets its own.
