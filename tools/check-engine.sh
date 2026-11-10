@@ -44,8 +44,9 @@ NO_FLOAT_TYPES="$NO_FLOAT_TYPES -Ddouble=fm1_8p_engine_must_not_use_double"
 
 # Symbols an engine object may reference outside the engine: memory
 # helpers the compiler emits for struct copies, stack protection, and
-# integer helpers for 64-bit math on 32-bit targets.
-ALLOW='^(memset|memcpy|memmove|__stack_chk_fail|__stack_chk_guard|__chkstk_darwin|__(u?(div|mod|divmod)|mul|ashl|ashr|lshr|cmp|ucmp)(di|ti)[34]|__aeabi_(u?ldivmod|u?idiv|u?idivmod|lasr|llsl|llsr|lmul|lcmp|ulcmp|memset|memset4|memset8|memcpy|memcpy4|memcpy8|memclr|memclr4|memclr8|memmove))$'
+# integer helpers for 64-bit math on 32-bit targets. Apple clang lowers
+# zeroing and fill loops to Darwin's bzero and memset_pattern4/8/16.
+ALLOW='^(memset|memcpy|memmove|bzero|memset_pattern(4|8|16)|__stack_chk_fail|__stack_chk_guard|__chkstk_darwin|__(u?(div|mod|divmod)|mul|ashl|ashr|lshr|cmp|ucmp)(di|ti)[34]|__aeabi_(u?ldivmod|u?idiv|u?idivmod|lasr|llsl|llsr|lmul|lcmp|ulcmp|memset|memset4|memset8|memcpy|memcpy4|memcpy8|memclr|memclr4|memclr8|memmove))$'
 
 # Mach-O prefixes C symbols with an underscore.
 STRIP='s/^_//'
