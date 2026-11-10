@@ -82,6 +82,7 @@ static void update_cutoff(fm_voice *v, int32_t fenv)
     if (cents == v->cutoff_now) return; /* the coefficients stand */
     v->cutoff_now = cents;
     fm_filter_set_cutoff(&v->filter, cents, v->rate_cents);
+    fm_voice_mark(v, FM_BUSY_FILTER, !fm_filter_is_wire(&v->filter));
 }
 
 /* Gates both envelopes on. The filter envelope starts from where the amp
@@ -319,8 +320,7 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
 uint32_t fm_voice_busy(const fm_voice *v)
 {
     return v->mix_env || v->mix_step || v->osc.mix != v->mix_base ||
-           v->busy ||
-           !fm_filter_is_wire(&v->filter);
+           v->busy;
 }
 
 static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)

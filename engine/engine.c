@@ -276,6 +276,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_HIGHPASS_STEP:
             fm_filter_set_highpass(&vc->filter, (uint8_t)v, vc->rate_cents);
+            fm_voice_mark(vc, FM_BUSY_FILTER, !fm_filter_is_wire(&vc->filter));
             break;
         case FM_PARAM_FILTER_ENV_ATTACK_MS:
             flt->attack_samples = ms_to_samples(e, v);
