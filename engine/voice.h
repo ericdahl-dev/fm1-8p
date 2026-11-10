@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "env.h"
+#include "filter.h"
 #include "osc.h"
 
 typedef struct {
@@ -29,9 +30,17 @@ typedef struct {
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
+    /* filter: settings copied from the engine's parameters, and state */
+    fm_filter filter;
+    int32_t rate_cents;     /* fm_filter_rate_cents(sample rate) */
+    int32_t cutoff_cents;   /* base cutoff */
+    int32_t key_track;      /* per mille */
+    uint8_t ctrl_phase;     /* samples until the next cutoff update */
 } fm_voice;
 
-void fm_voice_reset(fm_voice *v);
+/* Idle, with the filter open; `rate_cents` is fm_filter_rate_cents of
+ * the engine's sample rate. */
+void fm_voice_reset(fm_voice *v, int32_t rate_cents);
 
 /* Sounding: attack through release, or fading out after a steal. */
 int fm_voice_active(const fm_voice *v);

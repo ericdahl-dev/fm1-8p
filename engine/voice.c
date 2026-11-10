@@ -5,7 +5,7 @@
  */
 #include "voice.h"
 
-void fm_voice_reset(fm_voice *v)
+void fm_voice_reset(fm_voice *v, int32_t rate_cents)
 {
     fm_osc_reset(&v->osc);
     fm_env_reset(&v->amp_env);
@@ -18,6 +18,11 @@ void fm_voice_reset(fm_voice *v)
     v->key_down = 0;
     v->sustained = 0;
     v->pending = 0;
+    fm_filter_reset(&v->filter);
+    v->rate_cents = rate_cents;
+    v->cutoff_cents = FM_FILTER_OPEN_CENTS;
+    v->key_track = 0;
+    v->ctrl_phase = 0;
 }
 
 int fm_voice_active(const fm_voice *v)
@@ -31,6 +36,7 @@ int fm_voice_active(const fm_voice *v)
 static void start(fm_voice *v)
 {
     v->pending = 0;
+    v->ctrl_phase = 0; /* the new note's cutoff from its first sample */
     fm_osc_set_inc(&v->osc, v->next_inc);
     fm_env_gate_on(&v->amp_env);
     if (!v->key_down && !v->sustained) v->gate_left = v->wait ? v->wait : 1;
@@ -99,6 +105,18 @@ void fm_voice_set_inc(fm_voice *v, uint32_t inc)
     if (!v->pending) fm_osc_set_inc(&v->osc, inc);
 }
 
+/* Samples between cutoff updates (control rate: 2756 Hz at 44.1 kHz). */
+#define FILTER_CTRL_SAMPLES 16
+
+/* Recomputes the cutoff from the settings and the voice's note. */
+static void update_cutoff(fm_voice *v)
+{
+    fm_filter_set_cutoff(&v->filter,
+                         fm_filter_voice_cents(v->cutoff_cents, v->key_track,
+                                               v->note),
+                         v->rate_cents);
+}
+
 void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames)
 {
     uint32_t i;
@@ -111,7 +129,12 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames)
         if (v->gate_left && --v->gate_left == 0)
             fm_env_gate_off(&v->amp_env); /* the queued release */
         level = fm_env_next(&v->amp_env);
-        saw = fm_osc_saw_next(&v->osc);
+        if (v->ctrl_phase == 0) {
+            update_cutoff(v);
+            v->ctrl_phase = FILTER_CTRL_SAMPLES;
+        }
+        v->ctrl_phase--;
+        saw = fm_filter_process(&v->filter, fm_osc_saw_next(&v->osc));
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)saw * level) >> 30);
     }

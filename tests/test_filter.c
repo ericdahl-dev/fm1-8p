@@ -139,9 +139,67 @@ TT_TEST(max_resonance_stays_bounded_over_a_long_render)
     }
 }
 
+/* ---- the filter in the voice, through fm_engine_* ---- */
+
+#define FRAMES_HALF_S (FRATE / 2)
+
+static fm_engine feng;
+static int16_t fbuf_a[FRATE * 2], fbuf_b[FRATE * 2];
+
+/* Plays `note` for half a second with the given filter settings. */
+static void play_filtered(int16_t *out, uint8_t note, int32_t cutoff,
+                          int32_t res, int32_t track)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, cutoff);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, res);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, track);
+    fm_engine_note_on(&feng, note, 100);
+    fm_engine_render(&feng, out, FRAMES_HALF_S);
+}
+
+/* RMS of one channel over frames [from, to). */
+static double rms(const int16_t *stereo, size_t from, size_t to)
+{
+    double sum = 0;
+    size_t i;
+    for (i = from; i < to; i++) sum += (double)stereo[2 * i] * stereo[2 * i];
+    return sqrt(sum / (double)(to - from));
+}
+
+/*
+ * Key tracking is per mille of the note's distance from middle C (note
+ * 60): at 1000 the cutoff follows the keyboard one to one. So note 72
+ * with tracking T must sound exactly like note 72 with the cutoff raised
+ * by T * 1200 / 1000 cents and no tracking, and full tracking must be
+ * brighter than none.
+ */
+TT_TEST(key_tracking_moves_cutoff_with_note_pitch)
+{
+    static const int32_t tracks[] = { 0, 250, 500, 1000 };
+    size_t t;
+    for (t = 0; t < sizeof tracks / sizeof tracks[0]; t++) {
+        play_filtered(fbuf_a, 72, 5000, 300, tracks[t]);
+        play_filtered(fbuf_b, 72, 5000 + tracks[t] * 1200 / 1000, 300, 0);
+        TT_CHECK(memcmp(fbuf_a, fbuf_b, FRAMES_HALF_S * 4) == 0);
+    }
+    /* below middle C tracking lowers the cutoff */
+    play_filtered(fbuf_a, 48, 5000, 300, 500);
+    play_filtered(fbuf_b, 48, 5000 - 600, 300, 0);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRAMES_HALF_S * 4) == 0);
+    /* and it is audible: same note, full tracking vs none */
+    play_filtered(fbuf_a, 72, 5000, 300, 1000);
+    play_filtered(fbuf_b, 72, 5000, 300, 0);
+    printf("    note 72, cutoff 5000: RMS tracked %.0f, untracked %.0f\n",
+           rms(fbuf_a, 4410, FRAMES_HALF_S), rms(fbuf_b, 4410, FRAMES_HALF_S));
+    TT_CHECK(rms(fbuf_a, 4410, FRAMES_HALF_S) >
+             2.0 * rms(fbuf_b, 4410, FRAMES_HALF_S));
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
     TT_RUN(resonance_raises_gain_near_cutoff);
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
+    TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
 }

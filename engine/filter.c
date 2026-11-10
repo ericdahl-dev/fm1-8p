@@ -112,6 +112,13 @@ static int32_t coef_for(int32_t cents, int32_t rate_cents)
     return (int32_t)(((uint64_t)x * h) >> 30);
 }
 
+int32_t fm_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
+                              uint8_t note)
+{
+    /* 100 cents per semitone, per mille: track * (note - 60) / 10 */
+    return cutoff_cents + track_permille * ((int32_t)note - 60) / 10;
+}
+
 void fm_filter_reset(fm_filter *f)
 {
     int i;

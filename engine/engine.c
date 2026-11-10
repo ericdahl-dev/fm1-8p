@@ -56,7 +56,8 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     }
     for (i = 0; i < e->voice_count; i++) {
-        fm_env *env = &e->voices[i].amp_env;
+        fm_voice *vc = &e->voices[i];
+        fm_env *env = &vc->amp_env;
         switch (id) {
         case FM_PARAM_AMP_ATTACK_MS:
             env->attack_samples = ms_to_samples(e, v);
@@ -70,6 +71,15 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_AMP_RELEASE_MS:
             env->release_samples = ms_to_samples(e, v);
+            break;
+        case FM_PARAM_FILTER_CUTOFF_CENTS:
+            vc->cutoff_cents = v;
+            break;
+        case FM_PARAM_FILTER_RESONANCE:
+            fm_filter_set_resonance(&vc->filter, v);
+            break;
+        case FM_PARAM_FILTER_KEY_TRACK:
+            vc->key_track = v;
             break;
         default:
             break;
@@ -95,7 +105,11 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend = 0;
     e->bend_value = 0;
     e->fade_samples = ms_to_samples(e, STEAL_FADE_MS);
-    for (i = 0; i < FM_MAX_VOICES; i++) fm_voice_reset(&e->voices[i]);
+    {
+        int32_t rate_cents = fm_filter_rate_cents(sample_rate);
+        for (i = 0; i < FM_MAX_VOICES; i++)
+            fm_voice_reset(&e->voices[i], rate_cents);
+    }
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         e->params[id] = fm_param_info_get(id)->def;
         apply_param(e, id);

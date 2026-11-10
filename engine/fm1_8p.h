@@ -39,6 +39,11 @@ typedef enum {
     FM_PARAM_AMP_SUSTAIN, /* per mille of full level, 0..1000 */
     FM_PARAM_AMP_RELEASE_MS,
     FM_PARAM_BEND_RANGE, /* semitones each way at full bend, 0..24 */
+    /* lowpass cutoff, cents above MIDI note 0 (6900 = 440 Hz);
+     * FM_FILTER_OPEN_CENTS (the maximum) is fully open */
+    FM_PARAM_FILTER_CUTOFF_CENTS,
+    FM_PARAM_FILTER_RESONANCE, /* per mille; 1000 self-oscillates */
+    FM_PARAM_FILTER_KEY_TRACK, /* per mille; 1000 follows the note 1:1 */
     FM_PARAM_COUNT
 } fm_param_id;
 

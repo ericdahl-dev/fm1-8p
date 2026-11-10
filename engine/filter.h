@@ -28,6 +28,14 @@ typedef struct {
  * per sample rate (at init); the other calls take it as `rate_cents`. */
 int32_t fm_filter_rate_cents(uint32_t sample_rate);
 
+/*
+ * Cutoff of a voice, in cents: the base cutoff, plus key tracking (per
+ * mille of the note's distance from middle C, note 60). Unclamped;
+ * fm_filter_set_cutoff clamps.
+ */
+int32_t fm_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
+                              uint8_t note);
+
 /* Clears the state and opens the filter (no resonance, no highpass). */
 void fm_filter_reset(fm_filter *f);
 
