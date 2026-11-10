@@ -26,10 +26,19 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
  */
 #define CH_GOLDEN_HASH 0x8E24F4ADu
 
-static uint32_t ch_render_golden_phrase(int set_mode, int32_t mode)
+/*
+ * set_mode: set chorus_mode to `mode` before the phrase. was_on: first
+ * run the deep mode for a while (filling its line), then set `mode`.
+ */
+static uint32_t ch_render_golden_phrase(int set_mode, int32_t mode,
+                                        int was_on)
 {
     memset(ch_buf, 0, 2 * 20000 * sizeof ch_buf[0]);
     fm_engine_init(&ch_eng, CH_RATE, 8);
+    if (was_on) {
+        fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, FM_CHORUS_DEEP);
+        fm_engine_render(&ch_eng, ch_buf, 3000);
+    }
     if (set_mode) fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, mode);
     fm_engine_set_param(&ch_eng, FM_PARAM_AMP_ATTACK_MS, 3);
     fm_engine_set_param(&ch_eng, FM_PARAM_AMP_RELEASE_MS, 40);
@@ -44,14 +53,35 @@ static uint32_t ch_render_golden_phrase(int set_mode, int32_t mode)
 
 TT_TEST(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine)
 {
-    TT_CHECK_EQ(ch_render_golden_phrase(0, 0), CH_GOLDEN_HASH);
+    TT_CHECK_EQ(ch_render_golden_phrase(0, 0, 0), CH_GOLDEN_HASH);
     TT_CHECK_EQ(fm_engine_get_param(&ch_eng, FM_PARAM_CHORUS_MODE), 0);
     TT_CHECK_EQ(fm_param_info_get(FM_PARAM_CHORUS_MODE)->def, 0);
-    TT_CHECK_EQ(ch_render_golden_phrase(1, FM_CHORUS_OFF), CH_GOLDEN_HASH);
-    /* back to off after a mode was on */
-    fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, 2);
-    fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, 0);
+    TT_CHECK_EQ(ch_render_golden_phrase(1, FM_CHORUS_OFF, 0), CH_GOLDEN_HASH);
+    /* back to off after a mode was on: the output is the input again */
+    TT_CHECK_EQ(ch_render_golden_phrase(1, FM_CHORUS_OFF, 1), CH_GOLDEN_HASH);
     TT_CHECK_EQ(fm_engine_get_param(&ch_eng, FM_PARAM_CHORUS_MODE), 0);
+}
+
+/* At the module: on with signal, then off, passes every sample through. */
+TT_TEST(chorus_switched_back_off_passes_input_through)
+{
+    static fm_chorus ch;
+    uint32_t n, seed = 3;
+    int32_t l, r;
+    int same = 1;
+    fm_chorus_init(&ch, CH_RATE);
+    fm_chorus_set_mode(&ch, FM_CHORUS_SLOW);
+    for (n = 0; n < 3000; n++)
+        fm_chorus_process(&ch, (n / 40) % 2 ? (1 << 23) : -(1 << 23), &l, &r);
+    fm_chorus_set_mode(&ch, FM_CHORUS_OFF);
+    for (n = 0; n < 3000; n++) {
+        int32_t x;
+        seed = seed * 1664525u + 1013904223u;
+        x = (int32_t)(seed >> 7) - (1 << 24);
+        fm_chorus_process(&ch, x, &l, &r);
+        if (l != x || r != x) same = 0;
+    }
+    TT_CHECK(same);
 }
 
 /* RMS of left - right relative to RMS of left, over frames [from, to). */
@@ -550,6 +580,7 @@ TT_TEST(chorus_reinit_then_on_starts_from_a_silent_line)
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
+    TT_RUN(chorus_switched_back_off_passes_input_through);
     TT_RUN(chorus_on_makes_left_and_right_differ_for_a_mono_voice);
     TT_RUN(chorus_modes_differ_in_rate_and_depth);
     TT_RUN(chorus_output_stays_bounded_for_eight_full_scale_voices);
