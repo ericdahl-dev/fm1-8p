@@ -12,7 +12,7 @@
 
 /* Milliseconds to samples at `rate` Hz: a negative time is 0, and a count
  * past 32 bits saturates (the product, under 2^63, is formed in 64 bits).
- * The longest setting, 10 s at 192 kHz, is 1920000 samples. */
+ * The longest setting, 32 s at 192 kHz, is 6144000 samples. */
 static inline uint32_t fm_ms_to_samples(int32_t ms, uint32_t rate)
 {
     uint64_t n;

@@ -218,6 +218,7 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count` with no resonance; at most 4.0 x 8 = 32.0, which uses 6 of the 7 headroom bits |
 | Mix gain | Q1.30 | `0.5 / voice_count` = `(1 << 29) / voice_count`, rounded down |
 | Output before conversion | Q8.24 | 0.5 with no resonance; up to 2.0 with high resonance |
+| Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; a full eight-note chord measures about 0.78 |
 | Output | `int16_t` | 16384 (-6 dBFS) with no resonance; high resonance can reach full scale, where the conversion saturates |
 
 Each voice is scaled by `1 / voice_count`, so the worst case without
@@ -283,8 +284,8 @@ amp envelopes and one for the filter envelopes, and every voice's
 envelope points at it (#19), so a setting change is written once and
 retimes only the envelopes that are running. Unison adds 49 bytes (8
 detune offsets and the 16 held keys). With the chorus (its 2 KiB delay
-line and a 256-byte right-side buffer) `fm_engine` is about 5.2 KiB (5312
-bytes on the FM-1, 5480 on x86-64), so static storage is recommended.
+line and a 256-byte right-side buffer) `fm_engine` is about 5.2 KiB (5368
+bytes on the FM-1, 5568 on x86-64), so static storage is recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per
 voice (one per oscillator's pitch, plus one more for each pulse oscillator's

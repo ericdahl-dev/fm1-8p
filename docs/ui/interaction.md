@@ -223,12 +223,22 @@ nothing (test 12). When it lands, its row in the map above takes these values:
 ### Units and value tables
 
 - **Time:** the engine stores ms. The screen shows `0 ms` .. `999 ms`, then
-  `1.00 s` .. `9.99 s`, then `10.0 s`. A knob click moves one entry in a fixed
-  table of about 100 entries from 0 to 10000 ms, spaced about 7 % apart
-  above 20 ms: 0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 22 ... 10000. A fast
+  `1.00 s` .. `9.99 s`, then `10.0 s` .. `32.0 s`. A knob click moves one entry in a
+  fixed table of about 115 entries from 0 to the parameter's maximum (32000 ms
+  for every envelope time, as a JX-8P ATTACK runs to about 34 s, as long as the patch
+  table's int16 holds), spaced about
+  7 % apart above 20 ms: 0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 22 ... 32000. A fast
   turn moves 4 entries. A value that is not in the table, from MIDI or an
   older patch, snaps to the nearest entry on the first click, in the direction
   of the turn.
+- **DECAY and RELEASE times are time constants** (#99): the decay and release are
+  exponential, as on PG-8X, and the screen shows their tau, the time the
+  distance to the target takes to fall to 37 % (-8.7 dB). The level is down
+  20 dB at 2.3 x the shown time and 40 dB at 4.6 x. A release ends (the voice
+  is free) at -80 dB, 9.2 x the shown time. ATTACK stays the time to the peak.
+  This changed what a stored DECAY or RELEASE means: a patch saved before it
+  plays its decay and release slower and longer (fine before release; no
+  patches have shipped).
 - **LFO rate:** the same idea, a table from 0.01 Hz to 30.0 Hz, about 6 %
   apart.
 - **Cutoff:** shown as Hz from `8.18 * 2^(cents/1200)`, three significant

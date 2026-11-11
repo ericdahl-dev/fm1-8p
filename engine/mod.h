@@ -19,12 +19,15 @@
 #endif
 
 /* Sources, values in Q1.30: the LFO (after the voice's delay and fade),
- * and the note's velocity (its amp level, velocity curve applied). */
-enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_COUNT };
+ * the note's velocity (its amp level, velocity curve applied), and
+ * envelope 1 (the filter envelope's level). */
+enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_ENV1, FM_MOD_SRC_COUNT };
 
 /* Destinations, each summed in its own unit: pitch in Q16.16 octaves,
- * pulse width in Q0.32, level (the amp envelope's peak) in Q1.30. */
-enum { FM_MOD_PITCH, FM_MOD_PW, FM_MOD_LEVEL, FM_MOD_DEST_COUNT };
+ * pulse width in Q0.32, level (the amp envelope's peak) in Q1.30, cutoff
+ * in cents (added to the filter's base and key tracking). */
+enum { FM_MOD_PITCH, FM_MOD_PW, FM_MOD_LEVEL, FM_MOD_CUTOFF,
+       FM_MOD_DEST_COUNT };
 
 /* Route depths, in each destination's unit at full source. */
 typedef struct {
@@ -109,6 +112,19 @@ static inline int32_t fm_mod_update(fm_mod *m, const fm_mod_routes *r,
 {
     return m->sum[dest] = fm_mod_dest_sum(r->depth, m->src,
                                           FM_MOD_SRC_COUNT, dest);
+}
+
+/* Nonzero while destination `dest` is at rest: no route reaches it and
+ * its sum is 0. A route turned off leaves it busy until it is summed
+ * again (the voice busy word follows this). */
+static inline int fm_mod_at_rest(const fm_mod *m, const fm_mod_routes *r,
+                                 unsigned dest)
+{
+    unsigned s;
+    if (m->sum[dest]) return 0;
+    for (s = 0; s < FM_MOD_SRC_COUNT; s++)
+        if (r->depth[s][dest]) return 0;
+    return 1;
 }
 
 /* The sum at destination `dest`. */

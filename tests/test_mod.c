@@ -211,8 +211,10 @@ static int retrigger_at(uint8_t again, int *level)
     fm_engine_note_on(&mod_eng, 2, again);
     fm_engine_render(&mod_eng, mod_buf + 2 * 2500, 2000);
     jump = max_jump(mod_buf, 0, 4500);
-    fm_engine_render(&mod_eng, mod_buf, 10000);
-    *level = peak_abs(mod_buf, 4500, 10000);
+    /* the decay glides there exponentially (tau 50 ms): within 0.1 % of
+     * full after 7 tau, so the level is read from 0.4 s on */
+    fm_engine_render(&mod_eng, mod_buf, 20000);
+    *level = peak_abs(mod_buf, 14500, 20000);
     return jump;
 }
 
@@ -242,6 +244,8 @@ TT_TEST(unison_legato_return_keeps_the_last_strike_velocity)
     fm_engine_set_param(&mod_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
     fm_engine_set_param(&mod_eng, FM_PARAM_UNISON_DETUNE_CENTS, 0);
     fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
+    /* the decay's tau 30 ms: a velocity glide has settled 500 ms on */
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_DECAY_MS, 30);
     fm_engine_note_on(&mod_eng, 60, 127);
     loud = peak_after(500);
     fm_engine_note_on(&mod_eng, 64, 40); /* softer strike */
