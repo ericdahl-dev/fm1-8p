@@ -315,8 +315,8 @@ In PLAY or EDIT:
 - **Unsaved edits:** when the edit buffer is modified, the first PRESETS
   **event** does not load anything, whatever its click count (a fast +4 warns
   just like +1). It shows `EDITED: TURN AGAIN TO DISCARD`.
-  - A **later** event in the same direction within 2 s discards the edits and
-    loads, moving by that event's clicks.
+  - A **later** event in the same direction while the warning shows (1.5 s)
+    discards the edits and loads, moving by that event's clicks.
   - Anything else cancels the warning (decision Q4).
 - **The edit buffer survives power-off** (decision Q4). It is kept with the
   module's settings, in the settings record if it fits in 240 bytes and in a
@@ -998,8 +998,8 @@ test.
 19. Holding EDIT with no edits sends no engine calls and shows `NO EDITS`.
 20. Knob turns during compare change nothing.
 21. With an edited buffer, one PRESETS click loads nothing and shows the
-    discard warning. A second click in the same direction within 2 s loads the
-    next patch. After 2 s, a click shows the warning again.
+    discard warning. A second click in the same direction within 1.5 s, while
+    the warning shows, loads the next patch. After it, a click warns again.
 22. With an edited buffer, a single PRESETS event of +4 loads nothing and
     warns. A later event of +1 within 2 s loads the next patch.
 23. SAVE, then SAVE onto an occupied slot, asks to confirm, and a third SAVE

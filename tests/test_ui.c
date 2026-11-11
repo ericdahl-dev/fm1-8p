@@ -383,8 +383,169 @@ TT_TEST(ui_slot_number_is_two_digits)
     TT_CHECK(strcmp(s, "41") == 0);
 }
 
+/* PRESETS, with no edits: each click loads the next or previous patch at once (interaction.md). */
+TT_TEST(ui_presets_click_loads_the_next_patch)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 0);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK + 1u]);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK - 1u]);
+}
+
+/* A fast turn (3 or more clicks in one event) moves 4 patches, as interaction.md says. */
+TT_TEST(ui_presets_fast_turn_moves_four)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 0);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK + 4u]);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -5, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+}
+
+/* Patch numbers wrap: before the first is the last, after the last the first. */
+TT_TEST(ui_presets_wrap)
+{
+    ui_setup();
+    play_load_patch(&ui_p, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -1, 0);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_COUNT - 1u]);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 4, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[3]);
+}
+
+/* With edits, the first PRESETS event loads nothing, whatever its clicks, and warns. */
+TT_TEST(ui_presets_with_edits_warns_first)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+    TT_CHECK(play_edited(&ui_p));
+    TT_CHECK(strcmp(ui_banner(&ui_u), "EDITED: TURN AGAIN TO DISCARD") == 0);
+}
+
+/* After the warning, a later event the same way within 2 s discards the edits and loads, moving
+ * by that event's clicks. */
+TT_TEST(ui_presets_again_discards_and_loads)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 2, 99 + UI_DISCARD_MS);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK + 2u]);
+    TT_CHECK(!play_edited(&ui_p));
+}
+
+/* The discard loads at once and takes the warning down with it: no "TURN AGAIN" over the new patch. */
+TT_TEST(ui_presets_discard_takes_the_warning_down)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100);
+    (void)ui_take_full(&ui_u, 100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 200);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "") == 0);
+    TT_CHECK_EQ(ui_take(&ui_u, 200) & UI_D_FOOT, UI_D_FOOT);
+}
+
+/* The discard window is the warning's time on screen: once it is gone, PRESETS warns again, so a
+ * turn never discards edits with nothing on screen. */
+TT_TEST(ui_presets_discard_window_is_the_warning_on_screen)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100);
+    (void)ui_take(&ui_u, 100 + UI_BANNER_MS);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100 + UI_BANNER_MS);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+    TT_CHECK(play_edited(&ui_p));
+    TT_CHECK(strcmp(ui_banner(&ui_u), "") != 0);
+}
+
+/* A PRESETS event of 0 clicks is no turn: it loads nothing, so no notes are let go. */
+TT_TEST(ui_presets_zero_clicks_does_nothing)
+{
+    uint32_t head;
+    ui_setup();
+    head = ui_p.head;
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 0, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+    TT_CHECK_EQ(ui_p.loads, 0u);
+    TT_CHECK_EQ(ui_p.head, head);
+}
+
+/* Anything else between the two events cancels the warning: the next PRESETS warns again. */
+TT_TEST(ui_presets_warning_cancels_on_anything_else)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 200);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 300);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+}
+
+/* The banner is in the footer: showing it redraws the footer, and 1.5 s later it is gone and the
+ * footer redraws again. */
+TT_TEST(ui_banner_shows_for_one_and_a_half_seconds)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    (void)ui_take_full(&ui_u, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1000);
+    TT_CHECK_EQ(ui_take(&ui_u, 1000) & UI_D_FOOT, UI_D_FOOT);
+    TT_CHECK_EQ(ui_take(&ui_u, 2499), 0u);
+    TT_CHECK_EQ(ui_take(&ui_u, 2500), UI_D_FOOT);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "") == 0);
+}
+
+/* A load keeps the page and the focus, and redraws everything below the header: the values, the
+ * curve and the footer's patch. */
+TT_TEST(ui_presets_load_redraws_the_values_and_keeps_the_page)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, -1, 0);           /* back to the stored value */
+    (void)ui_take_full(&ui_u, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1000);
+    TT_CHECK_EQ(ui_take(&ui_u, 1000), (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_u.focus, 3u);
+}
+
+/* The patch's number: the factory tones are the starter group, P1 .. P32 (interaction.md). */
+TT_TEST(ui_patch_number_is_p_and_its_place)
+{
+    char s[UI_VALUE_LEN];
+    ui_patch_number(&PATCHES[0], s);
+    TT_CHECK(strcmp(s, "P1") == 0);
+    ui_patch_number(&PATCHES[PATCH_SOUNDTRACK], s);
+    TT_CHECK(strcmp(s, "P17") == 0);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_patch_number_is_p_and_its_place);
+    TT_RUN(ui_presets_load_redraws_the_values_and_keeps_the_page);
+    TT_RUN(ui_presets_discard_takes_the_warning_down);
+    TT_RUN(ui_presets_discard_window_is_the_warning_on_screen);
+    TT_RUN(ui_presets_zero_clicks_does_nothing);
+    TT_RUN(ui_banner_shows_for_one_and_a_half_seconds);
+    TT_RUN(ui_presets_warning_cancels_on_anything_else);
+    TT_RUN(ui_presets_again_discards_and_loads);
+    TT_RUN(ui_presets_with_edits_warns_first);
+    TT_RUN(ui_presets_wrap);
+    TT_RUN(ui_presets_fast_turn_moves_four);
+    TT_RUN(ui_presets_click_loads_the_next_patch);
     TT_RUN(ui_slot_number_is_two_digits);
     TT_RUN(ui_octave_label_reads_like_the_hosts);
     TT_RUN(ui_octave_change_marks_the_header);

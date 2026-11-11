@@ -239,6 +239,10 @@ void ui_init(ui *u, play *p)
         u->down_ms[i] = 0;
     u->shown_note = play_last_note(p);
     u->shown_oct = p->oct;
+    u->banner = "";
+    u->banner_ms = 0;
+    u->warned = 0;
+    u->warned_ms = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -261,6 +265,34 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     u->focus = k;
 }
 
+static void show_banner(ui *u, const char *s, uint32_t ms)
+{
+    u->banner = s;
+    u->banner_ms = ms;
+    u->dirty |= UI_D_FOOT;
+}
+
+/* PRESETS: the patch clicks away, wrapping */
+static void browse(ui *u, int32_t clicks, uint32_t ms)
+{
+    int32_t i, way = clicks > 0 ? 1 : -1;
+    if (!clicks)                                /* no turn: no load (and no notes let go) */
+        return;
+    if (play_edited(u->p) && !(u->warned == way && ms - u->warned_ms < UI_DISCARD_MS)) {
+        show_banner(u, "EDITED: TURN AGAIN TO DISCARD", ms);   /* the first event loads nothing */
+        u->warned = way;
+        u->warned_ms = ms;
+        return;
+    }
+    u->warned = 0;
+    u->banner = "";                             /* the warning goes with the edits */
+    if (clicks >= 3 || clicks <= -3)          /* a fast turn: 4 */
+        clicks = clicks > 0 ? 4 : -4;
+    i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
+    play_load_patch(u->p, (uint32_t)(i + (int32_t)PATCH_COUNT) % PATCH_COUNT);
+    u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
+}
+
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 {
     uint32_t id = ev & 0xFFu;
@@ -268,6 +300,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
                    ms - u->down_ms[id] < UI_TAP_MS;   /* a release: was it a tap? */
     if ((ev & 0xFF000000u) == UI_EV_BTN_DOWN && id < UI_BUTTONS)
         u->down_ms[id] = ms;
+    if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
+        u->warned = 0;                          /* anything else cancels the warning (decision Q4) */
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV) && u->state != UI_EDIT)   /* (on 4A: 4B, with #47) */
         show_page(u, UI_EDIT);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
@@ -277,6 +311,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&
              u->state == UI_EDIT)
         turn(u, id - UI_ENC_KNOB1, arg);
+    else if (ev == (UI_EV_ENC | UI_ENC_PRESETS))
+        browse(u, arg, ms);
 }
 
 uint32_t ui_take(ui *u, uint32_t ms)
@@ -285,6 +321,10 @@ uint32_t ui_take(ui *u, uint32_t ms)
     if (u->state == UI_PLAY && play_last_note(u->p) != u->shown_note) {
         u->shown_note = play_last_note(u->p);
         u->dirty |= UI_D_NOTE;
+    }
+    if (*u->banner && ms - u->banner_ms >= UI_BANNER_MS) {
+        u->banner = "";
+        u->dirty |= UI_D_FOOT;
     }
     if (u->p->oct != u->shown_oct) {
         u->shown_oct = u->p->oct;
@@ -346,4 +386,12 @@ void ui_slot_number(const ui_slot *sl, char *s)
     s[0] = (char)('0' + sl->num / 10u);
     s[1] = (char)('0' + sl->num % 10u);
     s[2] = 0;
+}
+
+const char *ui_banner(const ui *u) { return u->banner; }
+
+void ui_patch_number(const patch *t, char *s)
+{
+    *s++ = 'P';
+    *put_u(s, (uint32_t)(t - PATCHES) + 1u) = 0;
 }

@@ -350,8 +350,121 @@ TT_TEST(play_keys_play_from_the_octave)
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);
 }
 
+/* Loading a patch (PRESETS) goes the way a knob does: queued, applied by the next render, at the
+ * block's start; then every field the engine has a param for is the patch's. */
+TT_TEST(play_load_patch_reaches_the_engine_at_the_next_render)
+{
+    uint32_t f;
+    const patch *t = &PATCHES[0];
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_load_patch(&pl_a, 0);
+    TT_CHECK(play_patch(&pl_a) == t);
+    pl_render(&pl_a);
+    for (f = 0; f < PATCH_FIELD_COUNT; f++)
+        if (patch_param((patch_field)f) != PATCH_NONE)
+            TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, (uint16_t)patch_param((patch_field)f)),
+                        patch_value(t, (patch_field)f));
+}
+
+/* A loaded patch is the stored one: nothing is edited until a knob moves. */
+TT_TEST(play_load_patch_is_not_edited)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_set_param(&pl_a, FM_PARAM_FILTER_RESONANCE, 500);
+    TT_CHECK(play_edited(&pl_a));
+    play_load_patch(&pl_a, 3);
+    TT_CHECK(!play_edited(&pl_a));
+}
+
+/* A load sounds the same whatever came before: a param the patch has no field for goes back to the
+ * engine's default, so loading SOUNDTRACK after edits gives exactly the boot values. */
+TT_TEST(play_load_patch_matches_a_fresh_boot)
+{
+    static play fresh;
+    uint32_t i;
+    TT_CHECK_EQ(play_init(&fresh), 0);
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_set_param(&pl_a, FM_PARAM_LFO_PW_PCT, 40);
+    play_set_param(&pl_a, FM_PARAM_FILTER_RESONANCE, 900);
+    play_load_patch(&pl_a, PATCH_SOUNDTRACK);
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        TT_CHECK_EQ(play_get_param(&pl_a, (uint16_t)i), play_get_param(&fresh, (uint16_t)i));
+}
+
+/* Notes sounding when a patch loads are let go (a note off each, so they release, not cut) at the
+ * same block start as the new params: none is left hanging when its key comes up later. */
+TT_TEST(play_load_patch_lets_sounding_notes_go)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_key_down(&pl_a, 5, 100);
+    play_key_down(&pl_a, 9, 100);
+    pl_render(&pl_a);
+    play_load_patch(&pl_a, 0);
+    pl_render_for(&pl_a, 2000);                 /* 11.6 s: past any patch's release */
+    TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);
+}
+
+/* A key played right after a load, before the next render, starts on the new patch: the load's params
+ * go in before the block's note events, so a voice mode change can't end the new note. */
+TT_TEST(play_load_patch_then_a_key_plays_the_new_patch)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_set_param(&pl_a, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    pl_render(&pl_a);
+    play_load_patch(&pl_a, 0);                  /* every factory patch is poly */
+    play_key_down(&pl_a, 5, 100);
+    pl_render(&pl_a);
+    TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, FM_PARAM_VOICE_MODE), FM_VOICE_MODE_POLY);
+    TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 1);
+}
+
+/* A load is one step for the audio interrupt: a render part way through it (play_load_begin done,
+ * play_load_end not yet) applies none of the new values, and the render after applies all of them. */
+TT_TEST(play_load_patch_is_one_step_for_the_audio_interrupt)
+{
+    static play before;
+    uint32_t i;
+    TT_CHECK_EQ(play_init(&before), 0);
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_set_param(&pl_a, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    pl_render(&pl_a);
+    play_load_begin(&pl_a, 0);
+    pl_render(&pl_a);                           /* the interrupt, part way through */
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        if (i != FM_PARAM_VOICE_MODE)
+            TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, (uint16_t)i),
+                        fm_engine_get_param(&before.engine, (uint16_t)i));
+    TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, FM_PARAM_VOICE_MODE), FM_VOICE_MODE_UNISON);
+    play_load_end(&pl_a);
+    pl_render(&pl_a);
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, (uint16_t)i), play_get_param(&pl_a, (uint16_t)i));
+}
+
+/* A load asks the ISR only for the params whose value changes: each one it sets can retime envelopes,
+ * so a click that set them all could overrun the block. Loading the patch playing asks for none. */
+TT_TEST(play_load_patch_asks_only_for_the_params_that_change)
+{
+    uint32_t w;
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_load_patch(&pl_a, PATCH_SOUNDTRACK);
+    for (w = 0; w < PLAY_PARAM_WORDS; w++)
+        TT_CHECK_EQ(pl_a.asked[w], 0);
+    play_set_param(&pl_a, FM_PARAM_FILTER_RESONANCE, 900);
+    pl_render(&pl_a);
+    play_load_patch(&pl_a, PATCH_SOUNDTRACK);
+    TT_CHECK_EQ(pl_a.asked[FM_PARAM_FILTER_RESONANCE >> 5], 1u << (FM_PARAM_FILTER_RESONANCE & 31u));
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
+    TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);
+    TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);
+    TT_RUN(play_load_patch_lets_sounding_notes_go);
+    TT_RUN(play_load_patch_matches_a_fresh_boot);
+    TT_RUN(play_load_patch_is_not_edited);
+    TT_RUN(play_load_patch_reaches_the_engine_at_the_next_render);
     TT_RUN(play_keys_play_from_the_octave);
     TT_RUN(play_octave_leds_follow_the_octave);
     TT_RUN(play_output_gain_is_12_db_and_saturates);

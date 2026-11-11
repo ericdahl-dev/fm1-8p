@@ -1044,67 +1044,95 @@ TT_TEST(unison_note_change_keeps_the_control_cadence)
     TT_CHECK_EQ(feng.voices[0].ctrl_phase, phase);
 }
 
+/* A pseudo-random draw for the envelope tests (LCG, its top 24 bits). */
+static uint32_t env_rand(uint32_t *seed)
+{
+    *seed = *seed * 1664525u + 1013904223u;
+    return *seed >> 8;
+}
+
 /*
- * fm_env_advance(e, n) is n calls of fm_env_next(e) at once: random
+ * A random envelope level over the whole range, 0..FULL (2^30), with FULL
+ * itself one draw in eight (from the high bits: an LCG's low bits have a
+ * short period). Two draws, as one gives only 24 bits.
+ */
+static int32_t env_level(uint32_t *seed)
+{
+    uint32_t hi = env_rand(seed), lo = env_rand(seed);
+    if (hi >> 21 == 0) return (int32_t)(1u << 30);
+    return (int32_t)(((hi << 8) ^ lo) % ((1u << 30) + 1));
+}
+
+/* Two equal random envelopes, reset with random times and sustain. */
+static void env_random_pair(fm_env *a, fm_env *b, uint32_t *seed)
+{
+    fm_env_reset(a);
+    a->attack_samples = env_rand(seed) % 3000;
+    a->decay_samples = env_rand(seed) % 3000;
+    a->release_samples = env_rand(seed) % 3000;
+    a->sustain = env_level(seed);
+    *b = *a;
+}
+
+/*
+ * One random event on both envelopes (gate on at a random peak, as
+ * velocity sets it, gate off, fade, a retime to a random sustain, or
+ * nothing) and a random length (0..399) to run them for, into *n.
+ * Returns 1 if it left a decay rising to a raised sustain from a level of
+ * 2^29 or more, the case the full-range draws are for.
+ */
+static int env_random_op(fm_env *a, fm_env *b, uint32_t *seed, uint32_t *n)
+{
+    *n = env_rand(seed) % 400;
+    switch (env_rand(seed) % 6) {
+    case 0:
+        a->peak = b->peak = env_level(seed);
+        fm_env_gate_on(a);
+        fm_env_gate_on(b);
+        break;
+    case 1: fm_env_gate_off(a); fm_env_gate_off(b); break;
+    case 2: fm_env_fade(a, *n); fm_env_fade(b, *n); break;
+    case 3:
+        a->sustain = b->sustain = env_level(seed);
+        fm_env_retime(a);
+        fm_env_retime(b);
+        return b->stage == FM_ENV_DECAY && b->level >= (1 << 29) &&
+               b->sus_level > b->level;
+    default: break;
+    }
+    return 0;
+}
+
+/*
+ * fm_env_advance(e, n) is n calls of fm_env_next(e) at once, returning
+ * what the last of them returns (the level, when n is 0): random
  * envelopes through every stage (gate on at a random peak, as velocity
  * sets it, retime, gate off, fade), with random advance lengths, against
- * stepping one sample at a time.
+ * stepping one sample at a time. Peaks and sustains span the whole range
+ * up to FULL, so large levels and a decay rising to a raised sustain are
+ * covered too.
  */
 TT_TEST(env_advance_matches_stepping_sample_by_sample)
 {
     static fm_env a, b;
     uint32_t seed = 12345;
-    int trial, op, mismatches = 0;
-#define ENV_RAND() (seed = seed * 1664525u + 1013904223u, seed >> 8)
+    int trial, op, mismatches = 0, rising_high = 0;
     for (trial = 0; trial < 300; trial++) {
-        fm_env_reset(&a);
-        a.attack_samples = ENV_RAND() % 3000;
-        a.decay_samples = ENV_RAND() % 3000;
-        a.release_samples = ENV_RAND() % 3000;
-        a.sustain = (int32_t)(ENV_RAND() % ((1u << 30) + 1));
-        b = a;
+        env_random_pair(&a, &b, &seed);
         for (op = 0; op < 40; op++) {
-            uint32_t n = ENV_RAND() % 400, k;
-            switch (ENV_RAND() % 6) {
-            case 0:
-                a.peak = b.peak = (int32_t)(ENV_RAND() % ((1u << 30) + 1));
-                fm_env_gate_on(&a);
-                fm_env_gate_on(&b);
-                break;
-            case 1: fm_env_gate_off(&a); fm_env_gate_off(&b); break;
-            case 2: fm_env_fade(&a, n); fm_env_fade(&b, n); break;
-            case 3:
-                a.sustain = b.sustain =
-                    (int32_t)(ENV_RAND() % ((1u << 30) + 1));
-                fm_env_retime(&a);
-                fm_env_retime(&b);
-                break;
-            default: break;
-            }
-            fm_env_advance(&a, n);
-            for (k = 0; k < n; k++) fm_env_next(&b);
-            if (a.level != b.level || a.stage != b.stage ||
+            uint32_t n, k;
+            int32_t got, last;
+            rising_high += env_random_op(&a, &b, &seed, &n);
+            got = fm_env_advance(&a, n);
+            last = b.level;
+            for (k = 0; k < n; k++) last = fm_env_next(&b);
+            if (got != last || a.level != b.level || a.stage != b.stage ||
                 a.step != b.step)
                 mismatches++;
         }
     }
-#undef ENV_RAND
     TT_CHECK_EQ(mismatches, 0);
-}
-
-/*
- * A random envelope level over the whole range, 0..FULL (2^30), with FULL
- * itself one draw in eight: two LCG steps, as one gives only 24 bits.
- */
-static int32_t env_level(uint32_t *seed)
-{
-    uint32_t hi, lo;
-    *seed = *seed * 1664525u + 1013904223u;
-    hi = *seed >> 8;
-    *seed = *seed * 1664525u + 1013904223u;
-    lo = *seed >> 8;
-    if (lo % 8 == 0) return (int32_t)(1u << 30);
-    return (int32_t)(((hi << 8) ^ lo) % ((1u << 30) + 1));
+    TT_CHECK(rising_high > 0);
 }
 
 /*
@@ -1119,41 +1147,20 @@ TT_TEST(env_step_matches_env_next_sample_by_sample)
 {
     static fm_env a, b;
     uint32_t seed = 54321;
-    int trial, op, mismatches = 0;
-#define ENV_RAND() (seed = seed * 1664525u + 1013904223u, seed >> 8)
+    int trial, op, mismatches = 0, rising_high = 0;
     for (trial = 0; trial < 300; trial++) {
-        fm_env_reset(&a);
-        a.attack_samples = ENV_RAND() % 3000;
-        a.decay_samples = ENV_RAND() % 3000;
-        a.release_samples = ENV_RAND() % 3000;
-        a.sustain = env_level(&seed);
-        b = a;
+        env_random_pair(&a, &b, &seed);
         for (op = 0; op < 40; op++) {
-            uint32_t n = ENV_RAND() % 400, k;
-            switch (ENV_RAND() % 6) {
-            case 0:
-                a.peak = b.peak = env_level(&seed);
-                fm_env_gate_on(&a);
-                fm_env_gate_on(&b);
-                break;
-            case 1: fm_env_gate_off(&a); fm_env_gate_off(&b); break;
-            case 2: fm_env_fade(&a, n); fm_env_fade(&b, n); break;
-            case 3:
-                a.sustain = b.sustain =
-                    env_level(&seed);
-                fm_env_retime(&a);
-                fm_env_retime(&b);
-                break;
-            default: break;
-            }
+            uint32_t n, k;
+            rising_high += env_random_op(&a, &b, &seed, &n);
             for (k = 0; k < n; k++)
                 if (fm_env_step(&a) != fm_env_next(&b) || a.stage != b.stage ||
                     a.step != b.step)
                     mismatches++;
         }
     }
-#undef ENV_RAND
     TT_CHECK_EQ(mismatches, 0);
+    TT_CHECK(rising_high > 0);
 }
 
 /* An envelope at `peak` (velocity) with the given times and sustain, gated on. */

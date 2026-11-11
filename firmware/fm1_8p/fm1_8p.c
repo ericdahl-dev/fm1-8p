@@ -8,6 +8,8 @@
  *          channel. With LOCAL OFF the host plays the keys through note(), on its own octave.
  *   pages  ENV opens page 4A VCF (docs/ui/interaction.md): KNOB1-4 set CUTOFF, RESO, ENV and KEY;
  *          a tap of EDIT or HOME goes back to PLAY. The keys play on every page.
+ *   PRESETS steps through the 32 factory patches, P1 .. P32, on any page; with edits the first turn
+ *          warns and the next one the same way within 2 s discards them (firmware/ui.c).
  * The screen is the module's (HB_F_SCREEN), drawn in docs/ui/visual.md's Night Panel theme, and
  * only what changed is redrawn (firmware/ui.c says what), never once per audio block. */
 #include "hb_module.h"
@@ -163,16 +165,24 @@ static void header(const char *chip, uint16_t col, const char *a, const char *b,
     blit(0, 0, 240, 28);
 }
 
-/* rows 222..239: the gap, the line and the footer */
+/* rows 222..239: the gap, the line and the footer: the patch's number and name and the voice
+ * count, or for 1.5 s the banner (ui_banner) */
 static void footer(void)
 {
-    char v[] = "N VOICES";
+    char v[] = "N VOICES", n[UI_VALUE_LEN];
+    const char *b = ui_banner(&U);
     v[0] = (char)('0' + PLAY_VOICES % 10u);
     H->cv_begin(240, 18, C_SURF);
     H->cv_rect(0, 0, 240, 1, C_BG);
     H->cv_rect(0, 1, 240, 1, C_LINE);
-    H->cv_text(M, 2, 0, play_patch(&P)->name, C_TEXT);
-    H->cv_text(240 - M - H->text_w(0, v), 2, 0, v, C_DIM);
+    if (*b) {
+        text_c(0, 240, 2, 0, b, C_PLAY);
+    } else {
+        ui_patch_number(play_patch(&P), n);
+        H->cv_text(M, 2, 0, n, C_DIM);
+        H->cv_text(M + H->text_w(0, n) + 6, 2, 0, play_patch(&P)->name, C_TEXT);
+        H->cv_text(240 - M - H->text_w(0, v), 2, 0, v, C_DIM);
+    }
     blit(0, 222, 240, 18);
 }
 
@@ -276,19 +286,20 @@ static void column(uint32_t k)
 /* PLAY: the header and footer, then three strips (as the VCF page's bands, so the same bits) */
 static void play_part(uint32_t b, uint32_t part)
 {
-    char s[PLAY_NOTE_NAME];
-    if (b == UI_D_FULL && part == 1u) {
+    char s[PLAY_NOTE_NAME > UI_VALUE_LEN ? PLAY_NOTE_NAME : UI_VALUE_LEN];
+    if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
         header("PLAY", C_PLAY, "FM1-8P", "", -1);
-    } else if (b == UI_D_FOCUS) {               /* rows 28..77 */
+    } else if (b == UI_D_FOCUS) {               /* rows 28..77: the patch's number, large */
+        ui_patch_number(play_patch(&P), s);
         H->cv_begin(240, 50, C_BG);
-        text_c(0, 240, 20, 1, "FM1-8P", HB_RGB(255, 176, 64));
+        text_c(0, 240, 12, 1, s, HB_RGB(255, 176, 64));
         blit(0, 28, 240, 50);
-    } else if (b == UI_D_SLOT) {                /* rows 78..137: the patch */
+    } else if (b == UI_D_SLOT) {                /* rows 78..137: its name, large */
         H->cv_begin(240, 60, C_BG);
-        text_c(0, 240, 8, 0, play_patch(&P)->name, C_TEXT);
-        text_c(0, 240, 34, 0, "ENV: VCF PAGE", C_DIM);
+        text_c(0, 240, 0, 1, play_patch(&P)->name, C_TEXT);
+        text_c(0, 240, 40, 0, "ENV: VCF PAGE", C_DIM);
         blit(0, 78, 240, 60);
     } else if (b == UI_D_NOTE) {                /* rows 138..221: the last note */
         play_note_name(play_last_note(&P), s);
@@ -303,7 +314,7 @@ static void play_part(uint32_t b, uint32_t part)
 static void vcf_part(uint32_t b, uint32_t part)
 {
     uint32_t k;
-    if (b == UI_D_FULL && part == 1u) {
+    if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
         header("4 VCF", C_VCF, "A", "/B", (int32_t)UI_PAGE_4A);
@@ -367,8 +378,7 @@ static void ui_ev(uint32_t ev, int32_t arg)
     case HB_EV_BTN_DOWN:
         if (id == HB_BTN_OCT_DOWN || id == HB_BTN_OCT_UP) {
             play_octave(&P, id == HB_BTN_OCT_UP ? 1 : -1);
-            octave_shown();
-            return;
+            octave_shown();                     /* then to the pages too: it cancels the PRESETS warning */
         }
         break;
     case HB_EV_BTN_UP:
@@ -452,7 +462,8 @@ _Static_assert(UI_BTN_FX == HB_BTN_FX && UI_BTN_SEL == HB_BTN_SEL && UI_BTN_ENV 
                UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_HOME == HB_BTN_HOME,
                "ui.h's buttons are hb_module.h's");
 _Static_assert(UI_ENC_KNOB1 == HB_ENC_KNOB1 && UI_ENC_KNOB2 == HB_ENC_KNOB2 &&
-               UI_ENC_KNOB3 == HB_ENC_KNOB3 && UI_ENC_KNOB4 == HB_ENC_KNOB4,
+               UI_ENC_KNOB3 == HB_ENC_KNOB3 && UI_ENC_KNOB4 == HB_ENC_KNOB4 &&
+               UI_ENC_PRESETS == HB_ENC_PRESETS,
                "ui.h's encoders are hb_module.h's");
 
 /* no release(): init() starts afresh; no cc(): midi() takes every channel message */
