@@ -48,7 +48,6 @@ typedef struct {
                              * (after a steal fade, as next_pitch) */
     uint8_t ctrl_phase;     /* samples until the next cutoff update */
     uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
-    uint8_t mix_src;        /* the mix envelope follows: 0 filter_env, 1 amp_env */
     /* filter: settings copied from the engine's parameters, and state */
     fm_filter filter;
     fm_env filter_env;
@@ -59,7 +58,6 @@ typedef struct {
     uint32_t fenv_lag;      /* samples filter_env is behind: it is caught
                              * up only when read (the control rate) */
     int32_t mix_base;       /* osc_mix, Q1.30 */
-    int32_t mix_env;        /* the envelope's share of the mix, Q1.30, signed */
     int32_t mix_step;       /* the mix's glide each sample to its next target */
     /* last: read only at control ticks and note starts, so the fields the
      * render reads keep their offsets */
@@ -185,13 +183,15 @@ static inline void fm_voice_mark(fm_voice *v, uint8_t bits, int on)
     v->busy = (uint8_t)(on ? v->busy | bits : v->busy & ~bits);
 }
 
-/* Marks the mix busy while the mix envelope is on, a glide step is set or
- * the mix is away from osc_mix; call after any of them changes (the glide
- * itself moves the mix only while a step is set). */
-static inline void fm_voice_mark_mix(fm_voice *v)
+/* Marks the mix busy while an envelope reaches it (or its sum is not yet
+ * back at 0), a glide step is set or the mix is away from osc_mix; call
+ * after any of them changes (the glide itself moves the mix only while a
+ * step is set). */
+static inline void fm_voice_mark_mix(fm_voice *v, const fm_voice_mod *m)
 {
     fm_voice_mark(v, FM_BUSY_MIX,
-                  v->mix_env || v->mix_step || v->osc.mix != v->mix_base);
+                  !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
+                  v->mix_step || v->osc.mix != v->mix_base);
 }
 
 /* Nonzero while any of the voice's processors is away from rest; a voice

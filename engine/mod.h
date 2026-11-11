@@ -19,14 +19,17 @@
 #endif
 
 /* Sources, values in Q1.30: the LFO (after the voice's delay and fade),
- * the note's velocity (its amp level, velocity curve applied), and
- * envelope 1 (the filter envelope's level). */
-enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_ENV1, FM_MOD_SRC_COUNT };
+ * the note's velocity (its amp level, velocity curve applied), envelope 1
+ * (the filter envelope's level) and envelope 2 (the amp envelope's level
+ * as a share of the note's peak, so velocity doesn't scale it). */
+enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_ENV1, FM_MOD_SRC_ENV2,
+       FM_MOD_SRC_COUNT };
 
 /* Destinations, each summed in its own unit: pitch in Q16.16 octaves,
  * pulse width in Q0.32, level (the amp envelope's peak) in Q1.30, cutoff
- * in cents (added to the filter's base and key tracking). */
-enum { FM_MOD_PITCH, FM_MOD_PW, FM_MOD_LEVEL, FM_MOD_CUTOFF,
+ * in cents (added to the filter's base and key tracking), mix in Q1.30
+ * (added to osc_mix). */
+enum { FM_MOD_PITCH, FM_MOD_PW, FM_MOD_LEVEL, FM_MOD_CUTOFF, FM_MOD_MIX,
        FM_MOD_DEST_COUNT };
 
 /* Route depths, in each destination's unit at full source. */

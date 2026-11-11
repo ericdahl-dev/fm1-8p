@@ -41,8 +41,6 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->cutoff_cents = FM_FILTER_OPEN_CENTS;
     v->key_track = 0;
     v->mix_base = 0;
-    v->mix_env = 0;
-    v->mix_src = 0;
     v->mix_step = 0;
     v->key_note = 0;
     v->next_key = 0;
@@ -295,19 +293,24 @@ static int32_t amp_share(const fm_voice *v, int32_t level)
 }
 
 /*
- * Aims the mix at osc_mix plus the mix envelope's share at envelope level
- * `env`, reached by the next control tick: it glides there a sample at a
- * time (no click when the depth changes, no steps as the envelope moves).
+ * Aims the mix at osc_mix plus its modulation, with envelope 1 (the filter
+ * envelope) at `env1` and envelope 2 (the amp envelope's share) at `env2`,
+ * reached by the next control tick: it glides there a sample at a time
+ * (no click when the depth changes, no steps as the envelope moves).
  */
-static void update_mix(fm_voice *v, int32_t env)
+static void update_mix(fm_voice *v, const fm_voice_mod *m, int32_t env1,
+                       int32_t env2)
 {
-    int64_t m = v->mix_base + (((int64_t)v->mix_env * env) >> 30);
-    if (m < 0) m = 0;
-    if (m > FM_OSC_MIX_FULL) m = FM_OSC_MIX_FULL;
-    v->mix_step = ((int32_t)m - v->osc.mix) / FILTER_CTRL_SAMPLES;
+    int64_t mix;
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, env1);
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2, env2);
+    mix = (int64_t)v->mix_base + fm_mod_update(&v->mod, &m->routes, FM_MOD_MIX);
+    if (mix < 0) mix = 0;
+    if (mix > FM_OSC_MIX_FULL) mix = FM_OSC_MIX_FULL;
+    v->mix_step = ((int32_t)mix - v->osc.mix) / FILTER_CTRL_SAMPLES;
     if (!v->mix_step) /* within a glide's rounding: there now */
-        fm_osc_pair_set_mix(&v->osc, (int32_t)m);
-    fm_voice_mark_mix(v);
+        fm_osc_pair_set_mix(&v->osc, (int32_t)mix);
+    fm_voice_mark_mix(v, m);
 }
 
 void fm_voice_silence(fm_voice *v)
@@ -361,7 +364,8 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
 uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m)
 {
     return v->pending || v->gate_left ||
-           !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) || v->mix_env ||
+           !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) ||
+           !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
            v->mix_step || v->osc.mix != v->mix_base ||
            !fm_filter_is_wire(&v->filter) ||
            fm_filter_voice_cents(v->cutoff_cents, v->key_track, v->key_note,
@@ -467,7 +471,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         if (v->ctrl_phase == 0) {
             fenv = 0;
             if ((fm_voice_busy(v) & FM_BUSY_FILTER_ENV) ||
-                (v->mix_env && !v->mix_src))
+                m->routes.depth[FM_MOD_SRC_ENV1][FM_MOD_MIX])
                 fenv = filter_env_level(v);
             /* with no envelope amount the cutoff changes only when a
              * setting or the note does, which sets FM_BUSY_CUTOFF */
@@ -475,8 +479,10 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
                 update_cutoff(v, m, fenv);
             /* the mix envelope, or a glide back to osc_mix after it (until
              * it lands: a glide can land exactly with its step still set) */
-            if (fm_voice_busy(v) & FM_BUSY_MIX)
-                update_mix(v, v->mix_src ? amp_share(v, level) : fenv);
+            if (fm_voice_busy(v) & FM_BUSY_MIX) /* the divide only if routed */
+                update_mix(v, m, fenv,
+                           m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_MIX] ?
+                           amp_share(v, level) : 0);
             if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
         }
