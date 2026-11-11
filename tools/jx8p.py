@@ -334,7 +334,9 @@ def to_engine(tone):
              FILTER_ENV_RELEASE_MS=r, FILTER_ENV_SOURCE=switch(p[VCF_ENV_MODE]),
              FILTER_ENV_AMOUNT_CENTS=sign * 75 * p[VCF_ENV])
     e["LFO_WAVE"] = LFO_WAVE[switch(p[LFO_WF])]
-    e["LFO_RATE_CENTIHZ"] = rnd(10 * 200 ** (p[LFO_RATE] / 127))
+    # PG-8X 2.0.13: 0.537 Hz at 64, x 2.664 every 16 steps (25.4 Hz at 127), from 32 up. Below 32
+    # PG-8X flattens near 0.05 Hz (0.050 Hz measured at 16): the curve stops there (at 25)
+    e["LFO_RATE_CENTIHZ"] = max(5, rnd(53.7 * 2.664 ** ((p[LFO_RATE] - 64) / 16)))
     e["LFO_DELAY_MS"] = rnd(3000 * (p[LFO_DELAY] / 127) ** 3)
     # the engine's one vibrato depth moves both oscillators: DCO-1's sets it, DCO-2's waits
     e["LFO_PITCH_CENTS"] = rnd(1200 * (p[DCO1_LFO] / 127) ** 2)

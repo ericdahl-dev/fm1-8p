@@ -126,7 +126,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | VCA DYNAMICS | `amp_velocity_pct` | off 0, 1 33, 2 67, 3 100 % |
 | CHORUS | `chorus_mode` | off, I slow, II deep (the factory tones use off and I only) |
 | LFO WAVEFORM | `lfo_wave` | random, square, triangle |
-| LFO RATE | `lfo_rate_centihz` | 0.1..20 Hz, exponential (*est.*) |
+| LFO RATE | `lfo_rate_centihz` | as PG-8X 2.0.13 plays it: 0.537 x 2.664^((value - 64) / 16) Hz, so 0.076 Hz at 32, 0.54 Hz at 64, 3.8 Hz at 96 and 25.4 Hz at 127. Below 32 PG-8X flattens near 0.05 Hz (0.050 Hz measured at 16, 0 unmeasured): the curve stops at 0.05 Hz, which it reaches at 25, and holds it down to 0 |
 | LFO DELAY | `lfo_delay_ms` | cubic, 0..3000 ms (*est.*) |
 | DCO-1 LFO | `lfo_pitch_cents` | quadratic to 1200 cents (*est.*). The engine has one vibrato depth, which moves both oscillators, so DCO-1's sets it; DCO-2's waits in `LFO_PITCH_OSC2_CENTS` (CELLO SECT wobbles DCO-2 only on the JX-8P) |
 
