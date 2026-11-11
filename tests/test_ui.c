@@ -481,8 +481,19 @@ TT_TEST(ui_presets_load_redraws_the_values_and_keeps_the_page)
     TT_CHECK_EQ(ui_u.focus, 3u);
 }
 
+/* The patch's number: the factory tones are the starter group, P1 .. P32 (interaction.md). */
+TT_TEST(ui_patch_number_is_p_and_its_place)
+{
+    char s[UI_VALUE_LEN];
+    ui_patch_number(&PATCHES[0], s);
+    TT_CHECK(strcmp(s, "P1") == 0);
+    ui_patch_number(&PATCHES[PATCH_SOUNDTRACK], s);
+    TT_CHECK(strcmp(s, "P17") == 0);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_patch_number_is_p_and_its_place);
     TT_RUN(ui_presets_load_redraws_the_values_and_keeps_the_page);
     TT_RUN(ui_banner_shows_for_one_and_a_half_seconds);
     TT_RUN(ui_presets_warning_cancels_on_anything_else);

@@ -103,6 +103,8 @@ const char *ui_banner(const ui *u);
 uint32_t ui_take(ui *u, uint32_t ms);
 /* the header's octave, as the host's line reads it ("OCT +1"); s: UI_VALUE_LEN */
 void ui_octave_label(int32_t oct, char *s);
+/* a patch's number as the screen shows it: the factory tones are the starter group, "P1" .. "P32" */
+void ui_patch_number(const patch *t, char *s);
 /* a slot's number as the screen shows it, two digits ("41"); s: 3 chars */
 void ui_slot_number(const ui_slot *sl, char *s);
 /* the host asked for all of it (draw(full)): UI_D_ALL, and nothing stays pending */

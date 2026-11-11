@@ -386,3 +386,9 @@ void ui_slot_number(const ui_slot *sl, char *s)
 }
 
 const char *ui_banner(const ui *u) { return u->banner; }
+
+void ui_patch_number(const patch *t, char *s)
+{
+    *s++ = 'P';
+    *put_u(s, (uint32_t)(t - PATCHES) + 1u) = 0;
+}
