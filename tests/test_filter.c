@@ -86,33 +86,34 @@ static double peak_hz(fm_filter *f, double lo_hz)
 
 /*
  * Resonance feeds the last stage back to the input, which lifts the
- * response at the peak (theory for the analog ladder: 0.25 / (1 - k/4)
- * at feedback k, at the frequency the stages are tuned to; k = 4.2 at
- * resonance 1000) and costs some bass. Midway, where the peak is near
+ * response at the peak over the passband (the passband is 3 octaves
+ * below): over +5 dB at resonance 500 and over 12 dB more at 900 (PG-8X:
+ * +4 dB and +31 dB at VCF RES 64 and 127). Midway, where the peak is near
  * the passband level, the octave above it is about 24 dB below it (theory
- * 24.4 dB at 600). The peak sits under the cutoff (the retune, below).
+ * for the ladder 24.4 dB at 600). The peak sits under the cutoff (the
+ * retune, below).
  */
+static double peak_over_passband_db(fm_filter *f)
+{
+    return filter_gain_db(f, peak_hz(f, 220.0), 0.25) - filter_gain_db(f, 55.0, 0.25);
+}
+
 TT_TEST(resonance_raises_gain_near_cutoff)
 {
     static fm_filter f;
-    double at0, at500, at900, at600, oct600, hz;
-    lowpass_at(&f, 6900, 0);
-    at0 = filter_gain_db(&f, 440.0, 0.25);
+    double pk500, pk900, at600, oct600, hz;
     lowpass_at(&f, 6900, 500);
-    at500 = filter_gain_db(&f, peak_hz(&f, 220.0), 0.25);
+    pk500 = peak_over_passband_db(&f);
     lowpass_at(&f, 6900, 900);
-    at900 = filter_gain_db(&f, peak_hz(&f, 220.0), 0.25);
+    pk900 = peak_over_passband_db(&f);
     lowpass_at(&f, 6900, 600);
     hz = peak_hz(&f, 220.0);
     at600 = filter_gain_db(&f, hz, 0.25);
     oct600 = filter_gain_db(&f, 2.0 * hz, 0.25);
-    printf("    gain at the cutoff, res 0: %.2f dB; at the peak, res 500 %.2f, "
-           "900 %.2f; res 600: peak %.2f, octave above %.2f\n",
-           at0, at500, at900, at600, oct600);
-    /* theory at the tuned frequency +6.5 and +18.7 dB; at the peak itself
-     * (measured +10.6 and +11.8) the first lift is more, the second less */
-    TT_CHECK(at500 > at0 + 8.0);
-    TT_CHECK(at900 > at500 + 10.0);
+    printf("    peak over the passband: res 500 %.2f dB, 900 %.2f; "
+           "res 600: peak %.2f, octave above %.2f\n", pk500, pk900, at600, oct600);
+    TT_CHECK(pk500 > 5.0);
+    TT_CHECK(pk900 > pk500 + 12.0);
     TT_CHECK_NEAR(at600 - oct600, 24.0, 3.0);
 }
 
@@ -150,6 +151,28 @@ TT_TEST(resonance_keeps_the_treble_to_bass_balance)
     printf("    3 octaves above minus 3 below: res 0 %.2f dB, res 375 %.2f\n",
            tilt0, tilt);
     TT_CHECK_NEAR(tilt - tilt0, 0.3, 1.0);
+}
+
+/*
+ * Resonance turns the passband down by PG-8X 2.0.13's amount (measured
+ * with noise, VCF FREQ 64 and 80): -3.7 dB at a +4 dB peak, -15.1 at +24.
+ * The plain ladder's 1 / (1 + k) was too much at the first (-8 dB), too
+ * little at the second (-13.4).
+ */
+TT_TEST(resonance_turns_the_passband_down_as_on_pg8x)
+{
+    static fm_filter f;
+    double pass0, pass375, pass875;
+    lowpass_at(&f, 6900, 0);
+    pass0 = filter_gain_db(&f, 55.0, 0.25);
+    lowpass_at(&f, 6900, 375);
+    pass375 = filter_gain_db(&f, 55.0, 0.25) - pass0;
+    lowpass_at(&f, 6900, 875);
+    pass875 = filter_gain_db(&f, 55.0, 0.25) - pass0;
+    printf("    passband re no resonance: res 375 %.2f dB, res 875 %.2f\n",
+           pass375, pass875);
+    TT_CHECK_NEAR(pass375, -3.7, 1.0);
+    TT_CHECK_NEAR(pass875, -15.1, 1.0);
 }
 
 /*
@@ -1857,6 +1880,7 @@ static void run_filter_tests(void)
     TT_RUN(resonance_raises_gain_near_cutoff);
     TT_RUN(resonance_peak_sits_below_the_cutoff_as_on_pg8x);
     TT_RUN(resonance_keeps_the_treble_to_bass_balance);
+    TT_RUN(resonance_turns_the_passband_down_as_on_pg8x);
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
     TT_RUN(max_resonance_self_oscillates_near_cutoff);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);

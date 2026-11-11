@@ -108,6 +108,18 @@ static const int16_t retune_tab[RES_ENTRIES] = {
 static const int16_t shelf_tab[RES_ENTRIES] = {
     0, 2731, 4034, 4551, 4630, 4630, 4468, 3641, 2503
 };
+/*
+ * Input level, Q2.13: sets the passband (1 / (1 + k) on its own) to
+ * PG-8X's, -3.7 dB at a +4 dB peak and -15.1 at +24. The shelf above is
+ * relative to the treble, so this is (1 + c) times PG-8X's level re the
+ * ladder's: 1, 1.503, 1.665, 1.696, 1.628, 1.547, 1.276, 0.817, 0.658.
+ * At the input it is smoothed by the stages: no step when it changes.
+ */
+#define LEVEL_MIN 5390
+#define LEVEL_MAX 13894
+static const int16_t level_tab[RES_ENTRIES] = {
+    8192, 12313, 13640, LEVEL_MAX, 13337, 12673, 10453, 6693, LEVEL_MIN
+};
 /* Offset that makes pitch differences non-negative before / and %. */
 #define OCT_BIAS     32
 
@@ -196,6 +208,7 @@ void fm_filter_reset(fm_filter *f)
     f->g = ONE_Q30;
     f->k = f->k_res = 0;
     f->h = 0;
+    f->a = ONE_Q30;
     f->cut = FM_FILTER_OPEN_CENTS;
     f->rate = 0;
     f->fade = 0;
@@ -235,6 +248,7 @@ static void apply(fm_filter *f)
                   : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
     f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
     f->k = mul_q30(f->k_res, f->fade);
+    f->a = ONE_Q30 + mul_q30((res_lookup(level_tab, permille) << 17) - ONE_Q30, f->fade);
     h = mul_q30(res_lookup(shelf_tab, permille) << 17, f->fade);
     if (h && !f->h) f->lp = f->s[3]; /* shelf on: the output carries on */
     f->h = h;
@@ -246,8 +260,8 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
 {
     if (cutoff_cents < 0) cutoff_cents = 0;
     if (cutoff_cents > FM_FILTER_OPEN_CENTS) cutoff_cents = FM_FILTER_OPEN_CENTS;
-    f->cut = cutoff_cents;
-    f->rate = rate_cents;
+    f->cut = (int16_t)cutoff_cents;
+    f->rate = (int16_t)rate_cents; /* about 11900 (8 kHz) .. 17400 (192 kHz) */
     apply(f);
 }
 
@@ -285,16 +299,24 @@ static int32_t soft_clip(int32_t u)
  * filter, with 32-bit sums on the usual path:
  * - The highpass state stays within the input's range. While both are
  *   within +-32.0 (an oscillator stays near +-1.0), the highpass output
- *   is within +-64.0, and less the feedback (within +-4.0 * 4.2) the
- *   lowpass input sum still fits 32 bits.
+ *   is within +-64.0; times the input level (at most LEVEL_MAX, 1.70) and
+ *   less the feedback (within +-4.0 * 4.2) the lowpass input sum still
+ *   fits 32 bits.
  * - Louder, the highpass runs in 64 bits and its output is clamped to
- *   +-IN_MAX (32.0). That changes nothing: a clamped value less the
- *   largest feedback still drives the soft clip past its saturation (6.0)
- *   with the same sign, as the unclamped one does. With the highpass off
- *   the input is clamped the same way.
+ *   +-IN_MAX (64.0). That changes nothing: a clamped value times the
+ *   least input level (LEVEL_MIN, 0.66) less the largest feedback still
+ *   drives the soft clip past its saturation (6.0) with the same sign, as
+ *   the unclamped one does. With the highpass off the input is clamped
+ *   the same way.
  * Only the products need 64 bits, and each is one 32x32->64 multiply.
  */
-#define IN_MAX ((1 << 29) - 1)
+#define IN_MAX ((1 << 30) - 1)
+/* In units of 1/8192: 64 x the largest level, plus 4.0 x 4.2 of feedback,
+ * stays under 128.0; 64 x the least level, less that, is over 6.0. */
+typedef char fm_require_level_sum_fits[
+    (int64_t)LEVEL_MAX * 64 + 4 * 42 * 8192 / 10 < 128 * 8192 ? 1 : -1];
+typedef char fm_require_clamp_still_saturates[
+    (int64_t)LEVEL_MIN * 64 - 4 * 42 * 8192 / 10 > 6 * 8192 ? 1 : -1];
 #define WITHIN_32(v) ((uint32_t)(v) + (1u << 29) < (1u << 30)) /* -32.0 <= v < 32.0 */
 
 static int32_t clamp_in(int32_t x)
@@ -351,6 +373,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         d = (int64_t)in - f->hp;
         x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
     }
+    if (f->a != ONE_Q30) x = mul_q30(x, f->a);
     u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
     /* each stage after the first takes the one before it, now and as it
      * was one sample ago */

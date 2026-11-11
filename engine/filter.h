@@ -35,9 +35,10 @@ typedef struct {
      * one-pole lowpass of s[3] at the cutoff (h 0: off, the plain ladder).
      * A weighted average of the two, so it stays within their range. */
     int32_t lp;   /* the shelf's lowpass state, Q8.24 */
+    int32_t a;    /* input level, Q1.30: the resonance's passband level */
     int32_t h;    /* weight of lp, Q1.30 (0 .. 0.57) */
-    int32_t cut;  /* lowpass cutoff as set (clamped), cents */
-    int32_t rate; /* rate_cents it was set with (0: not yet) */
+    int16_t cut;  /* lowpass cutoff as set (clamped), cents */
+    int16_t rate; /* rate_cents it was set with (0: not yet) */
 } fm_filter;
 
 /* Pitch of the sample rate in cents above MIDI note 0. Computed once

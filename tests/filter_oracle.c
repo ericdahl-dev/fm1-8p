@@ -47,6 +47,7 @@ static int32_t oracle_filter_process(fm_filter *f, int32_t in)
         f->hp += (int32_t)(((x - f->hp) * f->hp_g) >> 30);
         x -= f->hp;
     }
+    x = (x * f->a) >> 30; /* #98's input level */
     u = oracle_soft_clip(x - (((int64_t)f->s[3] * f->k) >> 28));
     p0 = f->s[0];
     p1 = f->s[1];
