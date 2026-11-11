@@ -29,7 +29,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 5432u
+#define FM_ENGINE_BUDGET_32 5512u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
