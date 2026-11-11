@@ -68,32 +68,68 @@ TT_TEST(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave)
     TT_CHECK_NEAR(oct2 - oct3, 23.3, 2.0);
 }
 
+/* The frequency, in 5-cent steps from `lo_hz` up an octave, where a quiet
+ * sine comes through the filter loudest. */
+static double peak_hz(fm_filter *f, double lo_hz)
+{
+    double best = -1e9, at = lo_hz;
+    int c;
+    for (c = 0; c <= 1200; c += 5) {
+        double hz = lo_hz * pow(2.0, c / 1200.0), db = filter_gain_db(f, hz, 0.02);
+        if (db > best) {
+            best = db;
+            at = hz;
+        }
+    }
+    return at;
+}
+
 /*
  * Resonance feeds the last stage back to the input, which lifts the
- * response at the cutoff (theory for the analog ladder: 0.25 / (1 - k/4)
- * at feedback k; k = 4.2 at resonance 1000) and costs some bass. Midway,
- * where the cutoff point is near the passband level, the octave above
- * cutoff is about 24 dB below the cutoff point (theory 24.4 dB at 600).
+ * response at the peak (theory for the analog ladder: 0.25 / (1 - k/4)
+ * at feedback k, at the frequency the stages are tuned to; k = 4.2 at
+ * resonance 1000) and costs some bass. Midway, where the peak is near
+ * the passband level, the octave above it is about 24 dB below it (theory
+ * 24.4 dB at 600). The peak sits under the cutoff (the retune, below).
  */
 TT_TEST(resonance_raises_gain_near_cutoff)
 {
     static fm_filter f;
-    double at0, at500, at900, at600, oct600;
+    double at0, at500, at900, at600, oct600, hz;
     lowpass_at(&f, 6900, 0);
     at0 = filter_gain_db(&f, 440.0, 0.25);
     lowpass_at(&f, 6900, 500);
-    at500 = filter_gain_db(&f, 440.0, 0.25);
+    at500 = filter_gain_db(&f, peak_hz(&f, 220.0), 0.25);
     lowpass_at(&f, 6900, 900);
-    at900 = filter_gain_db(&f, 440.0, 0.25);
+    at900 = filter_gain_db(&f, peak_hz(&f, 220.0), 0.25);
     lowpass_at(&f, 6900, 600);
-    at600 = filter_gain_db(&f, 440.0, 0.25);
-    oct600 = filter_gain_db(&f, 880.0, 0.25);
-    printf("    gain at cutoff: res 0 %.2f dB, 500 %.2f, 900 %.2f; "
-           "res 600: cutoff %.2f, octave above %.2f\n",
+    hz = peak_hz(&f, 220.0);
+    at600 = filter_gain_db(&f, hz, 0.25);
+    oct600 = filter_gain_db(&f, 2.0 * hz, 0.25);
+    printf("    gain at the cutoff, res 0: %.2f dB; at the peak, res 500 %.2f, "
+           "900 %.2f; res 600: peak %.2f, octave above %.2f\n",
            at0, at500, at900, at600, oct600);
-    TT_CHECK(at500 > at0 + 5.0);    /* theory +6.5 dB */
-    TT_CHECK(at900 > at500 + 12.0); /* theory +18.7 dB */
+    /* theory at the tuned frequency +6.5 and +18.7 dB; at the peak itself
+     * (measured +10.6 and +11.8) the first lift is more, the second less */
+    TT_CHECK(at500 > at0 + 8.0);
+    TT_CHECK(at900 > at500 + 10.0);
     TT_CHECK_NEAR(at600 - oct600, 24.0, 3.0);
+}
+
+/*
+ * As on PG-8X 2.0.13, the resonance peak sits below the cutoff: about 1.25
+ * semitones under the 24 dB/octave asymptote's cutoff at a +24 dB peak
+ * (PG-8X VCF RES 112). That asymptote reads a semitone under this filter's
+ * nominal cutoff, so the peak belongs 2.25 semitones under 440 Hz.
+ */
+TT_TEST(resonance_peak_sits_below_the_cutoff_as_on_pg8x)
+{
+    static fm_filter f;
+    double st;
+    lowpass_at(&f, 6900, 875);
+    st = 12.0 * log2(peak_hz(&f, 220.0) / 440.0);
+    printf("    res 875: peak %.2f semitones from the cutoff\n", st);
+    TT_CHECK_NEAR(st, -2.25, 0.5);
 }
 
 /*
@@ -140,8 +176,9 @@ TT_TEST(max_resonance_stays_bounded_over_a_long_render)
 
 /*
  * Resonance 1000 self-oscillates: a single click sets the filter ringing
- * at a steady level near the cutoff frequency, and never at Nyquist (the
- * one-sample feedback delay can make a naive 4-pole loop buzz there).
+ * at a steady level near the peak's frequency (190 cents under the
+ * cutoff, the retune as on PG-8X), and never at Nyquist (the one-sample
+ * feedback delay can make a naive 4-pole loop buzz there).
  */
 TT_TEST(max_resonance_self_oscillates_near_cutoff)
 {
@@ -150,7 +187,8 @@ TT_TEST(max_resonance_self_oscillates_near_cutoff)
     static fm_filter f;
     size_t c, i;
     for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
-        double fc = 440.0 * pow(2.0, (cutoffs[c] - 6900) / 1200.0);
+        /* the peak's place at resonance 1000: 190 cents under the cutoff */
+        double fc = 440.0 * pow(2.0, (cutoffs[c] - 6900 - 190) / 1200.0);
         double first = -1, last = -1, hz;
         int32_t prev = 0, peak = 0;
         int crossings = 0;
@@ -1797,6 +1835,7 @@ static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
     TT_RUN(resonance_raises_gain_near_cutoff);
+    TT_RUN(resonance_peak_sits_below_the_cutoff_as_on_pg8x);
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
     TT_RUN(max_resonance_self_oscillates_near_cutoff);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);

@@ -82,8 +82,29 @@ typedef char fm_require_fade_fits_q30[
  * lowest cutoffs (below about 15 Hz at 44.1 kHz) 4.2 is not enough. */
 #define K_PER_MILLE  1127429
 #define OCTAVE       1200
+/*
+ * Resonance tables, one entry per RES_STEP per mille, read with linear
+ * interpolation. Fitted to PG-8X 2.0.13's measured response (noise in,
+ * VCF FREQ 64 and 80; see docs/fixed-point.md, "Resonance").
+ */
+#define RES_STEP     125
+#define RES_ENTRIES  (1000 / RES_STEP + 1)
+/* Retune, cents: the coefficient comes from the cutoff plus this, so the
+ * peak sits as far under the cutoff as PG-8X's (1.25 semitones under its
+ * asymptote's cutoff at a +24 dB peak, 4.6 at +4 dB). */
+static const int16_t retune_tab[RES_ENTRIES] = {
+    0, -20, -40, -80, -130, -160, -177, -187, -190
+};
 /* Offset that makes pitch differences non-negative before / and %. */
 #define OCT_BIAS     32
+
+/* Resonance `permille` (0..1000) read from a RES_STEP table. */
+static int32_t res_lookup(const int16_t *tab, int32_t permille)
+{
+    int32_t i = permille / RES_STEP, r = permille % RES_STEP;
+    if (i == RES_ENTRIES - 1) return tab[i];
+    return tab[i] + (tab[i + 1] - tab[i]) * r / RES_STEP;
+}
 
 /* 2^(f / 1200) for f in 0..1199 cents, Q2.30 (1.0 .. just under 2.0). */
 static uint32_t exp2_cents(uint32_t f)
@@ -160,6 +181,8 @@ void fm_filter_reset(fm_filter *f)
     fm_filter_clear(f);
     f->g = ONE_Q30;
     f->k = f->k_res = 0;
+    f->cut = FM_FILTER_OPEN_CENTS;
+    f->rate = 0;
     f->fade = 0;
     f->hp_g = 0;
 }
@@ -184,21 +207,30 @@ static void leave_open(fm_filter *f)
     f->x1 = f->s[3];
 }
 
-void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
-                          int32_t rate_cents)
+/* The coefficients from the cutoff, rate and resonance as set. */
+static void apply(fm_filter *f)
 {
-    int32_t g;
+    int32_t permille = f->k_res / K_PER_MILLE; /* exact: k_res is a multiple */
+    int32_t c = f->cut + res_lookup(retune_tab, permille), g;
     int was_open = fm_filter_is_wire(f);
-    if (cutoff_cents < 0) cutoff_cents = 0;
-    if (cutoff_cents > FM_FILTER_OPEN_CENTS) cutoff_cents = FM_FILTER_OPEN_CENTS;
-    g = coef_for(cutoff_cents, rate_cents);
+    g = coef_for(c < 0 ? 0 : c, f->rate);
     /* 1.0 up to the fade, then down to 0 at open */
-    f->fade = cutoff_cents <= FM_FILTER_OPEN_CENTS - FADE_CENTS
+    f->fade = f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS
                   ? ONE_Q30
-                  : (FM_FILTER_OPEN_CENTS - cutoff_cents) * FADE_STEP;
+                  : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
     f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
     f->k = mul_q30(f->k_res, f->fade);
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
+}
+
+void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
+                          int32_t rate_cents)
+{
+    if (cutoff_cents < 0) cutoff_cents = 0;
+    if (cutoff_cents > FM_FILTER_OPEN_CENTS) cutoff_cents = FM_FILTER_OPEN_CENTS;
+    f->cut = cutoff_cents;
+    f->rate = rate_cents;
+    apply(f);
 }
 
 void fm_filter_set_resonance(fm_filter *f, int32_t permille)
@@ -206,7 +238,10 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
     if (permille < 0) permille = 0;
     if (permille > 1000) permille = 1000;
     f->k_res = permille * K_PER_MILLE;
-    f->k = mul_q30(f->k_res, f->fade);
+    if (f->rate) /* the retune moves the coefficient */
+        apply(f);
+    else
+        f->k = mul_q30(f->k_res, f->fade);
 }
 
 /*
