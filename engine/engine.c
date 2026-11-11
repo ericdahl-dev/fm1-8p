@@ -6,6 +6,9 @@
 #include "chorus.h"
 #include "fm1_8p.h"
 #include "units.h"
+#ifdef FM_CHECK_ENGINE
+#include <assert.h>
+#endif
 
 /* Below 8 kHz slow LFO and delay settings lose precision. */
 #define MIN_SAMPLE_RATE 8000u
@@ -19,6 +22,16 @@
  * toolchain). Refuse to build where it is not.
  */
 typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
+
+/*
+ * fm_engine's budget on 32-bit targets (the FM-1, Cortex-M), where it
+ * lives: the size fm1_8p.h documents. Growing it must update that comment
+ * and this number. The FM-1 build fails past it; 64-bit desktops only
+ * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
+ */
+#define FM_ENGINE_BUDGET_32 5200u
+typedef char fm_require_engine_within_its_32_bit_budget[
+    (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
 /* Pitch of voice `i` playing `note`, Q16.16 semitones: the note, the
  * bend and the voice's unison detune. Both oscillators follow it. */
@@ -122,11 +135,55 @@ static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
     }
 }
 
-/* The filter envelope's parameters, attack to amount, are one run (the
- * sync before they change relies on it). */
-typedef char fm_require_filter_env_params_in_a_run[
-    FM_PARAM_FILTER_ENV_AMOUNT_CENTS - FM_PARAM_FILTER_ENV_ATTACK_MS == 4
-        ? 1 : -1];
+/*
+ * An envelope time or sustain: written once into the settings every
+ * voice's envelope of that kind shares (#19), then each running one is
+ * retimed; only that kind, since a retime restarts the running segment
+ * from its level. An idle envelope needs no retime: its next gate on
+ * reads the settings. Returns 0 for any other parameter.
+ */
+static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
+{
+    uint32_t *time = 0; /* the setting: a time in samples, */
+    int32_t *sustain = 0; /* or a sustain level */
+    int filter = 0;
+    uint8_t i;
+    switch (id) {
+    case FM_PARAM_AMP_ATTACK_MS: time = &e->amp_set.attack_samples; break;
+    case FM_PARAM_AMP_DECAY_MS: time = &e->amp_set.decay_samples; break;
+    case FM_PARAM_AMP_SUSTAIN: sustain = &e->amp_set.sustain; break;
+    case FM_PARAM_AMP_RELEASE_MS: time = &e->amp_set.release_samples; break;
+    case FM_PARAM_FILTER_ENV_ATTACK_MS:
+        time = &e->filter_set.attack_samples, filter = 1;
+        break;
+    case FM_PARAM_FILTER_ENV_DECAY_MS:
+        time = &e->filter_set.decay_samples, filter = 1;
+        break;
+    case FM_PARAM_FILTER_ENV_SUSTAIN:
+        sustain = &e->filter_set.sustain, filter = 1;
+        break;
+    case FM_PARAM_FILTER_ENV_RELEASE_MS:
+        time = &e->filter_set.release_samples, filter = 1;
+        break;
+    default:
+        return 0;
+    }
+    if (filter) /* each voice's envelope current before it changes */
+        for (i = 0; i < e->voice_count; i++)
+            fm_voice_sync_filter_env(&e->voices[i]);
+    if (time)
+        *time = fm_ms_to_samples(v, e->sample_rate);
+    else
+        *sustain = fm_permille_to_q30(v);
+    for (i = 0; i < e->voice_count; i++) {
+        fm_env *env = filter ? &e->voices[i].filter_env : &e->voices[i].amp_env;
+        /* an idle one leaves IDLE only by fm_env_gate_on, which reads
+         * the settings and recomputes sus_level itself */
+        if (env->stage != FM_ENV_IDLE)
+            fm_env_retime(env);
+    }
+    return 1;
+}
 
 /* Recomputes the derived settings a parameter feeds. */
 static void apply_param(fm_engine *e, uint16_t id)
@@ -222,32 +279,13 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_chorus_set_mode(&e->chorus, (uint8_t)v);
         return;
     }
+    if (apply_env_param(e, id, v))
+        return;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *vc = &e->voices[i];
-        fm_env *amp = &vc->amp_env, *flt = &vc->filter_env;
-        /* the envelope whose setting changed, to retime; only that one,
-         * since a retime restarts the running segment from its level */
-        fm_env *changed = 0;
-        if (id >= FM_PARAM_FILTER_ENV_ATTACK_MS &&
-            id <= FM_PARAM_FILTER_ENV_AMOUNT_CENTS)
+        if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS)
             fm_voice_sync_filter_env(vc); /* current before it changes */
         switch (id) {
-        case FM_PARAM_AMP_ATTACK_MS:
-            amp->attack_samples = fm_ms_to_samples(v, e->sample_rate);
-            changed = amp;
-            break;
-        case FM_PARAM_AMP_DECAY_MS:
-            amp->decay_samples = fm_ms_to_samples(v, e->sample_rate);
-            changed = amp;
-            break;
-        case FM_PARAM_AMP_SUSTAIN:
-            amp->sustain = fm_permille_to_q30(v);
-            changed = amp;
-            break;
-        case FM_PARAM_AMP_RELEASE_MS:
-            amp->release_samples = fm_ms_to_samples(v, e->sample_rate);
-            changed = amp;
-            break;
         case FM_PARAM_FILTER_CUTOFF_CENTS:
             vc->cutoff_cents = v;
             fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
@@ -262,22 +300,6 @@ static void apply_param(fm_engine *e, uint16_t id)
         case FM_PARAM_HIGHPASS_STEP:
             fm_voice_set_highpass(vc, (uint8_t)v);
             break;
-        case FM_PARAM_FILTER_ENV_ATTACK_MS:
-            flt->attack_samples = fm_ms_to_samples(v, e->sample_rate);
-            changed = flt;
-            break;
-        case FM_PARAM_FILTER_ENV_DECAY_MS:
-            flt->decay_samples = fm_ms_to_samples(v, e->sample_rate);
-            changed = flt;
-            break;
-        case FM_PARAM_FILTER_ENV_SUSTAIN:
-            flt->sustain = fm_permille_to_q30(v);
-            changed = flt;
-            break;
-        case FM_PARAM_FILTER_ENV_RELEASE_MS:
-            flt->release_samples = fm_ms_to_samples(v, e->sample_rate);
-            changed = flt;
-            break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
             vc->env_amount = v;
             fm_voice_mark(vc, FM_BUSY_FILTER_ENV, v != 0);
@@ -286,7 +308,6 @@ static void apply_param(fm_engine *e, uint16_t id)
         default:
             break;
         }
-        if (changed) fm_env_retime(changed);
     }
 }
 
@@ -347,7 +368,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         int32_t rate_cents = fm_filter_rate_cents(sample_rate);
         for (i = 0; i < FM_MAX_VOICES; i++) {
             fm_voice_reset(&e->voices[i], (uint32_t)(i + 1) * 0x9E3779B9u,
-                           rate_cents);
+                           rate_cents, &e->amp_set, &e->filter_set);
             e->detune[i] = 0;
         }
     }
@@ -364,6 +385,15 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value)
 {
     const fm_param_info *info = fm_param_info_get(id);
     if (!e || !info) return FM_ERR_ARG;
+#ifdef FM_CHECK_ENGINE /* debug builds: the engine was not copied (a
+                        * zeroed one, voice_count 0, touches no voice) */
+    {
+        uint8_t i;
+        for (i = 0; e->voice_count && i < FM_MAX_VOICES; i++)
+            assert(e->voices[i].amp_env.set == &e->amp_set &&
+                   e->voices[i].filter_env.set == &e->filter_set);
+    }
+#endif
     if (value < info->min) value = info->min;
     if (value > info->max) value = info->max;
     if (id == FM_PARAM_VOICE_MODE && value != e->params[id])
