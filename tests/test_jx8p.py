@@ -42,6 +42,17 @@ def patch(name):
     raise KeyError(name)
 
 
+def patch_with(name, **data):
+    """The factory tone name with some data bytes changed (by their jx8p constant name)."""
+    for t in factory():
+        if t.name == name:
+            params = bytearray(t.params)
+            for k, v in data.items():
+                params[getattr(jx8p, k)] = v
+            return jx8p.to_engine(jx8p.Tone(t.name, bytes(params)))
+    raise KeyError(name)
+
+
 class MapTest(unittest.TestCase):
     # engine/osc.h fm_wave: 0 saw, 1 pulse, 2 square, 3 noise
     def test_waveform_switch_positions_map_to_engine_waves(self):
@@ -211,18 +222,39 @@ class MapTest(unittest.TestCase):
         e = patch("PIANO 1")                    # ENV-2 normal: the amp's times
         self.assertEqual(e["FILTER_ENV_DECAY_MS"], e["AMP_DECAY_MS"])
 
-    # LFO: random, square, triangle (2 positions); rate 0.1..20 Hz exponential; delay cubic to 3 s;
-    # depth to pitch quadratic to 1200 cents. The engine has one vibrato depth, for both
+    # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
+    # depth to pitch linear to 572 cents (below). The engine has one vibrato depth, for both
     # oscillators: DCO-1's sets it, DCO-2's waits (one per oscillator, no issue yet)
     def test_lfo_shape_rate_delay_and_vibrato_depth(self):
         e = patch("SOUNDTRACK")                 # triangle, delay 78, rate 103, depths 0
-        self.assertEqual((e["LFO_WAVE"], e["LFO_RATE_CENTIHZ"], e["LFO_DELAY_MS"]), (0, 735, 695))
+        self.assertEqual((e["LFO_WAVE"], e["LFO_RATE_CENTIHZ"], e["LFO_DELAY_MS"]), (0, 585, 695))
         self.assertEqual(e["LFO_PITCH_CENTS"], 0)
         self.assertEqual(patch("CLAV")["LFO_WAVE"], 3)          # 0: random (engine FM_LFO_RANDOM)
         self.assertEqual(patch("ORGAN 2")["LFO_WAVE"], 2)       # 32: square
-        self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 1200)
-        e = patch("CELLO SECT")                 # DCO-1 2, DCO-2 34: only DCO-2 wobbles
-        self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (0, 86))
+        self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 572)
+        e = patch("CELLO SECT")                 # DCO-1 2 (a trace), DCO-2 34: mostly DCO-2 wobbles
+        self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (9, 86))
+
+    # DCO-1 LFO as PG-8X 2.0.13 plays it: linear, 4.5 cents per step (127 = 572 cents)
+    def test_vibrato_depth_is_linear_as_pg8x_plays_it(self):
+        depth = {b: patch_with("SOUNDTRACK", DCO1_LFO=b)["LFO_PITCH_CENTS"] for b in (0, 16, 64, 127)}
+        self.assertEqual(depth, {0: 0, 16: 72, 64: 288, 127: 572})
+        lo, hi = jx8p.engine_ranges()["LFO_PITCH_CENTS"]
+        self.assertTrue(lo <= 0 and 572 <= hi, (lo, hi))
+
+    # LFO RATE as PG-8X 2.0.13 plays it: 0.537 Hz at 64, x 2.664 every 16 steps, from 32 up
+    # (0.076 Hz at 32, 25.4 Hz at 127)
+    def test_lfo_rate_follows_pg8x_from_32_up(self):
+        rate = {b: patch_with("SOUNDTRACK", LFO_RATE=b)["LFO_RATE_CENTIHZ"] for b in (32, 64, 96, 127)}
+        self.assertEqual(rate, {32: 8, 64: 54, 96: 381, 127: 2544})
+
+    # below 32 PG-8X flattens near 0.05 Hz (measured 0.050 Hz at 16): the curve stops at 5 centi-Hz,
+    # which it reaches at 25, and stays there down to 0
+    def test_lfo_rate_below_32_flattens_at_a_twentieth_of_a_hertz(self):
+        rate = {b: patch_with("SOUNDTRACK", LFO_RATE=b)["LFO_RATE_CENTIHZ"] for b in (0, 16, 25, 26, 31)}
+        self.assertEqual(rate, {0: 5, 16: 5, 25: 5, 26: 5, 31: 7})
+        lo, hi = jx8p.engine_ranges()["LFO_RATE_CENTIHZ"]
+        self.assertTrue(lo <= 5 and 2544 <= hi, (lo, hi))
 
     # CHORUS off, 1, 2 -> the engine's off, slow, deep; VCA DYNAMICS off, 1, 2, 3 -> 0..100 %
     def test_chorus_and_vca_dynamics(self):
