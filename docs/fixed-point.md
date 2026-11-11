@@ -126,7 +126,9 @@ resonant 4-pole (24 dB/octave) lowpass.
   of the same filter in 64 bits over the whole +-128.0
   (`tests/test_filter_oracle.c` holds it to a 64-bit reference).
 - **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
-  env_amount * env_level`, all in cents, computed every 16 samples (a
+  mod`, all in cents, where `mod` is the voice's cutoff modulation summed in
+  `engine/mod.h` (today the filter envelope: `env_amount * env_level`),
+  computed every 16 samples (a
   2.8 kHz control rate at 44.1 kHz), not per sample. Key tracking follows the
   MIDI note number only: pitch bend, each oscillator's octave and fine
   tune, and osc2's coarse tune move the oscillators but not the cutoff. The coefficient is the
