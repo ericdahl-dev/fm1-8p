@@ -64,8 +64,11 @@ void fm_filter_clear(fm_filter *f);
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                           int32_t rate_cents);
 
-/* Resonance, per mille (0 = none, 1000 = self-oscillation near the
- * cutoff; the feedback fades out over the top 600 cents of cutoff). */
+/* Resonance, per mille (0 = none, 1000 = self-oscillation 190 cents under
+ * the cutoff). As on PG-8X 2.0.13 it also lowers the peak under the
+ * cutoff, sets the passband level and keeps the treble-to-bass balance
+ * (docs/fixed-point.md, Resonance). All of it fades out over the top 600
+ * cents of cutoff. */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
 /* Highpass position 0..3 (higher is clamped to 3): 0 is off (a wire),

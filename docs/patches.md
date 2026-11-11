@@ -119,7 +119,8 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | CROSS MOD | `osc_sync` | on for SYNC 1 and SYNC 2. The JX-8P's X-MOD is reportedly amplitude modulation (ring-mod-like), not the engine's FM (`osc_xmod`), so it waits in `PATCH_XMOD_AM` (SYNC 2 and X-MOD) |
 | HPF | `highpass_step` | position 0..3 |
 | VCF FREQ | `filter_cutoff_cents` | 1200 + 100 x value: a semitone per step from MIDI note 12 (16 Hz) (*est.*) |
-| VCF RES, VCF KEY | `filter_resonance_permille`, `filter_key_track_permille` | value x 1000 / 127 |
+| VCF RES | `filter_resonance_permille` | a table (`tools/jx8p.py` `RESONANCE_PERMILLE`, linear between its points) fitted to PG-8X 2.0.13's peak over the passband (`match.py --param VCF_RES`, VCF FREQ 64, 2026-11-10): 64 is 400 (+4 dB), 80 575 (+8), 96 795 (+16), 112 900 (+24), 127 935 (+31). It keeps PG-8X's hump: +6.5 dB at 32, down to +3.7 at 56 (likely PG-8X's own curve, but it is the reference). The filter matches PG-8X's shape with resonance too: the peak's place under the cutoff, the passband level and the treble against the bass (docs/fixed-point.md, Filter, #98) |
+| VCF KEY | `filter_key_track_permille` | value x 1000 / 127 |
 | VCF ENV, VCF ENV MODE | `filter_env_amount_cents`, `filter_env_*` | 75 cents per step (127 is about 8 octaves, *est.*), negative when inverted; the filter envelope takes the ADSR of the envelope the mode names (ENV-1 or ENV-2) |
 | ENV-2, VCA MODE | `amp_*` | ENV-2's ADSR. GATE: attack 1 ms, sustain full, release 5 ms, and `PATCH_AMP_GATE` waits for #63 |
 | ENV times | ms | cubic in the value: attack 1..3000 ms, decay and release 2..10000 ms (*est.*). Sustain: value x 1000 / 127 |

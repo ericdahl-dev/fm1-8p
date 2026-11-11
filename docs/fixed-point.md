@@ -114,14 +114,40 @@ resonant 4-pole (24 dB/octave) lowpass.
   overflow or run away at any resonance, for any Q8.24 input (the whole
   +-128.0), and self-oscillation settles at a fixed level (about 0.83 of
   full scale at mid cutoffs).
+- **Resonance (#98).** Resonance does three things besides the feedback,
+  each from a 9-point table over the per mille (125 apart, linearly
+  interpolated) at control rate, fitted to PG-8X 2.0.13 (`match.py --param
+  VCF_RES` and noise sweeps at VCF FREQ 64):
+  - **Retune.** The coefficient is set for the cutoff less up to 190 cents
+    (0 at resonance 0, -130 at 500, -190 at 1000), so the peak sits under
+    the cutoff as on PG-8X (-5 semitones at a peak of +4 dB, -1 to -2 at
+    +16 dB and more; the ladder's own peak sits under its corner too).
+    Resonance 1000 rings at the cutoff less 190 cents.
+  - **Passband level.** The input is scaled by `a` (up to 1.7 at resonance
+    375, down to 0.66 at 1000). The plain ladder's passband is
+    `1 / (1 + k)` and its stopband barely moves; PG-8X's passband drops
+    less (-3.7 dB at a +4 dB peak, -18 at +31) and its stopband drops
+    with it, so the treble does not jump against the bass.
+  - **Bass shelf.** The output is `s3 + h * (lp - s3)`, `lp` a one-pole
+    lowpass of `s3` at the stage coefficient, `h` up to 0.57. It takes back
+    the bass the ladder's own resonance removes, keeping the stopband less
+    the passband within about 1.5 dB of PG-8X's (+1 to +7 dB, against
+    +8 to +14 for the plain ladder).
+
+  All three fade with the feedback over the top 600 cents, so the open
+  filter is still a wire. `a * 64.0` plus the feedback stays within the
+  32-bit sum (checked at compile time), the shelf is a weighted average of
+  two values within the clip's limit, and the output is still bit for bit
+  the 64-bit reference's.
 - **32-bit sums (#34).** The sums run in 32 bits; only the products need 64
   (one 32x32->64 multiply each). The highpass state stays within the input's
   range, so while the input and that state are within +-32.0 (an oscillator
-  stays near +-1.0) the highpass output is within +-64.0 and, less the
-  feedback (within +-4.0 * 4.2), the lowpass input still fits 32 bits.
-  Louder, the highpass runs in 64 bits and its output is clamped to +-32.0
+  stays near +-1.0) the highpass output is within +-64.0 and, times the
+  input level (at most 1.7) and less the feedback (within +-4.0 * 4.2), the
+  lowpass input still fits 32 bits. Louder, the highpass runs in 64 bits and
+  its output is clamped to +-64.0
   (with the highpass off, the input is), which changes nothing: the clamped
-  value less the largest feedback still drives the soft clip past its
+  value at the least input level (0.66) less the largest feedback still drives the soft clip past its
   saturation (6.0) with the same sign. The output is bit for bit that
   of the same filter in 64 bits over the whole +-128.0
   (`tests/test_filter_oracle.c` holds it to a 64-bit reference).
@@ -163,25 +189,27 @@ above the cutoff 24 +-3 dB below the cutoff point.
 | Drop over the 1st octave above cutoff (880 Hz: -28.0 dB) | 15.9 dB | 15.9 dB | +-2 dB |
 | Drop over the 2nd octave (1760 Hz: -49.3 dB) | 21.3 dB | 21.2 dB | +-2 dB |
 | Drop over the 3rd octave (3520 Hz: -73.0 dB) | 23.6 dB | 23.3 dB | +-2 dB |
-| Drop over the 1st octave, resonance 600 | 24.4 dB | 24.4 dB | 24 +-3 dB |
-| At cutoff, resonance 500 / 900 | -5.6 / +9.6 dB | -5.6 / +13.2 dB | each at least 5 / 12 dB above the previous |
+| Peak to the octave above it, resonance 600 | 24.0 dB | | 24 +-3 dB |
+| Peak over the passband, resonance 500 / 900 | +6.6 / +23.8 dB | | above 5, and 900 at least 12 dB above 500 |
+| Peak under the cutoff, resonance 875 | -2.25 semitones | (PG-8X) | -2.25 +-0.5 |
+| Passband (55 Hz) against resonance 0, resonance 375 / 875 | -3.25 / -14.8 dB | -3.7 / -15.1 (PG-8X) | +-1 dB |
+| 3 octaves above less 3 below, resonance 375 against 0 | -0.27 dB | (PG-8X: about 0) | 0.3 +-1 dB |
 
 With no resonance, four equal poles meet at the cutoff, so the cutoff point
 itself is -12 dB and the slope approaches 24 dB/octave further up (23.6 dB
 over the third octave).
-A moderate resonance (around 600) lifts the cutoff point to about -3.4 dB,
-and the octave above it is then about 24 dB lower. Near self-oscillation the
-peak is lower than the ideal analog ladder's (+9.6 against +13.2 dB at 900):
-close to threshold, the small differences between the digital loop and the
-analog one matter most. Resonance also costs bass (the
-passband is `1 / (1 + k)` of the input; -14 dB at resonance 1000), as in the
-analog ladder it is modeled on; there is no gain compensation.
+Resonance follows PG-8X 2.0.13 rather than the ideal ladder: its peak sits
+under the cutoff, and it lowers the passband and the stopband together
+(Resonance, above), so the peak over the passband is the figure to compare
+(PG-8X at VCF FREQ 64: +4.2 dB at RES 64, +15.8 at 96, +30.6 at 127; the
+converter maps RES onto these, docs/patches.md).
 
 Highpass gains: at 55 Hz, 0 / -6.4 / -13.2 / -20.6 dB for positions 0 to 3;
 at 110 Hz, 0 / -2.7 / -7.8 / -14.7 dB.
 
 Cost per sample, per voice: five 32x32->64 multiplies (four stages and the
-feedback) and about 40 adds, shifts and compares, plus one multiply for the
+feedback), three more with resonance on (the input level and the shelf's
+lowpass and mix), and about 40 adds, shifts and compares, plus one multiply for the
 highpass when it is on, one in the clip only above +-2.0, and the filter
 envelope step. Inside the top 600 cents of cutoff the stage zero takes a
 multiply instead of a shift (four more). The cutoff update every 16 samples
