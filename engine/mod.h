@@ -18,24 +18,26 @@
 #include <assert.h>
 #endif
 
-/* Sources: values in Q1.30, passed to each tick. */
-enum { FM_MOD_SRC_LFO, FM_MOD_SRC_COUNT };
+/* Sources, values in Q1.30: the LFO (after the voice's delay and fade),
+ * and the note's velocity (its amp level, velocity curve applied). */
+enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_COUNT };
 
 /* Destinations, each summed in its own unit: pitch in Q16.16 octaves,
- * pulse width in Q0.32. */
-enum { FM_MOD_PITCH, FM_MOD_PW, FM_MOD_DEST_COUNT };
+ * pulse width in Q0.32, level (the amp envelope's peak) in Q1.30. */
+enum { FM_MOD_PITCH, FM_MOD_PW, FM_MOD_LEVEL, FM_MOD_DEST_COUNT };
 
 /* Route depths, in each destination's unit at full source. */
 typedef struct {
     int32_t depth[FM_MOD_SRC_COUNT][FM_MOD_DEST_COUNT];
 } fm_mod_routes;
 
-/* One voice's sums. */
+/* One voice's sources (as last set) and sums. */
 typedef struct {
+    int32_t src[FM_MOD_SRC_COUNT];
     int32_t sum[FM_MOD_DEST_COUNT];
 } fm_mod;
 
-/* At rest: every sum 0. */
+/* At rest: every source and every sum 0. */
 void fm_mod_reset(fm_mod *m);
 
 /* Sets the depth from source `src` to destination `dest`. */
@@ -67,13 +69,21 @@ static inline uint32_t fm_mod_sum(fm_mod *m,
     return changed;
 }
 
-/* One control tick: sums the sources `src` (FM_MOD_SRC_COUNT values,
- * Q1.30) through the routes `r`. Returns the destinations whose sum
- * changed, bit 1 << dest. */
-static inline uint32_t fm_mod_tick(fm_mod *m, const fm_mod_routes *r,
-                                   const int32_t *src)
+/* Sets source `src` of voice `m` to `value` (Q1.30); it holds until set
+ * again (or fm_mod_reset). */
+static inline void fm_mod_set_source(fm_mod *m, unsigned src, int32_t value)
 {
-    return fm_mod_sum(m, r->depth, src, FM_MOD_SRC_COUNT);
+#ifdef FM_CHECK_ENGINE /* debug builds: a source that exists */
+    assert(src < FM_MOD_SRC_COUNT);
+#endif
+    m->src[src] = value;
+}
+
+/* Sums the voice's sources, as last set, through the routes `r`. Returns
+ * the destinations whose sum changed, bit 1 << dest. */
+static inline uint32_t fm_mod_tick(fm_mod *m, const fm_mod_routes *r)
+{
+    return fm_mod_sum(m, r->depth, m->src, FM_MOD_SRC_COUNT);
 }
 
 /* The sum at destination `dest`. */

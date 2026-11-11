@@ -8,15 +8,14 @@ TT_TEST(one_route_gives_source_times_depth)
 {
     fm_mod_routes r;
     fm_mod m;
-    int32_t src[FM_MOD_SRC_COUNT];
     int32_t depth = 100 * 65536 / 1200; /* 100 cents, Q16.16 octaves */
     memset(&r, 0, sizeof r);
     fm_mod_reset(&m);
     fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH, depth);
-    src[FM_MOD_SRC_LFO] = -(1 << 29); /* LFO at -0.5 */
-    fm_mod_tick(&m, &r, src);
+    fm_mod_set_source(&m, FM_MOD_SRC_LFO, -(1 << 29)); /* LFO at -0.5 */
+    fm_mod_tick(&m, &r);
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH),
-                (int32_t)(((int64_t)src[FM_MOD_SRC_LFO] * depth) >> 30));
+                (int32_t)(((int64_t)-(1 << 29) * depth) >> 30));
 }
 
 /* A sum past the destination's int32 range holds at the limit instead of
@@ -25,12 +24,11 @@ TT_TEST(sum_clamps_instead_of_wrapping)
 {
     fm_mod_routes r;
     fm_mod m;
-    int32_t src[FM_MOD_SRC_COUNT];
     memset(&r, 0, sizeof r);
     fm_mod_reset(&m);
     fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PW, INT32_MIN);
-    src[FM_MOD_SRC_LFO] = -(1 << 30); /* full negative */
-    fm_mod_tick(&m, &r, src);
+    fm_mod_set_source(&m, FM_MOD_SRC_LFO, -(1 << 30)); /* full negative */
+    fm_mod_tick(&m, &r);
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PW), INT32_MAX);
 }
 
@@ -40,13 +38,12 @@ TT_TEST(tick_reports_the_destinations_that_changed)
 {
     fm_mod_routes r;
     fm_mod m;
-    int32_t src[FM_MOD_SRC_COUNT];
     memset(&r, 0, sizeof r);
     fm_mod_reset(&m);
     fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PW, 1 << 28);
-    src[FM_MOD_SRC_LFO] = 1 << 29;
-    TT_CHECK_EQ(fm_mod_tick(&m, &r, src), 1u << FM_MOD_PW);
-    TT_CHECK_EQ(fm_mod_tick(&m, &r, src), 0u);
+    fm_mod_set_source(&m, FM_MOD_SRC_LFO, 1 << 29);
+    TT_CHECK_EQ(fm_mod_tick(&m, &r), 1u << FM_MOD_PW);
+    TT_CHECK_EQ(fm_mod_tick(&m, &r), 0u);
 }
 
 /* One source routed to two destinations moves both in the same tick. */
@@ -54,13 +51,12 @@ TT_TEST(one_source_reaches_two_destinations_at_once)
 {
     fm_mod_routes r;
     fm_mod m;
-    int32_t src[FM_MOD_SRC_COUNT];
     memset(&r, 0, sizeof r);
     fm_mod_reset(&m);
     fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH, 3 << 16);
     fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PW, -(1 << 28));
-    src[FM_MOD_SRC_LFO] = 1 << 29; /* +0.5 */
-    TT_CHECK_EQ(fm_mod_tick(&m, &r, src),
+    fm_mod_set_source(&m, FM_MOD_SRC_LFO, 1 << 29); /* +0.5 */
+    TT_CHECK_EQ(fm_mod_tick(&m, &r),
                 (1u << FM_MOD_PITCH) | (1u << FM_MOD_PW));
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH), 3 << 15);
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PW), -(1 << 27));
@@ -102,6 +98,40 @@ TT_TEST(sum_of_two_products_clamps)
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PW), INT32_MIN);
 }
 
+/* A source keeps its value from fm_mod_set_source until it is set again:
+ * a later tick sums it again, and finds nothing changed. */
+TT_TEST(a_set_source_holds_for_later_ticks)
+{
+    fm_mod_routes r;
+    fm_mod m;
+    memset(&r, 0, sizeof r);
+    fm_mod_reset(&m);
+    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH, 1 << 16);
+    fm_mod_set_source(&m, FM_MOD_SRC_LFO, 1 << 29);
+    TT_CHECK_EQ(fm_mod_tick(&m, &r), 1u << FM_MOD_PITCH);
+    TT_CHECK_EQ(fm_mod_tick(&m, &r), 0u);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH), 1 << 15);
+}
+
+/* Velocity routed to level at full depth (1.0) gives the level exactly as
+ * the velocity source, for any value: (v * 2^30) >> 30 == v. */
+TT_TEST(velocity_at_full_depth_is_the_level_exactly)
+{
+    static const int32_t vel[] = { 0, 1, 12345, 1 << 29, (1 << 30) - 1,
+                                   1 << 30 };
+    fm_mod_routes r;
+    fm_mod m;
+    unsigned i;
+    memset(&r, 0, sizeof r);
+    fm_mod_reset(&m);
+    fm_mod_set_route(&r, FM_MOD_SRC_VEL, FM_MOD_LEVEL, 1 << 30);
+    for (i = 0; i < sizeof vel / sizeof vel[0]; i++) {
+        fm_mod_set_source(&m, FM_MOD_SRC_VEL, vel[i]);
+        fm_mod_tick(&m, &r);
+        TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_LEVEL), vel[i]);
+    }
+}
+
 static void run_mod_dest_tests(void)
 {
     TT_RUN(one_route_gives_source_times_depth);
@@ -110,4 +140,6 @@ static void run_mod_dest_tests(void)
     TT_RUN(one_source_reaches_two_destinations_at_once);
     TT_RUN(two_sources_add_in_a_destination);
     TT_RUN(sum_of_two_products_clamps);
+    TT_RUN(a_set_source_holds_for_later_ticks);
+    TT_RUN(velocity_at_full_depth_is_the_level_exactly);
 }

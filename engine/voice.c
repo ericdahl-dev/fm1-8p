@@ -300,7 +300,6 @@ void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now)
 {
-    int32_t src[FM_MOD_SRC_COUNT];
     uint32_t since;
     /* zero for delay_ticks, then up by fade_step a tick to full; kept as
      * a start tick, so a tick without modulation has nothing to count */
@@ -312,9 +311,9 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
         if (fade < FM_LFO_FULL) /* Q1.30 * Q1.30 */
             lfo = (int32_t)(((int64_t)lfo * fade) >> 30);
     }
-    src[FM_MOD_SRC_LFO] = lfo;
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_LFO, lfo);
     /* a fading old note keeps its vibrato */
-    if (fm_mod_tick(&v->mod, &m->routes, src)) apply_pitch(v);
+    if (fm_mod_tick(&v->mod, &m->routes)) apply_pitch(v);
 }
 
 /* A fading old note retunes too: `pitch` is still its pitch. */
