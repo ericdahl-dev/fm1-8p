@@ -21,6 +21,7 @@
 #define UI_ENC_KNOB2   3u
 #define UI_ENC_KNOB3   4u
 #define UI_ENC_KNOB4   5u
+#define UI_ENC_PRESETS 6u
 
 typedef enum { UI_PLAY, UI_EDIT } ui_state;
 
@@ -47,6 +48,10 @@ typedef struct {
     uint32_t down_ms[UI_BUTTONS];       /* when each button went down */
     int32_t shown_note;                 /* PLAY: the last note as drawn */
     int32_t shown_oct;                  /* the octave as the header shows it */
+    const char *banner;                 /* a short message for the footer ("": none) */
+    uint32_t banner_ms;                 /* when it came */
+    int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
+    uint32_t warned_ms;                 /* when */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
@@ -55,9 +60,14 @@ typedef struct {
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
 #define UI_D_HEAD   0x08u               /* the header alone (the octave changed) */
 #define UI_D_COL(k) (0x10u << (k))      /* knob column k */
+#define UI_D_FOOT   0x100u              /* the footer alone (the banner came or went) */
 #define UI_D_ALL    0xF7u               /* all of it */
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
+#define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
+/* PRESETS again within this, the same way: discard and load. The warning's time on screen, so a turn
+ * never discards with nothing showing (the spec had 2 s against a 1.5 s banner: PR #83 review). */
+#define UI_DISCARD_MS UI_BANNER_MS
 #define UI_FRAME_MS 33u                 /* redraws are at least this far apart (visual.md: 30 a second) */
 
 void ui_init(ui *u, play *p);
@@ -89,10 +99,14 @@ uint32_t ui_meter(uint16_t id, int32_t value);
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
+/* the banner's message ("": none) */
+const char *ui_banner(const ui *u);
 /* the UI_D_* bits to redraw now (0: nothing, or the last redraw was under UI_FRAME_MS ago), taken */
 uint32_t ui_take(ui *u, uint32_t ms);
 /* the header's octave, as the host's line reads it ("OCT +1"); s: UI_VALUE_LEN */
 void ui_octave_label(int32_t oct, char *s);
+/* a patch's number as the screen shows it: the factory tones are the starter group, "P1" .. "P32" */
+void ui_patch_number(const patch *t, char *s);
 /* a slot's number as the screen shows it, two digits ("41"); s: 3 chars */
 void ui_slot_number(const ui_slot *sl, char *s);
 /* the host asked for all of it (draw(full)): UI_D_ALL, and nothing stays pending */

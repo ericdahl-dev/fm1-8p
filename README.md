@@ -115,8 +115,11 @@ plain C (`firmware/play.[ch]`), tested on the desktop by `make test`.
 
 ENV opens page 4A, VCF (`docs/ui/interaction.md`), drawn in `docs/ui/visual.md`'s Night Panel
 theme: KNOB1-4 set CUTOFF, RESO, ENV and KEY, and a tap of EDIT or HOME goes back to the PLAY screen. The keys play
-on every page. What the knobs do, how values read, the meter, the filter curve and what to redraw
-are plain C in `firmware/ui.[ch]`, also tested by `make test`; the module draws what it says.
+on every page. PRESETS steps through the 32 factory patches (P1 .. P32) on any page, showing the
+number and name; with unsaved edits the first turn warns `EDITED: TURN AGAIN TO DISCARD` and a turn
+the same way while the warning shows (1.5 s) discards them and loads. What the knobs and PRESETS do, how values read, the
+meter, the filter curve and what to redraw are plain C in `firmware/ui.[ch]`, also tested by
+`make test`; the module draws what it says.
 
 ## FM-1 CPU-test firmware
 

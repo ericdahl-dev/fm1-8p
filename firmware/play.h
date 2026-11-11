@@ -35,6 +35,9 @@ typedef struct {
     volatile int32_t target[FM_PARAM_COUNT];
     int32_t stored[FM_PARAM_COUNT];     /* main loop: the stored patch's values (play_edited) */
     volatile uint32_t asked[PLAY_PARAM_WORDS];  /* bit id: a param set that the ISR hasn't applied */
+    volatile uint32_t loading;          /* main loop: 1 part way through a load (the ISR waits) */
+    volatile uint32_t loads;            /* main loop: +1 per load done */
+    uint32_t loads_seen;                /* ISR only: the last `loads` it applied */
 } play;
 
 /* Sets up the engine on PLAY_VOICES voices with the default patch, SOUNDTRACK
@@ -42,6 +45,12 @@ typedef struct {
 int play_init(play *p);
 /* The patch playing. */
 const patch *play_patch(const play *p);
+/* main loop: load PATCHES[i] (PRESETS): the next render lets the sounding notes go and applies every
+ * param that changes, all in one block, before that block's notes. play_load_patch is begin then end:
+ * a render between them (the ISR, part way) applies none of it. */
+void play_load_patch(play *p, uint32_t i);
+void play_load_begin(play *p, uint32_t i);
+void play_load_end(play *p);
 /* main loop: a note from the keys (velocity 0: note off); the next render applies it */
 void play_note(play *p, uint32_t note, uint32_t vel);
 /* main loop: a channel message from the host's midi() (USB, Bluetooth or the jack: all alike), any
