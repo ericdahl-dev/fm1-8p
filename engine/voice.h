@@ -75,8 +75,10 @@ typedef struct {
 
 /* Idle, with the filter open. `seed` starts the voice's noise; give each
  * voice its own. `rate_cents` is fm_filter_rate_cents of the engine's
- * sample rate. */
-void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents);
+ * sample rate. `amp` and `filter` are the settings its two envelopes read
+ * (shared by every voice, owned by the engine; kept by pointer). */
+void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
+                    const fm_env_settings *amp, const fm_env_settings *filter);
 
 /*
  * Brings filter_env up to date. The render does not step it every sample:
