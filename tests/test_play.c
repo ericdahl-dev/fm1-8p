@@ -418,8 +418,32 @@ TT_TEST(play_load_patch_then_a_key_plays_the_new_patch)
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 1);
 }
 
+/* A load is one step for the audio interrupt: a render part way through it (play_load_begin done,
+ * play_load_end not yet) applies none of the new values, and the render after applies all of them. */
+TT_TEST(play_load_patch_is_one_step_for_the_audio_interrupt)
+{
+    static play before;
+    uint32_t i;
+    TT_CHECK_EQ(play_init(&before), 0);
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_set_param(&pl_a, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    pl_render(&pl_a);
+    play_load_begin(&pl_a, 0);
+    pl_render(&pl_a);                           /* the interrupt, part way through */
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        if (i != FM_PARAM_VOICE_MODE)
+            TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, (uint16_t)i),
+                        fm_engine_get_param(&before.engine, (uint16_t)i));
+    TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, FM_PARAM_VOICE_MODE), FM_VOICE_MODE_UNISON);
+    play_load_end(&pl_a);
+    pl_render(&pl_a);
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, (uint16_t)i), play_get_param(&pl_a, (uint16_t)i));
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);
     TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);
     TT_RUN(play_load_patch_lets_sounding_notes_go);
     TT_RUN(play_load_patch_matches_a_fresh_boot);

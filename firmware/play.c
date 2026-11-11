@@ -8,19 +8,21 @@
 
 const patch *play_patch(const play *p) { return p->patch; }
 
-/* Every field of t the engine has a param for; the others wait for their features (patches.h). */
-static int use_patch(play *p, const patch *t)
+/* Patch t as every param's value, into v: each field of t the engine has a param for (the others wait
+ * for their features, patches.h), and the default for a param no field sets, clamped to its range. */
+static void patch_values(const patch *t, int32_t *v)
 {
     uint32_t f;
+    for (f = 0; f < FM_PARAM_COUNT; f++)
+        v[f] = fm_param_info_get((uint16_t)f)->def;
     for (f = 0; f < PATCH_FIELD_COUNT; f++) {
         int32_t id = patch_param((patch_field)f);
-        if (id == PATCH_NONE)
-            continue;
-        if (fm_engine_set_param(&p->engine, (uint16_t)id, patch_value(t, (patch_field)f)) != FM_OK)
-            return -1;
+        if (id != PATCH_NONE) {
+            const fm_param_info *in = fm_param_info_get((uint16_t)id);
+            int32_t x = patch_value(t, (patch_field)f);
+            v[id] = x < in->min ? in->min : x > in->max ? in->max : x;
+        }
     }
-    p->patch = t;
-    return 0;
 }
 
 int play_init(play *p)
@@ -30,12 +32,16 @@ int play_init(play *p)
     p->lost = p->lost_seen = 0;
     p->last_note = -1;
     p->oct = 0;
+    p->loading = p->loads = p->loads_seen = 0;
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
-    if (use_patch(p, &PATCHES[PATCH_SOUNDTRACK]) != 0)
-        return -1;
-    for (i = 0; i < FM_PARAM_COUNT; i++)
-        p->target[i] = p->stored[i] = fm_engine_get_param(&p->engine, (uint16_t)i);
+    p->patch = &PATCHES[PATCH_SOUNDTRACK];
+    patch_values(p->patch, p->stored);
+    for (i = 0; i < FM_PARAM_COUNT; i++) {
+        if (fm_engine_set_param(&p->engine, (uint16_t)i, p->stored[i]) != FM_OK)
+            return -1;
+        p->target[i] = p->stored[i];
+    }
     for (i = 0; i < PLAY_PARAM_WORDS; i++)
         p->asked[i] = 0;
     return 0;
@@ -137,21 +143,35 @@ static void apply_params(play *p)
     }
 }
 
-void play_load_patch(play *p, uint32_t i)
+/* A load in two steps, so a render between them applies none of it: begin writes the values while
+ * `loading` keeps the ISR off the params; end publishes them, and the ISR's next block applies them
+ * all, with the all notes off, before that block's note events. */
+void play_load_begin(play *p, uint32_t i)
 {
     const patch *t = &PATCHES[i % PATCH_COUNT];
     uint32_t f;
-    put(p, 0xB0u, 123u, 0u);                    /* all notes off: they release, at the same block start */
-    for (f = 0; f < FM_PARAM_COUNT; f++)        /* what the patch has no field for: the default */
-        play_set_param(p, (uint16_t)f, fm_param_info_get((uint16_t)f)->def);
-    for (f = 0; f < PATCH_FIELD_COUNT; f++) {
-        int32_t id = patch_param((patch_field)f);
-        if (id != PATCH_NONE)
-            play_set_param(p, (uint16_t)id, patch_value(t, (patch_field)f));
+    p->loading = 1;
+    BARRIER();                                  /* before any value: the ISR leaves the params alone */
+    patch_values(t, p->stored);                 /* the stored patch is now this one */
+    for (f = 0; f < FM_PARAM_COUNT; f++) {
+        p->target[f] = p->stored[f];
+        p->asked[f >> 5] = p->asked[f >> 5] | 1u << (f & 31u);
     }
-    for (f = 0; f < FM_PARAM_COUNT; f++)        /* the stored patch is now this one */
-        p->stored[f] = p->target[f];
     p->patch = t;
+}
+
+void play_load_end(play *p)
+{
+    BARRIER();                                  /* the values before the load that publishes them */
+    p->loads = p->loads + 1u;
+    BARRIER();
+    p->loading = 0;
+}
+
+void play_load_patch(play *p, uint32_t i)
+{
+    play_load_begin(p, i);
+    play_load_end(p);
 }
 
 int32_t play_last_note(const play *p) { return p->last_note; }
@@ -187,7 +207,13 @@ void play_render(play *p, int32_t *out, uint32_t n)
     uint32_t h = p->head, t = p->tail;          /* one read: the main loop may write it any time */
     if (n > PLAY_BLOCK)
         n = PLAY_BLOCK;
-    apply_params(p);                            /* before the notes: a note played after a load sounds it */
+    if (!p->loading) {                          /* not part way through a load: its values are whole */
+        if (p->loads != p->loads_seen) {        /* a load: all notes off with its params, one block */
+            p->loads_seen = p->loads;
+            fm_engine_controller(&p->engine, 123, 0);   /* they release, on the new patch's times */
+        }
+        apply_params(p);                        /* before the notes: a note played after a load sounds it */
+    }
     BARRIER();                                  /* the entries are read after the head */
     for (; t != h; t++)
         apply(p, p->queue[t % PLAY_QUEUE]);
