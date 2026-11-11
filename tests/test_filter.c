@@ -1072,7 +1072,7 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
 {
     static fm_env a, b;
     uint32_t seed = 12345;
-    int trial, op, mismatches = 0;
+    int trial, op, mismatches = 0, rising_high = 0;
 #define ENV_RAND() (seed = seed * 1664525u + 1013904223u, seed >> 8)
     for (trial = 0; trial < 300; trial++) {
         fm_env_reset(&a);
@@ -1096,6 +1096,11 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
                     env_level(&seed);
                 fm_env_retime(&a);
                 fm_env_retime(&b);
+                /* the case the full-range draws are for: a decay rising
+                 * to a raised sustain from a level of 2^29 or more */
+                if (b.stage == FM_ENV_DECAY && b.level >= (1 << 29) &&
+                    b.sus_level > b.level)
+                    rising_high++;
                 break;
             default: break;
             }
@@ -1110,6 +1115,7 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
     }
 #undef ENV_RAND
     TT_CHECK_EQ(mismatches, 0);
+    TT_CHECK(rising_high > 0);
 }
 
 /*
