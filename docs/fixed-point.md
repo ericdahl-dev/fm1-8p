@@ -261,7 +261,9 @@ level, clamped to 0..1000. Positive depth fades osc2 in as the envelope rises
 `osc_mix_env_source` picks the envelope: 0 the filter envelope (the default),
 1 the amp envelope. The amp envelope is read against the note's own peak, so
 a soft note gets the same depth as a hard one (velocity changes the
-loudness, not the mix). For example, a pad whose second oscillator blooms over
+loudness, not the mix). The two parameters set one route in the voices'
+summing point (`engine/mod.h`, docs/modulation.md): envelope 1 or 2 to the
+mix. For example, a pad whose second oscillator blooms over
 two seconds:
 
 ```sh

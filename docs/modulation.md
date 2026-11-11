@@ -119,16 +119,19 @@ each source times its route depth, added up per destination and held at
 the int32 limits rather than wrapping. The sources are the LFO (after the
 voice's delay and fade, set every control tick), the note's velocity
 (its level from `amp_velocity_pct` and the curve below, set when the note
-starts) and envelope 1 (the filter envelope's level, set at the filter's
-16-sample control points); the destinations are pitch, pulse width, level
-(the amp envelope's peak, from velocity at full depth) and cutoff (cents,
-from envelope 1 at `filter_env_amount_cents`). Each voice keeps its
-sources as last set. A destination can be summed alone
-(`fm_mod_update`): a note start takes only its level again, so the
-vibrato carries on (`restrike_keeps_the_lfo_sums_exactly`), and a control
-point only its cutoff. A destination is at rest (`fm_mod_at_rest`) with no
-route reaching it and its sum at 0; the cutoff's rest is what the voice's
-FM_BUSY_FILTER_ENV bit follows. The summing
+starts), envelope 1 (the filter envelope's level) and envelope 2 (the amp
+envelope's level as a share of the note's peak), both set at the
+16-sample control points; the destinations are pitch, pulse width, level
+(the amp envelope's peak, from velocity at full depth), cutoff (cents,
+from envelope 1 at `filter_env_amount_cents`) and mix (Q1.30 added to
+`osc_mix_permille`, from envelope 1 or 2 as `osc_mix_env_source` picks, at
+`osc_mix_env_permille`). Each voice keeps its sources as last set. A
+destination can be summed alone (`fm_mod_update`): a note start takes
+only its level again, so the vibrato carries on
+(`restrike_keeps_the_lfo_sums_exactly`), and a control point only its
+cutoff and mix. A destination is at rest (`fm_mod_at_rest`) with no route
+reaching it and its sum at 0; the voice's FM_BUSY_FILTER_ENV bit follows
+the cutoff's rest, and FM_BUSY_MIX the mix's (with its glide). The summing
 (`fm_mod_tick`, `fm_mod_sum`) and the getter are `static inline` in
 `mod.h`, so they sit in the voice's code; only `fm_mod_reset` and
 `fm_mod_set_route` are in `mod.c`. The depths are one `fm_mod_routes` the
