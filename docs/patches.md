@@ -124,7 +124,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | ENV-2, VCA MODE | `amp_*` | ENV-2's ADSR. GATE: attack 1 ms, sustain full, release 5 ms, and `PATCH_AMP_GATE` waits for #63 |
 | ENV times | ms | cubic in the value: attack 1..3000 ms, decay and release 2..10000 ms (*est.*). Sustain: value x 1000 / 127 |
 | VCA DYNAMICS | `amp_velocity_pct` | off 0, 1 33, 2 67, 3 100 % |
-| CHORUS | `chorus_mode` | off, I slow, II deep (the factory tones use off and I only) |
+| CHORUS | `chorus_mode` | off, I slow, II deep (the factory tones use off and I only); both play PG-8X 2.0.13's chorus: 0.68 Hz, dry plus wet (+3 dB), L/R correlation about 0.46 (#104) |
 | LFO WAVEFORM | `lfo_wave` | random, square, triangle |
 | LFO RATE | `lfo_rate_centihz` | 0.1..20 Hz, exponential (*est.*) |
 | LFO DELAY | `lfo_delay_ms` | cubic, 0..3000 ms (*est.*) |
