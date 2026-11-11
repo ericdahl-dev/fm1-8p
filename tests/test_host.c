@@ -176,7 +176,9 @@ TT_TEST(render_applies_parameter_settings)
     early = peak_abs(pcm, 4410 - 150, 4410);   /* ~100 ms */
     later = peak_abs(pcm, 26460 - 150, 26460); /* ~600 ms */
     free(pcm);
-    TT_CHECK_NEAR((double)early / later, 0.2, 0.03);
+    /* the attack charges as an RC toward 1.6 x the peak: at a fifth of it,
+     * 1.6 x (1 - e^(-0.2 x 0.98)) = 0.285 of the peak */
+    TT_CHECK_NEAR((double)early / later, 0.285, 0.03);
 }
 
 TT_TEST(tempo_changes_set_the_song_length)

@@ -11,15 +11,16 @@
  *
  * When on, the input goes into one short delay line, read by two taps
  * whose delay a triangle LFO sweeps in opposite directions (left gets
- * center + sweep, right center - sweep). Each output is half the dry
- * input plus half its tap, so an output never exceeds the larger of the
- * input peak and the delay line's +-2.0 clamp.
+ * center + sweep, right center - sweep). Each output is the dry input
+ * plus its tap (as PG-8X's chorus, #104), so an output never exceeds the
+ * input peak plus the delay line's +-2.0 clamp; the dry part is limited
+ * to about +-126.0 so the sum never overflows int32.
  *
  * Memory: fixed, no allocation. The delay line is FM_CHORUS_DELAY_LEN
  * int16_t samples = 2048 bytes; the whole struct is about 2.1 KiB
  * (sizeof(fm_chorus) is 2072 on the desktop), and it lives inside
  * fm_engine. The line holds 23 ms at 44.1 kHz; the deepest mode needs
- * 7.5 ms, so above about 136 kHz a mode's delays are scaled down to fit.
+ * 9.0 ms, so above about 113 kHz a mode's delays are scaled down to fit.
  */
 #ifndef FM_CHORUS_STATE_H
 #define FM_CHORUS_STATE_H
@@ -31,8 +32,9 @@
 
 /*
  * Modes (LFO rate, center delay, sweep either side of the center):
- *   SLOW  0.5 Hz, 5.0 ms, +-1.5 ms - gentle, slow movement
- *   DEEP  0.8 Hz, 5.0 ms, +-2.5 ms - wider and faster
+ *   SLOW  0.68 Hz, 5.5 ms, +-2.0 ms - chorus I, PG-8X 2.0.13's chorus
+ *   DEEP  0.68 Hz, 5.5 ms, +-3.5 ms - chorus II, the same, swept deeper
+ * (the JX-8P loader sends both to PG-8X's one chorus, so both match it)
  *   FAST  6.0 Hz, 3.0 ms, +-0.3 ms - quick, shallow shimmer
  */
 typedef enum {
