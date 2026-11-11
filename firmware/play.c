@@ -146,6 +146,8 @@ void play_load_patch(play *p, uint32_t i)
         if (id != PATCH_NONE)
             play_set_param(p, (uint16_t)id, patch_value(t, (patch_field)f));
     }
+    for (f = 0; f < FM_PARAM_COUNT; f++)        /* the stored patch is now this one */
+        p->stored[f] = p->target[f];
     p->patch = t;
 }
 

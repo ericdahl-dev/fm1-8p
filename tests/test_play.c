@@ -366,8 +366,19 @@ TT_TEST(play_load_patch_reaches_the_engine_at_the_next_render)
                         patch_value(t, (patch_field)f));
 }
 
+/* A loaded patch is the stored one: nothing is edited until a knob moves. */
+TT_TEST(play_load_patch_is_not_edited)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_set_param(&pl_a, FM_PARAM_FILTER_RESONANCE, 500);
+    TT_CHECK(play_edited(&pl_a));
+    play_load_patch(&pl_a, 3);
+    TT_CHECK(!play_edited(&pl_a));
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_load_patch_is_not_edited);
     TT_RUN(play_load_patch_reaches_the_engine_at_the_next_render);
     TT_RUN(play_keys_play_from_the_octave);
     TT_RUN(play_octave_leds_follow_the_octave);
