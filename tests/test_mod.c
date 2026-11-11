@@ -415,6 +415,37 @@ TT_TEST(block_size_does_not_change_output_as_depths_come_and_go)
     }
 }
 
+/* A pulse note, its LFO routed to pulse width only at `pct` for 9000
+ * frames, then back to 0: 20000 frames in blocks of `block`. */
+static void pw_only_on_and_off(int16_t *out, int32_t pct, uint32_t block)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 900);
+    fm_engine_note_on(&mod_eng, 60, 100);
+    render_in_blocks(out, 1000, block);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PW_PCT, pct);
+    render_in_blocks(out + 2 * 1000, 9000, block);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PW_PCT, 0);
+    render_in_blocks(out + 2 * 10000, 10000, block);
+}
+
+/* With only the pulse width routed, the LFO still ticks the voices (in
+ * step, whatever the block size) and, once the depth is back at 0, the
+ * offset clears: the tail matches a note never modulated. */
+TT_TEST(pulse_width_alone_ticks_the_voices_and_clears)
+{
+    size_t bytes = 20000u * 4, tail = 10100;
+    pw_only_on_and_off(mod_ref, 0, 4096);
+    pw_only_on_and_off(mod_buf, 25, 4096);
+    TT_CHECK(memcmp(mod_ref + 2 * 1000, mod_buf + 2 * 1000, 9000u * 4) != 0);
+    TT_CHECK(memcmp(mod_ref + 2 * tail, mod_buf + 2 * tail,
+                    (20000u - tail) * 4) == 0);
+    pw_only_on_and_off(mod_ref, 25, 1);
+    TT_CHECK(memcmp(mod_ref, mod_buf, bytes) == 0);
+}
+
 /* A4 with a 2 Hz square vibrato of 100 cents and a 500 ms delay; the
  * depth is set before the note, or only after 1 s with `late`. Returns
  * the pitch (cents) over 1.02..1.23 s, the top half of an LFO cycle. */
@@ -457,5 +488,6 @@ static void run_mod_tests(void)
     TT_RUN(restriking_a_sounding_note_keeps_its_vibrato);
     TT_RUN(velocity_setting_mid_note_leaves_the_note_alone);
     TT_RUN(block_size_does_not_change_output_as_depths_come_and_go);
+    TT_RUN(pulse_width_alone_ticks_the_voices_and_clears);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }
