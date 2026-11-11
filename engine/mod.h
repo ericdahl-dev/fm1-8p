@@ -62,8 +62,9 @@ static inline uint32_t fm_mod_sum(fm_mod *m,
         int64_t sum = 0;
         int32_t v;
         for (s = 0; s < nsrc; s++)
-            /* Q1.30 * depth -> depth's unit */
-            sum += ((int64_t)src[s] * depth[s][d]) >> 30;
+            if (depth[s][d]) /* most routes are off: skip their multiply */
+                /* Q1.30 * depth -> depth's unit */
+                sum += ((int64_t)src[s] * depth[s][d]) >> 30;
         v = (int32_t)sum;
         if (v != sum) v = sum < 0 ? INT32_MIN : INT32_MAX; /* clamp, not wrap */
         if (v != m->sum[d]) changed |= 1u << d;
