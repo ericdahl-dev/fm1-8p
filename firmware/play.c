@@ -153,10 +153,11 @@ void play_load_begin(play *p, uint32_t i)
     p->loading = 1;
     BARRIER();                                  /* before any value: the ISR leaves the params alone */
     patch_values(t, p->stored);                 /* the stored patch is now this one */
-    for (f = 0; f < FM_PARAM_COUNT; f++) {
-        p->target[f] = p->stored[f];
-        p->asked[f >> 5] = p->asked[f >> 5] | 1u << (f & 31u);
-    }
+    for (f = 0; f < FM_PARAM_COUNT; f++)
+        if (p->stored[f] != p->target[f]) {     /* only what changes: each set can retime an envelope */
+            p->target[f] = p->stored[f];
+            p->asked[f >> 5] = p->asked[f >> 5] | 1u << (f & 31u);
+        }
     p->patch = t;
 }
 

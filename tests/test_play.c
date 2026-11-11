@@ -441,8 +441,24 @@ TT_TEST(play_load_patch_is_one_step_for_the_audio_interrupt)
         TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, (uint16_t)i), play_get_param(&pl_a, (uint16_t)i));
 }
 
+/* A load asks the ISR only for the params whose value changes: each one it sets can retime envelopes,
+ * so a click that set them all could overrun the block. Loading the patch playing asks for none. */
+TT_TEST(play_load_patch_asks_only_for_the_params_that_change)
+{
+    uint32_t w;
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_load_patch(&pl_a, PATCH_SOUNDTRACK);
+    for (w = 0; w < PLAY_PARAM_WORDS; w++)
+        TT_CHECK_EQ(pl_a.asked[w], 0);
+    play_set_param(&pl_a, FM_PARAM_FILTER_RESONANCE, 900);
+    pl_render(&pl_a);
+    play_load_patch(&pl_a, PATCH_SOUNDTRACK);
+    TT_CHECK_EQ(pl_a.asked[FM_PARAM_FILTER_RESONANCE >> 5], 1u << (FM_PARAM_FILTER_RESONANCE & 31u));
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
     TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);
     TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);
     TT_RUN(play_load_patch_lets_sounding_notes_go);
