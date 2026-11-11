@@ -244,8 +244,8 @@ def permille(v):
 
 def env(p, base):
     """The envelope at base (ENV1 or ENV2) as engine attack ms, decay ms, sustain per mille and
-    release ms. Attack is PG-8X 2.0.13's measured ramp, x2.52 per 16 steps from 1 ms (0) to about
-    24 s (127). Decay and release are exponential on both, and their engine times are the time
+    release ms. Attack is the time to the peak of PG-8X 2.0.13's RC charge (attack_ms), 1 ms to
+    about 22 s. Decay and release are exponential on both, and their engine times are the time
     constant (decay_ms, release_ms)."""
     a, d, s, r = p[base:base + 4]
     return attack_ms(a), decay_ms(d), permille(s), release_ms(r)
@@ -274,11 +274,21 @@ def release_ms(v):
     return _LOW_RELEASE_MS[v >> 1] if v < 16 else _tau_ms(v)
 
 
+# Below 16 PG-8X's attack is about a millisecond up to 11, then steps up to its curve (time to the
+# peak in ms for bytes 12..15, sample-accurate RC fit, 2026-11-11)
+_LOW_ATTACK_MS = {12: 3, 13: 8, 14: 9, 15: 12}
+
+
 def attack_ms(v):
-    """ENV ATTACK, 0..127, in ms: 15.63 x (2.52^(v / 16) - 1), fitted to PG-8X 2.0.13 (within
-    11 % from 32 up): x2.52 per 16 steps, 127 about 24 s. At least 1 ms, as GATE: a ramp, so a
-    note starting mid-wave does not click."""
-    return max(1, rnd(15.63 * (2.52 ** (v / 16) - 1)))
+    """ENV ATTACK, 0..127, as the engine's attack time in ms, the time to the peak of its RC charge
+    toward 1.6 x the peak: 9.2175 x (2.6676^(v / 16) - 0.7155), fitted to PG-8X 2.0.13 (within 8 %
+    from 16 up; x2.67 per 16 steps, as its decay and release), 127 about 22 s. Below 12 it is 1 ms
+    (PG-8X 0.5..1.4: a ramp, not a click, as GATE), 12..15 PG-8X's measured steps."""
+    if v < 12:
+        return 1
+    if v < 16:
+        return _LOW_ATTACK_MS[v]
+    return rnd(9.2175 * (2.6676 ** (v / 16) - 0.7155))
 
 
 def env_mode(v):

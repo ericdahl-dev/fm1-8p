@@ -124,7 +124,7 @@ class MapTest(unittest.TestCase):
     # 2..10000 ms.
     def test_env2_is_the_amp_envelope(self):
         e = patch("SOUNDTRACK")                 # ENV-2: 80, 109, 57, 77
-        self.assertEqual(e["AMP_ATTACK_MS"], 1573)
+        self.assertEqual(e["AMP_ATTACK_MS"], 1239)   # attack_ms(80)
         self.assertEqual(e["AMP_DECAY_MS"], 7986)   # tau (decay_ms)
         self.assertEqual(e["AMP_SUSTAIN_PERMILLE"], 449)
         self.assertEqual(e["AMP_RELEASE_MS"], 1118)   # tau
@@ -133,15 +133,20 @@ class MapTest(unittest.TestCase):
     # Attack follows PG-8X 2.0.13's ramp, measured 2026-11-10 (held C4 on the VCA, 10-90 %
     # rise / 0.8): within 12 % from 32 up, rising, and inside the engine's 30 s. 0 is 1 ms, the
     # same as GATE: a ramp, not a step, so a note starting mid-wave does not click.
-    PG8X_ATTACK_MS = {16: 19, 32: 94, 48: 231, 64: 594, 80: 1569, 96: 4194, 112: 11319, 127: 23819}
+    # Attack as PG-8X 2.0.13 plays it (2026-11-11): an RC charge toward 1.6 x the peak, the time to the
+    # peak per byte, from the same RC fit on both synths (held C6, |analytic signal|), so the probe's
+    # bias cancels. Below 12 it is about a millisecond; 12..15 step up to the curve
+    PG8X_ATTACK_TO_PEAK_MS = {16: 17.3, 24: 36.4, 32: 61.3, 40: 100, 48: 165, 56: 272, 64: 452, 72: 746,
+                              80: 1229, 88: 2021, 96: 3323, 104: 5465, 112: 8912, 120: 14676, 127: 22201}
+    PG8X_LOW_ATTACK_MS = {0: 0.5, 8: 0.9, 9: 1.1, 10: 1.2, 11: 1.4, 12: 2.6, 13: 7.5, 14: 9.0, 15: 11.5}
 
     def test_attack_follows_pg8x_measured_curve(self):
-        self.assertEqual(jx8p.attack_ms(0), 1)
+        self.assertEqual(jx8p.attack_ms(0), 1)                    # at least 1 ms: a ramp, not a click
         self.assertEqual(jx8p.attack_ms(0), patch("E. BASS")["AMP_ATTACK_MS"])   # GATE
-        for v, ms in self.PG8X_ATTACK_MS.items():
-            if v >= 32:
-                self.assertLess(abs(jx8p.attack_ms(v) / ms - 1), 0.12, (v, jx8p.attack_ms(v), ms))
-        self.assertLess(abs(jx8p.attack_ms(16) - 19), 8)
+        for v, ms in self.PG8X_ATTACK_TO_PEAK_MS.items():
+            self.assertLess(abs(jx8p.attack_ms(v) / ms - 1), 0.09, (v, jx8p.attack_ms(v), ms))
+        for v, ms in self.PG8X_LOW_ATTACK_MS.items():
+            self.assertLessEqual(abs(jx8p.attack_ms(v) - ms), max(1, 0.15 * ms), (v, jx8p.attack_ms(v), ms))
         times = [jx8p.attack_ms(v) for v in range(128)]
         self.assertEqual(times, sorted(times))
         self.assertLessEqual(times[127], 30000)
@@ -192,7 +197,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["FILTER_ENV_SOURCE"], 3)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 75)
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
-                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (23977, 1616, 425))   # decay: tau
+                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (22224, 1616, 425))   # attack_ms(127); decay: tau
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
         self.assertEqual(e["FILTER_ENV_SOURCE"], 2)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 75)
