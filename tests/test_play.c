@@ -350,8 +350,25 @@ TT_TEST(play_keys_play_from_the_octave)
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);
 }
 
+/* Loading a patch (PRESETS) goes the way a knob does: queued, applied by the next render, at the
+ * block's start; then every field the engine has a param for is the patch's. */
+TT_TEST(play_load_patch_reaches_the_engine_at_the_next_render)
+{
+    uint32_t f;
+    const patch *t = &PATCHES[0];
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_load_patch(&pl_a, 0);
+    TT_CHECK(play_patch(&pl_a) == t);
+    pl_render(&pl_a);
+    for (f = 0; f < PATCH_FIELD_COUNT; f++)
+        if (patch_param((patch_field)f) != PATCH_NONE)
+            TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, (uint16_t)patch_param((patch_field)f)),
+                        patch_value(t, (patch_field)f));
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_load_patch_reaches_the_engine_at_the_next_render);
     TT_RUN(play_keys_play_from_the_octave);
     TT_RUN(play_octave_leds_follow_the_octave);
     TT_RUN(play_output_gain_is_12_db_and_saturates);

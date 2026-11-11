@@ -42,6 +42,8 @@ typedef struct {
 int play_init(play *p);
 /* The patch playing. */
 const patch *play_patch(const play *p);
+/* main loop: load PATCHES[i] (PRESETS), as knobs set params: the next render applies it */
+void play_load_patch(play *p, uint32_t i);
 /* main loop: a note from the keys (velocity 0: note off); the next render applies it */
 void play_note(play *p, uint32_t note, uint32_t vel);
 /* main loop: a channel message from the host's midi() (USB, Bluetooth or the jack: all alike), any

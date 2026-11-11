@@ -137,6 +137,18 @@ static void apply_params(play *p)
     }
 }
 
+void play_load_patch(play *p, uint32_t i)
+{
+    const patch *t = &PATCHES[i % PATCH_COUNT];
+    uint32_t f;
+    for (f = 0; f < PATCH_FIELD_COUNT; f++) {
+        int32_t id = patch_param((patch_field)f);
+        if (id != PATCH_NONE)
+            play_set_param(p, (uint16_t)id, patch_value(t, (patch_field)f));
+    }
+    p->patch = t;
+}
+
 int32_t play_last_note(const play *p) { return p->last_note; }
 
 void play_octave(play *p, int32_t step)
