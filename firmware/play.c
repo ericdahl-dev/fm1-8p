@@ -141,6 +141,7 @@ void play_load_patch(play *p, uint32_t i)
 {
     const patch *t = &PATCHES[i % PATCH_COUNT];
     uint32_t f;
+    put(p, 0xB0u, 123u, 0u);                    /* all notes off: they release, at the same block start */
     for (f = 0; f < FM_PARAM_COUNT; f++)        /* what the patch has no field for: the default */
         play_set_param(p, (uint16_t)f, fm_param_info_get((uint16_t)f)->def);
     for (f = 0; f < PATCH_FIELD_COUNT; f++) {

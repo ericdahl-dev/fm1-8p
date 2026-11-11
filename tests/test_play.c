@@ -391,8 +391,22 @@ TT_TEST(play_load_patch_matches_a_fresh_boot)
         TT_CHECK_EQ(play_get_param(&pl_a, (uint16_t)i), play_get_param(&fresh, (uint16_t)i));
 }
 
+/* Notes sounding when a patch loads are let go (a note off each, so they release, not cut) at the
+ * same block start as the new params: none is left hanging when its key comes up later. */
+TT_TEST(play_load_patch_lets_sounding_notes_go)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_key_down(&pl_a, 5, 100);
+    play_key_down(&pl_a, 9, 100);
+    pl_render(&pl_a);
+    play_load_patch(&pl_a, 0);
+    pl_render_for(&pl_a, 2000);                 /* 11.6 s: past any patch's release */
+    TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_load_patch_lets_sounding_notes_go);
     TT_RUN(play_load_patch_matches_a_fresh_boot);
     TT_RUN(play_load_patch_is_not_edited);
     TT_RUN(play_load_patch_reaches_the_engine_at_the_next_render);
