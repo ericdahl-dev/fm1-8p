@@ -117,6 +117,10 @@ class MapTest(unittest.TestCase):
 
     # HPF as PG-8X 2.0.13 plays it (2026-11-10 probe, docs/patches.md): 1 is flat and 2 and 3 are
     # the engine's steps 2 and 3 (within about 2 dB); 0 is a bass boost the engine lacks, so flat.
+    def test_hpf_step_per_position(self):
+        self.assertEqual([jx8p.hpf_step(v) for v in (0, 32, 64, 96)], [0, 0, 2, 3])
+        self.assertEqual([jx8p.hpf_step(v) for v in (31, 63, 95, 127)], [0, 0, 2, 3])
+
     def test_hpf_positions_are_the_engines_four_highpass_steps(self):
         self.assertEqual(patch("SOUNDTRACK")["HIGHPASS_STEP"], 0)   # 0
         self.assertEqual(patch("PIANO 1")["HIGHPASS_STEP"], 0)      # 32: flat on PG-8X
