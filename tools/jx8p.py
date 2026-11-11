@@ -272,6 +272,12 @@ def cutoff_cents(v):
     return max(0, rnd(0.2173 * v * v + 95.87 * v - 807.5))
 
 
+def key_track_permille(v):
+    """VCF KEY, 0..127, as the engine's key track: up to 1.29 octaves an octave at 127, as PG-8X
+    2.0.13 (match.py --param VCF_KEY, #95)."""
+    return rnd(1290 * v / 127)
+
+
 def filter_env_cents(v):
     """VCF ENV, 0..127, as the filter envelope's depth in cents: 129 a step, fitted to PG-8X 2.0.13
     (within 5 % over 8..48; docs/patches.md). 127 is 16383 cents."""
@@ -337,7 +343,11 @@ def to_engine(tone):
     e["HIGHPASS_STEP"] = switch(p[HPF])
     e["FILTER_CUTOFF_CENTS"] = cutoff_cents(p[VCF_FREQ])
     e["FILTER_RESONANCE_PERMILLE"] = permille(p[VCF_RES])
-    e["FILTER_KEY_TRACK_PERMILLE"] = permille(p[VCF_KEY])
+    # PG-8X's key follow pivots at C2 and the engine's at C4: the track's rise from C2 to C4 moves
+    # the cutoff, so every note gets PG-8X's cutoff (#95)
+    track = key_track_permille(p[VCF_KEY])
+    e["FILTER_KEY_TRACK_PERMILLE"] = track
+    e["FILTER_CUTOFF_CENTS"] += track * 24 // 10
     gate = 1 if p[VCA_MODE] < 64 else 0
     a, d, s, r = (1, 2, 1000, 5) if gate else env(p, ENV2)
     e.update(AMP_ATTACK_MS=a, AMP_DECAY_MS=d, AMP_SUSTAIN_PERMILLE=s, AMP_RELEASE_MS=r, AMP_GATE=gate)

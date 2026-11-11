@@ -113,10 +113,10 @@ class MapTest(unittest.TestCase):
         for v, note in self.PG8X_CUTOFF_NOTE.items():
             self.assertLess(abs(jx8p.cutoff_cents(v) / 100 - note), 0.3, (v, jx8p.cutoff_cents(v)))
 
-    def test_resonance_and_key_follow_scale_0_127_to_per_mille(self):
+    def test_resonance_scales_0_127_to_per_mille_and_key_follow_to_1290(self):
         e = patch("PSYCHMELLO")                 # resonance 122, key follow 93
         self.assertEqual(e["FILTER_RESONANCE_PERMILLE"], 961)
-        self.assertEqual(e["FILTER_KEY_TRACK_PERMILLE"], 732)
+        self.assertEqual(e["FILTER_KEY_TRACK_PERMILLE"], 945)
         self.assertEqual(patch("SOUNDTRACK")["FILTER_RESONANCE_PERMILLE"], 0)
 
     def test_hpf_positions_are_the_engines_four_highpass_steps(self):
@@ -140,6 +140,23 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["AMP_GATE"], 1)
         self.assertEqual((e["AMP_ATTACK_MS"], e["AMP_SUSTAIN_PERMILLE"], e["AMP_RELEASE_MS"]),
                          (1, 1000, 5))
+
+    # VCF KEY as PG-8X 2.0.13 plays it (match.py --param VCF_KEY, #95): it pivots at C2 (note 36) and
+    # tracks up to 1.29 octaves an octave. The engine pivots at C4, so the converter moves the pivot by
+    # adding the track's rise from C2 to C4 to the cutoff. The cutoff a note gets, as the engine plays it
+    # (fm_filter_voice_cents, no envelope):
+    @staticmethod
+    def cutoff_at(e, note):
+        return e["FILTER_CUTOFF_CENTS"] + e["FILTER_KEY_TRACK_PERMILLE"] * (note - 60) / 10
+
+    def test_vcf_key_pivots_at_c2_and_tracks_up_to_1_29(self):
+        d = bytearray(next(t.params for t in factory() if t.name == "SOUNDTRACK"))
+        d[jx8p.VCF_KEY] = 127
+        e = jx8p.to_engine(jx8p.Tone("KEY 127", bytes(d)))
+        base = jx8p.cutoff_cents(d[jx8p.VCF_FREQ])
+        self.assertLess(abs(self.cutoff_at(e, 36) - base), 5)
+        self.assertLess(abs(self.cutoff_at(e, 60) - base - 2 * 1.29 * 1200), 5)
+        self.assertLess(abs(self.cutoff_at(e, 84) - base - 4 * 1.29 * 1200), 5)
 
     # VCF ENV depth as PG-8X 2.0.13 plays it (match.py --param VCF_ENV, 2026-11-10): the cutoff's
     # rise at the envelope's peak, in semitones, about 1.25 a step

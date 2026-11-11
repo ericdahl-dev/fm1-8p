@@ -49,7 +49,7 @@ TT_TEST(patch_values_are_the_boot_state)
     TT_CHECK_EQ(v[FM_PARAM_OSC1_OCTAVE], -1);
     TT_CHECK_EQ(v[FM_PARAM_OSC2_OCTAVE], -1);
     TT_CHECK_EQ(v[FM_PARAM_OSC2_FINE_CENTS], -13);
-    TT_CHECK_EQ(v[FM_PARAM_FILTER_CUTOFF_CENTS], 4765);   /* VCF FREQ 52: 0.2173 x 52^2 + 95.87 x 52 - 807.5 */
+    TT_CHECK_EQ(v[FM_PARAM_FILTER_CUTOFF_CENTS], 6910);   /* VCF FREQ 52 (4765) + KEY 88 moved to a C2 pivot (894 x 2.4) */
     TT_CHECK_EQ(v[FM_PARAM_FILTER_RESONANCE], 0);
     TT_CHECK_EQ(v[FM_PARAM_HIGHPASS_STEP], 0);
     TT_CHECK_EQ(v[FM_PARAM_BEND_RANGE], 2);             /* no field: the defaults */
