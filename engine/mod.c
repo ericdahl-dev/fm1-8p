@@ -7,8 +7,16 @@
 
 void fm_mod_reset(fm_mod *m)
 {
-    unsigned d;
-    for (d = 0; d < FM_MOD_DEST_COUNT; d++) m->sum[d] = 0;
+    unsigned i;
+    for (i = 0; i < FM_MOD_SRC_COUNT; i++) m->src[i] = 0;
+    for (i = 0; i < FM_MOD_DEST_COUNT; i++) m->sum[i] = 0;
+}
+
+void fm_mod_routes_reset(fm_mod_routes *r)
+{
+    unsigned s, d;
+    for (s = 0; s < FM_MOD_SRC_COUNT; s++)
+        for (d = 0; d < FM_MOD_DEST_COUNT; d++) r->depth[s][d] = 0;
 }
 
 void fm_mod_set_route(fm_mod_routes *r, unsigned src, unsigned dest,
