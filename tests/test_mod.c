@@ -352,6 +352,75 @@ TT_TEST(restriking_a_sounding_note_keeps_its_vibrato)
     TT_CHECK(fabs(cents(after, before)) < 60);
 }
 
+/* The same in unison: a new note retriggers every voice, which carries on
+ * from the LFO's last value instead of dropping to the bare pitch. */
+TT_TEST(unison_retrigger_keeps_its_vibrato)
+{
+    double before, after;
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200); /* 2 Hz */
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 1200);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 10);
+    fm_engine_note_on(&mod_eng, 57, 127);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 8);
+    fm_engine_note_on(&mod_eng, 60, 100); /* retriggers, 3 semitones up */
+    fm_engine_render(&mod_eng, mod_buf + 2 * (MOD_RATE / 8), MOD_RATE / 8);
+    before = hz_between(mod_buf, 110, 125);
+    after = hz_between(mod_buf, 125, 140);
+    printf("    %.1f Hz before the retrigger, %.1f Hz after\n", before, after);
+    /* up the 300 cents of the new note, still near the vibrato's top,
+     * instead of an octave lower */
+    TT_CHECK(fabs(cents(after, before) - 300) < 60);
+}
+
+/* A note restruck mid-vibrato: its voice's pitch and pulse width sums
+ * are what they were before the strike, not back at 0 for even one tick
+ * (the next tick would hide that from a pitch reading). Poly restrike and
+ * unison retrigger alike. */
+TT_TEST(restrike_keeps_the_lfo_sums_exactly)
+{
+    int mode;
+    for (mode = 0; mode < 2; mode++) {
+        int32_t pitch, pw;
+        fm_engine_init(&mod_eng, MOD_RATE, 1);
+        if (mode)
+            fm_engine_set_param(&mod_eng, FM_PARAM_VOICE_MODE,
+                                FM_VOICE_MODE_UNISON);
+        fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200);
+        fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 1200);
+        fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PW_PCT, 30);
+        fm_engine_note_on(&mod_eng, 57, 127);
+        fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 8);
+        pitch = fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PITCH);
+        pw = fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PW);
+        TT_CHECK(pitch != 0 && pw != 0);
+        fm_engine_note_on(&mod_eng, 57, 90);
+        TT_CHECK_EQ(fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PITCH), pitch);
+        TT_CHECK_EQ(fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PW), pw);
+    }
+}
+
+/* fm_engine_init sets every route, so the storage it starts from (a
+ * task stack, reused RAM) never reaches the output: an engine laid over
+ * poison renders exactly as one over zeros, notes, velocity and LFO alike. */
+TT_TEST(init_sets_every_route_whatever_the_storage_held)
+{
+    static fm_engine dirty;
+    size_t frames = 6000;
+    memset(&mod_eng, 0, sizeof mod_eng);
+    memset(&dirty, 0xA5, sizeof dirty);
+    TT_CHECK_EQ(fm_engine_init(&mod_eng, MOD_RATE, 2), FM_OK);
+    TT_CHECK_EQ(fm_engine_init(&dirty, MOD_RATE, 2), FM_OK);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
+    fm_engine_set_param(&dirty, FM_PARAM_AMP_VELOCITY, 100);
+    fm_engine_note_on(&mod_eng, 57, 70);
+    fm_engine_note_on(&dirty, 57, 70);
+    fm_engine_render(&mod_eng, mod_ref, (uint32_t)frames);
+    fm_engine_render(&dirty, mod_buf, (uint32_t)frames);
+    TT_CHECK(memcmp(mod_ref, mod_buf, frames * 4) == 0);
+}
+
 /* A note in its decay; at 100 ms amp_velocity_pct is set to `sens` (or
  * left alone for -1). */
 static void decay_with_velocity_change(int16_t *out, int32_t sens)
@@ -490,6 +559,9 @@ static void run_mod_tests(void)
     TT_RUN(unison_legato_return_keeps_the_last_strike_velocity);
     TT_RUN(pulse_width_limits_do_not_depend_on_the_lfo_phase);
     TT_RUN(restriking_a_sounding_note_keeps_its_vibrato);
+    TT_RUN(unison_retrigger_keeps_its_vibrato);
+    TT_RUN(restrike_keeps_the_lfo_sums_exactly);
+    TT_RUN(init_sets_every_route_whatever_the_storage_held);
     TT_RUN(velocity_setting_mid_note_leaves_the_note_alone);
     TT_RUN(block_size_does_not_change_output_as_depths_come_and_go);
     TT_RUN(pulse_width_alone_ticks_the_voices_and_clears);
