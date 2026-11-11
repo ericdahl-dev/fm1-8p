@@ -1093,10 +1093,27 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
 }
 
 /*
+ * A random envelope level over the whole range, 0..FULL (2^30), with FULL
+ * itself one draw in eight: two LCG steps, as one gives only 24 bits.
+ */
+static int32_t env_level(uint32_t *seed)
+{
+    uint32_t hi, lo;
+    *seed = *seed * 1664525u + 1013904223u;
+    hi = *seed >> 8;
+    *seed = *seed * 1664525u + 1013904223u;
+    lo = *seed >> 8;
+    if (lo % 8 == 0) return (int32_t)(1u << 30);
+    return (int32_t)(((hi << 8) ^ lo) % ((1u << 30) + 1));
+}
+
+/*
  * fm_env_step (inline, for the render loop) is fm_env_next: the same level,
  * stage and step after every sample, through random envelopes in every
  * stage (gate on at a random peak, retime, gate off, fade), with the
  * boundaries (landing on the peak, the sustain, 0) wherever they fall.
+ * Peaks and sustains span the whole range up to FULL, so large levels and
+ * a decay rising to a raised sustain are covered too.
  */
 TT_TEST(env_step_matches_env_next_sample_by_sample)
 {
@@ -1109,13 +1126,13 @@ TT_TEST(env_step_matches_env_next_sample_by_sample)
         a.attack_samples = ENV_RAND() % 3000;
         a.decay_samples = ENV_RAND() % 3000;
         a.release_samples = ENV_RAND() % 3000;
-        a.sustain = (int32_t)(ENV_RAND() % ((1u << 30) + 1));
+        a.sustain = env_level(&seed);
         b = a;
         for (op = 0; op < 40; op++) {
             uint32_t n = ENV_RAND() % 400, k;
             switch (ENV_RAND() % 6) {
             case 0:
-                a.peak = b.peak = (int32_t)(ENV_RAND() % ((1u << 30) + 1));
+                a.peak = b.peak = env_level(&seed);
                 fm_env_gate_on(&a);
                 fm_env_gate_on(&b);
                 break;
@@ -1123,7 +1140,7 @@ TT_TEST(env_step_matches_env_next_sample_by_sample)
             case 2: fm_env_fade(&a, n); fm_env_fade(&b, n); break;
             case 3:
                 a.sustain = b.sustain =
-                    (int32_t)(ENV_RAND() % ((1u << 30) + 1));
+                    env_level(&seed);
                 fm_env_retime(&a);
                 fm_env_retime(&b);
                 break;
