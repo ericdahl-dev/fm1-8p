@@ -348,6 +348,28 @@ TT_TEST(restriking_a_sounding_note_keeps_its_vibrato)
     TT_CHECK(fabs(cents(after, before)) < 60);
 }
 
+/* The same in unison: a new note retriggers every voice, which carries on
+ * from the LFO's last value instead of dropping to the bare pitch. */
+TT_TEST(unison_retrigger_keeps_its_vibrato)
+{
+    double before, after;
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200); /* 2 Hz */
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 1200);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 10);
+    fm_engine_note_on(&mod_eng, 57, 127);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 8);
+    fm_engine_note_on(&mod_eng, 60, 100); /* retriggers, 3 semitones up */
+    fm_engine_render(&mod_eng, mod_buf + 2 * (MOD_RATE / 8), MOD_RATE / 8);
+    before = hz_between(mod_buf, 110, 125);
+    after = hz_between(mod_buf, 125, 140);
+    printf("    %.1f Hz before the retrigger, %.1f Hz after\n", before, after);
+    /* up the 300 cents of the new note, still near the vibrato's top,
+     * instead of an octave lower */
+    TT_CHECK(fabs(cents(after, before) - 300) < 60);
+}
+
 /* A note in its decay; at 100 ms amp_velocity_pct is set to `sens` (or
  * left alone for -1). */
 static void decay_with_velocity_change(int16_t *out, int32_t sens)
@@ -486,6 +508,7 @@ static void run_mod_tests(void)
     TT_RUN(unison_legato_return_keeps_the_last_strike_velocity);
     TT_RUN(pulse_width_limits_do_not_depend_on_the_lfo_phase);
     TT_RUN(restriking_a_sounding_note_keeps_its_vibrato);
+    TT_RUN(unison_retrigger_keeps_its_vibrato);
     TT_RUN(velocity_setting_mid_note_leaves_the_note_alone);
     TT_RUN(block_size_does_not_change_output_as_depths_come_and_go);
     TT_RUN(pulse_width_alone_ticks_the_voices_and_clears);
