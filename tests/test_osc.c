@@ -1046,6 +1046,47 @@ TT_TEST(synced_osc2_just_past_its_wrap_has_low_aliasing)
     TT_CHECK(db < ALIAS_LIMIT_DB);
 }
 
+/* Synced osc2 heard alone at note 69, 44 kHz (100 samples a cycle), with
+ * envelope 1 held at full and `env1`, `env2` cents of pitch envelope. */
+static void synced_pitch_env(int32_t env1, int32_t env2)
+{
+    slave_init(44000, FM_WAVE_SAW);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, 1);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, env1);
+    fm_engine_set_param(&eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, env2);
+    fm_engine_note_on(&eng, 69, 100);
+    fm_engine_render(&eng, buf, 8000);
+}
+
+/*
+ * With sync on, DCO-2's pitch envelope changes only osc2's timbre: the
+ * sound still repeats at osc1's pitch (PG-8X: the fundamental stays, the
+ * centroid moves 1.43 -> 2.56). DCO-1's moves the heard pitch: an octave
+ * up, it repeats every 50 samples.
+ */
+TT_TEST(synced_pitch_env_on_osc2_keeps_the_fundamental)
+{
+    static int16_t plain[8000 * 2];
+    int moved = 0;
+    size_t i;
+    synced_pitch_env(0, 0);
+    memcpy(plain, buf, sizeof plain);
+    synced_pitch_env(0, 1573);
+    for (i = 4000; i < 8000; i++) {
+        int d = buf[2 * i] - plain[2 * i];
+        if (d < 0) d = -d;
+        if (d > moved) moved = d;
+    }
+    printf("    synced osc2 env: repeat error %d, change from no env %d\n",
+           max_diff_at_lag(buf, 4000, 2000, 100), moved);
+    TT_CHECK(max_diff_at_lag(buf, 4000, 2000, 100) < 200);
+    TT_CHECK(moved > 5000);
+    synced_pitch_env(1200, 0);
+    TT_CHECK(max_diff_at_lag(buf, 4000, 2000, 50) < 200);
+}
+
 /* With a coarse offset on osc2, sync still makes the pair repeat at osc1's pitch. */
 TT_TEST(sync_with_osc2_coarse_repeats_at_osc1)
 {
@@ -1346,6 +1387,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
     TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
     TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
+    TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
     TT_RUN(xmod_follows_osc2_coarse_changed_on_a_held_note);
     TT_RUN(xmod_zero_matches_no_xmod);
     TT_RUN(xmod_adds_sidebands);
