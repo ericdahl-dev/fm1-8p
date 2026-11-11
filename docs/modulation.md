@@ -106,7 +106,20 @@ the top of a one-octave vibrato and checks the pitch stays there.
 pitch is unmodulated (under 0.5 cent) for 400 ms, then grows through about
 12, 37, 62 and 87 cents in the next four half-cycles, then sits at 100.
 
+The filter has a second control clock: each voice updates its cutoff (and
+the mix envelope) every 16 samples, counted from that note's start, so a note
+gets its cutoff on its first sample. The two clocks are kept apart on
+purpose. A note starts on any sample, so the two have no fixed phase, and
+merging them would move one or the other and change the output (see #68).
+
 ## Routing
+
+Every route goes through one summing point per voice, `engine/mod.c`: a
+source (the LFO, after the voice's delay and fade) times a route depth,
+summed per destination (pitch, pulse width) once per control tick and held
+at the int32 limits rather than wrapping. The depths are one
+`fm_mod_routes` the engine owns and every voice shares; each voice keeps
+only its sums.
 
 At each tick each sounding voice computes `lfo * fade` (Q1.30) and scales
 it by each depth. A target whose depth is 0 gets an offset of exactly 0, and
