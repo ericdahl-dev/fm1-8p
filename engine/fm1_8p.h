@@ -5,14 +5,17 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.2 KiB (5360 bytes on
- * 32- and 64-bit desktops and on Cortex-M), about 40 % of it the chorus
- * delay line and about 1 KiB the voices' filters, so static storage is
- * recommended; a task stack must have room for it on
- * top of its other use. See docs/fixed-point.md for the number formats.
+ * sets up everything inside it. fm_engine is about 5.2 KiB (5200 bytes on
+ * 32-bit targets such as the FM-1 and Cortex-M, 5400 on 64-bit desktops,
+ * where the envelopes' settings pointers take 8 bytes), about 40 % of it
+ * the chorus delay line and about 1 KiB the voices' filters, so static
+ * storage is recommended; a task stack must have room for it on top of
+ * its other use. See docs/fixed-point.md for the number formats.
  *
  * The struct layout is exposed only so callers can allocate it; treat
- * every field as private.
+ * every field as private. Do not copy an fm_engine (assignment, memcpy):
+ * its voices point at settings inside it (#19), so a copy's voices would
+ * still read the original's. Initialize each one with fm_engine_init.
  *
  * The engine takes no locks. Call every function from one context, or
  * make sure no other call runs while fm_engine_render does (for example,
@@ -104,6 +107,8 @@ typedef struct {
     int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
     uint32_t stamp;   /* counts note ons and offs, to age the voices */
     uint32_t fade_samples; /* fast fade of a stolen voice */
+    fm_env_settings amp_set;    /* every voice's amp envelope reads these */
+    fm_env_settings filter_set; /* and its filter envelope these (#19) */
     uint8_t pedal_down;    /* sustain pedal (CC 64 >= 64) */
     int32_t bend_value;    /* last pitch bend, -8192..8191 from center */
     int32_t bend;          /* Q16.16 semitones added to every note */
