@@ -1092,6 +1092,70 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
     TT_CHECK_EQ(mismatches, 0);
 }
 
+/*
+ * A random envelope level over the whole range, 0..FULL (2^30), with FULL
+ * itself one draw in eight: two LCG steps, as one gives only 24 bits.
+ */
+static int32_t env_level(uint32_t *seed)
+{
+    uint32_t hi, lo;
+    *seed = *seed * 1664525u + 1013904223u;
+    hi = *seed >> 8;
+    *seed = *seed * 1664525u + 1013904223u;
+    lo = *seed >> 8;
+    if (lo % 8 == 0) return (int32_t)(1u << 30);
+    return (int32_t)(((hi << 8) ^ lo) % ((1u << 30) + 1));
+}
+
+/*
+ * fm_env_step (inline, for the render loop) is fm_env_next: the same level,
+ * stage and step after every sample, through random envelopes in every
+ * stage (gate on at a random peak, retime, gate off, fade), with the
+ * boundaries (landing on the peak, the sustain, 0) wherever they fall.
+ * Peaks and sustains span the whole range up to FULL, so large levels and
+ * a decay rising to a raised sustain are covered too.
+ */
+TT_TEST(env_step_matches_env_next_sample_by_sample)
+{
+    static fm_env a, b;
+    uint32_t seed = 54321;
+    int trial, op, mismatches = 0;
+#define ENV_RAND() (seed = seed * 1664525u + 1013904223u, seed >> 8)
+    for (trial = 0; trial < 300; trial++) {
+        fm_env_reset(&a);
+        a.attack_samples = ENV_RAND() % 3000;
+        a.decay_samples = ENV_RAND() % 3000;
+        a.release_samples = ENV_RAND() % 3000;
+        a.sustain = env_level(&seed);
+        b = a;
+        for (op = 0; op < 40; op++) {
+            uint32_t n = ENV_RAND() % 400, k;
+            switch (ENV_RAND() % 6) {
+            case 0:
+                a.peak = b.peak = env_level(&seed);
+                fm_env_gate_on(&a);
+                fm_env_gate_on(&b);
+                break;
+            case 1: fm_env_gate_off(&a); fm_env_gate_off(&b); break;
+            case 2: fm_env_fade(&a, n); fm_env_fade(&b, n); break;
+            case 3:
+                a.sustain = b.sustain =
+                    env_level(&seed);
+                fm_env_retime(&a);
+                fm_env_retime(&b);
+                break;
+            default: break;
+            }
+            for (k = 0; k < n; k++)
+                if (fm_env_step(&a) != fm_env_next(&b) || a.stage != b.stage ||
+                    a.step != b.step)
+                    mismatches++;
+        }
+    }
+#undef ENV_RAND
+    TT_CHECK_EQ(mismatches, 0);
+}
+
 /* An envelope at `peak` (velocity) with the given times and sustain, gated on. */
 static void soft_env(fm_env *e, int32_t peak, int32_t sustain)
 {
@@ -1408,6 +1472,86 @@ TT_TEST(legato_note_change_reads_the_current_filter_envelope)
 }
 
 /*
+ * Renders `frames` one sample at a time and steps the reference `ref`
+ * with fm_env_next beside voice 0's amp envelope; 1 if they match in
+ * level and stage after every sample. Gates come from the engine: when
+ * the voice starts a note from idle (a steal's fade ended), `ref` is
+ * gated on at the voice's peak, before that sample's step, as the voice
+ * does.
+ */
+static int amp_env_beside(fm_engine *e, fm_env *ref, uint32_t frames)
+{
+    uint32_t i;
+    int ok = 1;
+    for (i = 0; i < frames; i++) {
+        const fm_env *amp = &e->voices[0].amp_env;
+        fm_engine_render(e, fbuf_a, 1);
+        if (ref->stage == FM_ENV_IDLE && amp->stage != FM_ENV_IDLE) {
+            ref->peak = amp->peak; /* started this sample: gate on, then step */
+            fm_env_gate_on(ref);
+        }
+        fm_env_next(ref);
+        ok &= amp->level == ref->level && amp->stage == ref->stage &&
+              amp->step == ref->step;
+    }
+    return ok;
+}
+
+/*
+ * The amp envelope in the render loop is exactly fm_env_next every
+ * sample: level and stage after each sample, against a reference stepped
+ * beside it, through the attack, a release from the attack, a retrigger
+ * from the release, decay into sustain, a steal (its fade, then the new
+ * note from silence), a take-back mid fade, and a unison legato
+ * fall-back (no new gate).
+ */
+TT_TEST(amp_envelope_in_the_render_matches_env_next_every_sample)
+{
+    fm_env ref;
+    int ok = 1;
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 20);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_DECAY_MS, 60);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 400);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 80);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_VELOCITY, 100);
+    fm_engine_note_on(&feng, 48, 90);
+    ref = feng.voices[0].amp_env; /* gated on, not yet stepped */
+    ok &= amp_env_beside(&feng, &ref, 401); /* in the attack */
+    fm_engine_note_off(&feng, 48);           /* release from the attack */
+    fm_env_gate_off(&ref);
+    ok &= amp_env_beside(&feng, &ref, 777);
+    fm_engine_note_on(&feng, 48, 120);       /* retrigger from the release */
+    ref.peak = feng.voices[0].amp_env.peak;
+    fm_env_gate_on(&ref);
+    ok &= amp_env_beside(&feng, &ref, 5003); /* decay, then sustain */
+    fm_engine_note_on(&feng, 55, 100);       /* steals the only voice */
+    fm_env_fade(&ref, feng.voices[0].wait);
+    ok &= amp_env_beside(&feng, &ref, 17);
+    fm_engine_note_on(&feng, 48, 100);       /* taken back mid fade */
+    ref.peak = feng.voices[0].amp_env.peak;
+    fm_env_gate_on(&ref);
+    ok &= amp_env_beside(&feng, &ref, 999);
+    fm_engine_note_on(&feng, 60, 100);       /* steals again: fade, then 60 */
+    fm_env_fade(&ref, feng.voices[0].wait);
+    ok &= amp_env_beside(&feng, &ref, 3001);
+    TT_CHECK(ok);
+
+    fm_engine_init(&feng, FRATE, 1);         /* unison legato */
+    fm_engine_set_param(&feng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 20);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_DECAY_MS, 60);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 400);
+    fm_engine_note_on(&feng, 36, 100);
+    fm_engine_note_on(&feng, 43, 100);       /* retrigger */
+    ref = feng.voices[0].amp_env;
+    ok = amp_env_beside(&feng, &ref, 389);   /* mid attack */
+    fm_engine_note_off(&feng, 43);           /* legato back to 36 */
+    ok &= amp_env_beside(&feng, &ref, 2777);
+    TT_CHECK(ok);
+}
+
+/*
  * Turning the envelope amount down to 0 mid-note takes the envelope's
  * part out of the cutoff within one control period, as any cutoff change
  * does: the cutoff returns to the bare setting.
@@ -1557,10 +1701,12 @@ static void run_filter_tests(void)
     TT_RUN(leaving_the_open_filter_continues_from_a_consistent_state);
     TT_RUN(unison_note_change_keeps_the_control_cadence);
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
+    TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
     TT_RUN(env_advance_retrigger_above_a_soft_peak_goes_to_decay);
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
+    TT_RUN(amp_envelope_in_the_render_matches_env_next_every_sample);
     TT_RUN(filter_envelope_runs_at_the_control_rate_and_stays_exact);
     TT_RUN(legato_note_change_reads_the_current_filter_envelope);
     TT_RUN(filter_envelope_for_the_mix_alone_stays_exact);
