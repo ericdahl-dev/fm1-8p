@@ -265,6 +265,14 @@ def mix_permille(l1, l2):
     return rnd(1000 * l2 / (l1 + l2)) if l1 else 1000
 
 
+def hpf_step(v):
+    """HPF, 0..127 (four positions), as the engine's highpass step, as PG-8X 2.0.13 plays it
+    (docs/patches.md): 1 is flat and 2 and 3 are the engine's steps 2 and 3. 0 is a bass boost
+    the engine lacks, so it is flat too for now (#93)."""
+    pos = switch(v)
+    return 0 if pos < 2 else pos
+
+
 def tune_semis(v):
     """DCO TUNE, 0..127, in semitones -12..+12. Inferred, not documented (docs/patches.md): value >> 2
     with a dead band of four steps (56..71) at 0, so the factory tones' fifths (FAT FIFTH 97, ORGAN 1
@@ -321,7 +329,7 @@ def to_engine(tone):
     xmod = switch(p[DCO_XMOD])
     e["OSC_SYNC"] = 1 if xmod in (1, 2) else 0
     e["XMOD_AM"] = 1 if xmod in (2, 3) else 0
-    e["HIGHPASS_STEP"] = switch(p[HPF])
+    e["HIGHPASS_STEP"] = hpf_step(p[HPF])
     e["FILTER_CUTOFF_CENTS"] = 1200 + 100 * p[VCF_FREQ]
     e["FILTER_RESONANCE_PERMILLE"] = permille(p[VCF_RES])
     e["FILTER_KEY_TRACK_PERMILLE"] = permille(p[VCF_KEY])
