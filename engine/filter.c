@@ -150,7 +150,8 @@ int32_t fm_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
 void fm_filter_clear(fm_filter *f)
 {
     int i;
-    for (i = 0; i < 4; i++) f->s[i] = f->x1[i] = 0;
+    for (i = 0; i < 4; i++) f->s[i] = 0;
+    f->x1 = 0;
     f->hp = 0;
 }
 
@@ -158,7 +159,6 @@ void fm_filter_reset(fm_filter *f)
 {
     fm_filter_clear(f);
     f->g = ONE_Q30;
-    f->w = 0;
     f->k = f->k_res = 0;
     f->fade = 0;
     f->hp_g = 0;
@@ -180,7 +180,8 @@ static int32_t mul_q30(int32_t a, int32_t b)
 static void leave_open(fm_filter *f)
 {
     int i;
-    for (i = 0; i < 4; i++) f->s[i] = f->x1[i] = f->s[3];
+    for (i = 0; i < 3; i++) f->s[i] = f->s[3];
+    f->x1 = f->s[3];
 }
 
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
@@ -196,7 +197,6 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                   ? ONE_Q30
                   : (FM_FILTER_OPEN_CENTS - cutoff_cents) * FADE_STEP;
     f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
-    f->w = mul_q30(W_ZERO, f->fade);
     f->k = mul_q30(f->k_res, f->fade);
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }
@@ -265,28 +265,24 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
     f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
 }
 
-/* One stage: m = x - w * (x - x1), y += g * (m - y). */
-static int32_t stage(int32_t *y, int32_t *x1, int32_t x, int32_t w,
-                     int32_t g)
+/* One stage: m = x - w * (x - x1), y += g * (m - y); x1 is the stage's
+ * input one sample ago. */
+static void stage(int32_t *y, int32_t x, int32_t x1, int32_t w, int32_t g)
 {
-    int32_t m = x - mul_q30(x - *x1, w);
-    *x1 = x;
+    int32_t m = x - mul_q30(x - x1, w);
     *y += mul_q30(m - *y, g);
-    return *y;
 }
 
 /* stage() with w = 1/4, as a shift. */
-static int32_t stage_quarter(int32_t *y, int32_t *x1, int32_t x, int32_t g)
+static void stage_quarter(int32_t *y, int32_t x, int32_t x1, int32_t g)
 {
-    int32_t m = x - ((x - *x1) >> 2);
-    *x1 = x;
+    int32_t m = x - ((x - x1) >> 2);
     *y += mul_q30(m - *y, g);
-    return *y;
 }
 
 int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
-    int32_t x, u;
+    int32_t x, u, p0, p1, p2;
     if (fm_filter_is_wire(f)) { /* the default patch: a wire (see leave_open) */
         f->s[3] = soft_clip(clamp_in(in));
         return f->s[3];
@@ -303,14 +299,23 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
     }
     u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
-    if (f->w == W_ZERO) { /* below the fade: w * d is d >> 2, exactly */
-        u = stage_quarter(&f->s[0], &f->x1[0], u, f->g);
-        u = stage_quarter(&f->s[1], &f->x1[1], u, f->g);
-        u = stage_quarter(&f->s[2], &f->x1[2], u, f->g);
-        return stage_quarter(&f->s[3], &f->x1[3], u, f->g);
+    /* each stage after the first takes the one before it, now and as it
+     * was one sample ago */
+    p0 = f->s[0];
+    p1 = f->s[1];
+    p2 = f->s[2];
+    if (f->fade == ONE_Q30) { /* below the fade: w = 1/4, w * d is d >> 2 */
+        stage_quarter(&f->s[0], u, f->x1, f->g);
+        stage_quarter(&f->s[1], f->s[0], p0, f->g);
+        stage_quarter(&f->s[2], f->s[1], p1, f->g);
+        stage_quarter(&f->s[3], f->s[2], p2, f->g);
+    } else { /* w = 1/4 x fade, exactly (W_ZERO is 2^28) */
+        int32_t w = f->fade >> 2;
+        stage(&f->s[0], u, f->x1, w, f->g);
+        stage(&f->s[1], f->s[0], p0, w, f->g);
+        stage(&f->s[2], f->s[1], p1, w, f->g);
+        stage(&f->s[3], f->s[2], p2, w, f->g);
     }
-    u = stage(&f->s[0], &f->x1[0], u, f->w, f->g);
-    u = stage(&f->s[1], &f->x1[1], u, f->w, f->g);
-    u = stage(&f->s[2], &f->x1[2], u, f->w, f->g);
-    return stage(&f->s[3], &f->x1[3], u, f->w, f->g);
+    f->x1 = u;
+    return f->s[3];
 }

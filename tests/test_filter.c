@@ -1004,7 +1004,8 @@ TT_TEST(leaving_the_open_filter_continues_from_a_consistent_state)
         }
         TT_CHECK(wire);
         ref = f;
-        for (j = 0; j < 4; j++) ref.s[j] = ref.x1[j] = last;
+        for (j = 0; j < 4; j++) ref.s[j] = last;
+        ref.x1 = last;
         if (how) {
             fm_filter_set_highpass(&f, 1, rate_cents);
             fm_filter_set_highpass(&ref, 1, rate_cents);

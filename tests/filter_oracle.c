@@ -26,20 +26,19 @@ static int32_t oracle_mul_q30(int32_t a, int32_t b)
 }
 
 /* One stage: m = x - w * (x - x1), y += g * (m - y). (At w = 1/4 the engine uses a shift, which
- * is the same value.) */
-static int32_t oracle_stage(int32_t *y, int32_t *x1, int32_t x, int32_t w, int32_t g)
+ * is the same value.) x1 is the stage's input one sample ago: the first stage's is kept in f->x1,
+ * each later one's is the stage before it as it was (#25 kept all four; the values are the same). */
+static void oracle_stage(int32_t *y, int32_t x, int32_t x1, int32_t w, int32_t g)
 {
-    int32_t m = x - oracle_mul_q30(x - *x1, w);
-    *x1 = x;
+    int32_t m = x - oracle_mul_q30(x - x1, w);
     *y += oracle_mul_q30(m - *y, g);
-    return *y;
 }
 
 /* #25's fm_filter_process, on `f` set up by the engine's setters. */
 static int32_t oracle_filter_process(fm_filter *f, int32_t in)
 {
     int64_t x = in;
-    int32_t u;
+    int32_t u, p0, p1, p2, w = f->fade >> 2; /* #25's w: 1/4 x fade */
     if (f->fade == 0 && f->hp_g == 0) { /* open, highpass off: a wire */
         f->s[3] = oracle_soft_clip(x);
         return f->s[3];
@@ -49,8 +48,13 @@ static int32_t oracle_filter_process(fm_filter *f, int32_t in)
         x -= f->hp;
     }
     u = oracle_soft_clip(x - (((int64_t)f->s[3] * f->k) >> 28));
-    u = oracle_stage(&f->s[0], &f->x1[0], u, f->w, f->g);
-    u = oracle_stage(&f->s[1], &f->x1[1], u, f->w, f->g);
-    u = oracle_stage(&f->s[2], &f->x1[2], u, f->w, f->g);
-    return oracle_stage(&f->s[3], &f->x1[3], u, f->w, f->g);
+    p0 = f->s[0];
+    p1 = f->s[1];
+    p2 = f->s[2];
+    oracle_stage(&f->s[0], u, f->x1, w, f->g);
+    oracle_stage(&f->s[1], f->s[0], p0, w, f->g);
+    oracle_stage(&f->s[2], f->s[1], p1, w, f->g);
+    oracle_stage(&f->s[3], f->s[2], p2, w, f->g);
+    f->x1 = u;
+    return f->s[3];
 }

@@ -20,12 +20,15 @@
 
 typedef struct {
     int32_t s[4];  /* lowpass stage outputs, Q8.24 */
-    int32_t x1[4]; /* lowpass stage inputs one sample ago, Q8.24 */
+    /* the first stage's input one sample ago, Q8.24 (each later stage's
+     * is the stage before it one sample ago: s[i - 1] before the update) */
+    int32_t x1;
     int32_t g;     /* lowpass stage coefficient, Q1.30 (1.0 = open) */
-    int32_t w;     /* weight of the previous input in a stage, Q1.30 */
     int32_t k;     /* resonance feedback in use, Q4.28 (0 .. 4.2) */
     int32_t k_res; /* feedback the resonance setting asks for, Q4.28 */
-    int32_t fade;  /* 1.0 below the top of the cutoff range, to 0 at open */
+    /* 1.0 below the top of the cutoff range, to 0 at open; a stage weighs
+     * its previous input by fade / 4 (the zero, 1/4 below the top) */
+    int32_t fade;
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
     int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
 } fm_filter;
