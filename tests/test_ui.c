@@ -439,8 +439,21 @@ TT_TEST(ui_presets_again_discards_and_loads)
     TT_CHECK(!play_edited(&ui_p));
 }
 
+/* Anything else between the two events cancels the warning: the next PRESETS warns again. */
+TT_TEST(ui_presets_warning_cancels_on_anything_else)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 200);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 300);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_presets_warning_cancels_on_anything_else);
     TT_RUN(ui_presets_again_discards_and_loads);
     TT_RUN(ui_presets_with_edits_warns_first);
     TT_RUN(ui_presets_wrap);
