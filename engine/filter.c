@@ -95,6 +95,19 @@ typedef char fm_require_fade_fits_q30[
 static const int16_t retune_tab[RES_ENTRIES] = {
     0, -20, -40, -80, -130, -160, -177, -187, -190
 };
+/*
+ * Bass shelf, Q2.13: the weight b of a one-pole lowpass of the output (at
+ * the cutoff) against the output itself. (1 - b) y + b lp(y) is
+ * (1 + c lp) / (1 + c) with c = b / (1 - b): the bass the feedback takes
+ * (1 / (1 + k)) mostly given back, relative to the treble. With it, 2-4
+ * octaves above the cutoff less the level well below it moves with
+ * resonance as PG-8X's does: +0.3 dB at a +4 dB peak, +7.4 at +31 (the
+ * plain ladder: 20 log10(1 + k), 7.8 and 13.7). c by entry: 0, 0.5, 0.97,
+ * 1.25, 1.3, 1.3, 1.2, 0.8, 0.44.
+ */
+static const int16_t shelf_tab[RES_ENTRIES] = {
+    0, 2731, 4034, 4551, 4630, 4630, 4468, 3641, 2503
+};
 /* Offset that makes pitch differences non-negative before / and %. */
 #define OCT_BIAS     32
 
@@ -174,6 +187,7 @@ void fm_filter_clear(fm_filter *f)
     for (i = 0; i < 4; i++) f->s[i] = 0;
     f->x1 = 0;
     f->hp = 0;
+    f->lp = 0;
 }
 
 void fm_filter_reset(fm_filter *f)
@@ -181,6 +195,7 @@ void fm_filter_reset(fm_filter *f)
     fm_filter_clear(f);
     f->g = ONE_Q30;
     f->k = f->k_res = 0;
+    f->h = 0;
     f->cut = FM_FILTER_OPEN_CENTS;
     f->rate = 0;
     f->fade = 0;
@@ -204,14 +219,14 @@ static void leave_open(fm_filter *f)
 {
     int i;
     for (i = 0; i < 3; i++) f->s[i] = f->s[3];
-    f->x1 = f->s[3];
+    f->x1 = f->lp = f->s[3];
 }
 
 /* The coefficients from the cutoff, rate and resonance as set. */
 static void apply(fm_filter *f)
 {
     int32_t permille = f->k_res / K_PER_MILLE; /* exact: k_res is a multiple */
-    int32_t c = f->cut + res_lookup(retune_tab, permille), g;
+    int32_t c = f->cut + res_lookup(retune_tab, permille), g, h;
     int was_open = fm_filter_is_wire(f);
     g = coef_for(c < 0 ? 0 : c, f->rate);
     /* 1.0 up to the fade, then down to 0 at open */
@@ -220,6 +235,9 @@ static void apply(fm_filter *f)
                   : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
     f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
     f->k = mul_q30(f->k_res, f->fade);
+    h = mul_q30(res_lookup(shelf_tab, permille) << 17, f->fade);
+    if (h && !f->h) f->lp = f->s[3]; /* shelf on: the output carries on */
+    f->h = h;
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }
 
@@ -352,5 +370,8 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         stage(&f->s[3], f->s[2], p2, w, f->g);
     }
     f->x1 = u;
-    return f->s[3];
+    if (!f->h) return f->s[3];
+    /* the bass shelf: lp follows the output at the cutoff */
+    f->lp += mul_q30(f->s[3] - f->lp, f->g);
+    return f->s[3] + mul_q30(f->lp - f->s[3], f->h);
 }

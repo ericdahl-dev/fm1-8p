@@ -1,7 +1,7 @@
 /*
  * filter_oracle.c - the filter's per-sample processing as merged in #25 (engine/filter.c at
  * 7af3bd1), kept as a test-only reference: its lowpass, soft clip and highpass with every sum in
- * 64 bits. It runs on the engine's own fm_filter, set up by the engine's own setters (the
+ * 64 bits, plus the resonance's bass shelf on the output (#98). It runs on the engine's own fm_filter, set up by the engine's own setters (the
  * coefficients are not what is under test), and is never built into the engine. Tests hold the
  * engine's fm_filter_process to it (test_filter_oracle.c), so the engine can change its arithmetic
  * and still be held to the sound that shipped.
@@ -56,5 +56,8 @@ static int32_t oracle_filter_process(fm_filter *f, int32_t in)
     oracle_stage(&f->s[2], f->s[1], p1, w, f->g);
     oracle_stage(&f->s[3], f->s[2], p2, w, f->g);
     f->x1 = u;
-    return f->s[3];
+    if (!f->h) return f->s[3];
+    /* #98's bass shelf: a weighted average of the output and its one-pole lowpass at the cutoff */
+    f->lp += (int32_t)((((int64_t)f->s[3] - f->lp) * f->g) >> 30);
+    return f->s[3] + (int32_t)((((int64_t)f->lp - f->s[3]) * f->h) >> 30);
 }

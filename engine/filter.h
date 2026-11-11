@@ -31,6 +31,11 @@ typedef struct {
     int32_t fade;
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
     int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
+    /* Resonance's bass shelf: the output is s[3] + h * (lp - s[3]), lp a
+     * one-pole lowpass of s[3] at the cutoff (h 0: off, the plain ladder).
+     * A weighted average of the two, so it stays within their range. */
+    int32_t lp;   /* the shelf's lowpass state, Q8.24 */
+    int32_t h;    /* weight of lp, Q1.30 (0 .. 0.57) */
     int32_t cut;  /* lowpass cutoff as set (clamped), cents */
     int32_t rate; /* rate_cents it was set with (0: not yet) */
 } fm_filter;

@@ -133,6 +133,26 @@ TT_TEST(resonance_peak_sits_below_the_cutoff_as_on_pg8x)
 }
 
 /*
+ * Resonance keeps the balance of treble to bass, as on PG-8X 2.0.13: the
+ * feedback costs bass, and the filter gives it back (a low shelf at the
+ * cutoff), so 3 octaves above the cutoff stays as far below 3 octaves
+ * below it as with no resonance. Measured on PG-8X at a +4 dB peak: +0.3
+ * dB brighter; the plain ladder was +7.8 dB, which made ORGAN 1 bright.
+ */
+TT_TEST(resonance_keeps_the_treble_to_bass_balance)
+{
+    static fm_filter f;
+    double tilt0, tilt;
+    lowpass_at(&f, 6900, 0);
+    tilt0 = filter_gain_db(&f, 3520.0, 0.25) - filter_gain_db(&f, 55.0, 0.25);
+    lowpass_at(&f, 6900, 375);
+    tilt = filter_gain_db(&f, 3520.0, 0.25) - filter_gain_db(&f, 55.0, 0.25);
+    printf("    3 octaves above minus 3 below: res 0 %.2f dB, res 375 %.2f\n",
+           tilt0, tilt);
+    TT_CHECK_NEAR(tilt - tilt0, 0.3, 1.0);
+}
+
+/*
  * Maximum resonance self-oscillates; the soft clip in the feedback path
  * must hold every output within +-4.0 (Q8.24) at any cutoff, for any
  * input, for as long as it runs: 10 s per case, with a loud saw, loud
@@ -1836,6 +1856,7 @@ static void run_filter_tests(void)
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
     TT_RUN(resonance_raises_gain_near_cutoff);
     TT_RUN(resonance_peak_sits_below_the_cutoff_as_on_pg8x);
+    TT_RUN(resonance_keeps_the_treble_to_bass_balance);
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
     TT_RUN(max_resonance_self_oscillates_near_cutoff);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
