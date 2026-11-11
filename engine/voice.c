@@ -9,6 +9,15 @@
 #endif
 #include "voice.h"
 
+/* Keeps a control-rate step inside the render loop that runs it: a call
+ * there saves and restores every register, which costs more than the
+ * step on the FM-1. */
+#if defined(__GNUC__) || defined(__clang__)
+#define FM_ALWAYS_INLINE inline __attribute__((always_inline))
+#else
+#define FM_ALWAYS_INLINE inline
+#endif
+
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
                     const fm_env_settings *amp, const fm_env_settings *filter)
 {
@@ -99,7 +108,8 @@ void fm_voice_set_highpass(fm_voice *v, uint8_t step)
  * modulation, with the filter envelope (envelope 1) at level `fenv`. The
  * envelope keeps the voice busy while it moves the cutoff, and until a
  * cutoff it no longer reaches is summed back to rest. */
-static void update_cutoff(fm_voice *v, const fm_voice_mod *m, int32_t fenv)
+static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
+                                           int32_t fenv)
 {
     int32_t cents;
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, fenv);
