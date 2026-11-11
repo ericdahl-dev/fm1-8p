@@ -29,7 +29,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 5432u
+#define FM_ENGINE_BUDGET_32 5512u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -266,11 +266,14 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
                          v * 42949673);
         return;
-    case FM_PARAM_LFO_PITCH_CENTS:
-        /* cents -> Q16.16 octaves: exact for multiples of 75 cents */
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH,
-                         v * 65536 / 1200);
+    case FM_PARAM_LFO_PITCH_CENTS: {
+        /* cents -> Q16.16 octaves: exact for multiples of 75 cents; the
+         * one vibrato depth moves both oscillators */
+        int32_t oct = v * 65536 / 1200;
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH1, oct);
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH2, oct);
         return;
+    }
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
         return;
     default:

@@ -124,7 +124,8 @@ voice's delay and fade, set every control tick), the note's velocity
 (its level from `amp_velocity_pct` and the curve below, set when the note
 starts), envelope 1 (the filter envelope's level) and envelope 2 (the amp
 envelope's level as a share of the note's peak), both set at the
-16-sample control points; the destinations are pitch, pulse width, level
+16-sample control points; the destinations are each oscillator's pitch
+(`FM_MOD_PITCH1` and `FM_MOD_PITCH2`), pulse width, level
 (the amp envelope's peak, from velocity at full depth), cutoff (cents,
 from envelope 1 at `filter_env_amount_cents`) and mix (Q1.30 added to
 `osc_mix_permille`, from envelope 1 or 2 as `osc_mix_env_source` picks, at
@@ -148,8 +149,10 @@ no work and changes no sample.
 ### Pitch
 
 `lfo_pitch_cents` is kept as Q16.16 octaves (`cents * 65536 / 1200`, exact
-for multiples of 75 cents and otherwise off by under 1/65536 of an octave).
-The offset `x` multiplies both oscillators' phase increments by `2^x`,
+for multiples of 75 cents and otherwise off by under 1/65536 of an octave),
+the depth of the LFO's route to each oscillator's pitch (one depth for both
+today; #58 gives osc 2 its own). Each oscillator's offset `x` multiplies its
+phase increment by `2^x`,
 on top of the note, bend, unison detune and each oscillator's tuning:
 
 - whole octaves are shifts, and the fraction `2^f` on [0, 1) is a quartic
