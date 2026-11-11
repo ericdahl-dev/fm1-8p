@@ -576,7 +576,7 @@ static double pitch_env_cents(int32_t osc1, int32_t osc2, int32_t mix)
     fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
     fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, osc1);
-    (void)osc2;
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, osc2);
     fm_engine_note_on(&mod_eng, 69, 100);
     fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
     return cents(hz_between(mod_buf, 300, 500), note_hz(69));
@@ -588,6 +588,13 @@ TT_TEST(osc1_pitch_env_bends_osc1_only)
 {
     TT_CHECK(fabs(pitch_env_cents(1573, 0, 0) - 1573) < 3);
     TT_CHECK(fabs(pitch_env_cents(1573, 0, 1000)) < 3);
+}
+
+/* DCO-2's envelope depth moves osc 2 only. */
+TT_TEST(osc2_pitch_env_bends_osc2_only)
+{
+    TT_CHECK(fabs(pitch_env_cents(0, 1573, 1000) - 1573) < 3);
+    TT_CHECK(fabs(pitch_env_cents(0, 1573, 0)) < 3);
 }
 
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
@@ -622,5 +629,6 @@ static void run_mod_tests(void)
     TT_RUN(vibrato_reaches_osc2);
     TT_RUN(osc2_vibrato_depth_zero_holds_osc2_still);
     TT_RUN(osc1_pitch_env_bends_osc1_only);
+    TT_RUN(osc2_pitch_env_bends_osc2_only);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }

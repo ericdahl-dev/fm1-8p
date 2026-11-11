@@ -54,6 +54,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_OSC_MIX_ENV_SOURCE, "osc_mix_env_source", 0,     1,    0 },
     { FM_PARAM_LFO_PITCH_OSC2_CENTS, "lfo_pitch_osc2_cents", -1, 1200, -1 },
     { FM_PARAM_PITCH_ENV_OSC1_CENTS, "pitch_env_osc1_cents", -3200, 3200, 0 },
+    { FM_PARAM_PITCH_ENV_OSC2_CENTS, "pitch_env_osc2_cents", -3200, 3200, 0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)

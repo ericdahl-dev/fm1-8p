@@ -280,7 +280,10 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     }
     case FM_PARAM_PITCH_ENV_OSC1_CENTS: /* cents -> Q16.16 octaves */
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_PENV, FM_MOD_PITCH1,
+    case FM_PARAM_PITCH_ENV_OSC2_CENTS:
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_PENV,
+                         id == FM_PARAM_PITCH_ENV_OSC1_CENTS ? FM_MOD_PITCH1
+                                                             : FM_MOD_PITCH2,
                          v * 65536 / 1200);
         return;
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
