@@ -44,20 +44,34 @@ static void set_step(fm_env *e, int32_t span, uint32_t samples)
  * d x e^(-n / tau) from the target, after n calls. 1 - e^(-x) for x = n /
  * tau <= 1/8 is x - x^2/2 + x^3/6, within x^4/24 (1.0e-5 of the step).
  */
+/* floor(a / n) for a < 2^38 and 0 < n <= SEG_MAX, in 32-bit divisions (the
+ * FM-1 would call a 64-bit division helper): a in 16-bit halves, each
+ * remainder < n < 2^7 so every step fits. */
+static uint64_t div_by_seg(uint64_t a, uint32_t n)
+{
+    uint32_t hi = (uint32_t)(a >> 16), lo = (uint32_t)a & 0xFFFFu;
+    if (n == SEG_MAX) return a >> 6; /* the usual case: a long tau */
+    return ((uint64_t)(hi / n) << 16) | (((hi % n) << 16 | lo) / n);
+}
+
 static void start_segment(fm_env *e, int32_t d, uint32_t tau)
 {
-    uint32_t n = tau / SEGS_PER_TAU;
-    uint64_t x, x2, x3, one, span_q8, q;
+    uint32_t n = tau / SEGS_PER_TAU, q24, r, x, x2, x3, one;
+    uint64_t span_q8, q;
     if (n > SEG_MAX) n = SEG_MAX;
     if (n == 0) n = 1;
-    x = ((uint64_t)n << 30) / tau;                   /* Q30, <= 1 */
-    x2 = (x * x) >> 30;
-    x3 = (x2 * x) >> 30;
+    /* x = floor(n * 2^30 / tau), Q30 <= 1: n * 2^24 < 2^31, then the
+     * remainder (< tau < 2^25 for any tau the settings allow) times 2^6 */
+    q24 = (n << 24) / tau;
+    r = (n << 24) - q24 * tau;
+    x = (q24 << 6) + (r << 6) / tau;
+    x2 = (uint32_t)(((uint64_t)x * x) >> 30);
+    x3 = (uint32_t)(((uint64_t)x2 * x) >> 30);
     one = x - (x2 >> 1) + x3 / 6;                    /* 1 - e^(-x), Q30 */
     /* the segment's span in Q8, so a long tau's few-LSB spans near the
      * floor keep their fraction; then per call, rounded up as set_step */
     span_q8 = ((uint64_t)(uint32_t)d * one) >> 22;
-    q = (span_q8 + n - 1) / n;
+    q = div_by_seg(span_q8 + n - 1, n);
     e->frac = 0;
     e->step = (int32_t)(q >> 8);
     e->step_frac = (uint8_t)q;
