@@ -47,6 +47,24 @@ void fm_mod_routes_reset(fm_mod_routes *r);
 void fm_mod_set_route(fm_mod_routes *r, unsigned src, unsigned dest,
                       int32_t depth);
 
+/* Destination `d`'s sum of `nsrc` sources `src` (Q1.30) through the depth
+ * rows `depth` (one row per source), clamped to int32. */
+static inline int32_t fm_mod_dest_sum(const int32_t (*depth)[FM_MOD_DEST_COUNT],
+                                      const int32_t *src, unsigned nsrc,
+                                      unsigned d)
+{
+    int64_t sum = 0;
+    int32_t v;
+    unsigned s;
+    for (s = 0; s < nsrc; s++)
+        if (depth[s][d]) /* most routes are off: skip their multiply */
+            /* Q1.30 * depth -> depth's unit */
+            sum += ((int64_t)src[s] * depth[s][d]) >> 30;
+    v = (int32_t)sum;
+    if (v != sum) v = sum < 0 ? INT32_MIN : INT32_MAX; /* clamp, not wrap */
+    return v;
+}
+
 /* Sums `nsrc` sources `src` (Q1.30) through the depth rows `depth` (one
  * row per source) into `m`, each destination clamped to int32. Returns
  * the destinations whose sum changed, bit 1 << dest. Inline: each voice
@@ -57,16 +75,9 @@ static inline uint32_t fm_mod_sum(fm_mod *m,
                                   const int32_t *src, unsigned nsrc)
 {
     uint32_t changed = 0;
-    unsigned d, s;
+    unsigned d;
     for (d = 0; d < FM_MOD_DEST_COUNT; d++) {
-        int64_t sum = 0;
-        int32_t v;
-        for (s = 0; s < nsrc; s++)
-            if (depth[s][d]) /* most routes are off: skip their multiply */
-                /* Q1.30 * depth -> depth's unit */
-                sum += ((int64_t)src[s] * depth[s][d]) >> 30;
-        v = (int32_t)sum;
-        if (v != sum) v = sum < 0 ? INT32_MIN : INT32_MAX; /* clamp, not wrap */
+        int32_t v = fm_mod_dest_sum(depth, src, nsrc, d);
         if (v != m->sum[d]) changed |= 1u << d;
         m->sum[d] = v;
     }
@@ -88,6 +99,16 @@ static inline void fm_mod_set_source(fm_mod *m, unsigned src, int32_t value)
 static inline uint32_t fm_mod_tick(fm_mod *m, const fm_mod_routes *r)
 {
     return fm_mod_sum(m, r->depth, m->src, FM_MOD_SRC_COUNT);
+}
+
+/* Sums destination `dest` alone from the voice's sources, as last set,
+ * and returns it; the other destinations keep their sums. For a note
+ * start, which needs only its level: little code on a cold path. */
+static inline int32_t fm_mod_update(fm_mod *m, const fm_mod_routes *r,
+                                    unsigned dest)
+{
+    return m->sum[dest] = fm_mod_dest_sum(r->depth, m->src,
+                                          FM_MOD_SRC_COUNT, dest);
 }
 
 /* The sum at destination `dest`. */

@@ -132,6 +132,23 @@ TT_TEST(velocity_at_full_depth_is_the_level_exactly)
     }
 }
 
+/* One destination taken again on its own (a note start needs only its
+ * level): its sum follows the sources, the other sums stay as they were. */
+TT_TEST(updating_one_destination_leaves_the_others)
+{
+    fm_mod_routes r;
+    fm_mod m;
+    fm_mod_routes_reset(&r);
+    fm_mod_reset(&m);
+    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH, 1 << 16);
+    fm_mod_set_route(&r, FM_MOD_SRC_VEL, FM_MOD_LEVEL, 1 << 30);
+    fm_mod_set_source(&m, FM_MOD_SRC_LFO, 1 << 29);
+    fm_mod_set_source(&m, FM_MOD_SRC_VEL, 1 << 28);
+    TT_CHECK_EQ(fm_mod_update(&m, &r, FM_MOD_LEVEL), 1 << 28);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_LEVEL), 1 << 28);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH), 0); /* not taken yet */
+}
+
 static void run_mod_dest_tests(void)
 {
     TT_RUN(one_route_gives_source_times_depth);
@@ -142,4 +159,5 @@ static void run_mod_dest_tests(void)
     TT_RUN(sum_of_two_products_clamps);
     TT_RUN(a_set_source_holds_for_later_ticks);
     TT_RUN(velocity_at_full_depth_is_the_level_exactly);
+    TT_RUN(updating_one_destination_leaves_the_others);
 }

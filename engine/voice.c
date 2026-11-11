@@ -140,13 +140,13 @@ static void apply_mod(fm_voice *v, uint32_t changed)
 }
 
 /* The note's velocity source is `peak`: summed with the voice's other
- * sources, as they were last set (a restruck note's vibrato carries on),
- * it sets the level the amp envelope rises to. */
+ * level sources, as they were last set, it sets the level the amp
+ * envelope rises to. Only the level is taken again: the other sums (a
+ * restruck note's vibrato) carry on, and a note on costs little code. */
 static void set_level(fm_voice *v, const fm_voice_mod *m, int32_t peak)
 {
     fm_mod_set_source(&v->mod, FM_MOD_SRC_VEL, peak);
-    apply_mod(v, fm_mod_tick(&v->mod, &m->routes));
-    v->amp_env.peak = fm_mod_get(&v->mod, FM_MOD_LEVEL);
+    v->amp_env.peak = fm_mod_update(&v->mod, &m->routes, FM_MOD_LEVEL);
 }
 
 /*
