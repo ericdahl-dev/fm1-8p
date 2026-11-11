@@ -22,9 +22,12 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
 
 /*
  * Two overlapping notes and a release, 20000 frames. The golden hash was
- * taken from the engine before the chorus existed (main at 47680c8, with polyphony).
+ * taken from the engine before the chorus existed (main at 47680c8, with polyphony),
+ * and retaken when envelope steps gained a fraction (#91: each segment's step is
+ * span / time in Q8, not rounded up to a whole number, so every envelope moves a
+ * little differently; the chorus-off path is unchanged).
  */
-#define CH_GOLDEN_HASH 0x8E24F4ADu
+#define CH_GOLDEN_HASH 0xFEB439C5u
 
 /*
  * set_mode: set chorus_mode to `mode` before the phrase. was_on: first

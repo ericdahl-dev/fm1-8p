@@ -10,12 +10,24 @@
 #include <assert.h>
 #endif
 
-/* Per-sample step that covers `span` in `samples`, rounded up so the
- * segment never takes longer than asked. `samples` == 0 jumps at once. */
-static int32_t step_for(int32_t span, uint32_t samples)
+/* Sets the per-sample step that covers `span` in `samples`: span / samples
+ * in Q8 (a whole part and an 8-bit fraction, the fraction carried from
+ * sample to sample), rounded up so the segment never takes longer than
+ * asked, and a long segment at a small span still takes its time to
+ * within a sample or so (a whole-number step rounded up could halve it).
+ * `samples` == 0 jumps at once. */
+static void set_step(fm_env *e, int32_t span, uint32_t samples)
 {
-    if (samples == 0 || span <= 0) return span > 0 ? span : 1;
-    return (int32_t)(((uint32_t)span + samples - 1) / samples);
+    uint64_t q;
+    e->frac = 0;
+    if (samples == 0 || span <= 0) {
+        e->step = span > 0 ? span : 1;
+        e->step_frac = 0;
+        return;
+    }
+    q = (((uint64_t)(uint32_t)span << 8) + samples - 1) / samples; /* never longer than asked */
+    e->step = (int32_t)(q >> 8);
+    e->step_frac = (uint8_t)q;
 }
 
 void fm_env_init(fm_env *e, const fm_env_settings *set)
@@ -28,6 +40,8 @@ void fm_env_reset(fm_env *e)
 {
     e->level = 0;
     e->step = 0;
+    e->step_frac = 0;
+    e->frac = 0;
     e->stage = FM_ENV_IDLE;
     e->peak = FM_ENV_FULL;
     e->sus_level = 0;
@@ -47,7 +61,7 @@ void fm_env_gate_on(fm_env *e)
     assert(e->set);
 #endif
     e->stage = FM_ENV_ATTACK;
-    e->step = step_for(e->peak, e->set->attack_samples);
+    set_step(e, e->peak, e->set->attack_samples);
     sustain_level(e);
 }
 
@@ -55,14 +69,14 @@ void fm_env_gate_off(fm_env *e)
 {
     if (e->stage == FM_ENV_IDLE) return;
     e->stage = FM_ENV_RELEASE;
-    e->step = step_for(e->level, e->set->release_samples);
+    set_step(e, e->level, e->set->release_samples);
 }
 
 void fm_env_fade(fm_env *e, uint32_t samples)
 {
     if (e->stage == FM_ENV_IDLE) return;
     e->stage = FM_ENV_FADE;
-    e->step = step_for(e->level, samples);
+    set_step(e, e->level, samples);
 }
 
 /* Step for the DECAY stage: from the current level to sustain, in either
@@ -72,7 +86,7 @@ static void enter_decay(fm_env *e)
     int32_t s = e->sus_level;
     int32_t span = e->level > s ? e->level - s : s - e->level;
     e->stage = FM_ENV_DECAY;
-    e->step = step_for(span, e->set->decay_samples);
+    set_step(e, span, e->set->decay_samples);
 }
 
 void fm_env_retime(fm_env *e)
@@ -80,14 +94,14 @@ void fm_env_retime(fm_env *e)
     sustain_level(e);
     switch (e->stage) {
     case FM_ENV_ATTACK:
-        e->step = step_for(e->peak, e->set->attack_samples);
+        set_step(e, e->peak, e->set->attack_samples);
         break;
     case FM_ENV_DECAY:
     case FM_ENV_SUSTAIN:
         if (e->level != e->sus_level) enter_decay(e);
         break;
     case FM_ENV_RELEASE:
-        e->step = step_for(e->level, e->set->release_samples);
+        set_step(e, e->level, e->set->release_samples);
         break;
     default:
         break;
@@ -103,38 +117,38 @@ int32_t fm_env_next(fm_env *e)
          * difference cannot overflow where a sum could. A retrigger above
          * a softer note's peak goes straight to the decay, from where it
          * is, so the level never jumps. */
-        if (e->peak - e->level <= e->step) {
+        if (e->peak - e->level <= fm_env_reach(e)) {
             if (e->level < e->peak) e->level = e->peak;
             enter_decay(e);
         } else {
-            e->level += e->step;
+            e->level += fm_env_inc(e);
         }
         break;
     case FM_ENV_DECAY:
         s = e->sus_level;
         if (e->level >= s) {
-            if (e->level - e->step <= s) {
+            if (e->level - fm_env_reach(e) <= s) {
                 e->level = s;
                 e->stage = FM_ENV_SUSTAIN;
             } else {
-                e->level -= e->step;
+                e->level -= fm_env_inc(e);
             }
-        } else if (s - e->level <= e->step) {
+        } else if (s - e->level <= fm_env_reach(e)) {
             e->level = s;
             e->stage = FM_ENV_SUSTAIN;
         } else {
-            e->level += e->step;
+            e->level += fm_env_inc(e);
         }
         break;
     case FM_ENV_SUSTAIN: /* holds; fm_env_retime starts a glide on change */
         break;
     case FM_ENV_RELEASE:
     case FM_ENV_FADE:
-        if (e->level <= e->step) {
+        if (e->level <= fm_env_reach(e)) {
             e->level = 0;
             e->stage = FM_ENV_IDLE;
         } else {
-            e->level -= e->step;
+            e->level -= fm_env_inc(e);
         }
         break;
     default:
@@ -144,16 +158,38 @@ int32_t fm_env_next(fm_env *e)
     return e->level;
 }
 
-/*
- * Steps the stepping stages take before the one that lands on `target`,
- * from `d` (the distance to it, >= 0) at `step` (>= 1) a sample: a call
- * lands when the distance left is at most `step`, so ceil((d - step) /
- * step) calls go by first, or none when d <= step.
- */
-static uint32_t steps_before_landing(int32_t d, int32_t step)
+/* The step as one Q8 number: step + step_frac / 256. */
+static uint64_t q8_step(const fm_env *e)
 {
-    if (d <= step) return 0;
-    return ((uint32_t)(d - step) + (uint32_t)step - 1) / (uint32_t)step;
+    return ((uint64_t)(uint32_t)e->step << 8) | e->step_frac;
+}
+
+/*
+ * Of the next `n` calls (n >= 1) of a stepping stage at distance `d` from
+ * its target, how many go by before the one that lands, or `n` when none
+ * of them lands. A call lands when the distance left is at most `reach`,
+ * and the first j calls move (frac + j x step) >> 8 in Q8, so that is
+ * the first j with frac + j x step >= (d - reach) << 8. Without
+ * a division when the n calls clearly do not land (the usual case).
+ */
+static uint32_t calls_before_landing(const fm_env *e, int32_t d, uint32_t n)
+{
+    int32_t t = d - fm_env_reach(e);
+    uint64_t q = q8_step(e), need, c;
+    if (t <= 0) return 0;
+    need = (uint64_t)(uint32_t)t << 8;
+    if (n <= 65536u && e->frac + (uint64_t)(n - 1) * q < need) return n;
+    c = (need - e->frac + q - 1) / q;
+    return c < n ? (uint32_t)c : n;
+}
+
+/* Moves of `k` stepping calls that do not land: their sum, carrying the
+ * fraction as k calls of fm_env_inc would. */
+static int32_t take(fm_env *e, uint32_t k)
+{
+    uint64_t a = e->frac + (uint64_t)k * q8_step(e);
+    e->frac = (uint8_t)a;
+    return (int32_t)(a >> 8);
 }
 
 int32_t fm_env_advance(fm_env *e, uint32_t n)
@@ -163,11 +199,12 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
         int32_t d;
         switch (e->stage) {
         case FM_ENV_ATTACK:
-            c = steps_before_landing(e->peak - e->level, e->step);
-            if (n <= c) {
-                e->level += (int32_t)(n * (uint32_t)e->step);
+            c = calls_before_landing(e, e->peak - e->level, n);
+            if (c >= n) {
+                e->level += take(e, n);
                 return e->level;
             }
+            e->level += take(e, c);
             /* a retrigger above a softer peak keeps its level */
             if (e->level < e->peak) e->level = e->peak;
             enter_decay(e);
@@ -176,9 +213,9 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
         case FM_ENV_DECAY:
             d = e->level >= e->sus_level ? e->level - e->sus_level
                                          : e->sus_level - e->level;
-            c = steps_before_landing(d, e->step);
-            if (n <= c) {
-                int32_t move = (int32_t)(n * (uint32_t)e->step);
+            c = calls_before_landing(e, d, n);
+            if (c >= n) {
+                int32_t move = take(e, n);
                 e->level += e->level >= e->sus_level ? -move : move;
                 return e->level;
             }
@@ -189,9 +226,9 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
             return e->level;
         case FM_ENV_RELEASE:
         case FM_ENV_FADE:
-            c = steps_before_landing(e->level, e->step);
-            if (n <= c) {
-                e->level -= (int32_t)(n * (uint32_t)e->step);
+            c = calls_before_landing(e, e->level, n);
+            if (c >= n) {
+                e->level -= take(e, n);
                 return e->level;
             }
             e->level = 0;

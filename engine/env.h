@@ -47,8 +47,11 @@ typedef struct {
 typedef struct {
     /* state; the render loop's inline step reads these first ones */
     int32_t level;
-    int32_t step;  /* per-sample change in the current stage */
+    int32_t step;  /* per-sample change in the current stage, whole part */
     uint8_t stage; /* fm_env_stage */
+    uint8_t step_frac; /* ... and its fraction, Q8 (step + step_frac / 256),
+                        * in the padding after stage: no bigger (#19) */
+    uint8_t frac; /* the fraction carried so far, Q8 */
     int32_t peak;  /* level the attack rises to (velocity), Q1.30; the
                     * sustain level is scaled by it too */
     int32_t sus_level; /* sustain * peak, set at gate on and retime */
@@ -76,24 +79,40 @@ int32_t fm_env_next(fm_env *e);
  * fm_env_next; one that lands on the peak, the sustain or 0, or an idle
  * envelope, calls it. Exactly the same level, stage and step.
  */
+/* This sample's change: the whole step plus the carry of its fraction,
+ * so a segment moves step + step_frac / 256 a sample on average. */
+static inline int32_t fm_env_inc(fm_env *e)
+{
+    uint32_t f = (uint32_t)e->frac + e->step_frac;
+    e->frac = (uint8_t)f;
+    return e->step + (int32_t)(f >> 8);
+}
+
+/* The most one sample moves: the step, + 1 with a fraction. A stage lands
+ * on its target from at most this far. */
+static inline int32_t fm_env_reach(const fm_env *e)
+{
+    return e->step + (e->step_frac != 0);
+}
+
 static inline int32_t fm_env_step(fm_env *e)
 {
     switch (e->stage) {
     case FM_ENV_SUSTAIN:
         return e->level;
     case FM_ENV_ATTACK:
-        if (e->peak - e->level > e->step) return e->level += e->step;
+        if (e->peak - e->level > fm_env_reach(e)) return e->level += fm_env_inc(e);
         break;
     case FM_ENV_DECAY:
         if (e->level >= e->sus_level) {
-            if (e->level - e->step > e->sus_level) return e->level -= e->step;
-        } else if (e->sus_level - e->level > e->step) {
-            return e->level += e->step;
+            if (e->level - fm_env_reach(e) > e->sus_level) return e->level -= fm_env_inc(e);
+        } else if (e->sus_level - e->level > fm_env_reach(e)) {
+            return e->level += fm_env_inc(e);
         }
         break;
     case FM_ENV_RELEASE:
     case FM_ENV_FADE:
-        if (e->level > e->step) return e->level -= e->step;
+        if (e->level > fm_env_reach(e)) return e->level -= fm_env_inc(e);
         break;
     default:
         break;

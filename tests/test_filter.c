@@ -1198,6 +1198,28 @@ TT_TEST(env_settings_are_shared_by_every_envelope)
     TT_CHECK_EQ(idle, 1);
 }
 
+/* A long attack takes its time at any peak: a velocity-1 note (peak
+ * FULL / 127) with a 30 s attack at 192 kHz reaches the peak within 2 %
+ * of 5,760,000 samples (a whole-number step would round 1.47 up to 2 and
+ * land about 26 % early). */
+TT_TEST(env_long_quiet_attack_lands_on_time)
+{
+    static fm_env_settings s;
+    static fm_env e;
+    const uint32_t want = 5760000u;
+    uint32_t n = 0;
+    s.attack_samples = want;
+    s.decay_samples = 100;
+    s.release_samples = 100;
+    s.sustain = FM_ENV_FULL;
+    fm_env_init(&e, &s);
+    e.peak = FM_ENV_FULL / 127;
+    fm_env_gate_on(&e);
+    while (e.stage == FM_ENV_ATTACK && n < 2 * want) fm_env_next(&e), n++;
+    printf("    30 s attack at peak FULL/127: %u samples (want %u)\n", n, want);
+    TT_CHECK(n > want - want / 50 && n < want + want / 50);
+}
+
 /* fm_env_init starts an envelope on the settings it is given: a
  * 100-sample attack reaches the peak in 100 samples. */
 TT_TEST(env_init_gives_an_envelope_its_settings)
@@ -1825,6 +1847,7 @@ static void run_filter_tests(void)
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_settings_are_shared_by_every_envelope);
     TT_RUN(env_init_gives_an_envelope_its_settings);
+    TT_RUN(env_long_quiet_attack_lands_on_time);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
     TT_RUN(env_advance_retrigger_above_a_soft_peak_goes_to_decay);
