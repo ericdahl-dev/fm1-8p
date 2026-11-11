@@ -109,10 +109,16 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch("SOUNDTRACK")["FILTER_CUTOFF_CENTS"], 1200 + 100 * 52)
         self.assertEqual(patch("BUBBLES")["FILTER_CUTOFF_CENTS"], 1200 + 100 * 59)
 
-    def test_resonance_and_key_follow_scale_0_127_to_per_mille(self):
-        e = patch("PSYCHMELLO")                 # resonance 122, key follow 93
-        self.assertEqual(e["FILTER_RESONANCE_PERMILLE"], 961)
-        self.assertEqual(e["FILTER_KEY_TRACK_PERMILLE"], 732)
+    def test_key_follow_scales_0_127_to_per_mille(self):
+        self.assertEqual(patch("PSYCHMELLO")["FILTER_KEY_TRACK_PERMILLE"], 732)   # key follow 93
+
+    # VCF RES follows PG-8X 2.0.13's peak heights (VCF FREQ 64, noise in): +4 dB at 64, +8 at 80,
+    # +16 at 96, +24 at 112, +31 at 127 (#98), including PG-8X's hump at 32 (+6.5 dB, more than 56)
+    def test_resonance_follows_pg8x_peak_heights(self):
+        r = jx8p.resonance_permille
+        self.assertEqual([r(v) for v in (0, 64, 80, 96, 112, 127)], [0, 400, 575, 795, 900, 935])
+        self.assertGreater(r(32), r(56))
+        self.assertEqual(patch("PSYCHMELLO")["FILTER_RESONANCE_PERMILLE"], 928)     # resonance 122
         self.assertEqual(patch("SOUNDTRACK")["FILTER_RESONANCE_PERMILLE"], 0)
 
     def test_hpf_positions_are_the_engines_four_highpass_steps(self):

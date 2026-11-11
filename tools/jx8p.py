@@ -242,6 +242,23 @@ def permille(v):
     return rnd(v * 1000 / 127)
 
 
+# VCF RES byte -> the engine's resonance per mille, for PG-8X 2.0.13's peak heights over the passband
+# (VCF FREQ 64 and 80, noise in): +4 dB at 64, +8 at 80, +16 at 96, +24 at 112, +31 at 127. PG-8X's
+# curve has a hump: +6.5 dB at 32, down to +3.7 at 56 (#98; docs/patches.md).
+RESONANCE_PERMILLE = ((0, 0), (8, 180), (12, 245), (16, 290), (20, 340), (24, 390), (28, 445), (32, 500),
+                      (36, 465), (40, 435), (44, 415), (48, 395), (52, 380), (56, 375), (60, 380),
+                      (64, 400), (68, 425), (72, 465), (80, 575), (88, 690), (96, 795), (104, 860),
+                      (112, 900), (120, 925), (127, 935))
+
+
+def resonance_permille(v):
+    """VCF RES, 0..127, as the engine's resonance: RESONANCE_PERMILLE, linear between its points."""
+    for (b0, p0), (b1, p1) in zip(RESONANCE_PERMILLE, RESONANCE_PERMILLE[1:]):
+        if v <= b1:
+            return rnd(p0 + (p1 - p0) * (v - b0) / (b1 - b0))
+    return RESONANCE_PERMILLE[-1][1]
+
+
 def env(p, base):
     """The envelope at base (ENV1 or ENV2) as engine attack ms, decay ms, sustain per mille and
     release ms. Times are cubic in the knob: attack 1..3000 ms, decay and release 2..10000 ms (an
@@ -323,7 +340,7 @@ def to_engine(tone):
     e["XMOD_AM"] = 1 if xmod in (2, 3) else 0
     e["HIGHPASS_STEP"] = switch(p[HPF])
     e["FILTER_CUTOFF_CENTS"] = 1200 + 100 * p[VCF_FREQ]
-    e["FILTER_RESONANCE_PERMILLE"] = permille(p[VCF_RES])
+    e["FILTER_RESONANCE_PERMILLE"] = resonance_permille(p[VCF_RES])
     e["FILTER_KEY_TRACK_PERMILLE"] = permille(p[VCF_KEY])
     gate = 1 if p[VCA_MODE] < 64 else 0
     a, d, s, r = (1, 2, 1000, 5) if gate else env(p, ENV2)
