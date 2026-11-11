@@ -246,17 +246,32 @@ def env(p, base):
     """The envelope at base (ENV1 or ENV2) as engine attack ms, decay ms, sustain per mille and
     release ms. Attack is PG-8X 2.0.13's measured ramp, x2.52 per 16 steps from 1 ms (0) to about
     24 s (127). Decay and release are exponential on both, and their engine times are the time
-    constant (decay_ms)."""
+    constant (decay_ms, release_ms)."""
     a, d, s, r = p[base:base + 4]
-    return attack_ms(a), decay_ms(d), permille(s), decay_ms(r)
+    return attack_ms(a), decay_ms(d), permille(s), release_ms(r)
+
+
+# Below 16 PG-8X 2.0.13 steps in pairs and leaves the curve: its decay floors near 4 ms, its release
+# goes down to about 1 ms (tau in ms per even byte, sample-accurate probe, 2026-11-11).
+_LOW_DECAY_MS = (4, 4, 4, 4, 4, 5, 7, 12)
+_LOW_RELEASE_MS = (1, 1, 2, 3, 4, 5, 9, 13)
+
+
+def _tau_ms(v):
+    return rnd(9.884 * (2.6717 ** (v / 16) - 0.1327))
 
 
 def decay_ms(v):
-    """ENV DECAY or RELEASE, 0..127, as the engine's time constant tau in ms: 9.884 x (2.6717^(v /
-    16) - 0.1327), fitted to PG-8X 2.0.13's t_20dB / ln 10 (within 7 % from 16 up, decay and release
-    alike): x2.67 per 16 steps, 127 about 24.6 s. 0 is 2 ms: PG-8X's is not exponential there,
-    its release falls 20 dB in 5 ms (the fit would give 9)."""
-    return 2 if v == 0 else rnd(9.884 * (2.6717 ** (v / 16) - 0.1327))
+    """ENV DECAY, 0..127, as the engine's time constant tau in ms: 9.884 x (2.6717^(v / 16) - 0.1327),
+    fitted to PG-8X 2.0.13's t_20dB / ln 10 (within 7 % from 16 up): x2.67 per 16 steps, 127 about
+    24.6 s. Below 16, PG-8X's measured steps (_LOW_DECAY_MS)."""
+    return _LOW_DECAY_MS[v >> 1] if v < 16 else _tau_ms(v)
+
+
+def release_ms(v):
+    """ENV RELEASE, 0..127: the same curve as decay_ms from 16 up; below it PG-8X's measured steps,
+    which go shorter than the decay's (_LOW_RELEASE_MS)."""
+    return _LOW_RELEASE_MS[v >> 1] if v < 16 else _tau_ms(v)
 
 
 def attack_ms(v):

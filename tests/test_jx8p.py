@@ -151,14 +151,28 @@ class MapTest(unittest.TestCase):
     PG8X_DECAY_TAU_MS = {16: 26, 32: 74, 48: 187, 64: 506, 80: 1333, 96: 3589, 112: 9644, 127: 24468}
     PG8X_RELEASE_TAU_MS = {16: 24, 32: 69, 48: 182, 64: 493, 80: 1335, 96: 3570, 112: 9617}
 
+    # Bytes below 16, sample-accurate (2026-11-11: a C7, |analytic signal|, t_20dB after the peak or
+    # note-off / ln 10). PG-8X steps in pairs there; its decay floors near 4 ms, its release does not
+    PG8X_LOW_DECAY_TAU_MS = {0: 4.1, 2: 4.1, 4: 4.1, 6: 3.7, 8: 3.5, 10: 4.9, 12: 6.8, 14: 12.0}
+    PG8X_LOW_RELEASE_TAU_MS = {0: 0.8, 2: 1.2, 4: 2.4, 6: 2.6, 8: 4.5, 10: 4.9, 12: 8.9, 14: 13.1}
+
+    def test_short_decay_and_release_follow_pg8x_below_16(self):
+        for table, f in ((self.PG8X_LOW_DECAY_TAU_MS, jx8p.decay_ms), (self.PG8X_LOW_RELEASE_TAU_MS, jx8p.release_ms)):
+            for v, ms in table.items():
+                for b in (v, v + 1):                       # PG-8X steps in pairs
+                    self.assertLessEqual(abs(f(b) - ms), max(1, 0.15 * ms), (f.__name__, b, f(b), ms))
+        e = patch("SOUNDTRACK")                            # ENV-2 release 77: the long curve
+        self.assertEqual(e["AMP_RELEASE_MS"], jx8p.release_ms(77))
+        times = [jx8p.release_ms(v) for v in range(128)]
+        self.assertEqual(times, sorted(times))
+
     def test_decay_and_release_are_pg8x_time_constants(self):
         for table in (self.PG8X_DECAY_TAU_MS, self.PG8X_RELEASE_TAU_MS):
             for v, ms in table.items():
                 self.assertLess(abs(jx8p.decay_ms(v) / ms - 1), 0.08, (v, jx8p.decay_ms(v), ms))
+                self.assertLess(abs(jx8p.release_ms(v) / ms - 1), 0.08, (v, jx8p.release_ms(v), ms))
         e = patch("SOUNDTRACK")                 # ENV-2: decay 109, release 77
-        self.assertEqual((e["AMP_DECAY_MS"], e["AMP_RELEASE_MS"]), (jx8p.decay_ms(109), jx8p.decay_ms(77)))
-        # 0 is not exponential on PG-8X; its release falls 20 dB in 5 ms, 40 in 10 (tau about 2)
-        self.assertLess(abs(jx8p.decay_ms(0) * 2.303 - 5), 3)
+        self.assertEqual((e["AMP_DECAY_MS"], e["AMP_RELEASE_MS"]), (jx8p.decay_ms(109), jx8p.release_ms(77)))
         times = [jx8p.decay_ms(v) for v in range(128)]
         self.assertEqual(times, sorted(times))
         self.assertLessEqual(times[127], 30000)
