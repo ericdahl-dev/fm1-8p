@@ -190,26 +190,41 @@ TT_TEST(extreme_settings_stay_bounded_and_release)
     }
     /* longest times at the highest rate: steps must not round to zero */
     TT_CHECK_EQ(fm_engine_init(&eng, 192000, 1), FM_OK);
-    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 10000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 30000);
     fm_engine_note_on(&eng, 60, 100);
     fm_engine_render(&eng, buf, RATE);
     TT_CHECK(peak_abs(buf, RATE - 1000, RATE) > 0);
 }
 
 /* JX-8P attacks run to about 25 s (PG-8X 2.0.13's ATTACK 127, docs/patches.md):
- * a 20 s attack is about half way at 10 s, not clamped short. */
+ * a 20 s attack is half way at 10 s, not clamped short. Reads the amp
+ * envelope's level, so the wave's phase does not matter. */
 TT_TEST(amp_attack_runs_to_25_seconds)
 {
-    const uint32_t r = 8000; /* 21 s fits buf at this rate */
-    double half, full;
+    const uint32_t r = 8000;
+    int32_t peak;
     TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
     fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 20000);
-    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
     fm_engine_note_on(&eng, 60, 127);
-    fm_engine_render(&eng, buf, r * 21);
-    half = amp_at(buf, r, 10000), full = amp_at(buf, r, 20900);
-    TT_CHECK(full > 1000);
-    TT_CHECK(half > 0.4 * full && half < 0.6 * full);
+    peak = eng.voices[0].amp_env.peak;
+    fm_engine_render(&eng, buf, r * 10);
+    TT_CHECK_EQ(eng.voices[0].amp_env.stage, FM_ENV_ATTACK);
+    TT_CHECK(eng.voices[0].amp_env.level > peak / 100 * 49 &&
+             eng.voices[0].amp_env.level < peak / 100 * 51);
+}
+
+/* Every envelope time, both envelopes, has one range: 0 to 30 s. */
+TT_TEST(envelope_times_share_one_30_second_range)
+{
+    static const uint16_t ids[] = {
+        FM_PARAM_AMP_ATTACK_MS, FM_PARAM_AMP_DECAY_MS, FM_PARAM_AMP_RELEASE_MS,
+        FM_PARAM_FILTER_ENV_ATTACK_MS, FM_PARAM_FILTER_ENV_DECAY_MS,
+        FM_PARAM_FILTER_ENV_RELEASE_MS};
+    size_t i;
+    for (i = 0; i < sizeof ids / sizeof ids[0]; i++) {
+        TT_CHECK_EQ(fm_param_info_get(ids[i])->min, 0);
+        TT_CHECK_EQ(fm_param_info_get(ids[i])->max, 30000);
+    }
 }
 
 /* A zeroed engine (static storage before, or after a failed, init) must
@@ -293,6 +308,7 @@ static void run_engine_tests(void)
     TT_RUN(high_saw_note_has_low_aliasing);
     TT_RUN(amp_envelope_follows_adsr_settings);
     TT_RUN(amp_attack_runs_to_25_seconds);
+    TT_RUN(envelope_times_share_one_30_second_range);
     TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
     TT_RUN(init_rejects_bad_arguments);
     TT_RUN(all_notes_off_controller_releases_the_note);

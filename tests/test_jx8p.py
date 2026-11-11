@@ -124,16 +124,27 @@ class MapTest(unittest.TestCase):
     # 2..10000 ms.
     def test_env2_is_the_amp_envelope(self):
         e = patch("SOUNDTRACK")                 # ENV-2: 80, 109, 57, 77
-        self.assertEqual(e["AMP_ATTACK_MS"], 1495)
+        self.assertEqual(e["AMP_ATTACK_MS"], 1573)
         self.assertEqual(e["AMP_DECAY_MS"], 6323)
         self.assertEqual(e["AMP_SUSTAIN_PERMILLE"], 449)
         self.assertEqual(e["AMP_RELEASE_MS"], 2230)
         self.assertEqual(e["AMP_GATE"], 0)
 
-    # Attack is PG-8X 2.0.13's measured ramp: 580 x (2.6^((v - 64) / 16) - 2.6^-4) ms, so 0 is
-    # instant and each 16 steps is x2.6 (2026-11-10 probe: 16 -> 19 ms, 64 -> 594, 127 -> 23.8 s).
+    # Attack follows PG-8X 2.0.13's ramp, measured 2026-11-10 (held C4 on the VCA, 10-90 %
+    # rise / 0.8): within 12 % from 32 up, rising, and inside the engine's 30 s. 0 is 1 ms, the
+    # same as GATE: a ramp, not a step, so a note starting mid-wave does not click.
+    PG8X_ATTACK_MS = {16: 19, 32: 94, 48: 231, 64: 594, 80: 1569, 96: 4194, 112: 11319, 127: 23819}
+
     def test_attack_follows_pg8x_measured_curve(self):
-        self.assertEqual(patch("SOUNDTRACK")["AMP_ATTACK_MS"], 1495)   # ENV-2 attack 80
+        self.assertEqual(jx8p.attack_ms(0), 1)
+        self.assertEqual(jx8p.attack_ms(0), patch("E. BASS")["AMP_ATTACK_MS"])   # GATE
+        for v, ms in self.PG8X_ATTACK_MS.items():
+            if v >= 32:
+                self.assertLess(abs(jx8p.attack_ms(v) / ms - 1), 0.12, (v, jx8p.attack_ms(v), ms))
+        self.assertLess(abs(jx8p.attack_ms(16) - 19), 8)
+        times = [jx8p.attack_ms(v) for v in range(128)]
+        self.assertEqual(times, sorted(times))
+        self.assertLessEqual(times[127], 30000)
 
     # VCA mode GATE (#63): until the engine has it, an amp envelope that is a gate
     def test_gate_mode_is_a_gate_shaped_amp_envelope(self):
@@ -150,7 +161,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["FILTER_ENV_SOURCE"], 3)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 75)
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
-                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (24955, 2793, 425))
+                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (23977, 2793, 425))
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
         self.assertEqual(e["FILTER_ENV_SOURCE"], 2)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 75)
