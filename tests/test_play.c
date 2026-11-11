@@ -404,8 +404,23 @@ TT_TEST(play_load_patch_lets_sounding_notes_go)
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);
 }
 
+/* A key played right after a load, before the next render, starts on the new patch: the load's params
+ * go in before the block's note events, so a voice mode change can't end the new note. */
+TT_TEST(play_load_patch_then_a_key_plays_the_new_patch)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_set_param(&pl_a, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    pl_render(&pl_a);
+    play_load_patch(&pl_a, 0);                  /* every factory patch is poly */
+    play_key_down(&pl_a, 5, 100);
+    pl_render(&pl_a);
+    TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, FM_PARAM_VOICE_MODE), FM_VOICE_MODE_POLY);
+    TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 1);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);
     TT_RUN(play_load_patch_lets_sounding_notes_go);
     TT_RUN(play_load_patch_matches_a_fresh_boot);
     TT_RUN(play_load_patch_is_not_edited);

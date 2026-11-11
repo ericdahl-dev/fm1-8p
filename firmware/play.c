@@ -187,12 +187,12 @@ void play_render(play *p, int32_t *out, uint32_t n)
     uint32_t h = p->head, t = p->tail;          /* one read: the main loop may write it any time */
     if (n > PLAY_BLOCK)
         n = PLAY_BLOCK;
+    apply_params(p);                            /* before the notes: a note played after a load sounds it */
     BARRIER();                                  /* the entries are read after the head */
     for (; t != h; t++)
         apply(p, p->queue[t % PLAY_QUEUE]);
     BARRIER();                                  /* and done with before the tail frees them */
     p->tail = t;
-    apply_params(p);
     if (p->lost != p->lost_seen) {              /* some events were dropped: back to a safe state */
         p->lost_seen = p->lost;
         fm_engine_controller(&p->engine, 64, 0);        /* a lost pedal-up would hold every note */
