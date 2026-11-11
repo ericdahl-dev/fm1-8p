@@ -231,9 +231,15 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["LFO_PITCH_CENTS"], 0)
         self.assertEqual(patch("CLAV")["LFO_WAVE"], 3)          # 0: random (engine FM_LFO_RANDOM)
         self.assertEqual(patch("ORGAN 2")["LFO_WAVE"], 2)       # 32: square
-        self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 572)
         e = patch("CELLO SECT")                 # DCO-1 2 (a trace), DCO-2 34: mostly DCO-2 wobbles
         self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (9, 86))
+
+    # A DCO whose MIX level is 0 is silent: PG-8X wobbles it but nothing is heard, so its LFO depth
+    # must not become the engine's one vibrato depth (BUBBLES: DCO-1 LFO 127, DCO-1 MIX 0)
+    def test_a_silent_dco_gives_no_vibrato(self):
+        self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 0)
+        e = patch_with("SOUNDTRACK", DCO1_LFO=127, DCO2_LFO=0, MIX_DCO1=0, MIX_DCO2=127)
+        self.assertEqual(e["LFO_PITCH_CENTS"], 0)
 
     # DCO-1 LFO as PG-8X 2.0.13 plays it: linear, 4.5 cents per step (127 = 572 cents)
     def test_vibrato_depth_is_linear_as_pg8x_plays_it(self):

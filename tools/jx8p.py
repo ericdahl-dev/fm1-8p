@@ -386,9 +386,10 @@ def to_engine(tone):
     # PG-8X flattens near 0.05 Hz (0.050 Hz measured at 16): the curve stops there (at 25)
     e["LFO_RATE_CENTIHZ"] = max(5, rnd(53.7 * 2.664 ** ((p[LFO_RATE] - 64) / 16)))
     e["LFO_DELAY_MS"] = rnd(3000 * (p[LFO_DELAY] / 127) ** 3)
-    # the engine's one vibrato depth moves both oscillators: DCO-1's sets it, DCO-2's waits.
+    # the engine's one vibrato depth moves both oscillators: DCO-1's sets it, DCO-2's waits, but a
+    # silent DCO-1 (MIX 0) can't be heard wobbling, so then DCO-2's sets it (BUBBLES).
     # PG-8X 2.0.13: linear, 4.5 cents per step (572 cents at 127)
-    e["LFO_PITCH_CENTS"] = rnd(4.5 * p[DCO1_LFO])
+    e["LFO_PITCH_CENTS"] = rnd(4.5 * p[DCO1_LFO if p[MIX_DCO1] else DCO2_LFO])
     e["LFO_PITCH_OSC2_CENTS"] = rnd(1200 * (p[DCO2_LFO] / 127) ** 2)
     e["CHORUS_MODE"] = min(switch(p[CHORUS]), 2)
     e["AMP_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[VCA_DYNA])]
