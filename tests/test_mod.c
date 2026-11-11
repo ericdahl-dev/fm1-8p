@@ -566,6 +566,30 @@ TT_TEST(osc2_vibrato_depth_zero_holds_osc2_still)
     TT_CHECK(fabs(cents(hz_between(mod_buf, 20, 230), note_hz(69))) < 3);
 }
 
+/* A4 with the filter envelope held at full (no attack, full sustain), a
+ * pitch envelope depth of `osc1` / `osc2` cents and the mix at `mix` per
+ * mille (0: osc 1 heard, 1000: osc 2); the pitch in cents over 0.3..0.5 s. */
+static double pitch_env_cents(int32_t osc1, int32_t osc2, int32_t mix)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, osc1);
+    (void)osc2;
+    fm_engine_note_on(&mod_eng, 69, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 300, 500), note_hz(69));
+}
+
+/* DCO-1's envelope depth (agent2's first test on #58): +1573 cents with
+ * envelope 1 at full puts osc 1 1573 cents sharp, and osc 2 stays. */
+TT_TEST(osc1_pitch_env_bends_osc1_only)
+{
+    TT_CHECK(fabs(pitch_env_cents(1573, 0, 0) - 1573) < 3);
+    TT_CHECK(fabs(pitch_env_cents(1573, 0, 1000)) < 3);
+}
+
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
     /* the delay ran out at 0.5 s whether or not a depth was set then */
@@ -597,5 +621,6 @@ static void run_mod_tests(void)
     TT_RUN(pulse_width_alone_ticks_the_voices_and_clears);
     TT_RUN(vibrato_reaches_osc2);
     TT_RUN(osc2_vibrato_depth_zero_holds_osc2_still);
+    TT_RUN(osc1_pitch_env_bends_osc1_only);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }

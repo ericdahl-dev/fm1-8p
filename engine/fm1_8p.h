@@ -86,6 +86,7 @@ typedef enum {
     FM_PARAM_OSC_MIX_ENV_SOURCE, /* the envelope it follows: 0 filter, 1 amp */
     FM_PARAM_LFO_PITCH_OSC2_CENTS, /* osc 2's vibrato depth; -1 (default):
                                     * lfo_pitch_cents, which is then both's */
+    FM_PARAM_PITCH_ENV_OSC1_CENTS, /* osc 1's pitch at full envelope, signed */
     FM_PARAM_COUNT
 } fm_param_id;
 

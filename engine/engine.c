@@ -279,6 +279,10 @@ static void apply_param(fm_engine *e, uint16_t id)
                          c2 * 65536 / 1200);
         return;
     }
+    case FM_PARAM_PITCH_ENV_OSC1_CENTS: /* cents -> Q16.16 octaves */
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_PENV, FM_MOD_PITCH1,
+                         v * 65536 / 1200);
+        return;
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
         return;
     default:
@@ -689,7 +693,8 @@ static int16_t to_int16(int32_t q24)
  * whether the control ticks have work for the voices. */
 static int lfo_live(const fm_engine *e)
 {
-    return e->mod_on || fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO);
+    return e->mod_on || fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
+           fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV);
 }
 
 /*
@@ -709,7 +714,8 @@ static void control_tick(fm_engine *e)
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_tick(&e->voices[k], lfo, &e->mod, e->ticks);
-    e->mod_on = (uint8_t)fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO);
+    e->mod_on = (uint8_t)(fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
+                          fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV));
 }
 
 /*

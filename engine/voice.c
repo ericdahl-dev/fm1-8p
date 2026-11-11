@@ -362,6 +362,8 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
             lfo = (int32_t)(((int64_t)lfo * fade) >> 30);
     }
     fm_mod_set_source(&v->mod, FM_MOD_SRC_LFO, lfo);
+    if (fm_mod_source_routed(&m->routes, FM_MOD_SRC_PENV))
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_PENV, filter_env_level(v));
     /* a fading old note keeps its vibrato */
     apply_mod(v, fm_mod_tick(&v->mod, &m->routes));
 }
