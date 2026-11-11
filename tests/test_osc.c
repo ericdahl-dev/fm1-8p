@@ -1248,6 +1248,16 @@ TT_TEST(pair_render_matches_next_sample_by_sample)
     TT_CHECK_EQ(render_vs_next(0, 2024, 400), 0);
 }
 
+/*
+ * With hard sync (and the rest random, cross-mod off): the same samples
+ * and state as fm_osc_pair_next, restarts and their polyBLEP corrections
+ * falling anywhere in a chunk or across chunk edges.
+ */
+TT_TEST(pair_render_with_sync_matches_next_sample_by_sample)
+{
+    TT_CHECK_EQ(render_vs_next(1, 77, 400), 0);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -1295,4 +1305,5 @@ static void run_osc_tests(void)
     TT_RUN(xmod_adds_sidebands);
     TT_RUN(max_xmod_and_sync_stay_in_range);
     TT_RUN(pair_render_matches_next_sample_by_sample);
+    TT_RUN(pair_render_with_sync_matches_next_sample_by_sample);
 }
