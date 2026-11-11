@@ -1234,15 +1234,15 @@ TT_TEST(env_settings_are_shared_by_every_envelope)
 }
 
 /* A long attack takes its time at any peak: a velocity-1 note (peak
- * FULL / 127) with a 30 s attack at 192 kHz reaches the peak within 2 %
- * of 5,760,000 samples (a whole-number step would round 1.47 up to 2 and
+ * FULL / 127) with a 32 s attack at 192 kHz reaches the peak within 2 %
+ * of 6,144,000 samples (a whole-number step would round 1.47 up to 2 and
  * land about 26 % early). */
 /*
  * The straight segments of an exponential release stay on the curve: the
  * level against FULL x e^(-t / tau), sample by sample, down to -60 dB, is
  * within 0.1 dB for every tau from 5 ms at 8 kHz (40 samples) to 1 s at
  * 48 kHz, and within 0.5 dB down to a tau of 8 samples (segments shorten
- * to tau / 8). The longest, 30 s at 192 kHz, keeps within 0.25 dB: near
+ * to tau / 8). The longest, 32 s at 192 kHz, keeps within 0.25 dB: near
  * -60 dB its step is about 0.2 LSB a sample, and Q8 steps resolve that to
  * about 2 %.
  */
@@ -1278,7 +1278,7 @@ TT_TEST(exponential_release_stays_on_its_curve)
         TT_CHECK(err < 0.1);
     }
     TT_CHECK(release_error_db(8) < 0.5);
-    TT_CHECK(release_error_db(5760000) < 0.25);
+    TT_CHECK(release_error_db(6144000) < 0.25);
 }
 
 /*
@@ -1340,7 +1340,7 @@ TT_TEST(env_long_quiet_attack_lands_on_time)
 {
     static fm_env_settings s;
     static fm_env e;
-    const uint32_t want = 5760000u;
+    const uint32_t want = 6144000u;
     uint32_t n = 0;
     s.attack_samples = want;
     s.decay_samples = 100;
@@ -1350,7 +1350,7 @@ TT_TEST(env_long_quiet_attack_lands_on_time)
     e.peak = FM_ENV_FULL / 127;
     fm_env_gate_on(&e);
     while (e.stage == FM_ENV_ATTACK && n < 2 * want) fm_env_next(&e), n++;
-    printf("    30 s attack at peak FULL/127: %u samples (want %u)\n", n, want);
+    printf("    32 s attack at peak FULL/127: %u samples (want %u)\n", n, want);
     TT_CHECK(n > want - want / 50 && n < want + want / 50);
 }
 

@@ -8,7 +8,7 @@ TT_TEST(units_ms_to_samples_edges)
 {
     TT_CHECK_EQ(fm_ms_to_samples(0, 44100u), 0u);
     TT_CHECK_EQ(fm_ms_to_samples(5, 44100u), 220u);
-    TT_CHECK_EQ(fm_ms_to_samples(30000, 192000u), 5760000u);
+    TT_CHECK_EQ(fm_ms_to_samples(32000, 192000u), 6144000u);
 }
 
 /* Per mille to Q1.30: 0, the ends +-1000, and +-1 truncated toward zero

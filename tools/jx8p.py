@@ -245,7 +245,7 @@ def permille(v):
 def env(p, base):
     """The envelope at base (ENV1 or ENV2) as engine attack ms, decay ms, sustain per mille and
     release ms. Attack is the time to the peak of PG-8X 2.0.13's RC charge (attack_ms), 1 ms to
-    about 22 s. Decay and release are exponential on both, and their engine times are the time
+    about 33.5 s. Decay and release are exponential on both, and their engine times are the time
     constant (decay_ms, release_ms)."""
     a, d, s, r = p[base:base + 4]
     return attack_ms(a), decay_ms(d), permille(s), release_ms(r)
@@ -274,21 +274,22 @@ def release_ms(v):
     return _LOW_RELEASE_MS[v >> 1] if v < 16 else _tau_ms(v)
 
 
-# Below 16 PG-8X's attack is about a millisecond up to 11, then steps up to its curve (time to the
-# peak in ms for bytes 12..15, sample-accurate RC fit, 2026-11-11)
-_LOW_ATTACK_MS = {12: 3, 13: 8, 14: 9, 15: 12}
+# Below 16 PG-8X's attack shortens to a few ms by 8 and under 2 ms below it (time to the peak in ms
+# for bytes 8..15, the same probe, 2026-11-11)
+_LOW_ATTACK_MS = {8: 3, 9: 4, 10: 6, 11: 8, 12: 11, 13: 14, 14: 18, 15: 23}
 
 
 def attack_ms(v):
     """ENV ATTACK, 0..127, as the engine's attack time in ms, the time to the peak of its RC charge
-    toward 1.6 x the peak: 9.2175 x (2.6676^(v / 16) - 0.7155), fitted to PG-8X 2.0.13 (within 8 %
-    from 16 up; x2.67 per 16 steps, as its decay and release), 127 about 22 s. Below 12 it is 1 ms
-    (PG-8X 0.5..1.4: a ramp, not a click, as GATE), 12..15 PG-8X's measured steps."""
-    if v < 12:
+    toward 1.6 x the peak: 14.1821 x (2.6607^(v / 16) - 0.4954), fitted to PG-8X 2.0.13 (within 4 %
+    from 40 up, 11 % at 16..32; x2.66 per 16 steps, as its decay and release), at most 32 s, the
+    range's end (the patch table's int16; PG-8X's 127 is 34 s). Below 8 it is 1 ms (PG-8X under
+    2 ms: a ramp, not a click, as GATE), 8..15 PG-8X's steps."""
+    if v < 8:
         return 1
     if v < 16:
         return _LOW_ATTACK_MS[v]
-    return rnd(9.2175 * (2.6676 ** (v / 16) - 0.7155))
+    return min(32000, rnd(14.1821 * (2.6607 ** (v / 16) - 0.4954)))
 
 
 def env_mode(v):

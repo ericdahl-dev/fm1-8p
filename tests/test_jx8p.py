@@ -124,32 +124,33 @@ class MapTest(unittest.TestCase):
     # 2..10000 ms.
     def test_env2_is_the_amp_envelope(self):
         e = patch("SOUNDTRACK")                 # ENV-2: 80, 109, 57, 77
-        self.assertEqual(e["AMP_ATTACK_MS"], 1239)   # attack_ms(80)
+        self.assertEqual(e["AMP_ATTACK_MS"], 1884)   # attack_ms(80)
         self.assertEqual(e["AMP_DECAY_MS"], 7986)   # tau (decay_ms)
         self.assertEqual(e["AMP_SUSTAIN_PERMILLE"], 449)
         self.assertEqual(e["AMP_RELEASE_MS"], 1118)   # tau
         self.assertEqual(e["AMP_GATE"], 0)
 
-    # Attack follows PG-8X 2.0.13's ramp, measured 2026-11-10 (held C4 on the VCA, 10-90 %
-    # rise / 0.8): within 12 % from 32 up, rising, and inside the engine's 30 s. 0 is 1 ms, the
-    # same as GATE: a ramp, not a step, so a note starting mid-wave does not click.
-    # Attack as PG-8X 2.0.13 plays it (2026-11-11): an RC charge toward 1.6 x the peak, the time to the
-    # peak per byte, from the same RC fit on both synths (held C6, |analytic signal|), so the probe's
-    # bias cancels. Below 12 it is about a millisecond; 12..15 step up to the curve
-    PG8X_ATTACK_TO_PEAK_MS = {16: 17.3, 24: 36.4, 32: 61.3, 40: 100, 48: 165, 56: 272, 64: 452, 72: 746,
-                              80: 1229, 88: 2021, 96: 3323, 104: 5465, 112: 8912, 120: 14676, 127: 22201}
-    PG8X_LOW_ATTACK_MS = {0: 0.5, 8: 0.9, 9: 1.1, 10: 1.2, 11: 1.4, 12: 2.6, 13: 7.5, 14: 9.0, 15: 11.5}
+    # Attack as PG-8X 2.0.13 plays it (2026-11-11): an RC charge toward 1.6 x the peak; the time to
+    # the peak (the RC fit's 0.98 tau, |analytic signal| of a held C5 under a 5 ms moving median; the
+    # same probe reads ours within 1 % of its setting). Below 16 it falls to a few ms by 8
+    PG8X_ATTACK_TO_PEAK_MS = {16: 29, 24: 61, 32: 98, 40: 157, 48: 255, 56: 419, 64: 687, 72: 1129,
+                              80: 1854, 88: 3041, 96: 5000, 104: 8218, 112: 13505, 120: 22147, 127: 34190}
+    PG8X_LOW_ATTACK_MS = {8: 3, 10: 6, 11: 8, 12: 11, 13: 14, 14: 18, 15: 23}
 
     def test_attack_follows_pg8x_measured_curve(self):
         self.assertEqual(jx8p.attack_ms(0), 1)                    # at least 1 ms: a ramp, not a click
         self.assertEqual(jx8p.attack_ms(0), patch("E. BASS")["AMP_ATTACK_MS"])   # GATE
         for v, ms in self.PG8X_ATTACK_TO_PEAK_MS.items():
-            self.assertLess(abs(jx8p.attack_ms(v) / ms - 1), 0.09, (v, jx8p.attack_ms(v), ms))
+            if v == 127:                                          # the range's end: 32 s
+                self.assertEqual(jx8p.attack_ms(v), 32000)
+                continue
+            tol = 0.04 if v >= 40 else 0.12
+            self.assertLess(abs(jx8p.attack_ms(v) / ms - 1), tol, (v, jx8p.attack_ms(v), ms))
         for v, ms in self.PG8X_LOW_ATTACK_MS.items():
             self.assertLessEqual(abs(jx8p.attack_ms(v) - ms), max(1, 0.15 * ms), (v, jx8p.attack_ms(v), ms))
         times = [jx8p.attack_ms(v) for v in range(128)]
         self.assertEqual(times, sorted(times))
-        self.assertLessEqual(times[127], 30000)
+        self.assertLessEqual(times[127], 32000)
 
     # ENV DECAY and RELEASE as PG-8X 2.0.13 plays them (match.py --param ENV2_DECAY / ENV2_REL,
     # 2026-11-10): exponential, so the engine's time is the time constant tau = t_20dB / ln 10
@@ -180,7 +181,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual((e["AMP_DECAY_MS"], e["AMP_RELEASE_MS"]), (jx8p.decay_ms(109), jx8p.release_ms(77)))
         times = [jx8p.decay_ms(v) for v in range(128)]
         self.assertEqual(times, sorted(times))
-        self.assertLessEqual(times[127], 30000)
+        self.assertLessEqual(times[127], 32000)
 
     # VCA mode GATE (#63): until the engine has it, an amp envelope that is a gate
     def test_gate_mode_is_a_gate_shaped_amp_envelope(self):
@@ -197,7 +198,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["FILTER_ENV_SOURCE"], 3)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 75)
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
-                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (22224, 1616, 425))   # attack_ms(127); decay: tau
+                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (32000, 1616, 425))   # attack_ms(127), the range's end; decay: tau
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
         self.assertEqual(e["FILTER_ENV_SOURCE"], 2)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 75)

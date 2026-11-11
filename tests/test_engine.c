@@ -268,8 +268,10 @@ TT_TEST(amp_decay_heads_exponentially_to_sustain_without_undershoot)
     TT_CHECK(eng.voices[0].amp_env.level - sus <= sus / 100);
 }
 
-/* Every envelope time, both envelopes, has one range: 0 to 30 s. */
-TT_TEST(envelope_times_share_one_30_second_range)
+/* Every envelope time, both envelopes, has one range: 0 to 32 s, as long as
+ * the patch table's int16 holds (PG-8X's ATTACK 127 takes 34 s to its peak,
+ * docs/patches.md). */
+TT_TEST(envelope_times_share_one_32_second_range)
 {
     static const uint16_t ids[] = {
         FM_PARAM_AMP_ATTACK_MS, FM_PARAM_AMP_DECAY_MS, FM_PARAM_AMP_RELEASE_MS,
@@ -278,7 +280,7 @@ TT_TEST(envelope_times_share_one_30_second_range)
     size_t i;
     for (i = 0; i < sizeof ids / sizeof ids[0]; i++) {
         TT_CHECK_EQ(fm_param_info_get(ids[i])->min, 0);
-        TT_CHECK_EQ(fm_param_info_get(ids[i])->max, 30000);
+        TT_CHECK_EQ(fm_param_info_get(ids[i])->max, 32000);
     }
 }
 
@@ -368,7 +370,7 @@ static void run_engine_tests(void)
     TT_RUN(amp_attack_runs_to_25_seconds);
     TT_RUN(amp_release_falls_exponentially_with_its_time_constant);
     TT_RUN(amp_decay_heads_exponentially_to_sustain_without_undershoot);
-    TT_RUN(envelope_times_share_one_30_second_range);
+    TT_RUN(envelope_times_share_one_32_second_range);
     TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
     TT_RUN(init_rejects_bad_arguments);
     TT_RUN(all_notes_off_controller_releases_the_note);

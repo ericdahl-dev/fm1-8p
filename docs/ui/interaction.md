@@ -223,10 +223,11 @@ nothing (test 12). When it lands, its row in the map above takes these values:
 ### Units and value tables
 
 - **Time:** the engine stores ms. The screen shows `0 ms` .. `999 ms`, then
-  `1.00 s` .. `9.99 s`, then `10.0 s` .. `30.0 s`. A knob click moves one entry in a
-  fixed table of about 115 entries from 0 to the parameter's maximum (30000 ms
-  for every envelope time, as a JX-8P ATTACK runs to about 24 s), spaced about
-  7 % apart above 20 ms: 0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 22 ... 30000. A fast
+  `1.00 s` .. `9.99 s`, then `10.0 s` .. `32.0 s`. A knob click moves one entry in a
+  fixed table of about 115 entries from 0 to the parameter's maximum (32000 ms
+  for every envelope time, as a JX-8P ATTACK runs to about 34 s, as long as the patch
+  table's int16 holds), spaced about
+  7 % apart above 20 ms: 0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 22 ... 32000. A fast
   turn moves 4 entries. A value that is not in the table, from MIDI or an
   older patch, snaps to the nearest entry on the first click, in the direction
   of the turn.
