@@ -28,14 +28,14 @@ void fm_env_reset(fm_env *e)
  * (exact when the peak is full). Kept so the decay needs no multiply. */
 static int32_t sustain_level(fm_env *e)
 {
-    e->sus_level = (int32_t)(((int64_t)e->sustain * e->peak) >> 30);
+    e->sus_level = (int32_t)(((int64_t)e->set->sustain * e->peak) >> 30);
     return e->sus_level;
 }
 
 void fm_env_gate_on(fm_env *e)
 {
     e->stage = FM_ENV_ATTACK;
-    e->step = step_for(e->peak, e->attack_samples);
+    e->step = step_for(e->peak, e->set->attack_samples);
     sustain_level(e);
 }
 
@@ -43,7 +43,7 @@ void fm_env_gate_off(fm_env *e)
 {
     if (e->stage == FM_ENV_IDLE) return;
     e->stage = FM_ENV_RELEASE;
-    e->step = step_for(e->level, e->release_samples);
+    e->step = step_for(e->level, e->set->release_samples);
 }
 
 void fm_env_fade(fm_env *e, uint32_t samples)
@@ -60,7 +60,7 @@ static void enter_decay(fm_env *e)
     int32_t s = e->sus_level;
     int32_t span = e->level > s ? e->level - s : s - e->level;
     e->stage = FM_ENV_DECAY;
-    e->step = step_for(span, e->decay_samples);
+    e->step = step_for(span, e->set->decay_samples);
 }
 
 void fm_env_retime(fm_env *e)
@@ -68,14 +68,14 @@ void fm_env_retime(fm_env *e)
     sustain_level(e);
     switch (e->stage) {
     case FM_ENV_ATTACK:
-        e->step = step_for(e->peak, e->attack_samples);
+        e->step = step_for(e->peak, e->set->attack_samples);
         break;
     case FM_ENV_DECAY:
     case FM_ENV_SUSTAIN:
         if (e->level != e->sus_level) enter_decay(e);
         break;
     case FM_ENV_RELEASE:
-        e->step = step_for(e->level, e->release_samples);
+        e->step = step_for(e->level, e->set->release_samples);
         break;
     default:
         break;

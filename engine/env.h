@@ -34,19 +34,26 @@ typedef enum {
     FM_ENV_FADE
 } fm_env_stage;
 
+/* An envelope's times and sustain, in samples and Q1.30. One struct is
+ * shared by every voice's envelope of a kind (the engine owns it), so a
+ * parameter change is written once (#19). */
 typedef struct {
-    /* settings, in samples and Q1.30 */
     uint32_t attack_samples;
     uint32_t decay_samples;
     uint32_t release_samples;
     int32_t sustain;
-    int32_t peak;  /* level the attack rises to (velocity), Q1.30; the
-                    * sustain level is scaled by it too */
-    /* state */
-    int32_t sus_level; /* sustain * peak, set at gate on and retime */
+} fm_env_settings;
+
+typedef struct {
+    /* state; the render loop's inline step reads these first ones */
     int32_t level;
     int32_t step;  /* per-sample change in the current stage */
     uint8_t stage; /* fm_env_stage */
+    int32_t peak;  /* level the attack rises to (velocity), Q1.30; the
+                    * sustain level is scaled by it too */
+    int32_t sus_level; /* sustain * peak, set at gate on and retime */
+    const fm_env_settings *set; /* the shared settings: set once by the
+                                 * owner, kept by fm_env_reset */
 } fm_env;
 
 void fm_env_reset(fm_env *e);
@@ -54,7 +61,8 @@ void fm_env_gate_on(fm_env *e);
 void fm_env_gate_off(fm_env *e);
 /* Falls from the current level to 0 in `samples`, then goes idle. */
 void fm_env_fade(fm_env *e, uint32_t samples);
-/* Call after changing any setting while the envelope may be running. */
+/* Call after changing a setting in *set while the envelope runs (an idle
+ * one needs none: the next gate on reads the settings). */
 void fm_env_retime(fm_env *e);
 /* Advances one sample and returns the new level (Q1.30). */
 int32_t fm_env_next(fm_env *e);
