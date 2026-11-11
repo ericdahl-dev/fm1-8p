@@ -8,23 +8,6 @@
 
 const patch *play_patch(const play *p) { return p->patch; }
 
-/* Patch t as every param's value, into v: each field of t the engine has a param for (the others wait
- * for their features, patches.h), and the default for a param no field sets, clamped to its range. */
-static void patch_values(const patch *t, int32_t *v)
-{
-    uint32_t f;
-    for (f = 0; f < FM_PARAM_COUNT; f++)
-        v[f] = fm_param_info_get((uint16_t)f)->def;
-    for (f = 0; f < PATCH_FIELD_COUNT; f++) {
-        int32_t id = patch_param((patch_field)f);
-        if (id != PATCH_NONE) {
-            const fm_param_info *in = fm_param_info_get((uint16_t)id);
-            int32_t x = patch_value(t, (patch_field)f);
-            v[id] = x < in->min ? in->min : x > in->max ? in->max : x;
-        }
-    }
-}
-
 int play_init(play *p)
 {
     uint32_t i;
