@@ -254,9 +254,9 @@ def env(p, base):
 def decay_ms(v):
     """ENV DECAY or RELEASE, 0..127, as the engine's time constant tau in ms: 9.884 x (2.6717^(v /
     16) - 0.1327), fitted to PG-8X 2.0.13's t_20dB / ln 10 (within 7 % from 16 up, decay and release
-    alike): x2.67 per 16 steps, 127 about 24.6 s. 0 is 9 ms (PG-8X's is not exponential there:
-    t_20dB 5-10 ms)."""
-    return rnd(9.884 * (2.6717 ** (v / 16) - 0.1327))
+    alike): x2.67 per 16 steps, 127 about 24.6 s. 0 is 2 ms: PG-8X's is not exponential there,
+    its release falls 20 dB in 5 ms (the fit would give 9)."""
+    return 2 if v == 0 else rnd(9.884 * (2.6717 ** (v / 16) - 0.1327))
 
 
 def attack_ms(v):

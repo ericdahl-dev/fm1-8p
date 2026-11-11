@@ -157,6 +157,8 @@ class MapTest(unittest.TestCase):
                 self.assertLess(abs(jx8p.decay_ms(v) / ms - 1), 0.08, (v, jx8p.decay_ms(v), ms))
         e = patch("SOUNDTRACK")                 # ENV-2: decay 109, release 77
         self.assertEqual((e["AMP_DECAY_MS"], e["AMP_RELEASE_MS"]), (jx8p.decay_ms(109), jx8p.decay_ms(77)))
+        # 0 is not exponential on PG-8X; its release falls 20 dB in 5 ms, 40 in 10 (tau about 2)
+        self.assertLess(abs(jx8p.decay_ms(0) * 2.303 - 5), 3)
         times = [jx8p.decay_ms(v) for v in range(128)]
         self.assertEqual(times, sorted(times))
         self.assertLessEqual(times[127], 30000)
