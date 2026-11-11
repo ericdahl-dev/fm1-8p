@@ -24,6 +24,7 @@
 #include "test_chorus.c"
 #include "test_lfo.c"
 #include "test_mod.c"
+#include "test_mod_dest.c"
 #include "test_filter.c"
 #include "test_busy.c"
 #include "test_filter_oracle.c"
@@ -44,6 +45,7 @@ int main(void)
     run_chorus_tests();
     run_lfo_tests();
     run_mod_tests();
+    run_mod_dest_tests();
     run_filter_tests();
     run_busy_tests();
     run_filter_oracle_tests();

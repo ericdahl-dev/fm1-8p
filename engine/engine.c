@@ -255,11 +255,14 @@ static void apply_param(fm_engine *e, uint16_t id)
                                : FM_LFO_FULL;
         return;
     case FM_PARAM_LFO_PW_PCT:
-        e->mod.pw = v * 42949673; /* percent -> Q0.32, at most 0.49 */
+        /* percent -> Q0.32, at most 0.49 */
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
+                         v * 42949673);
         return;
     case FM_PARAM_LFO_PITCH_CENTS:
         /* cents -> Q16.16 octaves: exact for multiples of 75 cents */
-        e->mod.pitch_oct = v * 65536 / 1200;
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH,
+                         v * 65536 / 1200);
         return;
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
         return;
@@ -661,10 +664,17 @@ static int16_t to_int16(int32_t q24)
  * the caller's block size never moves it): the LFO advances and each
  * sounding voice applies it.
  */
+/* The LFO reaches pitch or pulse width at a nonzero depth. */
+static int lfo_routed(const fm_engine *e)
+{
+    return e->mod.routes.depth[FM_MOD_SRC_LFO][FM_MOD_PITCH] != 0 ||
+           e->mod.routes.depth[FM_MOD_SRC_LFO][FM_MOD_PW] != 0;
+}
+
 static void control_tick(fm_engine *e)
 {
     int32_t lfo = fm_lfo_tick(&e->lfo);
-    int depth = e->mod.pitch_oct != 0 || e->mod.pw != 0;
+    int depth = lfo_routed(e);
     uint8_t k;
     e->ticks++;
     e->tick_left = FM_LFO_TICK_FRAMES;
@@ -691,7 +701,7 @@ static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    if ((e->mod_on || e->mod.pitch_oct != 0 || e->mod.pw != 0) &&
+    if ((e->mod_on || lfo_routed(e)) &&
         n > e->tick_left)
         n = e->tick_left;
     return n;
