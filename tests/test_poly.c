@@ -8,14 +8,15 @@ static fm_engine poly;
 static int16_t pbuf[PRATE * 2 * 2]; /* up to 2 s of stereo */
 
 /* Engine with `voices` voices and an organ-like envelope: 2 ms attack,
- * full sustain, 50 ms release. */
+ * full sustain, and a release of tau 5 ms, so below -80 dB and idle in
+ * 9.2 tau = 46 ms (the release is exponential). */
 static void init_poly(uint8_t voices)
 {
     fm_engine_init(&poly, PRATE, voices);
     fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 2);
     fm_engine_set_param(&poly, FM_PARAM_AMP_DECAY_MS, 0);
     fm_engine_set_param(&poly, FM_PARAM_AMP_SUSTAIN, 1000);
-    fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 50);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 5);
 }
 
 /*
@@ -420,7 +421,8 @@ TT_TEST(random_playing_stays_bounded_and_ends_silent)
             int clipped = 0, loud_after = 0;
             TT_CHECK_EQ(fm_engine_init(&poly, rates[r], counts[c]), FM_OK);
             fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 0);
-            fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 20);
+            /* tau 2 ms: idle (-80 dB) in 18.4 ms, inside the 50 ms below */
+            fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 2);
             fm_engine_set_param(&poly, FM_PARAM_BEND_RANGE, 24);
             n = play_random(pbuf, 400, 100, 100);
             for (i = 0; i < 2 * n; i++)

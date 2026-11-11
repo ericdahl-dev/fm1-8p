@@ -161,7 +161,8 @@ TT_TEST(full_resonance_8_voice_chord_stays_bounded)
     fm_engine_set_param(&e, FM_PARAM_FILTER_RESONANCE, 1000);
     fm_engine_set_param(&e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600);
     fm_engine_set_param(&e, FM_PARAM_HIGHPASS_STEP, 1);
-    fm_engine_set_param(&e, FM_PARAM_AMP_RELEASE_MS, 250);
+    /* tau 25 ms: idle (-80 dB) in 230 ms, before the last half second */
+    fm_engine_set_param(&e, FM_PARAM_AMP_RELEASE_MS, 25);
     for (i = 0; i < 8; i++)
         fm_engine_note_on(&e, chord[i], 127);
     for (n = 0; n < 2 * (size_t)ORACLE_RATE; n++) {           /* 2 s held */

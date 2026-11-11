@@ -4,8 +4,11 @@
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
  * Per sample: one delay-line write, one triangle LFO step, two
- * linearly interpolated taps, one 64-bit multiply. Divisions happen only
- * in fm_chorus_set_mode.
+ * linearly interpolated taps, one 64-bit multiply, one clamp of the dry
+ * input and two dry-plus-wet adds. Divisions happen only in fm_chorus_set_mode.
+ *
+ * Modes I and II are matched to PG-8X 2.0.13's chorus (#104): dry plus
+ * wet (+3 dB on a held saw), 0.68 Hz, L/R correlation about 0.46.
  */
 #include "chorus.h"
 #include "units.h"
@@ -20,8 +23,8 @@ typedef struct {
 
 static const mode_spec modes[FM_CHORUS_MODE_COUNT] = {
     { 0, 0, 0 },         /* off */
-    { 500, 5000, 1500 }, /* slow */
-    { 800, 5000, 2500 }, /* deep */
+    { 680, 5500, 2000 }, /* slow (I): PG-8X's rate and width */
+    { 680, 5500, 3500 }, /* deep (II): the same rate, swept deeper */
     { 6000, 3000, 300 }, /* fast */
 };
 
@@ -94,17 +97,18 @@ static int32_t tap(const fm_chorus *c, int32_t delay)
     return (v + 16) >> 5;
 }
 
-/* (a + b) / 2, rounded once (halves up), with no overflow for any int32. */
-static int32_t half_sum(int32_t a, int32_t b)
-{
-    return (a >> 1) + (b >> 1) + (((a & 1) + (b & 1) + 1) >> 1);
-}
+/*
+ * The dry part, limited so dry + wet fits in int32: a tap is within
+ * +-2.0 (+-2^25), so +-(2^31 - 2^25) leaves room. Only inputs beyond
+ * about +-126.0 are touched, far above anything the mix reaches.
+ */
+#define DRY_MAX (INT32_MAX - (1 << 25))
 
 /* One sample with the chorus on. */
 static void process_on(fm_chorus *c, int32_t in, int32_t *left,
                        int32_t *right)
 {
-    int32_t q, sweep;
+    int32_t q, sweep, dry;
     /* Q8.24 -> line units (1.0 = 16384), rounded, saturating at +-2.0 */
     q = (in >> 10) + ((in >> 9) & 1);
     if (q > 32767) q = 32767;
@@ -115,8 +119,9 @@ static void process_on(fm_chorus *c, int32_t in, int32_t *left,
     sweep = (int32_t)(((int64_t)c->depth * triangle(c->lfo_phase)) >> 30);
     c->lfo_phase += c->lfo_inc;
 
-    *left = half_sum(in, tap(c, c->center + sweep));
-    *right = half_sum(in, tap(c, c->center - sweep));
+    dry = in > DRY_MAX ? DRY_MAX : in < -DRY_MAX ? -DRY_MAX : in;
+    *left = dry + tap(c, c->center + sweep);
+    *right = dry + tap(c, c->center - sweep);
 }
 
 void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
