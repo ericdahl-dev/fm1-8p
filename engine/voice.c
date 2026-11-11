@@ -18,6 +18,15 @@
 #define FM_ALWAYS_INLINE inline
 #endif
 
+/* Keeps a control-rate step out of the render loop: inline, its
+ * registers crowd the per-sample path around it, which costs more on the
+ * FM-1 than one call each 16 samples (measured for update_mix). */
+#if defined(__GNUC__) || defined(__clang__)
+#define FM_NOINLINE __attribute__((noinline))
+#else
+#define FM_NOINLINE
+#endif
+
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
                     const fm_env_settings *amp, const fm_env_settings *filter)
 {
@@ -298,8 +307,8 @@ static int32_t amp_share(const fm_voice *v, int32_t level)
  * reached by the next control tick: it glides there a sample at a time
  * (no click when the depth changes, no steps as the envelope moves).
  */
-static void update_mix(fm_voice *v, const fm_voice_mod *m, int32_t env1,
-                       int32_t env2)
+static FM_NOINLINE void update_mix(fm_voice *v, const fm_voice_mod *m,
+                                   int32_t env1, int32_t env2)
 {
     int64_t mix;
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, env1);
