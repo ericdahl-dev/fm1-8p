@@ -341,6 +341,17 @@ uint32_t fm_voice_busy_derived(const fm_voice *v)
 }
 
 /*
+ * 1 if the amp envelope can reach silence within a chunk (release or
+ * fade), when the voice stops or a stolen note starts mid-chunk: then the
+ * oscillators run a sample at a time, as far as the voice plays.
+ */
+static int can_end(const fm_voice *v)
+{
+    return v->amp_env.stage == FM_ENV_RELEASE ||
+           v->amp_env.stage == FM_ENV_FADE;
+}
+
+/*
  * A block with every processor at rest (fm_voice_busy 0, as in the default
  * patch): the filter a wire, no envelope amount and nothing marking the
  * cutoff, no steal fade or queued release, the mix at osc_mix. Then nothing
@@ -351,7 +362,8 @@ uint32_t fm_voice_busy_derived(const fm_voice *v)
  * call in the loop but the two every voice makes: one more costs a voice
  * about 15 %, as the compiler must then reload the voice's fields.)
  */
-static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
+static int render_plain(fm_voice *v, int32_t *mix, int32_t *osc,
+                        uint32_t frames)
 {
     int32_t last = v->filter.s[3];
     uint32_t i;
@@ -360,7 +372,13 @@ static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
 #ifdef FM_CHECK_BUSY
     assert(!fm_voice_busy_derived(v)); /* the busy word hid a processor */
 #endif
-    for (i = 0; i < frames; i++) {
+    if (!can_end(v) && frames) {
+        /* the note plays the whole chunk: the oscillators all at once */
+        fm_osc_pair_render(&v->osc, osc, frames);
+        for (i = 0; i < frames; i++)
+            mix[i] += (int32_t)(((int64_t)osc[i] * fm_env_step(&v->amp_env)) >> 30);
+        last = osc[frames - 1];
+    } else for (i = 0; i < frames; i++) {
         int32_t level;
         if (v->amp_env.stage == FM_ENV_IDLE) break; /* the release ended */
         level = fm_env_step(&v->amp_env);
@@ -380,14 +398,20 @@ static int render_plain(fm_voice *v, int32_t *mix, uint32_t frames)
     return 1;
 }
 
-void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
-                         uint32_t sample_rate, uint32_t next_tick,
-                         uint32_t tick_left)
+void fm_voice_render_add(fm_voice *v, int32_t *mix, int32_t *osc,
+                         uint32_t frames, uint32_t sample_rate,
+                         uint32_t next_tick, uint32_t tick_left)
 {
     uint32_t i;
-    if (render_plain(v, mix, frames)) return;
+    /* the oscillators all at once when nothing in the chunk can change
+     * them: no start, release or end, and no mix glide */
+    int whole = v->amp_env.stage != FM_ENV_IDLE && !can_end(v) &&
+                !v->gate_left && !v->mix_step &&
+                !(fm_voice_busy(v) & FM_BUSY_MIX);
+    if (render_plain(v, mix, osc, frames)) return;
+    if (whole) fm_osc_pair_render(&v->osc, osc, frames);
     for (i = 0; i < frames; i++) {
-        int32_t level, fenv, osc;
+        int32_t level, fenv, out;
         if (v->amp_env.stage == FM_ENV_IDLE) {
             /* the stolen note faded: it starts here, before the ticks
              * still to come in this chunk (one at tick_left, then one
@@ -425,8 +449,8 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
         v->ctrl_phase--;
         if (v->mix_step)
             fm_osc_pair_set_mix(&v->osc, v->osc.mix + v->mix_step);
-        osc = fm_filter_run(&v->filter, fm_osc_pair_next(&v->osc));
+        out = fm_filter_run(&v->filter, whole ? osc[i] : fm_osc_pair_next(&v->osc));
         /* Q8.24 * Q1.30 -> Q8.24 */
-        mix[i] += (int32_t)(((int64_t)osc * level) >> 30);
+        mix[i] += (int32_t)(((int64_t)out * level) >> 30);
     }
 }

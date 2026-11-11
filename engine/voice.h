@@ -214,10 +214,11 @@ void fm_voice_set_highpass(fm_voice *v, uint8_t step);
  * Adds `frames` samples of the voice (Q8.24) to `mix`. `next_tick` is the
  * number of the next control tick and `tick_left` the samples before it,
  * so a stolen note that starts mid-chunk knows which tick its LFO delay
- * counts from.
+ * counts from. `osc` is scratch for `frames` samples (the oscillators'
+ * chunk, when nothing can change them within it).
  */
-void fm_voice_render_add(fm_voice *v, int32_t *mix, uint32_t frames,
-                         uint32_t sample_rate, uint32_t next_tick,
-                         uint32_t tick_left);
+void fm_voice_render_add(fm_voice *v, int32_t *mix, int32_t *osc,
+                         uint32_t frames, uint32_t sample_rate,
+                         uint32_t next_tick, uint32_t tick_left);
 
 #endif /* FM_VOICE_H */

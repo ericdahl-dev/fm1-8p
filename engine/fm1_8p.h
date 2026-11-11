@@ -117,7 +117,9 @@ typedef struct {
     uint32_t ticks;      /* control ticks since init */
     uint8_t mod_on;      /* the last tick applied a nonzero depth */
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
-    int32_t mix_right[FM_MIX_FRAMES]; /* the chorus's right side, Q8.24 */
+    /* the chorus's right side, Q8.24; before the chorus writes it, the
+     * voices' scratch (each voice's oscillators for the chunk) */
+    int32_t mix_right[FM_MIX_FRAMES];
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
