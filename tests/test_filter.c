@@ -1243,8 +1243,8 @@ TT_TEST(env_settings_are_shared_by_every_envelope)
  * within 0.1 dB for every tau from 5 ms at 8 kHz (40 samples) to 1 s at
  * 48 kHz, and within 0.5 dB down to a tau of 8 samples (segments shorten
  * to tau / 8). The longest, 32 s at 192 kHz, keeps within 0.25 dB: near
- * -60 dB its step is about 0.2 LSB a sample, and Q8 steps resolve that to
- * about 2 %.
+ * -60 dB a segment spans about 11 LSB, and the fraction of an LSB each
+ * span leaves over carries into the next, so the rate holds.
  */
 static double release_error_db(uint32_t tau)
 {

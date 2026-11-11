@@ -4,33 +4,14 @@
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
  * Divisions happen only at stage changes and at the start of each straight
- * segment of an exponential stage (every 64 samples at most), never per
- * sample.
+ * segment (every 64 samples at most), never per sample. Every moving stage
+ * is a run of segments with a whole-number step: a sample inside one is the
+ * count and an add, nothing else (fm_env_step).
  */
 #include "env.h"
 #ifdef FM_CHECK_ENGINE
 #include <assert.h>
 #endif
-
-/* Sets the per-sample step that covers `span` in `samples`: span / samples
- * in Q8 (a whole part and an 8-bit fraction, the fraction carried from
- * sample to sample), rounded up so the segment never takes longer than
- * asked, and a long segment at a small span still takes its time to
- * within a sample or so (a whole-number step rounded up could halve it).
- * `samples` == 0 jumps at once. */
-static void set_step(fm_env *e, int32_t span, uint32_t samples)
-{
-    uint64_t q;
-    e->frac = 0;
-    if (samples == 0 || span <= 0) {
-        e->step = span > 0 ? span : 1;
-        e->step_frac = 0;
-        return;
-    }
-    q = (((uint64_t)(uint32_t)span << 8) + samples - 1) / samples; /* never longer than asked */
-    e->step = (int32_t)(q >> 8);
-    e->step_frac = (uint8_t)q;
-}
 
 /* The longest straight segment of an exponential stage, and how many a
  * time constant gets at the least: a segment is at most tau / 8, so its
@@ -38,26 +19,30 @@ static void set_step(fm_env *e, int32_t span, uint32_t samples)
 #define SEG_MAX 64u
 #define SEGS_PER_TAU 8u
 
+/* A stage that holds (sustain, idle): no change for the longest count, so
+ * the inline step passes it by without a call. */
+#define HOLD 255u
+
+static void hold(fm_env *e)
+{
+    e->step = 0;
+    e->seg = (uint8_t)HOLD;
+}
+
 /*
  * Starts the next straight segment of an exponential stage at distance `d`
  * (> 0) from its target, tau = `tau` samples: it ends on the curve,
  * d x e^(-n / tau) from the target, after n calls. 1 - e^(-x) for x = n /
  * tau <= 1/8 is x - x^2/2 + x^3/6, within x^4/24 (1.0e-5 of the step).
+ * Sets the step (toward the target, > 0 here) and the count, and returns
+ * the remainder: n x step + remainder is the span, and the remainder
+ * (< n <= 64 LSB) is moved with the first call, so the segment ends on the
+ * curve exactly.
  */
-/* floor(a / n) for a < 2^48 and 0 < n <= SEG_MAX, in 32-bit divisions (the
- * FM-1 would call a 64-bit division helper): a in 16-bit halves, each
- * remainder < n < 2^7 so every step fits. */
-static uint64_t div_by_seg(uint64_t a, uint32_t n)
+static int32_t start_segment(fm_env *e, int32_t d, uint32_t tau)
 {
-    uint32_t hi = (uint32_t)(a >> 16), lo = (uint32_t)a & 0xFFFFu;
-    if (n == SEG_MAX) return a >> 6; /* the usual case: a long tau */
-    return ((uint64_t)(hi / n) << 16) | (((hi % n) << 16 | lo) / n);
-}
-
-static void start_segment(fm_env *e, int32_t d, uint32_t tau)
-{
-    uint32_t n = tau / SEGS_PER_TAU, q24, r, x, x2, x3, one;
-    uint64_t span_q8, q;
+    uint32_t n = tau / SEGS_PER_TAU, q24, r, x, x2, x3, one, span, q;
+    uint64_t span_q8;
     if (n > SEG_MAX) n = SEG_MAX;
     if (n == 0) n = 1;
     /* x = floor(n * 2^30 / tau), Q30 <= 1: n * 2^24 < 2^31, then the
@@ -68,36 +53,40 @@ static void start_segment(fm_env *e, int32_t d, uint32_t tau)
     x2 = (uint32_t)(((uint64_t)x * x) >> 30);
     x3 = (uint32_t)(((uint64_t)x2 * x) >> 30);
     one = x - (x2 >> 1) + x3 / 6;                    /* 1 - e^(-x), Q30 */
-    /* the segment's span in Q8, so a long tau's few-LSB spans near the
-     * floor keep their fraction; then per call, rounded up as set_step */
-    span_q8 = ((uint64_t)(uint32_t)d * one) >> 22;
-    q = div_by_seg(span_q8 + n - 1, n);
-    e->frac = 0;
-    e->step = (int32_t)(q >> 8);
-    e->step_frac = (uint8_t)q;
+    /* the span in Q8, with the fraction the last segment left over, so a
+     * long tau's few-LSB spans near the floor keep their rate */
+    span_q8 = (((uint64_t)(uint32_t)d * one) >> 22) + e->frac;
+    e->frac = (uint8_t)span_q8;
+    span = (uint32_t)(span_q8 >> 8);
+    q = n == SEG_MAX ? span >> 6 : span / n;          /* the usual case: a long tau */
+    e->step = (int32_t)q;
     e->seg = (uint8_t)n;
+    return (int32_t)(span - q * n);
 }
 
 /*
  * The attack charges like PG-8X's, an RC toward 1.6 x the peak, and stops on
  * the peak, which takes tau x ln(1.6 / 0.6) = 0.98 tau: so tau is the attack
  * time x 1.0195 (66817 / 65536). Starts the next segment toward that target,
- * cut short where it would reach the peak, so the call after its last lands.
- * Returns 0 when this call lands instead (on the peak, or a retrigger already
- * above it, or no attack time).
+ * cut short where it would reach the peak, and moves its remainder. Returns 0
+ * when this call lands instead (on the peak, or a retrigger already above it,
+ * or no attack time).
  */
-static uint32_t calls_before_landing(const fm_env *e, int32_t d, uint32_t n);
-
 static int attack_segment(fm_env *e)
 {
-    int32_t d = e->peak - e->level;
-    uint32_t t = e->set->attack_samples, c;
+    int32_t d = e->peak - e->level, rem;
+    uint32_t t = e->set->attack_samples, k;
     if (d <= 0 || t == 0) return 0;
-    start_segment(e, d + e->peak / 5 * 3,
-                  (uint32_t)(((uint64_t)t * 66817u) >> 16));
-    c = calls_before_landing(e, d, e->seg);
-    if (c == 0) return 0;
-    if (c < e->seg) e->seg = (uint8_t)c;
+    rem = start_segment(e, d + e->peak / 5 * 3,
+                        (uint32_t)(((uint64_t)t * 66817u) >> 16));
+    /* the calls that stay below the peak: rem + k x step < d */
+    if (rem + (int32_t)e->seg * e->step >= d) {
+        if (e->step == 0 || rem >= d) return 0;
+        k = (uint32_t)(d - 1 - rem) / (uint32_t)e->step;
+        if (k == 0) return 0;
+        e->seg = (uint8_t)k;
+    }
+    e->level += rem;
     return 1;
 }
 
@@ -111,9 +100,8 @@ void fm_env_reset(fm_env *e)
 {
     e->level = 0;
     e->step = 0;
-    e->step_frac = 0;
-    e->frac = 0;
     e->seg = 0;
+    e->frac = 0;
     e->stage = FM_ENV_IDLE;
     e->peak = FM_ENV_FULL;
     e->sus_level = 0;
@@ -148,7 +136,11 @@ void fm_env_fade(fm_env *e, uint32_t samples)
 {
     if (e->stage == FM_ENV_IDLE) return;
     e->stage = FM_ENV_FADE;
-    set_step(e, e->level, samples);
+    e->seg = 0;
+    /* down by a whole step, rounded up so it never takes longer than asked */
+    e->step = -(int32_t)(samples ? ((uint32_t)e->level + samples - 1) / samples
+                                 : (uint32_t)e->level);
+    if (e->step == 0) e->step = -1;
 }
 
 /* Into the DECAY stage: exponential from the current level to sustain, in
@@ -189,183 +181,95 @@ void fm_env_retime(fm_env *e)
 
 int32_t fm_env_next(fm_env *e)
 {
-    int32_t s;
+    int32_t s, d, rem;
+    if (e->seg) { /* inside a segment or a hold: the count alone */
+        e->seg--;
+        return e->level += e->step;
+    }
     switch (e->stage) {
     case FM_ENV_ATTACK:
         /* all comparisons subtract: levels and steps are 0..2^30, so a
          * difference cannot overflow where a sum could. A retrigger above
          * a softer note's peak goes straight to the decay, from where it
          * is, so the level never jumps. */
-        if (e->seg == 0 && !attack_segment(e)) {
+        if (!attack_segment(e)) {
             if (e->level < e->peak) e->level = e->peak;
             enter_decay(e);
             break;
         }
         e->seg--;
-        e->level += fm_env_inc(e);
+        e->level += e->step;
         break;
-    case FM_ENV_DECAY:
+    case FM_ENV_DECAY: /* a segment starts, or the decay lands */
         s = e->sus_level;
-        if (e->seg == 0) { /* a segment starts, or the decay lands */
-            int32_t d = e->level >= s ? e->level - s : s - e->level;
-            if (d <= FM_ENV_FLOOR || e->set->decay_samples == 0) {
-                e->level = s;
-                e->stage = FM_ENV_SUSTAIN;
-                break;
-            }
-            start_segment(e, d, e->set->decay_samples);
-        }
-        e->seg--;
-        if (e->level >= s) {
-            if (e->level - fm_env_reach(e) <= s) {
-                e->level = s;
-                e->stage = FM_ENV_SUSTAIN;
-            } else {
-                e->level -= fm_env_inc(e);
-            }
-        } else if (s - e->level <= fm_env_reach(e)) {
+        d = e->level >= s ? e->level - s : s - e->level;
+        if (d <= FM_ENV_FLOOR || e->set->decay_samples == 0) {
             e->level = s;
             e->stage = FM_ENV_SUSTAIN;
+            hold(e);
+            break;
+        }
+        rem = start_segment(e, d, e->set->decay_samples);
+        if (e->level > s) {
+            e->step = -e->step;
+            rem = -rem;
+        }
+        e->seg--;
+        e->level += e->step + rem;
+        break;
+    case FM_ENV_RELEASE: /* a segment starts, or the release ends */
+        if (e->level <= FM_ENV_FLOOR || e->set->release_samples == 0) {
+            e->level = 0;
+            e->stage = FM_ENV_IDLE;
+            hold(e);
+            break;
+        }
+        rem = start_segment(e, e->level, e->set->release_samples);
+        e->step = -e->step;
+        e->seg--;
+        e->level += e->step - rem;
+        break;
+    case FM_ENV_FADE:
+        if (e->level <= -e->step) {
+            e->level = 0;
+            e->stage = FM_ENV_IDLE;
+            hold(e);
         } else {
-            e->level += fm_env_inc(e);
+            e->level += e->step;
         }
         break;
     case FM_ENV_SUSTAIN: /* holds; fm_env_retime starts a glide on change */
-        break;
-    case FM_ENV_RELEASE:
-        if (e->seg == 0) {
-            if (e->level <= FM_ENV_FLOOR || e->set->release_samples == 0) {
-                e->level = 0;
-                e->stage = FM_ENV_IDLE;
-                break;
-            }
-            start_segment(e, e->level, e->set->release_samples);
-        }
-        e->seg--;
-        if (e->level <= fm_env_reach(e)) {
-            e->level = 0;
-            e->stage = FM_ENV_IDLE;
-        } else {
-            e->level -= fm_env_inc(e);
-        }
-        break;
-    case FM_ENV_FADE:
-        if (e->level <= fm_env_reach(e)) {
-            e->level = 0;
-            e->stage = FM_ENV_IDLE;
-        } else {
-            e->level -= fm_env_inc(e);
-        }
+        hold(e);
         break;
     default:
         e->level = 0;
+        hold(e);
         break;
     }
     return e->level;
 }
 
-/* The step as one Q8 number: step + step_frac / 256. */
-static uint64_t q8_step(const fm_env *e)
-{
-    return ((uint64_t)(uint32_t)e->step << 8) | e->step_frac;
-}
-
-/*
- * Of the next `n` calls (n >= 1) of a stepping stage at distance `d` from
- * its target, how many go by before the one that lands, or `n` when none
- * of them lands. A call lands when the distance left is at most `reach`,
- * and the first j calls move (frac + j x step) >> 8 in Q8, so that is
- * the first j with frac + j x step >= (d - reach) << 8. Without
- * a division when the n calls clearly do not land (the usual case).
- */
-static uint32_t calls_before_landing(const fm_env *e, int32_t d, uint32_t n)
-{
-    int32_t t = d - fm_env_reach(e);
-    uint64_t q = q8_step(e), need, c;
-    if (t <= 0) return 0;
-    need = (uint64_t)(uint32_t)t << 8;
-    if (n <= 65536u && e->frac + (uint64_t)(n - 1) * q < need) return n;
-    c = (need - e->frac + q - 1) / q;
-    return c < n ? (uint32_t)c : n;
-}
-
-/* Moves of `k` stepping calls that do not land: their sum, carrying the
- * fraction as k calls of fm_env_inc would. */
-static int32_t take(fm_env *e, uint32_t k)
-{
-    uint64_t a = e->frac + (uint64_t)k * q8_step(e);
-    e->frac = (uint8_t)a;
-    return (int32_t)(a >> 8);
-}
-
 int32_t fm_env_advance(fm_env *e, uint32_t n)
 {
     while (n > 0) {
-        uint32_t c, m;
-        int32_t d;
-        switch (e->stage) {
-        case FM_ENV_ATTACK:
-            if (e->seg == 0) { /* a segment starts (or the attack lands) */
-                fm_env_next(e);
-                n--;
-                break;
-            }
-            m = n < e->seg ? n : e->seg; /* no segment lands inside itself */
-            e->level += take(e, m);
+        if (e->seg) { /* no segment lands inside itself */
+            uint32_t m = n < e->seg ? n : e->seg;
+            if (e->step == 0) return e->level; /* a hold: sustain or idle */
+            e->level += (int32_t)m * e->step;
             e->seg = (uint8_t)(e->seg - m);
             n -= m;
-            break;
-        case FM_ENV_DECAY:
-            if (e->seg == 0) { /* a segment starts (or the decay lands) */
-                fm_env_next(e);
-                n--;
-                break;
-            }
-            m = n < e->seg ? n : e->seg;
-            d = e->level >= e->sus_level ? e->level - e->sus_level
-                                         : e->sus_level - e->level;
-            c = calls_before_landing(e, d, m);
-            if (c >= m) { /* m calls inside the segment, none lands */
-                int32_t move = take(e, m);
-                e->level += e->level >= e->sus_level ? -move : move;
-                e->seg = (uint8_t)(e->seg - m);
-                n -= m;
-                break;
-            }
-            e->level = e->sus_level;
-            e->stage = FM_ENV_SUSTAIN;
-            return e->level; /* sustain holds */
-        case FM_ENV_SUSTAIN:
-            return e->level;
-        case FM_ENV_RELEASE:
-            if (e->seg == 0) { /* a segment starts (or the release ends) */
-                fm_env_next(e);
-                n--;
-                break;
-            }
-            m = n < e->seg ? n : e->seg;
-            c = calls_before_landing(e, e->level, m);
-            if (c >= m) { /* m calls inside the segment, none lands */
-                e->level -= take(e, m);
-                e->seg = (uint8_t)(e->seg - m);
-                n -= m;
-                break;
-            }
+        } else if (e->stage == FM_ENV_FADE) {
+            /* the calls before the one that lands: level > (j + 1) x step */
+            uint32_t S = (uint32_t)-e->step;
+            uint32_t c = e->level > 0 ? ((uint32_t)e->level - 1) / S : 0;
+            if (n <= c) return e->level -= (int32_t)(n * S);
             e->level = 0;
             e->stage = FM_ENV_IDLE;
+            hold(e);
             return 0;
-        case FM_ENV_FADE:
-            c = calls_before_landing(e, e->level, n);
-            if (c >= n) {
-                e->level -= take(e, n);
-                return e->level;
-            }
-            e->level = 0;
-            e->stage = FM_ENV_IDLE;
-            return 0;
-        default:
-            e->level = 0;
-            return 0;
+        } else { /* a segment starts, or a stage lands */
+            fm_env_next(e);
+            n--;
         }
     }
     return e->level;
