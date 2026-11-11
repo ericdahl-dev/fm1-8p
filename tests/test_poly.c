@@ -454,6 +454,48 @@ TT_TEST(polyphonic_output_does_not_depend_on_block_size)
     }
 }
 
+/* Renders frames [from, to) of `out` (stereo), `block` frames per call. */
+static void render_blocks(int16_t *out, uint32_t from, uint32_t to, uint32_t block)
+{
+    while (from < to) {
+        uint32_t n = to - from < block ? to - from : block;
+        fm_engine_render(&poly, out + 2 * from, n);
+        from += n;
+    }
+}
+
+/*
+ * One voice: a held note, a steal whose key is up before the new note
+ * starts (its release queued for after the steal's fade), a release so
+ * short it ends inside a chunk, then another note on the same voice,
+ * whose oscillators carry on from where the last note left them.
+ */
+static void play_queued_release(int16_t *out, uint32_t block)
+{
+    init_poly(1);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 0);
+    fm_engine_note_on(&poly, 60, 100);
+    render_blocks(out, 0, 1000, block);
+    fm_engine_note_on(&poly, 64, 100); /* steals the voice */
+    fm_engine_note_off(&poly, 64);     /* before it starts: queued */
+    render_blocks(out, 1000, 3000, block);
+    fm_engine_note_on(&poly, 67, 100);
+    render_blocks(out, 3000, 4096, block);
+}
+
+/*
+ * A queued release that ends the note inside a chunk sounds the same,
+ * and leaves the oscillators where they would be, whatever the block
+ * size: the next note on the voice is the same too.
+ */
+TT_TEST(queued_release_ending_mid_chunk_does_not_depend_on_block_size)
+{
+    static int16_t whole[2 * 4096], single[2 * 4096];
+    play_queued_release(whole, 64);
+    play_queued_release(single, 1);
+    TT_CHECK(memcmp(whole, single, sizeof whole) == 0);
+}
+
 static void run_poly_tests(void)
 {
     TT_RUN(every_note_of_a_full_chord_sounds);
@@ -470,4 +512,5 @@ static void run_poly_tests(void)
     TT_RUN(full_chord_at_max_velocity_never_clips);
     TT_RUN(random_playing_stays_bounded_and_ends_silent);
     TT_RUN(polyphonic_output_does_not_depend_on_block_size);
+    TT_RUN(queued_release_ending_mid_chunk_does_not_depend_on_block_size);
 }

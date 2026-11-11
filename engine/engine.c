@@ -716,7 +716,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (i = 0; i < n; i++) e->mix[i] = 0;
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
-                fm_voice_render_add(&e->voices[k], e->mix, n, e->sample_rate,
+                fm_voice_render_add(&e->voices[k], e->mix, e->mix_right, n, e->sample_rate,
                                     e->ticks + 1, e->tick_left);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)

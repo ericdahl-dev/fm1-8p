@@ -607,6 +607,40 @@ TT_TEST(engine_storage_stays_within_its_documented_size)
     TT_CHECK(sizeof(fm_engine) > sizeof(fm_chorus));
 }
 
+/*
+ * The chorus only writes right[]: whatever it holds before (the engine
+ * lends it to the voices as oscillator scratch, fm1_8p.h) does not change
+ * the output. Every mode, poisoned against zeroed, left and right alike.
+ */
+TT_TEST(chorus_block_writes_right_without_reading_it)
+{
+    static fm_chorus clean, dirty;
+    static int32_t l_clean[FM_MIX_FRAMES], r_clean[FM_MIX_FRAMES];
+    static int32_t l_dirty[FM_MIX_FRAMES], r_dirty[FM_MIX_FRAMES];
+    uint32_t seed = 11;
+    int mode, same = 1, chunk;
+    for (mode = 0; mode < FM_CHORUS_MODE_COUNT; mode++) {
+        fm_chorus_init(&clean, CH_RATE);
+        fm_chorus_init(&dirty, CH_RATE);
+        fm_chorus_set_mode(&clean, (uint8_t)mode);
+        fm_chorus_set_mode(&dirty, (uint8_t)mode);
+        for (chunk = 0; chunk < 300; chunk++) {
+            uint32_t i;
+            for (i = 0; i < FM_MIX_FRAMES; i++) {
+                seed = seed * 1664525u + 1013904223u;
+                l_clean[i] = l_dirty[i] = (int32_t)(seed >> 7) - (1 << 24);
+                r_clean[i] = 0;
+                r_dirty[i] = (int32_t)(0xA5A5A5A5u ^ (i * 0x01010101u));
+            }
+            fm_chorus_process_block(&clean, l_clean, r_clean, FM_MIX_FRAMES);
+            fm_chorus_process_block(&dirty, l_dirty, r_dirty, FM_MIX_FRAMES);
+            for (i = 0; i < FM_MIX_FRAMES; i++)
+                if (l_clean[i] != l_dirty[i] || r_clean[i] != r_dirty[i]) same = 0;
+        }
+    }
+    TT_CHECK(same);
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
@@ -624,5 +658,6 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_adds_no_dc_offset);
     TT_RUN(chorus_line_has_headroom_for_the_loudest_mix);
     TT_RUN(chorus_block_matches_sample_by_sample);
+    TT_RUN(chorus_block_writes_right_without_reading_it);
     TT_RUN(chorus_reinit_then_on_starts_from_a_silent_line);
 }

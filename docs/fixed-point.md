@@ -366,7 +366,11 @@ How it works, per sample:
 
 Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 2.1 KiB (2072 bytes on x86-64), inside `fm_engine`, plus the 256-byte
-`mix_right` buffer. With the voices' LFO and velocity state, their sync and
+`mix_right` buffer. `mix_right` doubles as the voices' scratch: before the
+chorus writes it, each voice renders its oscillators' chunk there
+(`fm_voice_render_add` takes it as `osc`, `fm_osc_pair_render` fills it),
+which is safe because the chorus only writes it
+(`chorus_block_writes_right_without_reading_it`). With the voices' LFO and velocity state, their sync and
 cross-mod state, their filters (124 bytes each) and their mix envelope
 settings, that makes `fm_engine` about 5.2 KiB (5200 bytes on the FM-1,
 5400 on x86-64), so
