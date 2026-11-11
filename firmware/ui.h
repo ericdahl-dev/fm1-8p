@@ -48,6 +48,7 @@ typedef struct {
     uint32_t down_ms[UI_BUTTONS];       /* when each button went down */
     int32_t shown_note;                 /* PLAY: the last note as drawn */
     int32_t shown_oct;                  /* the octave as the header shows it */
+    const char *banner;                 /* a short message for the footer ("": none) */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
@@ -90,6 +91,8 @@ uint32_t ui_meter(uint16_t id, int32_t value);
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
+/* the banner's message ("": none) */
+const char *ui_banner(const ui *u);
 /* the UI_D_* bits to redraw now (0: nothing, or the last redraw was under UI_FRAME_MS ago), taken */
 uint32_t ui_take(ui *u, uint32_t ms);
 /* the header's octave, as the host's line reads it ("OCT +1"); s: UI_VALUE_LEN */

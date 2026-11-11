@@ -239,6 +239,7 @@ void ui_init(ui *u, play *p)
         u->down_ms[i] = 0;
     u->shown_note = play_last_note(p);
     u->shown_oct = p->oct;
+    u->banner = "";
 }
 
 static void show_page(ui *u, ui_state st)
@@ -265,6 +266,10 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
 static void browse(ui *u, int32_t clicks)
 {
     int32_t i;
+    if (play_edited(u->p)) {                    /* the first event loads nothing: it warns */
+        u->banner = "EDITED: TURN AGAIN TO DISCARD";
+        return;
+    }
     if (clicks >= 3 || clicks <= -3)          /* a fast turn: 4 */
         clicks = clicks > 0 ? 4 : -4;
     i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
@@ -359,3 +364,5 @@ void ui_slot_number(const ui_slot *sl, char *s)
     s[1] = (char)('0' + sl->num % 10u);
     s[2] = 0;
 }
+
+const char *ui_banner(const ui *u) { return u->banner; }

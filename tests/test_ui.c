@@ -414,8 +414,21 @@ TT_TEST(ui_presets_wrap)
     TT_CHECK(play_patch(&ui_p) == &PATCHES[3]);
 }
 
+/* With edits, the first PRESETS event loads nothing, whatever its clicks, and warns. */
+TT_TEST(ui_presets_with_edits_warns_first)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+    TT_CHECK(play_edited(&ui_p));
+    TT_CHECK(strcmp(ui_banner(&ui_u), "EDITED: TURN AGAIN TO DISCARD") == 0);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_presets_with_edits_warns_first);
     TT_RUN(ui_presets_wrap);
     TT_RUN(ui_presets_fast_turn_moves_four);
     TT_RUN(ui_presets_click_loads_the_next_patch);
