@@ -61,6 +61,9 @@ static inline uint32_t fm_mod_tick(fm_mod *m, const fm_mod_routes *r,
 }
 
 /* The sum at destination `dest`. */
-int32_t fm_mod_get(const fm_mod *m, unsigned dest);
+static inline int32_t fm_mod_get(const fm_mod *m, unsigned dest)
+{
+    return m->sum[dest];
+}
 
 #endif /* FM_MOD_H */

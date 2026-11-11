@@ -16,8 +16,3 @@ void fm_mod_set_route(fm_mod_routes *r, unsigned src, unsigned dest,
 {
     r->depth[src][dest] = depth;
 }
-
-int32_t fm_mod_get(const fm_mod *m, unsigned dest)
-{
-    return m->sum[dest];
-}
