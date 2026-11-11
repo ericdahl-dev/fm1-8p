@@ -283,6 +283,7 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
         return;
     }
     u->warned = 0;
+    u->banner = "";                             /* the warning goes with the edits */
     if (clicks >= 3 || clicks <= -3)          /* a fast turn: 4 */
         clicks = clicks > 0 ? 4 : -4;
     i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
