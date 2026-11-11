@@ -122,7 +122,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | VCF RES, VCF KEY | `filter_resonance_permille`, `filter_key_track_permille` | value x 1000 / 127 |
 | VCF ENV, VCF ENV MODE | `filter_env_amount_cents`, `filter_env_*` | 75 cents per step (127 is about 8 octaves, *est.*), negative when inverted; the filter envelope takes the ADSR of the envelope the mode names (ENV-1 or ENV-2) |
 | ENV-2, VCA MODE | `amp_*` | ENV-2's ADSR. GATE: attack 1 ms, sustain full, release 5 ms, and `PATCH_AMP_GATE` waits for #63 |
-| ENV times | ms | cubic in the value: attack 1..3000 ms, decay and release 2..10000 ms (*est.*). Sustain: value x 1000 / 127 |
+| ENV times | ms | attack: 580 x (2.6^((value - 64) / 16) - 2.6^-4) ms, so 0 is instant, 64 is 0.57 s and 127 is 25 s, measured against PG-8X 2.0.13 (2026-11-10 probe, a held C4 on the VCA: 16 is 19 ms, 64 is 594 ms, 96 is 4.2 s, 127 is 23.8 s, within about 10 % from 32 up). PG-8X's attack is close to a linear ramp, like the engine's. Decay and release: cubic, 2..10000 ms (*est.*). Sustain: value x 1000 / 127 |
 | VCA DYNAMICS | `amp_velocity_pct` | off 0, 1 33, 2 67, 3 100 % |
 | CHORUS | `chorus_mode` | off, I slow, II deep (the factory tones use off and I only) |
 | LFO WAVEFORM | `lfo_wave` | random, square, triangle |

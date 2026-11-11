@@ -233,7 +233,7 @@ Without the block loop it was 9.6, 9.8 and 11.3.
 ### Parameter values
 
 Parameters are plain integers in the unit their name gives, for example
-`amp_attack_ms` 0 to 10000 and `amp_sustain_permille` 0 to 1000. The engine
+`amp_attack_ms` 0 to 30000 and `amp_sustain_permille` 0 to 1000. The engine
 converts them to samples or Q1.30 when they are set, not per sample. The table
 is in `engine/params.c`.
 

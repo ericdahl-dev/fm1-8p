@@ -11,7 +11,7 @@
 
 static const fm_param_info table[FM_PARAM_COUNT] = {
     /* id                       name                  min  max    default */
-    { FM_PARAM_AMP_ATTACK_MS,  "amp_attack_ms",       0, 10000,    5 },
+    { FM_PARAM_AMP_ATTACK_MS,  "amp_attack_ms",       0, 30000,    5 },
     { FM_PARAM_AMP_DECAY_MS,   "amp_decay_ms",        0, 10000,  300 },
     { FM_PARAM_AMP_SUSTAIN,    "amp_sustain_permille", 0, 1000, 700 },
     { FM_PARAM_AMP_RELEASE_MS, "amp_release_ms",      0, 10000,  300 },
@@ -40,7 +40,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
       FM_FILTER_OPEN_CENTS, FM_FILTER_OPEN_CENTS },
     { FM_PARAM_FILTER_RESONANCE, "filter_resonance_permille", 0, 1000, 0 },
     { FM_PARAM_FILTER_KEY_TRACK, "filter_key_track_permille", 0, 1000, 0 },
-    { FM_PARAM_FILTER_ENV_ATTACK_MS,  "filter_env_attack_ms",  0, 10000,   5 },
+    { FM_PARAM_FILTER_ENV_ATTACK_MS,  "filter_env_attack_ms",  0, 30000,   5 },
     { FM_PARAM_FILTER_ENV_DECAY_MS,   "filter_env_decay_ms",   0, 10000, 300 },
     { FM_PARAM_FILTER_ENV_SUSTAIN,    "filter_env_sustain_permille", 0, 1000,
       500 },

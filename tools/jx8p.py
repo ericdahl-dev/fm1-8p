@@ -244,12 +244,17 @@ def permille(v):
 
 def env(p, base):
     """The envelope at base (ENV1 or ENV2) as engine attack ms, decay ms, sustain per mille and
-    release ms. Times are cubic in the knob: attack 1..3000 ms, decay and release 2..10000 ms (an
-    estimate: docs/patches.md)."""
+    release ms. Attack is PG-8X 2.0.13's measured ramp, x2.6 per 16 steps from 0 ms (0) to about
+    25 s (127). Decay and release are cubic, 2..10000 ms (an estimate: docs/patches.md)."""
     def t(v, lo, hi):
         return rnd(lo + (hi - lo) * (v / 127) ** 3)
     a, d, s, r = p[base:base + 4]
-    return t(a, 1, 3000), t(d, 2, 10000), permille(s), t(r, 2, 10000)
+    return attack_ms(a), t(d, 2, 10000), permille(s), t(r, 2, 10000)
+
+
+def attack_ms(v):
+    """ENV ATTACK, 0..127, in ms: 580 x (2.6^((v - 64) / 16) - 2.6^-4), fitted to PG-8X 2.0.13."""
+    return rnd(580 * (2.6 ** ((v - 64) / 16) - 2.6 ** -4))
 
 
 def env_mode(v):

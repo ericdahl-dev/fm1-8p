@@ -196,6 +196,22 @@ TT_TEST(extreme_settings_stay_bounded_and_release)
     TT_CHECK(peak_abs(buf, RATE - 1000, RATE) > 0);
 }
 
+/* JX-8P attacks run to about 25 s (PG-8X 2.0.13's ATTACK 127, docs/patches.md):
+ * a 20 s attack is about half way at 10 s, not clamped short. */
+TT_TEST(amp_attack_runs_to_25_seconds)
+{
+    const uint32_t r = 8000; /* 21 s fits buf at this rate */
+    double half, full;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 20000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_render(&eng, buf, r * 21);
+    half = amp_at(buf, r, 10000), full = amp_at(buf, r, 20900);
+    TT_CHECK(full > 1000);
+    TT_CHECK(half > 0.4 * full && half < 0.6 * full);
+}
+
 /* A zeroed engine (static storage before, or after a failed, init) must
  * not divide by its zero sample rate. */
 TT_TEST(uninitialized_engine_is_silent_and_does_not_divide_by_zero)
@@ -276,6 +292,7 @@ static void run_engine_tests(void)
     TT_RUN(note_on_plays_saw_at_note_pitch);
     TT_RUN(high_saw_note_has_low_aliasing);
     TT_RUN(amp_envelope_follows_adsr_settings);
+    TT_RUN(amp_attack_runs_to_25_seconds);
     TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
     TT_RUN(init_rejects_bad_arguments);
     TT_RUN(all_notes_off_controller_releases_the_note);

@@ -120,15 +120,20 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch("PIANO 1")["HIGHPASS_STEP"], 1)      # 32
         self.assertEqual(patch("WINDCHIMES")["HIGHPASS_STEP"], 2)   # 64
 
-    # VCA mode ENV-2: ENV-2 is the amp envelope. Times are cubic: attack 1..3000 ms, decay and
-    # release 2..10000 ms.
+    # VCA mode ENV-2: ENV-2 is the amp envelope. Decay and release are cubic,
+    # 2..10000 ms.
     def test_env2_is_the_amp_envelope(self):
         e = patch("SOUNDTRACK")                 # ENV-2: 80, 109, 57, 77
-        self.assertEqual(e["AMP_ATTACK_MS"], 751)
+        self.assertEqual(e["AMP_ATTACK_MS"], 1495)
         self.assertEqual(e["AMP_DECAY_MS"], 6323)
         self.assertEqual(e["AMP_SUSTAIN_PERMILLE"], 449)
         self.assertEqual(e["AMP_RELEASE_MS"], 2230)
         self.assertEqual(e["AMP_GATE"], 0)
+
+    # Attack is PG-8X 2.0.13's measured ramp: 580 x (2.6^((v - 64) / 16) - 2.6^-4) ms, so 0 is
+    # instant and each 16 steps is x2.6 (2026-11-10 probe: 16 -> 19 ms, 64 -> 594, 127 -> 23.8 s).
+    def test_attack_follows_pg8x_measured_curve(self):
+        self.assertEqual(patch("SOUNDTRACK")["AMP_ATTACK_MS"], 1495)   # ENV-2 attack 80
 
     # VCA mode GATE (#63): until the engine has it, an amp envelope that is a gate
     def test_gate_mode_is_a_gate_shaped_amp_envelope(self):
@@ -145,7 +150,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["FILTER_ENV_SOURCE"], 3)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 75)
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
-                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (3000, 2793, 425))
+                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (24955, 2793, 425))
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
         self.assertEqual(e["FILTER_ENV_SOURCE"], 2)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 75)
