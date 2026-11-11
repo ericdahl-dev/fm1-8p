@@ -65,7 +65,9 @@ typedef struct {
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
 #define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
-#define UI_DISCARD_MS 2000u             /* PRESETS again within this, the same way: discard and load */
+/* PRESETS again within this, the same way: discard and load. The warning's time on screen, so a turn
+ * never discards with nothing showing (the spec had 2 s against a 1.5 s banner: PR #83 review). */
+#define UI_DISCARD_MS UI_BANNER_MS
 #define UI_FRAME_MS 33u                 /* redraws are at least this far apart (visual.md: 30 a second) */
 
 void ui_init(ui *u, play *p);

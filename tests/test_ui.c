@@ -434,7 +434,7 @@ TT_TEST(ui_presets_again_discards_and_loads)
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 2, 2099);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 2, 99 + UI_DISCARD_MS);
     TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK + 2u]);
     TT_CHECK(!play_edited(&ui_p));
 }
@@ -450,6 +450,22 @@ TT_TEST(ui_presets_discard_takes_the_warning_down)
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 200);
     TT_CHECK(strcmp(ui_banner(&ui_u), "") == 0);
     TT_CHECK_EQ(ui_take(&ui_u, 200) & UI_D_FOOT, UI_D_FOOT);
+}
+
+/* The discard window is the warning's time on screen: once it is gone, PRESETS warns again, so a
+ * turn never discards edits with nothing on screen. */
+TT_TEST(ui_presets_discard_window_is_the_warning_on_screen)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100);
+    (void)ui_take(&ui_u, 100 + UI_BANNER_MS);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100 + UI_BANNER_MS);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+    TT_CHECK(play_edited(&ui_p));
+    TT_CHECK(strcmp(ui_banner(&ui_u), "") != 0);
 }
 
 /* Anything else between the two events cancels the warning: the next PRESETS warns again. */
@@ -509,6 +525,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_patch_number_is_p_and_its_place);
     TT_RUN(ui_presets_load_redraws_the_values_and_keeps_the_page);
     TT_RUN(ui_presets_discard_takes_the_warning_down);
+    TT_RUN(ui_presets_discard_window_is_the_warning_on_screen);
     TT_RUN(ui_banner_shows_for_one_and_a_half_seconds);
     TT_RUN(ui_presets_warning_cancels_on_anything_else);
     TT_RUN(ui_presets_again_discards_and_loads);
