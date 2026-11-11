@@ -426,8 +426,22 @@ TT_TEST(ui_presets_with_edits_warns_first)
     TT_CHECK(strcmp(ui_banner(&ui_u), "EDITED: TURN AGAIN TO DISCARD") == 0);
 }
 
+/* After the warning, a later event the same way within 2 s discards the edits and loads, moving
+ * by that event's clicks. */
+TT_TEST(ui_presets_again_discards_and_loads)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 2, 2099);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK + 2u]);
+    TT_CHECK(!play_edited(&ui_p));
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_presets_again_discards_and_loads);
     TT_RUN(ui_presets_with_edits_warns_first);
     TT_RUN(ui_presets_wrap);
     TT_RUN(ui_presets_fast_turn_moves_four);

@@ -240,6 +240,8 @@ void ui_init(ui *u, play *p)
     u->shown_note = play_last_note(p);
     u->shown_oct = p->oct;
     u->banner = "";
+    u->warned = 0;
+    u->warned_ms = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -263,13 +265,16 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
 }
 
 /* PRESETS: the patch clicks away, wrapping */
-static void browse(ui *u, int32_t clicks)
+static void browse(ui *u, int32_t clicks, uint32_t ms)
 {
-    int32_t i;
-    if (play_edited(u->p)) {                    /* the first event loads nothing: it warns */
-        u->banner = "EDITED: TURN AGAIN TO DISCARD";
+    int32_t i, way = clicks > 0 ? 1 : -1;
+    if (play_edited(u->p) && !(u->warned == way && ms - u->warned_ms < UI_DISCARD_MS)) {
+        u->banner = "EDITED: TURN AGAIN TO DISCARD";    /* the first event loads nothing */
+        u->warned = way;
+        u->warned_ms = ms;
         return;
     }
+    u->warned = 0;
     if (clicks >= 3 || clicks <= -3)          /* a fast turn: 4 */
         clicks = clicks > 0 ? 4 : -4;
     i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
@@ -293,7 +298,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
              u->state == UI_EDIT)
         turn(u, id - UI_ENC_KNOB1, arg);
     else if (ev == (UI_EV_ENC | UI_ENC_PRESETS))
-        browse(u, arg);
+        browse(u, arg, ms);
 }
 
 uint32_t ui_take(ui *u, uint32_t ms)

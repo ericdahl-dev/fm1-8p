@@ -49,6 +49,8 @@ typedef struct {
     int32_t shown_note;                 /* PLAY: the last note as drawn */
     int32_t shown_oct;                  /* the octave as the header shows it */
     const char *banner;                 /* a short message for the footer ("": none) */
+    int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
+    uint32_t warned_ms;                 /* when */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
@@ -60,6 +62,7 @@ typedef struct {
 #define UI_D_ALL    0xF7u               /* all of it */
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
+#define UI_DISCARD_MS 2000u             /* PRESETS again within this, the same way: discard and load */
 #define UI_FRAME_MS 33u                 /* redraws are at least this far apart (visual.md: 30 a second) */
 
 void ui_init(ui *u, play *p);
