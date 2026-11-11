@@ -378,8 +378,7 @@ static void ui_ev(uint32_t ev, int32_t arg)
     case HB_EV_BTN_DOWN:
         if (id == HB_BTN_OCT_DOWN || id == HB_BTN_OCT_UP) {
             play_octave(&P, id == HB_BTN_OCT_UP ? 1 : -1);
-            octave_shown();
-            return;
+            octave_shown();                     /* then to the pages too: it cancels the PRESETS warning */
         }
         break;
     case HB_EV_BTN_UP:
@@ -463,7 +462,8 @@ _Static_assert(UI_BTN_FX == HB_BTN_FX && UI_BTN_SEL == HB_BTN_SEL && UI_BTN_ENV 
                UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_HOME == HB_BTN_HOME,
                "ui.h's buttons are hb_module.h's");
 _Static_assert(UI_ENC_KNOB1 == HB_ENC_KNOB1 && UI_ENC_KNOB2 == HB_ENC_KNOB2 &&
-               UI_ENC_KNOB3 == HB_ENC_KNOB3 && UI_ENC_KNOB4 == HB_ENC_KNOB4,
+               UI_ENC_KNOB3 == HB_ENC_KNOB3 && UI_ENC_KNOB4 == HB_ENC_KNOB4 &&
+               UI_ENC_PRESETS == HB_ENC_PRESETS,
                "ui.h's encoders are hb_module.h's");
 
 /* no release(): init() starts afresh; no cc(): midi() takes every channel message */
