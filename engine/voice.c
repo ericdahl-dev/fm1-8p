@@ -19,8 +19,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->next_pitch = 0;
     v->wait = 0;
     v->gate_left = 0;
-    v->pitch_oct = 0;
-    v->pw_off = 0;
+    fm_mod_reset(&v->mod);
     v->lfo_start = 0;
     v->next_peak = FM_ENV_FULL;
     v->note = 0;
@@ -127,8 +126,8 @@ static void gate_on(fm_voice *v)
 /* The oscillators apply the LFO's current offsets. */
 static void apply_pitch(fm_voice *v)
 {
-    fm_osc_pair_set_pitch_mod(&v->osc, v->pitch_oct);
-    fm_osc_pair_set_pw_mod(&v->osc, v->pw_off);
+    fm_osc_pair_set_pitch_mod(&v->osc, fm_mod_get(&v->mod, FM_MOD_PITCH));
+    fm_osc_pair_set_pw_mod(&v->osc, fm_mod_get(&v->mod, FM_MOD_PW));
 }
 
 /*
@@ -141,8 +140,7 @@ static void apply_pitch(fm_voice *v)
 static void restart_lfo(fm_voice *v, uint32_t now)
 {
     if (v->amp_env.stage != FM_ENV_IDLE) return;
-    v->pitch_oct = 0;
-    v->pw_off = 0;
+    fm_mod_reset(&v->mod);
     v->lfo_start = now;
 }
 
@@ -302,7 +300,7 @@ void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now)
 {
-    int32_t pitch, pw;
+    int32_t src[FM_MOD_SRC_COUNT];
     uint32_t since;
     /* zero for delay_ticks, then up by fade_step a tick to full; kept as
      * a start tick, so a tick without modulation has nothing to count */
@@ -314,15 +312,9 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
         if (fade < FM_LFO_FULL) /* Q1.30 * Q1.30 */
             lfo = (int32_t)(((int64_t)lfo * fade) >> 30);
     }
-    /* Q1.30 * Q16.16 octaves -> Q16.16 octaves */
-    pitch = (int32_t)(((int64_t)lfo * m->pitch_oct) >> 30);
-    /* Q1.30 * Q0.32 -> Q0.32 */
-    pw = (int32_t)(((int64_t)lfo * m->pw) >> 30);
-    if (pitch != v->pitch_oct || pw != v->pw_off) {
-        v->pitch_oct = pitch; /* a fading old note keeps its vibrato */
-        v->pw_off = pw;
-        apply_pitch(v);
-    }
+    src[FM_MOD_SRC_LFO] = lfo;
+    /* a fading old note keeps its vibrato */
+    if (fm_mod_tick(&v->mod, &m->routes, src)) apply_pitch(v);
 }
 
 /* A fading old note retunes too: `pitch` is still its pitch. */
