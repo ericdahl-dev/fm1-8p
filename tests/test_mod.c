@@ -666,6 +666,35 @@ TT_TEST(pitch_env_dynamics_scale_by_velocity)
     TT_CHECK(fabs(pitch_env_dyna_cents(0, 64) - 1600) < 3);
 }
 
+/* The pitch envelope adds to each osc's tuning and the bend, also when
+ * the bend comes while the envelope is held: osc 1 an octave down, 50
+ * cents sharp, bent 2 semitones up and +700 cents of envelope reads -250
+ * cents; osc 2 coarse +3 with +400 reads +900. */
+static double tuned_pitch_env_cents(int32_t mix)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&mod_eng, FM_PARAM_BEND_RANGE, 2);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_OCTAVE, -1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_FINE_CENTS, 50);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_COARSE_SEMIS, 3);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 700);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, 400);
+    fm_engine_note_on(&mod_eng, 69, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 5);
+    fm_engine_pitch_bend(&mod_eng, 16383);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 100, 300), note_hz(69));
+}
+
+TT_TEST(pitch_env_adds_to_tuning_and_bend)
+{
+    TT_CHECK(fabs(tuned_pitch_env_cents(0) + 250) < 3);
+    TT_CHECK(fabs(tuned_pitch_env_cents(1000) - 900) < 3);
+}
+
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
     /* the delay ran out at 0.5 s whether or not a depth was set then */
@@ -703,5 +732,6 @@ static void run_mod_tests(void)
     TT_RUN(pitch_env_is_linear_in_the_level);
     TT_RUN(pitch_env_from_the_amp_envelope_ignores_velocity);
     TT_RUN(pitch_env_dynamics_scale_by_velocity);
+    TT_RUN(pitch_env_adds_to_tuning_and_bend);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }
