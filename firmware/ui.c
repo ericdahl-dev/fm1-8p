@@ -287,6 +287,7 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
         clicks = clicks > 0 ? 4 : -4;
     i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
     play_load_patch(u->p, (uint32_t)(i + (int32_t)PATCH_COUNT) % PATCH_COUNT);
+    u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
 }
 
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)

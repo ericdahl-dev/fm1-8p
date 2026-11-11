@@ -466,8 +466,24 @@ TT_TEST(ui_banner_shows_for_one_and_a_half_seconds)
     TT_CHECK(strcmp(ui_banner(&ui_u), "") == 0);
 }
 
+/* A load keeps the page and the focus, and redraws everything below the header: the values, the
+ * curve and the footer's patch. */
+TT_TEST(ui_presets_load_redraws_the_values_and_keeps_the_page)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, -1, 0);           /* back to the stored value */
+    (void)ui_take_full(&ui_u, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1000);
+    TT_CHECK_EQ(ui_take(&ui_u, 1000), (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_u.focus, 3u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_presets_load_redraws_the_values_and_keeps_the_page);
     TT_RUN(ui_banner_shows_for_one_and_a_half_seconds);
     TT_RUN(ui_presets_warning_cancels_on_anything_else);
     TT_RUN(ui_presets_again_discards_and_loads);
