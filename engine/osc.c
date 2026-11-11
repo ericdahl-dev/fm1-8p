@@ -599,6 +599,12 @@ int32_t fm_osc_pair_next(fm_osc_pair *p)
     return a + (int32_t)(((int64_t)(b - a) * p->mix) >> 30);
 }
 
+/* a + (b - a) * mix, mix Q1.30: fm_osc_pair_next's blend of the two. */
+static inline int32_t blend(int32_t a, int32_t b, int32_t mix)
+{
+    return a + (int32_t)(((int64_t)(b - a) * mix) >> 30);
+}
+
 /*
  * Oscillator `which`'s next `n` samples (no sync), its wave chosen once:
  * into out[] when `mix` is 0, else blended into what out[] holds (osc1)
@@ -619,26 +625,26 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
         int32_t g = p->pw_gain[which];
         for (i = 0; i < n; i++, t += dt) {
             b = (int32_t)(((int64_t)(saw_at(t, dt) - saw_at(t + w, dt)) * g) >> 30);
-            out[i] = mix ? out[i] + (int32_t)(((int64_t)(b - out[i]) * mix) >> 30) : b;
+            out[i] = mix ? blend(out[i], b, mix) : b;
         }
         break;
     }
     case FM_WAVE_SQUARE:
         for (i = 0; i < n; i++, t += dt) {
             b = saw_at(t, dt) - saw_at(t + 0x80000000u, dt);
-            out[i] = mix ? out[i] + (int32_t)(((int64_t)(b - out[i]) * mix) >> 30) : b;
+            out[i] = mix ? blend(out[i], b, mix) : b;
         }
         break;
     case FM_WAVE_NOISE:
         for (i = 0; i < n; i++, t += dt) {
             b = noise_next(p);
-            out[i] = mix ? out[i] + (int32_t)(((int64_t)(b - out[i]) * mix) >> 30) : b;
+            out[i] = mix ? blend(out[i], b, mix) : b;
         }
         break;
     default:
         for (i = 0; i < n; i++, t += dt) {
             b = saw_at(t, dt);
-            out[i] = mix ? out[i] + (int32_t)(((int64_t)(b - out[i]) * mix) >> 30) : b;
+            out[i] = mix ? blend(out[i], b, mix) : b;
         }
         break;
     }
