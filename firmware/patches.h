@@ -1,6 +1,6 @@
 /* fm1-8p patches: the 32 JX-8P factory tones, converted to engine values by tools/jx8p.py
- * (firmware/patches.c is generated; docs/patches.md has the source and the mapping). Plain C, no
- * host code. */
+ * (firmware/patches.c is generated; docs/patches.md has the source and the mapping; the logic is by
+ * hand in firmware/patch.c). Plain C, no host code. */
 #ifndef PATCHES_H
 #define PATCHES_H
 #include <stdint.h>
