@@ -69,6 +69,8 @@ typedef struct {
     fm_mod_routes routes; /* source -> destination depths (mod.h) */
     uint32_t delay_ticks; /* LFO delay, and fade-in time, in ticks */
     int32_t fade_step;    /* Q1.30 fade-in per tick after the delay */
+    uint8_t penv_amp;     /* the pitch envelope follows envelope 2 (amp),
+                           * else envelope 1 (filter) */
 } fm_voice_mod;
 
 /* Idle, with the filter open. `seed` starts the voice's noise; give each

@@ -619,6 +619,30 @@ TT_TEST(pitch_env_is_linear_in_the_level)
     TT_CHECK(fabs(cents(hz_between(mod_buf, 300, 500), note_hz(57)) - 800) < 3);
 }
 
+/* pitch_env_source 1 follows envelope 2, the amp envelope's share of the
+ * note's peak: held at half, +1600 cents reads +800 at any velocity
+ * (envelope 1 held at 0 would give none). */
+static double pitch_env_amp_cents(uint8_t velocity)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_DECAY_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_SUSTAIN, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_SOURCE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 1600);
+    fm_engine_note_on(&mod_eng, 57, velocity);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 300, 500), note_hz(57));
+}
+
+TT_TEST(pitch_env_from_the_amp_envelope_ignores_velocity)
+{
+    TT_CHECK(fabs(pitch_env_amp_cents(127) - 800) < 3);
+    TT_CHECK(fabs(pitch_env_amp_cents(40) - 800) < 3);
+}
+
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
     /* the delay ran out at 0.5 s whether or not a depth was set then */
@@ -654,5 +678,6 @@ static void run_mod_tests(void)
     TT_RUN(osc2_pitch_env_bends_osc2_only);
     TT_RUN(negative_pitch_env_is_the_mirror);
     TT_RUN(pitch_env_is_linear_in_the_level);
+    TT_RUN(pitch_env_from_the_amp_envelope_ignores_velocity);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }

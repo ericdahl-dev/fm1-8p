@@ -286,6 +286,9 @@ static void apply_param(fm_engine *e, uint16_t id)
                                                              : FM_MOD_PITCH2,
                          v * 65536 / 1200);
         return;
+    case FM_PARAM_PITCH_ENV_SOURCE: /* read at the next tick */
+        e->mod.penv_amp = (uint8_t)(v != 0);
+        return;
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
         return;
     default:
