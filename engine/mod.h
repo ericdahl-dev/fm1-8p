@@ -41,8 +41,24 @@ void fm_mod_set_route(fm_mod_routes *r, unsigned src, unsigned dest,
 
 /* One control tick: sums the sources `src` (FM_MOD_SRC_COUNT values,
  * Q1.30) through the routes `r`. Returns the destinations whose sum
- * changed, bit 1 << dest. */
-uint32_t fm_mod_tick(fm_mod *m, const fm_mod_routes *r, const int32_t *src);
+ * changed, bit 1 << dest. Inline: each voice runs it every tick, and
+ * inline it sits in the voice's code instead of a cache line of its own. */
+static inline uint32_t fm_mod_tick(fm_mod *m, const fm_mod_routes *r,
+                                   const int32_t *src)
+{
+    uint32_t changed = 0;
+    unsigned d;
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++) {
+        /* Q1.30 * depth -> depth's unit */
+        int64_t s = ((int64_t)src[FM_MOD_SRC_LFO] *
+                     r->depth[FM_MOD_SRC_LFO][d]) >> 30;
+        int32_t v = (int32_t)s;
+        if (v != s) v = s < 0 ? INT32_MIN : INT32_MAX; /* clamp, not wrap */
+        if (v != m->sum[d]) changed |= 1u << d;
+        m->sum[d] = v;
+    }
+    return changed;
+}
 
 /* The sum at destination `dest`. */
 int32_t fm_mod_get(const fm_mod *m, unsigned dest);
