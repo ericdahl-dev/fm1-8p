@@ -1304,6 +1304,38 @@ TT_TEST(sustain_changed_mid_decay_heads_there_at_once)
     TT_CHECK(moved > want * 9 / 10 && moved < want * 11 / 10);
 }
 
+/*
+ * The attack charges like PG-8X 2.0.13's (an RC toward 1.6 x the peak,
+ * fitted within 0.4 % of level at bytes 60..127): level = 1.6 x peak x
+ * (1 - e^(-t / tau)), stopping on the peak at t = tau x ln(1.6 / 0.6) =
+ * 0.98 tau, which is the attack time. Fast at first, easing into the top.
+ */
+TT_TEST(attack_charges_toward_1_6_peak_and_stops_on_it)
+{
+    fm_env_settings set = { 4800, 0, 0, FM_ENV_FULL }; /* attack 4800 samples */
+    fm_env e;
+    const double tau = 4800 / log(1.6 / 0.6);
+    uint32_t t, landed = 0;
+    int32_t top = 0;
+    int ok = 1;
+    fm_env_init(&e, &set);
+    fm_env_gate_on(&e);
+    for (t = 1; t <= 6000; t++) {
+        fm_env_next(&e);
+        if (e.level > top) top = e.level;
+        if (!landed && e.stage != FM_ENV_ATTACK) landed = t;
+        if (e.stage == FM_ENV_ATTACK && (t == 480 || t == 1200 || t == 2400 || t == 3600)) {
+            double want = 1.6 * (1 - exp(-(double)t / tau));
+            double got = (double)e.level / FM_ENV_FULL;
+            if (fabs(got - want) > 0.004) ok = 0;
+            printf("    t %4u: level %.4f, RC %.4f\n", (unsigned)t, got, want);
+        }
+    }
+    TT_CHECK(ok);
+    TT_CHECK(landed >= 4800 - 48 && landed <= 4800 + 48); /* on the peak at the attack time */
+    TT_CHECK_EQ(top, FM_ENV_FULL);                        /* and never past it */
+}
+
 TT_TEST(env_long_quiet_attack_lands_on_time)
 {
     static fm_env_settings s;
@@ -1956,6 +1988,7 @@ static void run_filter_tests(void)
     TT_RUN(env_init_gives_an_envelope_its_settings);
     TT_RUN(exponential_release_stays_on_its_curve);
     TT_RUN(sustain_changed_mid_decay_heads_there_at_once);
+    TT_RUN(attack_charges_toward_1_6_peak_and_stops_on_it);
     TT_RUN(env_long_quiet_attack_lands_on_time);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);

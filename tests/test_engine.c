@@ -61,9 +61,9 @@ TT_TEST(amp_envelope_follows_adsr_settings)
 
     full = amp_at(buf, RATE, 101);
     TT_CHECK(full > 10000);
-    /* attack: linear 0 -> full over 100 ms */
-    TT_CHECK_NEAR(amp_at(buf, RATE, 50) / full, 0.5, 0.04);
-    TT_CHECK(amp_at(buf, RATE, 92) / full < 0.95);
+    /* attack: an RC charge toward 1.6 x full, on full at 100 ms (62 % half way) */
+    TT_CHECK_NEAR(amp_at(buf, RATE, 50) / full, 0.620, 0.04);
+    TT_CHECK(amp_at(buf, RATE, 85) / full < 0.95);
     /* decay: exponential toward 50 %, tau 200 ms: 50 % + 50 % x e^(-t / tau) */
     TT_CHECK_NEAR(amp_at(buf, RATE, 203) / full, 0.803, 0.03);
     TT_CHECK_NEAR(amp_at(buf, RATE, 303) / full, 0.684, 0.03);
@@ -199,7 +199,8 @@ TT_TEST(extreme_settings_stay_bounded_and_release)
 }
 
 /* JX-8P attacks run to about 25 s (PG-8X 2.0.13's ATTACK 127, docs/patches.md):
- * a 20 s attack is half way at 10 s, not clamped short. Reads the amp
+ * a 20 s attack is at 62 % at 10 s (the RC charge: 1.6 x (1 - e^(-0.49))),
+ * not clamped short. Reads the amp
  * envelope's level, so the wave's phase does not matter. */
 TT_TEST(amp_attack_runs_to_25_seconds)
 {
@@ -211,8 +212,8 @@ TT_TEST(amp_attack_runs_to_25_seconds)
     peak = eng.voices[0].amp_env.peak;
     fm_engine_render(&eng, buf, r * 10);
     TT_CHECK_EQ(eng.voices[0].amp_env.stage, FM_ENV_ATTACK);
-    TT_CHECK(eng.voices[0].amp_env.level > peak / 100 * 49 &&
-             eng.voices[0].amp_env.level < peak / 100 * 51);
+    TT_CHECK(eng.voices[0].amp_env.level > peak / 100 * 61 &&
+             eng.voices[0].amp_env.level < peak / 100 * 63);
 }
 
 /* Release is exponential, as PG-8X's: the release time is its time constant

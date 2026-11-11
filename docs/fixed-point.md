@@ -144,7 +144,9 @@ resonant 4-pole (24 dB/octave) lowpass.
   resonate. Turning it on clears that lowpass, so the output starts equal to
   the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
   and 560 Hz (6 dB/octave).
-- **Envelope curves.** Attack is a straight line. Decay (toward sustain) and
+- **Envelope curves.** Attack charges like an RC toward 1.6 x the peak (as
+  PG-8X 2.0.13's, fitted within 0.4 % of level) and stops on the peak at the
+  attack time, 0.98 of its tau. Decay (toward sustain) and
   release (toward 0) are exponential, the time setting being the time
   constant tau, drawn as straight segments of at most 64 samples (tau / 8 when
   shorter), each ending on the curve: within 0.02 dB of e^(-t / tau) down to

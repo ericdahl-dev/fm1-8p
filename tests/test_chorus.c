@@ -27,9 +27,10 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
  * span / time in Q8, not rounded up to a whole number, so every envelope moves a
  * little differently; the chorus-off path is unchanged), and again when decay
  * and release became exponential (#99: the decay and release times are now time
- * constants, so the phrase's envelopes take a different curve).
+ * constants, so the phrase's envelopes take a different curve), and when the
+ * attack became an RC charge toward 1.6 x the peak, as PG-8X's.
  */
-#define CH_GOLDEN_HASH 0x2EFD338Du
+#define CH_GOLDEN_HASH 0x8FD49489u
 
 /*
  * set_mode: set chorus_mode to `mode` before the phrase. was_on: first

@@ -108,9 +108,10 @@ static inline int32_t fm_env_step(fm_env *e)
     switch (e->stage) {
     case FM_ENV_SUSTAIN:
         return e->level;
-    case FM_ENV_ATTACK:
-        if (e->peak - e->level > fm_env_reach(e)) return e->level += fm_env_inc(e);
-        break;
+    case FM_ENV_ATTACK: /* its segments stop short of the peak */
+        if (e->seg == 0) break;
+        e->seg--;
+        return e->level += fm_env_inc(e);
     /* Decay and release: a segment never lands inside itself (it starts
      * more than FM_ENV_FLOOR from its target and moves at most 2/3 of
      * that), so inside one the count alone decides; fm_env_next starts the
