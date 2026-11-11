@@ -89,6 +89,7 @@ typedef enum {
     FM_PARAM_PITCH_ENV_OSC1_CENTS, /* osc 1's pitch at full envelope, signed */
     FM_PARAM_PITCH_ENV_OSC2_CENTS, /* osc 2's */
     FM_PARAM_PITCH_ENV_SOURCE, /* the envelope it follows: 0 filter, 1 amp */
+    FM_PARAM_PITCH_ENV_DYNA, /* DYNAMICS 0 (off) .. 3: velocity scales it */
     FM_PARAM_COUNT
 } fm_param_id;
 

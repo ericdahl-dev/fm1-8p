@@ -8,6 +8,7 @@
 #include <assert.h>
 #endif
 #include "voice.h"
+#include "dyna.h"
 
 /* Keeps a control-rate step inside the render loop that runs it: a call
  * there saves and restores every register, which costs more than the
@@ -40,6 +41,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     fm_mod_reset(&v->mod);
     v->lfo_start = 0;
     v->next_peak = FM_ENV_FULL;
+    v->velocity = v->next_velocity = 127;
     v->note = 0;
     v->old_note = 0;
     v->key_down = 0;
@@ -193,8 +195,9 @@ static void restart_lfo(fm_voice *v, uint32_t now)
  * key came up while it waited for a steal fade queues its release for as
  * long as it waited, so it is heard rather than released at level 0. */
 static void start(fm_voice *v, const fm_voice_mod *m, uint32_t sample_rate,
-                  int32_t peak, uint32_t now)
+                  int32_t peak, uint8_t velocity, uint32_t now)
 {
+    v->velocity = velocity;
     v->pending = 0;
     fm_voice_mark(v, FM_BUSY_STEAL, 0);
     v->ctrl_phase = 0; /* the new note's cutoff from its first sample */
@@ -225,16 +228,18 @@ static void hold(fm_voice *v, uint8_t note, int32_t pitch)
 }
 
 void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
-                      int32_t pitch, int32_t peak, uint32_t now,
-                      uint32_t sample_rate, uint32_t fade_samples)
+                      int32_t pitch, int32_t peak, uint8_t velocity,
+                      uint32_t now, uint32_t sample_rate,
+                      uint32_t fade_samples)
 {
     int same = fm_voice_active(v) && v->note == note;
     uint8_t old = v->note;
     hold(v, note, pitch);
     v->next_peak = peak;
+    v->next_velocity = velocity;
     if (v->pending) return; /* starts when the fade ends */
     if (same || v->amp_env.stage == FM_ENV_IDLE) {
-        start(v, m, sample_rate, peak, now);
+        start(v, m, sample_rate, peak, velocity, now);
     } else {
         v->old_note = old;
         v->pending = 1;
@@ -245,23 +250,31 @@ void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
 }
 
 void fm_voice_take_back(fm_voice *v, const fm_voice_mod *m, int32_t pitch,
-                        int32_t peak, uint32_t now, uint32_t sample_rate)
+                        int32_t peak, uint8_t velocity, uint32_t now,
+                        uint32_t sample_rate)
 {
     hold(v, v->old_note, pitch);
-    start(v, m, sample_rate, peak, now); /* next_peak stays the dropped note's */
+    /* next_peak and next_velocity stay the dropped note's */
+    start(v, m, sample_rate, peak, velocity, now);
 }
 
 void fm_voice_change_note(fm_voice *v, const fm_voice_mod *m, uint8_t note,
-                          int32_t pitch, int32_t peak, uint32_t now,
-                          uint32_t sample_rate, int retrigger)
+                          int32_t pitch, int32_t peak, uint8_t velocity,
+                          uint32_t now, uint32_t sample_rate, int retrigger)
 {
     hold(v, note, pitch);
-    if (retrigger) v->next_peak = peak;
+    if (retrigger) {
+        v->next_peak = peak;
+        v->next_velocity = velocity;
+    }
     if (v->pending) return; /* starts when the fade ends */
     if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
         restart_lfo(v, now); /* before the gate: it checks for silence */
         apply_pitch(v);
-        if (retrigger) set_level(v, m, peak); /* legato keeps its own */
+        if (retrigger) { /* legato keeps its own */
+            set_level(v, m, peak);
+            v->velocity = velocity;
+        }
         gate_on(v); /* both envelopes */
     }
     v->pitch = pitch;
@@ -363,9 +376,14 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
     }
     fm_mod_set_source(&v->mod, FM_MOD_SRC_LFO, lfo);
     if (fm_mod_source_routed(&m->routes, FM_MOD_SRC_PENV))
-        fm_mod_set_source(&v->mod, FM_MOD_SRC_PENV,
-                          m->penv_amp ? amp_share(v, v->amp_env.level)
-                                      : filter_env_level(v));
+    {
+        int32_t penv = m->penv_amp ? amp_share(v, v->amp_env.level)
+                                   : filter_env_level(v);
+        if (m->penv_dyna) /* Q1.30 * Q15 share */
+            penv = (int32_t)(((int64_t)penv *
+                              fm_dyna_share_q15(m->penv_dyna, v->velocity)) >> 15);
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_PENV, penv);
+    }
     /* a fading old note keeps its vibrato */
     apply_mod(v, fm_mod_tick(&v->mod, &m->routes));
 }
@@ -473,7 +491,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
             if (!v->pending) return;
             if (i >= tick_left)
                 now += ((i - tick_left) >> FM_LFO_TICK_SHIFT) + 1;
-            start(v, m, sample_rate, v->next_peak, now);
+            start(v, m, sample_rate, v->next_peak, v->next_velocity, now);
         }
         if (v->gate_left && --v->gate_left == 0) { /* the queued release */
             fm_voice_mark(v, FM_BUSY_GATE, 0);

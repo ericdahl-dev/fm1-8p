@@ -48,6 +48,8 @@ typedef struct {
                              * (after a steal fade, as next_pitch) */
     uint8_t ctrl_phase;     /* samples until the next cutoff update */
     uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
+    uint8_t velocity;       /* the sounding note's MIDI velocity */
+    uint8_t next_velocity;  /* `note`'s, kept beside next_peak */
     /* filter: settings copied from the engine's parameters, and state */
     fm_filter filter;
     fm_env filter_env;
@@ -71,6 +73,7 @@ typedef struct {
     int32_t fade_step;    /* Q1.30 fade-in per tick after the delay */
     uint8_t penv_amp;     /* the pitch envelope follows envelope 2 (amp),
                            * else envelope 1 (filter) */
+    uint8_t penv_dyna;    /* its DYNAMICS position (dyna.h), 0 off */
 } fm_voice_mod;
 
 /* Idle, with the filter open. `seed` starts the voice's noise; give each
@@ -99,7 +102,8 @@ int fm_voice_active(const fm_voice *v);
  * `peak`, the velocity source, summed with the voice's other sources).
  *
  * Plays `note` at `pitch` (Q16.16 semitones) with amp envelope peak
- * `peak` (Q1.30, from its velocity). An idle voice starts it at
+ * `peak` (Q1.30, from its MIDI `velocity`, which the voice keeps for the
+ * DYNAMICS of its other depths). An idle voice starts it at
  * once, and a voice already playing the same note retriggers its attack
  * from the current level. Any other sounding voice is stolen: the old
  * note fades out over `fade_samples`, then the new one starts. A voice
@@ -108,32 +112,35 @@ int fm_voice_active(const fm_voice *v);
  * for the fade time (as long as it waited) and then releases.
  */
 void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
-                      int32_t pitch, int32_t peak, uint32_t now,
-                      uint32_t sample_rate, uint32_t fade_samples);
+                      int32_t pitch, int32_t peak, uint8_t velocity,
+                      uint32_t now, uint32_t sample_rate,
+                      uint32_t fade_samples);
 
 /*
  * Takes a voice that is fading out a stolen note back for that note
  * (`old_note`, played again): the steal is called off and the note
- * restarts its attack from the current level at `pitch` and `peak`. The
- * note that was waiting for the fade is dropped; the caller can give it
- * another voice, at the peak still in `next_peak`.
+ * restarts its attack from the current level at `pitch`, `peak` and
+ * `velocity`. The note that was waiting for the fade is dropped; the
+ * caller can give it another voice, at the peak and velocity still in
+ * `next_peak` and `next_velocity`.
  */
 void fm_voice_take_back(fm_voice *v, const fm_voice_mod *m, int32_t pitch,
-                        int32_t peak, uint32_t now, uint32_t sample_rate);
+                        int32_t peak, uint8_t velocity, uint32_t now,
+                        uint32_t sample_rate);
 
 /*
  * Moves the voice to `note` at `pitch` (Q16.16 semitones) without a steal fade (unison mode,
  * where every voice follows one note). The oscillator keeps its phase,
  * so the pitch changes without a jump. With `retrigger` the amp and
  * filter envelopes restart their attack from the current level (the amp
- * envelope toward `peak`); without, they carry on (legato) and `peak` is
- * ignored, unless the voice was idle. Either way the filter's key
+ * envelope toward `peak`, at `velocity`); without, they carry on (legato)
+ * and `peak` and `velocity` are ignored, unless the voice was idle. Either way the filter's key
  * tracking follows `note` at once. A voice still fading out a stolen poly
  * note starts `note` when the fade ends.
  */
 void fm_voice_change_note(fm_voice *v, const fm_voice_mod *m, uint8_t note,
-                          int32_t pitch, int32_t peak, uint32_t now,
-                          uint32_t sample_rate, int retrigger);
+                          int32_t pitch, int32_t peak, uint8_t velocity,
+                          uint32_t now, uint32_t sample_rate, int retrigger);
 
 /* The key came up: hold the note if the pedal is down, else release. */
 void fm_voice_key_up(fm_voice *v, int pedal_down);

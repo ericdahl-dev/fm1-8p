@@ -1,3 +1,4 @@
+#include "../engine/dyna.h"
 /* LFO routing and velocity, through the engine's public interface. */
 
 #define MOD_RATE 44100u
@@ -643,6 +644,28 @@ TT_TEST(pitch_env_from_the_amp_envelope_ignores_velocity)
     TT_CHECK(fabs(pitch_env_amp_cents(40) - 800) < 3);
 }
 
+/* DCO DYNAMICS: the note's velocity scales the pitch envelope by the
+ * shared DYNAMICS curve (engine/dyna.c): position 2 at velocity 64 plays
+ * fm_dyna_share_q15(2, 64) of +1600 cents; position 0 plays all of it. */
+static double pitch_env_dyna_cents(int32_t dyna, uint8_t velocity)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 1600);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_DYNA, dyna);
+    fm_engine_note_on(&mod_eng, 57, velocity);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 300, 500), note_hz(57));
+}
+
+TT_TEST(pitch_env_dynamics_scale_by_velocity)
+{
+    double want = 1600.0 * fm_dyna_share_q15(2, 64) / 32768.0;
+    TT_CHECK(fabs(pitch_env_dyna_cents(2, 64) - want) < 3);
+    TT_CHECK(fabs(pitch_env_dyna_cents(0, 64) - 1600) < 3);
+}
+
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
     /* the delay ran out at 0.5 s whether or not a depth was set then */
@@ -679,5 +702,6 @@ static void run_mod_tests(void)
     TT_RUN(negative_pitch_env_is_the_mirror);
     TT_RUN(pitch_env_is_linear_in_the_level);
     TT_RUN(pitch_env_from_the_amp_envelope_ignores_velocity);
+    TT_RUN(pitch_env_dynamics_scale_by_velocity);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }
