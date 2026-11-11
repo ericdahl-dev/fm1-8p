@@ -37,7 +37,7 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench bench-full test check check-float-free check-fm1-build check-patches render-demo clean
+.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches render-demo clean
 
 all: $(RENDER) $(BENCH)
 
@@ -62,8 +62,9 @@ $(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) tests
 	$(CC) $(STD) -Wall -Wextra -Werror -Wno-unused-function $(CFLAGS) \
 		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@
 
+# Through tools/run-tests.sh: an empty binary, or one that reports no tests, fails.
 test: $(BUILD)/run-tests
-	./$(BUILD)/run-tests
+	sh tools/run-tests.sh ./$(BUILD)/run-tests
 
 # The engine must pass; each canary (a float or heap use added to the
 # engine sources) must make the same check fail.
@@ -81,10 +82,13 @@ check-float-free:
 check-fm1-build:
 	sh tests/test_fm1_build.sh
 
+check-runner:
+	sh tests/test_run_tests.sh
+
 check-patches:
 	python3 -m unittest discover -s tests -p 'test_*.py'
 
-check: test check-float-free check-fm1-build check-patches
+check: test check-runner check-float-free check-fm1-build check-patches
 
 render-demo: $(RENDER)
 	./$(RENDER) examples/demo.mid $(BUILD)/demo.wav
