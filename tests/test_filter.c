@@ -1060,7 +1060,8 @@ static int32_t env_level(uint32_t *seed)
 }
 
 /*
- * fm_env_advance(e, n) is n calls of fm_env_next(e) at once: random
+ * fm_env_advance(e, n) is n calls of fm_env_next(e) at once, returning
+ * what the last of them returns (the level, when n is 0): random
  * envelopes through every stage (gate on at a random peak, as velocity
  * sets it, retime, gate off, fade), with random advance lengths, against
  * stepping one sample at a time. Peaks and sustains span the whole range
@@ -1098,11 +1099,13 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
                 break;
             default: break;
             }
-            fm_env_advance(&a, n);
-            for (k = 0; k < n; k++) fm_env_next(&b);
-            if (a.level != b.level || a.stage != b.stage ||
-                a.step != b.step)
-                mismatches++;
+            {
+                int32_t got = fm_env_advance(&a, n), last = b.level;
+                for (k = 0; k < n; k++) last = fm_env_next(&b);
+                if (got != last || a.level != b.level || a.stage != b.stage ||
+                    a.step != b.step)
+                    mismatches++;
+            }
         }
     }
 #undef ENV_RAND
