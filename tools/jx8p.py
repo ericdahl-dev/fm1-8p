@@ -245,11 +245,18 @@ def permille(v):
 def env(p, base):
     """The envelope at base (ENV1 or ENV2) as engine attack ms, decay ms, sustain per mille and
     release ms. Attack is PG-8X 2.0.13's measured ramp, x2.52 per 16 steps from 1 ms (0) to about
-    24 s (127). Decay and release are cubic, 2..10000 ms (an estimate: docs/patches.md)."""
-    def t(v, lo, hi):
-        return rnd(lo + (hi - lo) * (v / 127) ** 3)
+    24 s (127). Decay and release are exponential on both, and their engine times are the time
+    constant (decay_ms)."""
     a, d, s, r = p[base:base + 4]
-    return attack_ms(a), t(d, 2, 10000), permille(s), t(r, 2, 10000)
+    return attack_ms(a), decay_ms(d), permille(s), decay_ms(r)
+
+
+def decay_ms(v):
+    """ENV DECAY or RELEASE, 0..127, as the engine's time constant tau in ms: 9.884 x (2.6717^(v /
+    16) - 0.1327), fitted to PG-8X 2.0.13's t_20dB / ln 10 (within 7 % from 16 up, decay and release
+    alike): x2.67 per 16 steps, 127 about 24.6 s. 0 is 9 ms (PG-8X's is not exponential there:
+    t_20dB 5-10 ms)."""
+    return rnd(9.884 * (2.6717 ** (v / 16) - 0.1327))
 
 
 def attack_ms(v):

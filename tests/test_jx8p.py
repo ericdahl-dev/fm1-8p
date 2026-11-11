@@ -125,9 +125,9 @@ class MapTest(unittest.TestCase):
     def test_env2_is_the_amp_envelope(self):
         e = patch("SOUNDTRACK")                 # ENV-2: 80, 109, 57, 77
         self.assertEqual(e["AMP_ATTACK_MS"], 1573)
-        self.assertEqual(e["AMP_DECAY_MS"], 6323)
+        self.assertEqual(e["AMP_DECAY_MS"], 7986)   # tau (decay_ms)
         self.assertEqual(e["AMP_SUSTAIN_PERMILLE"], 449)
-        self.assertEqual(e["AMP_RELEASE_MS"], 2230)
+        self.assertEqual(e["AMP_RELEASE_MS"], 1118)   # tau
         self.assertEqual(e["AMP_GATE"], 0)
 
     # Attack follows PG-8X 2.0.13's ramp, measured 2026-11-10 (held C4 on the VCA, 10-90 %
@@ -146,6 +146,21 @@ class MapTest(unittest.TestCase):
         self.assertEqual(times, sorted(times))
         self.assertLessEqual(times[127], 30000)
 
+    # ENV DECAY and RELEASE as PG-8X 2.0.13 plays them (match.py --param ENV2_DECAY / ENV2_REL,
+    # 2026-11-10): exponential, so the engine's time is the time constant tau = t_20dB / ln 10
+    PG8X_DECAY_TAU_MS = {16: 26, 32: 74, 48: 187, 64: 506, 80: 1333, 96: 3589, 112: 9644, 127: 24468}
+    PG8X_RELEASE_TAU_MS = {16: 24, 32: 69, 48: 182, 64: 493, 80: 1335, 96: 3570, 112: 9617}
+
+    def test_decay_and_release_are_pg8x_time_constants(self):
+        for table in (self.PG8X_DECAY_TAU_MS, self.PG8X_RELEASE_TAU_MS):
+            for v, ms in table.items():
+                self.assertLess(abs(jx8p.decay_ms(v) / ms - 1), 0.08, (v, jx8p.decay_ms(v), ms))
+        e = patch("SOUNDTRACK")                 # ENV-2: decay 109, release 77
+        self.assertEqual((e["AMP_DECAY_MS"], e["AMP_RELEASE_MS"]), (jx8p.decay_ms(109), jx8p.decay_ms(77)))
+        times = [jx8p.decay_ms(v) for v in range(128)]
+        self.assertEqual(times, sorted(times))
+        self.assertLessEqual(times[127], 30000)
+
     # VCA mode GATE (#63): until the engine has it, an amp envelope that is a gate
     def test_gate_mode_is_a_gate_shaped_amp_envelope(self):
         e = patch("E. BASS")                    # VCA mode 0
@@ -161,7 +176,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["FILTER_ENV_SOURCE"], 3)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 75)
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
-                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (23977, 2793, 425))
+                          e["FILTER_ENV_SUSTAIN_PERMILLE"]), (23977, 1616, 425))   # decay: tau
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
         self.assertEqual(e["FILTER_ENV_SOURCE"], 2)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 75)

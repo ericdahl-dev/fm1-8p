@@ -144,6 +144,13 @@ resonant 4-pole (24 dB/octave) lowpass.
   resonate. Turning it on clears that lowpass, so the output starts equal to
   the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
   and 560 Hz (6 dB/octave).
+- **Envelope curves.** Attack is a straight line. Decay (toward sustain) and
+  release (toward 0) are exponential, the time setting being the time
+  constant tau, drawn as straight segments of at most 64 samples (tau / 8 when
+  shorter), each ending on the curve: within 0.02 dB of e^(-t / tau) down to
+  -60 dB for tau from 40 samples to 1 s at 48 kHz (`tests/test_filter.c`
+  `exponential_release_stays_on_its_curve`). A release goes idle below -80 dB
+  (`FM_ENV_FLOOR`), a decay lands on sustain within it.
 - **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
   amp envelope; its amount is -9600 to +9600 cents (8 octaves either way).
   It starts where the amp envelope does: from 0 on an idle voice or after a
