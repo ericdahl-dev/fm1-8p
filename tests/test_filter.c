@@ -1266,6 +1266,35 @@ TT_TEST(env_advance_retrigger_above_a_soft_peak_goes_to_decay)
 }
 
 /* The patch of the skipped-envelope test, with filter env amount `amount`. */
+/*
+ * A reference envelope beside an engine's voice 0: a copy of its envelope
+ * (filter or amp) with settings of its own, worked out here from the
+ * engine's param values, so the reference does not read what the engine
+ * wrote. Call again after a setting changes (ref_settings alone).
+ */
+static fm_env_settings ref_set;
+
+static void ref_settings(const fm_engine *e, int filter)
+{
+    const int32_t *p = e->params;
+    uint32_t r = e->sample_rate;
+    ref_set.attack_samples = fm_ms_to_samples(
+        p[filter ? FM_PARAM_FILTER_ENV_ATTACK_MS : FM_PARAM_AMP_ATTACK_MS], r);
+    ref_set.decay_samples = fm_ms_to_samples(
+        p[filter ? FM_PARAM_FILTER_ENV_DECAY_MS : FM_PARAM_AMP_DECAY_MS], r);
+    ref_set.sustain = fm_permille_to_q30(
+        p[filter ? FM_PARAM_FILTER_ENV_SUSTAIN : FM_PARAM_AMP_SUSTAIN]);
+    ref_set.release_samples = fm_ms_to_samples(
+        p[filter ? FM_PARAM_FILTER_ENV_RELEASE_MS : FM_PARAM_AMP_RELEASE_MS], r);
+}
+
+static void ref_beside(fm_env *ref, const fm_engine *e, int filter)
+{
+    *ref = filter ? e->voices[0].filter_env : e->voices[0].amp_env;
+    ref_settings(e, filter);
+    ref->set = &ref_set;
+}
+
 static void lag_patch(fm_engine *e, int32_t amount)
 {
     fm_engine_set_param(e, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
@@ -1313,13 +1342,14 @@ TT_TEST(filter_envelope_skipped_at_zero_amount_stays_in_time)
     lag_patch(&b, 1200);
     fm_engine_note_on(&a, 60, 100);
     fm_engine_note_on(&b, 60, 100);
-    ref = b.voices[0].filter_env; /* gated on, not yet stepped */
+    ref_beside(&ref, &b, 1); /* gated on, not yet stepped */
     fm_engine_render(&a, fbuf_a, 37);
     fm_engine_render(&b, fbuf_b, 37);
     for (n = 0; n < 37; n++) fm_env_next(&ref);
     fm_engine_set_param(&a, FM_PARAM_FILTER_ENV_ATTACK_MS, 5); /* retime */
     fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_ATTACK_MS, 5);
-    fm_env_retime(&ref); /* it shares b's settings: the new attack */
+    ref_settings(&b, 1); /* the new attack, worked out here */
+    fm_env_retime(&ref);
     fm_engine_render(&a, fbuf_a, 1001);
     fm_engine_render(&b, fbuf_b, 1001);
     for (n = 0; n < 1001; n++) fm_env_next(&ref);
@@ -1383,19 +1413,16 @@ static int fenv_matches(const fm_engine *e, const fm_env *ref)
 TT_TEST(filter_envelope_setting_change_spares_the_samples_before_it)
 {
     static fm_engine b;
-    static fm_env_settings rs;
     fm_env ref;
     uint32_t n;
     fm_engine_init(&b, FRATE, 2);
     lag_patch(&b, 0);
     fm_engine_note_on(&b, 60, 100);
-    ref = b.voices[0].filter_env; /* gated on, not yet stepped */
-    rs = *ref.set;
-    ref.set = &rs;
+    ref_beside(&ref, &b, 1); /* gated on, not yet stepped */
     fm_engine_render(&b, fbuf_b, 2000); /* the 30 ms attack ends at 1323 */
     for (n = 0; n < 2000; n++) fm_env_next(&ref);
     fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_DECAY_MS, 5000);
-    rs.decay_samples = fm_ms_to_samples(5000, FRATE);
+    ref_settings(&b, 1);
     fm_env_retime(&ref);
     fm_engine_render(&b, fbuf_b, 500);
     for (n = 0; n < 500; n++) fm_env_next(&ref);
@@ -1429,7 +1456,7 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_RELEASE_MS, 30);
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
     fm_engine_note_on(&feng, 48, 100);
-    ref = feng.voices[0].filter_env; /* gated on, not yet stepped */
+    ref_beside(&ref, &feng, 1); /* gated on, not yet stepped */
     render_beside(&feng, &ref, 23); /* in the attack */
     ok &= fenv_matches(&feng, &ref);
     lagged |= feng.voices[0].fenv_lag != 0;
@@ -1473,7 +1500,7 @@ TT_TEST(filter_envelope_through_a_steal_and_take_back_stays_exact)
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 300);
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
     fm_engine_note_on(&feng, 60, 100);
-    ref = feng.voices[0].filter_env; /* gated on, not yet stepped */
+    ref_beside(&ref, &feng, 1); /* gated on, not yet stepped */
     render_beside(&feng, &ref, 301); /* in the decay */
     fm_engine_note_on(&feng, 64, 100); /* steals the only voice: a fade */
     render_beside(&feng, &ref, 19);
@@ -1506,7 +1533,7 @@ TT_TEST(filter_envelope_for_the_mix_alone_stays_exact)
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_RELEASE_MS, 30);
     fm_engine_set_param(&feng, FM_PARAM_OSC_MIX_ENV, 800);
     fm_engine_note_on(&feng, 48, 100);
-    ref = feng.voices[0].filter_env; /* gated on, not yet stepped */
+    ref_beside(&ref, &feng, 1); /* gated on, not yet stepped */
     render_beside(&feng, &ref, 77); /* in the attack */
     ok &= fenv_matches(&feng, &ref);
     render_beside(&feng, &ref, 1999); /* decay, then sustain */
@@ -1538,7 +1565,7 @@ TT_TEST(legato_note_change_reads_the_current_filter_envelope)
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
     fm_engine_note_on(&feng, 36, 100);
     fm_engine_note_on(&feng, 43, 100); /* retrigger */
-    ref = feng.voices[0].filter_env;   /* gated on, not yet stepped */
+    ref_beside(&ref, &feng, 1);   /* gated on, not yet stepped */
     render_beside(&feng, &ref, 389);   /* mid decay, mid control period */
     fm_engine_note_off(&feng, 43);     /* legato back to 36 */
     for (v = 0; v < 4; v++)
@@ -1592,7 +1619,7 @@ TT_TEST(amp_envelope_in_the_render_matches_env_next_every_sample)
     fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 80);
     fm_engine_set_param(&feng, FM_PARAM_AMP_VELOCITY, 100);
     fm_engine_note_on(&feng, 48, 90);
-    ref = feng.voices[0].amp_env; /* gated on, not yet stepped */
+    ref_beside(&ref, &feng, 0); /* gated on, not yet stepped */
     ok &= amp_env_beside(&feng, &ref, 401); /* in the attack */
     fm_engine_note_off(&feng, 48);           /* release from the attack */
     fm_env_gate_off(&ref);
@@ -1620,7 +1647,7 @@ TT_TEST(amp_envelope_in_the_render_matches_env_next_every_sample)
     fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 400);
     fm_engine_note_on(&feng, 36, 100);
     fm_engine_note_on(&feng, 43, 100);       /* retrigger */
-    ref = feng.voices[0].amp_env;
+    ref_beside(&ref, &feng, 0);
     ok = amp_env_beside(&feng, &ref, 389);   /* mid attack */
     fm_engine_note_off(&feng, 43);           /* legato back to 36 */
     ok &= amp_env_beside(&feng, &ref, 2777);

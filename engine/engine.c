@@ -141,47 +141,41 @@ static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
  */
 static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
 {
-    fm_env_settings *s;
+    uint32_t *time = 0; /* the setting: a time in samples, */
+    int32_t *sustain = 0; /* or a sustain level */
     int filter = 0;
     uint8_t i;
     switch (id) {
-    case FM_PARAM_AMP_ATTACK_MS:
-    case FM_PARAM_AMP_DECAY_MS:
-    case FM_PARAM_AMP_SUSTAIN:
-    case FM_PARAM_AMP_RELEASE_MS:
-        s = &e->amp_set;
-        break;
+    case FM_PARAM_AMP_ATTACK_MS: time = &e->amp_set.attack_samples; break;
+    case FM_PARAM_AMP_DECAY_MS: time = &e->amp_set.decay_samples; break;
+    case FM_PARAM_AMP_SUSTAIN: sustain = &e->amp_set.sustain; break;
+    case FM_PARAM_AMP_RELEASE_MS: time = &e->amp_set.release_samples; break;
     case FM_PARAM_FILTER_ENV_ATTACK_MS:
+        time = &e->filter_set.attack_samples, filter = 1;
+        break;
     case FM_PARAM_FILTER_ENV_DECAY_MS:
+        time = &e->filter_set.decay_samples, filter = 1;
+        break;
     case FM_PARAM_FILTER_ENV_SUSTAIN:
+        sustain = &e->filter_set.sustain, filter = 1;
+        break;
     case FM_PARAM_FILTER_ENV_RELEASE_MS:
-        s = &e->filter_set;
-        filter = 1;
-        for (i = 0; i < e->voice_count; i++) /* current before it changes */
-            fm_voice_sync_filter_env(&e->voices[i]);
+        time = &e->filter_set.release_samples, filter = 1;
         break;
     default:
         return 0;
     }
-    switch (id) {
-    case FM_PARAM_AMP_ATTACK_MS:
-    case FM_PARAM_FILTER_ENV_ATTACK_MS:
-        s->attack_samples = fm_ms_to_samples(v, e->sample_rate);
-        break;
-    case FM_PARAM_AMP_DECAY_MS:
-    case FM_PARAM_FILTER_ENV_DECAY_MS:
-        s->decay_samples = fm_ms_to_samples(v, e->sample_rate);
-        break;
-    case FM_PARAM_AMP_SUSTAIN:
-    case FM_PARAM_FILTER_ENV_SUSTAIN:
-        s->sustain = fm_permille_to_q30(v);
-        break;
-    default: /* a release */
-        s->release_samples = fm_ms_to_samples(v, e->sample_rate);
-        break;
-    }
+    if (filter) /* each voice's envelope current before it changes */
+        for (i = 0; i < e->voice_count; i++)
+            fm_voice_sync_filter_env(&e->voices[i]);
+    if (time)
+        *time = fm_ms_to_samples(v, e->sample_rate);
+    else
+        *sustain = fm_permille_to_q30(v);
     for (i = 0; i < e->voice_count; i++) {
         fm_env *env = filter ? &e->voices[i].filter_env : &e->voices[i].amp_env;
+        /* an idle one leaves IDLE only by fm_env_gate_on, which reads
+         * the settings and recomputes sus_level itself */
         if (env->stage != FM_ENV_IDLE)
             fm_env_retime(env);
     }
