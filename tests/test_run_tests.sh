@@ -64,6 +64,14 @@ expect_fail "a missing test binary fails" sh tools/run-tests.sh "$T/gone"
 expect_ok   "and says it is missing" grep -q "gone does not exist" "$T/out.last"
 expect_fail "no temporary directory fails" env TMPDIR="$T/nodir" sh tools/run-tests.sh "$T/pass"
 expect_ok   "and says so" grep -q "cannot make a temporary directory" "$T/out.last"
+# macOS's mktemp -d, given no template, ignores TMPDIR (it uses the per-user temp folder), so
+# the check above passed there without the runner looking at TMPDIR. A mktemp that does the same:
+mkdir "$T/bsd"
+printf '#!/bin/sh\nif [ "$*" = "-d" ]; then TMPDIR=%s exec %s -d; fi\nexec %s "$@"\n' \
+    "$T" "$(command -v mktemp)" "$(command -v mktemp)" >"$T/bsd/mktemp"; chmod +x "$T/bsd/mktemp"
+expect_fail "no temporary directory fails where mktemp ignores TMPDIR" \
+    env PATH="$T/bsd:$PATH" TMPDIR="$T/nodir" sh tools/run-tests.sh "$T/pass"
+expect_ok   "and says so" grep -q "cannot make a temporary directory" "$T/out.last"
 expect_fail "no argument fails" sh tools/run-tests.sh
 expect_ok   "and prints the usage" grep -q "usage: tools/run-tests.sh BIN" "$T/out.last"
 
