@@ -130,6 +130,25 @@ static void apply_pitch(fm_voice *v)
     fm_osc_pair_set_pw_mod(&v->osc, fm_mod_get(&v->mod, FM_MOD_PW));
 }
 
+/* Applies the modulation sums in `changed` (bit 1 << dest): pitch and
+ * pulse width to the oscillators, level to the amp envelope's peak. */
+static void apply_mod(fm_voice *v, uint32_t changed)
+{
+    if (changed & ((1u << FM_MOD_PITCH) | (1u << FM_MOD_PW))) apply_pitch(v);
+    if (changed & (1u << FM_MOD_LEVEL))
+        v->amp_env.peak = fm_mod_get(&v->mod, FM_MOD_LEVEL);
+}
+
+/* The note's velocity source is `peak`: summed with the voice's other
+ * level sources, as they were last set, it sets the level the amp
+ * envelope rises to. Only the level is taken again: the other sums (a
+ * restruck note's vibrato) carry on, and a note on costs little code. */
+static void set_level(fm_voice *v, const fm_voice_mod *m, int32_t peak)
+{
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_VEL, peak);
+    v->amp_env.peak = fm_mod_update(&v->mod, &m->routes, FM_MOD_LEVEL);
+}
+
 /*
  * A note starts from silence: the LFO's offsets drop to 0 and its delay
  * counts from control tick `now`, the first tick after the start. A note
@@ -147,8 +166,8 @@ static void restart_lfo(fm_voice *v, uint32_t now)
 /* Starts the note from the current level (0 when idle). A note whose
  * key came up while it waited for a steal fade queues its release for as
  * long as it waited, so it is heard rather than released at level 0. */
-static void start(fm_voice *v, uint32_t sample_rate, int32_t peak,
-                  uint32_t now)
+static void start(fm_voice *v, const fm_voice_mod *m, uint32_t sample_rate,
+                  int32_t peak, uint32_t now)
 {
     v->pending = 0;
     fm_voice_mark(v, FM_BUSY_STEAL, 0);
@@ -159,7 +178,7 @@ static void start(fm_voice *v, uint32_t sample_rate, int32_t peak,
     v->key_note = v->next_key;
     fm_voice_mark(v, FM_BUSY_CUTOFF, 1);
     fm_osc_pair_set_pitch(&v->osc, v->pitch, sample_rate);
-    v->amp_env.peak = peak;
+    set_level(v, m, peak);
     gate_on(v); /* both envelopes */
     if (!v->key_down && !v->sustained) {
         v->gate_left = v->wait ? v->wait : 1;
@@ -179,9 +198,9 @@ static void hold(fm_voice *v, uint8_t note, int32_t pitch)
     v->next_pitch = pitch;
 }
 
-void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch, int32_t peak,
-                      uint32_t now, uint32_t sample_rate,
-                      uint32_t fade_samples)
+void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
+                      int32_t pitch, int32_t peak, uint32_t now,
+                      uint32_t sample_rate, uint32_t fade_samples)
 {
     int same = fm_voice_active(v) && v->note == note;
     uint8_t old = v->note;
@@ -189,7 +208,7 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch, int32_t peak,
     v->next_peak = peak;
     if (v->pending) return; /* starts when the fade ends */
     if (same || v->amp_env.stage == FM_ENV_IDLE) {
-        start(v, sample_rate, peak, now);
+        start(v, m, sample_rate, peak, now);
     } else {
         v->old_note = old;
         v->pending = 1;
@@ -199,16 +218,16 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch, int32_t peak,
     }
 }
 
-void fm_voice_take_back(fm_voice *v, int32_t pitch, int32_t peak,
-                        uint32_t now, uint32_t sample_rate)
+void fm_voice_take_back(fm_voice *v, const fm_voice_mod *m, int32_t pitch,
+                        int32_t peak, uint32_t now, uint32_t sample_rate)
 {
     hold(v, v->old_note, pitch);
-    start(v, sample_rate, peak, now); /* next_peak stays the dropped note's */
+    start(v, m, sample_rate, peak, now); /* next_peak stays the dropped note's */
 }
 
-void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
-                          int32_t peak, uint32_t now, uint32_t sample_rate,
-                          int retrigger)
+void fm_voice_change_note(fm_voice *v, const fm_voice_mod *m, uint8_t note,
+                          int32_t pitch, int32_t peak, uint32_t now,
+                          uint32_t sample_rate, int retrigger)
 {
     hold(v, note, pitch);
     if (retrigger) v->next_peak = peak;
@@ -216,7 +235,7 @@ void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
     if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
         restart_lfo(v, now); /* before the gate: it checks for silence */
         apply_pitch(v);
-        if (retrigger) v->amp_env.peak = peak; /* legato keeps its own */
+        if (retrigger) set_level(v, m, peak); /* legato keeps its own */
         gate_on(v); /* both envelopes */
     }
     v->pitch = pitch;
@@ -300,7 +319,6 @@ void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now)
 {
-    int32_t src[FM_MOD_SRC_COUNT];
     uint32_t since;
     /* zero for delay_ticks, then up by fade_step a tick to full; kept as
      * a start tick, so a tick without modulation has nothing to count */
@@ -312,9 +330,9 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
         if (fade < FM_LFO_FULL) /* Q1.30 * Q1.30 */
             lfo = (int32_t)(((int64_t)lfo * fade) >> 30);
     }
-    src[FM_MOD_SRC_LFO] = lfo;
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_LFO, lfo);
     /* a fading old note keeps its vibrato */
-    if (fm_mod_tick(&v->mod, &m->routes, src)) apply_pitch(v);
+    apply_mod(v, fm_mod_tick(&v->mod, &m->routes));
 }
 
 /* A fading old note retunes too: `pitch` is still its pitch. */
@@ -397,7 +415,8 @@ static int render_plain(fm_voice *v, int32_t *mix, int32_t *osc,
     return 1;
 }
 
-void fm_voice_render_add(fm_voice *v, int32_t *mix, int32_t *osc,
+void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
+                         int32_t *mix, int32_t *osc,
                          uint32_t frames, uint32_t sample_rate,
                          uint32_t next_tick, uint32_t tick_left)
 {
@@ -416,7 +435,7 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, int32_t *osc,
             if (!v->pending) return;
             if (i >= tick_left)
                 now += ((i - tick_left) >> FM_LFO_TICK_SHIFT) + 1;
-            start(v, sample_rate, v->next_peak, now);
+            start(v, m, sample_rate, v->next_peak, now);
         }
         if (v->gate_left && --v->gate_left == 0) { /* the queued release */
             fm_voice_mark(v, FM_BUSY_GATE, 0);
