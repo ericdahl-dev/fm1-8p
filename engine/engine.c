@@ -20,6 +20,16 @@
  */
 typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
 
+/*
+ * fm_engine's budget on 32-bit targets (the FM-1, Cortex-M), where it
+ * lives: the size fm1_8p.h documents. Growing it must update that comment
+ * and this number. The FM-1 build fails past it; 64-bit desktops only
+ * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
+ */
+#define FM_ENGINE_BUDGET_32 5200u
+typedef char fm_require_engine_within_its_32_bit_budget[
+    (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
+
 /* Pitch of voice `i` playing `note`, Q16.16 semitones: the note, the
  * bend and the voice's unison detune. Both oscillators follow it. */
 static int32_t voice_pitch(const fm_engine *e, uint8_t i, uint8_t note)
