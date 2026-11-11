@@ -14,5 +14,8 @@ void fm_mod_reset(fm_mod *m)
 void fm_mod_set_route(fm_mod_routes *r, unsigned src, unsigned dest,
                       int32_t depth)
 {
+#ifdef FM_CHECK_ENGINE /* debug builds: a route that exists */
+    assert(src < FM_MOD_SRC_COUNT && dest < FM_MOD_DEST_COUNT);
+#endif
     r->depth[src][dest] = depth;
 }

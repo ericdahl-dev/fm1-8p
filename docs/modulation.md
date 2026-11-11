@@ -114,12 +114,14 @@ merging them would move one or the other and change the output (see #68).
 
 ## Routing
 
-Every route goes through one summing point per voice, `engine/mod.c`: a
-source (the LFO, after the voice's delay and fade) times a route depth,
-summed per destination (pitch, pulse width) once per control tick and held
-at the int32 limits rather than wrapping. The depths are one
-`fm_mod_routes` the engine owns and every voice shares; each voice keeps
-only its sums.
+Every route goes through one summing point per voice, `engine/mod.h`:
+each source (the LFO, after the voice's delay and fade) times its route
+depth, added up per destination (pitch, pulse width) once per control tick
+and held at the int32 limits rather than wrapping. The summing
+(`fm_mod_tick`, `fm_mod_sum`) and the getter are `static inline` in
+`mod.h`, so they sit in the voice's code; only `fm_mod_reset` and
+`fm_mod_set_route` are in `mod.c`. The depths are one `fm_mod_routes` the
+engine owns and every voice shares; each voice keeps only its sums.
 
 At each tick each sounding voice computes `lfo * fade` (Q1.30) and scales
 it by each depth. A target whose depth is 0 gets an offset of exactly 0, and

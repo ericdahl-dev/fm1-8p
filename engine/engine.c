@@ -659,18 +659,20 @@ static int16_t to_int16(int32_t q24)
     return (int16_t)s;
 }
 
+/* The LFO reaches some destination at a nonzero depth. */
+static int lfo_routed(const fm_engine *e)
+{
+    unsigned d;
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++)
+        if (e->mod.routes.depth[FM_MOD_SRC_LFO][d] != 0) return 1;
+    return 0;
+}
+
 /*
  * Control tick, every FM_LFO_TICK_FRAMES samples counted from init (so
  * the caller's block size never moves it): the LFO advances and each
  * sounding voice applies it.
  */
-/* The LFO reaches pitch or pulse width at a nonzero depth. */
-static int lfo_routed(const fm_engine *e)
-{
-    return e->mod.routes.depth[FM_MOD_SRC_LFO][FM_MOD_PITCH] != 0 ||
-           e->mod.routes.depth[FM_MOD_SRC_LFO][FM_MOD_PW] != 0;
-}
-
 static void control_tick(fm_engine *e)
 {
     int32_t lfo = fm_lfo_tick(&e->lfo);
