@@ -468,6 +468,18 @@ TT_TEST(ui_presets_discard_window_is_the_warning_on_screen)
     TT_CHECK(strcmp(ui_banner(&ui_u), "") != 0);
 }
 
+/* A PRESETS event of 0 clicks is no turn: it loads nothing, so no notes are let go. */
+TT_TEST(ui_presets_zero_clicks_does_nothing)
+{
+    uint32_t head;
+    ui_setup();
+    head = ui_p.head;
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 0, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+    TT_CHECK_EQ(ui_p.loads, 0u);
+    TT_CHECK_EQ(ui_p.head, head);
+}
+
 /* Anything else between the two events cancels the warning: the next PRESETS warns again. */
 TT_TEST(ui_presets_warning_cancels_on_anything_else)
 {
@@ -526,6 +538,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_presets_load_redraws_the_values_and_keeps_the_page);
     TT_RUN(ui_presets_discard_takes_the_warning_down);
     TT_RUN(ui_presets_discard_window_is_the_warning_on_screen);
+    TT_RUN(ui_presets_zero_clicks_does_nothing);
     TT_RUN(ui_banner_shows_for_one_and_a_half_seconds);
     TT_RUN(ui_presets_warning_cancels_on_anything_else);
     TT_RUN(ui_presets_again_discards_and_loads);
