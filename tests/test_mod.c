@@ -551,6 +551,21 @@ TT_TEST(vibrato_reaches_osc2)
     TT_CHECK(fabs(cents(hz_between(mod_buf, 20, 230), note_hz(69)) - 100) < 3);
 }
 
+/* Osc 2's own vibrato depth: at 0 with osc 1's at 100 cents, the heard
+ * osc 2 holds its pitch (BUBBLES: DCO-1's LFO wobbles the muted DCO-1). */
+TT_TEST(osc2_vibrato_depth_zero_holds_osc2_still)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
+    TT_CHECK_EQ(fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_OSC2_CENTS, 0), FM_OK);
+    fm_engine_note_on(&mod_eng, 69, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    TT_CHECK(fabs(cents(hz_between(mod_buf, 20, 230), note_hz(69))) < 3);
+}
+
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
     /* the delay ran out at 0.5 s whether or not a depth was set then */
@@ -581,5 +596,6 @@ static void run_mod_tests(void)
     TT_RUN(block_size_does_not_change_output_as_depths_come_and_go);
     TT_RUN(pulse_width_alone_ticks_the_voices_and_clears);
     TT_RUN(vibrato_reaches_osc2);
+    TT_RUN(osc2_vibrato_depth_zero_holds_osc2_still);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }

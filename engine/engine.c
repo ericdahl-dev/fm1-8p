@@ -266,12 +266,17 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
                          v * 42949673);
         return;
-    case FM_PARAM_LFO_PITCH_CENTS: {
-        /* cents -> Q16.16 octaves: exact for multiples of 75 cents; the
-         * one vibrato depth moves both oscillators */
-        int32_t oct = v * 65536 / 1200;
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH1, oct);
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH2, oct);
+    case FM_PARAM_LFO_PITCH_CENTS:
+    case FM_PARAM_LFO_PITCH_OSC2_CENTS: {
+        /* cents -> Q16.16 octaves: exact for multiples of 75 cents. Osc 2
+         * has its own depth, or (-1) osc 1's */
+        int32_t c1 = e->params[FM_PARAM_LFO_PITCH_CENTS];
+        int32_t c2 = e->params[FM_PARAM_LFO_PITCH_OSC2_CENTS];
+        if (c2 < 0) c2 = c1;
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH1,
+                         c1 * 65536 / 1200);
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH2,
+                         c2 * 65536 / 1200);
         return;
     }
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
