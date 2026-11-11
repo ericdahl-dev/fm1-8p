@@ -78,7 +78,7 @@ TT_TEST(ui_knob_clamps_at_the_ends_of_the_range)
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 120, 0);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), 1000);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, -200, 0);
-    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -9600);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -16400);
 }
 
 /* This slice's PLAY screen has no knobs: a turn there changes nothing. */
@@ -135,7 +135,7 @@ TT_TEST(ui_meter_lights_the_value)
     TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_CUTOFF_CENTS, 9300), 0x1Fu);
     TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_RESONANCE, 0), 0u);
     TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400), 0x10u);
-    TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -9600), 0x0Fu);
+    TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -16400), 0x0Fu);
     TT_CHECK_EQ(ui_meter(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 0), 0u);
 }
 

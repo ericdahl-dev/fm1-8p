@@ -145,7 +145,7 @@ resonant 4-pole (24 dB/octave) lowpass.
   the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
   and 560 Hz (6 dB/octave).
 - **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
-  amp envelope; its amount is -9600 to +9600 cents (8 octaves either way).
+  amp envelope; its amount is -16400 to +16400 cents (about 13.7 octaves either way: a JX-8P VCF ENV of 127 at 129 cents a step is 16383).
   It starts where the amp envelope does: from 0 on an idle voice or after a
   steal fade (whatever level the last note left it at), from its level on a
   retrigger. During a steal fade the old note keeps its own key-tracked

@@ -104,10 +104,14 @@ class MapTest(unittest.TestCase):
         self.assertEqual(xm("SYNC LEAD"), (1, 1))    # 64
         self.assertEqual(xm("RES BELL"), (0, 1))     # 96
 
-    # one step of VCF FREQ is a semitone (100 cents), from MIDI note 12 (16.4 Hz) at 0
-    def test_cutoff_is_a_semitone_per_step(self):
-        self.assertEqual(patch("SOUNDTRACK")["FILTER_CUTOFF_CENTS"], 1200 + 100 * 52)
-        self.assertEqual(patch("BUBBLES")["FILTER_CUTOFF_CENTS"], 1200 + 100 * 59)
+    # VCF FREQ as PG-8X 2.0.13 plays it with no key follow at C4 (match.py --param VCF_FREQ,
+    # 2026-11-10): the cutoff as a MIDI note, the step widening from 1.17 to 1.4 semitones
+    PG8X_CUTOFF_NOTE = {40: 33.86, 48: 42.82, 56: 52.25, 64: 62.39, 72: 72.32, 80: 82.54,
+                        88: 92.96, 96: 104.04, 104: 115.15}
+
+    def test_cutoff_follows_pg8x(self):
+        for v, note in self.PG8X_CUTOFF_NOTE.items():
+            self.assertLess(abs(jx8p.cutoff_cents(v) / 100 - note), 0.3, (v, jx8p.cutoff_cents(v)))
 
     def test_resonance_and_key_follow_scale_0_127_to_per_mille(self):
         e = patch("PSYCHMELLO")                 # resonance 122, key follow 93
@@ -137,18 +141,27 @@ class MapTest(unittest.TestCase):
         self.assertEqual((e["AMP_ATTACK_MS"], e["AMP_SUSTAIN_PERMILLE"], e["AMP_RELEASE_MS"]),
                          (1, 1000, 5))
 
+    # VCF ENV depth as PG-8X 2.0.13 plays it (match.py --param VCF_ENV, 2026-11-10): the cutoff's
+    # rise at the envelope's peak, in semitones, about 1.25 a step
+    PG8X_ENV_SHIFT = {8: 9.86, 16: 19.90, 24: 29.99, 32: 40.28, 40: 51.28, 48: 62.24}
+
+    def test_filter_env_depth_follows_pg8x(self):
+        for v, st in self.PG8X_ENV_SHIFT.items():
+            got = jx8p.filter_env_cents(v) / 100
+            self.assertLess(abs(got / st - 1), 0.05, (v, got, st))
+
     # VCF ENV MODE picks the envelope (ENV-1 or ENV-2) and its polarity: the engine's filter
     # envelope takes that envelope's times, the amount its sign. FILTER_ENV_SOURCE keeps the mode
     # for #59 (0 ENV-2 inverted, 1 ENV-2, 2 ENV-1 inverted, 3 ENV-1).
     def test_vcf_env_mode_picks_the_filter_envelope_and_its_sign(self):
         e = patch("SOUNDTRACK")                 # ENV-1 normal; depth 60; ENV-1 127, 83, 54, 91
         self.assertEqual(e["FILTER_ENV_SOURCE"], 3)
-        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 75)
+        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 129)
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
                           e["FILTER_ENV_SUSTAIN_PERMILLE"]), (3000, 2793, 425))
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
         self.assertEqual(e["FILTER_ENV_SOURCE"], 2)
-        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 75)
+        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 129)
         e = patch("PIANO 1")                    # ENV-2 normal: the amp's times
         self.assertEqual(e["FILTER_ENV_DECAY_MS"], e["AMP_DECAY_MS"])
 

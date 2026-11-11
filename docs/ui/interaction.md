@@ -141,7 +141,7 @@ in [Pending slots, once they land](#pending-slots-once-they-land).
 | --- | --- | --- | --- | --- | --- |
 | 41 | K1 | `filter_cutoff_cents` | CUTOFF | Hz, 3 significant digits (8.18 Hz .. 33.5 kHz); `OPEN` at 14400 | 100 ct / 400 ct |
 | 42 | K2 | `filter_resonance_permille` | RESO | 0..100 (100 self-oscillates) | 1 / 5 |
-| 43 | K3 | `filter_env_amount_cents` | ENV | -96..+96 st | 1 st / 6 st |
+| 43 | K3 | `filter_env_amount_cents` | ENV | -164..+164 st | 1 st / 6 st |
 | 44 | K4 | `filter_key_track_permille` | KEY | 0..100 % | 1 / 10 |
 | 45 | K1 | `highpass_step` | HPF | OFF, 100 Hz, 240 Hz, 560 Hz | 1 / 1 |
 | 46 | K2 | filter velocity amount (pending, #8) | VEL | -- | - |

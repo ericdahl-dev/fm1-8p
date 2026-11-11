@@ -45,7 +45,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_FILTER_ENV_SUSTAIN,    "filter_env_sustain_permille", 0, 1000,
       500 },
     { FM_PARAM_FILTER_ENV_RELEASE_MS, "filter_env_release_ms", 0, 10000, 300 },
-    { FM_PARAM_FILTER_ENV_AMOUNT_CENTS, "filter_env_amount_cents", -9600, 9600,
+    { FM_PARAM_FILTER_ENV_AMOUNT_CENTS, "filter_env_amount_cents", -16400, 16400,
       0 },
     { FM_PARAM_HIGHPASS_STEP, "highpass_step", 0,
       FM_FILTER_HIGHPASS_STEPS - 1, 0 },

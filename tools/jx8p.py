@@ -265,6 +265,19 @@ def mix_permille(l1, l2):
     return rnd(1000 * l2 / (l1 + l2)) if l1 else 1000
 
 
+def cutoff_cents(v):
+    """VCF FREQ, 0..127, as the engine's cutoff in cents from MIDI note 0: 0.2173 v^2 + 95.87 v - 807.5,
+    fitted to PG-8X 2.0.13 with no key follow at C4 (within 0.2 semitone over 40..104; docs/patches.md).
+    Below 9 it is under the engine's lowest cutoff, note 0 (8.2 Hz), and clamps there."""
+    return max(0, rnd(0.2173 * v * v + 95.87 * v - 807.5))
+
+
+def filter_env_cents(v):
+    """VCF ENV, 0..127, as the filter envelope's depth in cents: 129 a step, fitted to PG-8X 2.0.13
+    (within 5 % over 8..48; docs/patches.md). 127 is 16383 cents."""
+    return 129 * v
+
+
 def tune_semis(v):
     """DCO TUNE, 0..127, in semitones -12..+12. Inferred, not documented (docs/patches.md): value >> 2
     with a dead band of four steps (56..71) at 0, so the factory tones' fifths (FAT FIFTH 97, ORGAN 1
@@ -322,7 +335,7 @@ def to_engine(tone):
     e["OSC_SYNC"] = 1 if xmod in (1, 2) else 0
     e["XMOD_AM"] = 1 if xmod in (2, 3) else 0
     e["HIGHPASS_STEP"] = switch(p[HPF])
-    e["FILTER_CUTOFF_CENTS"] = 1200 + 100 * p[VCF_FREQ]
+    e["FILTER_CUTOFF_CENTS"] = cutoff_cents(p[VCF_FREQ])
     e["FILTER_RESONANCE_PERMILLE"] = permille(p[VCF_RES])
     e["FILTER_KEY_TRACK_PERMILLE"] = permille(p[VCF_KEY])
     gate = 1 if p[VCA_MODE] < 64 else 0
@@ -332,7 +345,7 @@ def to_engine(tone):
     a, d, s, r = env(p, src)
     e.update(FILTER_ENV_ATTACK_MS=a, FILTER_ENV_DECAY_MS=d, FILTER_ENV_SUSTAIN_PERMILLE=s,
              FILTER_ENV_RELEASE_MS=r, FILTER_ENV_SOURCE=switch(p[VCF_ENV_MODE]),
-             FILTER_ENV_AMOUNT_CENTS=sign * 75 * p[VCF_ENV])
+             FILTER_ENV_AMOUNT_CENTS=sign * filter_env_cents(p[VCF_ENV]))
     e["LFO_WAVE"] = LFO_WAVE[switch(p[LFO_WF])]
     e["LFO_RATE_CENTIHZ"] = rnd(10 * 200 ** (p[LFO_RATE] / 127))
     e["LFO_DELAY_MS"] = rnd(3000 * (p[LFO_DELAY] / 127) ** 3)
