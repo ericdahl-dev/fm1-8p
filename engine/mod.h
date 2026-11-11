@@ -117,6 +117,16 @@ static inline int32_t fm_mod_update(fm_mod *m, const fm_mod_routes *r,
                                           FM_MOD_SRC_COUNT, dest);
 }
 
+/* Nonzero while source `src` reaches any destination at a nonzero depth
+ * (the engine ticks the LFO's sums only then, and once after). */
+static inline int fm_mod_source_routed(const fm_mod_routes *r, unsigned src)
+{
+    unsigned d;
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++)
+        if (r->depth[src][d]) return 1;
+    return 0;
+}
+
 /* Nonzero while destination `dest` is at rest: no route reaches it and
  * its sum is 0. A route turned off leaves it busy until it is summed
  * again (the voice busy word follows this). */

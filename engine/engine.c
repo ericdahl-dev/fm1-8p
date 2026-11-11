@@ -676,13 +676,12 @@ static int16_t to_int16(int32_t q24)
     return (int16_t)s;
 }
 
-/* The LFO reaches some destination at a nonzero depth. */
-static int lfo_routed(const fm_engine *e)
+/* The LFO is live: it reaches some destination now, or the last tick
+ * applied it (one more tick clears the offset it left). The one test of
+ * whether the control ticks have work for the voices. */
+static int lfo_live(const fm_engine *e)
 {
-    unsigned d;
-    for (d = 0; d < FM_MOD_DEST_COUNT; d++)
-        if (e->mod.routes.depth[FM_MOD_SRC_LFO][d] != 0) return 1;
-    return 0;
+    return e->mod_on || fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO);
 }
 
 /*
@@ -693,17 +692,16 @@ static int lfo_routed(const fm_engine *e)
 static void control_tick(fm_engine *e)
 {
     int32_t lfo = fm_lfo_tick(&e->lfo);
-    int depth = lfo_routed(e);
     uint8_t k;
     e->ticks++;
     e->tick_left = FM_LFO_TICK_FRAMES;
     /* with every depth at 0 (after one tick that clears any offset still
      * applied) the voices have nothing to do */
-    if (depth || e->mod_on)
+    if (lfo_live(e))
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_tick(&e->voices[k], lfo, &e->mod, e->ticks);
-    e->mod_on = (uint8_t)depth;
+    e->mod_on = (uint8_t)fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO);
 }
 
 /*
@@ -720,8 +718,7 @@ static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    if ((e->mod_on || lfo_routed(e)) &&
-        n > e->tick_left)
+    if (lfo_live(e) && n > e->tick_left)
         n = e->tick_left;
     return n;
 }
