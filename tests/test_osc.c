@@ -1258,6 +1258,16 @@ TT_TEST(pair_render_with_sync_matches_next_sample_by_sample)
     TT_CHECK_EQ(render_vs_next(1, 77, 400), 0);
 }
 
+/*
+ * With cross-mod (random depth, sync off, then both on): the same samples
+ * and state as fm_osc_pair_next, osc1 bending osc2 every sample.
+ */
+TT_TEST(pair_render_with_xmod_matches_next_sample_by_sample)
+{
+    TT_CHECK_EQ(render_vs_next(2, 91, 400), 0);
+    TT_CHECK_EQ(render_vs_next(3, 93, 400), 0);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -1306,4 +1316,5 @@ static void run_osc_tests(void)
     TT_RUN(max_xmod_and_sync_stay_in_range);
     TT_RUN(pair_render_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_sync_matches_next_sample_by_sample);
+    TT_RUN(pair_render_with_xmod_matches_next_sample_by_sample);
 }
