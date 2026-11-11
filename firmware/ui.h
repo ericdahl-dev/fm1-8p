@@ -21,6 +21,7 @@
 #define UI_ENC_KNOB2   3u
 #define UI_ENC_KNOB3   4u
 #define UI_ENC_KNOB4   5u
+#define UI_ENC_PRESETS 6u
 
 typedef enum { UI_PLAY, UI_EDIT } ui_state;
 

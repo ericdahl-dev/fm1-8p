@@ -383,8 +383,19 @@ TT_TEST(ui_slot_number_is_two_digits)
     TT_CHECK(strcmp(s, "41") == 0);
 }
 
+/* PRESETS, with no edits: each click loads the next or previous patch at once (interaction.md). */
+TT_TEST(ui_presets_click_loads_the_next_patch)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 0);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK + 1u]);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK - 1u]);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_presets_click_loads_the_next_patch);
     TT_RUN(ui_slot_number_is_two_digits);
     TT_RUN(ui_octave_label_reads_like_the_hosts);
     TT_RUN(ui_octave_change_marks_the_header);

@@ -261,6 +261,13 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     u->focus = k;
 }
 
+/* PRESETS: the patch clicks away, wrapping */
+static void browse(ui *u, int32_t clicks)
+{
+    int32_t i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
+    play_load_patch(u->p, (uint32_t)(i + (int32_t)PATCH_COUNT) % PATCH_COUNT);
+}
+
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 {
     uint32_t id = ev & 0xFFu;
@@ -277,6 +284,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&
              u->state == UI_EDIT)
         turn(u, id - UI_ENC_KNOB1, arg);
+    else if (ev == (UI_EV_ENC | UI_ENC_PRESETS))
+        browse(u, arg);
 }
 
 uint32_t ui_take(ui *u, uint32_t ms)
