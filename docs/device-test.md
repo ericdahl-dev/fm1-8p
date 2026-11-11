@@ -115,6 +115,9 @@ If the deploy is refused (an ABI or room error), go to route B.
 
 ## 4. Run the test and read the screen
 
+Turn Bluetooth off (OPTIONS > BLUETOOTH) before a CPU run. With it on, the radio's work lands in the same blocks
+as ours: on 2026-11-10 it lifted the run-3 build's F from 72 % to 82 % and made the sweeps uneven.
+
 1. **Don't touch the FM-1.** The sweep starts by itself when the module starts; let that one run. (The module's
    controls, for later: PLAY sweeps again from 1; KNOB1 picks a step by hand, 1 to 8, U, then F, and stops the sweep.)
    If you did press PLAY or turn KNOB1 during the sweep, press PLAY once and start the 55 s again: the screen
@@ -182,6 +185,7 @@ try again.
 - Route: A (.dock in fm1-dock 0.8) / B (.fwsc FM-1_948)
 - fm1-8p commit (CI run or `git rev-parse --short HEAD`):
 - Top line during the run: 2CPU / 1CPU
+- Bluetooth: off (OPTIONS > BLUETOOTH)
 
 | step | screen (worst %) | log (per mille) | fm1-emu strict (%) | device / emu |
 | --- | --- | --- | --- | --- |
