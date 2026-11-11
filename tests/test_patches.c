@@ -33,8 +33,56 @@ TT_TEST(patches_keep_the_fields_the_engine_lacks)
     TT_CHECK_EQ(patch_value(&PATCHES[PATCH_SOUNDTRACK], PATCH_FILTER_ENV_SOURCE), 3);   /* ENV-1 */
 }
 
+/* A patch as every param's value is what the playable module boots with: Soundtrack's. */
+TT_TEST(patch_values_are_the_boot_state)
+{
+    static play pl;
+    int32_t v[FM_PARAM_COUNT];
+    uint32_t i;
+    TT_CHECK_EQ(play_init(&pl), 0);
+    patch_values(&PATCHES[PATCH_SOUNDTRACK], v);
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        TT_CHECK_EQ(fm_engine_get_param(&pl.engine, (uint16_t)i), v[i]);
+}
+
+/* A param no field sets (bend range, voice mode, ...) takes the table's default, whatever the patch. */
+TT_TEST(patch_values_default_what_no_field_sets)
+{
+    int32_t v[FM_PARAM_COUNT];
+    uint32_t n, i, f, set;
+    for (n = 0; n < PATCH_COUNT; n++) {
+        patch_values(&PATCHES[n], v);
+        for (i = 0; i < FM_PARAM_COUNT; i++) {
+            for (set = 0, f = 0; f < PATCH_FIELD_COUNT; f++)
+                set |= patch_param((patch_field)f) == (int32_t)i;
+            if (!set)
+                TT_CHECK_EQ(v[i], fm_param_info_get((uint16_t)i)->def);
+        }
+    }
+    patch_values(&PATCHES[0], v);
+    TT_CHECK_EQ(v[FM_PARAM_BEND_RANGE], fm_param_info_get(FM_PARAM_BEND_RANGE)->def);
+}
+
+/* A field outside its param's range is clamped to it, so a patch never sets a value the engine
+ * would refuse (the factory ones all fit: patches_fit_the_engine). */
+TT_TEST(patch_values_clamp_to_the_param_range)
+{
+    const fm_param_info *cut = fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS);
+    const fm_param_info *res = fm_param_info_get(FM_PARAM_FILTER_RESONANCE);
+    patch t = PATCHES[0];
+    int32_t v[FM_PARAM_COUNT];
+    t.v[PATCH_FILTER_CUTOFF_CENTS] = (uint16_t)(cut->max + 1 + PATCH_BIAS);
+    t.v[PATCH_FILTER_RESONANCE_PERMILLE] = (uint16_t)(res->min - 1 + PATCH_BIAS);
+    patch_values(&t, v);
+    TT_CHECK_EQ(v[FM_PARAM_FILTER_CUTOFF_CENTS], cut->max);
+    TT_CHECK_EQ(v[FM_PARAM_FILTER_RESONANCE], res->min);
+}
+
 static void run_patches_tests(void)
 {
     TT_RUN(patches_fit_the_engine);
     TT_RUN(patches_keep_the_fields_the_engine_lacks);
+    TT_RUN(patch_values_are_the_boot_state);
+    TT_RUN(patch_values_default_what_no_field_sets);
+    TT_RUN(patch_values_clamp_to_the_param_range);
 }

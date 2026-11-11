@@ -212,6 +212,21 @@ def emit_c(tones, source="data/jx8p-factory-1-32.syx", sha256=""):
             "int32_t patch_param(patch_field f)",
             "{",
             "    return (uint32_t)f < PATCH_FIELD_COUNT ? PARAM[f] : PATCH_NONE;",
+            "}",
+            "",
+            "void patch_values(const patch *t, int32_t *v)",
+            "{",
+            "    uint32_t f;",
+            "    for (f = 0; f < FM_PARAM_COUNT; f++)",
+            "        v[f] = fm_param_info_get((uint16_t)f)->def;",
+            "    for (f = 0; f < PATCH_FIELD_COUNT; f++) {",
+            "        int32_t id = patch_param((patch_field)f);",
+            "        if (id != PATCH_NONE) {",
+            "            const fm_param_info *in = fm_param_info_get((uint16_t)id);",
+            "            int32_t x = patch_value(t, (patch_field)f);",
+            "            v[id] = x < in->min ? in->min : x > in->max ? in->max : x;",
+            "        }",
+            "    }",
             "}"]
     return "\n".join(out) + "\n"
 
