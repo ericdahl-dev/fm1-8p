@@ -29,7 +29,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 5368u
+#define FM_ENGINE_BUDGET_32 5432u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -219,24 +219,31 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     case FM_PARAM_OSC_MIX:
         for (i = 0; i < FM_MAX_VOICES; i++) {
-            e->voices[i].mix_base = fm_permille_to_q30(v);
-            if (!e->voices[i].mix_env) { /* else the next tick glides there */
-                e->voices[i].mix_step = 0;
-                fm_osc_pair_set_mix(&e->voices[i].osc, e->voices[i].mix_base);
+            fm_voice *vc = &e->voices[i];
+            vc->mix_base = fm_permille_to_q30(v);
+            /* with an envelope routed the next tick glides there */
+            if (!e->mod.routes.depth[FM_MOD_SRC_ENV1][FM_MOD_MIX] &&
+                !e->mod.routes.depth[FM_MOD_SRC_ENV2][FM_MOD_MIX]) {
+                vc->mix_step = 0;
+                fm_osc_pair_set_mix(&vc->osc, vc->mix_base);
             }
-            fm_voice_mark_mix(&e->voices[i]);
+            fm_voice_mark_mix(vc, &e->mod);
         }
         return;
     case FM_PARAM_OSC_MIX_ENV_SOURCE: /* the filter envelope is caught up when read */
+    case FM_PARAM_OSC_MIX_ENV: {
+        /* one route to the mix: the source's envelope at the depth; off,
+         * the mix glides back to osc_mix */
+        int32_t depth = fm_permille_to_q30(e->params[FM_PARAM_OSC_MIX_ENV]);
+        int amp = e->params[FM_PARAM_OSC_MIX_ENV_SOURCE] != 0;
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV1, FM_MOD_MIX,
+                         amp ? 0 : depth);
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV2, FM_MOD_MIX,
+                         amp ? depth : 0);
         for (i = 0; i < FM_MAX_VOICES; i++)
-            e->voices[i].mix_src = (uint8_t)v;
+            fm_voice_mark_mix(&e->voices[i], &e->mod);
         return;
-    case FM_PARAM_OSC_MIX_ENV:
-        for (i = 0; i < FM_MAX_VOICES; i++) {
-            e->voices[i].mix_env = fm_permille_to_q30(v); /* off: glides back to osc_mix */
-            fm_voice_mark_mix(&e->voices[i]);
-        }
-        return;
+    }
     default:
         break;
     }

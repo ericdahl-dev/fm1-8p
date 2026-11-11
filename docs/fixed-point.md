@@ -272,7 +272,9 @@ level, clamped to 0..1000. Positive depth fades osc2 in as the envelope rises
 `osc_mix_env_source` picks the envelope: 0 the filter envelope (the default),
 1 the amp envelope. The amp envelope is read against the note's own peak, so
 a soft note gets the same depth as a hard one (velocity changes the
-loudness, not the mix). For example, a pad whose second oscillator blooms over
+loudness, not the mix). The two parameters set one route in the voices'
+summing point (`engine/mod.h`, docs/modulation.md): envelope 1 or 2 to the
+mix. For example, a pad whose second oscillator blooms over
 two seconds:
 
 ```sh
@@ -395,8 +397,8 @@ chorus writes it, each voice renders its oscillators' chunk there
 which is safe because the chorus only writes it
 (`chorus_block_writes_right_without_reading_it`). With the voices' modulation sources and sums, their sync and
 cross-mod state, their filters (124 bytes each) and their mix envelope
-settings, that makes `fm_engine` about 5.2 KiB (5368 bytes on the FM-1,
-5568 on x86-64), so
+settings, that makes `fm_engine` about 5.2 KiB (5432 bytes on the FM-1,
+5600 on x86-64), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 9.0 ms, so above about 113 kHz a mode's center and sweep

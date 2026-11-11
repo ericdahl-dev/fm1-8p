@@ -189,6 +189,25 @@ TT_TEST(a_destination_rests_with_no_route_and_a_zero_sum)
     TT_CHECK(fm_mod_at_rest(&m, &r, FM_MOD_PITCH)); /* others untouched */
 }
 
+/* Envelope 2 (the amp envelope's share of the note's peak) routed to the
+ * mix: the share times the depth, both Q1.30, for either sign of depth. */
+TT_TEST(amp_env_to_mix_is_share_times_depth)
+{
+    static const int32_t depths[] = { 1 << 30, -(1 << 30), 0x2CCCCCCD, 1 };
+    fm_mod_routes r;
+    fm_mod m;
+    int32_t share = 0x1A2B3C4D;
+    unsigned i;
+    fm_mod_routes_reset(&r);
+    fm_mod_reset(&m);
+    for (i = 0; i < sizeof depths / sizeof depths[0]; i++) {
+        fm_mod_set_route(&r, FM_MOD_SRC_ENV2, FM_MOD_MIX, depths[i]);
+        fm_mod_set_source(&m, FM_MOD_SRC_ENV2, share);
+        TT_CHECK_EQ(fm_mod_update(&m, &r, FM_MOD_MIX),
+                    (int32_t)(((int64_t)depths[i] * share) >> 30));
+    }
+}
+
 static void run_mod_dest_tests(void)
 {
     TT_RUN(one_route_gives_source_times_depth);
@@ -202,4 +221,5 @@ static void run_mod_dest_tests(void)
     TT_RUN(updating_one_destination_leaves_the_others);
     TT_RUN(filter_env_to_cutoff_is_level_times_amount_in_cents);
     TT_RUN(a_destination_rests_with_no_route_and_a_zero_sum);
+    TT_RUN(amp_env_to_mix_is_share_times_depth);
 }
