@@ -30,16 +30,15 @@ typedef struct {
     int32_t fade;
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
     int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
-    /* Resonance's bass shelf: the output is s[3] + h * (lp - s[3]), lp a
-     * one-pole lowpass of s[3] at the cutoff (h 0: off, the plain ladder).
-     * A weighted average of the two, so it stays within their range. */
+    /* Resonance's bass shelf: the output is s[3] + shelf * (lp - s[3]), lp
+     * a one-pole lowpass of s[3] at the cutoff (0: off, the plain ladder),
+     * a weighted average of the two, so within their range. It is worked
+     * out as s[3] - h * (s[3] - lp), lp as it was before this sample's
+     * update, with h = shelf * (1 - g). */
     int32_t lp;   /* the shelf's lowpass state, Q8.24 */
-    int16_t a;    /* input level, Q2.13: the resonance's passband level */
-    int16_t h;    /* weight of lp, Q2.13 (0 .. 0.57) */
-    /* the resonance as set, per mille, and what it asks for below the fade
-     * (looked up once, at fm_filter_set_resonance): the retune in cents,
-     * h and a in Q2.13 */
-    int16_t res, retune, shelf, level;
+    int32_t a;    /* input level, Q1.30: the resonance's passband level */
+    int32_t h;    /* shelf * (1 - g), Q1.30 (0 .. 0.57) */
+    int16_t res;  /* resonance as set, per mille */
     int16_t cut;  /* lowpass cutoff as set (clamped), cents */
     int16_t rate; /* rate_cents it was set with (0: not yet) */
 } fm_filter;

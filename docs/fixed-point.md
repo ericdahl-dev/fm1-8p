@@ -134,8 +134,11 @@ resonant 4-pole (24 dB/octave) lowpass.
     the passband within about 1.5 dB of PG-8X's (+1 to +7 dB, against
     +8 to +14 for the plain ladder).
 
-  All three fade with the feedback over the top 600 cents, so the open
-  filter is still a wire. `a * 64.0` plus the feedback stays within the
+  The retune and the level fade with the feedback over the top 600 cents,
+  so the open filter is still a wire; the shelf is off there (above
+  Nyquist at 44.1 and 48 kHz its weight is under 0.2 dB), which keeps
+  step F of the CPU test (it sweeps into the fade) within a point of
+  before (fm1-emu strict: 45.0 % on main, 46.0 %). `a * 64.0` plus the feedback stays within the
   32-bit sum (checked at compile time), the shelf is a weighted average of
   two values within the clip's limit, and the output is still bit for bit
   the 64-bit reference's.

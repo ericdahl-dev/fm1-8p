@@ -207,10 +207,9 @@ void fm_filter_reset(fm_filter *f)
     fm_filter_clear(f);
     f->g = ONE_Q30;
     f->k = 0;
-    f->res = f->retune = f->shelf = 0;
-    f->level = 8192; /* 1.0 */
+    f->res = 0;
     f->h = 0;
-    f->a = 8192; /* 1.0 */
+    f->a = ONE_Q30;
     f->cut = FM_FILTER_OPEN_CENTS;
     f->rate = 0;
     f->fade = 0;
@@ -240,24 +239,29 @@ static void leave_open(fm_filter *f)
 /* The coefficients from the cutoff, rate and resonance as set. */
 static void apply(fm_filter *f)
 {
-    int32_t c = f->cut + f->retune, g, h, k = f->res * K_PER_MILLE;
+    int32_t c = f->cut + res_lookup(retune_tab, f->res), g, h, k = f->res * K_PER_MILLE;
+    int32_t level = res_lookup(level_tab, f->res) << 17, shelf = res_lookup(shelf_tab, f->res) << 17;
     int was_open = fm_filter_is_wire(f);
     g = coef_for(c < 0 ? 0 : c, f->rate);
     if (f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS) { /* below the fade */
         f->fade = ONE_Q30;
         f->g = g;
         f->k = k;
-        f->a = f->level;
-        h = f->shelf;
+        f->a = level;
+        h = shelf;
     } else { /* 1.0 at the fade, down to 0 at open */
         f->fade = (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
         f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
         f->k = mul_q30(k, f->fade);
-        f->a = (int16_t)(8192 + mul_q30(f->level - 8192, f->fade));
-        h = mul_q30(f->shelf, f->fade);
+        f->a = ONE_Q30 + mul_q30(level - ONE_Q30, f->fade);
+        /* no shelf: up here (above Nyquist at 44.1 and 48 kHz) its weight
+         * shelf * (1 - g) is under 0.03 (0.2 dB), and the fade's stages
+         * already take four more multiplies */
+        h = 0;
     }
+    h = mul_q30(h, ONE_Q30 - f->g); /* the weight of lp before its update */
     if (h && !f->h) f->lp = f->s[3]; /* shelf on: the output carries on */
-    f->h = (int16_t)h;
+    f->h = h;
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }
 
@@ -276,9 +280,6 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
     if (permille < 0) permille = 0;
     if (permille > 1000) permille = 1000;
     f->res = (int16_t)permille;
-    f->retune = (int16_t)res_lookup(retune_tab, permille);
-    f->shelf = (int16_t)res_lookup(shelf_tab, permille);
-    f->level = (int16_t)res_lookup(level_tab, permille);
     if (f->rate) /* the retune moves the coefficient */
         apply(f);
     else
@@ -382,7 +383,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         d = (int64_t)in - f->hp;
         x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
     }
-    if (f->a != 8192) x = (int32_t)(((int64_t)x * f->a) >> 13);
+    if (f->a != ONE_Q30) x = mul_q30(x, f->a);
     u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
     /* each stage after the first takes the one before it, now and as it
      * was one sample ago */
@@ -403,7 +404,13 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
     }
     f->x1 = u;
     if (!f->h) return f->s[3];
-    /* the bass shelf: lp follows the output at the cutoff */
-    f->lp += mul_q30(f->s[3] - f->lp, f->g);
-    return f->s[3] + (int32_t)(((int64_t)(f->lp - f->s[3]) * f->h) >> 13);
+    /* the bass shelf: lp follows the output at the cutoff, and the output
+     * is s3 + shelf * (lp - s3) after lp's update, which is s3 - shelf *
+     * (1 - g) * d with d the difference before it (two independent
+     * multiplies, much faster on the device) */
+    {
+        int32_t d = f->s[3] - f->lp;
+        f->lp += mul_q30(d, f->g);
+        return f->s[3] - mul_q30(d, f->h);
+    }
 }
