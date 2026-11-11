@@ -1,6 +1,6 @@
 /* fm1-8p patches: the 32 JX-8P factory tones, converted to engine values by tools/jx8p.py
- * (firmware/patches.c is generated; docs/patches.md has the source and the mapping). Plain C, no
- * host code. */
+ * (firmware/patches.c is generated; docs/patches.md has the source and the mapping; the logic is by
+ * hand in firmware/patch.c). Plain C, no host code. */
 #ifndef PATCHES_H
 #define PATCHES_H
 #include <stdint.h>
@@ -83,4 +83,9 @@ static inline int32_t patch_value(const patch *t, patch_field f)
 
 /* The engine param a field sets (an fm_param_id), or PATCH_NONE while it waits for its feature. */
 int32_t patch_param(patch_field f);
+
+/* Patch t as every param's value, into v[FM_PARAM_COUNT]: each field of t the engine has a param for
+ * (the others wait for their features), clamped to the param's range, and the default for a param no
+ * field sets. What the playable module boots with and what PRESETS loads. */
+void patch_values(const patch *t, int32_t *v);
 #endif
