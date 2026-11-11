@@ -393,8 +393,19 @@ TT_TEST(ui_presets_click_loads_the_next_patch)
     TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK - 1u]);
 }
 
+/* A fast turn (3 or more clicks in one event) moves 4 patches, as interaction.md says. */
+TT_TEST(ui_presets_fast_turn_moves_four)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 0);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK + 4u]);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -5, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_presets_fast_turn_moves_four);
     TT_RUN(ui_presets_click_loads_the_next_patch);
     TT_RUN(ui_slot_number_is_two_digits);
     TT_RUN(ui_octave_label_reads_like_the_hosts);

@@ -264,7 +264,10 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
 /* PRESETS: the patch clicks away, wrapping */
 static void browse(ui *u, int32_t clicks)
 {
-    int32_t i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
+    int32_t i;
+    if (clicks >= 3 || clicks <= -3)          /* a fast turn: 4 */
+        clicks = clicks > 0 ? 4 : -4;
+    i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
     play_load_patch(u->p, (uint32_t)(i + (int32_t)PATCH_COUNT) % PATCH_COUNT);
 }
 
