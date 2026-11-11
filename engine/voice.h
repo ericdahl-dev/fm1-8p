@@ -57,7 +57,7 @@ typedef struct {
     int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
     uint32_t fenv_lag;      /* samples filter_env is behind: it is caught
                              * up only when read (the control rate) */
-    int32_t mix_base;       /* osc_mix, Q1.30 */
+    int32_t mix_base;       /* osc2_level, Q1.30 */
     int32_t mix_step;       /* the mix's glide each sample to its next target */
     /* last: read only at control ticks and note starts, so the fields the
      * render reads keep their offsets */
@@ -184,14 +184,14 @@ static inline void fm_voice_mark(fm_voice *v, uint8_t bits, int on)
 }
 
 /* Marks the mix busy while an envelope reaches it (or its sum is not yet
- * back at 0), a glide step is set or the mix is away from osc_mix; call
+ * back at 0), a glide step is set or osc2's level is away from osc2_level; call
  * after any of them changes (the glide itself moves the mix only while a
  * step is set). */
 static inline void fm_voice_mark_mix(fm_voice *v, const fm_voice_mod *m)
 {
     fm_voice_mark(v, FM_BUSY_MIX,
                   !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
-                  v->mix_step || v->osc.mix != v->mix_base);
+                  v->mix_step || v->osc.level[1] != v->mix_base);
 }
 
 /* Nonzero while any of the voice's processors is away from rest; a voice

@@ -73,7 +73,7 @@ static void mod_osc_setup(void)
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, 30);
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_FINE_CENTS, 7);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, 500);
 }
 
 /*
@@ -494,7 +494,7 @@ static void pw_only_on_and_off(int16_t *out, int32_t pct, uint32_t block)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 1);
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, 0);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 900);
     fm_engine_note_on(&mod_eng, 60, 100);
     render_in_blocks(out, 1000, block);

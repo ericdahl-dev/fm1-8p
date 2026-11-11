@@ -124,7 +124,7 @@ envelope's level as a share of the note's peak), both set at the
 16-sample control points; the destinations are pitch, pulse width, level
 (the amp envelope's peak, from velocity at full depth), cutoff (cents,
 from envelope 1 at `filter_env_amount_cents`) and mix (Q1.30 added to
-`osc_mix_permille`, from envelope 1 or 2 as `osc_mix_env_source` picks, at
+osc2's level, `osc2_level_permille`, from envelope 1 or 2 as `osc_mix_env_source` picks, at
 `osc_mix_env_permille`). Each voice keeps its sources as last set. A
 destination can be summed alone (`fm_mod_update`): a note start takes
 only its level again, so the vibrato carries on

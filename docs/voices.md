@@ -212,7 +212,7 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | Stage | Format | Peak |
 | --- | --- | --- |
 | Saw | Q8.24 | 1.0 (polyBLEP keeps it within +-1.0) |
-| Oscillator mix | Q8.24 | 1.0 (every waveform peaks at 1.0; the mix is a crossfade) |
+| Oscillator mix | Q8.24 | 2.0 (every waveform peaks at 1.0; the mix sums the two at their levels) |
 | Filter output | Q8.24 | 1.0 with the filter open or no resonance; with high resonance up to the soft clip's +-4.0 |
 | Voice: filter output times amp envelope | Q8.24 | as the filter output |
 | Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count` with no resonance; at most 4.0 x 8 = 32.0, which uses 6 of the 7 headroom bits |
@@ -284,8 +284,8 @@ amp envelopes and one for the filter envelopes, and every voice's
 envelope points at it (#19), so a setting change is written once and
 retimes only the envelopes that are running. Unison adds 49 bytes (8
 detune offsets and the 16 held keys). With the chorus (its 2 KiB delay
-line and a 256-byte right-side buffer) `fm_engine` is about 5.2 KiB (5432
-bytes on the FM-1, 5600 on x86-64), so static storage is recommended.
+line and a 256-byte right-side buffer) `fm_engine` is about 5.2 KiB (5468
+bytes on the FM-1, 5664 on x86-64), so static storage is recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per
 voice (one per oscillator's pitch, plus one more for each pulse oscillator's

@@ -127,7 +127,8 @@ FIELDS = [
     Field("OSC2_OCTAVE", "OSC2_OCTAVE", None, None, None),
     Field("OSC2_COARSE_SEMIS", "OSC2_COARSE_SEMIS", None, None, None),
     Field("OSC2_FINE_CENTS", "OSC2_FINE_CENTS", None, None, None),
-    Field("OSC_MIX_PERMILLE", "OSC_MIX", None, None, None),
+    Field("OSC1_LEVEL_PERMILLE", "OSC1_LEVEL", None, None, None),
+    Field("OSC2_LEVEL_PERMILLE", "OSC2_LEVEL", None, None, None),
     Field("OSC_SYNC", "OSC_SYNC", None, None, None),
     Field("XMOD_AM", None, 0, 1, "cross mod as the JX-8P does it (no issue yet)"),
     Field("HIGHPASS_STEP", "HIGHPASS_STEP", None, None, None),
@@ -299,12 +300,6 @@ def env_mode(v):
     return (ENV1 if pos >= 2 else ENV2), (1 if pos & 1 else -1)
 
 
-def mix_permille(l1, l2):
-    """DCO levels as the engine's osc mix: DCO-2's share, per mille. DCO-1 off is osc2 only, whatever
-    DCO-2's level (the engine's mix has no silence)."""
-    return rnd(1000 * l2 / (l1 + l2)) if l1 else 1000
-
-
 def hpf_step(v):
     """HPF, 0..127 (four positions), as the engine's highpass step, as PG-8X 2.0.13 plays it
     (docs/patches.md): 1 is flat and 2 and 3 are the engine's steps 2 and 3. 0 is a bass boost
@@ -355,16 +350,12 @@ def to_engine(tone):
     e["OSC1_OCTAVE"], e["OSC1_COARSE_SEMIS"] = octave1, lack
     e["OSC2_OCTAVE"], e["OSC2_COARSE_SEMIS"] = octave_and_semis(pitch2 - lack)
     e["OSC2_FINE_CENTS"] = max(-50, min(50, rnd((p[DCO2_FINE] - 64) * 50 / 64)))
-    # MIX ENV scales DCO-2's level (est.): from 1 - depth to 1 as the envelope rises (inverted: the
-    # other way). osc_mix is the mix with the envelope at rest, osc_mix_env the change at its peak.
+    # The mixer sums the DCOs, each at its level byte over 127. MIX ENV adds depth x envelope to
+    # DCO-2's byte (inverted: takes it away), clamped to 0..127: PG-8X 2.0.13, measured (#102).
     l1, l2 = p[MIX_DCO1], p[MIX_DCO2]
     src, sign = env_mode(p[MIX_ENV_MODE])
-    depth = p[MIX_ENV] / 127
-    low = mix_permille(l1, l2 * (1 - depth))
-    full = mix_permille(l1, l2)
-    rest, peak = (low, full) if sign > 0 else (full, low)
-    e["OSC_MIX_PERMILLE"] = rest
-    e["OSC_MIX_ENV_PERMILLE"] = peak - rest
+    e["OSC1_LEVEL_PERMILLE"], e["OSC2_LEVEL_PERMILLE"] = rnd(1000 * l1 / 127), rnd(1000 * l2 / 127)
+    e["OSC_MIX_ENV_PERMILLE"] = sign * rnd(1000 * p[MIX_ENV] / 127)
     e["OSC_MIX_ENV_SOURCE"] = 1 if src == ENV2 and p[VCA_MODE] >= 64 else 0
     xmod = switch(p[DCO_XMOD])
     e["OSC_SYNC"] = 1 if xmod in (1, 2) else 0

@@ -66,7 +66,7 @@ TT_TEST(busy_mix_env_back_to_zero_rests)
         fm_engine_init(&beng, 44100u, 1);
         fm_engine_set_param(&beng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
         fm_engine_set_param(&beng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
-        fm_engine_set_param(&beng, FM_PARAM_OSC_MIX, cases[k][0]);
+        fm_engine_set_param(&beng, FM_PARAM_OSC2_LEVEL, cases[k][0]);
         fm_engine_set_param(&beng, FM_PARAM_OSC_MIX_ENV, cases[k][1]);
         fm_engine_note_on(&beng, 57, 100);
         fm_engine_render(&beng, bbuf, 4410);
@@ -145,7 +145,7 @@ static void busy_random_param(fm_engine *e)
         {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, {0, 0, 2400, -1200}},
         {FM_PARAM_FILTER_KEY_TRACK, {0, 0, 500, 1000}},
         {FM_PARAM_FILTER_RESONANCE, {0, 0, 400, 900}},
-        {FM_PARAM_OSC_MIX, {0, 500, 500, 1000}},
+        {FM_PARAM_OSC2_LEVEL, {0, 500, 500, 1000}},
         {FM_PARAM_OSC_MIX_ENV, {0, 0, 500, -700}},
         {FM_PARAM_OSC_MIX_ENV_SOURCE, {0, 0, 1, 1}},
         {FM_PARAM_VOICE_MODE, {FM_VOICE_MODE_POLY, FM_VOICE_MODE_POLY,

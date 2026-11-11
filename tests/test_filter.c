@@ -284,7 +284,7 @@ TT_TEST(key_tracking_ignores_osc2_coarse_like_its_octave)
         fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 5000);
         fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 300);
         fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
-        fm_engine_set_param(&feng, FM_PARAM_OSC_MIX, 1000);
+        fm_engine_set_param(&feng, FM_PARAM_OSC2_LEVEL, 1000);
         fm_engine_set_param(&feng, FM_PARAM_OSC2_COARSE_SEMIS, shift[k][0]);
         fm_engine_set_param(&feng, FM_PARAM_OSC2_OCTAVE, shift[k][1]);
         fm_engine_note_on(&feng, 72, 100);
@@ -1929,7 +1929,7 @@ TT_TEST(open_filter_with_sync_and_xmod_matches_the_full_render)
         fm_engine_set_param(e, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
         fm_engine_set_param(e, FM_PARAM_OSC2_OCTAVE, 1);
         fm_engine_set_param(e, FM_PARAM_OSC2_FINE_CENTS, -30);
-        fm_engine_set_param(e, FM_PARAM_OSC_MIX, 600);
+        fm_engine_set_param(e, FM_PARAM_OSC2_LEVEL, 600);
         fm_engine_set_param(e, FM_PARAM_OSC_SYNC, 1);
         fm_engine_set_param(e, FM_PARAM_OSC_XMOD, 1000);
         fm_engine_set_param(e, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);

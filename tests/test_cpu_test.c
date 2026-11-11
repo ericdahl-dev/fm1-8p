@@ -291,7 +291,7 @@ TT_TEST(cpu_test_full_patch_step_turns_on_every_modulation)
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_VOICE_MODE), FM_VOICE_MODE_POLY);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_OSC1_WAVE), FM_WAVE_PULSE);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_OSC2_WAVE), FM_WAVE_SAW);
-    TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_OSC_MIX), 500);
+    TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_OSC2_LEVEL), 500);
     TT_CHECK(fm_engine_get_param(&ct_a.engine, FM_PARAM_CHORUS_MODE) != 0);
     TT_CHECK(fm_engine_get_param(&ct_a.engine, FM_PARAM_LFO_PITCH_CENTS) > 0);
     TT_CHECK(fm_engine_get_param(&ct_a.engine, FM_PARAM_LFO_PW_PCT) > 0);
@@ -319,7 +319,7 @@ TT_TEST(cpu_test_full_patch_strikes_varied_velocities)
 /* Steps 1..8 and U play the default patch: F's settings never leak into them, even after F ran. */
 TT_TEST(cpu_test_default_steps_leave_the_patch_at_its_defaults)
 {
-    static const uint16_t MOD[] = {FM_PARAM_OSC1_WAVE, FM_PARAM_OSC2_WAVE, FM_PARAM_OSC_MIX,
+    static const uint16_t MOD[] = {FM_PARAM_OSC1_WAVE, FM_PARAM_OSC2_WAVE, FM_PARAM_OSC2_LEVEL,
                                    FM_PARAM_CHORUS_MODE, FM_PARAM_LFO_PITCH_CENTS, FM_PARAM_LFO_PW_PCT,
                                    FM_PARAM_AMP_VELOCITY, FM_PARAM_FILTER_CUTOFF_CENTS,
                                    FM_PARAM_FILTER_RESONANCE, FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
@@ -360,7 +360,7 @@ TT_TEST(cpu_test_full_patch_can_play_at_any_voice_count)
  * its blocks never count as the full patch's cost. */
 TT_TEST(cpu_test_full_patch_that_fails_is_not_timed)
 {
-    static const cpu_test_param BAD[] = {{FM_PARAM_OSC_MIX, 500}, {FM_PARAM_COUNT, 1}};
+    static const cpu_test_param BAD[] = {{FM_PARAM_OSC2_LEVEL, 500}, {FM_PARAM_COUNT, 1}};
     uint32_t v, pm, i;
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
     cpu_test_set_full_patch(&ct_a, BAD, 2);
