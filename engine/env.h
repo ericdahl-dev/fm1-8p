@@ -111,24 +111,19 @@ static inline int32_t fm_env_step(fm_env *e)
     case FM_ENV_ATTACK:
         if (e->peak - e->level > fm_env_reach(e)) return e->level += fm_env_inc(e);
         break;
+    /* Decay and release: a segment never lands inside itself (it starts
+     * more than FM_ENV_FLOOR from its target and moves at most 2/3 of
+     * that), so inside one the count alone decides; fm_env_next starts the
+     * next segment or lands. */
     case FM_ENV_DECAY:
         if (e->seg == 0) break;
-        if (e->level >= e->sus_level) {
-            if (e->level - fm_env_reach(e) > e->sus_level) {
-                e->seg--;
-                return e->level -= fm_env_inc(e);
-            }
-        } else if (e->sus_level - e->level > fm_env_reach(e)) {
-            e->seg--;
-            return e->level += fm_env_inc(e);
-        }
-        break;
+        e->seg--;
+        if (e->level >= e->sus_level) return e->level -= fm_env_inc(e);
+        return e->level += fm_env_inc(e);
     case FM_ENV_RELEASE:
-        if (e->seg != 0 && e->level > fm_env_reach(e)) {
-            e->seg--;
-            return e->level -= fm_env_inc(e);
-        }
-        break;
+        if (e->seg == 0) break;
+        e->seg--;
+        return e->level -= fm_env_inc(e);
     case FM_ENV_FADE:
         if (e->level > fm_env_reach(e)) return e->level -= fm_env_inc(e);
         break;

@@ -1170,6 +1170,39 @@ TT_TEST(env_step_matches_env_next_sample_by_sample)
 }
 
 /*
+ * The same through every short decay and release, tau 1 to 80 samples,
+ * where a segment moves the most of its distance (up to 2/3 at tau 1): the
+ * inline step's count alone never takes a sample that should land.
+ */
+TT_TEST(env_step_matches_env_next_for_every_short_tau)
+{
+    static const int32_t sus[] = { 0, FM_ENV_FULL / 2, FM_ENV_FULL - 1, FM_ENV_FULL };
+    fm_env_settings sa, sb;
+    fm_env a, b;
+    uint32_t tau, i, k;
+    int mismatches = 0;
+    for (tau = 1; tau <= 80; tau++)
+        for (i = 0; i < sizeof sus / sizeof sus[0]; i++) {
+            sa.attack_samples = sb.attack_samples = 0;
+            sa.decay_samples = sb.decay_samples = tau;
+            sa.release_samples = sb.release_samples = tau;
+            sa.sustain = sb.sustain = sus[i];
+            fm_env_init(&a, &sa);
+            fm_env_init(&b, &sb);
+            fm_env_gate_on(&a);
+            fm_env_gate_on(&b);
+            for (k = 0; k < 20 * tau + 4; k++) /* to sustain */
+                if (fm_env_step(&a) != fm_env_next(&b) || a.stage != b.stage) mismatches++;
+            fm_env_gate_off(&a);
+            fm_env_gate_off(&b);
+            for (k = 0; k < 20 * tau + 4; k++) /* to idle */
+                if (fm_env_step(&a) != fm_env_next(&b) || a.stage != b.stage) mismatches++;
+            if (b.stage != FM_ENV_IDLE) mismatches++;
+        }
+    TT_CHECK_EQ(mismatches, 0);
+}
+
+/*
  * Every voice's envelope reads its times and sustain from one settings
  * struct the engine owns (#19): a setting changed once reaches every
  * sounding voice, and an idle one stays idle. Two notes in a 1 s attack,
@@ -1246,6 +1279,29 @@ TT_TEST(exponential_release_stays_on_its_curve)
     }
     TT_CHECK(release_error_db(8) < 0.5);
     TT_CHECK(release_error_db(5760000) < 0.25);
+}
+
+/*
+ * A sustain changed mid-decay starts a new segment there: the next sample
+ * heads for the new sustain at its own pace, (distance) / tau, not with the
+ * step the old segment took toward the old sustain.
+ */
+TT_TEST(sustain_changed_mid_decay_heads_there_at_once)
+{
+    fm_env_settings set = { 0, 4800, 0, 0 }; /* decay tau 4800 samples, to 0 */
+    fm_env e;
+    int32_t before, moved, want;
+    uint32_t i;
+    fm_env_init(&e, &set);
+    fm_env_gate_on(&e);
+    for (i = 0; i < 6660; i++) fm_env_next(&e); /* about 1.39 tau: 0.25 */
+    set.sustain = FM_ENV_FULL;
+    fm_env_retime(&e);
+    before = e.level;
+    fm_env_next(&e);
+    moved = e.level - before;
+    want = (int32_t)(((int64_t)FM_ENV_FULL - before) / 4800);
+    TT_CHECK(moved > want * 9 / 10 && moved < want * 11 / 10);
 }
 
 TT_TEST(env_long_quiet_attack_lands_on_time)
@@ -1895,9 +1951,11 @@ static void run_filter_tests(void)
     TT_RUN(unison_note_change_keeps_the_control_cadence);
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
+    TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);
     TT_RUN(env_init_gives_an_envelope_its_settings);
     TT_RUN(exponential_release_stays_on_its_curve);
+    TT_RUN(sustain_changed_mid_decay_heads_there_at_once);
     TT_RUN(env_long_quiet_attack_lands_on_time);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);

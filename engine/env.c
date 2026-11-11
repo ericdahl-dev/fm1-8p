@@ -139,16 +139,17 @@ static void enter_decay(fm_env *e)
 
 void fm_env_retime(fm_env *e)
 {
+    int32_t old_sus = e->sus_level;
     sustain_level(e);
     switch (e->stage) {
     case FM_ENV_ATTACK:
         set_step(e, e->peak, e->set->attack_samples);
         break;
-    case FM_ENV_DECAY:   /* the running segment ends as it is (at most 64
-                          * samples); the next one takes the new tau and
-                          * sustain, so setting a value again changes nothing.
-                          * A time of 0 acts at once. */
-        if (e->set->decay_samples == 0) e->seg = 0;
+    case FM_ENV_DECAY:   /* a new tau: the running segment ends as it is (at
+                          * most 64 samples), so setting a value again changes
+                          * nothing. A new sustain, or a time of 0, acts at
+                          * once: the segment was drawn toward the old one */
+        if (e->set->decay_samples == 0 || e->sus_level != old_sus) e->seg = 0;
         break;
     case FM_ENV_RELEASE:
         if (e->set->release_samples == 0) e->seg = 0;
