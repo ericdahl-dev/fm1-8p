@@ -376,8 +376,24 @@ TT_TEST(play_load_patch_is_not_edited)
     TT_CHECK(!play_edited(&pl_a));
 }
 
+/* A load sounds the same whatever came before: a param the patch has no field for goes back to the
+ * engine's default, so loading SOUNDTRACK after edits gives exactly the boot values. */
+TT_TEST(play_load_patch_matches_a_fresh_boot)
+{
+    static play fresh;
+    uint32_t i;
+    TT_CHECK_EQ(play_init(&fresh), 0);
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_set_param(&pl_a, FM_PARAM_LFO_PW_PCT, 40);
+    play_set_param(&pl_a, FM_PARAM_FILTER_RESONANCE, 900);
+    play_load_patch(&pl_a, PATCH_SOUNDTRACK);
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        TT_CHECK_EQ(play_get_param(&pl_a, (uint16_t)i), play_get_param(&fresh, (uint16_t)i));
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_load_patch_matches_a_fresh_boot);
     TT_RUN(play_load_patch_is_not_edited);
     TT_RUN(play_load_patch_reaches_the_engine_at_the_next_render);
     TT_RUN(play_keys_play_from_the_octave);

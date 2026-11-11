@@ -141,6 +141,8 @@ void play_load_patch(play *p, uint32_t i)
 {
     const patch *t = &PATCHES[i % PATCH_COUNT];
     uint32_t f;
+    for (f = 0; f < FM_PARAM_COUNT; f++)        /* what the patch has no field for: the default */
+        play_set_param(p, (uint16_t)f, fm_param_info_get((uint16_t)f)->def);
     for (f = 0; f < PATCH_FIELD_COUNT; f++) {
         int32_t id = patch_param((patch_field)f);
         if (id != PATCH_NONE)
