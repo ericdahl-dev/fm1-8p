@@ -1174,15 +1174,23 @@ static uint32_t pair_rand(uint32_t *seed)
     return *seed >> 8;
 }
 
-/* 1 if two pairs agree in everything their samples depend on. */
+/*
+ * 1 if two pairs agree in everything their samples depend on, now or
+ * after a later change of wave: phases and increments, the widths played
+ * and their gains, the waves and the cached path flags.
+ */
 static int pairs_match(const fm_osc_pair *a, const fm_osc_pair *b)
 {
     uint8_t i;
     for (i = 0; i < 2; i++)
-        if (a->osc[i].phase != b->osc[i].phase || a->osc[i].inc != b->osc[i].inc)
+        if (a->osc[i].phase != b->osc[i].phase || a->osc[i].inc != b->osc[i].inc ||
+            a->pw[i] != b->pw[i] || a->pw_gain[i] != b->pw_gain[i] ||
+            a->wave[i] != b->wave[i])
             return 0;
     return a->noise == b->noise && a->sync_pend == b->sync_pend &&
-           a->sync_after == b->sync_after && a->mix == b->mix;
+           a->sync_after == b->sync_after && a->mix == b->mix &&
+           a->only1 == b->only1 && a->special == b->special &&
+           a->sync == b->sync;
 }
 
 /*
