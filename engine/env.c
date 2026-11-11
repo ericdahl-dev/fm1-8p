@@ -6,6 +6,9 @@
  * Divisions happen only at stage changes, never per sample.
  */
 #include "env.h"
+#ifdef FM_CHECK_ENGINE
+#include <assert.h>
+#endif
 
 /* Per-sample step that covers `span` in `samples`, rounded up so the
  * segment never takes longer than asked. `samples` == 0 jumps at once. */
@@ -13,6 +16,12 @@ static int32_t step_for(int32_t span, uint32_t samples)
 {
     if (samples == 0 || span <= 0) return span > 0 ? span : 1;
     return (int32_t)(((uint32_t)span + samples - 1) / samples);
+}
+
+void fm_env_init(fm_env *e, const fm_env_settings *set)
+{
+    e->set = set;
+    fm_env_reset(e);
 }
 
 void fm_env_reset(fm_env *e)
@@ -34,6 +43,9 @@ static int32_t sustain_level(fm_env *e)
 
 void fm_env_gate_on(fm_env *e)
 {
+#ifdef FM_CHECK_ENGINE /* debug builds: started with fm_env_init */
+    assert(e->set);
+#endif
     e->stage = FM_ENV_ATTACK;
     e->step = step_for(e->peak, e->set->attack_samples);
     sustain_level(e);

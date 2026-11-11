@@ -52,10 +52,13 @@ typedef struct {
     int32_t peak;  /* level the attack rises to (velocity), Q1.30; the
                     * sustain level is scaled by it too */
     int32_t sus_level; /* sustain * peak, set at gate on and retime */
-    const fm_env_settings *set; /* the shared settings: set once by the
-                                 * owner, kept by fm_env_reset */
+    const fm_env_settings *set; /* the shared settings (fm_env_init) */
 } fm_env;
 
+/* Starts an envelope, idle, on `set`: the only way to give it settings,
+ * which it keeps (by pointer) from then on. */
+void fm_env_init(fm_env *e, const fm_env_settings *set);
+/* Back to idle, keeping its settings. */
 void fm_env_reset(fm_env *e);
 void fm_env_gate_on(fm_env *e);
 void fm_env_gate_off(fm_env *e);

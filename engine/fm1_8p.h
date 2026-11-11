@@ -13,7 +13,9 @@
  * its other use. See docs/fixed-point.md for the number formats.
  *
  * The struct layout is exposed only so callers can allocate it; treat
- * every field as private.
+ * every field as private. Do not copy an fm_engine (assignment, memcpy):
+ * its voices point at settings inside it (#19), so a copy's voices would
+ * still read the original's. Initialize each one with fm_engine_init.
  *
  * The engine takes no locks. Call every function from one context, or
  * make sure no other call runs while fm_engine_render does (for example,

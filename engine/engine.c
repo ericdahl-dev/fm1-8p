@@ -6,6 +6,9 @@
 #include "chorus.h"
 #include "fm1_8p.h"
 #include "units.h"
+#ifdef FM_CHECK_ENGINE
+#include <assert.h>
+#endif
 
 /* Below 8 kHz slow LFO and delay settings lose precision. */
 #define MIN_SAMPLE_RATE 8000u
@@ -365,9 +368,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         int32_t rate_cents = fm_filter_rate_cents(sample_rate);
         for (i = 0; i < FM_MAX_VOICES; i++) {
             fm_voice_reset(&e->voices[i], (uint32_t)(i + 1) * 0x9E3779B9u,
-                           rate_cents);
-            e->voices[i].amp_env.set = &e->amp_set;
-            e->voices[i].filter_env.set = &e->filter_set;
+                           rate_cents, &e->amp_set, &e->filter_set);
             e->detune[i] = 0;
         }
     }
@@ -384,6 +385,15 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value)
 {
     const fm_param_info *info = fm_param_info_get(id);
     if (!e || !info) return FM_ERR_ARG;
+#ifdef FM_CHECK_ENGINE /* debug builds: the engine was not copied (a
+                        * zeroed one, voice_count 0, touches no voice) */
+    {
+        uint8_t i;
+        for (i = 0; e->voice_count && i < FM_MAX_VOICES; i++)
+            assert(e->voices[i].amp_env.set == &e->amp_set &&
+                   e->voices[i].filter_env.set == &e->filter_set);
+    }
+#endif
     if (value < info->min) value = info->min;
     if (value > info->max) value = info->max;
     if (id == FM_PARAM_VOICE_MODE && value != e->params[id])

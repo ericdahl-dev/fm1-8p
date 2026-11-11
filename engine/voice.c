@@ -9,10 +9,11 @@
 #endif
 #include "voice.h"
 
-void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents)
+void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
+                    const fm_env_settings *amp, const fm_env_settings *filter)
 {
     fm_osc_pair_reset(&v->osc, seed);
-    fm_env_reset(&v->amp_env);
+    fm_env_init(&v->amp_env, amp);
     v->stamp = 0;
     v->pitch = 0;
     v->next_pitch = 0;
@@ -38,7 +39,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents)
     v->mix_step = 0;
     v->key_note = 0;
     v->next_key = 0;
-    fm_env_reset(&v->filter_env);
+    fm_env_init(&v->filter_env, filter);
     v->cutoff_now = INT32_MIN;
     v->busy = FM_BUSY_CUTOFF;
     v->ctrl_phase = 0;

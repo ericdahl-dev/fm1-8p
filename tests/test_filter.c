@@ -1070,8 +1070,7 @@ static fm_env_settings env_set;
 /* Two equal random envelopes, reset with random times and sustain. */
 static void env_random_pair(fm_env *a, fm_env *b, uint32_t *seed)
 {
-    fm_env_reset(a);
-    a->set = &env_set;
+    fm_env_init(a, &env_set);
     env_set.attack_samples = env_rand(seed) % 3000;
     env_set.decay_samples = env_rand(seed) % 3000;
     env_set.release_samples = env_rand(seed) % 3000;
@@ -1169,42 +1168,61 @@ TT_TEST(env_step_matches_env_next_sample_by_sample)
 }
 
 /*
- * Envelopes read their times and sustain from one settings struct they
- * share (#19): a change made once, then a retime of each running one,
- * reaches them all. A 1000-sample attack cut to 10 lands both on the
- * peak 10 samples later.
+ * Every voice's envelope reads its times and sustain from one settings
+ * struct the engine owns (#19): a setting changed once reaches every
+ * sounding voice, and an idle one stays idle. Two notes in a 1 s attack,
+ * the attack cut to 1 ms (44 samples): within 44 more samples both are
+ * past the peak, in the decay; the third voice never started.
  */
 TT_TEST(env_settings_are_shared_by_every_envelope)
 {
-    static fm_env_settings s;
-    static fm_env a, b;
-    uint32_t n;
-    s.attack_samples = 1000;
-    s.decay_samples = 500;
-    s.release_samples = 300;
-    s.sustain = FM_ENV_FULL / 2;
-    fm_env_reset(&a);
-    fm_env_reset(&b);
-    a.set = b.set = &s;
-    fm_env_gate_on(&a);
-    fm_env_gate_on(&b);
-    s.attack_samples = 10;
-    fm_env_retime(&a);
-    fm_env_retime(&b);
-    for (n = 0; n < 10; n++) {
-        fm_env_next(&a);
-        fm_env_next(&b);
+    static fm_engine e;
+    uint8_t i, sounding = 0, idle = 0;
+    fm_engine_init(&e, FRATE, 3);
+    fm_engine_set_param(&e, FM_PARAM_AMP_ATTACK_MS, 1000);
+    fm_engine_note_on(&e, 60, 127);
+    fm_engine_note_on(&e, 64, 127);
+    fm_engine_render(&e, fbuf_a, 100);
+    fm_engine_set_param(&e, FM_PARAM_AMP_ATTACK_MS, 1);
+    fm_engine_render(&e, fbuf_a, 44);
+    for (i = 0; i < 3; i++) {
+        uint8_t st = e.voices[i].amp_env.stage;
+        if (st == FM_ENV_IDLE) {
+            idle++;
+        } else {
+            sounding++;
+            TT_CHECK_EQ(st, FM_ENV_DECAY);
+        }
     }
-    TT_CHECK_EQ(a.stage, FM_ENV_DECAY);
-    TT_CHECK_EQ(b.stage, FM_ENV_DECAY);
-    TT_CHECK_EQ(a.level, FM_ENV_FULL);
+    TT_CHECK_EQ(sounding, 2);
+    TT_CHECK_EQ(idle, 1);
+}
+
+/* fm_env_init starts an envelope on the settings it is given: a
+ * 100-sample attack reaches the peak in 100 samples. */
+TT_TEST(env_init_gives_an_envelope_its_settings)
+{
+    static fm_env_settings s;
+    static fm_env e;
+    uint32_t n;
+    s.attack_samples = 100;
+    s.decay_samples = 100;
+    s.release_samples = 100;
+    s.sustain = FM_ENV_FULL / 2;
+    fm_env_init(&e, &s);
+    TT_CHECK_EQ(e.stage, FM_ENV_IDLE);
+    fm_env_gate_on(&e);
+    for (n = 0; n < 99; n++) fm_env_next(&e);
+    TT_CHECK_EQ(e.stage, FM_ENV_ATTACK);
+    fm_env_next(&e);
+    TT_CHECK_EQ(e.stage, FM_ENV_DECAY);
+    TT_CHECK_EQ(e.level, FM_ENV_FULL);
 }
 
 /* An envelope at `peak` (velocity) with the given times and sustain, gated on. */
 static void soft_env(fm_env *e, int32_t peak, int32_t sustain)
 {
-    fm_env_reset(e);
-    e->set = &env_set;
+    fm_env_init(e, &env_set);
     env_set.attack_samples = 1000;
     env_set.decay_samples = 500;
     env_set.release_samples = 300;
@@ -1806,6 +1824,7 @@ static void run_filter_tests(void)
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_settings_are_shared_by_every_envelope);
+    TT_RUN(env_init_gives_an_envelope_its_settings);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
     TT_RUN(env_advance_retrigger_above_a_soft_peak_goes_to_decay);
