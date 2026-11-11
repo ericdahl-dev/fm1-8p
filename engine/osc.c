@@ -599,8 +599,80 @@ int32_t fm_osc_pair_next(fm_osc_pair *p)
     return a + (int32_t)(((int64_t)(b - a) * p->mix) >> 30);
 }
 
+/*
+ * Oscillator `which`'s next `n` samples (no sync), its wave chosen once:
+ * into out[] when `mix` is 0, else blended into what out[] holds (osc1)
+ * as fm_osc_pair_next blends, a + (b - a) * mix. Inlined into
+ * fm_osc_pair_render with `mix` known to be 0 or not, so each loop is
+ * one wave's own, the pulse's two saws inline (pulse_at stays out of
+ * line for the per-sample paths, where inlining it costs 8 voices).
+ */
+static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
+                            uint32_t n, int32_t mix)
+{
+    fm_osc *o = &p->osc[which];
+    uint32_t t = o->phase, dt = o->inc, i;
+    int32_t b;
+    switch (p->wave[which]) {
+    case FM_WAVE_PULSE: {
+        uint32_t w = p->pw[which];
+        int32_t g = p->pw_gain[which];
+        for (i = 0; i < n; i++, t += dt) {
+            b = (int32_t)(((int64_t)(saw_at(t, dt) - saw_at(t + w, dt)) * g) >> 30);
+            out[i] = mix ? out[i] + (int32_t)(((int64_t)(b - out[i]) * mix) >> 30) : b;
+        }
+        break;
+    }
+    case FM_WAVE_SQUARE:
+        for (i = 0; i < n; i++, t += dt) {
+            b = saw_at(t, dt) - saw_at(t + 0x80000000u, dt);
+            out[i] = mix ? out[i] + (int32_t)(((int64_t)(b - out[i]) * mix) >> 30) : b;
+        }
+        break;
+    case FM_WAVE_NOISE:
+        for (i = 0; i < n; i++, t += dt) {
+            b = noise_next(p);
+            out[i] = mix ? out[i] + (int32_t)(((int64_t)(b - out[i]) * mix) >> 30) : b;
+        }
+        break;
+    default:
+        for (i = 0; i < n; i++, t += dt) {
+            b = saw_at(t, dt);
+            out[i] = mix ? out[i] + (int32_t)(((int64_t)(b - out[i]) * mix) >> 30) : b;
+        }
+        break;
+    }
+    o->phase = t;
+}
+
+/*
+ * The path is chosen once for the chunk: osc1 alone, osc2 alone, both
+ * blended (osc1 into out[], then osc2 blended in), or sync / cross-mod a
+ * sample at a time. An unheard oscillator only moves its phase, by n
+ * increments at once. Two noises blend a sample at a time, as they share
+ * one generator and fm_osc_pair_next draws them in turn.
+ */
 void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     uint32_t i;
-    for (i = 0; i < n; i++) out[i] = fm_osc_pair_next(p);
+    if (p->special) {
+        for (i = 0; i < n; i++) out[i] = next_special(p);
+        return;
+    }
+    if (p->only1) {
+        p->osc[1].phase += n * p->osc[1].inc;
+        wave_run(p, 0, out, n, 0);
+        return;
+    }
+    if (p->mix == FM_OSC_MIX_FULL) {
+        p->osc[0].phase += n * p->osc[0].inc;
+        wave_run(p, 1, out, n, 0);
+        return;
+    }
+    if (p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE) {
+        for (i = 0; i < n; i++) out[i] = fm_osc_pair_next(p);
+        return;
+    }
+    wave_run(p, 0, out, n, 0);
+    wave_run(p, 1, out, n, p->mix);
 }
