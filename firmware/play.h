@@ -14,6 +14,7 @@
 #define PLAY_GAIN_SHIFT 2
 #define PLAY_KEYS 27u                   /* the FM-1's note keys */
 #define PLAY_KEY0 53u                   /* key 0's note at octave 0: F3 */
+#define PLAY_PARAM_WORDS ((FM_PARAM_COUNT + 31u) / 32u)
 #define PLAY_QUEUE 64u                  /* events between two renders (a power of two) */
 
 typedef struct {
@@ -29,6 +30,11 @@ typedef struct {
     const patch *patch;                 /* the patch playing */
     int32_t oct;                        /* main loop: the keys' octave, -2..2 */
     uint8_t held[PLAY_KEYS];            /* main loop: the note each key started */
+    /* params set from the main loop (the UI's knobs): the value asked for, which the ISR moves the
+     * engine to */
+    volatile int32_t target[FM_PARAM_COUNT];
+    int32_t stored[FM_PARAM_COUNT];     /* main loop: the stored patch's values (play_edited) */
+    volatile uint32_t asked[PLAY_PARAM_WORDS];  /* bit id: a param set that the ISR hasn't applied */
 } play;
 
 /* Sets up the engine on PLAY_VOICES voices with the default patch, SOUNDTRACK
@@ -56,6 +62,12 @@ void play_key_up(play *p, uint32_t k);
 #define PLAY_NOTE_NAME 5u               /* room for a note's name: "C#-1" and its end */
 /* the note's name into s (PLAY_NOTE_NAME bytes): MIDI 60 is "C4", 61 "C#4"; outside 0..127 "--" */
 void play_note_name(int32_t note, char *s);
+/* main loop: set a param (clamped to its range); the next renders move the engine to it */
+void play_set_param(play *p, uint16_t id, int32_t value);
+/* main loop: a param's value as last set (the engine follows it), 0 for an unknown id */
+int32_t play_get_param(const play *p, uint16_t id);
+/* main loop: 1 while some param differs from the stored patch */
+uint32_t play_edited(const play *p);
 /* audio interrupt: add n (<= PLAY_BLOCK) stereo frames, Q15 in int32, into out */
 void play_render(play *p, int32_t *out, uint32_t n);
 #endif

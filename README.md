@@ -113,6 +113,11 @@ tone 17 of the JX-8P's 32 factory tones, which are all in `firmware/patches.c` (
 shows the name, the patch, the voice count and the last note played. The key and MIDI mapping is
 plain C (`firmware/play.[ch]`), tested on the desktop by `make test`.
 
+ENV opens page 4A, VCF (`docs/ui/interaction.md`), drawn in `docs/ui/visual.md`'s Night Panel
+theme: KNOB1-4 set CUTOFF, RESO, ENV and KEY, and a tap of EDIT or HOME goes back to the PLAY screen. The keys play
+on every page. What the knobs do, how values read, the meter, the filter curve and what to redraw
+are plain C in `firmware/ui.[ch]`, also tested by `make test`; the module draws what it says.
+
 ## FM-1 CPU-test firmware
 
 `firmware/fm1_8p_cpu/` runs the unchanged engine on the FM-1 as an
