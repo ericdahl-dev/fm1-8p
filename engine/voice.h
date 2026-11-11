@@ -32,7 +32,6 @@ typedef struct {
     int32_t next_pitch; /* pitch of `note` (kept while an old note fades) */
     uint32_t wait;     /* length of the current steal fade, in samples */
     uint32_t gate_left; /* samples until a queued release (0: none) */
-    fm_mod mod;        /* the modulation sums now applied (mod.h) */
     uint32_t lfo_start; /* control tick the LFO delay started at */
     int32_t next_peak; /* amp peak (velocity) of `note`, Q1.30, kept while
                         * an old note fades */
@@ -63,6 +62,9 @@ typedef struct {
     int32_t mix_base;       /* osc_mix, Q1.30 */
     int32_t mix_env;        /* the envelope's share of the mix, Q1.30, signed */
     int32_t mix_step;       /* the mix's glide each sample to its next target */
+    /* last: read only at control ticks and note starts, so the fields the
+     * render reads keep their offsets */
+    fm_mod mod;             /* the modulation sources and sums (mod.h) */
 } fm_voice;
 
 /* What the LFO does to every voice, set by the engine from the patch. */
