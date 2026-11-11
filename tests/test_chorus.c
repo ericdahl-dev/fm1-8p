@@ -22,9 +22,17 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
 
 /*
  * Two overlapping notes and a release, 20000 frames. The golden hash was
- * taken from the engine before the chorus existed (main at 47680c8, with polyphony).
+ * taken from the engine before the chorus existed (main at 47680c8, with polyphony),
+ * and retaken when envelope steps gained a fraction (#91: each segment's step is
+ * span / time in Q8, not rounded up to a whole number, so every envelope moves a
+ * little differently; the chorus-off path is unchanged), and again when decay
+ * and release became exponential (#99: the decay and release times are now time
+ * constants, so the phrase's envelopes take a different curve), and when the
+ * attack became an RC charge toward 1.6 x the peak, as PG-8X's, and when every
+ * segment became a whole-number step with its remainder on the first sample
+ * (within 1 LSB of the output at 44.1 kHz).
  */
-#define CH_GOLDEN_HASH 0x8E24F4ADu
+#define CH_GOLDEN_HASH 0x5C4375C1u
 
 /*
  * set_mode: set chorus_mode to `mode` before the phrase. was_on: first

@@ -2,6 +2,7 @@
  * Filter tests: frequency response through the filter module API
  * (engine/filter.h), and the voice wiring through fm_engine_* calls.
  */
+#include <math.h>
 #include "../engine/filter.h"
 #include "../engine/units.h"
 
@@ -505,7 +506,8 @@ static void play_resetting(int16_t *out, uint16_t id, int scenario)
     busy_filter_patch(&feng);
     fm_engine_set_param(&feng, FM_PARAM_AMP_DECAY_MS, scenario == 1 ? 20 : 400);
     fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 300);
-    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 300);
+    /* tau 30 ms: idle (-80 dB) 276 ms after the note off at 0.2 s */
+    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 30);
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS,
                         scenario == 2 ? 20 : 1000);
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_RELEASE_MS,
@@ -1168,6 +1170,39 @@ TT_TEST(env_step_matches_env_next_sample_by_sample)
 }
 
 /*
+ * The same through every short decay and release, tau 1 to 80 samples,
+ * where a segment moves the most of its distance (up to 2/3 at tau 1): the
+ * inline step's count alone never takes a sample that should land.
+ */
+TT_TEST(env_step_matches_env_next_for_every_short_tau)
+{
+    static const int32_t sus[] = { 0, FM_ENV_FULL / 2, FM_ENV_FULL - 1, FM_ENV_FULL };
+    fm_env_settings sa, sb;
+    fm_env a, b;
+    uint32_t tau, i, k;
+    int mismatches = 0;
+    for (tau = 1; tau <= 80; tau++)
+        for (i = 0; i < sizeof sus / sizeof sus[0]; i++) {
+            sa.attack_samples = sb.attack_samples = 0;
+            sa.decay_samples = sb.decay_samples = tau;
+            sa.release_samples = sb.release_samples = tau;
+            sa.sustain = sb.sustain = sus[i];
+            fm_env_init(&a, &sa);
+            fm_env_init(&b, &sb);
+            fm_env_gate_on(&a);
+            fm_env_gate_on(&b);
+            for (k = 0; k < 20 * tau + 4; k++) /* to sustain */
+                if (fm_env_step(&a) != fm_env_next(&b) || a.stage != b.stage) mismatches++;
+            fm_env_gate_off(&a);
+            fm_env_gate_off(&b);
+            for (k = 0; k < 20 * tau + 4; k++) /* to idle */
+                if (fm_env_step(&a) != fm_env_next(&b) || a.stage != b.stage) mismatches++;
+            if (b.stage != FM_ENV_IDLE) mismatches++;
+        }
+    TT_CHECK_EQ(mismatches, 0);
+}
+
+/*
  * Every voice's envelope reads its times and sustain from one settings
  * struct the engine owns (#19): a setting changed once reaches every
  * sounding voice, and an idle one stays idle. Two notes in a 1 s attack,
@@ -1196,6 +1231,127 @@ TT_TEST(env_settings_are_shared_by_every_envelope)
     }
     TT_CHECK_EQ(sounding, 2);
     TT_CHECK_EQ(idle, 1);
+}
+
+/* A long attack takes its time at any peak: a velocity-1 note (peak
+ * FULL / 127) with a 32 s attack at 192 kHz reaches the peak within 2 %
+ * of 6,144,000 samples (a whole-number step would round 1.47 up to 2 and
+ * land about 26 % early). */
+/*
+ * The straight segments of an exponential release stay on the curve: the
+ * level against FULL x e^(-t / tau), sample by sample, down to -60 dB, is
+ * within 0.1 dB for every tau from 5 ms at 8 kHz (40 samples) to 1 s at
+ * 48 kHz, and within 0.5 dB down to a tau of 8 samples (segments shorten
+ * to tau / 8). The longest, 32 s at 192 kHz, keeps within 0.25 dB: near
+ * -60 dB a segment spans about 11 LSB, and the fraction of an LSB each
+ * span leaves over carries into the next, so the rate holds.
+ */
+static double release_error_db(uint32_t tau)
+{
+    fm_env_settings set = { 0, 0, 0, FM_ENV_FULL };
+    fm_env e;
+    double worst = 0;
+    uint32_t t;
+    set.release_samples = tau;
+    fm_env_init(&e, &set);
+    fm_env_gate_on(&e);
+    fm_env_next(&e); /* attack 0: lands on full */
+    fm_env_next(&e);
+    fm_env_gate_off(&e);
+    for (t = 1; ; t++) {
+        double want = exp(-(double)t / tau), got;
+        fm_env_next(&e);
+        if (want < 1e-3) break;
+        got = (double)e.level / FM_ENV_FULL;
+        if (fabs(20 * log10(got / want)) > worst) worst = fabs(20 * log10(got / want));
+    }
+    return worst;
+}
+
+TT_TEST(exponential_release_stays_on_its_curve)
+{
+    static const uint32_t taus[] = { 40, 240, 960, 2205, 48000 };
+    size_t i;
+    for (i = 0; i < sizeof taus / sizeof taus[0]; i++) {
+        double err = release_error_db(taus[i]);
+        printf("    tau %7u samples: worst %.3f dB\n", (unsigned)taus[i], err);
+        TT_CHECK(err < 0.1);
+    }
+    TT_CHECK(release_error_db(8) < 0.5);
+    TT_CHECK(release_error_db(6144000) < 0.25);
+}
+
+/*
+ * A sustain changed mid-decay starts a new segment there: the next sample
+ * heads for the new sustain at its own pace, (distance) / tau, not with the
+ * step the old segment took toward the old sustain.
+ */
+TT_TEST(sustain_changed_mid_decay_heads_there_at_once)
+{
+    fm_env_settings set = { 0, 4800, 0, 0 }; /* decay tau 4800 samples, to 0 */
+    fm_env e;
+    int32_t before, moved, want;
+    uint32_t i;
+    fm_env_init(&e, &set);
+    fm_env_gate_on(&e);
+    for (i = 0; i < 6660; i++) fm_env_next(&e); /* about 1.39 tau: 0.25 */
+    set.sustain = FM_ENV_FULL;
+    fm_env_retime(&e);
+    before = e.level;
+    fm_env_next(&e);
+    moved = e.level - before;
+    want = (int32_t)(((int64_t)FM_ENV_FULL - before) / 4800);
+    TT_CHECK(moved > want * 9 / 10 && moved < want * 11 / 10);
+}
+
+/*
+ * The attack charges like PG-8X 2.0.13's (an RC toward 1.6 x the peak,
+ * fitted within 0.4 % of level at bytes 60..127): level = 1.6 x peak x
+ * (1 - e^(-t / tau)), stopping on the peak at t = tau x ln(1.6 / 0.6) =
+ * 0.98 tau, which is the attack time. Fast at first, easing into the top.
+ */
+TT_TEST(attack_charges_toward_1_6_peak_and_stops_on_it)
+{
+    fm_env_settings set = { 4800, 0, 0, FM_ENV_FULL }; /* attack 4800 samples */
+    fm_env e;
+    const double tau = 4800 / log(1.6 / 0.6);
+    uint32_t t, landed = 0;
+    int32_t top = 0;
+    int ok = 1;
+    fm_env_init(&e, &set);
+    fm_env_gate_on(&e);
+    for (t = 1; t <= 6000; t++) {
+        fm_env_next(&e);
+        if (e.level > top) top = e.level;
+        if (!landed && e.stage != FM_ENV_ATTACK) landed = t;
+        if (e.stage == FM_ENV_ATTACK && (t == 480 || t == 1200 || t == 2400 || t == 3600)) {
+            double want = 1.6 * (1 - exp(-(double)t / tau));
+            double got = (double)e.level / FM_ENV_FULL;
+            if (fabs(got - want) > 0.004) ok = 0;
+            printf("    t %4u: level %.4f, RC %.4f\n", (unsigned)t, got, want);
+        }
+    }
+    TT_CHECK(ok);
+    TT_CHECK(landed >= 4800 - 48 && landed <= 4800 + 48); /* on the peak at the attack time */
+    TT_CHECK_EQ(top, FM_ENV_FULL);                        /* and never past it */
+}
+
+TT_TEST(env_long_quiet_attack_lands_on_time)
+{
+    static fm_env_settings s;
+    static fm_env e;
+    const uint32_t want = 6144000u;
+    uint32_t n = 0;
+    s.attack_samples = want;
+    s.decay_samples = 100;
+    s.release_samples = 100;
+    s.sustain = FM_ENV_FULL;
+    fm_env_init(&e, &s);
+    e.peak = FM_ENV_FULL / 127;
+    fm_env_gate_on(&e);
+    while (e.stage == FM_ENV_ATTACK && n < 2 * want) fm_env_next(&e), n++;
+    printf("    32 s attack at peak FULL/127: %u samples (want %u)\n", n, want);
+    TT_CHECK(n > want - want / 50 && n < want + want / 50);
 }
 
 /* fm_env_init starts an envelope on the settings it is given: a
@@ -1485,7 +1641,9 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
     lagged |= feng.voices[0].fenv_lag != 0;
     fm_engine_note_on(&feng, 48, 100); /* retrigger from the release */
     fm_env_gate_on(&ref);
-    render_beside(&feng, &ref, 3007); /* decay, then sustain */
+    render_beside(&feng, &ref, 3007); /* in the decay, mid segment */
+    ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_DECAY;
+    render_beside(&feng, &ref, 13001); /* to sustain: within -80 dB of it */
     ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_SUSTAIN;
     lagged |= feng.voices[0].fenv_lag != 0;
     fm_engine_note_on(&feng, 48, 100); /* retrigger from the sustain */
@@ -1494,7 +1652,9 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
     ok &= fenv_matches(&feng, &ref);
     fm_engine_note_off(&feng, 48);
     fm_env_gate_off(&ref);
-    render_beside(&feng, &ref, 2003); /* release to idle */
+    render_beside(&feng, &ref, 2003); /* into the release, mid segment */
+    ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_RELEASE;
+    render_beside(&feng, &ref, 11003); /* to idle: 9.2 tau (12172) in all */
     ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_IDLE;
     TT_CHECK(ok);
     TT_CHECK(lagged);
@@ -1825,8 +1985,13 @@ static void run_filter_tests(void)
     TT_RUN(unison_note_change_keeps_the_control_cadence);
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
+    TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);
     TT_RUN(env_init_gives_an_envelope_its_settings);
+    TT_RUN(exponential_release_stays_on_its_curve);
+    TT_RUN(sustain_changed_mid_decay_heads_there_at_once);
+    TT_RUN(attack_charges_toward_1_6_peak_and_stops_on_it);
+    TT_RUN(env_long_quiet_attack_lands_on_time);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
     TT_RUN(env_advance_retrigger_above_a_soft_peak_goes_to_decay);

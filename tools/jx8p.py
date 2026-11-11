@@ -244,12 +244,52 @@ def permille(v):
 
 def env(p, base):
     """The envelope at base (ENV1 or ENV2) as engine attack ms, decay ms, sustain per mille and
-    release ms. Times are cubic in the knob: attack 1..3000 ms, decay and release 2..10000 ms (an
-    estimate: docs/patches.md)."""
-    def t(v, lo, hi):
-        return rnd(lo + (hi - lo) * (v / 127) ** 3)
+    release ms. Attack is the time to the peak of PG-8X 2.0.13's RC charge (attack_ms), 1 ms to
+    about 33.5 s. Decay and release are exponential on both, and their engine times are the time
+    constant (decay_ms, release_ms)."""
     a, d, s, r = p[base:base + 4]
-    return t(a, 1, 3000), t(d, 2, 10000), permille(s), t(r, 2, 10000)
+    return attack_ms(a), decay_ms(d), permille(s), release_ms(r)
+
+
+# Below 16 PG-8X 2.0.13 steps in pairs and leaves the curve: its decay floors near 4 ms, its release
+# goes down to about 1 ms (tau in ms per even byte, sample-accurate probe, 2026-11-11).
+_LOW_DECAY_MS = (4, 4, 4, 4, 4, 5, 7, 12)
+_LOW_RELEASE_MS = (1, 1, 2, 3, 4, 5, 9, 13)
+
+
+def _tau_ms(v):
+    return rnd(9.884 * (2.6717 ** (v / 16) - 0.1327))
+
+
+def decay_ms(v):
+    """ENV DECAY, 0..127, as the engine's time constant tau in ms: 9.884 x (2.6717^(v / 16) - 0.1327),
+    fitted to PG-8X 2.0.13's t_20dB / ln 10 (within 7 % from 16 up): x2.67 per 16 steps, 127 about
+    24.6 s. Below 16, PG-8X's measured steps (_LOW_DECAY_MS)."""
+    return _LOW_DECAY_MS[v >> 1] if v < 16 else _tau_ms(v)
+
+
+def release_ms(v):
+    """ENV RELEASE, 0..127: the same curve as decay_ms from 16 up; below it PG-8X's measured steps,
+    which go shorter than the decay's (_LOW_RELEASE_MS)."""
+    return _LOW_RELEASE_MS[v >> 1] if v < 16 else _tau_ms(v)
+
+
+# Below 16 PG-8X's attack shortens to a few ms by 8 and under 2 ms below it (time to the peak in ms
+# for bytes 8..15, the same probe, 2026-11-11)
+_LOW_ATTACK_MS = {8: 3, 9: 4, 10: 6, 11: 8, 12: 11, 13: 14, 14: 18, 15: 23}
+
+
+def attack_ms(v):
+    """ENV ATTACK, 0..127, as the engine's attack time in ms, the time to the peak of its RC charge
+    toward 1.6 x the peak: 14.1821 x (2.6607^(v / 16) - 0.4954), fitted to PG-8X 2.0.13 (within 4 %
+    from 40 up, 11 % at 16..32; x2.66 per 16 steps, as its decay and release), at most 32 s, the
+    range's end (the patch table's int16; PG-8X's 127 is 34 s). Below 8 it is 1 ms (PG-8X under
+    2 ms: a ramp, not a click, as GATE), 8..15 PG-8X's steps."""
+    if v < 8:
+        return 1
+    if v < 16:
+        return _LOW_ATTACK_MS[v]
+    return min(32000, rnd(14.1821 * (2.6607 ** (v / 16) - 0.4954)))
 
 
 def env_mode(v):
