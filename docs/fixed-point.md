@@ -76,7 +76,9 @@ voice at full level with lined-up peaks stays at or below half of full scale
 (-6 dBFS) without filter resonance. High resonance uses that 6 dB and can
 reach full scale, where the int16 conversion saturates (follow-up: #24). The
 table and the reasoning are in [voices.md](voices.md#gain-staging).
-The chorus (below) never raises the peak above its input's.
+The chorus (below) adds its wet signal to the dry one, as PG-8X's does (#104),
+so it can raise the peak by up to 6 dB: the -6 dBFS mix leaves room for that,
+and a full chord with the chorus on still does not clip.
 
 The pulse is the difference of two saws, `saw(t) - saw(t + width)`, so it has
 no DC (like an AC-coupled analog pulse): it sits at +2(1 - w) for the last
@@ -345,8 +347,8 @@ Q8.24 come out, and each is saturated to int16 as before. The `chorus_mode` para
 | Mode | LFO rate | Center delay | Sweep | Character |
 | --- | --- | --- | --- | --- |
 | 0 off | | | | input passed to both sides unchanged (bit-exact with the engine before the chorus) |
-| 1 slow | 0.5 Hz | 5.0 ms | +-1.5 ms | gentle, slow movement |
-| 2 deep | 0.8 Hz | 5.0 ms | +-2.5 ms | wider and faster |
+| 1 slow (I) | 0.68 Hz | 5.5 ms | +-2.0 ms | PG-8X's chorus (#104) |
+| 2 deep (II) | 0.68 Hz | 5.5 ms | +-3.5 ms | the same, with a deeper sweep |
 | 3 fast | 6.0 Hz | 3.0 ms | +-0.3 ms | quick, shallow shimmer |
 
 How it works, per sample:
@@ -362,12 +364,22 @@ How it works, per sample:
   directions: left at center + sweep, right at center - sweep. Delays are
   Q16.16 samples; each tap reads two neighbors and interpolates linearly
   (Q0.15 fraction, 32-bit math).
-- Each output is half the dry input plus half its tap. So an output never
-  exceeds half the input peak plus 1.0, which is at most the input peak for
-  inputs up to +-2.0, and stays far inside int32 for any input. Mixing
-  equal parts dry and wet lowers the RMS level of a sustained saw (A3) by
-  2 dB (slow), 3 dB (deep) and 5 dB (fast) compared with chorus off; make-up gain
-  is left to the gain staging work in #24, if listening calls for it.
+- Each output is the dry input plus its tap, at full size each, as on
+  PG-8X 2.0.13 (#104). An output never exceeds the input peak plus 2.0 (the
+  line's clamp). The dry part is limited to about +-126.0, so the sum fits
+  in int32 for any input (one clamp, no 64-bit math). On a held C3 saw the chorus raises the RMS level by about 3 dB
+  over chorus off (I +3.0, II +3.4; PG-8X +3.0), and the left and right
+  correlate at 0.43 (I) and 0.46 (II), against PG-8X's 0.46. The mix gain
+  keeps the chorus's input within +-0.5 (-6 dBFS), so dry plus wet stays
+  under full scale: an eight-note chord at full level peaks at about
+  25500 of 32767 with the chorus on (16100 off) and never clips. Before
+  #104 each output was half dry plus half wet, which lowered the level by
+  3.6 to 4.3 dB.
+- Modes I and II both sweep at 0.68 Hz, PG-8X's rate, because the JX-8P
+  loader sends CHORUS bytes 32..63 to I and 64..127 to II, and PG-8X's
+  chorus 1 and 2 measure the same. II keeps a deeper sweep (+-3.5 ms
+  against +-2.0 ms), so the two modes still differ; both match PG-8X
+  within the param-match harness's tolerances.
 - Cost, per sample with the chorus on: one 64-bit multiply (the sweep), two
   32-bit multiplies (the interpolations), a few shifts, adds and masks, and
   four reads and one write of the delay line. The engine runs it over each
@@ -387,7 +399,7 @@ settings, that makes `fm_engine` about 5.2 KiB (5368 bytes on the FM-1,
 5568 on x86-64), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
-deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
+deepest mode needs 9.0 ms, so above about 113 kHz a mode's center and sweep
 are scaled down together to fit (rate and shape are kept). At very low rates
 the center is raised so the nearest tap stays at least one sample back.
 Turning the chorus on from off starts from a silent line, so no stale audio
@@ -400,7 +412,8 @@ tap reads back its own delay up to rounding (under 0.01 sample), and every
 sample's delay must stay within 0.05 sample of the ideal triangle (the LFO
 increment, rounded down, drifts by about 0.02 sample over the 8 s test).
 Without interpolation it would be off by up to half a sample. The tests also
-check boundedness with eight summed full-scale voices.
+check boundedness with eight summed full-scale voices, and the PG-8X match
+on a held C3 saw (level, L/R correlation and sweep rate).
 
 ## Assumptions about the C implementation
 

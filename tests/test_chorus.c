@@ -129,7 +129,7 @@ TT_TEST(chorus_on_makes_left_and_right_differ_for_a_mono_voice)
  * slow ramp (a long sawtooth), so each wet tap is the ramp value from
  * `delay` samples ago, and linear interpolation of a ramp is exact:
  * delay = now - position of the tapped value on the ramp. Only rounding
- * remains (the halved wet signal and the Q0.15 fraction), well under
+ * remains (the line's 1/16384 step and the Q0.15 fraction), well under
  * 0.01 sample; without interpolation the error would be up to 0.5 sample.
  *
  * With `ideal` (rate Hz, center ms, sweep ms) it also reports the largest
@@ -180,8 +180,8 @@ static ch_sweep ch_measure_sweep(uint8_t mode, uint32_t rate,
             fm_chorus_process(&ch, x, &l, &r);
             /* skip the ramp's wrap until the taps are past it */
             if (pos < FM_CHORUS_DELAY_LEN + 8 || n < CH_RAMP_PERIOD) continue;
-            wet_l = 2.0 * l - x;
-            wet_r = 2.0 * r - x;
+            wet_l = (double)l - x;
+            wet_r = (double)r - x;
             d_l = pos - (wet_l / CH_RAMP_STEP + CH_RAMP_PERIOD / 2);
             d_r = pos - (wet_r / CH_RAMP_STEP + CH_RAMP_PERIOD / 2);
             if (pass == 0) {
@@ -221,7 +221,7 @@ TT_TEST(chorus_modes_differ_in_rate_and_depth)
 {
     /* the mode table documented in engine/chorus_state.h */
     static const double spec[FM_CHORUS_MODE_COUNT][3] = {
-        { 0, 0, 0 }, { 0.5, 5.0, 1.5 }, { 0.8, 5.0, 2.5 }, { 6.0, 3.0, 0.3 },
+        { 0, 0, 0 }, { 0.68, 5.5, 2.0 }, { 0.68, 5.5, 3.5 }, { 6.0, 3.0, 0.3 },
     };
     ch_sweep got[FM_CHORUS_MODE_COUNT];
     int a, b;
@@ -256,16 +256,16 @@ TT_TEST(chorus_modes_differ_in_rate_and_depth)
  * Worst case at the module: the sum of FM_MAX_VOICES full-scale voices,
  * +-8.0 in Q8.24, as a square wave (every period from 2 to 600 samples,
  * so some line up with the taps), as full-scale noise, and at the int32
- * extremes. An output must never exceed half the input peak plus 1.0
- * (half the delay line's +-2.0 clamp), so the chorus never adds level
- * beyond the dry input and nothing overflows.
+ * extremes. An output must never exceed the input peak plus 2.0 (the
+ * delay line's clamp on the wet part), and nothing overflows: at the
+ * int32 extremes the dry part is limited so the sum cannot wrap.
  */
 #define CH_FULL_SCALE_8_VOICES (FM_MAX_VOICES * (1 << 24))
 
 static int ch_bounded(fm_chorus *ch, int32_t in, int32_t peak_in)
 {
     int32_t l, r;
-    int64_t limit = (int64_t)peak_in / 2 + (1 << 24) + 1;
+    int64_t limit = (int64_t)peak_in + (2 << 24) + 1;
     fm_chorus_process(ch, in, &l, &r);
     return llabs((long long)l) <= limit && llabs((long long)r) <= limit;
 }
@@ -299,11 +299,15 @@ TT_TEST(chorus_output_stays_bounded_for_eight_full_scale_voices)
 /*
  * Through the engine with every voice sounding: an eight-note chord
  * (octaves and fifths of A, all starting together so their peaks line
- * up) at full level, in every mode. The chorus must not raise the peak
- * over chorus off (one LSB allowed for rounding). The module-level test
- * above covers inputs far beyond what the mix can reach.
+ * up) at full level, in every mode. Dry plus wet (#104) lets the chorus
+ * raise the peak, by at most 2x (+6 dB), but it must never clip: no
+ * sample reaches the int16 rails, as before the change, when the chorus
+ * kept the peak at or below chorus off. The mix gain keeps the chorus's
+ * input within +-0.5 (-6 dBFS, without resonance), which is what leaves
+ * room for dry plus wet. The module-level test above covers inputs far
+ * beyond what the mix can reach.
  */
-TT_TEST(chorus_engine_peak_does_not_rise_with_a_full_chord)
+TT_TEST(chorus_engine_full_chord_never_clips)
 {
     static const uint8_t chord[FM_MAX_VOICES] = { 33, 45, 52, 57, 64, 69,
                                                   76, 81 };
@@ -324,7 +328,8 @@ TT_TEST(chorus_engine_peak_does_not_rise_with_a_full_chord)
         printf("    chorus mode %d, %d voices: peak %d\n", mode,
                FM_MAX_VOICES, peak);
         TT_CHECK(peak > 6000);
-        TT_CHECK(peak <= peak_off + 1);
+        TT_CHECK(peak <= 2 * peak_off + 1);
+        TT_CHECK(peak < 32767);
     }
 }
 
@@ -349,7 +354,7 @@ TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
             fm_engine_set_param(&ch_eng, FM_PARAM_AMP_ATTACK_MS, 0);
             fm_engine_note_on(&ch_eng, 45, 100);
             fm_engine_render(&ch_eng, ch_buf, CH_RATE);
-            TT_CHECK(peak_abs(ch_buf, 0, CH_RATE) <= 16384 + 64);
+            TT_CHECK(peak_abs(ch_buf, 0, CH_RATE) < 32767); /* no clipping */
             TT_CHECK(ch_side_ratio(ch_buf, CH_RATE / 2, CH_RATE) > 0.05);
         }
     }
@@ -357,8 +362,8 @@ TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
     sw = ch_measure_sweep(FM_CHORUS_DEEP, 192000, NULL);
     TT_CHECK((sw.center_ms + sw.depth_ms) * 192.0 <= FM_CHORUS_DELAY_LEN - 2);
     TT_CHECK((sw.center_ms + sw.depth_ms) * 192.0 > FM_CHORUS_DELAY_LEN - 4);
-    TT_CHECK_NEAR(sw.center_ms / sw.depth_ms, 2.0, 0.01);
-    TT_CHECK_NEAR(sw.rate_hz, 0.8, 0.016);
+    TT_CHECK_NEAR(sw.center_ms / sw.depth_ms, 5.5 / 3.5, 0.01);
+    TT_CHECK_NEAR(sw.rate_hz, 0.68, 0.0136);
     fm_chorus_init(&ch, CH_RATE);
     fm_chorus_set_mode(&ch, FM_CHORUS_MODE_COUNT);
     fm_chorus_process(&ch, 12345, &l, &r_out);
@@ -405,9 +410,9 @@ TT_TEST(chorus_delay_line_clamps_hot_input_to_two)
         fm_chorus_set_mode(&ch, FM_CHORUS_DEEP);
         for (n = 0; n < FM_CHORUS_DELAY_LEN + 100; n++)
             fm_chorus_process(&ch, x, &l, &r);
-        /* each output is half the input plus half the tap */
-        wet_l = (2.0 * l - x) / (1 << 24);
-        wet_r = (2.0 * r - x) / (1 << 24);
+        /* each output is the input plus the tap */
+        wet_l = ((double)l - x) / (1 << 24);
+        wet_r = ((double)r - x) / (1 << 24);
         printf("    chorus input %+.1f: wet %+.4f / %+.4f\n",
                (double)x / (1 << 24), wet_l, wet_r);
         TT_CHECK_NEAR(wet_l, want, 0.001);
@@ -466,8 +471,8 @@ TT_TEST(all_sound_off_silences_the_chorus_tail)
  * opposite outputs and the mean of their sum is its DC offset, which must
  * stay under one Q8.24 LSB (1/512 of an output LSB) in every mode.
  * Rounding halves up leaves about +0.5 LSB. A floored line write alone
- * (in >> 10) gives about -256 LSB: half a line unit, halved again by the
- * dry/wet mix; floored taps and mix would add under 1 LSB more.
+ * (in >> 10) gives about -512 LSB: half a line unit, which the dry plus
+ * wet mix passes at full size; floored taps would add under 1 LSB more.
  */
 TT_TEST(chorus_adds_no_dc_offset)
 {
@@ -536,9 +541,9 @@ TT_TEST(chorus_line_has_headroom_for_the_loudest_mix)
             fm_chorus_set_mode(&ch, FM_CHORUS_DEEP);
             for (n = 0; n < FM_CHORUS_DELAY_LEN + 100; n++)
                 fm_chorus_process(&ch, x, &l, &r);
-            /* the wet part is 2 * out - x; one line unit (1024) of rounding */
-            TT_CHECK(llabs(2LL * l - x - x) <= 1024 + 1);
-            TT_CHECK(llabs(2LL * r - x - x) <= 1024 + 1);
+            /* the wet part is out - x; under one line unit (1024) of rounding */
+            TT_CHECK(llabs((long long)l - x - x) <= 1024);
+            TT_CHECK(llabs((long long)r - x - x) <= 1024);
         }
 }
 
@@ -649,14 +654,112 @@ TT_TEST(chorus_block_writes_right_without_reading_it)
     TT_CHECK(same);
 }
 
+/*
+ * The PG-8X 2.0.13 match (#104): one held C3 saw on the default patch,
+ * 4 s, measured from 0.5 s to 3.9 s on the left channel, as the
+ * param-match harness does. Fills ch_buf.
+ */
+#define CH_PG_FROM (CH_RATE / 2)
+#define CH_PG_TO (CH_RATE * 39 / 10)
+
+static void ch_render_held_c3(int32_t mode)
+{
+    fm_engine_init(&ch_eng, CH_RATE, 1);
+    fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, mode);
+    fm_engine_note_on(&ch_eng, 48, 100);
+    fm_engine_render(&ch_eng, ch_buf, CH_RATE * 4);
+}
+
+/* Mean square of one channel over frames [from, to). */
+static double ch_power(const int16_t *stereo, int channel, size_t from,
+                       size_t to)
+{
+    double sum = 0;
+    size_t i;
+    for (i = from; i < to; i++) {
+        double v = stereo[2 * i + channel];
+        sum += v * v;
+    }
+    return sum / (double)(to - from);
+}
+
+/*
+ * PG-8X's chorus adds dry and wet: on a held C3 saw it raises the level
+ * 3.0 dB over chorus off. Both of our "on" modes the JX-8P loader uses
+ * (I and II) must land within the harness's 1 dB.
+ */
+TT_TEST(chorus_raises_a_held_saw_about_3_db_like_pg8x)
+{
+    double off, gain;
+    int32_t mode;
+    ch_render_held_c3(FM_CHORUS_OFF);
+    off = ch_power(ch_buf, 0, CH_PG_FROM, CH_PG_TO);
+    for (mode = FM_CHORUS_SLOW; mode <= FM_CHORUS_DEEP; mode++) {
+        ch_render_held_c3(mode);
+        gain = 10 * log10(ch_power(ch_buf, 0, CH_PG_FROM, CH_PG_TO) / off);
+        printf("    chorus mode %d: level %+.2f dB re off (PG-8X +3.00)\n",
+               (int)mode, gain);
+        TT_CHECK_NEAR(gain, 3.0, 1.0);
+    }
+}
+
+/*
+ * PG-8X's chorus sweeps at 0.68 Hz (the harness reads 0.6775 Hz from the
+ * held C3 saw's amplitude modulation). Modes I and II both stand in for
+ * it, as the JX-8P loader sends bytes 32..127 to one or the other; the
+ * harness allows 10 %, this asks for 2 %.
+ */
+TT_TEST(chorus_sweeps_at_pg8x_rate_in_modes_one_and_two)
+{
+    int mode;
+    for (mode = FM_CHORUS_SLOW; mode <= FM_CHORUS_DEEP; mode++) {
+        ch_sweep sw = ch_measure_sweep((uint8_t)mode, CH_RATE, NULL);
+        printf("    chorus mode %d: sweep %.3f Hz (PG-8X 0.68)\n", mode,
+               sw.rate_hz);
+        TT_CHECK_NEAR(sw.rate_hz, 0.68, 0.68 * 0.02);
+    }
+}
+
+/*
+ * PG-8X's chorus width: on the held C3 saw its left and right correlate
+ * at 0.46 (the harness allows 0.1). Pearson correlation over the same
+ * window, for modes I and II.
+ */
+TT_TEST(chorus_left_right_correlation_matches_pg8x)
+{
+    int32_t mode;
+    for (mode = FM_CHORUS_SLOW; mode <= FM_CHORUS_DEEP; mode++) {
+        double sl = 0, sr = 0, sll = 0, srr = 0, slr = 0, n, corr;
+        size_t i;
+        ch_render_held_c3(mode);
+        for (i = CH_PG_FROM; i < CH_PG_TO; i++) {
+            double l = ch_buf[2 * i], r = ch_buf[2 * i + 1];
+            sl += l;
+            sr += r;
+            sll += l * l;
+            srr += r * r;
+            slr += l * r;
+        }
+        n = (double)(CH_PG_TO - CH_PG_FROM);
+        corr = (slr - sl * sr / n) /
+               sqrt((sll - sl * sl / n) * (srr - sr * sr / n));
+        printf("    chorus mode %d: L/R correlation %.3f (PG-8X 0.456)\n",
+               (int)mode, corr);
+        TT_CHECK_NEAR(corr, 0.456, 0.05);
+    }
+}
+
 static void run_chorus_tests(void)
 {
+    TT_RUN(chorus_left_right_correlation_matches_pg8x);
+    TT_RUN(chorus_raises_a_held_saw_about_3_db_like_pg8x);
+    TT_RUN(chorus_sweeps_at_pg8x_rate_in_modes_one_and_two);
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
     TT_RUN(chorus_switched_back_off_passes_input_through);
     TT_RUN(chorus_on_makes_left_and_right_differ_for_a_mono_voice);
     TT_RUN(chorus_modes_differ_in_rate_and_depth);
     TT_RUN(chorus_output_stays_bounded_for_eight_full_scale_voices);
-    TT_RUN(chorus_engine_peak_does_not_rise_with_a_full_chord);
+    TT_RUN(chorus_engine_full_chord_never_clips);
     TT_RUN(chorus_handles_extreme_rates_and_unknown_modes);
     TT_RUN(chorus_memory_is_fixed_and_small);
     TT_RUN(engine_storage_stays_within_its_documented_size);
