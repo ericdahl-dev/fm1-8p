@@ -60,6 +60,7 @@ static int tt_current_failed;
         tt_tests_run++;                                                      \
         if (tt_current_failed) tt_tests_failed++;                            \
         printf("%s %s\n", tt_current_failed ? "not ok" : "ok    ", #name);   \
+        fflush(stdout); /* a later abort must not lose it (piped stdout) */  \
     } while (0)
 
 static int tt_report(void)

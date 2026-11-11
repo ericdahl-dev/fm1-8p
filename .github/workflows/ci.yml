@@ -46,6 +46,9 @@ jobs:
       - name: FM-1 build script checks
         run: make check-fm1-build
 
+      - name: Test runner and killed-build checks
+        run: make check-runner
+
       - name: Factory patch converter (and firmware/patches.c up to date)
         run: make check-patches
 

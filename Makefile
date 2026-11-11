@@ -8,7 +8,9 @@
 #   make check-fm1-build    test the FM-1 build script's pin and report checks
 #   make check-patches      test the JX-8P patch converter (python3) and that firmware/patches.c is
 #                           what it generates from data/jx8p-factory-1-32.syx
-#   make check              test + check-float-free + check-fm1-build + check-patches
+#   make check-runner       test tools/run-tests.sh (make test fails on an empty or silent test binary)
+#                           and that a build killed partway leaves no empty output make would reuse
+#   make check              test + check-runner + check-float-free + check-fm1-build + check-patches
 #
 # The FM-1 firmware itself is built by tools/fm1-build.sh (see README).
 #   make render-demo        render examples/demo.mid to build/demo.wav
@@ -37,19 +39,22 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench bench-full test check check-float-free check-fm1-build check-patches render-demo clean
+.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches render-demo clean
 
 all: $(RENDER) $(BENCH)
 
+# Each compile and link writes $@.tmp, then renames it: a build killed partway (make too, as when
+# the session running it dies) leaves no partial $@ that the next make would take as up to date.
+
 $(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR) $(FW_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@
+	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@.tmp && mv $@.tmp $@
 
 $(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -lm -o $@
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -lm -o $@.tmp && mv $@.tmp $@
 
 $(BENCH): host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@.tmp && mv $@.tmp $@
 
 bench: $(BENCH)
 	./$(BENCH)
@@ -60,10 +65,11 @@ bench-full: $(BENCH)
 # Tests may use double and libm (never the engine itself).
 $(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) tests/filter_oracle.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
 	$(CC) $(STD) -Wall -Wextra -Werror -Wno-unused-function $(CFLAGS) \
-		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@
+		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@.tmp && mv $@.tmp $@
 
+# Through tools/run-tests.sh: an empty binary, or one that reports no tests, fails.
 test: $(BUILD)/run-tests
-	./$(BUILD)/run-tests
+	sh tools/run-tests.sh ./$(BUILD)/run-tests
 
 # The engine must pass; each canary (a float or heap use added to the
 # engine sources) must make the same check fail.
@@ -81,10 +87,14 @@ check-float-free:
 check-fm1-build:
 	sh tests/test_fm1_build.sh
 
+check-runner:
+	sh tests/test_run_tests.sh
+	sh tests/test_build_outputs.sh
+
 check-patches:
 	python3 -m unittest discover -s tests -p 'test_*.py'
 
-check: test check-float-free check-fm1-build check-patches
+check: test check-runner check-float-free check-fm1-build check-patches
 
 render-demo: $(RENDER)
 	./$(RENDER) examples/demo.mid $(BUILD)/demo.wav
