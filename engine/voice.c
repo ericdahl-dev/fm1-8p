@@ -341,14 +341,20 @@ uint32_t fm_voice_busy_derived(const fm_voice *v)
 }
 
 /*
- * 1 if the amp envelope can reach silence within a chunk (release or
- * fade), when the voice stops or a stolen note starts mid-chunk: then the
- * oscillators run a sample at a time, as far as the voice plays.
+ * 1 if the oscillators can render the whole chunk at once
+ * (fm_osc_pair_render): the voice plays all of it and nothing in it can
+ * change them. Not while the amp envelope is idle, in its release or a
+ * steal's fade (the voice stops, or a stolen note starts, mid-chunk), nor
+ * with a release queued (FM_BUSY_GATE) or the mix moving (FM_BUSY_MIX).
+ * Otherwise the oscillators run a sample at a time, as far as the voice
+ * plays. The one rule for both render loops.
  */
-static int can_end(const fm_voice *v)
+static int osc_chunk_safe(const fm_voice *v)
 {
-    return v->amp_env.stage == FM_ENV_RELEASE ||
-           v->amp_env.stage == FM_ENV_FADE;
+    uint8_t stage = v->amp_env.stage;
+    return stage != FM_ENV_IDLE && stage != FM_ENV_RELEASE &&
+           stage != FM_ENV_FADE &&
+           !(fm_voice_busy(v) & (FM_BUSY_GATE | FM_BUSY_MIX));
 }
 
 /*
@@ -372,7 +378,7 @@ static int render_plain(fm_voice *v, int32_t *mix, int32_t *osc,
 #ifdef FM_CHECK_BUSY
     assert(!fm_voice_busy_derived(v)); /* the busy word hid a processor */
 #endif
-    if (!can_end(v) && frames) {
+    if (osc_chunk_safe(v) && frames) {
         /* the note plays the whole chunk: the oscillators all at once */
         fm_osc_pair_render(&v->osc, osc, frames);
         for (i = 0; i < frames; i++)
@@ -403,12 +409,9 @@ void fm_voice_render_add(fm_voice *v, int32_t *mix, int32_t *osc,
                          uint32_t next_tick, uint32_t tick_left)
 {
     uint32_t i;
-    /* the oscillators all at once when nothing in the chunk can change
-     * them: no start, release or end, and no mix glide */
-    int whole = v->amp_env.stage != FM_ENV_IDLE && !can_end(v) &&
-                !v->gate_left && !v->mix_step &&
-                !(fm_voice_busy(v) & FM_BUSY_MIX);
+    int whole;
     if (render_plain(v, mix, osc, frames)) return;
+    whole = osc_chunk_safe(v);
     if (whole) fm_osc_pair_render(&v->osc, osc, frames);
     for (i = 0; i < frames; i++) {
         int32_t level, fenv, out;
