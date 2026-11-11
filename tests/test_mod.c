@@ -597,6 +597,14 @@ TT_TEST(osc2_pitch_env_bends_osc2_only)
     TT_CHECK(fabs(pitch_env_cents(0, 1573, 0)) < 3);
 }
 
+/* A negative depth (the inverted modes) is the exact mirror: PG-8X reads
+ * -1576 against +1573 cents. */
+TT_TEST(negative_pitch_env_is_the_mirror)
+{
+    TT_CHECK(fabs(pitch_env_cents(-1573, 0, 0) + 1573) < 3);
+    TT_CHECK(fabs(pitch_env_cents(0, -1573, 1000) + 1573) < 3);
+}
+
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
     /* the delay ran out at 0.5 s whether or not a depth was set then */
@@ -630,5 +638,6 @@ static void run_mod_tests(void)
     TT_RUN(osc2_vibrato_depth_zero_holds_osc2_still);
     TT_RUN(osc1_pitch_env_bends_osc1_only);
     TT_RUN(osc2_pitch_env_bends_osc2_only);
+    TT_RUN(negative_pitch_env_is_the_mirror);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }
