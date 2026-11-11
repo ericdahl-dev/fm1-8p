@@ -8,7 +8,9 @@
 #   make check-fm1-build    test the FM-1 build script's pin and report checks
 #   make check-patches      test the JX-8P patch converter (python3) and that firmware/patches.c is
 #                           what it generates from data/jx8p-factory-1-32.syx
-#   make check              test + check-float-free + check-fm1-build + check-patches
+#   make check-runner       test tools/run-tests.sh (make test fails on an empty or silent test binary)
+#                           and that a build killed partway leaves no empty output make would reuse
+#   make check              test + check-runner + check-float-free + check-fm1-build + check-patches
 #
 # The FM-1 firmware itself is built by tools/fm1-build.sh (see README).
 #   make render-demo        render examples/demo.mid to build/demo.wav
@@ -41,15 +43,18 @@ BENCH      = $(BUILD)/fm1-8p-bench
 
 all: $(RENDER) $(BENCH)
 
+# Each compile and link writes $@.tmp, then renames it: a build killed partway (make too, as when
+# the session running it dies) leaves no partial $@ that the next make would take as up to date.
+
 $(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR) $(FW_HDR)
 	@mkdir -p $(dir $@)
-	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@
+	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@.tmp && mv $@.tmp $@
 
 $(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -lm -o $@
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -lm -o $@.tmp && mv $@.tmp $@
 
 $(BENCH): host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@.tmp && mv $@.tmp $@
 
 bench: $(BENCH)
 	./$(BENCH)
@@ -60,7 +65,7 @@ bench-full: $(BENCH)
 # Tests may use double and libm (never the engine itself).
 $(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) tests/filter_oracle.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
 	$(CC) $(STD) -Wall -Wextra -Werror -Wno-unused-function $(CFLAGS) \
-		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@
+		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@.tmp && mv $@.tmp $@
 
 # Through tools/run-tests.sh: an empty binary, or one that reports no tests, fails.
 test: $(BUILD)/run-tests
@@ -84,6 +89,7 @@ check-fm1-build:
 
 check-runner:
 	sh tests/test_run_tests.sh
+	sh tests/test_build_outputs.sh
 
 check-patches:
 	python3 -m unittest discover -s tests -p 'test_*.py'
