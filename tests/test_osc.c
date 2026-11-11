@@ -1167,6 +1167,87 @@ TT_TEST(max_xmod_and_sync_stay_in_range)
     }
 }
 
+/* A pseudo-random draw for the pair tests (LCG, 24 bits). */
+static uint32_t pair_rand(uint32_t *seed)
+{
+    *seed = *seed * 1664525u + 1013904223u;
+    return *seed >> 8;
+}
+
+/* 1 if two pairs agree in everything their samples depend on. */
+static int pairs_match(const fm_osc_pair *a, const fm_osc_pair *b)
+{
+    uint8_t i;
+    for (i = 0; i < 2; i++)
+        if (a->osc[i].phase != b->osc[i].phase || a->osc[i].inc != b->osc[i].inc)
+            return 0;
+    return a->noise == b->noise && a->sync_pend == b->sync_pend &&
+           a->sync_after == b->sync_after && a->mix == b->mix;
+}
+
+/*
+ * Random settings through the pair's setters: waves (noise too), widths,
+ * tunings, pitch, pitch and width modulation, and a mix of 0, full or
+ * between. `special` also sets sync (1), cross-mod (2) or both (3).
+ */
+static void random_pair(fm_osc_pair *p, uint32_t *seed, int special)
+{
+    static const int32_t mixes[] = {0, FM_OSC_MIX_FULL, 1 << 29, 3 << 28, 12345678};
+    int32_t pitch = (int32_t)(12 + pair_rand(seed) % 100) << 16;
+    uint8_t i;
+    fm_osc_pair_reset(p, pair_rand(seed) | 1u);
+    for (i = 0; i < 2; i++) {
+        fm_osc_pair_set_wave(p, i, (uint8_t)(pair_rand(seed) % FM_WAVE_COUNT));
+        fm_osc_pair_set_width(p, i, (int32_t)(pair_rand(seed) % 101));
+        fm_osc_pair_set_tune(p, i, (int32_t)(pair_rand(seed) % 4801) - 2400, pitch, RATE);
+    }
+    fm_osc_pair_set_pitch(p, pitch, RATE);
+    if (special & 1) fm_osc_pair_set_sync(p, 1);
+    if (special & 2)
+        fm_osc_pair_set_xmod(p, (int32_t)(pair_rand(seed) % (FM_OSC_MIX_FULL + 1u)));
+    fm_osc_pair_set_mix(p, mixes[pair_rand(seed) % 5]);
+    if (pair_rand(seed) & 1)
+        fm_osc_pair_set_pitch_mod(p, (int32_t)(pair_rand(seed) % 131073) - 65536);
+    if (pair_rand(seed) & 1)
+        fm_osc_pair_set_pw_mod(p, (int32_t)(pair_rand(seed) << 8));
+    for (i = 0; i < 2; i++) p->osc[i].phase = pair_rand(seed) << 8;
+}
+
+/*
+ * Renders random chunks (0..64 samples) of a pair with fm_osc_pair_render
+ * and of a copy with fm_osc_pair_next, one sample at a time; returns the
+ * number of chunks where a sample or the pair's state differ.
+ */
+static int render_vs_next(int special, uint32_t seed, int pairs)
+{
+    static fm_osc_pair a, b;
+    int32_t got[FM_MIX_FRAMES];
+    int k, chunk, bad = 0;
+    for (k = 0; k < pairs; k++) {
+        random_pair(&a, &seed, special);
+        b = a;
+        for (chunk = 0; chunk < 40; chunk++) {
+            uint32_t n = pair_rand(&seed) % (FM_MIX_FRAMES + 1), i;
+            int same = 1;
+            fm_osc_pair_render(&a, got, n);
+            for (i = 0; i < n; i++) same &= got[i] == fm_osc_pair_next(&b);
+            if (!same || !pairs_match(&a, &b)) bad++;
+        }
+    }
+    return bad;
+}
+
+/*
+ * fm_osc_pair_render (a chunk at once, the path chosen once) is
+ * fm_osc_pair_next called once per sample: the same samples and the same
+ * state after, for every wave, mix, tuning and modulation, without sync
+ * or cross-mod.
+ */
+TT_TEST(pair_render_matches_next_sample_by_sample)
+{
+    TT_CHECK_EQ(render_vs_next(0, 2024, 400), 0);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -1213,4 +1294,5 @@ static void run_osc_tests(void)
     TT_RUN(xmod_zero_matches_no_xmod);
     TT_RUN(xmod_adds_sidebands);
     TT_RUN(max_xmod_and_sync_stay_in_range);
+    TT_RUN(pair_render_matches_next_sample_by_sample);
 }

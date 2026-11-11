@@ -598,3 +598,9 @@ int32_t fm_osc_pair_next(fm_osc_pair *p)
     b = wave_next(p, 1);
     return a + (int32_t)(((int64_t)(b - a) * p->mix) >> 30);
 }
+
+void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++) out[i] = fm_osc_pair_next(p);
+}

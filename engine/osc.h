@@ -128,5 +128,10 @@ void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct);
 void fm_osc_pair_set_pw_mod(fm_osc_pair *p, int32_t offset);
 /* Next mixed sample, Q8.24. */
 int32_t fm_osc_pair_next(fm_osc_pair *p);
+/*
+ * The next `n` mixed samples into out[0..n-1], Q8.24: exactly what `n`
+ * calls of fm_osc_pair_next give, samples and state alike.
+ */
+void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n);
 
 #endif /* FM_OSC_H */
