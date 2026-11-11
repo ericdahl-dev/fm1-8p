@@ -1214,8 +1214,11 @@ static void random_pair(fm_osc_pair *p, uint32_t *seed, int special)
     if (special & 2)
         fm_osc_pair_set_xmod(p, (int32_t)(pair_rand(seed) % (FM_OSC_MIX_FULL + 1u)));
     fm_osc_pair_set_mix(p, mixes[pair_rand(seed) % 5]);
-    if (pair_rand(seed) & 1)
-        fm_osc_pair_set_pitch_mod(p, (int32_t)(pair_rand(seed) % 131073) - 65536);
+    if (pair_rand(seed) & 1) {
+        int32_t oct1 = (int32_t)(pair_rand(seed) % 131073) - 65536;
+        fm_osc_pair_set_pitch_mod(p, oct1, (pair_rand(seed) & 1) ? oct1 :
+                                  (int32_t)(pair_rand(seed) % 131073) - 65536);
+    }
     if (pair_rand(seed) & 1)
         fm_osc_pair_set_pw_mod(p, (int32_t)(pair_rand(seed) << 8));
     for (i = 0; i < 2; i++) p->osc[i].phase = pair_rand(seed) << 8;
@@ -1276,9 +1279,34 @@ TT_TEST(pair_render_with_xmod_matches_next_sample_by_sample)
     TT_CHECK_EQ(render_vs_next(3, 93, 400), 0);
 }
 
+/* Each oscillator takes its own pitch offset: osc 1 bent an octave up
+ * plays what a bend of both would give it, osc 2 stays at its pitch, and
+ * a new pitch keeps each oscillator's offset. */
+TT_TEST(pitch_mod_bends_each_oscillator_by_its_own_offset)
+{
+    static fm_osc_pair p, both, plain;
+    int32_t pitch = 57 << 16, x = 0x10000 + 0x2345;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_tune(&p, 1, 700, pitch, RATE);
+    fm_osc_pair_set_pitch(&p, pitch, RATE);
+    both = plain = p;
+    fm_osc_pair_set_pitch_mod(&p, x, 0);
+    fm_osc_pair_set_pitch_mod(&both, x, x);
+    TT_CHECK_EQ(p.osc[0].inc, both.osc[0].inc);
+    TT_CHECK_EQ(p.osc[1].inc, plain.osc[1].inc);
+    TT_CHECK(p.osc[0].inc != plain.osc[0].inc);
+    pitch = 64 << 16;
+    fm_osc_pair_set_pitch(&p, pitch, RATE);
+    fm_osc_pair_set_pitch(&both, pitch, RATE);
+    fm_osc_pair_set_pitch(&plain, pitch, RATE);
+    TT_CHECK_EQ(p.osc[0].inc, both.osc[0].inc);
+    TT_CHECK_EQ(p.osc[1].inc, plain.osc[1].inc);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
+    TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
     TT_RUN(pulse_width_outside_its_range_is_clamped);

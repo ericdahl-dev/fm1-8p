@@ -392,11 +392,11 @@ TT_TEST(restrike_keeps_the_lfo_sums_exactly)
         fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PW_PCT, 30);
         fm_engine_note_on(&mod_eng, 57, 127);
         fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 8);
-        pitch = fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PITCH);
+        pitch = fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PITCH1);
         pw = fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PW);
         TT_CHECK(pitch != 0 && pw != 0);
         fm_engine_note_on(&mod_eng, 57, 90);
-        TT_CHECK_EQ(fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PITCH), pitch);
+        TT_CHECK_EQ(fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PITCH1), pitch);
         TT_CHECK_EQ(fm_mod_get(&mod_eng.voices[0].mod, FM_MOD_PW), pw);
     }
 }
@@ -536,6 +536,21 @@ static double vibrato_after_late_depth(int late)
     return cents(hz_between(mod_buf, 1020, 1230), note_hz(69));
 }
 
+/* The one vibrato depth moves osc 2 as well as osc 1: with only osc 2
+ * heard (osc_mix full), a 100-cent square vibrato reads +100 cents over
+ * the top half of an LFO cycle. */
+TT_TEST(vibrato_reaches_osc2)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
+    fm_engine_note_on(&mod_eng, 69, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    TT_CHECK(fabs(cents(hz_between(mod_buf, 20, 230), note_hz(69)) - 100) < 3);
+}
+
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
     /* the delay ran out at 0.5 s whether or not a depth was set then */
@@ -565,5 +580,6 @@ static void run_mod_tests(void)
     TT_RUN(velocity_setting_mid_note_leaves_the_note_alone);
     TT_RUN(block_size_does_not_change_output_as_depths_come_and_go);
     TT_RUN(pulse_width_alone_ticks_the_voices_and_clears);
+    TT_RUN(vibrato_reaches_osc2);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }
