@@ -149,6 +149,46 @@ TT_TEST(updating_one_destination_leaves_the_others)
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH), 0); /* not taken yet */
 }
 
+/* The filter envelope routed to cutoff: the level times the amount in
+ * cents, the same product the filter took before the module, for either
+ * sign of amount. */
+TT_TEST(filter_env_to_cutoff_is_level_times_amount_in_cents)
+{
+    static const int32_t amounts[] = { 4800, -2400, 9600, 1 };
+    fm_mod_routes r;
+    fm_mod m;
+    int32_t level = 0x2A3B4C5D; /* about 0.66 */
+    unsigned i;
+    fm_mod_routes_reset(&r);
+    fm_mod_reset(&m);
+    for (i = 0; i < sizeof amounts / sizeof amounts[0]; i++) {
+        fm_mod_set_route(&r, FM_MOD_SRC_ENV1, FM_MOD_CUTOFF, amounts[i]);
+        fm_mod_set_source(&m, FM_MOD_SRC_ENV1, level);
+        TT_CHECK_EQ(fm_mod_update(&m, &r, FM_MOD_CUTOFF),
+                    (int32_t)(((int64_t)amounts[i] * level) >> 30));
+    }
+}
+
+/* A destination rests when no route reaches it and its sum is back at 0:
+ * a route turned off still leaves it busy until it is summed again. */
+TT_TEST(a_destination_rests_with_no_route_and_a_zero_sum)
+{
+    fm_mod_routes r;
+    fm_mod m;
+    fm_mod_routes_reset(&r);
+    fm_mod_reset(&m);
+    TT_CHECK(fm_mod_at_rest(&m, &r, FM_MOD_CUTOFF));
+    fm_mod_set_route(&r, FM_MOD_SRC_ENV1, FM_MOD_CUTOFF, 2400);
+    TT_CHECK(!fm_mod_at_rest(&m, &r, FM_MOD_CUTOFF));
+    fm_mod_set_source(&m, FM_MOD_SRC_ENV1, 1 << 29);
+    fm_mod_update(&m, &r, FM_MOD_CUTOFF);
+    fm_mod_set_route(&r, FM_MOD_SRC_ENV1, FM_MOD_CUTOFF, 0);
+    TT_CHECK(!fm_mod_at_rest(&m, &r, FM_MOD_CUTOFF)); /* sum still 1200 */
+    fm_mod_update(&m, &r, FM_MOD_CUTOFF);
+    TT_CHECK(fm_mod_at_rest(&m, &r, FM_MOD_CUTOFF));
+    TT_CHECK(fm_mod_at_rest(&m, &r, FM_MOD_PITCH)); /* others untouched */
+}
+
 static void run_mod_dest_tests(void)
 {
     TT_RUN(one_route_gives_source_times_depth);
@@ -160,4 +200,6 @@ static void run_mod_dest_tests(void)
     TT_RUN(a_set_source_holds_for_later_ticks);
     TT_RUN(velocity_at_full_depth_is_the_level_exactly);
     TT_RUN(updating_one_destination_leaves_the_others);
+    TT_RUN(filter_env_to_cutoff_is_level_times_amount_in_cents);
+    TT_RUN(a_destination_rests_with_no_route_and_a_zero_sum);
 }

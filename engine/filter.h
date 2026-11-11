@@ -36,13 +36,13 @@ int32_t fm_filter_rate_cents(uint32_t sample_rate);
 
 /*
  * Cutoff of a voice, in cents: the base cutoff, plus key tracking (per
- * mille of the note's distance from middle C, note 60), plus the filter
- * envelope (`env_level` Q1.30, 0..1.0, times `env_amount_cents`, which
- * may be negative). Unclamped; fm_filter_set_cutoff clamps.
+ * mille of the note's distance from middle C, note 60), plus `mod_cents`,
+ * the voice's modulation of the cutoff (the filter envelope and every
+ * other source routed there, summed in engine/mod.h; may be negative).
+ * Unclamped; fm_filter_set_cutoff clamps.
  */
 int32_t fm_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
-                              uint8_t note, int32_t env_level,
-                              int32_t env_amount_cents);
+                              uint8_t note, int32_t mod_cents);
 
 /* Clears the state and opens the filter (no resonance, no highpass). */
 void fm_filter_reset(fm_filter *f);

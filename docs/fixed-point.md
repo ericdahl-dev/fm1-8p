@@ -126,7 +126,9 @@ resonant 4-pole (24 dB/octave) lowpass.
   of the same filter in 64 bits over the whole +-128.0
   (`tests/test_filter_oracle.c` holds it to a 64-bit reference).
 - **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
-  env_amount * env_level`, all in cents, computed every 16 samples (a
+  mod`, all in cents, where `mod` is the voice's cutoff modulation summed in
+  `engine/mod.h` (today the filter envelope: `env_amount * env_level`),
+  computed every 16 samples (a
   2.8 kHz control rate at 44.1 kHz), not per sample. Key tracking follows the
   MIDI note number only: pitch bend, each oscillator's octave and fine
   tune, and osc2's coarse tune move the oscillators but not the cutoff. The coefficient is the
@@ -372,8 +374,8 @@ chorus writes it, each voice renders its oscillators' chunk there
 which is safe because the chorus only writes it
 (`chorus_block_writes_right_without_reading_it`). With the voices' modulation sources and sums, their sync and
 cross-mod state, their filters (124 bytes each) and their mix envelope
-settings, that makes `fm_engine` about 5.2 KiB (5312 bytes on the FM-1,
-5480 on x86-64), so
+settings, that makes `fm_engine` about 5.2 KiB (5368 bytes on the FM-1,
+5568 on x86-64), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 7.5 ms, so above about 136 kHz a mode's center and sweep
