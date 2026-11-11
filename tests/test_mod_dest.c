@@ -208,6 +208,24 @@ TT_TEST(amp_env_to_mix_is_share_times_depth)
     }
 }
 
+/* A source is routed while it reaches any destination at a nonzero depth,
+ * whichever destination that is; the others' routes don't count. */
+TT_TEST(a_source_is_routed_while_any_of_its_depths_is_nonzero)
+{
+    unsigned d;
+    fm_mod_routes r;
+    fm_mod_routes_reset(&r);
+    TT_CHECK(!fm_mod_source_routed(&r, FM_MOD_SRC_LFO));
+    fm_mod_set_route(&r, FM_MOD_SRC_VEL, FM_MOD_LEVEL, 1 << 30);
+    TT_CHECK(!fm_mod_source_routed(&r, FM_MOD_SRC_LFO)); /* not its route */
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++) {
+        fm_mod_set_route(&r, FM_MOD_SRC_LFO, d, -1);
+        TT_CHECK(fm_mod_source_routed(&r, FM_MOD_SRC_LFO));
+        fm_mod_set_route(&r, FM_MOD_SRC_LFO, d, 0);
+        TT_CHECK(!fm_mod_source_routed(&r, FM_MOD_SRC_LFO));
+    }
+}
+
 static void run_mod_dest_tests(void)
 {
     TT_RUN(one_route_gives_source_times_depth);
@@ -222,4 +240,5 @@ static void run_mod_dest_tests(void)
     TT_RUN(filter_env_to_cutoff_is_level_times_amount_in_cents);
     TT_RUN(a_destination_rests_with_no_route_and_a_zero_sum);
     TT_RUN(amp_env_to_mix_is_share_times_depth);
+    TT_RUN(a_source_is_routed_while_any_of_its_depths_is_nonzero);
 }

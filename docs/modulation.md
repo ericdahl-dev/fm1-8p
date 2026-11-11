@@ -53,7 +53,10 @@ split its 64-frame mix chunks at them: the ticks a chunk passes run after it
 and only advance the LFO and the tick count, without visiting the voices.
 That keeps the default patch's cost where it was before the LFO existed.
 Once a depth is set (and for one tick after it goes back to 0, to clear the
-offsets) the chunks stop at every tick again.
+offsets) the chunks stop at every tick again. "A depth is set" is one
+query, `fm_mod_source_routed` (the LFO reaches any destination), asked by
+both the tick and the chunk split, so a new LFO destination needs no change
+there.
 `block_size_does_not_change_output_as_depths_come_and_go` turns the depths
 on and off mid-note and checks blocks of 1, 31, 100 and 4096 frames still
 render byte for byte the same.
