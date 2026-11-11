@@ -192,7 +192,7 @@ TT_TEST(busy_word_never_hides_a_busy_processor)
             busy_random_step(&beng, bbuf);
             for (i = 0; i < beng.voice_count; i++) {
                 const fm_voice *v = &beng.voices[i];
-                if (!fm_voice_busy(v) && fm_voice_busy_derived(v)) bad++;
+                if (!fm_voice_busy(v) && fm_voice_busy_derived(v, &beng.mod)) bad++;
             }
         }
     }

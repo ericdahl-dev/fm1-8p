@@ -31,7 +31,6 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->rate_cents = rate_cents;
     v->cutoff_cents = FM_FILTER_OPEN_CENTS;
     v->key_track = 0;
-    v->env_amount = 0;
     v->mix_base = 0;
     v->mix_env = 0;
     v->mix_src = 0;
@@ -97,11 +96,18 @@ void fm_voice_set_highpass(fm_voice *v, uint8_t step)
 }
 
 /* Recomputes the cutoff from the settings, the voice's note and its
- * filter envelope level `fenv`. */
-static void update_cutoff(fm_voice *v, int32_t fenv)
+ * modulation, with the filter envelope (envelope 1) at level `fenv`. The
+ * envelope keeps the voice busy while it moves the cutoff, and until a
+ * cutoff it no longer reaches is summed back to rest. */
+static void update_cutoff(fm_voice *v, const fm_voice_mod *m, int32_t fenv)
 {
-    int32_t cents = fm_filter_voice_cents(v->cutoff_cents, v->key_track,
-                                          v->key_note, fenv, v->env_amount);
+    int32_t cents;
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, fenv);
+    cents = fm_filter_voice_cents(v->cutoff_cents, v->key_track, v->key_note,
+                                  fm_mod_update(&v->mod, &m->routes,
+                                                FM_MOD_CUTOFF));
+    fm_voice_mark(v, FM_BUSY_FILTER_ENV,
+                  !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF));
     fm_voice_mark(v, FM_BUSY_CUTOFF, 0);
     if (cents == v->cutoff_now) return; /* the coefficients stand */
     v->cutoff_now = cents;
@@ -242,7 +248,7 @@ void fm_voice_change_note(fm_voice *v, const fm_voice_mod *m, uint8_t note,
     v->key_note = note;
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
     /* the new note's cutoff at once; the 16-sample cadence carries on */
-    update_cutoff(v, filter_env_level(v));
+    update_cutoff(v, m, filter_env_level(v));
 }
 
 void fm_voice_key_up(fm_voice *v, int pedal_down)
@@ -342,13 +348,14 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
     fm_osc_pair_set_tune(&v->osc, which, cents, v->pitch, sample_rate);
 }
 
-uint32_t fm_voice_busy_derived(const fm_voice *v)
+uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m)
 {
-    return v->pending || v->gate_left || v->env_amount || v->mix_env ||
+    return v->pending || v->gate_left ||
+           !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) || v->mix_env ||
            v->mix_step || v->osc.mix != v->mix_base ||
            !fm_filter_is_wire(&v->filter) ||
            fm_filter_voice_cents(v->cutoff_cents, v->key_track, v->key_note,
-                                 0, 0) != v->cutoff_now;
+                                 0) != v->cutoff_now;
 }
 
 /*
@@ -379,15 +386,16 @@ static int osc_chunk_safe(const fm_voice *v)
  * call in the loop but the two every voice makes: one more costs a voice
  * about 15 %, as the compiler must then reload the voice's fields.)
  */
-static int render_plain(fm_voice *v, int32_t *mix, int32_t *osc,
-                        uint32_t frames)
+static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
+                        int32_t *osc, uint32_t frames)
 {
     int32_t last = v->filter.s[3];
     uint32_t i;
+    (void)m; /* read by the FM_CHECK_BUSY check only */
     if (fm_voice_busy(v) || v->amp_env.stage == FM_ENV_IDLE)
         return 0;
 #ifdef FM_CHECK_BUSY
-    assert(!fm_voice_busy_derived(v)); /* the busy word hid a processor */
+    assert(!fm_voice_busy_derived(v, m)); /* the busy word hid a processor */
 #endif
     if (osc_chunk_safe(v) && frames) {
         /* the note plays the whole chunk: the oscillators all at once */
@@ -422,7 +430,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
 {
     uint32_t i;
     int whole;
-    if (render_plain(v, mix, osc, frames)) return;
+    if (render_plain(v, m, mix, osc, frames)) return;
     whole = osc_chunk_safe(v);
     if (whole) fm_osc_pair_render(&v->osc, osc, frames);
     for (i = 0; i < frames; i++) {
@@ -448,12 +456,13 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         v->fenv_lag++;
         if (v->ctrl_phase == 0) {
             fenv = 0;
-            if (v->env_amount || (v->mix_env && !v->mix_src))
+            if ((fm_voice_busy(v) & FM_BUSY_FILTER_ENV) ||
+                (v->mix_env && !v->mix_src))
                 fenv = filter_env_level(v);
             /* with no envelope amount the cutoff changes only when a
              * setting or the note does, which sets FM_BUSY_CUTOFF */
             if (fm_voice_busy(v) & (FM_BUSY_FILTER_ENV | FM_BUSY_CUTOFF))
-                update_cutoff(v, fenv);
+                update_cutoff(v, m, fenv);
             /* the mix envelope, or a glide back to osc_mix after it (until
              * it lands: a glide can land exactly with its step still set) */
             if (fm_voice_busy(v) & FM_BUSY_MIX)

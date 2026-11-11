@@ -284,6 +284,8 @@ static void apply_param(fm_engine *e, uint16_t id)
     }
     if (apply_env_param(e, id, v))
         return;
+    if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) /* every voice's, shared */
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV1, FM_MOD_CUTOFF, v);
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *vc = &e->voices[i];
         if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS)
@@ -304,8 +306,11 @@ static void apply_param(fm_engine *e, uint16_t id)
             fm_voice_set_highpass(vc, (uint8_t)v);
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
-            vc->env_amount = v;
-            fm_voice_mark(vc, FM_BUSY_FILTER_ENV, v != 0);
+            /* busy while the envelope reaches the cutoff, and after it
+             * stops until the cutoff is summed back (update_cutoff) */
+            fm_voice_mark(vc, FM_BUSY_FILTER_ENV,
+                          !fm_mod_at_rest(&vc->mod, &e->mod.routes,
+                                          FM_MOD_CUTOFF));
             fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         default:

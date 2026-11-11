@@ -55,7 +55,6 @@ typedef struct {
     int32_t rate_cents;     /* fm_filter_rate_cents(sample rate) */
     int32_t cutoff_cents;   /* base cutoff */
     int32_t key_track;      /* per mille */
-    int32_t env_amount;     /* filter envelope amount, cents */
     int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
     uint32_t fenv_lag;      /* samples filter_env is behind: it is caught
                              * up only when read (the control rate) */
@@ -209,7 +208,7 @@ static inline uint32_t fm_voice_busy(const fm_voice *v)
  * filter not a wire, or a cutoff not yet updated for the settings and the
  * note). The busy word must be nonzero whenever this is. For checks only:
  * it costs a cutoff computation. */
-uint32_t fm_voice_busy_derived(const fm_voice *v);
+uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m);
 
 /* Sets the highpass position 0..3 of voice `v`'s filter (see
  * fm_filter_set_highpass), keeping the voice's busy word. */

@@ -943,7 +943,7 @@ TT_TEST(mode_switch_during_a_steal_fade_tracks_the_waiting_note)
         fm_engine_render(&feng, fbuf_a, 1);
     fm_engine_render(&feng, fbuf_a, 32);
     fm_filter_reset(&want);
-    fm_filter_set_cutoff(&want, fm_filter_voice_cents(6000, 1000, 96, 0, 0),
+    fm_filter_set_cutoff(&want, fm_filter_voice_cents(6000, 1000, 96, 0),
                          rate_cents);
     TT_CHECK_EQ(feng.voices[0].filter.g, want.g);
 }
@@ -1526,7 +1526,8 @@ TT_TEST(filter_envelope_through_a_steal_and_take_back_stays_exact)
     fm_engine_note_on(&feng, 60, 100); /* taken back mid fade */
     fm_env_gate_on(&ref);
     render_beside(&feng, &ref, 1);
-    ok &= feng.voices[0].cutoff_now == fm_filter_voice_cents(4200, 0, 60, ref.level, 4800);
+    ok &= feng.voices[0].cutoff_now == fm_filter_voice_cents(4200, 0, 60,
+                                                    (int32_t)(((int64_t)4800 * ref.level) >> 30));
     render_beside(&feng, &ref, 437);
     ok &= fenv_matches(&feng, &ref);
     TT_CHECK(ok);
@@ -1588,7 +1589,8 @@ TT_TEST(legato_note_change_reads_the_current_filter_envelope)
     fm_engine_note_off(&feng, 43);     /* legato back to 36 */
     for (v = 0; v < 4; v++)
         ok &= feng.voices[v].cutoff_now ==
-              fm_filter_voice_cents(4800, 0, 36, ref.level, 4800);
+              fm_filter_voice_cents(4800, 0, 36,
+                                    (int32_t)(((int64_t)4800 * ref.level) >> 30));
     TT_CHECK(ok);
 }
 
