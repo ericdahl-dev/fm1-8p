@@ -218,6 +218,7 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count` with no resonance; at most 4.0 x 8 = 32.0, which uses 6 of the 7 headroom bits |
 | Mix gain | Q1.30 | `0.5 / voice_count` = `(1 << 29) / voice_count`, rounded down |
 | Output before conversion | Q8.24 | 0.5 with no resonance; up to 2.0 with high resonance |
+| Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; a full eight-note chord measures about 0.78 |
 | Output | `int16_t` | 16384 (-6 dBFS) with no resonance; high resonance can reach full scale, where the conversion saturates |
 
 Each voice is scaled by `1 / voice_count`, so the worst case without

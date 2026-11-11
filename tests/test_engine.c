@@ -53,7 +53,7 @@ TT_TEST(amp_envelope_follows_adsr_settings)
     TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 100), FM_OK);
     TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 200), FM_OK);
     TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 500), FM_OK);
-    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 300), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 30), FM_OK);
     fm_engine_note_on(&eng, 69, 100);
     fm_engine_render(&eng, buf, RATE);           /* 0..1 s held */
     fm_engine_note_off(&eng, 69);
@@ -61,18 +61,19 @@ TT_TEST(amp_envelope_follows_adsr_settings)
 
     full = amp_at(buf, RATE, 101);
     TT_CHECK(full > 10000);
-    /* attack: linear 0 -> full over 100 ms */
-    TT_CHECK_NEAR(amp_at(buf, RATE, 50) / full, 0.5, 0.04);
-    TT_CHECK(amp_at(buf, RATE, 92) / full < 0.95);
-    /* decay: full -> 50 % over 200 ms (75 % halfway) */
-    TT_CHECK_NEAR(amp_at(buf, RATE, 203) / full, 0.75, 0.03);
-    TT_CHECK_NEAR(amp_at(buf, RATE, 303) / full, 0.5, 0.03);
+    /* attack: an RC charge toward 1.6 x full, on full at 100 ms (62 % half way) */
+    TT_CHECK_NEAR(amp_at(buf, RATE, 50) / full, 0.620, 0.04);
+    TT_CHECK(amp_at(buf, RATE, 85) / full < 0.95);
+    /* decay: exponential toward 50 %, tau 200 ms: 50 % + 50 % x e^(-t / tau) */
+    TT_CHECK_NEAR(amp_at(buf, RATE, 203) / full, 0.803, 0.03);
+    TT_CHECK_NEAR(amp_at(buf, RATE, 303) / full, 0.684, 0.03);
     /* sustain holds */
     TT_CHECK_NEAR(amp_at(buf, RATE, 990) / full, 0.5, 0.03);
-    /* release: 50 % -> 0 over 300 ms, then silence */
-    TT_CHECK_NEAR(amp_at(buf, RATE, 1153) / full, 0.25, 0.03);
-    TT_CHECK(amp_at(buf, RATE, 1290) > 0);
-    silent_from = (size_t)RATE * 1300 / 1000;
+    /* release: exponential toward 0, tau 30 ms (50 % x e^(-0.5) at 15 ms),
+     * then idle below -80 dB of full: ln(0.5 / 1e-4) x tau = 256 ms */
+    TT_CHECK_NEAR(amp_at(buf, RATE, 1015) / full, 0.303, 0.03);
+    TT_CHECK(amp_at(buf, RATE, 1200) > 0);
+    silent_from = (size_t)RATE * 1270 / 1000;
     for (i = silent_from * 2; i < (size_t)RATE * 4; i++)
         if (buf[i] != 0) loud_after = 1;
     TT_CHECK(!loud_after);
@@ -115,7 +116,8 @@ TT_TEST(all_notes_off_controller_releases_the_note)
     size_t i;
     int loud_after = 0;
     TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
-    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 10), FM_OK);
+    /* tau 1 ms: the release is below -80 dB and idle within 9.2 ms */
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 1), FM_OK);
     fm_engine_note_on(&eng, 60, 100);
     fm_engine_render(&eng, buf, 4800);
     TT_CHECK(peak_abs(buf, 2400, 4800) > 1000);
@@ -190,10 +192,96 @@ TT_TEST(extreme_settings_stay_bounded_and_release)
     }
     /* longest times at the highest rate: steps must not round to zero */
     TT_CHECK_EQ(fm_engine_init(&eng, 192000, 1), FM_OK);
-    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 10000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 30000);
     fm_engine_note_on(&eng, 60, 100);
     fm_engine_render(&eng, buf, RATE);
     TT_CHECK(peak_abs(buf, RATE - 1000, RATE) > 0);
+}
+
+/* JX-8P attacks run to about 25 s (PG-8X 2.0.13's ATTACK 127, docs/patches.md):
+ * a 20 s attack is at 62 % at 10 s (the RC charge: 1.6 x (1 - e^(-0.49))),
+ * not clamped short. Reads the amp
+ * envelope's level, so the wave's phase does not matter. */
+TT_TEST(amp_attack_runs_to_25_seconds)
+{
+    const uint32_t r = 8000;
+    int32_t peak;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 20000);
+    fm_engine_note_on(&eng, 60, 127);
+    peak = eng.voices[0].amp_env.peak;
+    fm_engine_render(&eng, buf, r * 10);
+    TT_CHECK_EQ(eng.voices[0].amp_env.stage, FM_ENV_ATTACK);
+    TT_CHECK(eng.voices[0].amp_env.level > peak / 100 * 61 &&
+             eng.voices[0].amp_env.level < peak / 100 * 63);
+}
+
+/* Release is exponential, as PG-8X's: the release time is its time constant
+ * tau, so the level falls 20 dB every tau x ln 10 (here 2.303 s for 1 s) and
+ * 40 dB in twice that. A ramp of the same time would be silent by then. */
+TT_TEST(amp_release_falls_exponentially_with_its_time_constant)
+{
+    const uint32_t r = 8000;
+    int32_t peak;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 1000);
+    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_render(&eng, buf, r / 10);
+    peak = eng.voices[0].amp_env.level;
+    fm_engine_note_off(&eng, 60);
+    fm_engine_render(&eng, buf, r * 2303 / 1000);
+    TT_CHECK(eng.voices[0].amp_env.level > peak / 1000 * 98 &&
+             eng.voices[0].amp_env.level < peak / 1000 * 102);
+    fm_engine_render(&eng, buf, r * 2303 / 1000);
+    TT_CHECK(eng.voices[0].amp_env.level > peak / 10000 * 98 &&
+             eng.voices[0].amp_env.level < peak / 10000 * 102);
+}
+
+/* Decay is exponential toward the sustain level, not toward 0: the distance
+ * above sustain falls by 1/e every tau, it gets within 1 % of sustain, and
+ * the level never goes below it. Sustain 50 %, tau 100 ms. */
+TT_TEST(amp_decay_heads_exponentially_to_sustain_without_undershoot)
+{
+    const uint32_t r = 8000;
+    int32_t peak, sus, d, low;
+    uint32_t i;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 100);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 500);
+    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_render(&eng, buf, 1); /* the attack lands on the peak */
+    peak = eng.voices[0].amp_env.peak;
+    sus = eng.voices[0].amp_env.sus_level;
+    fm_engine_render(&eng, buf, r / 10); /* one tau */
+    d = eng.voices[0].amp_env.level - sus;
+    TT_CHECK(d > (int32_t)((int64_t)(peak - sus) * 360 / 1000) &&
+             d < (int32_t)((int64_t)(peak - sus) * 376 / 1000)); /* 1/e = 0.368 */
+    low = eng.voices[0].amp_env.level;
+    for (i = 0; i < r * 2; i++) { /* 20 tau */
+        fm_engine_render(&eng, buf, 1);
+        if (eng.voices[0].amp_env.level < low) low = eng.voices[0].amp_env.level;
+    }
+    TT_CHECK(low >= sus);
+    TT_CHECK(eng.voices[0].amp_env.level - sus <= sus / 100);
+}
+
+/* Every envelope time, both envelopes, has one range: 0 to 32 s, as long as
+ * the patch table's int16 holds (PG-8X's ATTACK 127 takes 34 s to its peak,
+ * docs/patches.md). */
+TT_TEST(envelope_times_share_one_32_second_range)
+{
+    static const uint16_t ids[] = {
+        FM_PARAM_AMP_ATTACK_MS, FM_PARAM_AMP_DECAY_MS, FM_PARAM_AMP_RELEASE_MS,
+        FM_PARAM_FILTER_ENV_ATTACK_MS, FM_PARAM_FILTER_ENV_DECAY_MS,
+        FM_PARAM_FILTER_ENV_RELEASE_MS};
+    size_t i;
+    for (i = 0; i < sizeof ids / sizeof ids[0]; i++) {
+        TT_CHECK_EQ(fm_param_info_get(ids[i])->min, 0);
+        TT_CHECK_EQ(fm_param_info_get(ids[i])->max, 32000);
+    }
 }
 
 /* A zeroed engine (static storage before, or after a failed, init) must
@@ -251,24 +339,27 @@ TT_TEST(shortening_release_mid_release_takes_effect)
 
 /*
  * Raising sustain above the current level mid-decay moves the level
- * there over the decay time instead of jumping (a click).
+ * there with the decay's tau instead of jumping (a click). At 0.5 tau of a
+ * decay to 0 the level is e^(-0.5) = 0.607 of full.
  */
 TT_TEST(raising_sustain_mid_decay_glides_instead_of_jumping)
 {
-    double before, just_after, settled;
+    int32_t peak, before, just_after;
     TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
     fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 1000);
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 0);
-    fm_engine_note_on(&eng, 69, 100); /* period < amp_at window */
-    fm_engine_render(&eng, buf, RATE / 2); /* level about 0.5 */
-    before = amp_at(buf, RATE, 500);
+    fm_engine_note_on(&eng, 69, 100);
+    fm_engine_render(&eng, buf, RATE / 2); /* 0.5 tau */
+    peak = eng.voices[0].amp_env.peak;
+    before = eng.voices[0].amp_env.level;
+    TT_CHECK_NEAR((double)before / peak, 0.607, 0.01);
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
-    fm_engine_render(&eng, buf, 2 * RATE);
-    just_after = amp_at(buf, RATE, 4);
-    settled = amp_at(buf, RATE, 1500);
-    TT_CHECK_NEAR(before / settled, 0.5, 0.05);
-    TT_CHECK_NEAR(just_after / settled, 0.5, 0.05);
+    fm_engine_render(&eng, buf, RATE / 100); /* 10 ms on: no jump */
+    just_after = eng.voices[0].amp_env.level;
+    TT_CHECK(just_after > before && (double)(just_after - before) / peak < 0.01);
+    fm_engine_render(&eng, buf, 4 * RATE); /* 4 tau: nearly there */
+    TT_CHECK_NEAR((double)eng.voices[0].amp_env.level / peak, 1.0, 0.02);
 }
 
 static void run_engine_tests(void)
@@ -276,6 +367,10 @@ static void run_engine_tests(void)
     TT_RUN(note_on_plays_saw_at_note_pitch);
     TT_RUN(high_saw_note_has_low_aliasing);
     TT_RUN(amp_envelope_follows_adsr_settings);
+    TT_RUN(amp_attack_runs_to_25_seconds);
+    TT_RUN(amp_release_falls_exponentially_with_its_time_constant);
+    TT_RUN(amp_decay_heads_exponentially_to_sustain_without_undershoot);
+    TT_RUN(envelope_times_share_one_32_second_range);
     TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
     TT_RUN(init_rejects_bad_arguments);
     TT_RUN(all_notes_off_controller_releases_the_note);

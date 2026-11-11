@@ -3,13 +3,18 @@
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
- * Level is Q1.30: 0 = silent, FM_ENV_FULL = 1.0. In this slice every
- * segment is a straight line:
- *   attack  - rises at a rate that goes 0 -> full in the attack time
- *             (a retrigger starts from the current level, so no click)
- *   decay   - full -> sustain in the decay time
+ * Level is Q1.30: 0 = silent, FM_ENV_FULL = 1.0.
+ *   attack  - an RC charge toward 1.6 x the peak, stopped on the peak at
+ *             the attack time, as PG-8X (a retrigger starts from the
+ *             current level, so no click)
+ *   decay   - exponential toward sustain, the decay time its time constant
+ *             tau (the distance left falls by 1/e every tau), as PG-8X
  *   sustain - holds the sustain level
- *   release - current level -> 0 in the release time, then idle
+ *   release - exponential toward 0, the release time its tau, then idle
+ *             once below FM_ENV_FLOOR (-80 dB)
+ * An exponential stage is drawn as straight segments of up to 64 samples
+ * (fewer for a short tau, see env.c), each ending on the curve, each a
+ * whole-number step a sample with the remainder moved on its first.
  *   fade    - like release, but over a time given by the caller and not
  *             changed by fm_env_retime (the fast fade of a stolen voice)
  *
@@ -24,6 +29,9 @@
 #include <stdint.h>
 
 #define FM_ENV_FULL (1 << 30)
+/* -80 dB of full: a release below it goes idle, a decay this close to its
+ * sustain lands on it */
+#define FM_ENV_FLOOR (FM_ENV_FULL / 10000)
 
 typedef enum {
     FM_ENV_IDLE = 0,
@@ -47,8 +55,13 @@ typedef struct {
 typedef struct {
     /* state; the render loop's inline step reads these first ones */
     int32_t level;
-    int32_t step;  /* per-sample change in the current stage */
+    int32_t step;  /* per-sample change in this segment, signed */
     uint8_t stage; /* fm_env_stage */
+    uint8_t seg;   /* calls left in this straight segment (attack, decay,
+                    * release) or hold (sustain, idle, step 0); 0: the next
+                    * call starts one, or lands */
+    uint8_t frac;  /* the fraction of an LSB the last segment's span left
+                    * over, Q8, carried into the next */
     int32_t peak;  /* level the attack rises to (velocity), Q1.30; the
                     * sustain level is scaled by it too */
     int32_t sus_level; /* sustain * peak, set at gate on and retime */
@@ -71,39 +84,26 @@ void fm_env_retime(fm_env *e);
 int32_t fm_env_next(fm_env *e);
 
 /*
- * fm_env_next for the render loop, inline: a sample that only adds or
- * subtracts the step (most of them) is done here, the same comparisons as
- * fm_env_next; one that lands on the peak, the sustain or 0, or an idle
- * envelope, calls it. Exactly the same level, stage and step.
+ * fm_env_next for the render loop, inline: inside a segment or a hold (all
+ * but one sample in up to 64, or 255 when holding) the count and an add,
+ * as fm_env_next; the sample that starts a segment or lands calls it.
+ * Exactly the same level, stage and step. No segment lands inside itself:
+ * an attack segment stops short of the peak, and a decay or release one
+ * starts more than FM_ENV_FLOOR from its target and moves at most 2/3 of
+ * that.
  */
 static inline int32_t fm_env_step(fm_env *e)
 {
-    switch (e->stage) {
-    case FM_ENV_SUSTAIN:
-        return e->level;
-    case FM_ENV_ATTACK:
-        if (e->peak - e->level > e->step) return e->level += e->step;
-        break;
-    case FM_ENV_DECAY:
-        if (e->level >= e->sus_level) {
-            if (e->level - e->step > e->sus_level) return e->level -= e->step;
-        } else if (e->sus_level - e->level > e->step) {
-            return e->level += e->step;
-        }
-        break;
-    case FM_ENV_RELEASE:
-    case FM_ENV_FADE:
-        if (e->level > e->step) return e->level -= e->step;
-        break;
-    default:
-        break;
+    if (e->seg) {
+        e->seg--;
+        return e->level += e->step;
     }
     return fm_env_next(e);
 }
 
 /*
  * Advances `n` samples at once: exactly `n` calls of fm_env_next, in a
- * few operations per stage crossed (one 32-bit division each) instead of
+ * few operations per segment crossed instead of
  * `n` steps. For an envelope that only needs to be current at times, not
  * every sample. Returns the level.
  */

@@ -122,7 +122,8 @@ TT_TEST(unison_note_changes_do_not_click)
     fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 10);
     fm_engine_set_param(&poly, FM_PARAM_AMP_DECAY_MS, 50);
     fm_engine_set_param(&poly, FM_PARAM_AMP_SUSTAIN, 500);
-    fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 20);
+    /* tau 2 ms: idle (-80 dB) in 18.4 ms, inside the last 1000 samples */
+    fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 2);
     fm_engine_note_on(&poly, 0, 127);
     fm_engine_render(&poly, pbuf, 1000);
     fm_engine_note_on(&poly, 4, 127); /* retrigger, new pitch */
