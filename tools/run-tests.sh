@@ -15,7 +15,8 @@ if [ ! -s "$1" ]; then
     echo "run-tests: $1 is empty; rebuild it (rm $1 && make test)" >&2
     exit 1
 fi
-dir=$(mktemp -d) || { echo "run-tests: cannot make a temporary directory" >&2; exit 1; }
+# An explicit template under TMPDIR: macOS's mktemp -d alone ignores TMPDIR.
+dir=$(mktemp -d "${TMPDIR:-/tmp}/run-tests.XXXXXX") || { echo "run-tests: cannot make a temporary directory" >&2; exit 1; }
 trap 'rm -rf "$dir"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
