@@ -22,6 +22,10 @@ CFLAGS  ?= -O2 -g
 STD     = -std=c99
 WARN    = -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -Wno-sign-conversion
 BUILD   = build
+# The Python tools neither read nor write __pycache__: -B writes no .pyc, and the prefix (never
+# created, as nothing is written) keeps a stale .pyc beside the source from being read
+# (tests/test_python_cache.sh).
+PYTHON  = python3 -B -X pycache_prefix=$(CURDIR)/$(BUILD)/no-pycache
 
 ENGINE_SRC = $(wildcard engine/*.c)
 ENGINE_HDR = $(wildcard engine/*.h)
@@ -92,7 +96,8 @@ check-runner:
 	sh tests/test_build_outputs.sh
 
 check-patches:
-	python3 -m unittest discover -s tests -p 'test_*.py'
+	PYTHON="$(PYTHON)" sh tests/test_python_cache.sh
+	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 
 check: test check-runner check-float-free check-fm1-build check-patches
 
