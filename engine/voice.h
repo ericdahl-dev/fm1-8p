@@ -94,6 +94,8 @@ int fm_voice_active(const fm_voice *v);
 /*
  * `now` in the calls below is the number of the next control tick: a
  * note that starts from silence counts its LFO delay from it.
+ * `m` is the engine's modulation (its routes give the note's level from
+ * `peak`, the velocity source, summed with the voice's other sources).
  *
  * Plays `note` at `pitch` (Q16.16 semitones) with amp envelope peak
  * `peak` (Q1.30, from its velocity). An idle voice starts it at
@@ -104,9 +106,9 @@ int fm_voice_active(const fm_voice *v);
  * key comes up during the fade, the note still starts after it, holds
  * for the fade time (as long as it waited) and then releases.
  */
-void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch, int32_t peak,
-                      uint32_t now, uint32_t sample_rate,
-                      uint32_t fade_samples);
+void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
+                      int32_t pitch, int32_t peak, uint32_t now,
+                      uint32_t sample_rate, uint32_t fade_samples);
 
 /*
  * Takes a voice that is fading out a stolen note back for that note
@@ -115,8 +117,8 @@ void fm_voice_note_on(fm_voice *v, uint8_t note, int32_t pitch, int32_t peak,
  * note that was waiting for the fade is dropped; the caller can give it
  * another voice, at the peak still in `next_peak`.
  */
-void fm_voice_take_back(fm_voice *v, int32_t pitch, int32_t peak,
-                        uint32_t now, uint32_t sample_rate);
+void fm_voice_take_back(fm_voice *v, const fm_voice_mod *m, int32_t pitch,
+                        int32_t peak, uint32_t now, uint32_t sample_rate);
 
 /*
  * Moves the voice to `note` at `pitch` (Q16.16 semitones) without a steal fade (unison mode,
@@ -128,9 +130,9 @@ void fm_voice_take_back(fm_voice *v, int32_t pitch, int32_t peak,
  * tracking follows `note` at once. A voice still fading out a stolen poly
  * note starts `note` when the fade ends.
  */
-void fm_voice_change_note(fm_voice *v, uint8_t note, int32_t pitch,
-                          int32_t peak, uint32_t now, uint32_t sample_rate,
-                          int retrigger);
+void fm_voice_change_note(fm_voice *v, const fm_voice_mod *m, uint8_t note,
+                          int32_t pitch, int32_t peak, uint32_t now,
+                          uint32_t sample_rate, int retrigger);
 
 /* The key came up: hold the note if the pedal is down, else release. */
 void fm_voice_key_up(fm_voice *v, int pedal_down);
@@ -218,7 +220,8 @@ void fm_voice_set_highpass(fm_voice *v, uint8_t step);
  * counts from. `osc` is scratch for `frames` samples (the oscillators'
  * chunk, when nothing can change them within it).
  */
-void fm_voice_render_add(fm_voice *v, int32_t *mix, int32_t *osc,
+void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
+                         int32_t *mix, int32_t *osc,
                          uint32_t frames, uint32_t sample_rate,
                          uint32_t next_tick, uint32_t tick_left);
 

@@ -115,9 +115,15 @@ merging them would move one or the other and change the output (see #68).
 ## Routing
 
 Every route goes through one summing point per voice, `engine/mod.h`:
-each source (the LFO, after the voice's delay and fade) times its route
-depth, added up per destination (pitch, pulse width) once per control tick
-and held at the int32 limits rather than wrapping. The summing
+each source times its route depth, added up per destination and held at
+the int32 limits rather than wrapping. The sources are the LFO (after the
+voice's delay and fade, set every control tick) and the note's velocity
+(its level from `amp_velocity_pct` and the curve below, set when the note
+starts); the destinations are pitch, pulse width and level (the amp
+envelope's peak, from velocity at full depth). Each voice keeps its
+sources as last set, so when a note starts or is restruck the sums are
+taken again with the LFO where it was: the vibrato carries on
+(`restrike_keeps_the_lfo_sums_exactly`). The summing
 (`fm_mod_tick`, `fm_mod_sum`) and the getter are `static inline` in
 `mod.h`, so they sit in the voice's code; only `fm_mod_reset` and
 `fm_mod_set_route` are in `mod.c`. The depths are one `fm_mod_routes` the

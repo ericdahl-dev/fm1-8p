@@ -40,6 +40,9 @@ typedef struct {
 /* At rest: every source and every sum 0. */
 void fm_mod_reset(fm_mod *m);
 
+/* Every route at depth 0. */
+void fm_mod_routes_reset(fm_mod_routes *r);
+
 /* Sets the depth from source `src` to destination `dest`. */
 void fm_mod_set_route(fm_mod_routes *r, unsigned src, unsigned dest,
                       int32_t depth);

@@ -365,6 +365,11 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->tick_left = 0;
     e->ticks = 0;
     e->mod_on = 0;
+    /* no route but the ones set here and by the parameters below;
+     * velocity sets the level at full depth: its source is already the
+     * note's level (velocity_peak) */
+    fm_mod_routes_reset(&e->mod.routes);
+    fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_VEL, FM_MOD_LEVEL, FM_ENV_FULL);
     /* each voice its own noise (an odd multiplier: never 0), so unison
      * voices, which start together, never play the same stream */
     {
@@ -474,7 +479,7 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak)
 {
     uint8_t i = (uint8_t)(v - e->voices);
     v->stamp = ++e->stamp;
-    fm_voice_note_on(v, note, voice_pitch(e, i, note), peak, e->ticks + 1,
+    fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, e->ticks + 1,
                      e->sample_rate, e->fade_samples);
 }
 
@@ -501,7 +506,7 @@ static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak)
 {
     uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
     fm_voice *w;
-    fm_voice_take_back(f, voice_pitch(e, (uint8_t)(f - e->voices), note),
+    fm_voice_take_back(f, &e->mod, voice_pitch(e, (uint8_t)(f - e->voices), note),
                        peak, e->ticks + 1, e->sample_rate);
     f->stamp = ++e->stamp;
     if (!key_down && !sustained) return;
@@ -532,7 +537,7 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         v->stamp = ++e->stamp;
-        fm_voice_change_note(v, note, voice_pitch(e, i, note), peak,
+        fm_voice_change_note(v, &e->mod, note, voice_pitch(e, i, note), peak,
                              e->ticks + 1, e->sample_rate, retrigger);
     }
 }
@@ -728,7 +733,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (i = 0; i < n; i++) e->mix[i] = 0;
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
-                fm_voice_render_add(&e->voices[k], e->mix, e->mix_right, n, e->sample_rate,
+                fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n, e->sample_rate,
                                     e->ticks + 1, e->tick_left);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)
