@@ -451,8 +451,24 @@ TT_TEST(ui_presets_warning_cancels_on_anything_else)
     TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
 }
 
+/* The banner is in the footer: showing it redraws the footer, and 1.5 s later it is gone and the
+ * footer redraws again. */
+TT_TEST(ui_banner_shows_for_one_and_a_half_seconds)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 0);
+    (void)ui_take_full(&ui_u, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1000);
+    TT_CHECK_EQ(ui_take(&ui_u, 1000) & UI_D_FOOT, UI_D_FOOT);
+    TT_CHECK_EQ(ui_take(&ui_u, 2499), 0u);
+    TT_CHECK_EQ(ui_take(&ui_u, 2500), UI_D_FOOT);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "") == 0);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_banner_shows_for_one_and_a_half_seconds);
     TT_RUN(ui_presets_warning_cancels_on_anything_else);
     TT_RUN(ui_presets_again_discards_and_loads);
     TT_RUN(ui_presets_with_edits_warns_first);

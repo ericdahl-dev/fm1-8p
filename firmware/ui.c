@@ -240,6 +240,7 @@ void ui_init(ui *u, play *p)
     u->shown_note = play_last_note(p);
     u->shown_oct = p->oct;
     u->banner = "";
+    u->banner_ms = 0;
     u->warned = 0;
     u->warned_ms = 0;
 }
@@ -264,12 +265,19 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     u->focus = k;
 }
 
+static void show_banner(ui *u, const char *s, uint32_t ms)
+{
+    u->banner = s;
+    u->banner_ms = ms;
+    u->dirty |= UI_D_FOOT;
+}
+
 /* PRESETS: the patch clicks away, wrapping */
 static void browse(ui *u, int32_t clicks, uint32_t ms)
 {
     int32_t i, way = clicks > 0 ? 1 : -1;
     if (play_edited(u->p) && !(u->warned == way && ms - u->warned_ms < UI_DISCARD_MS)) {
-        u->banner = "EDITED: TURN AGAIN TO DISCARD";    /* the first event loads nothing */
+        show_banner(u, "EDITED: TURN AGAIN TO DISCARD", ms);   /* the first event loads nothing */
         u->warned = way;
         u->warned_ms = ms;
         return;
@@ -309,6 +317,10 @@ uint32_t ui_take(ui *u, uint32_t ms)
     if (u->state == UI_PLAY && play_last_note(u->p) != u->shown_note) {
         u->shown_note = play_last_note(u->p);
         u->dirty |= UI_D_NOTE;
+    }
+    if (*u->banner && ms - u->banner_ms >= UI_BANNER_MS) {
+        u->banner = "";
+        u->dirty |= UI_D_FOOT;
     }
     if (u->p->oct != u->shown_oct) {
         u->shown_oct = u->p->oct;

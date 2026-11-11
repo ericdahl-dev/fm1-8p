@@ -49,6 +49,7 @@ typedef struct {
     int32_t shown_note;                 /* PLAY: the last note as drawn */
     int32_t shown_oct;                  /* the octave as the header shows it */
     const char *banner;                 /* a short message for the footer ("": none) */
+    uint32_t banner_ms;                 /* when it came */
     int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
     uint32_t warned_ms;                 /* when */
 } ui;
@@ -59,9 +60,11 @@ typedef struct {
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
 #define UI_D_HEAD   0x08u               /* the header alone (the octave changed) */
 #define UI_D_COL(k) (0x10u << (k))      /* knob column k */
+#define UI_D_FOOT   0x100u              /* the footer alone (the banner came or went) */
 #define UI_D_ALL    0xF7u               /* all of it */
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
+#define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
 #define UI_DISCARD_MS 2000u             /* PRESETS again within this, the same way: discard and load */
 #define UI_FRAME_MS 33u                 /* redraws are at least this far apart (visual.md: 30 a second) */
 
