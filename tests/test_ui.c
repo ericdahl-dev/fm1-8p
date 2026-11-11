@@ -403,8 +403,20 @@ TT_TEST(ui_presets_fast_turn_moves_four)
     TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
 }
 
+/* Patch numbers wrap: before the first is the last, after the last the first. */
+TT_TEST(ui_presets_wrap)
+{
+    ui_setup();
+    play_load_patch(&ui_p, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -1, 0);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_COUNT - 1u]);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 4, 100);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[3]);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_presets_wrap);
     TT_RUN(ui_presets_fast_turn_moves_four);
     TT_RUN(ui_presets_click_loads_the_next_patch);
     TT_RUN(ui_slot_number_is_two_digits);
