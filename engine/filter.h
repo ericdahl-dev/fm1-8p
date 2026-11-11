@@ -25,7 +25,6 @@ typedef struct {
     int32_t x1;
     int32_t g;     /* lowpass stage coefficient, Q1.30 (1.0 = open) */
     int32_t k;     /* resonance feedback in use, Q4.28 (0 .. 4.2) */
-    int32_t k_res; /* feedback the resonance setting asks for, Q4.28 */
     /* 1.0 below the top of the cutoff range, to 0 at open; a stage weighs
      * its previous input by fade / 4 (the zero, 1/4 below the top) */
     int32_t fade;
@@ -35,8 +34,12 @@ typedef struct {
      * one-pole lowpass of s[3] at the cutoff (h 0: off, the plain ladder).
      * A weighted average of the two, so it stays within their range. */
     int32_t lp;   /* the shelf's lowpass state, Q8.24 */
-    int32_t a;    /* input level, Q1.30: the resonance's passband level */
-    int32_t h;    /* weight of lp, Q1.30 (0 .. 0.57) */
+    int16_t a;    /* input level, Q2.13: the resonance's passband level */
+    int16_t h;    /* weight of lp, Q2.13 (0 .. 0.57) */
+    /* the resonance as set, per mille, and what it asks for below the fade
+     * (looked up once, at fm_filter_set_resonance): the retune in cents,
+     * h and a in Q2.13 */
+    int16_t res, retune, shelf, level;
     int16_t cut;  /* lowpass cutoff as set (clamped), cents */
     int16_t rate; /* rate_cents it was set with (0: not yet) */
 } fm_filter;

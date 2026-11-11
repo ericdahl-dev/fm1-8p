@@ -206,9 +206,11 @@ void fm_filter_reset(fm_filter *f)
 {
     fm_filter_clear(f);
     f->g = ONE_Q30;
-    f->k = f->k_res = 0;
+    f->k = 0;
+    f->res = f->retune = f->shelf = 0;
+    f->level = 8192; /* 1.0 */
     f->h = 0;
-    f->a = ONE_Q30;
+    f->a = 8192; /* 1.0 */
     f->cut = FM_FILTER_OPEN_CENTS;
     f->rate = 0;
     f->fade = 0;
@@ -238,20 +240,24 @@ static void leave_open(fm_filter *f)
 /* The coefficients from the cutoff, rate and resonance as set. */
 static void apply(fm_filter *f)
 {
-    int32_t permille = f->k_res / K_PER_MILLE; /* exact: k_res is a multiple */
-    int32_t c = f->cut + res_lookup(retune_tab, permille), g, h;
+    int32_t c = f->cut + f->retune, g, h, k = f->res * K_PER_MILLE;
     int was_open = fm_filter_is_wire(f);
     g = coef_for(c < 0 ? 0 : c, f->rate);
-    /* 1.0 up to the fade, then down to 0 at open */
-    f->fade = f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS
-                  ? ONE_Q30
-                  : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
-    f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
-    f->k = mul_q30(f->k_res, f->fade);
-    f->a = ONE_Q30 + mul_q30((res_lookup(level_tab, permille) << 17) - ONE_Q30, f->fade);
-    h = mul_q30(res_lookup(shelf_tab, permille) << 17, f->fade);
+    if (f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS) { /* below the fade */
+        f->fade = ONE_Q30;
+        f->g = g;
+        f->k = k;
+        f->a = f->level;
+        h = f->shelf;
+    } else { /* 1.0 at the fade, down to 0 at open */
+        f->fade = (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
+        f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
+        f->k = mul_q30(k, f->fade);
+        f->a = (int16_t)(8192 + mul_q30(f->level - 8192, f->fade));
+        h = mul_q30(f->shelf, f->fade);
+    }
     if (h && !f->h) f->lp = f->s[3]; /* shelf on: the output carries on */
-    f->h = h;
+    f->h = (int16_t)h;
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }
 
@@ -269,11 +275,14 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
 {
     if (permille < 0) permille = 0;
     if (permille > 1000) permille = 1000;
-    f->k_res = permille * K_PER_MILLE;
+    f->res = (int16_t)permille;
+    f->retune = (int16_t)res_lookup(retune_tab, permille);
+    f->shelf = (int16_t)res_lookup(shelf_tab, permille);
+    f->level = (int16_t)res_lookup(level_tab, permille);
     if (f->rate) /* the retune moves the coefficient */
         apply(f);
     else
-        f->k = mul_q30(f->k_res, f->fade);
+        f->k = mul_q30(permille * K_PER_MILLE, f->fade);
 }
 
 /*
@@ -373,7 +382,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         d = (int64_t)in - f->hp;
         x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
     }
-    if (f->a != ONE_Q30) x = mul_q30(x, f->a);
+    if (f->a != 8192) x = (int32_t)(((int64_t)x * f->a) >> 13);
     u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
     /* each stage after the first takes the one before it, now and as it
      * was one sample ago */
@@ -396,5 +405,5 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
     if (!f->h) return f->s[3];
     /* the bass shelf: lp follows the output at the cutoff */
     f->lp += mul_q30(f->s[3] - f->lp, f->g);
-    return f->s[3] + mul_q30(f->lp - f->s[3], f->h);
+    return f->s[3] + (int32_t)(((int64_t)(f->lp - f->s[3]) * f->h) >> 13);
 }
