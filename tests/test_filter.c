@@ -1484,18 +1484,15 @@ static int amp_env_beside(fm_engine *e, fm_env *ref, uint32_t frames)
     uint32_t i;
     int ok = 1;
     for (i = 0; i < frames; i++) {
-        int was_idle = ref->stage == FM_ENV_IDLE;
-        fm_env before = *ref;
+        const fm_env *amp = &e->voices[0].amp_env;
         fm_engine_render(e, fbuf_a, 1);
-        fm_env_next(ref);
-        if (was_idle && e->voices[0].amp_env.stage != FM_ENV_IDLE) {
-            *ref = before; /* started this sample: gate on, then step */
-            ref->peak = e->voices[0].amp_env.peak;
+        if (ref->stage == FM_ENV_IDLE && amp->stage != FM_ENV_IDLE) {
+            ref->peak = amp->peak; /* started this sample: gate on, then step */
             fm_env_gate_on(ref);
-            fm_env_next(ref);
         }
-        ok &= e->voices[0].amp_env.level == ref->level &&
-              e->voices[0].amp_env.stage == ref->stage;
+        fm_env_next(ref);
+        ok &= amp->level == ref->level && amp->stage == ref->stage &&
+              amp->step == ref->step;
     }
     return ok;
 }
