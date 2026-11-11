@@ -2,6 +2,7 @@
  * Filter tests: frequency response through the filter module API
  * (engine/filter.h), and the voice wiring through fm_engine_* calls.
  */
+#include <math.h>
 #include "../engine/filter.h"
 #include "../engine/units.h"
 
@@ -505,7 +506,8 @@ static void play_resetting(int16_t *out, uint16_t id, int scenario)
     busy_filter_patch(&feng);
     fm_engine_set_param(&feng, FM_PARAM_AMP_DECAY_MS, scenario == 1 ? 20 : 400);
     fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 300);
-    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 300);
+    /* tau 30 ms: idle (-80 dB) 276 ms after the note off at 0.2 s */
+    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 30);
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS,
                         scenario == 2 ? 20 : 1000);
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_RELEASE_MS,
@@ -1202,6 +1204,50 @@ TT_TEST(env_settings_are_shared_by_every_envelope)
  * FULL / 127) with a 30 s attack at 192 kHz reaches the peak within 2 %
  * of 5,760,000 samples (a whole-number step would round 1.47 up to 2 and
  * land about 26 % early). */
+/*
+ * The straight segments of an exponential release stay on the curve: the
+ * level against FULL x e^(-t / tau), sample by sample, down to -60 dB, is
+ * within 0.1 dB for every tau from 5 ms at 8 kHz (40 samples) to 1 s at
+ * 48 kHz, and within 0.5 dB down to a tau of 8 samples (segments shorten
+ * to tau / 8). The longest, 30 s at 192 kHz, keeps within 0.25 dB: near
+ * -60 dB its step is about 0.2 LSB a sample, and Q8 steps resolve that to
+ * about 2 %.
+ */
+static double release_error_db(uint32_t tau)
+{
+    fm_env_settings set = { 0, 0, 0, FM_ENV_FULL };
+    fm_env e;
+    double worst = 0;
+    uint32_t t;
+    set.release_samples = tau;
+    fm_env_init(&e, &set);
+    fm_env_gate_on(&e);
+    fm_env_next(&e); /* attack 0: lands on full */
+    fm_env_next(&e);
+    fm_env_gate_off(&e);
+    for (t = 1; ; t++) {
+        double want = exp(-(double)t / tau), got;
+        fm_env_next(&e);
+        if (want < 1e-3) break;
+        got = (double)e.level / FM_ENV_FULL;
+        if (fabs(20 * log10(got / want)) > worst) worst = fabs(20 * log10(got / want));
+    }
+    return worst;
+}
+
+TT_TEST(exponential_release_stays_on_its_curve)
+{
+    static const uint32_t taus[] = { 40, 240, 960, 2205, 48000 };
+    size_t i;
+    for (i = 0; i < sizeof taus / sizeof taus[0]; i++) {
+        double err = release_error_db(taus[i]);
+        printf("    tau %7u samples: worst %.3f dB\n", (unsigned)taus[i], err);
+        TT_CHECK(err < 0.1);
+    }
+    TT_CHECK(release_error_db(8) < 0.5);
+    TT_CHECK(release_error_db(5760000) < 0.25);
+}
+
 TT_TEST(env_long_quiet_attack_lands_on_time)
 {
     static fm_env_settings s;
@@ -1507,7 +1553,9 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
     lagged |= feng.voices[0].fenv_lag != 0;
     fm_engine_note_on(&feng, 48, 100); /* retrigger from the release */
     fm_env_gate_on(&ref);
-    render_beside(&feng, &ref, 3007); /* decay, then sustain */
+    render_beside(&feng, &ref, 3007); /* in the decay, mid segment */
+    ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_DECAY;
+    render_beside(&feng, &ref, 13001); /* to sustain: within -80 dB of it */
     ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_SUSTAIN;
     lagged |= feng.voices[0].fenv_lag != 0;
     fm_engine_note_on(&feng, 48, 100); /* retrigger from the sustain */
@@ -1516,7 +1564,9 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
     ok &= fenv_matches(&feng, &ref);
     fm_engine_note_off(&feng, 48);
     fm_env_gate_off(&ref);
-    render_beside(&feng, &ref, 2003); /* release to idle */
+    render_beside(&feng, &ref, 2003); /* into the release, mid segment */
+    ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_RELEASE;
+    render_beside(&feng, &ref, 11003); /* to idle: 9.2 tau (12172) in all */
     ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_IDLE;
     TT_CHECK(ok);
     TT_CHECK(lagged);
@@ -1847,6 +1897,7 @@ static void run_filter_tests(void)
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_settings_are_shared_by_every_envelope);
     TT_RUN(env_init_gives_an_envelope_its_settings);
+    TT_RUN(exponential_release_stays_on_its_curve);
     TT_RUN(env_long_quiet_attack_lands_on_time);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
