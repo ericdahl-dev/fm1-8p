@@ -263,14 +263,28 @@ class MapTest(unittest.TestCase):
         e = patch("PIANO 2")                    # chorus 0, VCA dynamics 96
         self.assertEqual((e["CHORUS_MODE"], e["AMP_VELOCITY_PCT"]), (0, 100))
 
-    # Kept for the pitch envelope (#58): DCO-1 and DCO-2 ENV depth (quadratic to 2400 cents, signed
-    # by DCO ENV MODE), the mode and DCO DYNAMICS
+    # DCO-1 and DCO-2 ENV as PG-8X 2.0.13 plays them (#58): at full envelope 24.8 cents a step
+    # less 13 (0 at 0, 3137 at 127), linear, each moving its own oscillator, signed by DCO ENV MODE
+    def test_dco_env_depth_is_linear_as_pg8x_plays_it(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        for n in (1, 2):
+            self.assertEqual(fields["PITCH_ENV_OSC%d_CENTS" % n].param, "PITCH_ENV_OSC%d_CENTS" % n)
+        for b, want in ((0, 0), (1, 12), (64, 1574), (127, 3137)):
+            e = patch_with("SOUNDTRACK", DCO1_ENV=b, DCO2_ENV=0, DCO_ENV_MODE=96)
+            self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (want, 0))
+            e = patch_with("SOUNDTRACK", DCO1_ENV=0, DCO2_ENV=b, DCO_ENV_MODE=64)
+            self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (0, -want))
+        lo, hi = jx8p.engine_ranges()["PITCH_ENV_OSC1_CENTS"]
+        self.assertTrue(lo <= -3137 and 3137 <= hi, (lo, hi))
+
+    # The pitch envelope (#58) on factory tones: DCO-1 and DCO-2 ENV depth (above), the mode and
+    # DCO DYNAMICS
     def test_pitch_envelope_is_kept_for_later(self):
         e = patch("T O M S")                    # DCO-1 ENV 51, ENV-2 normal
-        self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (387, 0))
+        self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (1252, 0))
         self.assertEqual(e["PITCH_ENV_SOURCE"], 1)
         e = patch("BUBBLES")                    # both 127, ENV-1 inverted
-        self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (-2400, -2400))
+        self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (-3137, -3137))
         self.assertEqual(e["PITCH_ENV_SOURCE"], 2)
         self.assertEqual(patch("PIANO 3")["PITCH_ENV_VELOCITY_PCT"], 100)   # DCO DYNAMICS 96
 

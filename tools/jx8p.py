@@ -152,8 +152,8 @@ FIELDS = [
     Field("LFO_DELAY_MS", "LFO_DELAY_MS", None, None, None),
     Field("LFO_PITCH_CENTS", "LFO_PITCH_CENTS", None, None, None),
     Field("LFO_PITCH_OSC2_CENTS", None, 0, 1200, "a vibrato depth per oscillator (no issue yet)"),
-    Field("PITCH_ENV_OSC1_CENTS", None, -2400, 2400, "#58"),
-    Field("PITCH_ENV_OSC2_CENTS", None, -2400, 2400, "#58"),
+    Field("PITCH_ENV_OSC1_CENTS", "PITCH_ENV_OSC1_CENTS", None, None, None),
+    Field("PITCH_ENV_OSC2_CENTS", "PITCH_ENV_OSC2_CENTS", None, None, None),
     Field("PITCH_ENV_SOURCE", None, 0, 3, "#58"),
     Field("PITCH_ENV_VELOCITY_PCT", None, 0, 100, "#58"),
     Field("OSC_MIX_ENV_PERMILLE", "OSC_MIX_ENV", None, None, None),
@@ -392,10 +392,11 @@ def to_engine(tone):
     e["LFO_PITCH_OSC2_CENTS"] = rnd(1200 * (p[DCO2_LFO] / 127) ** 2)
     e["CHORUS_MODE"] = min(switch(p[CHORUS]), 2)
     e["AMP_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[VCA_DYNA])]
-    # waiting for the pitch envelope (#58)
+    # DCO ENV (#58), PG-8X 2.0.13: at full envelope 24.8 cents a step less 13 (0 at 0, 3137 at
+    # 127), linear in the envelope, the same on every key; each moves its own oscillator
     _, sign = env_mode(p[DCO_ENV_MODE])
-    e["PITCH_ENV_OSC1_CENTS"] = sign * rnd(2400 * (p[DCO1_ENV] / 127) ** 2)
-    e["PITCH_ENV_OSC2_CENTS"] = sign * rnd(2400 * (p[DCO2_ENV] / 127) ** 2)
+    for n, byte in ((1, DCO1_ENV), (2, DCO2_ENV)):
+        e["PITCH_ENV_OSC%d_CENTS" % n] = sign * rnd(24.8 * p[byte] - 13) if p[byte] else 0
     e["PITCH_ENV_SOURCE"] = switch(p[DCO_ENV_MODE])
     e["PITCH_ENV_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[DCO_DYNA])]
     # waiting for velocity on the mix envelope
