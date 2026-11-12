@@ -114,10 +114,10 @@ void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on);
 void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth);
 /*
  * The JX-8P's ring (SYNC 2 and X-MOD, as PG-8X 2.0.13 plays them, #105):
- * with `on`, osc2's signal becomes x2 (a - m1) + c m1 before the mix, m1
- * being osc1's sample (peak 1.0): osc2 at full amplitude modulation by an
- * inverted osc1, with a little of osc1 on top. A product, so no pitch
- * moves. docs/patches.md has a and c.
+ * with `on`, osc2's signal becomes x2 (a + b m1) + c m1 before the mix, m1
+ * being osc1's sample (peak 1.0) and b near -1: osc2 at nearly full
+ * amplitude modulation by an inverted osc1, with a little of osc1 on top.
+ * A product, so no pitch moves. docs/patches.md has a, b and c.
  */
 void fm_osc_pair_set_ring(fm_osc_pair *p, uint8_t on);
 /*

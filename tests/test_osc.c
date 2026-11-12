@@ -1410,10 +1410,11 @@ TT_TEST(ring_multiplies_osc2_by_osc1_square)
     TT_CHECK(err < 1e-4);
 }
 
-/* A saw osc1 has PG-8X's a of 1.12 (osc1's wave sets it, whatever osc2's), and c 0.235. */
+/* A saw osc1 has PG-8X's a of 1.12 (osc1's wave sets it, whatever osc2's), b -0.85 (against a
+ * clean saw: PG-8X's peaks 1.17x the ramp's) and c 0.235. */
 TT_TEST(ring_depth_follows_a_saw_osc1)
 {
-    double err = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, -1.0, 0.235, 20000);
+    double err = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, -0.85, 0.235, 20000);
     printf("    ring saw/square: largest error %.2e\n", err);
     TT_CHECK(err < 1e-4);
 }
@@ -1443,7 +1444,7 @@ TT_TEST(ring_rides_the_synced_osc2)
     double sq, saw;
     ring_sync = 1;
     sq = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, -0.83, 0.21, 20000);
-    saw = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, -1.0, 0.235, 20000);
+    saw = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, -0.85, 0.235, 20000);
     ring_sync = 0;
     printf("    synced ring: largest error square %.2e, saw %.2e\n", sq, saw);
     TT_CHECK(sq < 1e-4);

@@ -534,19 +534,20 @@ static int32_t advance(fm_osc_pair *p)
 
 /*
  * The ring's a, b and c by osc1's wave (Q8.24), from PG-8X's fit (#105),
- * osc1 measured against the clean wave (its peaks over the plateau would
- * read as a deeper b): saw 1.12 and 0.235, pulse (at 25 %) 1.66 and 0.15,
- * square 0.84, -0.83 and 0.21. Noise isn't measured: plain ring
- * modulation, 1.0, -1.0 and 0.
+ * osc1 measured against the clean wave (PG-8X's peaks over its plateau
+ * read as a deeper b at peak 1):
+ *   saw 1.12, -0.85, 0.235; pulse (fit at PG-8X's 2-3 % width) 1.66, -1.0,
+ *   0.15; square 0.84, -0.83, 0.21.
+ * Noise isn't measured: plain ring modulation, 1.0, -1.0 and 0.
  */
 static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216 };
-static const int32_t ring_b[FM_WAVE_COUNT] = { -16777216, -16777216, -13925089, -16777216 };
+static const int32_t ring_b[FM_WAVE_COUNT] = { -14260634, -16777216, -13925089, -16777216 };
 static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0 };
 
 /*
  * osc2's sample x ringed by osc1's sample m: x (a + b m) + c m, Q8.24,
  * held to +-2.0. It reaches past that only where both waves are near
- * their extremes at once (a saw osc1 at its trough: 2.12 x less 0.235);
+ * their extremes at once (a saw osc1 at its trough: 1.97 x less 0.235);
  * the pair stays inside the soft clip's untouched +-2.0, which the
  * open-filter render passes straight through.
  */
