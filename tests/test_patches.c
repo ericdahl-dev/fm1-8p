@@ -31,7 +31,7 @@ TT_TEST(patches_keep_the_fields_the_engine_lacks)
     TT_CHECK_EQ(patch_param(PATCH_PITCH_ENV_OSC1_CENTS), PATCH_NONE);
     TT_CHECK_EQ(patch_param(PATCH_AMP_GATE), PATCH_NONE);
     TT_CHECK_EQ(patch_param(PATCH_FIELD_COUNT), PATCH_NONE);
-    TT_CHECK_EQ(patch_value(&PATCHES[PATCH_SOUNDTRACK], PATCH_FILTER_ENV_SOURCE), 3);   /* ENV-1 */
+    TT_CHECK_EQ(patch_value(&PATCHES[PATCH_SOUNDTRACK], PATCH_FILTER_ENV_SOURCE), 0);   /* ENV-1 */
 }
 
 /* Soundtrack as every param's value, and what the playable module boots with, checked against values

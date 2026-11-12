@@ -207,20 +207,32 @@ class MapTest(unittest.TestCase):
         self.assertEqual((e["AMP_ATTACK_MS"], e["AMP_SUSTAIN_PERMILLE"], e["AMP_RELEASE_MS"]),
                          (1, 1000, 5))
 
-    # VCF ENV MODE picks the envelope (ENV-1 or ENV-2) and its polarity: the engine's filter
-    # envelope takes that envelope's times, the amount its sign. FILTER_ENV_SOURCE keeps the mode
-    # for #59 (0 ENV-2 inverted, 1 ENV-2, 2 ENV-1 inverted, 3 ENV-1).
+    # VCF ENV MODE picks the envelope (ENV-1 or ENV-2) and its polarity: the cutoff follows the
+    # engine envelope running it (below), the amount takes its sign.
     def test_vcf_env_mode_picks_the_filter_envelope_and_its_sign(self):
         e = patch("SOUNDTRACK")                 # ENV-1 normal; depth 60; ENV-1 127, 83, 54, 91
-        self.assertEqual(e["FILTER_ENV_SOURCE"], 3)
+        self.assertEqual(e["FILTER_ENV_SOURCE"], 0)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 75)
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
                           e["FILTER_ENV_SUSTAIN_PERMILLE"]), (32000, 1616, 425))   # attack_ms(127), the range's end; decay: tau
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
-        self.assertEqual(e["FILTER_ENV_SOURCE"], 2)
+        self.assertEqual(e["FILTER_ENV_SOURCE"], 0)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 75)
-        e = patch("PIANO 1")                    # ENV-2 normal: the amp's times
-        self.assertEqual(e["FILTER_ENV_DECAY_MS"], e["AMP_DECAY_MS"])
+        e = patch("PIANO 1")                    # ENV-2 normal, VCA on ENV-2: the amp envelope
+        self.assertEqual(e["FILTER_ENV_SOURCE"], 1)
+
+    # #59: the cutoff follows the engine envelope that runs the JX-8P one VCF ENV MODE names: the
+    # amp envelope (filter_env_source 1) for ENV-2 when the VCA follows ENV-2, else the filter
+    # envelope (0). Inverted stays the amount's sign
+    def test_vcf_env_mode_sets_the_filter_envelope_source(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["FILTER_ENV_SOURCE"].param, "FILTER_ENV_SOURCE")
+        got = {m: patch_with("SOUNDTRACK", VCF_ENV_MODE=m, VCA_MODE=127)["FILTER_ENV_SOURCE"]
+               for m in (0, 32, 64, 96)}
+        self.assertEqual(got, {0: 1, 32: 1, 64: 0, 96: 0})
+        self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=32, VCA_MODE=0)["FILTER_ENV_SOURCE"], 0)
+        self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=0, VCA_MODE=127)["FILTER_ENV_AMOUNT_CENTS"],
+                         -60 * 75)
 
     # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
     # depth to pitch linear to 572 cents (below). The engine has one vibrato depth, for both
@@ -293,13 +305,29 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch("ORGAN 2")["OSC_MIX_ENV_SOURCE"], 0)         # ENV-2, VCA on GATE
 
     # MIX ENV MODE names ENV-1 but VCF ENV MODE names ENV-2 (PIANO 1, PIANO 3, TIMBALES, WINDCHIMES,
-    # E. BASS, SOFT BRASS, CHURCHBELL): no engine envelope runs ENV-1's times (the filter one runs
-    # ENV-2's, the amp one ENV-2's or the gate), so the mix follows the filter envelope, with
-    # ENV-2's times. An approximation (docs/patches.md); exact once #59 gives the engine both.
+    # E. BASS, SOFT BRASS, CHURCHBELL): the mix follows the filter envelope, which runs ENV-1's
+    # times (#59), and the cutoff the amp envelope. E. BASS (VCA on GATE) stays an approximation.
     def test_mix_env_on_env1_while_the_filter_runs_env2_takes_the_filter_envelope(self):
         e = patch("PIANO 1")                    # MIX ENV MODE ENV-1, VCF ENV MODE ENV-2
         self.assertEqual(e["OSC_MIX_ENV_SOURCE"], 0)
         self.assertEqual(e["FILTER_ENV_SOURCE"], 1)
+
+    # After #59 the engine's envelope 1 (the filter envelope) runs ENV-1's own times, so PIANO 1's
+    # MIX ENV (ENV-1, while its VCF names ENV-2 and follows the amp envelope) gets its real
+    # envelope. Only with the VCA on GATE, where ENV-2 runs nowhere, does envelope 1 run ENV-2's
+    # times for a VCF that names it (E. BASS)
+    def test_envelope_1_runs_env1s_own_times(self):
+        def times(e):
+            return tuple(e["FILTER_ENV_%s" % k] for k in ("ATTACK_MS", "DECAY_MS", "SUSTAIN_PERMILLE",
+                                                         "RELEASE_MS"))
+        for name in ("PIANO 1", "STAB BRASS"):
+            t = next(t for t in factory() if t.name == name)
+            e = jx8p.to_engine(t)
+            self.assertEqual(times(e), jx8p.env(t.params, jx8p.ENV1), name)
+        e = patch("PIANO 1")
+        self.assertEqual((e["OSC_MIX_ENV_SOURCE"], e["FILTER_ENV_SOURCE"]), (0, 1))
+        t = next(t for t in factory() if t.name == "E. BASS")    # VCA on GATE, VCF ENV-2
+        self.assertEqual(times(jx8p.to_engine(t)), jx8p.env(t.params, jx8p.ENV2))
 
     # DCO-1 at 0: only DCO-2 sounds, so the mix is osc2 only at rest too, even when MIX ENV takes
     # DCO-2's level to 0 there (the engine has no silence in its mix)
