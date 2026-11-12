@@ -86,8 +86,8 @@ fraction w of the cycle and at -2w for the rest, so a narrow pulse would peak
 near +2.0 (a wide one near -2.0), twice the saw. A gain of 1 / (2 max(w,
 1 - w)), worked out with the width limit on events, brings every width to a
 peak of 1.0, so switching between saw, square and pulse never jumps in level.
-At 50 % the gain is 1 (the square is +-1.0). The mix is a crossfade, so two
-oscillators together peak no higher than the louder one.
+At 50 % the gain is 1 (the square is +-1.0). The mix sums the two at their
+levels, so both at full peak at 2.0, as on PG-8X's mixer.
 
 ### Filter
 
@@ -253,22 +253,23 @@ is in `engine/params.c`.
 Each voice has two oscillators. `osc1_wave` and `osc2_wave` pick 0 saw,
 1 pulse, 2 square or 3 noise; `oscN_octave` (-2 to +2) and `oscN_fine_cents`
 (-100 to +100) tune each from the played note; `oscN_pulse_width_pct` (1 to
-99) sets the pulse duty; and `osc_mix_permille` crossfades from osc1 alone (0,
-the default) to osc2 alone (1000). osc2 also has `osc2_coarse_semis` (-12 to
+99) sets the pulse duty; and `osc1_level_permille` (default 1000) and
+`osc2_level_permille` (default 0) set each one's level into their sum, 0 off. osc2 also has `osc2_coarse_semis` (-12 to
 +12 semitones, on top of its octave and fine tune) for intervals such as a
 fifth (+7) or a fourth (+5). For example:
 
 ```sh
 ./build/fm1-8p-render -s osc1_wave=1 -s osc1_pulse_width_pct=25 \
-    -s osc2_octave=1 -s osc2_fine_cents=7 -s osc_mix_permille=500 song.mid song.wav
+    -s osc2_octave=1 -s osc2_fine_cents=7 -s osc2_level_permille=500 song.mid song.wav
 ```
 
 ### Mix envelope
 
-`osc_mix_env_permille` (-1000 to +1000, default 0) lets an envelope move the
-mix: each voice's mix is `osc_mix_permille` plus that share of the envelope's
-level, clamped to 0..1000. Positive depth fades osc2 in as the envelope rises
-(a swell where the tone thickens), negative fades it out.
+`osc_mix_env_permille` (-1000 to +1000, default 0) lets an envelope move
+osc2's level: each voice's is `osc2_level_permille` plus that share of the
+envelope's level, clamped to 0..1000, as PG-8X's MIX ENV adds to DCO-2's
+level. Positive depth brings osc2 up as the envelope rises (a swell where the
+tone thickens), negative takes it down; osc1 stays at its own level.
 `osc_mix_env_source` picks the envelope: 0 the filter envelope (the default),
 1 the amp envelope. The amp envelope is read against the note's own peak, so
 a soft note gets the same depth as a hard one (velocity changes the
@@ -283,12 +284,12 @@ two seconds:
 ```
 
 The mix is worked out at the filter's control rate (every 16 samples) and
-glides there a sample at a time, so a change of depth or of `osc_mix_permille`
+glides there a sample at a time, so a change of depth or of `osc2_level_permille`
 doesn't click and the envelope doesn't step. No divide runs per sample: the
 glide's step is a division by the constant 16, once a tick, and the amp
 source's reading against the peak is one divide a tick. At depth 0 a voice
 renders exactly as with the fixed mix, on the same path; after depth goes
-back to 0 it glides to `osc_mix_permille` and returns to that path.
+back to 0 it glides to `osc2_level_permille` and returns to that path.
 
 Above 0 the voice leaves the plain path for the full one, even in a flat
 sustain (left to the speed pass, #34). With the amp source and no filter
@@ -313,11 +314,11 @@ osc2's frequency every sample, by up to +-100 % of it at 1000. That is
 frequency modulation, so it adds sidebands at osc2's frequency plus and minus
 multiples of osc1's, from a little grit to a clangorous, bell-like tone.
 osc2's polyBLEPs follow the bent pitch. Both act on osc2, so they are heard
-only when `osc_mix_permille` is above 0, and they can be used together:
+only when `osc2_level_permille` is above 0, and they can be used together:
 
 ```sh
 ./build/fm1-8p-render -s osc_sync=1 -s osc2_octave=1 -s osc2_fine_cents=-30 \
-    -s osc_xmod_permille=200 -s osc_mix_permille=1000 song.mid song.wav
+    -s osc_xmod_permille=200 -s osc1_level_permille=0 -s osc2_level_permille=1000 song.mid song.wav
 ```
 
 Cost, in fm1-emu's strict mode (the FM-1 CPU test's chord at 8 voices, worst
@@ -359,7 +360,8 @@ How it works, per sample:
   of Q8.24 >> 10 (1.0 = 16384), rounded, saturating at +-2.0. That keeps 14
   fraction bits, one fewer than the int16 output, on the wet signal only.
   The chorus takes the mix after the mix gain, which peaks at 0.5 (every
-  voice at full level with lined-up peaks, times `0.5 / voice_count`; see
+  voice's two oscillators at full with lined-up peaks, 2.0 each, times
+  `0.25 / voice_count`; see
   [voices.md](voices.md#gain-staging)), so the line has 12 dB of headroom
   over the loudest mix for the filter's resonance and never clamps today.
 - A triangle LFO (Q0.32 phase, one add per sample) sweeps two taps in opposite
@@ -397,7 +399,7 @@ chorus writes it, each voice renders its oscillators' chunk there
 which is safe because the chorus only writes it
 (`chorus_block_writes_right_without_reading_it`). With the voices' modulation sources and sums (the pitch envelope among them), their note velocities, their sync and
 cross-mod state, their filters (124 bytes each) and their mix envelope
-settings, that makes `fm_engine` about 5.5 KiB (5596 bytes on the FM-1,
+settings, that makes `fm_engine` about 5.5 KiB (5632 bytes on the FM-1,
 5792 on x86-64), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the

@@ -212,18 +212,21 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | Stage | Format | Peak |
 | --- | --- | --- |
 | Saw | Q8.24 | 1.0 (polyBLEP keeps it within +-1.0) |
-| Oscillator mix | Q8.24 | 1.0 (every waveform peaks at 1.0; the mix is a crossfade) |
+| Oscillator mix | Q8.24 | 2.0 (every waveform peaks at 1.0; the mix sums the two at their levels) |
 | Filter output | Q8.24 | 1.0 with the filter open or no resonance; with high resonance up to the soft clip's +-4.0 |
 | Voice: filter output times amp envelope | Q8.24 | as the filter output |
-| Sum of voices (`fm_engine.mix`) | Q8.24 | `voice_count` with no resonance; at most 4.0 x 8 = 32.0, which uses 6 of the 7 headroom bits |
-| Mix gain | Q1.30 | `0.5 / voice_count` = `(1 << 29) / voice_count`, rounded down |
-| Output before conversion | Q8.24 | 0.5 with no resonance; up to 2.0 with high resonance |
-| Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; a full eight-note chord measures about 0.78 |
-| Output | `int16_t` | 16384 (-6 dBFS) with no resonance; high resonance can reach full scale, where the conversion saturates |
+| Sum of voices (`fm_engine.mix`) | Q8.24 | 2 x `voice_count` with no resonance (both oscillators full); at most 4.0 x 8 = 32.0, which uses 6 of the 7 headroom bits |
+| Mix gain | Q1.30 | `0.25 / voice_count` = `(1 << 28) / voice_count`, rounded down |
+| Output before conversion | Q8.24 | 0.5 with no resonance; up to 1.0 with high resonance |
+| Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; 8 voices in phase measure -0.1 dBFS at most |
+| Output | `int16_t` | 16384 (-6 dBFS) with no resonance and the chorus off; self-oscillating resonance can reach full scale, where the conversion saturates |
 
-Each voice is scaled by `1 / voice_count`, so the worst case without
-resonance, every voice at full level with their peaks lined up, reaches
-exactly full scale before a fixed -6 dB. The filter (#7) now uses that
+Each voice is scaled by `1 / voice_count`, then a fixed -12 dB (#24): a
+voice's two oscillators at full peak at 2.0 (they sum, as on PG-8X), and the
+chorus adds up to +5.9 dB to voices in phase. The worst case short of
+self-oscillation, 8 voices in unison with no detune at velocity 127, both
+oscillators full, resonance up to 700 at any cutoff, in any chorus mode,
+peaks at -0.1 dBFS (`the_worst_case_chord_stays_below_full_scale`). The filter (#7) now uses that
 headroom: at high resonance its peak near the cutoff lifts a voice above the
 saw's level, up to the soft clip's +-4.0 in theory (4x what the mix gain
 budgets). Measured at resonance 1000, cutoff 13700 cents and highpass 3, one
@@ -284,7 +287,7 @@ amp envelopes and one for the filter envelopes, and every voice's
 envelope points at it (#19), so a setting change is written once and
 retimes only the envelopes that are running. Unison adds 49 bytes (8
 detune offsets and the 16 held keys). With the chorus (its 2 KiB delay
-line and a 256-byte right-side buffer) `fm_engine` is about 5.5 KiB (5596
+line and a 256-byte right-side buffer) `fm_engine` is about 5.5 KiB (5632
 bytes on the FM-1, 5792 on x86-64), so static storage is recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per

@@ -134,7 +134,8 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     }
     p->mod_oct[0] = p->mod_oct[1] = 0;
     p->pw_mod = 0;
-    p->mix = 0;
+    p->level[0] = FM_OSC_LEVEL_FULL;
+    p->level[1] = 0;
     p->sync = 0;
     p->sync_after = 0;
     p->sync_pend = 0;
@@ -147,12 +148,20 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->noise = seed ? seed : 0x2545F491u;
 }
 
-void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix)
+/* osc1 at full alone with nothing special: fm_osc_pair_next's fast path */
+static void update_only1(fm_osc_pair *p)
 {
-    if (mix < 0) mix = 0;
-    if (mix > FM_OSC_MIX_FULL) mix = FM_OSC_MIX_FULL;
-    p->mix = mix;
-    p->only1 = (uint8_t)(mix == 0 && !p->special);
+    p->only1 = (uint8_t)(p->level[0] == FM_OSC_LEVEL_FULL && p->level[1] == 0 &&
+                         !p->special);
+}
+
+void fm_osc_pair_set_level(fm_osc_pair *p, uint8_t which, int32_t level)
+{
+    if (which > 1) return;
+    if (level < 0) level = 0;
+    if (level > FM_OSC_LEVEL_FULL) level = FM_OSC_LEVEL_FULL;
+    p->level[which] = level;
+    update_only1(p);
 }
 
 /*
@@ -296,7 +305,7 @@ static void update_special(fm_osc_pair *p)
 {
     p->special = (uint8_t)(p->sync || p->xmod);
     p->sync_pend = 0;
-    p->only1 = (uint8_t)(p->mix == 0 && !p->special);
+    update_only1(p);
     update_derived(p);
 }
 
@@ -309,7 +318,7 @@ void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on)
 void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth)
 {
     if (depth < 0) depth = 0;
-    if (depth > FM_OSC_MIX_FULL) depth = FM_OSC_MIX_FULL;
+    if (depth > FM_OSC_LEVEL_FULL) depth = FM_OSC_LEVEL_FULL;
     p->xmod = depth;
     update_special(p);
 }
@@ -523,20 +532,26 @@ static int32_t advance(fm_osc_pair *p)
     return 0;
 }
 
+/* x times a level (Q1.30); full passes x through untouched */
+static inline int32_t gain(int32_t x, int32_t level)
+{
+    return level == FM_OSC_LEVEL_FULL ? x : (int32_t)(((int64_t)x * level) >> 30);
+}
+
 /*
  * One sample with sync or cross-mod on. Cross-mod runs osc2 this sample
  * at its increment times (1 + depth * osc1), 0..2x and capped under
  * Nyquist, so its polyBLEPs follow the bent pitch; the set increment is
- * put back after. With osc1 alone (mix 0) neither changes the sound, but
- * osc2 still moves with sync so its phase is right when the mix changes.
+ * put back after. With osc2 at level 0 neither changes the sound, but
+ * osc2 still moves with sync so its phase is right when its level changes.
  */
 static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
 {
     uint32_t inc = p->osc[1].inc;
     int32_t a = 0, b;
-    if (p->mix != FM_OSC_MIX_FULL || p->xmod)
+    if (p->level[0] || p->xmod)
         a = wave_at(p, 0);
-    if (p->mix == 0) { /* osc2 unheard: with sync, only its phase restarts */
+    if (p->level[1] == 0) { /* osc2 unheard: with sync, only its phase restarts */
         uint32_t t = p->osc[0].phase + p->osc[0].inc;
         if (p->sync && t < p->osc[0].phase)
             p->osc[1].phase = (uint32_t)((restart_x(p, t) * p->osc[1].inc) >> 16);
@@ -544,7 +559,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
             p->osc[1].phase += p->osc[1].inc;
         p->osc[0].phase = t;
         p->sync_pend = 0;
-        return a;
+        return gain(a, p->level[0]);
     }
     if (p->xmod) {
         int64_t now = (int64_t)inc + (((int64_t)p->xmod_inc * a) >> 24);
@@ -553,8 +568,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     b = osc2_at(p);
     b += advance(p);
     p->osc[1].inc = inc;
-    if (p->mix == FM_OSC_MIX_FULL) return b;
-    return a + (int32_t)(((int64_t)(b - a) * p->mix) >> 30);
+    return gain(a, p->level[0]) + gain(b, p->level[1]);
 }
 
 /* Oscillator `which`'s sample, then its phase moves on (no sync). */
@@ -577,8 +591,8 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
 }
 
 /*
- * a + (b - a) * mix: exactly a at 0 and b at full. An oscillator the mix
- * silences only advances its phase, so it costs one add. osc1 alone
+ * a * level 0 + b * level 1. An oscillator at level 0 only advances its
+ * phase, so it costs one add. osc1 alone
  * without sync or cross-mod, the most common setting, is the first test,
  * so it costs no more than before those existed.
  */
@@ -591,31 +605,29 @@ int32_t fm_osc_pair_next(fm_osc_pair *p)
     }
     if (p->special)
         return next_special(p);
-    if (p->mix == FM_OSC_MIX_FULL) {
+    if (p->level[0] == 0) {
         p->osc[0].phase += p->osc[0].inc;
-        return wave_next(p, 1);
+        return gain(wave_next(p, 1), p->level[1]);
+    }
+    if (p->level[1] == 0) {
+        p->osc[1].phase += p->osc[1].inc;
+        return gain(wave_next(p, 0), p->level[0]);
     }
     a = wave_next(p, 0);
     b = wave_next(p, 1);
-    return a + (int32_t)(((int64_t)(b - a) * p->mix) >> 30);
-}
-
-/* a + (b - a) * mix, mix Q1.30: fm_osc_pair_next's blend of the two. */
-static inline int32_t blend(int32_t a, int32_t b, int32_t mix)
-{
-    return a + (int32_t)(((int64_t)(b - a) * mix) >> 30);
+    return gain(a, p->level[0]) + gain(b, p->level[1]);
 }
 
 /*
- * Oscillator `which`'s next `n` samples (no sync), its wave chosen once:
- * into out[] when `mix` is 0, else blended into what out[] holds (osc1)
- * as fm_osc_pair_next blends, a + (b - a) * mix. Inlined into
- * fm_osc_pair_render with `mix` known to be 0 or not, so each loop is
+ * Oscillator `which`'s next `n` samples (no sync) times `level`, its wave
+ * chosen once: into out[], or with `add` added to what out[] holds (osc1),
+ * as fm_osc_pair_next sums them. Inlined into fm_osc_pair_render with
+ * `add` known and `level` often known to be full, so each loop is
  * one wave's own, the pulse's two saws inline (pulse_at stays out of
  * line for the per-sample paths, where inlining it costs 8 voices).
  */
 static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
-                            uint32_t n, int32_t mix)
+                            uint32_t n, int32_t level, int add)
 {
     fm_osc *o = &p->osc[which];
     uint32_t t = o->phase, dt = o->inc, i;
@@ -626,26 +638,26 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
         int32_t g = p->pw_gain[which];
         for (i = 0; i < n; i++, t += dt) {
             b = (int32_t)(((int64_t)(saw_at(t, dt) - saw_at(t + w, dt)) * g) >> 30);
-            out[i] = mix ? blend(out[i], b, mix) : b;
+            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
     }
     case FM_WAVE_SQUARE:
         for (i = 0; i < n; i++, t += dt) {
             b = saw_at(t, dt) - saw_at(t + 0x80000000u, dt);
-            out[i] = mix ? blend(out[i], b, mix) : b;
+            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
     case FM_WAVE_NOISE:
         for (i = 0; i < n; i++, t += dt) {
             b = noise_next(p);
-            out[i] = mix ? blend(out[i], b, mix) : b;
+            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
     default:
         for (i = 0; i < n; i++, t += dt) {
             b = saw_at(t, dt);
-            out[i] = mix ? blend(out[i], b, mix) : b;
+            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
     }
@@ -653,100 +665,38 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
 }
 
 /*
- * Samples before osc1's next wrap at its current phase, at most `left`:
- * no restart of osc2 falls in them. One divide per osc1 cycle.
- */
-static uint32_t until_wrap(const fm_osc_pair *p, uint32_t left)
-{
-    uint32_t inc0 = p->osc[0].inc, m;
-    if (inc0 == 0) return left; /* osc1 stopped: it never wraps */
-    m = ~p->osc[0].phase / inc0;
-    return m < left ? m : left;
-}
-
-/*
- * The next `n` samples with sync on and cross-mod off, as next_special
- * gives them. Sync never changes osc1, so it goes into out[] first, as in
- * a plain chunk (not at full mix, where next_special skips it). Between
- * osc1's wraps osc2 runs free, so those runs are wave_run's; the sample
- * where osc1 wraps (sync_reset's correction) and the one after it (the
- * restart's polyBLEP) take next_special's own steps. Unheard (mix 0), osc2
- * only moves its phase: by m increments, or a restart.
- */
-static void sync_run(fm_osc_pair *p, int32_t *out, uint32_t n)
-{
-    uint32_t t0 = p->osc[0].phase, inc0 = p->osc[0].inc, i = 0, m;
-    int32_t mix = p->mix == FM_OSC_MIX_FULL ? 0 : p->mix, b;
-    if (p->mix == 0) {
-        while (i < n) {
-            m = until_wrap(p, n - i);
-            p->osc[1].phase += m * p->osc[1].inc;
-            p->osc[0].phase += m * inc0;
-            i += m;
-            if (i < n) { /* osc1 wraps in this sample: osc2 restarts */
-                p->osc[0].phase += inc0;
-                p->osc[1].phase = (uint32_t)((restart_x(p, p->osc[0].phase) *
-                                              p->osc[1].inc) >> 16);
-                i++;
-            }
-        }
-        if (n) p->sync_pend = 0;
-        p->osc[0].phase = t0;
-        wave_run(p, 0, out, n, 0);
-        return;
-    }
-    if (mix) wave_run(p, 0, out, n, 0);
-    p->osc[0].phase = t0;
-    while (i < n) {
-        m = p->sync_pend ? 0 : until_wrap(p, n - i);
-        if (m) {
-            wave_run(p, 1, out + i, m, mix);
-            p->osc[0].phase += m * inc0;
-            i += m;
-            continue;
-        }
-        /* a restart's next sample, or osc1 wraps in this one */
-        b = osc2_at(p);
-        b += advance(p);
-        out[i] = mix ? blend(out[i], b, mix) : b;
-        i++;
-    }
-}
-
-/*
  * The path is chosen once for the chunk: osc1 alone, osc2 alone, both
- * blended (osc1 into out[], then osc2 blended in), sync in runs between
- * osc1's wraps, or cross-mod a sample at a time. An unheard oscillator
- * only moves its phase, by n increments at once. Two noises go a sample
- * at a time, as they share one generator and fm_osc_pair_next draws them
- * in turn.
+ * summed (osc1 into out[], then osc2 added), or sync / cross-mod a
+ * sample at a time. An unheard oscillator only moves its phase, by n
+ * increments at once. Two noises blend a sample at a time, as they share
+ * one generator and fm_osc_pair_next draws them in turn.
  */
 void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     uint32_t i;
-    int noises = p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE;
     if (p->special) {
-        if (!p->xmod && !noises) {
-            sync_run(p, out, n);
-            return;
-        }
         for (i = 0; i < n; i++) out[i] = next_special(p);
         return;
     }
     if (p->only1) {
         p->osc[1].phase += n * p->osc[1].inc;
-        wave_run(p, 0, out, n, 0);
+        wave_run(p, 0, out, n, FM_OSC_LEVEL_FULL, 0);
         return;
     }
-    if (p->mix == FM_OSC_MIX_FULL) {
+    if (p->level[0] == 0) {
         p->osc[0].phase += n * p->osc[0].inc;
-        wave_run(p, 1, out, n, 0);
+        wave_run(p, 1, out, n, p->level[1], 0);
         return;
     }
-    if (noises) {
+    if (p->level[1] == 0) {
+        p->osc[1].phase += n * p->osc[1].inc;
+        wave_run(p, 0, out, n, p->level[0], 0);
+        return;
+    }
+    if (p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE) {
         for (i = 0; i < n; i++) out[i] = fm_osc_pair_next(p);
         return;
     }
-    wave_run(p, 0, out, n, 0);
-    wave_run(p, 1, out, n, p->mix);
+    wave_run(p, 0, out, n, p->level[0], 0);
+    wave_run(p, 1, out, n, p->level[1], 1);
 }

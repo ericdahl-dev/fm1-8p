@@ -6,13 +6,23 @@
  */
 #include "../engine/fm1_8p.h"
 
-/* Sets up a held note on osc1 alone (mix fully to osc1). */
+/* Sets up a held note on osc1 alone (osc2 at level 0). */
 static void osc_init(void)
 {
     fm_engine_init(&eng, RATE, 1);
     fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+}
+
+/*
+ * The levels as a crossfade, `mix` per mille: 0 osc1 alone, 1000 osc2
+ * alone, between the two weighted to sum to full.
+ */
+static fm_status set_crossfade(fm_engine *e, int32_t mix)
+{
+    fm_engine_set_param(e, FM_PARAM_OSC1_LEVEL, 1000 - mix);
+    return fm_engine_set_param(e, FM_PARAM_OSC2_LEVEL, mix);
 }
 
 /* Mean period (in samples) of a held note, skipping the first 0.1 s. */
@@ -175,7 +185,7 @@ TT_TEST(osc2_coarse_tune_shifts_by_semitones)
     for (k = 0; k < sizeof semis / sizeof semis[0]; k++) {
         double want = RATE / (note_hz(57) * pow(2.0, semis[k] / 12.0));
         osc_init();
-        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000), FM_OK);
+        TT_CHECK_EQ(set_crossfade(&eng, 1000), FM_OK);
         TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, semis[k]), FM_OK);
         TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
     }
@@ -190,7 +200,7 @@ TT_TEST(osc2_coarse_tune_clamps_to_an_octave)
         int32_t got = asked[k] > 0 ? 12 : -12;
         double want = RATE / (note_hz(57) * pow(2.0, got / 12.0));
         osc_init();
-        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000), FM_OK);
+        TT_CHECK_EQ(set_crossfade(&eng, 1000), FM_OK);
         TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, asked[k]), FM_OK);
         TT_CHECK_EQ(fm_engine_get_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS), got);
         TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
@@ -204,13 +214,13 @@ TT_TEST(osc2_coarse_zero_matches_no_coarse)
     size_t i;
     int same = 1;
     osc_init();
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 500);
+    set_crossfade(&eng, 500);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 37);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, plain, 4096);
     osc_init();
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 500);
+    set_crossfade(&eng, 500);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 37);
@@ -232,7 +242,7 @@ TT_TEST(osc2_coarse_change_retunes_a_held_note_without_a_restart)
     static int16_t head[2 * 441];
     double want = RATE / (note_hz(57) * pow(2.0, 7 / 12.0));
     osc_init();
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000);
+    set_crossfade(&eng, 1000);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, head, 441);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
@@ -241,14 +251,95 @@ TT_TEST(osc2_coarse_change_retunes_a_held_note_without_a_restart)
     TT_CHECK_NEAR(period_from_crossings(buf, RATE, 0), want, want * 0.0006);
 }
 
+/* A held A3 (osc2 an octave up) at the given levels, the amp at half. */
+static void render_levels(int16_t *out, int32_t l1, int32_t l2)
+{
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 500);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_LEVEL, l1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, l2);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, out, 8192);
+}
+
 /*
- * The mix envelope: with depth +1000 and the filter envelope at full
- * (instant attack, full sustain), mix 0 plays osc2 alone (an octave up).
+ * Both oscillators at full level sum (as PG-8X's mixer does): the pair
+ * is osc1 alone plus osc2 alone, not a crossfade between them.
+ */
+TT_TEST(both_levels_full_sum_the_oscillators)
+{
+    static int16_t a[2 * 8192], b[2 * 8192];
+    size_t i;
+    int worst = 0;
+    render_levels(a, 1000, 0);
+    render_levels(b, 0, 1000);
+    render_levels(buf, 1000, 1000);
+    for (i = 0; i < 2 * 8192; i++) {
+        int d = abs(buf[i] - (a[i] + b[i]));
+        if (d > worst) worst = d;
+    }
+    TT_CHECK(worst <= 2); /* each render rounds once */
+}
+
+/* A level scales its oscillator linearly: osc2 at 500 is half of osc2 at full. */
+TT_TEST(a_level_scales_its_oscillator)
+{
+    static int16_t full[2 * 8192];
+    double hz = note_hz(57) * 2, ratio;
+    render_levels(full, 0, 1000);
+    render_levels(buf, 0, 500);
+    ratio = tone_amp(buf + 2 * 4096, 4096, 0, hz, RATE) /
+            tone_amp(full + 2 * 4096, 4096, 0, hz, RATE);
+    printf("    osc2 at 500 / at 1000: %.4f\n", ratio);
+    TT_CHECK_NEAR(ratio, 0.5, 0.002);
+}
+
+/* A held A3 with both levels full, set to `l` after `at` frames. */
+static void render_level_change(int16_t *out, uint32_t at, int32_t l)
+{
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 400);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 1000);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, out, at);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_LEVEL, l);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, l);
+    fm_engine_render(&eng, out + 2 * at, 4096 - at);
+}
+
+/*
+ * With no envelope routed a level change snaps, as osc_mix did. A knob step
+ * (10 per mille) on a held note is a pure gain step: from the change on,
+ * the output is 0.99 of the unchanged one sample for sample (1 % of full
+ * scale at most, about -40 dB), with no transient of its own.
+ */
+TT_TEST(a_level_step_on_a_held_note_is_a_pure_gain_step)
+{
+    static int16_t same[2 * 4096];
+    int worst = 0, i;
+    render_level_change(same, 2000, 1000);
+    render_level_change(buf, 2000, 990);
+    for (i = 0; i < 2 * 4096; i++) {
+        double want = i < 2 * 2000 ? same[i] : same[i] * 0.99;
+        int d = abs(buf[i] - (int)lround(want));
+        if (d > worst) worst = d;
+    }
+    printf("    largest error against 0.99 x unchanged: %d\n", worst);
+    TT_CHECK(worst <= 2);
+}
+
+/*
+ * The mix envelope adds to osc2's level: with depth +1000 and the filter
+ * envelope at full (instant attack, full sustain), osc2 at level 0 plays
+ * at full. With osc1 off that is osc2 alone (an octave up).
  */
 TT_TEST(mix_env_at_full_depth_plays_osc2)
 {
     double want = RATE / (note_hz(57) * 2);
     osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_LEVEL, 0);
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
@@ -276,7 +367,7 @@ TT_TEST(mix_env_back_to_zero_restores_the_fixed_mix)
 static void render_mix_env_patch(int16_t *out, int set_and_clear)
 {
     osc_init();
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 300);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 300);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3000);
@@ -335,21 +426,22 @@ TT_TEST(mix_env_negative_depth_fades_osc2_out)
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 1000);
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, -1000);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, buf, RATE + 4096);
     early = tone_amp(buf + 2 * 2205, 2048, 0, hz2, RATE);
     late = tone_amp(buf + 2 * (RATE + 1000), 2048, 0, hz2, RATE);
     printf("    osc2 with depth -1000: %.0f early, %.0f after the attack\n", early, late);
-    TT_CHECK(early > 8000);
+    TT_CHECK(early > 4000); /* -12 dB mix gain */
     TT_CHECK(late < early * 0.02);
 }
 
 /*
  * Source 1 drives the mix from the amp envelope instead: with a 1 s amp
- * attack and the filter envelope at full at once, osc2's share of the tone
- * (against osc1, both scaled by the amp envelope) grows over the attack.
+ * attack and the filter envelope at full at once, osc2's level (against
+ * osc1's, both scaled by the amp envelope) follows the attack's share of
+ * its peak, up to osc1's own level at full.
  */
 TT_TEST(mix_env_can_follow_the_amp_envelope)
 {
@@ -369,7 +461,8 @@ TT_TEST(mix_env_can_follow_the_amp_envelope)
            tone_amp(buf + 2 * 39690, 2048, 0, hz1, RATE);
     printf("    osc2 / osc1 following the amp envelope: %.2f at 0.2 s, %.2f at 0.9 s\n",
            early, late);
-    TT_CHECK(late > early * 4);
+    TT_CHECK(late > early * 2.5);
+    TT_CHECK_NEAR(late, 0.95, 0.1);
 }
 
 /* Note 57 with osc2 an octave up, the filter envelope full at once, the
@@ -380,7 +473,7 @@ static void render_mix_step(int16_t *out, int32_t mix, uint32_t at, int32_t dept
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, mix);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, out, at);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
@@ -423,7 +516,7 @@ static void render_mix_back(int16_t *out, int32_t mix, int32_t depth,
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, mix);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, out, at);
@@ -432,7 +525,7 @@ static void render_mix_back(int16_t *out, int32_t mix, int32_t depth,
 }
 
 /*
- * Depth back to 0 glides to osc_mix and stays there: read off the output
+ * Depth back to 0 glides to osc2_level and stays there: read off the output
  * against each oscillator alone, the mix holds at 0.5 for the next second
  * (a glide landing exactly on its target must not carry on past it).
  */
@@ -477,9 +570,9 @@ TT_TEST(mix_env_off_renders_as_never_set)
 }
 
 /*
- * Changing osc_mix while the mix envelope is on glides too: with depth +500
- * and the envelope full, osc_mix 500 -> 0 moves the mix from 1.0 to 0.5 at
- * most 1/16 a sample (not via a snap to bare osc_mix, 0), read off the
+ * Changing osc2_level while the mix envelope is on glides too: with depth +500
+ * and the envelope full, osc2_level 500 -> 0 moves the mix from 1.0 to 0.5 at
+ * most 1/16 a sample (not via a snap to bare osc2_level, 0), read off the
  * output as in the depth test.
  */
 TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
@@ -493,11 +586,11 @@ TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 500);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 500);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, buf, 2264);
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 0);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 0);
     fm_engine_render(&eng, buf + 2 * 2264, 4410 - 2264);
     for (i = 2264 - 64; i < 2264 + 256; i++) {
         double d = (double)b[2 * i] - a[2 * i], m;
@@ -508,7 +601,7 @@ TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
         prev = m;
         prev_i = i;
     }
-    printf("    largest mix move per sample after an osc_mix change: %.3f\n", worst);
+    printf("    largest mix move per sample after an osc2_level change: %.3f\n", worst);
     TT_CHECK(worst <= 1.0 / 16 + 0.01);
 }
 
@@ -516,12 +609,13 @@ TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
  * Following the amp envelope, the mix envelope reads its level against the
  * note's own peak: a soft note (velocity 90 at full velocity sensitivity,
  * peak about 0.5) at full sustain still gets the whole depth, so depth
- * +1000 plays osc2 alone.
+ * +1000 brings osc2 to full (alone, with osc1 off).
  */
 TT_TEST(mix_env_from_the_amp_env_ignores_velocity)
 {
     double want = RATE / (note_hz(57) * 2);
     osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_LEVEL, 0);
     fm_engine_set_param(&eng, FM_PARAM_AMP_VELOCITY, 100);
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
@@ -560,7 +654,7 @@ static void render_mix_src(int16_t *out, int32_t mix, int32_t depth, int32_t src
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 1000);
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, mix);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV_SOURCE, src);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
     fm_engine_note_on(&eng, 57, 127);
@@ -667,7 +761,7 @@ static void render_mix(int16_t *out, size_t frames, osc_setting o1,
     fm_engine_set_param(&eng, FM_PARAM_OSC2_PULSE_WIDTH_PCT, o2.width);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, o2.octave);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, o2.cents);
-    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mix), FM_OK);
+    TT_CHECK_EQ(set_crossfade(&eng, mix), FM_OK);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, out, (uint32_t)frames);
 }
@@ -690,7 +784,7 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
     int max_dev = 0, max_diff = 0;
 
     render_mix(a, MIX_FRAMES, sq, saw_up, 0);
-    TT_CHECK(peak_abs(a, 0, MIX_FRAMES) > 10000);
+    TT_CHECK(peak_abs(a, 0, MIX_FRAMES) > 5000); /* -12 dB mix gain */
     render_mix(other, MIX_FRAMES, sq, pulse_detuned, 0);
     TT_CHECK(memcmp(a, other, sizeof a) == 0);
 
@@ -821,7 +915,7 @@ TT_TEST(extreme_osc_settings_stay_bounded_and_release)
         fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, tunes[1 - t][2]);
         fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, widths[w]);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_PULSE_WIDTH_PCT, widths[1 - w]);
-        fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, mixes[m]);
+        set_crossfade(&eng, mixes[m]);
         fm_engine_note_on(&eng, notes[n], 127);
         fm_engine_render(&eng, buf, 2000);
         TT_CHECK(peak_abs(buf, 0, 2000) < 32700);
@@ -839,7 +933,7 @@ TT_TEST(pitch_bend_moves_both_oscillators)
     double want = RATE / (note_hz(57) * pow(2.0, (1200 + 200) / 1200.0));
     osc_init();
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000); /* osc2 alone */
+    set_crossfade(&eng, 1000); /* osc2 alone */
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, buf, 441);
     fm_engine_pitch_bend(&eng, 16383); /* full up: +2 (8191/8192 of it) */
@@ -898,7 +992,7 @@ TT_TEST(unison_detune_moves_both_oscillators)
     double ref = solo_amp(2, 93);
     int sign;
     init_unison(2, 100);
-    fm_engine_set_param(&poly, FM_PARAM_OSC_MIX, 1000);
+    set_crossfade(&poly, 1000);
     fm_engine_note_on(&poly, 93, 100);
     fm_engine_render(&poly, pbuf, 2205 + DFT_N);
     for (sign = -1; sign <= 1; sign += 2) {
@@ -944,7 +1038,7 @@ static void slave_init(uint32_t rate, uint8_t wave2)
     fm_engine_set_param(&eng, FM_PARAM_OSC2_WAVE, wave2);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 37);
-    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000);
+    set_crossfade(&eng, 1000);
 }
 
 /* Largest difference between the output and itself `lag` frames later (channel 0). */
@@ -1191,7 +1285,7 @@ TT_TEST(max_xmod_and_sync_stay_in_range)
         fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 12); /* 37 semitones up */
         fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, 100);
         fm_engine_set_param(&eng, FM_PARAM_OSC2_PULSE_WIDTH_PCT, 1);
-        fm_engine_set_param(&eng, FM_PARAM_OSC_MIX, 1000);
+        set_crossfade(&eng, 1000);
         fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, (int32_t)sy);
         fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 1000);
         fm_engine_note_on(&eng, notes[n], 127);
@@ -1229,19 +1323,19 @@ static int pairs_match(const fm_osc_pair *a, const fm_osc_pair *b)
             a->wave[i] != b->wave[i])
             return 0;
     return a->noise == b->noise && a->sync_pend == b->sync_pend &&
-           a->sync_after == b->sync_after && a->mix == b->mix &&
+           a->sync_after == b->sync_after && a->level[0] == b->level[0] && a->level[1] == b->level[1] &&
            a->only1 == b->only1 && a->special == b->special &&
            a->sync == b->sync;
 }
 
 /*
  * Random settings through the pair's setters: waves (noise too), widths,
- * tunings, pitch, pitch and width modulation, and a mix of 0, full or
+ * tunings, pitch, pitch and width modulation, and each level 0, full or
  * between. `special` also sets sync (1), cross-mod (2) or both (3).
  */
 static void random_pair(fm_osc_pair *p, uint32_t *seed, int special)
 {
-    static const int32_t mixes[] = {0, FM_OSC_MIX_FULL, 1 << 29, 3 << 28, 12345678};
+    static const int32_t levels[] = {0, FM_OSC_LEVEL_FULL, 1 << 29, 3 << 28, 12345678};
     int32_t pitch = (int32_t)(12 + pair_rand(seed) % 100) << 16;
     uint8_t i;
     fm_osc_pair_reset(p, pair_rand(seed) | 1u);
@@ -1253,8 +1347,8 @@ static void random_pair(fm_osc_pair *p, uint32_t *seed, int special)
     fm_osc_pair_set_pitch(p, pitch, RATE);
     if (special & 1) fm_osc_pair_set_sync(p, 1);
     if (special & 2)
-        fm_osc_pair_set_xmod(p, (int32_t)(pair_rand(seed) % (FM_OSC_MIX_FULL + 1u)));
-    fm_osc_pair_set_mix(p, mixes[pair_rand(seed) % 5]);
+        fm_osc_pair_set_xmod(p, (int32_t)(pair_rand(seed) % (FM_OSC_LEVEL_FULL + 1u)));
+    for (i = 0; i < 2; i++) fm_osc_pair_set_level(p, i, levels[pair_rand(seed) % 5]);
     if (pair_rand(seed) & 1) {
         int32_t oct1 = (int32_t)(pair_rand(seed) % 131073) - 65536;
         fm_osc_pair_set_pitch_mod(p, oct1, (pair_rand(seed) & 1) ? oct1 :
@@ -1323,12 +1417,12 @@ TT_TEST(pair_render_with_xmod_matches_next_sample_by_sample)
 /*
  * A random change between chunks, as the voice makes them at control
  * ticks: pitch modulation (now and then far enough down to stop osc1, or
- * up near Nyquist so it wraps every sample or two), width modulation, the
- * mix (0, full or between) or a new pitch.
+ * up near Nyquist so it wraps every sample or two), width modulation, one
+ * oscillator's level (0, full or between) or a new pitch.
  */
 static void random_change(fm_osc_pair *p, uint32_t *seed)
 {
-    static const int32_t mixes[] = {0, FM_OSC_MIX_FULL, 1 << 29, 3 << 28, 12345678};
+    static const int32_t levels[] = {0, FM_OSC_LEVEL_FULL, 1 << 29, 3 << 28, 12345678};
     static const int32_t octs[] = {-(32 << 16), 5 << 16, 6 << 16, 0};
     switch (pair_rand(seed) % 5) {
     case 0:
@@ -1343,7 +1437,7 @@ static void random_change(fm_osc_pair *p, uint32_t *seed)
         fm_osc_pair_set_pw_mod(p, (int32_t)(pair_rand(seed) << 8));
         break;
     case 3:
-        fm_osc_pair_set_mix(p, mixes[pair_rand(seed) % 5]);
+        fm_osc_pair_set_level(p, (uint8_t)(pair_rand(seed) & 1), levels[pair_rand(seed) % 5]);
         break;
     default:
         fm_osc_pair_set_pitch(p, (int32_t)(12 + pair_rand(seed) % 110) << 16, RATE);
@@ -1353,7 +1447,7 @@ static void random_change(fm_osc_pair *p, uint32_t *seed)
 
 /*
  * With sync on and the pair changed between chunks (pitch and width
- * modulation, the mix, the pitch, osc1 stopped or wrapping every sample
+ * modulation, the levels, the pitch, osc1 stopped or wrapping every sample
  * or two): fm_osc_pair_render gives the samples and state of
  * fm_osc_pair_next, a restart's correction pending across a change too.
  */
@@ -1385,13 +1479,17 @@ TT_TEST(synced_pair_render_matches_next_across_changes_between_chunks)
 /*
  * With sync on, osc1's wrap placed on a chunk's first sample, its last,
  * and the one just past it, landing exactly on phase 0 or one step either
- * side, for every pair of waves and mix 0, between and full: the render
+ * side, for every pair of waves and levels (each alone, both full, both
+ * between, both 0): the render
  * gives fm_osc_pair_next's samples and state, the restart's second sample
  * falling in the next chunk.
  */
 TT_TEST(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
 {
-    static const int32_t mixes[] = {0, 1 << 29, FM_OSC_MIX_FULL};
+    /* osc1's and osc2's levels: each alone, both full, both between, both 0 */
+    static const int32_t levels[][2] = {
+        {FM_OSC_LEVEL_FULL, 0}, {0, FM_OSC_LEVEL_FULL}, {FM_OSC_LEVEL_FULL, FM_OSC_LEVEL_FULL},
+        {1 << 29, 3 << 28}, {0, 0}, {1 << 29, 0}};
     static const uint32_t ns[] = {1, 2, 17, FM_MIX_FRAMES};
     static fm_osc_pair a, b;
     int32_t got[FM_MIX_FRAMES];
@@ -1399,7 +1497,7 @@ TT_TEST(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
     int bad = 0;
     for (w1 = 0; w1 < FM_WAVE_COUNT; w1++)
     for (w2 = 0; w2 < FM_WAVE_COUNT; w2++)
-    for (mx = 0; mx < 3; mx++)
+    for (mx = 0; mx < 6; mx++)
     for (k = 0; k < 4; k++)
     for (at = 0; at < 3; at++)
     for (land = 0; land < 3; land++) {
@@ -1410,7 +1508,8 @@ TT_TEST(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
         fm_osc_pair_set_tune(&a, 1, 1937, 45 << 16, RATE);
         fm_osc_pair_set_pitch(&a, 45 << 16, RATE);
         fm_osc_pair_set_sync(&a, 1);
-        fm_osc_pair_set_mix(&a, mixes[mx]);
+        fm_osc_pair_set_level(&a, 0, levels[mx][0]);
+        fm_osc_pair_set_level(&a, 1, levels[mx][1]);
         /* after sample `wrap` osc1 is at 0 (land 1), just short or past */
         a.osc[0].phase = (land - 1) - (wrap + 1) * a.osc[0].inc;
         a.osc[1].phase = 0x12345678u;
@@ -1458,6 +1557,9 @@ static void run_osc_tests(void)
     TT_RUN(pulse_width_outside_its_range_is_clamped);
     TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
     TT_RUN(octave_and_fine_tune_shift_pitch);
+    TT_RUN(both_levels_full_sum_the_oscillators);
+    TT_RUN(a_level_scales_its_oscillator);
+    TT_RUN(a_level_step_on_a_held_note_is_a_pure_gain_step);
     TT_RUN(mix_env_at_full_depth_plays_osc2);
     TT_RUN(mix_env_back_to_zero_restores_the_fixed_mix);
     TT_RUN(mix_env_zero_matches_the_fixed_mix);

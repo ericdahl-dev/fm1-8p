@@ -128,7 +128,7 @@ in [Pending slots, once they land](#pending-slots-once-they-land).
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 31 | K1 | `osc_mix_permille` | MIX | `D1 70 : 30 D2` (0..100, 1 = 10 per mille) | 1 / 5 |
+| 31 | K1 | `osc2_level_permille` | DCO-2 | 0..100 (1 = 10 per mille); `osc1_level_permille` has no knob yet | 1 / 5 |
 | 32 | K2 | `osc_sync` | SYNC | OFF, ON | 1 / 1 |
 | 33 | K3 | `osc_xmod_permille` | X-MOD | 0..100 % | 1 / 5 |
 | 34 | K4 | `osc2_coarse_semis` | COARSE | -12..+12 st | 1 / 1 |

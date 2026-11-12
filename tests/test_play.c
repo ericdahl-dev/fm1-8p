@@ -296,7 +296,7 @@ TT_TEST(play_output_gain_is_12_db_and_saturates)
     TT_CHECK_EQ(play_init(&pl_a), 0);
     /* a loud sound: wide open, full at once, every voice at full velocity */
     (void)fm_engine_set_param(&pl_a.engine, FM_PARAM_FILTER_CUTOFF_CENTS, FM_FILTER_OPEN_CENTS);
-    (void)fm_engine_set_param(&pl_a.engine, FM_PARAM_OSC_MIX, 500);
+    (void)fm_engine_set_param(&pl_a.engine, FM_PARAM_OSC2_LEVEL, 500);
     (void)fm_engine_set_param(&pl_a.engine, FM_PARAM_AMP_ATTACK_MS, 1);
     (void)fm_engine_set_param(&pl_a.engine, FM_PARAM_AMP_SUSTAIN, 1000);
     for (k = 0; k < PLAY_VOICES; k++)

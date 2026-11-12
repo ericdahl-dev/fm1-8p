@@ -411,7 +411,8 @@ TT_TEST(render_takes_osc2_coarse_from_the_command_line)
     memset(&o, 0, sizeof o);
     o.sample_rate = 44100;
     TT_CHECK_EQ(args_parse_setting("osc2_coarse_semis=-12", &o), 0);
-    TT_CHECK_EQ(args_parse_setting("osc_mix_permille=1000", &o), 0);
+    TT_CHECK_EQ(args_parse_setting("osc2_level_permille=1000", &o), 0);
+    TT_CHECK_EQ(args_parse_setting("osc1_level_permille=0", &o), 0);
     TT_CHECK_EQ(o.param_id[0], FM_PARAM_OSC2_COARSE_SEMIS);
     TT_CHECK_EQ(o.param_value[0], -12);
     write_smf("build/one-note.mid", one_note, sizeof one_note);
