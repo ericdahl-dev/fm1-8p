@@ -153,6 +153,8 @@ void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix)
     if (mix < 0) mix = 0;
     if (mix > FM_OSC_MIX_FULL) mix = FM_OSC_MIX_FULL;
     p->mix = mix;
+    /* the ring is silent with osc2 unheard: osc1 alone stays the fast path */
+    p->special = (uint8_t)(p->sync || p->xmod || (p->ring && mix));
     p->only1 = (uint8_t)(mix == 0 && !p->special);
 }
 
@@ -295,7 +297,7 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
 /* sync or cross-mod on: fm_osc_pair_next takes the slower path */
 static void update_special(fm_osc_pair *p)
 {
-    p->special = (uint8_t)(p->sync || p->xmod || p->ring);
+    p->special = (uint8_t)(p->sync || p->xmod || (p->ring && p->mix));
     p->sync_pend = 0;
     p->only1 = (uint8_t)(p->mix == 0 && !p->special);
     update_derived(p);

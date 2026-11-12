@@ -1477,6 +1477,36 @@ TT_TEST(ring_stays_within_two)
     TT_CHECK(peak <= (2 << 24));
 }
 
+/*
+ * With osc2 unheard (mix 0: 29 AGOGO BELL's X-MOD with MIX DCO-2 at 0) the
+ * ring is silent: the same samples and the same state as the ring off, the
+ * osc1-alone path included, every wave on osc1, free and synced. Once osc2
+ * is mixed in the ring sounds.
+ */
+TT_TEST(ring_is_silent_with_osc2_unheard)
+{
+    static fm_osc_pair on, off;
+    uint8_t w, sy;
+    int bad = 0, heard;
+    uint32_t i;
+    for (w = 0; w < FM_WAVE_COUNT; w++)
+    for (sy = 0; sy < 2; sy++) {
+        ring_sync = sy;
+        ring_pair(&on, w, FM_WAVE_SAW, 0, 1);
+        ring_pair(&off, w, FM_WAVE_SAW, 0, 0);
+        for (i = 0; i < 5000; i++)
+            if (fm_osc_pair_next(&on) != fm_osc_pair_next(&off)) bad++;
+        if (!pairs_match(&on, &off)) bad++;
+    }
+    ring_sync = 0;
+    fm_osc_pair_set_mix(&on, FM_OSC_MIX_FULL);
+    fm_osc_pair_set_mix(&off, FM_OSC_MIX_FULL);
+    for (i = 0, heard = 0; i < 5000; i++)
+        if (fm_osc_pair_next(&on) != fm_osc_pair_next(&off)) heard = 1;
+    TT_CHECK_EQ(bad, 0);
+    TT_CHECK(heard);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -1486,6 +1516,7 @@ static void run_osc_tests(void)
     TT_RUN(ring_with_noise_osc1_is_plain_ring_modulation);
     TT_RUN(ring_rides_the_synced_osc2);
     TT_RUN(ring_stays_within_two);
+    TT_RUN(ring_is_silent_with_osc2_unheard);
     TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
