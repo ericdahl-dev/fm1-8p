@@ -47,7 +47,7 @@ typedef enum {
     PATCH_LFO_RATE_CENTIHZ,
     PATCH_LFO_DELAY_MS,
     PATCH_LFO_PITCH_CENTS,              /* DCO-1's LFO depth: the engine's one moves both oscillators */
-    PATCH_LFO_PITCH_OSC2_CENTS,         /* waits: DCO-2's LFO depth (no issue yet) */
+    PATCH_LFO_PITCH_OSC2_CENTS,         /* DCO-2's LFO depth (LFO_PITCH_CENTS is DCO-1's) */
     PATCH_PITCH_ENV_OSC1_CENTS,         /* signed, at full envelope (#58) */
     PATCH_PITCH_ENV_OSC2_CENTS,
     PATCH_PITCH_ENV_SOURCE,             /* 0 the filter envelope, 1 the amp envelope */

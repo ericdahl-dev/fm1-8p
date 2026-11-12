@@ -223,8 +223,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["FILTER_ENV_DECAY_MS"], e["AMP_DECAY_MS"])
 
     # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
-    # depth to pitch linear to 572 cents (below). The engine has one vibrato depth, for both
-    # oscillators: DCO-1's sets it, DCO-2's waits (one per oscillator, no issue yet)
+    # depth to pitch linear to 572 cents (below), one per oscillator
     def test_lfo_shape_rate_delay_and_vibrato_depth(self):
         e = patch("SOUNDTRACK")                 # triangle, delay 78, rate 103, depths 0
         self.assertEqual((e["LFO_WAVE"], e["LFO_RATE_CENTIHZ"], e["LFO_DELAY_MS"]), (0, 585, 695))
@@ -233,7 +232,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch("ORGAN 2")["LFO_WAVE"], 2)       # 32: square
         self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 572)
         e = patch("CELLO SECT")                 # DCO-1 2 (a trace), DCO-2 34: mostly DCO-2 wobbles
-        self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (9, 86))
+        self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (9, 153))
 
     # DCO-1 LFO as PG-8X 2.0.13 plays it: linear, 4.5 cents per step (127 = 572 cents)
     def test_vibrato_depth_is_linear_as_pg8x_plays_it(self):
@@ -241,6 +240,14 @@ class MapTest(unittest.TestCase):
         self.assertEqual(depth, {0: 0, 16: 72, 64: 288, 127: 572})
         lo, hi = jx8p.engine_ranges()["LFO_PITCH_CENTS"]
         self.assertTrue(lo <= 0 and 572 <= hi, (lo, hi))
+
+    # DCO-2 LFO the same (agent2, PG-8X 2.0.13: 4.5 cents a step, 572 at 127), on osc 2 alone
+    def test_dco2_vibrato_depth_is_linear_on_osc2(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["LFO_PITCH_OSC2_CENTS"].param, "LFO_PITCH_OSC2_CENTS")
+        depth = {b: patch_with("SOUNDTRACK", DCO1_LFO=0, DCO2_LFO=b)["LFO_PITCH_OSC2_CENTS"]
+                 for b in (0, 16, 64, 127)}
+        self.assertEqual(depth, {0: 0, 16: 72, 64: 288, 127: 572})
 
     # LFO RATE as PG-8X 2.0.13 plays it: 0.537 Hz at 64, x 2.664 every 16 steps, from 32 up
     # (0.076 Hz at 32, 25.4 Hz at 127)
