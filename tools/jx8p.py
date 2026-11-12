@@ -376,8 +376,10 @@ def to_engine(tone):
     gate = 1 if p[VCA_MODE] < 64 else 0
     a, d, s, r = (1, 2, 1000, 5) if gate else env(p, ENV2)
     e.update(AMP_ATTACK_MS=a, AMP_DECAY_MS=d, AMP_SUSTAIN_PERMILLE=s, AMP_RELEASE_MS=r, AMP_GATE=gate)
+    # the engine's envelope 1 runs ENV-1's own times (#59), and the amp envelope ENV-2's; with the
+    # VCA on GATE ENV-2 runs nowhere, so envelope 1 takes it for a VCF that names it
     src, sign = env_mode(p[VCF_ENV_MODE])
-    a, d, s, r = env(p, src)
+    a, d, s, r = env(p, ENV2 if src == ENV2 and p[VCA_MODE] < 64 else ENV1)
     e.update(FILTER_ENV_ATTACK_MS=a, FILTER_ENV_DECAY_MS=d, FILTER_ENV_SUSTAIN_PERMILLE=s,
              FILTER_ENV_RELEASE_MS=r,
              FILTER_ENV_SOURCE=1 if src == ENV2 and p[VCA_MODE] >= 64 else 0,   # as MIX ENV's
