@@ -79,7 +79,7 @@ TT_TEST(patches_keep_the_fields_the_engine_lacks)
 
 /* Soundtrack as every param's value, and what the playable module boots with, checked against values
  * known apart from patch_values: tone 17 of the factory dump decoded by hand (docs/patches.md; two
- * saws an octave down, DCO-2 a little flat, a dark unresonant low pass, no HPF) and the engine's
+ * saws an octave down, DCO-2 a little flat, a dark unresonant low pass, HPF 0) and the engine's
  * documented defaults (fm1_8p.h) for the params no field sets. */
 TT_TEST(patch_values_are_the_boot_state)
 {
@@ -94,7 +94,7 @@ TT_TEST(patch_values_are_the_boot_state)
     TT_CHECK_EQ(v[FM_PARAM_OSC2_FINE_CENTS], -13);
     TT_CHECK_EQ(v[FM_PARAM_FILTER_CUTOFF_CENTS], 6400);
     TT_CHECK_EQ(v[FM_PARAM_FILTER_RESONANCE], 0);
-    TT_CHECK_EQ(v[FM_PARAM_HIGHPASS_STEP], 0);
+    TT_CHECK_EQ(v[FM_PARAM_HIGHPASS_STEP], 4);          /* HPF 0: the bass boost (#93) */
     TT_CHECK_EQ(v[FM_PARAM_BEND_RANGE], 2);             /* no field: the defaults */
     TT_CHECK_EQ(v[FM_PARAM_VOICE_MODE], FM_VOICE_MODE_POLY);
     TT_CHECK_EQ(v[FM_PARAM_UNISON_DETUNE_CENTS], 20);
