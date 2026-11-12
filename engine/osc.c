@@ -140,6 +140,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->sync_after = 0;
     p->sync_pend = 0;
     p->xmod = 0;
+    p->ring = 0;
     p->special = 0;
     p->only1 = 1;
     p->xmod_inc = 0;
@@ -161,6 +162,8 @@ void fm_osc_pair_set_level(fm_osc_pair *p, uint8_t which, int32_t level)
     if (level < 0) level = 0;
     if (level > FM_OSC_LEVEL_FULL) level = FM_OSC_LEVEL_FULL;
     p->level[which] = level;
+    /* the ring is silent with osc2 unheard: osc1 alone stays the fast path */
+    p->special = (uint8_t)(p->sync || p->xmod || (p->ring && p->level[1]));
     update_only1(p);
 }
 
@@ -303,7 +306,7 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
 /* sync or cross-mod on: fm_osc_pair_next takes the slower path */
 static void update_special(fm_osc_pair *p)
 {
-    p->special = (uint8_t)(p->sync || p->xmod);
+    p->special = (uint8_t)(p->sync || p->xmod || (p->ring && p->level[1]));
     p->sync_pend = 0;
     update_only1(p);
     update_derived(p);
@@ -312,6 +315,12 @@ static void update_special(fm_osc_pair *p)
 void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on)
 {
     p->sync = on ? 1 : 0;
+    update_special(p);
+}
+
+void fm_osc_pair_set_ring(fm_osc_pair *p, uint8_t on)
+{
+    p->ring = on ? 1 : 0;
     update_special(p);
 }
 
@@ -539,6 +548,34 @@ static inline int32_t gain(int32_t x, int32_t level)
 }
 
 /*
+ * The ring's a, b and c by osc1's wave (Q8.24), from PG-8X's fit (#105),
+ * osc1 measured against the clean wave (PG-8X's peaks over its plateau
+ * read as a deeper b at peak 1):
+ *   saw 1.12, -0.85, 0.235; pulse (fit at PG-8X's 2-3 % width) 1.66, -1.0,
+ *   0.15; square 0.84, -0.83, 0.21.
+ * Noise isn't measured: plain ring modulation, 1.0, -1.0 and 0.
+ */
+static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216 };
+static const int32_t ring_b[FM_WAVE_COUNT] = { -14260634, -16777216, -13925089, -16777216 };
+static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0 };
+
+/*
+ * osc2's sample x ringed by osc1's sample m: x (a + b m) + c m, Q8.24,
+ * held to +-2.0. It reaches past that only where both waves are near
+ * their extremes at once (a saw osc1 at its trough: 1.97 x less 0.235);
+ * the pair stays inside the soft clip's untouched +-2.0, which the
+ * open-filter render passes straight through.
+ */
+#define RING_MAX (2 << 24)
+static int32_t ring(const fm_osc_pair *p, int32_t x, int32_t m)
+{
+    uint8_t w = p->wave[0];
+    int32_t g = ring_a[w] + (int32_t)(((int64_t)ring_b[w] * m) >> 24);
+    int32_t v = (int32_t)(((int64_t)x * g + (int64_t)ring_c[w] * m) >> 24);
+    return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
+}
+
+/*
  * One sample with sync or cross-mod on. Cross-mod runs osc2 this sample
  * at its increment times (1 + depth * osc1), 0..2x and capped under
  * Nyquist, so its polyBLEPs follow the bent pitch; the set increment is
@@ -549,7 +586,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
 {
     uint32_t inc = p->osc[1].inc;
     int32_t a = 0, b;
-    if (p->level[0] || p->xmod)
+    if (p->level[0] || p->xmod || p->ring)
         a = wave_at(p, 0);
     if (p->level[1] == 0) { /* osc2 unheard: with sync, only its phase restarts */
         uint32_t t = p->osc[0].phase + p->osc[0].inc;
@@ -568,6 +605,10 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     b = osc2_at(p);
     b += advance(p);
     p->osc[1].inc = inc;
+    if (p->ring) { /* osc1 plus the ringed osc2 could reach 3.0: the pair stays in +-2.0 */
+        int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->level[1]);
+        return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
+    }
     return gain(a, p->level[0]) + gain(b, p->level[1]);
 }
 
@@ -753,7 +794,7 @@ void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
     uint32_t i;
     int noises = p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE;
     if (p->special) {
-        if (!p->xmod && !noises) {
+        if (!p->xmod && !p->ring && !noises) { /* the ring runs per sample */
             sync_run(p, out, n);
             return;
         }

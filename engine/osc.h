@@ -67,6 +67,7 @@ typedef struct {
     uint8_t recip0_sh;
     uint8_t special;   /* sync or cross-mod on */
     uint8_t only1;     /* osc1 at full, osc2 at 0, nothing special: the fast path */
+    uint8_t ring;      /* 1: osc2 times osc1, the JX-8P's SYNC 2 and X-MOD */
     int32_t sync_after; /* polyBLEP terms due on osc2's sample after a restart, Q8.24 */
 } fm_osc_pair;
 
@@ -112,6 +113,15 @@ void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on);
  * modulation, so sidebands at osc2 +- multiples of osc1). 0 is off.
  */
 void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth);
+/*
+ * The JX-8P's ring (SYNC 2 and X-MOD, as PG-8X 2.0.13 plays them, #105):
+ * with `on`, osc2's signal becomes x2 (a + b m1) + c m1 before its level,
+ * m1 being osc1's sample (peak 1.0) and b near -1: osc2 at nearly full
+ * amplitude modulation by an inverted osc1, with a little of osc1 on top.
+ * A product, so no pitch moves. The pair's sum is held to +-2.0.
+ * docs/patches.md has a, b and c.
+ */
+void fm_osc_pair_set_ring(fm_osc_pair *p, uint8_t on);
 /*
  * Pitch modulation in Q16.16 octaves (0: none), each oscillator its own
  * (`oct1`, `oct2`), on top of the pitch and tuning. Scales the increments

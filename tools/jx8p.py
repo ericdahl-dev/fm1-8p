@@ -130,7 +130,7 @@ FIELDS = [
     Field("OSC1_LEVEL_PERMILLE", "OSC1_LEVEL", None, None, None),
     Field("OSC2_LEVEL_PERMILLE", "OSC2_LEVEL", None, None, None),
     Field("OSC_SYNC", "OSC_SYNC", None, None, None),
-    Field("XMOD_AM", None, 0, 1, "cross mod as the JX-8P does it (no issue yet)"),
+    Field("XMOD_AM", "OSC_RING", None, None, None),
     Field("HIGHPASS_STEP", "HIGHPASS_STEP", None, None, None),
     Field("FILTER_CUTOFF_CENTS", "FILTER_CUTOFF_CENTS", None, None, None),
     Field("FILTER_RESONANCE_PERMILLE", "FILTER_RESONANCE", None, None, None),

@@ -105,9 +105,9 @@ class MapTest(unittest.TestCase):
         e = patch("LO STRINGS")                 # 127 and 127, MIX ENV 0
         self.assertEqual((e["OSC1_LEVEL_PERMILLE"], e["OSC2_LEVEL_PERMILLE"]), (1000, 1000))
 
-    # CROSS MOD: off, 1 (sync), 2 (sync and cross mod), 3 (cross mod). The JX-8P's cross mod is
-    # amplitude modulation, not the engine's FM (osc_xmod), so it waits in XMOD_AM.
-    def test_cross_mod_sets_sync_and_keeps_cross_mod_for_later(self):
+    # CROSS MOD: off, 1 (SYNC 1), 2 (SYNC 2: sync and the ring), 3 (X-MOD: the ring). The JX-8P's
+    # cross mod is a ring (osc_ring, #105), not the engine's FM (osc_xmod), so XMOD_AM sets osc_ring.
+    def test_cross_mod_sets_sync_and_the_ring(self):
         def xm(name):
             e = patch(name)
             return e["OSC_SYNC"], e["XMOD_AM"]
@@ -115,6 +115,8 @@ class MapTest(unittest.TestCase):
         self.assertEqual(xm("T O M S"), (1, 0))      # 32
         self.assertEqual(xm("SYNC LEAD"), (1, 1))    # 64
         self.assertEqual(xm("RES BELL"), (0, 1))     # 96
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["XMOD_AM"].param, "OSC_RING")
 
     # one step of VCF FREQ is a semitone (100 cents), from MIDI note 12 (16.4 Hz) at 0
     def test_cutoff_is_a_semitone_per_step(self):
