@@ -1237,7 +1237,8 @@ static int pairs_match(const fm_osc_pair *a, const fm_osc_pair *b)
 /*
  * Random settings through the pair's setters: waves (noise too), widths,
  * tunings, pitch, pitch and width modulation, and a mix of 0, full or
- * between. `special` also sets sync (1), cross-mod (2) or both (3).
+ * between. `special` also sets sync (1), cross-mod (2) or both (3), and
+ * the ring (4).
  */
 static void random_pair(fm_osc_pair *p, uint32_t *seed, int special)
 {
@@ -1254,6 +1255,7 @@ static void random_pair(fm_osc_pair *p, uint32_t *seed, int special)
     if (special & 1) fm_osc_pair_set_sync(p, 1);
     if (special & 2)
         fm_osc_pair_set_xmod(p, (int32_t)(pair_rand(seed) % (FM_OSC_MIX_FULL + 1u)));
+    if (special & 4) fm_osc_pair_set_ring(p, 1);
     fm_osc_pair_set_mix(p, mixes[pair_rand(seed) % 5]);
     if (pair_rand(seed) & 1) {
         int32_t oct1 = (int32_t)(pair_rand(seed) % 131073) - 65536;
@@ -1318,6 +1320,16 @@ TT_TEST(pair_render_with_xmod_matches_next_sample_by_sample)
 {
     TT_CHECK_EQ(render_vs_next(2, 91, 400), 0);
     TT_CHECK_EQ(render_vs_next(3, 93, 400), 0);
+}
+
+/*
+ * With the ring (alone, then with sync): the same samples and state as
+ * fm_osc_pair_next, osc1 ringing osc2 every sample.
+ */
+TT_TEST(pair_render_with_ring_matches_next_sample_by_sample)
+{
+    TT_CHECK_EQ(render_vs_next(4, 105, 400), 0);
+    TT_CHECK_EQ(render_vs_next(5, 1105, 400), 0);
 }
 
 /* Each oscillator takes its own pitch offset: osc 1 bent an octave up
@@ -1565,4 +1577,5 @@ static void run_osc_tests(void)
     TT_RUN(pair_render_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_sync_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_xmod_matches_next_sample_by_sample);
+    TT_RUN(pair_render_with_ring_matches_next_sample_by_sample);
 }
