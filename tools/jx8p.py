@@ -155,7 +155,7 @@ FIELDS = [
     Field("PITCH_ENV_OSC1_CENTS", "PITCH_ENV_OSC1_CENTS", None, None, None),
     Field("PITCH_ENV_OSC2_CENTS", "PITCH_ENV_OSC2_CENTS", None, None, None),
     Field("PITCH_ENV_SOURCE", "PITCH_ENV_SOURCE", None, None, None),
-    Field("PITCH_ENV_VELOCITY_PCT", None, 0, 100, "#58"),
+    Field("PITCH_ENV_DYNA", "PITCH_ENV_DYNA", None, None, None),
     Field("OSC_MIX_ENV_PERMILLE", "OSC_MIX_ENV", None, None, None),
     Field("OSC_MIX_ENV_SOURCE", "OSC_MIX_ENV_SOURCE", None, None, None),
     Field("OSC_MIX_ENV_VELOCITY_PCT", None, 0, 100, "velocity on the mix envelope (no issue yet)"),
@@ -398,7 +398,7 @@ def to_engine(tone):
     for n, byte in ((1, DCO1_ENV), (2, DCO2_ENV)):
         e["PITCH_ENV_OSC%d_CENTS" % n] = sign * rnd(24.8 * p[byte] - 13) if p[byte] else 0
     e["PITCH_ENV_SOURCE"] = 1 if src == ENV2 and p[VCA_MODE] >= 64 else 0   # as MIX ENV's
-    e["PITCH_ENV_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[DCO_DYNA])]
+    e["PITCH_ENV_DYNA"] = switch(p[DCO_DYNA])     # the engine's DYNAMICS curve (engine/dyna.c)
     # waiting for velocity on the mix envelope
     e["OSC_MIX_ENV_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[MIX_DYNA])]
     # waiting for LFO to cutoff and filter velocity (#8), envelope key follow (#60), a VCA level

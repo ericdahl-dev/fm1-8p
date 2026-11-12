@@ -291,6 +291,14 @@ class MapTest(unittest.TestCase):
         e = patch_with("SOUNDTRACK", DCO1_ENV=64, DCO_ENV_MODE=32, VCA_MODE=0)    # VCA on GATE
         self.assertEqual(e["PITCH_ENV_SOURCE"], 0)
 
+    # DCO DYNAMICS off, 1, 2, 3 -> the engine's pitch_env_dyna position, which scales the depth
+    # by the curve PG-8X shares across its DYNAMICS (engine/dyna.c)
+    def test_dco_dynamics_is_the_dyna_position(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["PITCH_ENV_DYNA"].param, "PITCH_ENV_DYNA")
+        got = {b: patch_with("SOUNDTRACK", DCO_DYNA=b)["PITCH_ENV_DYNA"] for b in (0, 32, 64, 96, 127)}
+        self.assertEqual(got, {0: 0, 32: 1, 64: 2, 96: 3, 127: 3})
+
     # The pitch envelope (#58) on factory tones: DCO-1 and DCO-2 ENV depth (above), the mode and
     # DCO DYNAMICS
     def test_pitch_envelope_is_kept_for_later(self):
@@ -300,7 +308,7 @@ class MapTest(unittest.TestCase):
         e = patch("BUBBLES")                    # both 127, ENV-1 inverted
         self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (-3137, -3137))
         self.assertEqual(e["PITCH_ENV_SOURCE"], 0)
-        self.assertEqual(patch("PIANO 3")["PITCH_ENV_VELOCITY_PCT"], 100)   # DCO DYNAMICS 96
+        self.assertEqual(patch("PIANO 3")["PITCH_ENV_DYNA"], 3)             # DCO DYNAMICS 96
 
     # MIX ENV (#33): the envelope scales DCO-2's level by its depth (est.), so osc_mix is the mix
     # with the envelope at rest and osc_mix_env the change at its peak. Inverted: the other way. It
