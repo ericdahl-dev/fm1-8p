@@ -1396,3 +1396,53 @@ static void run_osc_tests(void)
     TT_RUN(pair_render_with_sync_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_xmod_matches_next_sample_by_sample);
 }
+
+/*
+ * The JX-8P's ring (#105): osc2 times osc1, as PG-8X 2.0.13 plays SYNC 2
+ * and X-MOD. A pair with osc2 a fifth and 37 cents up, osc2 heard alone,
+ * rendered three ways in step: osc1 alone (m1, peak 1), osc2 alone (x2)
+ * and with the ring on.
+ */
+#define RING_ONE 16777216.0 /* 1.0 in Q8.24 */
+static void ring_pair(fm_osc_pair *p, uint8_t w1, uint8_t w2, int32_t mix, uint8_t ring)
+{
+    int32_t pitch = 48 << 16;
+    fm_osc_pair_reset(p, 1);
+    fm_osc_pair_set_wave(p, 0, w1);
+    fm_osc_pair_set_wave(p, 1, w2);
+    fm_osc_pair_set_width(p, 0, 25);
+    fm_osc_pair_set_width(p, 1, 25);
+    fm_osc_pair_set_tune(p, 1, 737, pitch, RATE);
+    fm_osc_pair_set_pitch(p, pitch, RATE);
+    fm_osc_pair_set_mix(p, mix);
+    fm_osc_pair_set_ring(p, ring);
+}
+
+/* Largest error (in units of 1.0) of the ring against x2 (a - m1) + c m1 over n samples. */
+static double ring_law_error(uint8_t w1, uint8_t w2, double a, double c, uint32_t n)
+{
+    static fm_osc_pair x1, x2, y;
+    double worst = 0;
+    uint32_t i;
+    ring_pair(&x1, w1, w2, 0, 0);
+    ring_pair(&x2, w1, w2, FM_OSC_MIX_FULL, 0);
+    ring_pair(&y, w1, w2, FM_OSC_MIX_FULL, 1);
+    for (i = 0; i < n; i++) {
+        double m1 = fm_osc_pair_next(&x1) / RING_ONE, s2 = fm_osc_pair_next(&x2) / RING_ONE;
+        double want = s2 * (a - m1) + c * m1, got = fm_osc_pair_next(&y) / RING_ONE;
+        if (fabs(got - want) > worst) worst = fabs(got - want);
+    }
+    return worst;
+}
+
+/*
+ * Square on both: osc2 passes at 0.84 - m1 (1.84x while osc1 is low,
+ * -0.16x while it is high) with 0.21 of osc1 on top, the fit of PG-8X's
+ * X-MOD (b = -1, the ring at full depth).
+ */
+TT_TEST(ring_multiplies_osc2_by_osc1_square)
+{
+    double err = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, 0.21, 20000);
+    printf("    ring square/square: largest error %.2e\n", err);
+    TT_CHECK(err < 1e-4);
+}

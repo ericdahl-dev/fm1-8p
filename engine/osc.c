@@ -139,6 +139,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->sync_after = 0;
     p->sync_pend = 0;
     p->xmod = 0;
+    p->ring = 0;
     p->special = 0;
     p->only1 = 1;
     p->xmod_inc = 0;
@@ -294,7 +295,7 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
 /* sync or cross-mod on: fm_osc_pair_next takes the slower path */
 static void update_special(fm_osc_pair *p)
 {
-    p->special = (uint8_t)(p->sync || p->xmod);
+    p->special = (uint8_t)(p->sync || p->xmod || p->ring);
     p->sync_pend = 0;
     p->only1 = (uint8_t)(p->mix == 0 && !p->special);
     update_derived(p);
@@ -303,6 +304,12 @@ static void update_special(fm_osc_pair *p)
 void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on)
 {
     p->sync = on ? 1 : 0;
+    update_special(p);
+}
+
+void fm_osc_pair_set_ring(fm_osc_pair *p, uint8_t on)
+{
+    p->ring = on ? 1 : 0;
     update_special(p);
 }
 
@@ -523,6 +530,16 @@ static int32_t advance(fm_osc_pair *p)
     return 0;
 }
 
+/* The ring's a and c (Q8.24): PG-8X's fit for a square osc1. */
+#define RING_A 14092861 /* 0.84 */
+#define RING_C 3523215  /* 0.21 */
+
+/* osc2's sample b ringed by osc1's sample m: b (a - m) + c m, Q8.24. */
+static int32_t ring(int32_t b, int32_t m)
+{
+    return (int32_t)(((int64_t)b * (RING_A - m) + (int64_t)RING_C * m) >> 24);
+}
+
 /*
  * One sample with sync or cross-mod on. Cross-mod runs osc2 this sample
  * at its increment times (1 + depth * osc1), 0..2x and capped under
@@ -534,7 +551,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
 {
     uint32_t inc = p->osc[1].inc;
     int32_t a = 0, b;
-    if (p->mix != FM_OSC_MIX_FULL || p->xmod)
+    if (p->mix != FM_OSC_MIX_FULL || p->xmod || p->ring)
         a = wave_at(p, 0);
     if (p->mix == 0) { /* osc2 unheard: with sync, only its phase restarts */
         uint32_t t = p->osc[0].phase + p->osc[0].inc;
@@ -553,6 +570,8 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     b = osc2_at(p);
     b += advance(p);
     p->osc[1].inc = inc;
+    if (p->ring)
+        b = ring(b, a);
     if (p->mix == FM_OSC_MIX_FULL) return b;
     return a + (int32_t)(((int64_t)(b - a) * p->mix) >> 30);
 }
