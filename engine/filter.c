@@ -238,6 +238,9 @@ static int32_t soft_clip(int32_t u)
  *   largest feedback still drives the soft clip past its saturation (6.0)
  *   with the same sign, as the unclamped one does. With the highpass off
  *   the input is clamped the same way.
+ * - The bass boost (step 4) is at most 2.28 times the larger of the input
+ *   and that state: within +-73.0 while both are within +-32.0, so it
+ *   takes the same two paths with the same clamp.
  * Only the products need 64 bits, and each is one 32x32->64 multiply.
  */
 #define IN_MAX ((1 << 29) - 1)
@@ -316,7 +319,8 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
     } else { /* louder than any oscillator: the same in 64 bits */
         int64_t d;
         f->hp += (int32_t)((((int64_t)in - f->hp) * f->hp_g) >> 30);
-        d = (int64_t)in - f->hp;
+        d = f->hp_lo ? (int64_t)in + (((int64_t)in * BOOST_HI) >> 30) + (((int64_t)f->hp * f->hp_lo) >> 30)
+                     : (int64_t)in - f->hp;
         x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
     }
     u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));

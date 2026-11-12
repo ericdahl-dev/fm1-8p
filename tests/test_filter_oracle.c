@@ -240,6 +240,40 @@ TT_TEST(input_beyond_32_matches_the_reference_exactly)
     TT_CHECK_EQ(differ, 0);
 }
 
+/* Highpass step 4, the bass boost, is held to the reference bit for bit like the highpass: on a
+ * chord of saws and on inputs far beyond any oscillator (a +-31.9 square, and a sine on a DC
+ * offset of 40, 100 and -127, the top of Q8.24), with the lowpass open and at a resonant 9000
+ * cents. It is never the wire: fm_filter_run takes the whole filter. */
+TT_TEST(bass_boost_matches_the_reference_exactly)
+{
+    static const int32_t dcs[] = { 0, 0, 40, 100, -127 };
+    static fm_filter f;
+    static fm_filter o;
+    int32_t rate = fm_filter_rate_cents(ORACLE_RATE);
+    size_t c, d, i, differ = 0;
+    for (d = 0; d < sizeof dcs / sizeof dcs[0]; d++)
+        for (c = 0; c < 2; c++) {
+            fm_filter_reset(&f);
+            fm_filter_reset(&o);
+            fm_filter_set_resonance(&f, c ? 900 : 0);
+            fm_filter_set_resonance(&o, c ? 900 : 0);
+            fm_filter_set_highpass(&f, 4, rate);
+            fm_filter_set_highpass(&o, 4, rate);
+            fm_filter_set_cutoff(&f, c ? 9000 : FM_FILTER_OPEN_CENTS, rate);
+            fm_filter_set_cutoff(&o, c ? 9000 : FM_FILTER_OPEN_CENTS, rate);
+            TT_CHECK(!fm_filter_is_wire(&f));
+            for (i = 0; i < ORACLE_RATE; i++) {
+                int32_t x = d == 0   ? oracle_input(i)
+                            : d == 1 ? ((i / 50) % 2 ? (int32_t)(31.9 * 16777216.0) : -(int32_t)(31.9 * 16777216.0))
+                                     : (int32_t)lround(16777216.0 * (dcs[d] + 0.5 * sin(6.283185307179586 * 440.0 * (double)i / ORACLE_RATE)));
+                differ += fm_filter_run(&f, x) != oracle_filter_process(&o, x);
+            }
+        }
+    printf("    bass boost: %lu of %lu samples differ from the reference\n", (unsigned long)differ,
+           (unsigned long)(10 * ORACLE_RATE));
+    TT_CHECK_EQ(differ, 0);
+}
+
 /* Any int32 input, even the extremes, gives a bounded output: no overflow, whatever the setting. */
 TT_TEST(extreme_input_stays_bounded)
 {
@@ -262,6 +296,7 @@ static void run_filter_oracle_tests(void)
 {
     TT_RUN(loud_input_matches_the_reference_exactly);
     TT_RUN(input_beyond_32_matches_the_reference_exactly);
+    TT_RUN(bass_boost_matches_the_reference_exactly);
     TT_RUN(extreme_input_stays_bounded);
     TT_RUN(full_resonance_8_voice_chord_stays_bounded);
     TT_RUN(self_oscillation_pitch_matches_the_reference);
