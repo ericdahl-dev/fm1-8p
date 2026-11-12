@@ -794,7 +794,7 @@ void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
     uint32_t i;
     int noises = p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE;
     if (p->special) {
-        if (!p->xmod && !noises) {
+        if (!p->xmod && !p->ring && !noises) { /* the ring runs per sample */
             sync_run(p, out, n);
             return;
         }
