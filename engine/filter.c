@@ -264,7 +264,6 @@ static int32_t clamp_in(int32_t x)
  * points within 0.1 dB. The gain at DC is 2.28 (+7.2 dB). The 1.26 is the
  * input plus BOOST_HI of it.
  */
-#define FM_FILTER_HIGHPASS_BOOST 4
 #define BOOST_HI 279172874  /* 0.26, Q1.30 */
 #define BOOST_LO 1095216660 /* 1.02, Q1.30 */
 

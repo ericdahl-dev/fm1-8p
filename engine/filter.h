@@ -62,6 +62,7 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille);
  * then one-pole (6 dB/octave) corners at about 100, 240 and 560 Hz. 4 is
  * not a highpass but the JX-8P's HPF position 0, a bass boost (filter.c). */
 #define FM_FILTER_HIGHPASS_STEPS 5
+#define FM_FILTER_HIGHPASS_BOOST 4
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents);
 
 /* Filters one Q8.24 sample: highpass, then lowpass. Any int32 input (the
