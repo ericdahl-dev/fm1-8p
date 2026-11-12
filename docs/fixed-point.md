@@ -395,10 +395,10 @@ Memory: the delay line is 2048 bytes and the whole `fm_chorus` struct about
 chorus writes it, each voice renders its oscillators' chunk there
 (`fm_voice_render_add` takes it as `osc`, `fm_osc_pair_render` fills it),
 which is safe because the chorus only writes it
-(`chorus_block_writes_right_without_reading_it`). With the voices' modulation sources and sums, their sync and
+(`chorus_block_writes_right_without_reading_it`). With the voices' modulation sources and sums (the pitch envelope among them), their note velocities, their sync and
 cross-mod state, their filters (124 bytes each) and their mix envelope
-settings, that makes `fm_engine` about 5.2 KiB (5512 bytes on the FM-1,
-5744 on x86-64), so
+settings, that makes `fm_engine` about 5.5 KiB (5592 bytes on the FM-1,
+5784 on x86-64), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 9.0 ms, so above about 113 kHz a mode's center and sweep
