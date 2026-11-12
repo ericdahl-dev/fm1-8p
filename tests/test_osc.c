@@ -1747,8 +1747,9 @@ static double ring_power(const int16_t *stereo, size_t from, size_t to)
 /*
  * osc_ring through the engine (the JX-8P's SYNC 2 and X-MOD): off by
  * default; on, a sounding note's osc2 (square, an octave and 37 cents up,
- * mixed alone) is ringed by osc1's square at once, 1.6 dB louder: the
- * square law's mean square, 0.84^2 + 0.83^2 + 0.21^2 (PG-8X: +1.7 dB).
+ * mixed alone, low enough that the output's soft clip stays out of it)
+ * is ringed by osc1's square at once, 1.6 dB louder: the square law's
+ * mean square, 0.84^2 + 0.83^2 + 0.21^2 (PG-8X: +1.7 dB).
  */
 TT_TEST(osc_ring_param_rings_sounding_notes)
 {
@@ -1761,6 +1762,7 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
     TT_CHECK_EQ(info->def, 0);
     slave_init(44100, FM_WAVE_SQUARE);
     fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SQUARE);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 125); /* under the output's soft clip, ringed too */
     fm_engine_note_on(&eng, 48, 100);
     fm_engine_render(&eng, buf, 12000);
     off = ring_power(buf, 4000, 12000);
