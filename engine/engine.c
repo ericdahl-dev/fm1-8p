@@ -746,20 +746,25 @@ static const int32_t out_clip[129] = {
 
 static int16_t to_int16(int32_t q24)
 {
-    int64_t u = (int64_t)q24 * 2, a = u < 0 ? -u : u;
+    int64_t u, a, d;
+    uint32_t k;
     int32_t s;
-    if (a > OUT_KNEE) {
-        int64_t d = a - OUT_KNEE;
-        uint32_t k = (uint32_t)(d >> OUT_CLIP_SHIFT);
-        if (k >= 128) {
-            a = OUT_KNEE + out_clip[128];
-        } else {
-            int64_t frac = d & ((1 << OUT_CLIP_SHIFT) - 1);
-            a = OUT_KNEE + out_clip[k] +
-                (((int64_t)(out_clip[k + 1] - out_clip[k]) * frac) >> OUT_CLIP_SHIFT);
-        }
-        u = u < 0 ? -a : a;
+    /* below the knee (the common case): a pure gain, one unsigned compare
+     * in 32 bits (|q24| <= knee / 2 before the makeup) */
+    if ((uint32_t)q24 + (uint32_t)(OUT_KNEE / 2) <= (uint32_t)OUT_KNEE)
+        return (int16_t)(q24 >> 8);
+    u = (int64_t)q24 * 2;
+    a = u < 0 ? -u : u;
+    d = a - OUT_KNEE;
+    k = (uint32_t)(d >> OUT_CLIP_SHIFT);
+    if (k >= 128) {
+        a = OUT_KNEE + out_clip[128];
+    } else {
+        int64_t frac = d & ((1 << OUT_CLIP_SHIFT) - 1);
+        a = OUT_KNEE + out_clip[k] +
+            (((int64_t)(out_clip[k + 1] - out_clip[k]) * frac) >> OUT_CLIP_SHIFT);
     }
+    u = u < 0 ? -a : a;
     s = (int32_t)(u >> 9);
     if (s > 32767) return 32767;
     if (s < -32768) return -32768;
