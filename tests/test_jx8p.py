@@ -208,19 +208,31 @@ class MapTest(unittest.TestCase):
                          (1, 1000, 5))
 
     # VCF ENV MODE picks the envelope (ENV-1 or ENV-2) and its polarity: the engine's filter
-    # envelope takes that envelope's times, the amount its sign. FILTER_ENV_SOURCE keeps the mode
-    # for #59 (0 ENV-2 inverted, 1 ENV-2, 2 ENV-1 inverted, 3 ENV-1).
+    # envelope takes that envelope's times, the amount its sign.
     def test_vcf_env_mode_picks_the_filter_envelope_and_its_sign(self):
         e = patch("SOUNDTRACK")                 # ENV-1 normal; depth 60; ENV-1 127, 83, 54, 91
-        self.assertEqual(e["FILTER_ENV_SOURCE"], 3)
+        self.assertEqual(e["FILTER_ENV_SOURCE"], 0)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 75)
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
                           e["FILTER_ENV_SUSTAIN_PERMILLE"]), (32000, 1616, 425))   # attack_ms(127), the range's end; decay: tau
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
-        self.assertEqual(e["FILTER_ENV_SOURCE"], 2)
+        self.assertEqual(e["FILTER_ENV_SOURCE"], 0)
         self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 75)
         e = patch("PIANO 1")                    # ENV-2 normal: the amp's times
         self.assertEqual(e["FILTER_ENV_DECAY_MS"], e["AMP_DECAY_MS"])
+
+    # #59: the cutoff follows the engine envelope that runs the JX-8P one VCF ENV MODE names: the
+    # amp envelope (filter_env_source 1) for ENV-2 when the VCA follows ENV-2, else the filter
+    # envelope (0). Inverted stays the amount's sign
+    def test_vcf_env_mode_sets_the_filter_envelope_source(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["FILTER_ENV_SOURCE"].param, "FILTER_ENV_SOURCE")
+        got = {m: patch_with("SOUNDTRACK", VCF_ENV_MODE=m, VCA_MODE=127)["FILTER_ENV_SOURCE"]
+               for m in (0, 32, 64, 96)}
+        self.assertEqual(got, {0: 1, 32: 1, 64: 0, 96: 0})
+        self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=32, VCA_MODE=0)["FILTER_ENV_SOURCE"], 0)
+        self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=0, VCA_MODE=127)["FILTER_ENV_AMOUNT_CENTS"],
+                         -60 * 75)
 
     # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
     # depth to pitch linear to 572 cents (below). The engine has one vibrato depth, for both

@@ -139,7 +139,7 @@ FIELDS = [
     Field("FILTER_ENV_DECAY_MS", "FILTER_ENV_DECAY_MS", None, None, None),
     Field("FILTER_ENV_SUSTAIN_PERMILLE", "FILTER_ENV_SUSTAIN", None, None, None),
     Field("FILTER_ENV_RELEASE_MS", "FILTER_ENV_RELEASE_MS", None, None, None),
-    Field("FILTER_ENV_SOURCE", None, 0, 3, "#59"),
+    Field("FILTER_ENV_SOURCE", "FILTER_ENV_SOURCE", None, None, None),
     Field("AMP_ATTACK_MS", "AMP_ATTACK_MS", None, None, None),
     Field("AMP_DECAY_MS", "AMP_DECAY_MS", None, None, None),
     Field("AMP_SUSTAIN_PERMILLE", "AMP_SUSTAIN", None, None, None),
@@ -379,7 +379,8 @@ def to_engine(tone):
     src, sign = env_mode(p[VCF_ENV_MODE])
     a, d, s, r = env(p, src)
     e.update(FILTER_ENV_ATTACK_MS=a, FILTER_ENV_DECAY_MS=d, FILTER_ENV_SUSTAIN_PERMILLE=s,
-             FILTER_ENV_RELEASE_MS=r, FILTER_ENV_SOURCE=switch(p[VCF_ENV_MODE]),
+             FILTER_ENV_RELEASE_MS=r,
+             FILTER_ENV_SOURCE=1 if src == ENV2 and p[VCA_MODE] >= 64 else 0,   # as MIX ENV's
              FILTER_ENV_AMOUNT_CENTS=sign * 75 * p[VCF_ENV])
     e["LFO_WAVE"] = LFO_WAVE[switch(p[LFO_WF])]
     # PG-8X 2.0.13: 0.537 Hz at 64, x 2.664 every 16 steps (25.4 Hz at 127), from 32 up. Below 32
