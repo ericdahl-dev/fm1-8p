@@ -29,7 +29,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 5548u
+#define FM_ENGINE_BUDGET_32 5552u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -298,8 +298,15 @@ static void apply_param(fm_engine *e, uint16_t id)
     }
     if (apply_env_param(e, id, v))
         return;
-    if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) /* every voice's, shared */
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV1, FM_MOD_CUTOFF, v);
+    if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS ||
+        id == FM_PARAM_FILTER_ENV_SOURCE) { /* every voice's, shared */
+        int env2 = e->params[FM_PARAM_FILTER_ENV_SOURCE] != 0;
+        int32_t amount = e->params[FM_PARAM_FILTER_ENV_AMOUNT_CENTS];
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV1, FM_MOD_CUTOFF,
+                         env2 ? 0 : amount);
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV2, FM_MOD_CUTOFF,
+                         env2 ? amount : 0);
+    }
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *vc = &e->voices[i];
         if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS)
