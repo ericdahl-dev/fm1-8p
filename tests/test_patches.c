@@ -2,6 +2,47 @@
 #include "../firmware/patches.h"
 #include "../firmware/play.h"
 
+static const patch *stab_brass(void)
+{
+    uint32_t n;
+    for (n = 0; strcmp(PATCHES[n].name, "STAB BRASS") != 0; n++)
+        ;
+    return &PATCHES[n];
+}
+
+/* STAB BRASS's DCO-2 sounds osc 2 alone, open and dry, with its pitch envelope at `osc2` cents;
+ * its pitch over 200..300 ms. */
+static double stab_brass_osc2_hz(int32_t osc2)
+{
+    int32_t v[FM_PARAM_COUNT];
+    uint32_t id;
+    patch_values(stab_brass(), v);
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    for (id = 0; id < FM_PARAM_COUNT; id++)
+        fm_engine_set_param(&mod_eng, (uint16_t)id, v[id]);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_OSC2_CENTS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_CHORUS_MODE, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_CUTOFF_CENTS, FM_FILTER_OPEN_CENTS);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, osc2);
+    fm_engine_note_on(&mod_eng, 57, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE * 3 / 10);
+    return hz_between(mod_buf, 200, 300);
+}
+
+/* Eric heard STAB BRASS out of tune: its DCO ENV names ENV-1 (51 ms attack, 42 ms decay to 27.6 %),
+ * so PG-8X's DCO-2 settles at -384 x 0.276 = -106 cents within about 100 ms. With envelope 1 on
+ * ENV-2's times (a 17.7 s decay) it sat near -384 instead. */
+TT_TEST(stab_brass_osc2_settles_to_the_sustain_within_env1s_decay)
+{
+    int32_t depth = patch_value(stab_brass(), PATCH_PITCH_ENV_OSC2_CENTS);
+    double c = cents(stab_brass_osc2_hz(depth), stab_brass_osc2_hz(0));
+    printf("    STAB BRASS osc 2 at 200..300 ms: %.1f cents (depth %d)\n", c, (int)depth);
+    TT_CHECK(fabs(c - depth * 0.276) < 12);
+}
+
 /* Every patch has a name, and the engine takes every value it has a param for as it is: in the
  * engine's range, so nothing is clamped. */
 TT_TEST(patches_fit_the_engine)
@@ -100,4 +141,5 @@ static void run_patches_tests(void)
     TT_RUN(patch_values_are_the_boot_state);
     TT_RUN(patch_values_default_what_no_field_sets);
     TT_RUN(patch_values_clamp_to_the_param_range);
+    TT_RUN(stab_brass_osc2_settles_to_the_sustain_within_env1s_decay);
 }
