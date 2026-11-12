@@ -1464,19 +1464,18 @@ static void random_change(fm_osc_pair *p, uint32_t *seed)
 }
 
 /*
- * With sync on and the pair changed between chunks (pitch and width
- * modulation, the levels, the pitch, osc1 stopped or wrapping every sample
- * or two): fm_osc_pair_render gives the samples and state of
- * fm_osc_pair_next, a restart's correction pending across a change too.
+ * Renders random chunks of random pairs (`special` as random_pair takes
+ * it) with fm_osc_pair_render and of a copy with fm_osc_pair_next, with a
+ * random change to both between chunks; returns the number of chunks where
+ * a sample or the pair's state differ.
  */
-TT_TEST(synced_pair_render_matches_next_across_changes_between_chunks)
+static int changes_vs_next(int special, uint32_t seed, int pairs)
 {
     static fm_osc_pair a, b;
     int32_t got[FM_MIX_FRAMES];
-    uint32_t seed = 4242;
     int k, chunk, bad = 0;
-    for (k = 0; k < 300; k++) {
-        random_pair(&a, &seed, 1);
+    for (k = 0; k < pairs; k++) {
+        random_pair(&a, &seed, special);
         b = a;
         for (chunk = 0; chunk < 60; chunk++) {
             uint32_t n = pair_rand(&seed) % (FM_MIX_FRAMES + 1), i;
@@ -1491,7 +1490,29 @@ TT_TEST(synced_pair_render_matches_next_across_changes_between_chunks)
             }
         }
     }
-    TT_CHECK_EQ(bad, 0);
+    return bad;
+}
+
+/*
+ * With sync on and the pair changed between chunks (pitch and width
+ * modulation, the levels, the pitch, osc1 stopped or wrapping every sample
+ * or two): fm_osc_pair_render gives the samples and state of
+ * fm_osc_pair_next, a restart's correction pending across a change too.
+ */
+TT_TEST(synced_pair_render_matches_next_across_changes_between_chunks)
+{
+    TT_CHECK_EQ(changes_vs_next(1, 4242, 300), 0);
+}
+
+/*
+ * With the ring on (alone, as X-MOD, then with sync, as SYNC 2) and the
+ * pair changed between chunks, a level to 0 or full among the changes:
+ * fm_osc_pair_render gives the samples and state of fm_osc_pair_next.
+ */
+TT_TEST(ringed_pair_render_matches_next_across_changes_between_chunks)
+{
+    TT_CHECK_EQ(changes_vs_next(4, 5151, 300), 0);
+    TT_CHECK_EQ(changes_vs_next(5, 6161, 300), 0);
 }
 
 /*
@@ -1839,5 +1860,6 @@ static void run_osc_tests(void)
     TT_RUN(pair_render_with_xmod_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_ring_matches_next_sample_by_sample);
     TT_RUN(synced_pair_render_matches_next_across_changes_between_chunks);
+    TT_RUN(ringed_pair_render_matches_next_across_changes_between_chunks);
     TT_RUN(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges);
 }

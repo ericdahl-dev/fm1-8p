@@ -783,6 +783,80 @@ static void sync_run(fm_osc_pair *p, int32_t *out, uint32_t n)
 }
 
 /*
+ * osc1's raw sample a and osc2's b as next_special sums a ring pair: osc1
+ * at its level plus the ringed osc2 at its own, held to +-2.0.
+ */
+static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b)
+{
+    int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->level[1]);
+    return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
+}
+
+/*
+ * osc2's next `n` free-running samples ringed by osc1's raw samples in
+ * out[], which become the pair's: wave_run's loops with ring_sum for the
+ * sum, osc2's wave chosen once.
+ */
+static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+{
+    fm_osc *o = &p->osc[1];
+    uint32_t t = o->phase, dt = o->inc, i;
+    switch (p->wave[1]) {
+    case FM_WAVE_PULSE: {
+        uint32_t w = p->pw[1];
+        int32_t g = p->pw_gain[1];
+        for (i = 0; i < n; i++, t += dt)
+            out[i] = ring_sum(p, out[i], (int32_t)(((int64_t)(saw_at(t, dt) -
+                                                   saw_at(t + w, dt)) * g) >> 30));
+        break;
+    }
+    case FM_WAVE_SQUARE:
+        for (i = 0; i < n; i++, t += dt)
+            out[i] = ring_sum(p, out[i], saw_at(t, dt) - saw_at(t + 0x80000000u, dt));
+        break;
+    case FM_WAVE_NOISE:
+        for (i = 0; i < n; i++, t += dt)
+            out[i] = ring_sum(p, out[i], noise_next(p));
+        break;
+    default:
+        for (i = 0; i < n; i++, t += dt)
+            out[i] = ring_sum(p, out[i], saw_at(t, dt));
+        break;
+    }
+    o->phase = t;
+}
+
+/*
+ * The next `n` samples of a ring pair with osc2 heard and cross-mod off
+ * (the JX-8P's X-MOD, and SYNC 2 with sync), as next_special gives them.
+ * osc1 goes into out[] raw, at full level whatever its own: the ring reads
+ * it there. Then osc2's free runs take ring_wave_run, the whole chunk
+ * without sync, between osc1's wraps with it; the wrap's two samples take
+ * next_special's own steps, as in sync_run.
+ */
+static void ring_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+{
+    uint32_t t0 = p->osc[0].phase, inc0 = p->osc[0].inc, i = 0, m;
+    int32_t b;
+    wave_run(p, 0, out, n, FM_OSC_LEVEL_FULL, 0);
+    p->osc[0].phase = t0;
+    while (i < n) {
+        m = p->sync_pend ? 0 : p->sync ? until_wrap(p, n - i) : n - i;
+        if (m) {
+            ring_wave_run(p, out + i, m);
+            p->osc[0].phase += m * inc0;
+            i += m;
+            continue;
+        }
+        /* a restart's next sample, or osc1 wraps in this one */
+        b = osc2_at(p);
+        b += advance(p);
+        out[i] = ring_sum(p, out[i], b);
+        i++;
+    }
+}
+
+/*
  * The path is chosen once for the chunk: osc1 alone, osc2 alone, both
  * summed (osc1 into out[], then osc2 added), sync in runs between osc1's
  * wraps, or cross-mod a sample at a time. An unheard oscillator only moves
@@ -794,9 +868,17 @@ void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
     uint32_t i;
     int noises = p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE;
     if (p->special) {
-        if (!p->xmod && !p->ring && !noises) { /* the ring runs per sample */
-            sync_run(p, out, n);
-            return;
+        if (!p->xmod && !noises) {
+            if (p->ring && p->level[1]) {
+                ring_run(p, out, n);
+                return;
+            }
+            /* the ring with osc2 unheard is silent, but next_special still
+             * draws osc1 for it: a noise osc1 at level 0 goes per sample */
+            if (!p->ring || p->level[0]) {
+                sync_run(p, out, n);
+                return;
+            }
         }
         for (i = 0; i < n; i++) out[i] = next_special(p);
         return;
