@@ -489,6 +489,37 @@ TT_TEST(block_size_does_not_change_output_as_depths_come_and_go)
     }
 }
 
+/* Only the pitch envelope live, no LFO depth: two notes on a moving
+ * envelope 1, the depths on mid-note (one on each osc) and off again. */
+static void pitch_env_on_and_off_in_blocks(int16_t *out, uint32_t block)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 2);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 150);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_DECAY_MS, 300);
+    render_in_blocks(out, 333, block);
+    fm_engine_note_on(&mod_eng, 60, 100);
+    render_in_blocks(out + 2 * 333, 2000, block);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 1200);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, -700);
+    fm_engine_note_on(&mod_eng, 64, 100);
+    render_in_blocks(out + 2 * 2333, 9000, block);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, 0);
+    render_in_blocks(out + 2 * 11333, 6000, block);
+}
+
+TT_TEST(block_size_does_not_change_pitch_env_output)
+{
+    static const uint32_t blocks[] = { 1, 31, 100, 4096 };
+    size_t b, bytes = 17333u * 4;
+    pitch_env_on_and_off_in_blocks(mod_ref, 64);
+    for (b = 0; b < 4; b++) {
+        pitch_env_on_and_off_in_blocks(mod_buf, blocks[b]);
+        TT_CHECK(memcmp(mod_ref, mod_buf, bytes) == 0);
+    }
+}
+
 /* A pulse note, its LFO routed to pulse width only at `pct` for 9000
  * frames, then back to 0: 20000 frames in blocks of `block`. */
 static void pw_only_on_and_off(int16_t *out, int32_t pct, uint32_t block)
@@ -733,5 +764,6 @@ static void run_mod_tests(void)
     TT_RUN(pitch_env_from_the_amp_envelope_ignores_velocity);
     TT_RUN(pitch_env_dynamics_scale_by_velocity);
     TT_RUN(pitch_env_adds_to_tuning_and_bend);
+    TT_RUN(block_size_does_not_change_pitch_env_output);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }
