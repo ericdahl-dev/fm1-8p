@@ -474,6 +474,8 @@ static void render_mix_step(int16_t *out, int32_t mix, uint32_t at, int32_t dept
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, mix);
+    /* held at 40 %: both oscillators stay below the output's soft-clip knee */
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 400);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, out, at);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
@@ -518,6 +520,8 @@ static void render_mix_back(int16_t *out, int32_t mix, int32_t depth,
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, mix);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
+    /* held at 40 %: both oscillators stay below the output's soft-clip knee */
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 400);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, out, at);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 0);
@@ -588,6 +592,8 @@ TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 500);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 500);
+    /* held at 40 %: both oscillators stay below the output's soft-clip knee */
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 400);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, buf, 2264);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 0);
@@ -1426,6 +1432,116 @@ TT_TEST(pair_render_with_ring_matches_next_sample_by_sample)
     TT_CHECK_EQ(render_vs_next(5, 1105, 400), 0);
 }
 
+/*
+ * A random change between chunks, as the voice makes them at control
+ * ticks: pitch modulation (now and then far enough down to stop osc1, or
+ * up near Nyquist so it wraps every sample or two), width modulation, one
+ * oscillator's level (0, full or between) or a new pitch.
+ */
+static void random_change(fm_osc_pair *p, uint32_t *seed)
+{
+    static const int32_t levels[] = {0, FM_OSC_LEVEL_FULL, 1 << 29, 3 << 28, 12345678};
+    static const int32_t octs[] = {-(32 << 16), 5 << 16, 6 << 16, 0};
+    switch (pair_rand(seed) % 5) {
+    case 0:
+        fm_osc_pair_set_pitch_mod(p, (int32_t)(pair_rand(seed) % 131073) - 65536,
+                                  (int32_t)(pair_rand(seed) % 131073) - 65536);
+        break;
+    case 1:
+        fm_osc_pair_set_pitch_mod(p, octs[pair_rand(seed) % 4],
+                                  (int32_t)(pair_rand(seed) % 131073) - 65536);
+        break;
+    case 2:
+        fm_osc_pair_set_pw_mod(p, (int32_t)(pair_rand(seed) << 8));
+        break;
+    case 3:
+        fm_osc_pair_set_level(p, (uint8_t)(pair_rand(seed) & 1), levels[pair_rand(seed) % 5]);
+        break;
+    default:
+        fm_osc_pair_set_pitch(p, (int32_t)(12 + pair_rand(seed) % 110) << 16, RATE);
+        break;
+    }
+}
+
+/*
+ * With sync on and the pair changed between chunks (pitch and width
+ * modulation, the levels, the pitch, osc1 stopped or wrapping every sample
+ * or two): fm_osc_pair_render gives the samples and state of
+ * fm_osc_pair_next, a restart's correction pending across a change too.
+ */
+TT_TEST(synced_pair_render_matches_next_across_changes_between_chunks)
+{
+    static fm_osc_pair a, b;
+    int32_t got[FM_MIX_FRAMES];
+    uint32_t seed = 4242;
+    int k, chunk, bad = 0;
+    for (k = 0; k < 300; k++) {
+        random_pair(&a, &seed, 1);
+        b = a;
+        for (chunk = 0; chunk < 60; chunk++) {
+            uint32_t n = pair_rand(&seed) % (FM_MIX_FRAMES + 1), i;
+            int same = 1;
+            fm_osc_pair_render(&a, got, n);
+            for (i = 0; i < n; i++) same &= got[i] == fm_osc_pair_next(&b);
+            if (!same || !pairs_match(&a, &b)) bad++;
+            if (pair_rand(&seed) & 1) {
+                uint32_t s2 = seed;
+                random_change(&a, &seed);
+                random_change(&b, &s2);
+            }
+        }
+    }
+    TT_CHECK_EQ(bad, 0);
+}
+
+/*
+ * With sync on, osc1's wrap placed on a chunk's first sample, its last,
+ * and the one just past it, landing exactly on phase 0 or one step either
+ * side, for every pair of waves and levels (each alone, both full, both
+ * between, both 0): the render
+ * gives fm_osc_pair_next's samples and state, the restart's second sample
+ * falling in the next chunk.
+ */
+TT_TEST(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
+{
+    /* osc1's and osc2's levels: each alone, both full, both between, both 0 */
+    static const int32_t levels[][2] = {
+        {FM_OSC_LEVEL_FULL, 0}, {0, FM_OSC_LEVEL_FULL}, {FM_OSC_LEVEL_FULL, FM_OSC_LEVEL_FULL},
+        {1 << 29, 3 << 28}, {0, 0}, {1 << 29, 0}};
+    static const uint32_t ns[] = {1, 2, 17, FM_MIX_FRAMES};
+    static fm_osc_pair a, b;
+    int32_t got[FM_MIX_FRAMES];
+    uint32_t w1, w2, mx, k, at, land, i;
+    int bad = 0;
+    for (w1 = 0; w1 < FM_WAVE_COUNT; w1++)
+    for (w2 = 0; w2 < FM_WAVE_COUNT; w2++)
+    for (mx = 0; mx < 6; mx++)
+    for (k = 0; k < 4; k++)
+    for (at = 0; at < 3; at++)
+    for (land = 0; land < 3; land++) {
+        uint32_t n = ns[k], wrap = at == 0 ? 0 : at == 1 ? n - 1 : n, c;
+        fm_osc_pair_reset(&a, 99);
+        fm_osc_pair_set_wave(&a, 0, (uint8_t)w1);
+        fm_osc_pair_set_wave(&a, 1, (uint8_t)w2);
+        fm_osc_pair_set_tune(&a, 1, 1937, 45 << 16, RATE);
+        fm_osc_pair_set_pitch(&a, 45 << 16, RATE);
+        fm_osc_pair_set_sync(&a, 1);
+        fm_osc_pair_set_level(&a, 0, levels[mx][0]);
+        fm_osc_pair_set_level(&a, 1, levels[mx][1]);
+        /* after sample `wrap` osc1 is at 0 (land 1), just short or past */
+        a.osc[0].phase = (land - 1) - (wrap + 1) * a.osc[0].inc;
+        a.osc[1].phase = 0x12345678u;
+        b = a;
+        for (c = 0; c < 3; c++) {
+            int same = 1;
+            fm_osc_pair_render(&a, got, n);
+            for (i = 0; i < n; i++) same &= got[i] == fm_osc_pair_next(&b);
+            if (!same || !pairs_match(&a, &b)) bad++;
+        }
+    }
+    TT_CHECK_EQ(bad, 0);
+}
+
 /* Each oscillator takes its own pitch offset: osc 1 bent an octave up
  * plays what a bend of both would give it, osc 2 stays at its pitch, and
  * a new pitch keeps each oscillator's offset. */
@@ -1720,4 +1836,6 @@ static void run_osc_tests(void)
     TT_RUN(pair_render_with_sync_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_xmod_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_ring_matches_next_sample_by_sample);
+    TT_RUN(synced_pair_render_matches_next_across_changes_between_chunks);
+    TT_RUN(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges);
 }

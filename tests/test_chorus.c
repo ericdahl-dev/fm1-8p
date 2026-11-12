@@ -32,9 +32,10 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
  * segment became a whole-number step with its remainder on the first sample
  * (within 1 LSB of the output at 44.1 kHz), and when the mix gain dropped
  * 6 dB for the summed oscillators and the chorus (#24: half of every sample,
- * within 2 LSB on all 32 factory tones).
+ * within 2 LSB on all 32 factory tones). The output's +6 dB makeup (#24)
+ * gave the old hash back: this phrase stays below the soft clip's knee.
  */
-#define CH_GOLDEN_HASH 0x08D16359u
+#define CH_GOLDEN_HASH 0x5C4375C1u
 
 /*
  * set_mode: set chorus_mode to `mode` before the phrase. was_on: first

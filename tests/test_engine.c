@@ -1,3 +1,4 @@
+#include <stdlib.h>
 /* Engine behavior tests, through the public interface only. */
 #include "../engine/fm1_8p.h"
 
@@ -130,10 +131,14 @@ TT_TEST(all_notes_off_controller_releases_the_note)
 
 /* Plays a short phrase, rendering in blocks of `block` frames. */
 static void render_phrase_in_blocks(int16_t *out, uint32_t frames,
-                                    uint32_t block)
+                                    uint32_t block, int loud)
 {
     uint32_t done = 0;
     fm_engine_init(&eng, RATE, 1);
+    if (loud) { /* both oscillators full and the chorus: past the output's knee */
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 1000);
+        fm_engine_set_param(&eng, FM_PARAM_CHORUS_MODE, 1);
+    }
     fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 3);
     fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 40);
     while (done < frames) {
@@ -153,11 +158,15 @@ TT_TEST(block_size_does_not_change_output)
     static int16_t whole[2 * 9000], blocked[2 * 9000];
     static const uint32_t sizes[] = { 256, 1, 255, 4096 };
     size_t k;
-    render_phrase_in_blocks(whole, 9000, 9000);
-    TT_CHECK(peak_abs(whole, 2000, 5000) > 1000);
-    for (k = 0; k < sizeof sizes / sizeof sizes[0]; k++) {
-        render_phrase_in_blocks(blocked, 9000, sizes[k]);
-        TT_CHECK(memcmp(whole, blocked, sizeof whole) == 0);
+    int loud;
+    for (loud = 0; loud <= 1; loud++) {
+        render_phrase_in_blocks(whole, 9000, 9000, loud);
+        /* the loud phrase goes past the soft clip's knee (#24) */
+        TT_CHECK(peak_abs(whole, 2000, 5000) > (loud ? 16384 : 1000));
+        for (k = 0; k < sizeof sizes / sizeof sizes[0]; k++) {
+            render_phrase_in_blocks(blocked, 9000, sizes[k], loud);
+            TT_CHECK(memcmp(whole, blocked, sizeof whole) == 0);
+        }
     }
 }
 
@@ -362,8 +371,53 @@ TT_TEST(raising_sustain_mid_decay_glides_instead_of_jumping)
     TT_CHECK_NEAR((double)eng.voices[0].amp_env.level / peak, 1.0, 0.02);
 }
 
+/* One voice at osc 1 level `osc1` and osc 2 level `osc2` (per mille),
+ * velocity 127, filter open, chorus off: its peak over 0.2..0.5 s. */
+static int saws_peak(int32_t osc1, int32_t osc2)
+{
+    fm_engine_init(&eng, RATE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_LEVEL, osc1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, osc2);
+    fm_engine_note_on(&eng, 57, 127);
+    fm_engine_render(&eng, buf, RATE / 2);
+    return peak_abs(buf, RATE / 5, RATE / 2);
+}
+
+/*
+ * Output makeup (#24): the mix gain leaves 12 dB of headroom inside the
+ * engine; +6 dB at the output brings it back. Below the soft clip's knee
+ * (-6 dBFS) it is a pure gain: this saw peaked at 5558 with the trim
+ * alone (1995429), so twice that, within the 1 LSB of rounding.
+ */
+TT_TEST(output_makeup_is_6_db_below_the_knee)
+{
+    int p = saws_peak(800, 0);
+    printf("    one saw at level 800: peak %d (%.3f of full scale)\n", p, p / 32768.0);
+    TT_CHECK(abs(p - 2 * 5558) <= 1);
+}
+
+/*
+ * Through the knee and above it, more in is more out, and never full
+ * scale: osc 1 full, osc 2 from 0 to full in steps of 100 takes one voice
+ * from below the knee (0.42 of full scale) to past it (0.85 in).
+ */
+TT_TEST(output_soft_clip_is_monotonic_and_short_of_full_scale)
+{
+    int32_t osc2;
+    int prev = 0, p = 0;
+    for (osc2 = 0; osc2 <= 1000; osc2 += 100) {
+        p = saws_peak(1000, osc2);
+        TT_CHECK(p > prev);
+        prev = p;
+    }
+    printf("    both saws full: peak %d (%.1f dBFS)\n", p, 20 * log10(p / 32768.0));
+    TT_CHECK(p > 16384 && p < 32767);
+}
+
 static void run_engine_tests(void)
 {
+    TT_RUN(output_makeup_is_6_db_below_the_knee);
+    TT_RUN(output_soft_clip_is_monotonic_and_short_of_full_scale);
     TT_RUN(note_on_plays_saw_at_note_pitch);
     TT_RUN(high_saw_note_has_low_aliasing);
     TT_RUN(amp_envelope_follows_adsr_settings);
