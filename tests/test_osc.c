@@ -433,7 +433,7 @@ TT_TEST(mix_env_negative_depth_fades_osc2_out)
     early = tone_amp(buf + 2 * 2205, 2048, 0, hz2, RATE);
     late = tone_amp(buf + 2 * (RATE + 1000), 2048, 0, hz2, RATE);
     printf("    osc2 with depth -1000: %.0f early, %.0f after the attack\n", early, late);
-    TT_CHECK(early > 8000);
+    TT_CHECK(early > 4000); /* -12 dB mix gain */
     TT_CHECK(late < early * 0.02);
 }
 
@@ -784,7 +784,7 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
     int max_dev = 0, max_diff = 0;
 
     render_mix(a, MIX_FRAMES, sq, saw_up, 0);
-    TT_CHECK(peak_abs(a, 0, MIX_FRAMES) > 10000);
+    TT_CHECK(peak_abs(a, 0, MIX_FRAMES) > 5000); /* -12 dB mix gain */
     render_mix(other, MIX_FRAMES, sq, pulse_detuned, 0);
     TT_CHECK(memcmp(a, other, sizeof a) == 0);
 

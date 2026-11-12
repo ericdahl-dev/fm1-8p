@@ -360,7 +360,8 @@ How it works, per sample:
   of Q8.24 >> 10 (1.0 = 16384), rounded, saturating at +-2.0. That keeps 14
   fraction bits, one fewer than the int16 output, on the wet signal only.
   The chorus takes the mix after the mix gain, which peaks at 0.5 (every
-  voice at full level with lined-up peaks, times `0.5 / voice_count`; see
+  voice's two oscillators at full with lined-up peaks, 2.0 each, times
+  `0.25 / voice_count`; see
   [voices.md](voices.md#gain-staging)), so the line has 12 dB of headroom
   over the loudest mix for the filter's resonance and never clamps today.
 - A triangle LFO (Q0.32 phase, one add per sample) sweeps two taps in opposite

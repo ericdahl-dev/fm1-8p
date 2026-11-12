@@ -369,8 +369,10 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         return FM_ERR_ARG;
     e->sample_rate = sample_rate;
     e->voice_count = voice_count;
-    /* each voice at 1 / voice_count, then -6 dB of headroom */
-    e->mix_gain = (int32_t)((1u << 29) / voice_count);
+    /* each voice at 1 / voice_count, then -12 dB of headroom: both
+     * oscillators at full peak at 2.0, and the chorus adds up to +5.9 dB
+     * to a chord in phase (#24, the_worst_case_chord_stays_below_full_scale) */
+    e->mix_gain = (int32_t)((1u << 28) / voice_count);
     e->stamp = 0;
     e->pedal_down = 0;
     e->bend = 0;

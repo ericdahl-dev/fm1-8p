@@ -630,7 +630,7 @@ TT_TEST(every_release_path_releases_the_filter_envelope)
     queued = brightness(fbuf_b, 8820, 13230);
     printf("    brightness held %.4f; after release: key %.4f, pedal %.4f, "
            "queued %.4f\n", held, direct, pedal, queued);
-    TT_CHECK(peak_abs(fbuf_a, 13230 + 8820, 26460) > 5000); /* amp sounds */
+    TT_CHECK(peak_abs(fbuf_a, 13230 + 8820, 26460) > 2500); /* amp sounds */
     TT_CHECK(direct < 0.5 * held);
     TT_CHECK(pedal < 0.5 * held);
     TT_CHECK(queued < 0.5 * held);
@@ -701,7 +701,7 @@ TT_TEST(cutoff_changes_apply_within_16_samples)
                         FM_FILTER_OPEN_CENTS);
     fm_engine_render(&feng, fbuf_a, 64);
     /* open (a wire) from the next update on: the full saw */
-    TT_CHECK(peak_abs(fbuf_a, 16, 64) > 10000);
+    TT_CHECK(peak_abs(fbuf_a, 16, 64) > 5000); /* -12 dB mix gain */
 }
 
 /*
@@ -773,7 +773,7 @@ TT_TEST(unison_note_change_gets_its_cutoff_from_the_first_sample)
     fm_engine_render(&feng, fbuf_a, 11);
     printf("    unison note change: largest step in 11 samples %d\n",
            max_step(fbuf_a, 0, 11));
-    TT_CHECK(max_step(fbuf_a, 0, 11) > 8000);
+    TT_CHECK(max_step(fbuf_a, 0, 11) > 4000); /* -12 dB mix gain */
 }
 
 /*
@@ -800,7 +800,7 @@ TT_TEST(mode_switch_release_keeps_the_key_tracked_cutoff)
             fm_engine_note_off(&feng, 36);
         fm_engine_render(&feng, out + 2 * 4410, 8820);
     }
-    TT_CHECK(peak_abs(fbuf_a, 4410, 8820) > 1000);
+    TT_CHECK(peak_abs(fbuf_a, 4410, 8820) > 500); /* -12 dB mix gain */
     TT_CHECK(memcmp(fbuf_a, fbuf_b, 13230 * 4) == 0);
 }
 

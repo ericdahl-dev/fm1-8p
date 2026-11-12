@@ -11,6 +11,53 @@ static void init_unison(uint8_t voices, int32_t cents)
     fm_engine_set_param(&poly, FM_PARAM_UNISON_DETUNE_CENTS, cents);
 }
 
+/* Peak of an 8-voice unison note (no detune: in phase, so the voices' peaks add) at velocity
+ * 127 with both oscillators at full, at `res` resonance, over every chorus mode and cutoffs from
+ * about 1 kHz to fully open. */
+static int worst_unison_peak(int32_t res, int *wrapped)
+{
+    static int16_t out[2 * 4410];
+    int peak = 0, mode, i;
+    int32_t cents;
+    for (mode = 0; mode < FM_CHORUS_MODE_COUNT; mode++)
+    for (cents = 8400; cents <= FM_FILTER_OPEN_CENTS; cents += 100) {
+        init_unison(8, 0);
+        fm_engine_set_param(&poly, FM_PARAM_CHORUS_MODE, mode);
+        fm_engine_set_param(&poly, FM_PARAM_OSC2_LEVEL, 1000);
+        fm_engine_set_param(&poly, FM_PARAM_FILTER_RESONANCE, res);
+        fm_engine_set_param(&poly, FM_PARAM_FILTER_CUTOFF_CENTS, cents);
+        fm_engine_note_on(&poly, 60, 127);
+        fm_engine_render(&poly, out, 4410);
+        for (i = 0; i < 2 * 4410; i++) {
+            if (abs(out[i]) > peak) peak = abs(out[i]);
+            /* a wrap shows as a jump from near one rail to near the other */
+            if (i >= 2 && abs(out[i] - out[i - 2]) > 60000) *wrapped = 1;
+        }
+    }
+    return peak;
+}
+
+/*
+ * Headroom (#24): the worst case for the sum short of self-oscillation
+ * (resonance up to 700), 8 voices in phase at velocity 127 with both
+ * oscillators full, in every chorus mode (the chorus adds up to +5.9 dB to
+ * an in-phase chord), peaks below full scale: the int16 saturation never
+ * has to act. Self-oscillation (PG-8X never self-oscillates; the filter
+ * work takes it out) can still reach the rails.
+ */
+TT_TEST(the_worst_case_chord_stays_below_full_scale)
+{
+    int wrapped = 0, peak = 0, p;
+    int32_t res;
+    for (res = 0; res <= 700; res += 350) {
+        p = worst_unison_peak(res, &wrapped);
+        if (p > peak) peak = p;
+    }
+    printf("    worst-case peak: %d (%.1f dBFS)\n", peak, 20 * log10(peak / 32768.0));
+    TT_CHECK(peak < 32767);
+    TT_CHECK(!wrapped);
+}
+
 /*
  * One note in unison sounds on every voice, and on no more than the
  * engine has: with no detune the voices start in phase, so the note is
@@ -82,7 +129,7 @@ TT_TEST(new_note_retriggers_and_release_returns_legato_to_held_note)
     fm_engine_note_on(&poly, 60, 100);
     fm_engine_render(&poly, pbuf, PRATE / 2);
     sustain = peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2);
-    TT_CHECK(sustain > 3000);
+    TT_CHECK(sustain > 1500); /* -12 dB mix gain */
 
     fm_engine_note_on(&poly, 64, 100); /* 60 still held */
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 4);
@@ -165,7 +212,7 @@ TT_TEST(unison_at_full_velocity_never_clips)
             TT_CHECK(!clipped);
             TT_CHECK(peak_abs(pbuf, 0, PRATE) <= 16384);
             if (spreads[d] == 0)
-                TT_CHECK(peak_abs(pbuf, 0, PRATE) > 16384 * 9 / 10);
+                TT_CHECK(peak_abs(pbuf, 0, PRATE) > 8192 * 9 / 10); /* -12 dB mix gain */
         }
     }
 }
@@ -227,7 +274,7 @@ TT_TEST(unison_pedal_and_all_notes_off)
     fm_engine_note_off(&poly, 60);
     fm_engine_render(&poly, pbuf, PRATE / 2);
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 4);
-    TT_CHECK(peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2) > 10000);
+    TT_CHECK(peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2) > 5000); /* -12 dB mix gain */
     fm_engine_note_on(&poly, 64, 100);
     fm_engine_note_off(&poly, 64);
     fm_engine_render(&poly, pbuf, PRATE / 2);
@@ -404,4 +451,5 @@ static void run_unison_tests(void)
     TT_RUN(random_unison_playing_stays_within_its_voices_and_bounds);
     TT_RUN(setting_mode_or_detune_leaves_a_release_alone);
     TT_RUN(unison_tails_belong_to_no_note_after_switching_to_poly);
+    TT_RUN(the_worst_case_chord_stays_below_full_scale);
 }

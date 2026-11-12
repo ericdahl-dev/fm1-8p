@@ -174,7 +174,7 @@ TT_TEST(higher_velocity_gives_louder_output)
 {
     int full = vel_peak(100, 127), prev = 0;
     uint8_t vel;
-    TT_CHECK(full > 8000);
+    TT_CHECK(full > 4000); /* -12 dB mix gain */
     /* full velocity is full level whatever the sensitivity */
     TT_CHECK_EQ(vel_peak(0, 127), full);
     TT_CHECK_EQ(vel_peak(50, 127), full);
@@ -225,7 +225,7 @@ TT_TEST(softer_retrigger_glides_down_without_a_click)
     jump = retrigger_at(20, &soft); /* same note, much softer */
     printf("    largest jump: %d LSB\n", jump);
     TT_CHECK(jump <= CLICK_LSB);
-    TT_CHECK(loud > 8000);
+    TT_CHECK(loud > 4000); /* -12 dB mix gain */
     TT_CHECK_NEAR((double)soft / loud, (20 / 127.0) * (20 / 127.0), 0.002);
 }
 
