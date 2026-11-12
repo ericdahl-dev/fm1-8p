@@ -26,7 +26,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_OSC2_PULSE_WIDTH_PCT, "osc2_pulse_width_pct", 1, 99, 50 },
     { FM_PARAM_OSC2_OCTAVE,    "osc2_octave",        -2,    2,    0 },
     { FM_PARAM_OSC2_FINE_CENTS, "osc2_fine_cents",  -100,  100,   0 },
-    { FM_PARAM_OSC_MIX,        "osc_mix_permille",    0, 1000,    0 },
+    { FM_PARAM_OSC2_LEVEL,     "osc2_level_permille", 0, 1000,    0 },
     { FM_PARAM_CHORUS_MODE,    "chorus_mode",         0, FM_CHORUS_MODE_COUNT - 1, 0 },
     { FM_PARAM_LFO_WAVE,       "lfo_wave",            0, FM_LFO_WAVE_COUNT - 1, FM_LFO_TRIANGLE },
     { FM_PARAM_LFO_RATE_CENTIHZ, "lfo_rate_centihz",  1,  3000,  500 },
@@ -58,6 +58,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_PITCH_ENV_OSC2_CENTS, "pitch_env_osc2_cents", -3200, 3200, 0 },
     { FM_PARAM_PITCH_ENV_SOURCE, "pitch_env_source", 0, 1, 0 },
     { FM_PARAM_PITCH_ENV_DYNA, "pitch_env_dyna", 0, 3, 0 },
+    { FM_PARAM_OSC1_LEVEL,     "osc1_level_permille", 0, 1000, 1000 },
     { FM_PARAM_OSC_RING,       "osc_ring",            0,     1,    0 },
 };
 

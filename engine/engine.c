@@ -29,7 +29,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 5600u
+#define FM_ENGINE_BUDGET_32 5632u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -221,7 +221,11 @@ static void apply_param(fm_engine *e, uint16_t id)
         for (i = 0; i < FM_MAX_VOICES; i++)
             fm_osc_pair_set_ring(&e->voices[i].osc, (uint8_t)v);
         return;
-    case FM_PARAM_OSC_MIX:
+    case FM_PARAM_OSC1_LEVEL:
+        for (i = 0; i < FM_MAX_VOICES; i++)
+            fm_osc_pair_set_level(&e->voices[i].osc, 0, fm_permille_to_q30(v));
+        return;
+    case FM_PARAM_OSC2_LEVEL:
         for (i = 0; i < FM_MAX_VOICES; i++) {
             fm_voice *vc = &e->voices[i];
             vc->mix_base = fm_permille_to_q30(v);
@@ -229,7 +233,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             if (!e->mod.routes.depth[FM_MOD_SRC_ENV1][FM_MOD_MIX] &&
                 !e->mod.routes.depth[FM_MOD_SRC_ENV2][FM_MOD_MIX]) {
                 vc->mix_step = 0;
-                fm_osc_pair_set_mix(&vc->osc, vc->mix_base);
+                fm_osc_pair_set_level(&vc->osc, 1, vc->mix_base);
             }
             fm_voice_mark_mix(vc, &e->mod);
         }
@@ -237,7 +241,7 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_OSC_MIX_ENV_SOURCE: /* the filter envelope is caught up when read */
     case FM_PARAM_OSC_MIX_ENV: {
         /* one route to the mix: the source's envelope at the depth; off,
-         * the mix glides back to osc_mix */
+         * osc2's level glides back to osc2_level */
         int32_t depth = fm_permille_to_q30(e->params[FM_PARAM_OSC_MIX_ENV]);
         int amp = e->params[FM_PARAM_OSC_MIX_ENV_SOURCE] != 0;
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV1, FM_MOD_MIX,
@@ -397,8 +401,10 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         return FM_ERR_ARG;
     e->sample_rate = sample_rate;
     e->voice_count = voice_count;
-    /* each voice at 1 / voice_count, then -6 dB of headroom */
-    e->mix_gain = (int32_t)((1u << 29) / voice_count);
+    /* each voice at 1 / voice_count, then -12 dB of headroom: both
+     * oscillators at full peak at 2.0, and the chorus adds up to +5.9 dB
+     * to a chord in phase (#24, the_worst_case_chord_stays_below_full_scale) */
+    e->mix_gain = (int32_t)((1u << 28) / voice_count);
     e->stamp = 0;
     e->pedal_down = 0;
     e->bend = 0;

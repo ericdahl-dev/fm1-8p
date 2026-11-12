@@ -137,7 +137,7 @@ when `pitch_env_dyna` is on, set every control tick); the destinations are each 
 from envelope 1, or envelope 2 when `filter_env_source` is 1, at
 `filter_env_amount_cents`: a negative amount is the inverted mode,
 closing the filter at full envelope) and mix (Q1.30 added to
-`osc_mix_permille`, from envelope 1 or 2 as `osc_mix_env_source` picks, at
+osc2's level, `osc2_level_permille`, from envelope 1 or 2 as `osc_mix_env_source` picks, at
 `osc_mix_env_permille`). Each voice keeps its sources as last set. A
 destination can be summed alone (`fm_mod_update`): a note start takes
 only its level again, so the vibrato carries on

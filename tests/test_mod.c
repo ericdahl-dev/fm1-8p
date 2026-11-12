@@ -74,7 +74,7 @@ static void mod_osc_setup(void)
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, 30);
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_FINE_CENTS, 7);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, 500);
 }
 
 /*
@@ -175,7 +175,7 @@ TT_TEST(higher_velocity_gives_louder_output)
 {
     int full = vel_peak(100, 127), prev = 0;
     uint8_t vel;
-    TT_CHECK(full > 8000);
+    TT_CHECK(full > 4000); /* -12 dB mix gain */
     /* full velocity is full level whatever the sensitivity */
     TT_CHECK_EQ(vel_peak(0, 127), full);
     TT_CHECK_EQ(vel_peak(50, 127), full);
@@ -226,7 +226,7 @@ TT_TEST(softer_retrigger_glides_down_without_a_click)
     jump = retrigger_at(20, &soft); /* same note, much softer */
     printf("    largest jump: %d LSB\n", jump);
     TT_CHECK(jump <= CLICK_LSB);
-    TT_CHECK(loud > 8000);
+    TT_CHECK(loud > 4000); /* -12 dB mix gain */
     TT_CHECK_NEAR((double)soft / loud, (20 / 127.0) * (20 / 127.0), 0.002);
 }
 
@@ -494,7 +494,8 @@ TT_TEST(block_size_does_not_change_output_as_depths_come_and_go)
 static void pitch_env_on_and_off_in_blocks(int16_t *out, uint32_t block)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 2);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_LEVEL, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, 500);
     fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 150);
     fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_DECAY_MS, 300);
     render_in_blocks(out, 333, block);
@@ -526,7 +527,7 @@ static void pw_only_on_and_off(int16_t *out, int32_t pct, uint32_t block)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 1);
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, 0);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 900);
     fm_engine_note_on(&mod_eng, 60, 100);
     render_in_blocks(out, 1000, block);
@@ -569,12 +570,13 @@ static double vibrato_after_late_depth(int late)
 }
 
 /* The one vibrato depth moves osc 2 as well as osc 1: with only osc 2
- * heard (osc_mix full), a 100-cent square vibrato reads +100 cents over
- * the top half of an LFO cycle. */
+ * heard (osc1 at level 0, osc2 at full), a 100-cent square vibrato reads
+ * +100 cents over the top half of an LFO cycle. */
 TT_TEST(vibrato_reaches_osc2)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 1);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_LEVEL, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, 1000);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
@@ -588,7 +590,8 @@ TT_TEST(vibrato_reaches_osc2)
 TT_TEST(osc2_vibrato_depth_zero_holds_osc2_still)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 1);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_LEVEL, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, 1000);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
@@ -599,12 +602,13 @@ TT_TEST(osc2_vibrato_depth_zero_holds_osc2_still)
 }
 
 /* A4 with the filter envelope held at full (no attack, full sustain), a
- * pitch envelope depth of `osc1` / `osc2` cents and the mix at `mix` per
- * mille (0: osc 1 heard, 1000: osc 2); the pitch in cents over 0.3..0.5 s. */
+ * pitch envelope depth of `osc1` / `osc2` cents and osc 2 at level `mix` per
+ * mille, osc 1 at the rest (0: osc 1 heard, 1000: osc 2); the pitch in cents over 0.3..0.5 s. */
 static double pitch_env_cents(int32_t osc1, int32_t osc2, int32_t mix)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 1);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_LEVEL, 1000 - (mix));
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, mix);
     fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
     fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, osc1);
@@ -704,7 +708,8 @@ TT_TEST(pitch_env_dynamics_scale_by_velocity)
 static double tuned_pitch_env_cents(int32_t mix)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 1);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_LEVEL, 1000 - (mix));
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, mix);
     fm_engine_set_param(&mod_eng, FM_PARAM_BEND_RANGE, 2);
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_OCTAVE, -1);
     fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_FINE_CENTS, 50);

@@ -165,7 +165,7 @@ TT_TEST(stolen_voice_fades_then_new_note_attacks_from_silence)
     fm_engine_note_on(&poly, 60, 100);
     fm_engine_render(&poly, pbuf, PRATE / 2); /* 60 at full level */
     full = peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2);
-    TT_CHECK(full > 10000);
+    TT_CHECK(full > 5000); /* -12 dB mix gain */
     fm_engine_note_on(&poly, 62, 100); /* steals the only voice */
     fm_engine_render(&poly, pbuf, PRATE / 2);
     /* 20 ms later: about 3 ms of fade, then 17 ms of a 200 ms attack */
@@ -205,7 +205,7 @@ TT_TEST(note_released_during_a_steal_fade_still_sounds)
     fm_engine_note_off(&poly, 62);     /* held by the pedal */
     fm_engine_render(&poly, pbuf, PRATE / 2);
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 1);
-    TT_CHECK(peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2) > 10000);
+    TT_CHECK(peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2) > 5000); /* -12 dB mix gain */
     fm_engine_controller(&poly, 64, 0);
     fm_engine_render(&poly, pbuf, PRATE / 10);
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
@@ -282,7 +282,7 @@ TT_TEST(repeated_note_reuses_its_voice)
     fm_engine_note_on(&poly, 60, 100); /* while releasing */
     fm_engine_render(&poly, pbuf, 441);
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 1);
-    TT_CHECK(peak_abs(pbuf, 220, 441) > 3000);
+    TT_CHECK(peak_abs(pbuf, 220, 441) > 1500); /* -12 dB mix gain */
 }
 
 TT_TEST(sustain_pedal_holds_released_notes_until_it_comes_up)
@@ -367,7 +367,7 @@ TT_TEST(full_chord_at_max_velocity_never_clips)
         TT_CHECK(!clipped);
         /* headroom left for filter resonance and chorus: -6 dBFS */
         TT_CHECK(peak_abs(pbuf, 0, PRATE) <= 16384);
-        TT_CHECK(peak_abs(pbuf, 0, PRATE) > 16384 * 9 / 10);
+        TT_CHECK(peak_abs(pbuf, 0, PRATE) > 8192 * 9 / 10); /* -12 dB mix gain */
     }
 }
 

@@ -60,7 +60,7 @@ TT_TEST(amp_envelope_follows_adsr_settings)
     fm_engine_render(&eng, buf + 2 * RATE, RATE); /* 1..2 s released */
 
     full = amp_at(buf, RATE, 101);
-    TT_CHECK(full > 10000);
+    TT_CHECK(full > 5000); /* -12 dB mix gain */
     /* attack: an RC charge toward 1.6 x full, on full at 100 ms (62 % half way) */
     TT_CHECK_NEAR(amp_at(buf, RATE, 50) / full, 0.620, 0.04);
     TT_CHECK(amp_at(buf, RATE, 85) / full < 0.95);
@@ -315,7 +315,7 @@ TT_TEST(raising_sustain_mid_decay_does_not_overflow)
     fm_engine_render(&eng, buf, 1);
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
     fm_engine_render(&eng, buf, 4410);
-    TT_CHECK(peak_abs(buf, 2000, 4410) > 15000);
+    TT_CHECK(peak_abs(buf, 2000, 4410) > 7500); /* -12 dB mix gain */
     TT_CHECK(peak_abs(buf, 0, 4410) <= 16384 + 64);
 }
 

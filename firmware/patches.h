@@ -23,7 +23,8 @@ typedef enum {
     PATCH_OSC2_OCTAVE,
     PATCH_OSC2_COARSE_SEMIS,
     PATCH_OSC2_FINE_CENTS,
-    PATCH_OSC_MIX_PERMILLE,
+    PATCH_OSC1_LEVEL_PERMILLE,          /* DCO-1 level over 127, summed with DCO-2 (#102) */
+    PATCH_OSC2_LEVEL_PERMILLE,          /* DCO-2 level over 127, before MIX ENV */
     PATCH_OSC_SYNC,
     PATCH_XMOD_AM,                      /* osc_ring: the JX-8P's ring, SYNC 2 and X-MOD (#105) */
     PATCH_HIGHPASS_STEP,

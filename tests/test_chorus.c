@@ -30,9 +30,11 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
  * constants, so the phrase's envelopes take a different curve), and when the
  * attack became an RC charge toward 1.6 x the peak, as PG-8X's, and when every
  * segment became a whole-number step with its remainder on the first sample
- * (within 1 LSB of the output at 44.1 kHz).
+ * (within 1 LSB of the output at 44.1 kHz), and when the mix gain dropped
+ * 6 dB for the summed oscillators and the chorus (#24: half of every sample,
+ * within 2 LSB on all 32 factory tones).
  */
-#define CH_GOLDEN_HASH 0x5C4375C1u
+#define CH_GOLDEN_HASH 0x08D16359u
 
 /*
  * set_mode: set chorus_mode to `mode` before the phrase. was_on: first
@@ -609,7 +611,7 @@ TT_TEST(chorus_reinit_then_on_starts_from_a_silent_line)
 /*
  * fm_engine's documented size on this (64-bit) host: a loose guard. The
  * real budget is the 32-bit one the FM-1 build checks
- * (FM_ENGINE_BUDGET_32 in engine/engine.c, 5600 bytes). Here the
+ * (FM_ENGINE_BUDGET_32 in engine/engine.c, 5632 bytes). Here the
  * envelopes' settings pointers are 8 bytes and pad each voice, so the
  * same engine is 5792. Growing past either must update fm1_8p.h.
  */

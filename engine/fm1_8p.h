@@ -5,7 +5,7 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.5 KiB (5600 bytes on
+ * sets up everything inside it. fm_engine is about 5.5 KiB (5632 bytes on
  * 32-bit targets such as the FM-1 and Cortex-M, 5792 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
@@ -58,7 +58,7 @@ typedef enum {
     FM_PARAM_OSC2_PULSE_WIDTH_PCT,
     FM_PARAM_OSC2_OCTAVE,
     FM_PARAM_OSC2_FINE_CENTS,
-    FM_PARAM_OSC_MIX,              /* per mille: 0 osc1 only, 1000 osc2 only */
+    FM_PARAM_OSC2_LEVEL,           /* per mille: osc2's level into the sum, 0 off */
     FM_PARAM_CHORUS_MODE, /* 0 = off, then the fm_chorus_mode modes */
     FM_PARAM_LFO_WAVE,        /* fm_lfo_wave (docs/modulation.md) */
     FM_PARAM_LFO_RATE_CENTIHZ, /* hundredths of a hertz */
@@ -82,7 +82,7 @@ typedef enum {
     FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
     FM_PARAM_HIGHPASS_STEP, /* 0 (off) .. 3 (most low cut) */
     FM_PARAM_OSC2_COARSE_SEMIS, /* -12..+12 semitones, on top of osc2's octave and fine */
-    FM_PARAM_OSC_MIX_ENV, /* per mille, -1000..+1000: the envelope's share added to osc_mix */
+    FM_PARAM_OSC_MIX_ENV, /* per mille, -1000..+1000: the envelope's share added to osc2_level */
     FM_PARAM_OSC_MIX_ENV_SOURCE, /* the envelope it follows: 0 filter, 1 amp */
     FM_PARAM_FILTER_ENV_SOURCE, /* the envelope the cutoff follows at
                                  * filter_env_amount_cents: 0 envelope 1
@@ -93,6 +93,7 @@ typedef enum {
     FM_PARAM_PITCH_ENV_OSC2_CENTS, /* osc 2's */
     FM_PARAM_PITCH_ENV_SOURCE, /* the envelope it follows: 0 filter, 1 amp */
     FM_PARAM_PITCH_ENV_DYNA, /* DYNAMICS 0 (off) .. 3: velocity scales it */
+    FM_PARAM_OSC1_LEVEL, /* per mille: osc1's level into the sum, 0 off */
     FM_PARAM_OSC_RING, /* 1: osc2 times osc1, the JX-8P's SYNC 2 and X-MOD */
     FM_PARAM_COUNT
 } fm_param_id;

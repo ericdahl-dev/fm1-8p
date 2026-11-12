@@ -323,8 +323,8 @@ void fm_voice_release(fm_voice *v)
 }
 
 /*
- * Aims the mix at osc_mix plus its modulation, with envelope 1 (the filter
- * envelope) at `env1` and envelope 2 (the amp envelope's share) at `env2`,
+ * Aims osc2's level at osc2_level plus its modulation, with envelope 1
+ * (the filter envelope) at `env1` and envelope 2 (the amp envelope's share) at `env2`,
  * reached by the next control tick: it glides there a sample at a time
  * (no click when the depth changes, no steps as the envelope moves).
  */
@@ -336,10 +336,10 @@ static FM_NOINLINE void update_mix(fm_voice *v, const fm_voice_mod *m,
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2, env2);
     mix = (int64_t)v->mix_base + fm_mod_update(&v->mod, &m->routes, FM_MOD_MIX);
     if (mix < 0) mix = 0;
-    if (mix > FM_OSC_MIX_FULL) mix = FM_OSC_MIX_FULL;
-    v->mix_step = ((int32_t)mix - v->osc.mix) / FILTER_CTRL_SAMPLES;
+    if (mix > FM_OSC_LEVEL_FULL) mix = FM_OSC_LEVEL_FULL;
+    v->mix_step = ((int32_t)mix - v->osc.level[1]) / FILTER_CTRL_SAMPLES;
     if (!v->mix_step) /* within a glide's rounding: there now */
-        fm_osc_pair_set_mix(&v->osc, (int32_t)mix);
+        fm_osc_pair_set_level(&v->osc, 1, (int32_t)mix);
     fm_voice_mark_mix(v, m);
 }
 
@@ -405,7 +405,7 @@ uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m)
     return v->pending || v->gate_left ||
            !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) ||
            !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
-           v->mix_step || v->osc.mix != v->mix_base ||
+           v->mix_step || v->osc.level[1] != v->mix_base ||
            !fm_filter_is_wire(&v->filter) ||
            fm_filter_voice_cents(v->cutoff_cents, v->key_track, v->key_note,
                                  0) != v->cutoff_now;
@@ -431,7 +431,7 @@ static int osc_chunk_safe(const fm_voice *v)
 /*
  * A block with every processor at rest (fm_voice_busy 0, as in the default
  * patch): the filter a wire, no envelope amount and nothing marking the
- * cutoff, no steal fade or queued release, the mix at osc_mix. Then nothing
+ * cutoff, no steal fade or queued release, osc2 at osc2_level. Then nothing
  * about the filter can change within the block, so the loop runs just the
  * amp envelope and the oscillators, and the filter's bookkeeping (its last
  * sample, the envelope's lag, the control phase) is done once at the end,
@@ -460,7 +460,7 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
         int32_t level;
         if (v->amp_env.stage == FM_ENV_IDLE) break; /* the release ended */
         level = fm_env_step(&v->amp_env);
-        /* the wire: the pair peaks at 1.0, inside the soft clip's
+        /* the wire: the pair peaks at 2.0 (both levels full), within the soft clip's
          * untouched +-2.0, sync and cross-mod included
          * (extreme_osc_settings_stay_bounded_and_release,
          * max_xmod_and_sync_stay_in_range) */
@@ -516,7 +516,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
              * setting or the note does, which sets FM_BUSY_CUTOFF */
             if (fm_voice_busy(v) & (FM_BUSY_FILTER_ENV | FM_BUSY_CUTOFF))
                 update_cutoff(v, m, fenv);
-            /* the mix envelope, or a glide back to osc_mix after it (until
+            /* the mix envelope, or a glide back to osc2_level after it (until
              * it lands: a glide can land exactly with its step still set) */
             if (fm_voice_busy(v) & FM_BUSY_MIX) /* the divide only if routed */
                 update_mix(v, m, fenv,
@@ -527,7 +527,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         }
         v->ctrl_phase--;
         if (v->mix_step)
-            fm_osc_pair_set_mix(&v->osc, v->osc.mix + v->mix_step);
+            fm_osc_pair_set_level(&v->osc, 1, v->osc.level[1] + v->mix_step);
         out = fm_filter_run(&v->filter, whole ? osc[i] : fm_osc_pair_next(&v->osc));
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
