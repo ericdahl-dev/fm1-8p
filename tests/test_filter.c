@@ -358,6 +358,19 @@ TT_TEST(filter_envelope_from_envelope_2_follows_the_amp_envelope)
                   brightness(fbuf_a, 39690, 44100) - 1) < 0.05);
 }
 
+/* Inverted (the JX-8P's ENV-2 inverted) is a negative amount: from
+ * envelope 2 the cutoff closes at the attack and opens as the amp
+ * envelope decays, dark then bright. */
+TT_TEST(negative_amount_from_envelope_2_closes_the_filter)
+{
+    double early, late;
+    play_amp_shaped_filter(fbuf_a, 9600, -4800, 1);
+    early = brightness(fbuf_a, 441, 2205);
+    late = brightness(fbuf_a, 39690, 44100);
+    printf("    env 2 -4800: brightness early %.4f, late %.4f\n", early, late);
+    TT_CHECK(late > 1.5 * early); /* 20 % sustain: -960 cents late */
+}
+
 /*
  * A positive amount opens the filter at the note start and sweeps the
  * cutoff back down as the envelope decays (bright, then dark); a
@@ -2000,6 +2013,7 @@ static void run_filter_tests(void)
     TT_RUN(key_tracking_ignores_osc2_coarse_like_its_octave);
     TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
     TT_RUN(filter_envelope_from_envelope_2_follows_the_amp_envelope);
+    TT_RUN(negative_amount_from_envelope_2_closes_the_filter);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);
     TT_RUN(filter_output_does_not_depend_on_block_size);
     TT_RUN(extreme_filter_settings_stay_bounded_and_release);
