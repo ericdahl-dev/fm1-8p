@@ -277,15 +277,29 @@ class MapTest(unittest.TestCase):
         lo, hi = jx8p.engine_ranges()["PITCH_ENV_OSC1_CENTS"]
         self.assertTrue(lo <= -3137 and 3137 <= hi, (lo, hi))
 
+    # DCO ENV MODE: 0 ENV-2 inverted, 32 ENV-2, 64 ENV-1 inverted, 96 ENV-1 (inverted the exact
+    # mirror). Like MIX ENV it follows the engine envelope that runs the JX-8P one it names: amp
+    # for ENV-2 when the VCA follows ENV-2, else filter
+    def test_dco_env_mode_sets_the_source_and_the_sign(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["PITCH_ENV_SOURCE"].param, "PITCH_ENV_SOURCE")
+        got = {}
+        for mode in (0, 32, 64, 96):
+            e = patch_with("SOUNDTRACK", DCO1_ENV=64, DCO_ENV_MODE=mode, VCA_MODE=127)
+            got[mode] = (e["PITCH_ENV_SOURCE"], e["PITCH_ENV_OSC1_CENTS"])
+        self.assertEqual(got, {0: (1, -1574), 32: (1, 1574), 64: (0, -1574), 96: (0, 1574)})
+        e = patch_with("SOUNDTRACK", DCO1_ENV=64, DCO_ENV_MODE=32, VCA_MODE=0)    # VCA on GATE
+        self.assertEqual(e["PITCH_ENV_SOURCE"], 0)
+
     # The pitch envelope (#58) on factory tones: DCO-1 and DCO-2 ENV depth (above), the mode and
     # DCO DYNAMICS
     def test_pitch_envelope_is_kept_for_later(self):
         e = patch("T O M S")                    # DCO-1 ENV 51, ENV-2 normal
         self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (1252, 0))
-        self.assertEqual(e["PITCH_ENV_SOURCE"], 1)
+        self.assertEqual(e["PITCH_ENV_SOURCE"], 1)            # the amp envelope (VCA on ENV-2)
         e = patch("BUBBLES")                    # both 127, ENV-1 inverted
         self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (-3137, -3137))
-        self.assertEqual(e["PITCH_ENV_SOURCE"], 2)
+        self.assertEqual(e["PITCH_ENV_SOURCE"], 0)
         self.assertEqual(patch("PIANO 3")["PITCH_ENV_VELOCITY_PCT"], 100)   # DCO DYNAMICS 96
 
     # MIX ENV (#33): the envelope scales DCO-2's level by its depth (est.), so osc_mix is the mix

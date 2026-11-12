@@ -50,7 +50,7 @@ typedef enum {
     PATCH_LFO_PITCH_OSC2_CENTS,         /* waits: DCO-2's LFO depth (no issue yet) */
     PATCH_PITCH_ENV_OSC1_CENTS,         /* signed, at full envelope (#58) */
     PATCH_PITCH_ENV_OSC2_CENTS,
-    PATCH_PITCH_ENV_SOURCE,             /* waits #58: as FILTER_ENV_SOURCE */
+    PATCH_PITCH_ENV_SOURCE,             /* 0 the filter envelope, 1 the amp envelope */
     PATCH_PITCH_ENV_VELOCITY_PCT,       /* waits #58 */
     PATCH_OSC_MIX_ENV_PERMILLE,         /* MIX ENV: the mix's change at the envelope's peak */
     PATCH_OSC_MIX_ENV_SOURCE,           /* 0 filter envelope, 1 amp envelope */
