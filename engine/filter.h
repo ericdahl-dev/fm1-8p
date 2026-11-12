@@ -28,6 +28,7 @@ typedef struct {
     int32_t fade;  /* 1.0 below the top of the cutoff range, to 0 at open */
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
     int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
+    int32_t hp_lo; /* bass boost: nonzero on that step (0 = a highpass) */
 } fm_filter;
 
 /* Pitch of the sample rate in cents above MIDI note 0. Computed once
@@ -57,9 +58,10 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
  * cutoff; the feedback fades out over the top 600 cents of cutoff). */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
-/* Highpass position 0..3 (higher is clamped to 3): 0 is off (a wire),
- * then one-pole (6 dB/octave) corners at about 100, 240 and 560 Hz. */
-#define FM_FILTER_HIGHPASS_STEPS 4
+/* Highpass position 0..4 (higher is clamped to 4): 0 is off (a wire),
+ * then one-pole (6 dB/octave) corners at about 100, 240 and 560 Hz. 4 is
+ * not a highpass but the JX-8P's HPF position 0, a bass boost (filter.c). */
+#define FM_FILTER_HIGHPASS_STEPS 5
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents);
 
 /* Filters one Q8.24 sample: highpass, then lowpass. Any int32 input (the

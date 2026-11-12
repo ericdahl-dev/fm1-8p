@@ -160,6 +160,7 @@ void fm_filter_reset(fm_filter *f)
     f->k = f->k_res = 0;
     f->fade = 0;
     f->hp_g = 0;
+    f->hp_lo = 0;
 }
 
 static int32_t mul_q30(int32_t a, int32_t b)
@@ -247,11 +248,19 @@ static int32_t clamp_in(int32_t x)
     return x > IN_MAX ? IN_MAX : x < -IN_MAX ? -IN_MAX : x;
 }
 
+/*
+ * Highpass step 4, the JX-8P's HPF position 0, is about 2 dB louder than
+ * the flat position on PG-8X 2.0.13 (+2.0 dB at 1 kHz, #93): the input
+ * times 1.26, as the input plus BOOST_HI of it.
+ */
+#define FM_FILTER_HIGHPASS_BOOST 4
+#define BOOST_HI 279172874 /* 0.26, Q1.30 */
+
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
 {
-    /* corners in cents: off, 100 Hz, 240 Hz, 560 Hz */
+    /* corners in cents: off, 100 Hz, 240 Hz, 560 Hz; the boost's 62 Hz */
     static const int32_t corner[FM_FILTER_HIGHPASS_STEPS] = {
-        0, 4335, 5851, 7318
+        0, 4335, 5851, 7318, 3507
     };
     if (step >= FM_FILTER_HIGHPASS_STEPS) step = FM_FILTER_HIGHPASS_STEPS - 1;
     /* off -> on: start from the signal as it is (output = input), not
@@ -261,6 +270,7 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
         if (step && fm_filter_is_wire(f)) leave_open(f); /* hp_g is 0 here */
     }
     f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
+    f->hp_lo = step == FM_FILTER_HIGHPASS_BOOST;
 }
 
 /* One stage: m = x - w * (x - x1), y += g * (m - y). */
@@ -293,7 +303,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         x = clamp_in(in);
     } else if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* highpass = input minus a one-pole lowpass of it */
         f->hp += mul_q30(in - f->hp, f->hp_g);
-        x = in - f->hp;
+        x = f->hp_lo ? in + mul_q30(in, BOOST_HI) : in - f->hp;
     } else { /* louder than any oscillator: the same in 64 bits */
         int64_t d;
         f->hp += (int32_t)((((int64_t)in - f->hp) * f->hp_g) >> 30);

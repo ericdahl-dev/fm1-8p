@@ -508,9 +508,9 @@ TT_TEST(each_highpass_step_cuts_low_frequencies_more)
         TT_CHECK(g110[step] < g110[step - 1] - 2.0);
         TT_CHECK(level[step] < level[step - 1]);
     }
-    /* the highpass is out of range of the setting: clamped to step 3 */
+    /* the highpass is out of range of the setting: clamped to the last step, 4 (the boost) */
     TT_CHECK_EQ(fm_engine_set_param(&feng, FM_PARAM_HIGHPASS_STEP, 9), FM_OK);
-    TT_CHECK_EQ(fm_engine_get_param(&feng, FM_PARAM_HIGHPASS_STEP), 3);
+    TT_CHECK_EQ(fm_engine_get_param(&feng, FM_PARAM_HIGHPASS_STEP), 4);
 }
 
 /* Sets every filter control to something audible. */
@@ -2205,6 +2205,27 @@ TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
     TT_CHECK(same);
 }
 
+/* Gain in dB of highpass step 4, the bass boost, for a sine at `hz`, the lowpass open. Step 0 is a
+ * wire (0 dB), so this is the gain against the flat step. */
+static double boost_gain_db(double hz)
+{
+    static fm_filter f;
+    fm_filter_reset(&f);
+    fm_filter_set_highpass(&f, 4, fm_filter_rate_cents(FRATE));
+    return filter_gain_db(&f, hz, 0.25);
+}
+
+/*
+ * Highpass step 4 is the JX-8P's HPF position 0, which is not flat: PG-8X 2.0.13 plays it about
+ * 2 dB louder than its flat position across the band (+2.0 dB at 1 kHz, #93).
+ */
+TT_TEST(highpass_step_4_is_2_db_louder_than_flat_at_1_khz)
+{
+    double g = boost_gain_db(1000.0);
+    printf("    highpass step 4: 1 kHz %+.2f dB\n", g);
+    TT_CHECK_NEAR(g, 2.0, 0.5);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -2263,4 +2284,5 @@ static void run_filter_tests(void)
     TT_RUN(open_filter_with_the_ring_matches_the_full_render);
     TT_RUN(highpass_steps_0_to_3_are_bit_for_bit_what_they_were);
     TT_RUN(default_patch_and_highpass_steps_render_what_they_did);
+    TT_RUN(highpass_step_4_is_2_db_louder_than_flat_at_1_khz);
 }
