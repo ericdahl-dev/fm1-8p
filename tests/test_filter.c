@@ -2113,6 +2113,98 @@ TT_TEST(open_filter_with_the_ring_matches_the_full_render)
     TT_CHECK(peak_abs(fbuf_a, 0, 4096) > 100); /* still sounding */
 }
 
+/* FNV-1a over `n` bytes, continuing from `h` (start: 2166136261). */
+static uint32_t fnv1a(uint32_t h, const void *p, size_t n)
+{
+    const unsigned char *b = p;
+    while (n--) h = (h ^ *b++) * 16777619u;
+    return h;
+}
+
+/* A test signal in integers only (so it is the same on every host): a 110 Hz-ish saw at 0.5 plus
+ * noise at +-0.25, Q8.24. */
+static int32_t golden_input(size_t i, uint32_t *seed)
+{
+    *seed = *seed * 1664525u + 1013904223u;
+    return (int32_t)((i * 41943u) % 16777216u) - (1 << 23) + ((int32_t)(*seed >> 9) - (1 << 22));
+}
+
+/* Hash of one second of golden_input through the filter at highpass `step`: the lowpass open for
+ * the first half (step 0: the wire fast path), then at 9000 cents with resonance 700. */
+static uint32_t golden_filter_hash(uint8_t step)
+{
+    static fm_filter f;
+    int32_t rate_cents = fm_filter_rate_cents(FRATE);
+    uint32_t h = 2166136261u, seed = 7;
+    size_t i;
+    fm_filter_reset(&f);
+    fm_filter_set_highpass(&f, step, rate_cents);
+    for (i = 0; i < FRATE; i++) {
+        int32_t y;
+        if (i == FRATE / 2) {
+            fm_filter_set_resonance(&f, 700);
+            fm_filter_set_cutoff(&f, 9000, rate_cents);
+        }
+        y = fm_filter_run(&f, golden_input(i, &seed));
+        h = fnv1a(h, &y, sizeof y);
+    }
+    return h;
+}
+
+/*
+ * Highpass steps 0 to 3 are, bit for bit, what they were before the bass-boost step was added
+ * (#93): the hashes are of main at 38bfa6d, computed by this test before any engine change.
+ */
+TT_TEST(highpass_steps_0_to_3_are_bit_for_bit_what_they_were)
+{
+    static const uint32_t golden[4] = { 0x70C29055u, 0xCE19A1E3u, 0xE606AE84u, 0x79FFFCD1u };
+    uint8_t step;
+    int same = 1;
+    for (step = 0; step < 4; step++) {
+        uint32_t h = golden_filter_hash(step);
+        printf("    highpass step %u: hash 0x%08Xu\n", step, (unsigned)h);
+        same &= h == golden[step];
+    }
+    TT_CHECK(same);
+}
+
+/* Hash of an 8-note chord at velocity 127 through the engine, held 0.4 s and released 0.4 s.
+ * `step` < 0: the default patch untouched; else busy_filter_patch with that highpass step. */
+static uint32_t golden_engine_hash(int step)
+{
+    static const uint8_t chord[8] = { 36, 43, 48, 52, 55, 60, 64, 67 };
+    static fm_engine e;
+    size_t i;
+    fm_engine_init(&e, FRATE, 8);
+    if (step >= 0) {
+        busy_filter_patch(&e);
+        fm_engine_set_param(&e, FM_PARAM_HIGHPASS_STEP, step);
+    }
+    for (i = 0; i < 8; i++) fm_engine_note_on(&e, chord[i], 127);
+    fm_engine_render(&e, fbuf_a, 17640);
+    for (i = 0; i < 8; i++) fm_engine_note_off(&e, chord[i]);
+    fm_engine_render(&e, fbuf_a + 2 * 17640, 17640);
+    return fnv1a(2166136261u, fbuf_a, 2 * 2 * 17640 * sizeof fbuf_a[0]);
+}
+
+/*
+ * The default patch (highpass step 0, the filter a wire) and a filtered patch at each of steps
+ * 0 to 3 render, through the engine, bit for bit what main rendered at 38bfa6d before the
+ * bass-boost step (#93).
+ */
+TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
+{
+    static const uint32_t golden[5] = { 0x2F60B1A9u, 0x9027F3ADu, 0x47078CF5u, 0xC4439B21u,
+                                        0xA4E96DA1u };
+    int step, same = 1;
+    for (step = -1; step < 4; step++) {
+        uint32_t h = golden_engine_hash(step);
+        printf("    %s %d: hash 0x%08Xu\n", step < 0 ? "default patch" : "highpass step", step, (unsigned)h);
+        same &= h == golden[step + 1];
+    }
+    TT_CHECK(same);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -2169,4 +2261,6 @@ static void run_filter_tests(void)
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
     TT_RUN(open_filter_with_sync_and_xmod_matches_the_full_render);
     TT_RUN(open_filter_with_the_ring_matches_the_full_render);
+    TT_RUN(highpass_steps_0_to_3_are_bit_for_bit_what_they_were);
+    TT_RUN(default_patch_and_highpass_steps_render_what_they_did);
 }
