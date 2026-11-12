@@ -28,7 +28,7 @@ enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_ENV1, FM_MOD_SRC_ENV2,
 /* Destinations, each summed in its own unit: osc 1's pitch in Q16.16
  * octaves, pulse width in Q0.32, level (the amp envelope's peak) in Q1.30,
  * cutoff in cents (added to the filter's base and key tracking), mix in
- * Q1.30 (added to osc_mix), osc 2's pitch in Q16.16 octaves. */
+ * Q1.30 (added to osc2_level), osc 2's pitch in Q16.16 octaves. */
 enum { FM_MOD_PITCH1, FM_MOD_PW, FM_MOD_LEVEL, FM_MOD_CUTOFF, FM_MOD_MIX,
        FM_MOD_PITCH2, FM_MOD_DEST_COUNT };
 

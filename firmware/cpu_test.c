@@ -12,7 +12,7 @@ uint8_t cpu_test_full_velocity(uint32_t i) { return FULL_VEL[i % FM_MAX_VOICES];
 static const cpu_test_param FULL_PATCH[] = {
     {FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE},
     {FM_PARAM_OSC2_WAVE, FM_WAVE_SAW},
-    {FM_PARAM_OSC_MIX, 500},
+    {FM_PARAM_OSC2_LEVEL, 500},
     {FM_PARAM_CHORUS_MODE, FM_CHORUS_DEEP},
     {FM_PARAM_LFO_PITCH_CENTS, 30},
     {FM_PARAM_LFO_PW_PCT, 25},

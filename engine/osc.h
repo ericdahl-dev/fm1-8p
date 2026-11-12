@@ -53,7 +53,7 @@ typedef struct {
     uint32_t pw[2];    /* duty played: width limited by the pitch */
     int32_t pw_gain[2]; /* Q1.30: brings the pulse's peak to 1.0 */
     int32_t tune[2];   /* offset from the played pitch, Q16.16 semitones */
-    int32_t mix;       /* share of the second oscillator, Q1.30 0..1.0 */
+    int32_t level[2];  /* each oscillator's gain into the sum, Q1.30 0..1.0 */
     int32_t xmod;      /* cross-mod depth, Q1.30 0..1.0 */
     uint32_t xmod_inc; /* osc2's increment times the depth: its largest bend */
     uint32_t recip0;   /* 1 / osc1's increment, scaled by 2^recip0_sh (for sync) */
@@ -66,12 +66,12 @@ typedef struct {
     uint8_t sync_pend; /* a restart's correction is due on the next osc2 sample */
     uint8_t recip0_sh;
     uint8_t special;   /* sync or cross-mod on */
-    uint8_t only1;     /* mix 0 and nothing special: osc1 alone, the fast path */
+    uint8_t only1;     /* osc1 at full, osc2 at 0, nothing special: the fast path */
     int32_t sync_after; /* polyBLEP terms due on osc2's sample after a restart, Q8.24 */
 } fm_osc_pair;
 
 /*
- * Saw on both, default tuning and width, mix fully to the first. `seed`
+ * Saw on both, default tuning and width, osc1 at full and osc2 at 0. `seed`
  * starts the noise generator (0 picks a fixed non-zero seed); give each
  * voice its own so noise chords don't sum in step.
  */
@@ -89,11 +89,12 @@ void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, int32_t pct);
 void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
                           int32_t pitch, uint32_t sample_rate);
 /*
- * Crossfade between the oscillators, Q1.30: 0 is the first alone,
- * FM_OSC_MIX_FULL the second alone, values between a linear blend.
+ * Oscillator `which`'s (0 or 1) level, Q1.30 (0..FM_OSC_LEVEL_FULL,
+ * clamped): the pair plays osc1 * level 0 + osc2 * level 1, a sum as on
+ * PG-8X's mixer, not a crossfade. Both at full peak at 2.0.
  */
-#define FM_OSC_MIX_FULL (1 << 30)
-void fm_osc_pair_set_mix(fm_osc_pair *p, int32_t mix);
+#define FM_OSC_LEVEL_FULL (1 << 30)
+void fm_osc_pair_set_level(fm_osc_pair *p, uint8_t which, int32_t level);
 /*
  * Plays `pitch` (Q16.16 semitones: the note plus any bend): each
  * oscillator sounds at it plus its own tuning.
@@ -106,7 +107,7 @@ void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate);
  */
 void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on);
 /*
- * Cross-mod depth, Q1.30 (0..FM_OSC_MIX_FULL): osc1's output moves osc2's
+ * Cross-mod depth, Q1.30 (0..FM_OSC_LEVEL_FULL): osc1's output moves osc2's
  * frequency each sample, by up to +-100 % of it at full depth (frequency
  * modulation, so sidebands at osc2 +- multiples of osc1). 0 is off.
  */

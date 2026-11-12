@@ -20,7 +20,8 @@ static double stab_brass_osc2_hz(int32_t osc2)
     fm_engine_init(&mod_eng, MOD_RATE, 1);
     for (id = 0; id < FM_PARAM_COUNT; id++)
         fm_engine_set_param(&mod_eng, (uint16_t)id, v[id]);
-    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_LEVEL, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_LEVEL, 1000);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 0);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_OSC2_CENTS, 0);
     fm_engine_set_param(&mod_eng, FM_PARAM_CHORUS_MODE, 0);
