@@ -1351,6 +1351,7 @@ TT_TEST(pitch_mod_bends_each_oscillator_by_its_own_offset)
  * and with the ring on.
  */
 #define RING_ONE 16777216.0 /* 1.0 in Q8.24 */
+static uint8_t ring_sync; /* 1: the pairs run synced (SYNC 2) */
 static void ring_pair(fm_osc_pair *p, uint8_t w1, uint8_t w2, int32_t mix, uint8_t ring)
 {
     int32_t pitch = 48 << 16;
@@ -1362,6 +1363,7 @@ static void ring_pair(fm_osc_pair *p, uint8_t w1, uint8_t w2, int32_t mix, uint8
     fm_osc_pair_set_tune(p, 1, 737, pitch, RATE);
     fm_osc_pair_set_pitch(p, pitch, RATE);
     fm_osc_pair_set_mix(p, mix);
+    fm_osc_pair_set_sync(p, ring_sync);
     fm_osc_pair_set_ring(p, ring);
 }
 
@@ -1418,6 +1420,22 @@ TT_TEST(ring_with_noise_osc1_is_plain_ring_modulation)
     TT_CHECK(err < 1e-4);
 }
 
+/*
+ * SYNC 2 is sync plus the ring: the same law on the synced osc2, its
+ * restarts and their polyBLEPs ringed like the rest of its wave.
+ */
+TT_TEST(ring_rides_the_synced_osc2)
+{
+    double sq, saw;
+    ring_sync = 1;
+    sq = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, 0.21, 20000);
+    saw = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, 0.235, 20000);
+    ring_sync = 0;
+    printf("    synced ring: largest error square %.2e, saw %.2e\n", sq, saw);
+    TT_CHECK(sq < 1e-4);
+    TT_CHECK(saw < 1e-4);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -1425,6 +1443,7 @@ static void run_osc_tests(void)
     TT_RUN(ring_depth_follows_a_saw_osc1);
     TT_RUN(ring_depth_follows_a_pulse_osc1);
     TT_RUN(ring_with_noise_osc1_is_plain_ring_modulation);
+    TT_RUN(ring_rides_the_synced_osc2);
     TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
