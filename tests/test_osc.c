@@ -474,6 +474,8 @@ static void render_mix_step(int16_t *out, int32_t mix, uint32_t at, int32_t dept
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, mix);
+    /* held at 40 %: both oscillators stay below the output's soft-clip knee */
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 400);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, out, at);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
@@ -518,6 +520,8 @@ static void render_mix_back(int16_t *out, int32_t mix, int32_t depth,
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, mix);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, depth);
+    /* held at 40 %: both oscillators stay below the output's soft-clip knee */
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 400);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, out, at);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 0);
@@ -588,6 +592,8 @@ TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 500);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 500);
+    /* held at 40 %: both oscillators stay below the output's soft-clip knee */
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 400);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, buf, 2264);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 0);
