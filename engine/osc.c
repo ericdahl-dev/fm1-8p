@@ -533,9 +533,10 @@ static int32_t advance(fm_osc_pair *p)
 /*
  * The ring's a and c by osc1's wave (Q8.24), from PG-8X's fit (#105):
  * saw 1.12 and 0.235, pulse (at 25 %) 1.66 and 0.15, square 0.84 and 0.21.
+ * Noise isn't measured: plain ring modulation, 1.0 and 0.
  */
-static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 14092861 };
-static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 3523215 };
+static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216 };
+static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0 };
 
 /* osc2's sample b ringed by osc1's sample m: b (a - m) + c m, Q8.24. */
 static int32_t ring(const fm_osc_pair *p, int32_t b, int32_t m)

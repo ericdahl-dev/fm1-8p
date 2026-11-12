@@ -1410,12 +1410,21 @@ TT_TEST(ring_depth_follows_a_pulse_osc1)
     TT_CHECK(err < 1e-4);
 }
 
+/* Noise on osc1 (not measured on PG-8X): plain ring modulation, a 1.0 and no bleed. */
+TT_TEST(ring_with_noise_osc1_is_plain_ring_modulation)
+{
+    double err = ring_law_error(FM_WAVE_NOISE, FM_WAVE_SQUARE, 1.0, 0.0, 20000);
+    printf("    ring noise/square: largest error %.2e\n", err);
+    TT_CHECK(err < 1e-4);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(ring_multiplies_osc2_by_osc1_square);
     TT_RUN(ring_depth_follows_a_saw_osc1);
     TT_RUN(ring_depth_follows_a_pulse_osc1);
+    TT_RUN(ring_with_noise_osc1_is_plain_ring_modulation);
     TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
