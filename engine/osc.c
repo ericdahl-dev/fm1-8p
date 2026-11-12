@@ -12,8 +12,11 @@
 /* Keeps a rare path out of line so the per-sample path around it stays small. */
 #if defined(__GNUC__) || defined(__clang__)
 #define FM_NOINLINE __attribute__((noinline))
+/* Inlines a loop at each call so its constant arguments pick one path. */
+#define FM_INLINE_ALWAYS __attribute__((always_inline))
 #else
 #define FM_NOINLINE
+#define FM_INLINE_ALWAYS
 #endif
 
 /*
@@ -620,13 +623,14 @@ int32_t fm_osc_pair_next(fm_osc_pair *p)
 /*
  * Oscillator `which`'s next `n` samples (no sync) times `level`, its wave
  * chosen once: into out[], or with `add` added to what out[] holds (osc1),
- * as fm_osc_pair_next sums them. Inlined into fm_osc_pair_render with
- * `add` known and `level` often known to be full, so each loop is
+ * as fm_osc_pair_next sums them. `full` says the level is full (no
+ * multiply). Inlined into fm_osc_pair_render with `add` and `full` known,
+ * so each loop is
  * one wave's own, the pulse's two saws inline (pulse_at stays out of
  * line for the per-sample paths, where inlining it costs 8 voices).
  */
-static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
-                            uint32_t n, int32_t level, int add)
+static inline FM_INLINE_ALWAYS void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
+                            uint32_t n, int32_t level, int add, int full)
 {
     fm_osc *o = &p->osc[which];
     uint32_t t = o->phase, dt = o->inc, i;
@@ -637,26 +641,30 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
         int32_t g = p->pw_gain[which];
         for (i = 0; i < n; i++, t += dt) {
             b = (int32_t)(((int64_t)(saw_at(t, dt) - saw_at(t + w, dt)) * g) >> 30);
-            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
+            out[i] = (add ? out[i] : 0) +
+                     (full ? b : (int32_t)(((int64_t)b * level) >> 30));
         }
         break;
     }
     case FM_WAVE_SQUARE:
         for (i = 0; i < n; i++, t += dt) {
             b = saw_at(t, dt) - saw_at(t + 0x80000000u, dt);
-            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
+            out[i] = (add ? out[i] : 0) +
+                     (full ? b : (int32_t)(((int64_t)b * level) >> 30));
         }
         break;
     case FM_WAVE_NOISE:
         for (i = 0; i < n; i++, t += dt) {
             b = noise_next(p);
-            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
+            out[i] = (add ? out[i] : 0) +
+                     (full ? b : (int32_t)(((int64_t)b * level) >> 30));
         }
         break;
     default:
         for (i = 0; i < n; i++, t += dt) {
             b = saw_at(t, dt);
-            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
+            out[i] = (add ? out[i] : 0) +
+                     (full ? b : (int32_t)(((int64_t)b * level) >> 30));
         }
         break;
     }
@@ -679,23 +687,26 @@ void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
     }
     if (p->only1) {
         p->osc[1].phase += n * p->osc[1].inc;
-        wave_run(p, 0, out, n, FM_OSC_LEVEL_FULL, 0);
+        wave_run(p, 0, out, n, FM_OSC_LEVEL_FULL, 0, 1);
         return;
     }
     if (p->level[0] == 0) {
         p->osc[0].phase += n * p->osc[0].inc;
-        wave_run(p, 1, out, n, p->level[1], 0);
+        if (p->level[1] == FM_OSC_LEVEL_FULL) wave_run(p, 1, out, n, FM_OSC_LEVEL_FULL, 0, 1);
+        else wave_run(p, 1, out, n, p->level[1], 0, 0);
         return;
     }
     if (p->level[1] == 0) {
         p->osc[1].phase += n * p->osc[1].inc;
-        wave_run(p, 0, out, n, p->level[0], 0);
+        wave_run(p, 0, out, n, p->level[0], 0, 0); /* below full: only1 took full */
         return;
     }
     if (p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE) {
         for (i = 0; i < n; i++) out[i] = fm_osc_pair_next(p);
         return;
     }
-    wave_run(p, 0, out, n, p->level[0], 0);
-    wave_run(p, 1, out, n, p->level[1], 1);
+    if (p->level[0] == FM_OSC_LEVEL_FULL) wave_run(p, 0, out, n, FM_OSC_LEVEL_FULL, 0, 1);
+    else wave_run(p, 0, out, n, p->level[0], 0, 0);
+    if (p->level[1] == FM_OSC_LEVEL_FULL) wave_run(p, 1, out, n, FM_OSC_LEVEL_FULL, 1, 1);
+    else wave_run(p, 1, out, n, p->level[1], 1, 0);
 }
