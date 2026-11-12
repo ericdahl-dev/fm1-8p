@@ -116,7 +116,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | FINE TUNE | `osc2_fine_cents` | (value - 64) x 50 / 64 |
 | MIX DCO-1, DCO-2 | `osc_mix_permille` | DCO-2 / (DCO-1 + DCO-2), with MIX ENV's envelope at rest; the overall level is lost |
 | MIX ENV, MIX ENV MODE | `osc_mix_env_permille`, `osc_mix_env_source` | the envelope scales DCO-2's level from 1 - depth (at rest) to 1 (at the peak), the other way when inverted (*est.*); `osc_mix_env_permille` is the mix's change from rest to peak. It follows the amp envelope for ENV-2 when the VCA follows ENV-2, else the filter envelope, which runs ENV-1's own times (#59). Exact except with the VCA on GATE, where ENV-2 runs nowhere and the filter envelope takes ENV-2's times for a VCF that names it: E. BASS's MIX ENV (ENV-1) then follows ENV-2's times. 19 of the 32 tones use MIX ENV at full depth on ENV-1, so DCO-2 swells in with the filter envelope. With DCO-1 at 0 the mix is osc2 only (the engine has no silent mix) |
-| CROSS MOD | `osc_sync` | on for SYNC 1 and SYNC 2. The JX-8P's X-MOD is reportedly amplitude modulation (ring-mod-like), not the engine's FM (`osc_xmod`), so it waits in `PATCH_XMOD_AM` (SYNC 2 and X-MOD) |
+| CROSS MOD | `osc_sync`, `osc_ring` | `osc_sync` on for SYNC 1 and SYNC 2; `osc_ring` (`PATCH_XMOD_AM`) on for SYNC 2 and X-MOD. The ring is PG-8X 2.0.13's measured law (#105), not the engine's FM (`osc_xmod`): DCO-2's signal becomes x2 (a - m1) + c m1 before the mix, m1 being DCO-1's wave at peak 1 (100 % AM by an inverted DCO-1), a 1.12 / 1.66 / 0.84 and c 0.235 / 0.15 / 0.21 for DCO-1 saw / pulse / square (noise: 1.0 and 0, not measured), held to +-2.0. A product, so no pitch moves; it is PG-8X's +1.9 dB on SYNC 2 and X-MOD. With MIX DCO-2 at 0 it is silent |
 | HPF | `highpass_step` | as PG-8X 2.0.13 plays it (2026-11-10 probe, noise against its HPF 1): position 1 is flat, so step 0; 2 and 3 are steps 2 and 3 (PG-8X -17.2 / -27.6 dB at 30 Hz, ours -18.4 / -25.9; within about 2 dB from 60 Hz up). Position 0 is a bass boost on PG-8X (+6.5 dB at 30 Hz, +2 dB from 500 Hz up) the engine lacks, so step 0 (flat) for now: #93. Step 1 (100 Hz) is not used by the converter |
 | VCF FREQ | `filter_cutoff_cents` | 1200 + 100 x value: a semitone per step from MIDI note 12 (16 Hz) (*est.*) |
 | VCF RES, VCF KEY | `filter_resonance_permille`, `filter_key_track_permille` | value x 1000 / 127 |
@@ -145,7 +145,6 @@ returns `PATCH_NONE` for them; when a feature lands, its field gets the new `fm_
 | `AMP_GATE` | VCA MODE | #63 amp gate |
 | `OSC_MIX_ENV_VELOCITY_PCT` | MIX DYNAMICS | velocity on the mix envelope (no issue yet) |
 | `FILTER_LFO_PERMILLE`, `FILTER_VELOCITY_PCT` | VCF LFO, VCF DYNAMICS | #8 (LFO to cutoff, filter velocity) |
-| `XMOD_AM` | CROSS MOD SYNC 2 and X-MOD | the JX-8P's cross mod (no issue yet) |
 | `OSC1_COARSE_SEMIS` | DCO-1 TUNE | DCO-1 coarse tune (no issue yet) |
 | `AMP_LEVEL_PERMILLE` | VCA LEVEL | a patch level (no issue yet) |
 

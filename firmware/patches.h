@@ -25,7 +25,7 @@ typedef enum {
     PATCH_OSC2_FINE_CENTS,
     PATCH_OSC_MIX_PERMILLE,
     PATCH_OSC_SYNC,
-    PATCH_XMOD_AM,                      /* waits: the JX-8P's cross mod, 0/1 (no issue yet) */
+    PATCH_XMOD_AM,                      /* osc_ring: the JX-8P's ring, SYNC 2 and X-MOD (#105) */
     PATCH_HIGHPASS_STEP,
     PATCH_FILTER_CUTOFF_CENTS,
     PATCH_FILTER_RESONANCE_PERMILLE,
