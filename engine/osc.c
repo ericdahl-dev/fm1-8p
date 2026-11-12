@@ -538,11 +538,19 @@ static int32_t advance(fm_osc_pair *p)
 static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216 };
 static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0 };
 
-/* osc2's sample b ringed by osc1's sample m: b (a - m) + c m, Q8.24. */
+/*
+ * osc2's sample b ringed by osc1's sample m: b (a - m) + c m, Q8.24,
+ * held to +-2.0. It reaches past that only where both waves are near
+ * their extremes at once (a saw osc1 at its trough: 2.12 b less 0.235);
+ * the pair stays inside the soft clip's untouched +-2.0, which the
+ * open-filter render passes straight through.
+ */
+#define RING_MAX (2 << 24)
 static int32_t ring(const fm_osc_pair *p, int32_t b, int32_t m)
 {
     uint8_t w = p->wave[0];
-    return (int32_t)(((int64_t)b * (ring_a[w] - m) + (int64_t)ring_c[w] * m) >> 24);
+    int32_t v = (int32_t)(((int64_t)b * (ring_a[w] - m) + (int64_t)ring_c[w] * m) >> 24);
+    return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
 }
 
 /*

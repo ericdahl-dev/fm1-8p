@@ -1367,7 +1367,7 @@ static void ring_pair(fm_osc_pair *p, uint8_t w1, uint8_t w2, int32_t mix, uint8
     fm_osc_pair_set_ring(p, ring);
 }
 
-/* Largest error (in units of 1.0) of the ring against x2 (a - m1) + c m1 over n samples. */
+/* Largest error (in units of 1.0) of the ring against x2 (a - m1) + c m1, held to +-2.0, over n samples. */
 static double ring_law_error(uint8_t w1, uint8_t w2, double a, double c, uint32_t n)
 {
     static fm_osc_pair x1, x2, y;
@@ -1379,6 +1379,7 @@ static double ring_law_error(uint8_t w1, uint8_t w2, double a, double c, uint32_
     for (i = 0; i < n; i++) {
         double m1 = fm_osc_pair_next(&x1) / RING_ONE, s2 = fm_osc_pair_next(&x2) / RING_ONE;
         double want = s2 * (a - m1) + c * m1, got = fm_osc_pair_next(&y) / RING_ONE;
+        want = want > 2.0 ? 2.0 : want < -2.0 ? -2.0 : want; /* ring_stays_within_two */
         if (fabs(got - want) > worst) worst = fabs(got - want);
     }
     return worst;
@@ -1436,6 +1437,46 @@ TT_TEST(ring_rides_the_synced_osc2)
     TT_CHECK(saw < 1e-4);
 }
 
+/*
+ * The ring can reach past +-2.0 (a saw osc1 at its trough: osc2 times
+ * 2.12, less 0.235 of osc1), but the pair stays inside the soft clip's
+ * untouched +-2.0 that the open-filter render relies on: every wave pair,
+ * free and synced, osc2 at the pulse's narrowest and far up, at the
+ * pitch and rate extremes.
+ */
+TT_TEST(ring_stays_within_two)
+{
+    static const uint32_t rates[] = { 8000, 44100, 192000 };
+    static const int32_t notes[] = { 0, 48, 60, 127 };
+    static fm_osc_pair p;
+    int32_t peak = 0;
+    size_t r, n, w1, w2, sy, i;
+    for (r = 0; r < 3; r++)
+    for (n = 0; n < 4; n++)
+    for (w1 = 0; w1 < FM_WAVE_COUNT; w1++)
+    for (w2 = 0; w2 < FM_WAVE_COUNT; w2++)
+    for (sy = 0; sy < 2; sy++) {
+        int32_t pitch = notes[n] << 16;
+        fm_osc_pair_reset(&p, 7);
+        fm_osc_pair_set_wave(&p, 0, (uint8_t)w1);
+        fm_osc_pair_set_wave(&p, 1, (uint8_t)w2);
+        fm_osc_pair_set_width(&p, 0, 25);
+        fm_osc_pair_set_width(&p, 1, 1);
+        fm_osc_pair_set_tune(&p, 1, 3737, pitch, rates[r]);
+        fm_osc_pair_set_pitch(&p, pitch, rates[r]);
+        fm_osc_pair_set_mix(&p, FM_OSC_MIX_FULL);
+        fm_osc_pair_set_sync(&p, (uint8_t)sy);
+        fm_osc_pair_set_ring(&p, 1);
+        for (i = 0; i < 20000; i++) {
+            int32_t v = fm_osc_pair_next(&p);
+            if (v < 0) v = -v;
+            if (v > peak) peak = v;
+        }
+    }
+    printf("    ring: largest sample %.3f\n", peak / RING_ONE);
+    TT_CHECK(peak <= (2 << 24));
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -1444,6 +1485,7 @@ static void run_osc_tests(void)
     TT_RUN(ring_depth_follows_a_pulse_osc1);
     TT_RUN(ring_with_noise_osc1_is_plain_ring_modulation);
     TT_RUN(ring_rides_the_synced_osc2);
+    TT_RUN(ring_stays_within_two);
     TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
