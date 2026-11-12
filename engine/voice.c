@@ -149,7 +149,8 @@ static void gate_on(fm_voice *v)
 /* The oscillators apply the LFO's current offsets. */
 static void apply_pitch(fm_voice *v)
 {
-    fm_osc_pair_set_pitch_mod(&v->osc, fm_mod_get(&v->mod, FM_MOD_PITCH));
+    fm_osc_pair_set_pitch_mod(&v->osc, fm_mod_get(&v->mod, FM_MOD_PITCH1),
+                              fm_mod_get(&v->mod, FM_MOD_PITCH2));
     fm_osc_pair_set_pw_mod(&v->osc, fm_mod_get(&v->mod, FM_MOD_PW));
 }
 
@@ -157,7 +158,9 @@ static void apply_pitch(fm_voice *v)
  * pulse width to the oscillators, level to the amp envelope's peak. */
 static void apply_mod(fm_voice *v, uint32_t changed)
 {
-    if (changed & ((1u << FM_MOD_PITCH) | (1u << FM_MOD_PW))) apply_pitch(v);
+    if (changed & ((1u << FM_MOD_PITCH1) | (1u << FM_MOD_PITCH2) |
+                   (1u << FM_MOD_PW)))
+        apply_pitch(v);
     if (changed & (1u << FM_MOD_LEVEL))
         v->amp_env.peak = fm_mod_get(&v->mod, FM_MOD_LEVEL);
 }

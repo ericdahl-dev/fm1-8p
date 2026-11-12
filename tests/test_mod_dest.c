@@ -11,10 +11,10 @@ TT_TEST(one_route_gives_source_times_depth)
     int32_t depth = 100 * 65536 / 1200; /* 100 cents, Q16.16 octaves */
     memset(&r, 0, sizeof r);
     fm_mod_reset(&m);
-    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH, depth);
+    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH1, depth);
     fm_mod_set_source(&m, FM_MOD_SRC_LFO, -(1 << 29)); /* LFO at -0.5 */
     fm_mod_tick(&m, &r);
-    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH),
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1),
                 (int32_t)(((int64_t)-(1 << 29) * depth) >> 30));
 }
 
@@ -53,12 +53,12 @@ TT_TEST(one_source_reaches_two_destinations_at_once)
     fm_mod m;
     memset(&r, 0, sizeof r);
     fm_mod_reset(&m);
-    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH, 3 << 16);
+    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH1, 3 << 16);
     fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PW, -(1 << 28));
     fm_mod_set_source(&m, FM_MOD_SRC_LFO, 1 << 29); /* +0.5 */
     TT_CHECK_EQ(fm_mod_tick(&m, &r),
-                (1u << FM_MOD_PITCH) | (1u << FM_MOD_PW));
-    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH), 3 << 15);
+                (1u << FM_MOD_PITCH1) | (1u << FM_MOD_PW));
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 3 << 15);
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PW), -(1 << 27));
 }
 
@@ -72,12 +72,12 @@ TT_TEST(two_sources_add_in_a_destination)
     fm_mod m;
     memset(depth, 0, sizeof depth);
     fm_mod_reset(&m);
-    depth[0][FM_MOD_PITCH] = 2 << 16;
-    depth[1][FM_MOD_PITCH] = -(1 << 16);
+    depth[0][FM_MOD_PITCH1] = 2 << 16;
+    depth[1][FM_MOD_PITCH1] = -(1 << 16);
     src[0] = 1 << 29;  /* +0.5 * 2 oct = +1 oct */
     src[1] = -(1 << 30); /* -1.0 * -1 oct = +1 oct */
     fm_mod_sum(&m, depth, src, 2);
-    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH), 2 << 16);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 2 << 16);
 }
 
 /* Two products that each fit in int32 but whose sum does not: the sum
@@ -106,11 +106,11 @@ TT_TEST(a_set_source_holds_for_later_ticks)
     fm_mod m;
     memset(&r, 0, sizeof r);
     fm_mod_reset(&m);
-    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH, 1 << 16);
+    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH1, 1 << 16);
     fm_mod_set_source(&m, FM_MOD_SRC_LFO, 1 << 29);
-    TT_CHECK_EQ(fm_mod_tick(&m, &r), 1u << FM_MOD_PITCH);
+    TT_CHECK_EQ(fm_mod_tick(&m, &r), 1u << FM_MOD_PITCH1);
     TT_CHECK_EQ(fm_mod_tick(&m, &r), 0u);
-    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH), 1 << 15);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 1 << 15);
 }
 
 /* Velocity routed to level at full depth (1.0) gives the level exactly as
@@ -140,13 +140,13 @@ TT_TEST(updating_one_destination_leaves_the_others)
     fm_mod m;
     fm_mod_routes_reset(&r);
     fm_mod_reset(&m);
-    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH, 1 << 16);
+    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH1, 1 << 16);
     fm_mod_set_route(&r, FM_MOD_SRC_VEL, FM_MOD_LEVEL, 1 << 30);
     fm_mod_set_source(&m, FM_MOD_SRC_LFO, 1 << 29);
     fm_mod_set_source(&m, FM_MOD_SRC_VEL, 1 << 28);
     TT_CHECK_EQ(fm_mod_update(&m, &r, FM_MOD_LEVEL), 1 << 28);
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_LEVEL), 1 << 28);
-    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH), 0); /* not taken yet */
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 0); /* not taken yet */
 }
 
 /* The filter envelope routed to cutoff: the level times the amount in
@@ -186,7 +186,7 @@ TT_TEST(a_destination_rests_with_no_route_and_a_zero_sum)
     TT_CHECK(!fm_mod_at_rest(&m, &r, FM_MOD_CUTOFF)); /* sum still 1200 */
     fm_mod_update(&m, &r, FM_MOD_CUTOFF);
     TT_CHECK(fm_mod_at_rest(&m, &r, FM_MOD_CUTOFF));
-    TT_CHECK(fm_mod_at_rest(&m, &r, FM_MOD_PITCH)); /* others untouched */
+    TT_CHECK(fm_mod_at_rest(&m, &r, FM_MOD_PITCH1)); /* others untouched */
 }
 
 /* Envelope 2 (the amp envelope's share of the note's peak) routed to the
@@ -208,6 +208,44 @@ TT_TEST(amp_env_to_mix_is_share_times_depth)
     }
 }
 
+/* A source is routed while it reaches any destination at a nonzero depth,
+ * whichever destination that is; the others' routes don't count. */
+TT_TEST(a_source_is_routed_while_any_of_its_depths_is_nonzero)
+{
+    unsigned d;
+    fm_mod_routes r;
+    fm_mod_routes_reset(&r);
+    TT_CHECK(!fm_mod_source_routed(&r, FM_MOD_SRC_LFO));
+    fm_mod_set_route(&r, FM_MOD_SRC_VEL, FM_MOD_LEVEL, 1 << 30);
+    TT_CHECK(!fm_mod_source_routed(&r, FM_MOD_SRC_LFO)); /* not its route */
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++) {
+        fm_mod_set_route(&r, FM_MOD_SRC_LFO, d, -1);
+        TT_CHECK(fm_mod_source_routed(&r, FM_MOD_SRC_LFO));
+        fm_mod_set_route(&r, FM_MOD_SRC_LFO, d, 0);
+        TT_CHECK(!fm_mod_source_routed(&r, FM_MOD_SRC_LFO));
+    }
+}
+
+/* Each oscillator has its own pitch destination: a route to one leaves
+ * the other's sum at 0. */
+TT_TEST(each_oscillator_pitch_is_its_own_destination)
+{
+    fm_mod_routes r;
+    fm_mod m;
+    fm_mod_routes_reset(&r);
+    fm_mod_reset(&m);
+    fm_mod_set_source(&m, FM_MOD_SRC_LFO, 1 << 30);
+    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH1, 0x10000);
+    fm_mod_tick(&m, &r);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 0x10000);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH2), 0);
+    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH1, 0);
+    fm_mod_set_route(&r, FM_MOD_SRC_LFO, FM_MOD_PITCH2, -0x8000);
+    fm_mod_tick(&m, &r);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 0);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH2), -0x8000);
+}
+
 static void run_mod_dest_tests(void)
 {
     TT_RUN(one_route_gives_source_times_depth);
@@ -222,4 +260,6 @@ static void run_mod_dest_tests(void)
     TT_RUN(filter_env_to_cutoff_is_level_times_amount_in_cents);
     TT_RUN(a_destination_rests_with_no_route_and_a_zero_sum);
     TT_RUN(amp_env_to_mix_is_share_times_depth);
+    TT_RUN(a_source_is_routed_while_any_of_its_depths_is_nonzero);
+    TT_RUN(each_oscillator_pitch_is_its_own_destination);
 }

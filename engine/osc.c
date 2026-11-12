@@ -135,7 +135,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
         p->tune[i] = 0;
         p->base[i] = 0;
     }
-    p->mod_oct = 0;
+    p->mod_oct[0] = p->mod_oct[1] = 0;
     p->pw_mod = 0;
     p->level[0] = FM_OSC_LEVEL_FULL;
     p->level[1] = 0;
@@ -299,7 +299,7 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
                      uint32_t sample_rate)
 {
     p->base[i] = fm_osc_pitch_inc(pitch + p->tune[i], sample_rate);
-    fm_osc_set_inc(&p->osc[i], mod_inc(p->base[i], p->mod_oct));
+    fm_osc_set_inc(&p->osc[i], mod_inc(p->base[i], p->mod_oct[i]));
     update_pw(p, i);
 }
 
@@ -326,12 +326,13 @@ void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth)
     update_special(p);
 }
 
-void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct)
+void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct1, int32_t oct2)
 {
-    if (oct == p->mod_oct) return;
-    p->mod_oct = oct;
-    fm_osc_set_inc(&p->osc[0], mod_inc(p->base[0], oct));
-    fm_osc_set_inc(&p->osc[1], mod_inc(p->base[1], oct));
+    if (oct1 == p->mod_oct[0] && oct2 == p->mod_oct[1]) return;
+    p->mod_oct[0] = oct1;
+    p->mod_oct[1] = oct2;
+    fm_osc_set_inc(&p->osc[0], mod_inc(p->base[0], oct1));
+    fm_osc_set_inc(&p->osc[1], mod_inc(p->base[1], oct2));
     update_derived(p);
 }
 

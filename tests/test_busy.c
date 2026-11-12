@@ -55,7 +55,7 @@ TT_TEST(busy_filter_back_to_a_wire_rests)
 
 /* Mix glide: the mix envelope on makes the voice busy; depth back to 0, it
  * rests once the glide lands. Both #65 cases: a glide landing exactly on
- * osc_mix (mix 500, depth 500) and one pushing at the clamp (mix 0, depth
+ * osc2_level (mix 500, depth 500) and one pushing at the clamp (mix 0, depth
  * +1000 plays osc2 alone). */
 TT_TEST(busy_mix_env_back_to_zero_rests)
 {

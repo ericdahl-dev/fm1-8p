@@ -58,7 +58,7 @@ typedef struct {
     uint32_t xmod_inc; /* osc2's increment times the depth: its largest bend */
     uint32_t recip0;   /* 1 / osc1's increment, scaled by 2^recip0_sh (for sync) */
     uint32_t base[2];  /* increment before the pitch modulation */
-    int32_t mod_oct;   /* pitch modulation (LFO), Q16.16 octaves */
+    int32_t mod_oct[2]; /* each oscillator's pitch modulation, Q16.16 octaves */
     int32_t pw_mod;    /* pulse width modulation (LFO), Q0.32 of a cycle */
     uint32_t noise;    /* xorshift32 state, never 0 */
     uint8_t wave[2];   /* fm_wave */
@@ -113,12 +113,13 @@ void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on);
  */
 void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth);
 /*
- * Pitch modulation in Q16.16 octaves (0: none), on top of the pitch and
- * tuning. Scales both increments by 2^x with no divide, so it can run
- * at the control rate; the pulse width limits stay those of the
- * unmodulated pitch (docs/modulation.md#pitch).
+ * Pitch modulation in Q16.16 octaves (0: none), each oscillator its own
+ * (`oct1`, `oct2`), on top of the pitch and tuning. Scales the increments
+ * by 2^x with no divide, so it can run at the control rate; the pulse
+ * width limits stay those of the unmodulated pitch
+ * (docs/modulation.md#pitch).
  */
-void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct);
+void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct1, int32_t oct2);
 /*
  * Pulse width modulation: `offset` (Q0.32 of a cycle, signed) is added
  * to both oscillators' set widths, clamped to 1..99 % and the pitch

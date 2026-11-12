@@ -29,7 +29,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 5468u
+#define FM_ENGINE_BUDGET_32 5548u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -270,11 +270,14 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
                          v * 42949673);
         return;
-    case FM_PARAM_LFO_PITCH_CENTS:
-        /* cents -> Q16.16 octaves: exact for multiples of 75 cents */
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH,
-                         v * 65536 / 1200);
+    case FM_PARAM_LFO_PITCH_CENTS: {
+        /* cents -> Q16.16 octaves: exact for multiples of 75 cents; the
+         * one vibrato depth moves both oscillators */
+        int32_t oct = v * 65536 / 1200;
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH1, oct);
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH2, oct);
         return;
+    }
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
         return;
     default:
@@ -682,13 +685,12 @@ static int16_t to_int16(int32_t q24)
     return (int16_t)s;
 }
 
-/* The LFO reaches some destination at a nonzero depth. */
-static int lfo_routed(const fm_engine *e)
+/* The LFO is live: it reaches some destination now, or the last tick
+ * applied it (one more tick clears the offset it left). The one test of
+ * whether the control ticks have work for the voices. */
+static int lfo_live(const fm_engine *e)
 {
-    unsigned d;
-    for (d = 0; d < FM_MOD_DEST_COUNT; d++)
-        if (e->mod.routes.depth[FM_MOD_SRC_LFO][d] != 0) return 1;
-    return 0;
+    return e->mod_on || fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO);
 }
 
 /*
@@ -699,17 +701,16 @@ static int lfo_routed(const fm_engine *e)
 static void control_tick(fm_engine *e)
 {
     int32_t lfo = fm_lfo_tick(&e->lfo);
-    int depth = lfo_routed(e);
     uint8_t k;
     e->ticks++;
     e->tick_left = FM_LFO_TICK_FRAMES;
     /* with every depth at 0 (after one tick that clears any offset still
      * applied) the voices have nothing to do */
-    if (depth || e->mod_on)
+    if (lfo_live(e))
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_tick(&e->voices[k], lfo, &e->mod, e->ticks);
-    e->mod_on = (uint8_t)depth;
+    e->mod_on = (uint8_t)fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO);
 }
 
 /*
@@ -726,8 +727,7 @@ static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    if ((e->mod_on || lfo_routed(e)) &&
-        n > e->tick_left)
+    if (lfo_live(e) && n > e->tick_left)
         n = e->tick_left;
     return n;
 }

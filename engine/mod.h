@@ -25,12 +25,12 @@
 enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_ENV1, FM_MOD_SRC_ENV2,
        FM_MOD_SRC_COUNT };
 
-/* Destinations, each summed in its own unit: pitch in Q16.16 octaves,
- * pulse width in Q0.32, level (the amp envelope's peak) in Q1.30, cutoff
- * in cents (added to the filter's base and key tracking), mix in Q1.30
- * (added to osc2_level). */
-enum { FM_MOD_PITCH, FM_MOD_PW, FM_MOD_LEVEL, FM_MOD_CUTOFF, FM_MOD_MIX,
-       FM_MOD_DEST_COUNT };
+/* Destinations, each summed in its own unit: osc 1's pitch in Q16.16
+ * octaves, pulse width in Q0.32, level (the amp envelope's peak) in Q1.30,
+ * cutoff in cents (added to the filter's base and key tracking), mix in
+ * Q1.30 (added to osc2_level), osc 2's pitch in Q16.16 octaves. */
+enum { FM_MOD_PITCH1, FM_MOD_PW, FM_MOD_LEVEL, FM_MOD_CUTOFF, FM_MOD_MIX,
+       FM_MOD_PITCH2, FM_MOD_DEST_COUNT };
 
 /* Route depths, in each destination's unit at full source. */
 typedef struct {
@@ -115,6 +115,16 @@ static inline int32_t fm_mod_update(fm_mod *m, const fm_mod_routes *r,
 {
     return m->sum[dest] = fm_mod_dest_sum(r->depth, m->src,
                                           FM_MOD_SRC_COUNT, dest);
+}
+
+/* Nonzero while source `src` reaches any destination at a nonzero depth
+ * (the engine ticks the LFO's sums only then, and once after). */
+static inline int fm_mod_source_routed(const fm_mod_routes *r, unsigned src)
+{
+    unsigned d;
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++)
+        if (r->depth[src][d]) return 1;
+    return 0;
 }
 
 /* Nonzero while destination `dest` is at rest: no route reaches it and

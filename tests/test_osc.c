@@ -525,7 +525,7 @@ static void render_mix_back(int16_t *out, int32_t mix, int32_t depth,
 }
 
 /*
- * Depth back to 0 glides to osc_mix and stays there: read off the output
+ * Depth back to 0 glides to osc2_level and stays there: read off the output
  * against each oscillator alone, the mix holds at 0.5 for the next second
  * (a glide landing exactly on its target must not carry on past it).
  */
@@ -570,9 +570,9 @@ TT_TEST(mix_env_off_renders_as_never_set)
 }
 
 /*
- * Changing osc_mix while the mix envelope is on glides too: with depth +500
- * and the envelope full, osc_mix 500 -> 0 moves the mix from 1.0 to 0.5 at
- * most 1/16 a sample (not via a snap to bare osc_mix, 0), read off the
+ * Changing osc2_level while the mix envelope is on glides too: with depth +500
+ * and the envelope full, osc2_level 500 -> 0 moves the mix from 1.0 to 0.5 at
+ * most 1/16 a sample (not via a snap to bare osc2_level, 0), read off the
  * output as in the depth test.
  */
 TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
@@ -601,7 +601,7 @@ TT_TEST(osc_mix_change_with_the_mix_env_on_glides)
         prev = m;
         prev_i = i;
     }
-    printf("    largest mix move per sample after an osc_mix change: %.3f\n", worst);
+    printf("    largest mix move per sample after an osc2_level change: %.3f\n", worst);
     TT_CHECK(worst <= 1.0 / 16 + 0.01);
 }
 
@@ -1308,8 +1308,11 @@ static void random_pair(fm_osc_pair *p, uint32_t *seed, int special)
     if (special & 2)
         fm_osc_pair_set_xmod(p, (int32_t)(pair_rand(seed) % (FM_OSC_LEVEL_FULL + 1u)));
     for (i = 0; i < 2; i++) fm_osc_pair_set_level(p, i, levels[pair_rand(seed) % 5]);
-    if (pair_rand(seed) & 1)
-        fm_osc_pair_set_pitch_mod(p, (int32_t)(pair_rand(seed) % 131073) - 65536);
+    if (pair_rand(seed) & 1) {
+        int32_t oct1 = (int32_t)(pair_rand(seed) % 131073) - 65536;
+        fm_osc_pair_set_pitch_mod(p, oct1, (pair_rand(seed) & 1) ? oct1 :
+                                  (int32_t)(pair_rand(seed) % 131073) - 65536);
+    }
     if (pair_rand(seed) & 1)
         fm_osc_pair_set_pw_mod(p, (int32_t)(pair_rand(seed) << 8));
     for (i = 0; i < 2; i++) p->osc[i].phase = pair_rand(seed) << 8;
@@ -1370,9 +1373,34 @@ TT_TEST(pair_render_with_xmod_matches_next_sample_by_sample)
     TT_CHECK_EQ(render_vs_next(3, 93, 400), 0);
 }
 
+/* Each oscillator takes its own pitch offset: osc 1 bent an octave up
+ * plays what a bend of both would give it, osc 2 stays at its pitch, and
+ * a new pitch keeps each oscillator's offset. */
+TT_TEST(pitch_mod_bends_each_oscillator_by_its_own_offset)
+{
+    static fm_osc_pair p, both, plain;
+    int32_t pitch = 57 << 16, x = 0x10000 + 0x2345;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_tune(&p, 1, 700, pitch, RATE);
+    fm_osc_pair_set_pitch(&p, pitch, RATE);
+    both = plain = p;
+    fm_osc_pair_set_pitch_mod(&p, x, 0);
+    fm_osc_pair_set_pitch_mod(&both, x, x);
+    TT_CHECK_EQ(p.osc[0].inc, both.osc[0].inc);
+    TT_CHECK_EQ(p.osc[1].inc, plain.osc[1].inc);
+    TT_CHECK(p.osc[0].inc != plain.osc[0].inc);
+    pitch = 64 << 16;
+    fm_osc_pair_set_pitch(&p, pitch, RATE);
+    fm_osc_pair_set_pitch(&both, pitch, RATE);
+    fm_osc_pair_set_pitch(&plain, pitch, RATE);
+    TT_CHECK_EQ(p.osc[0].inc, both.osc[0].inc);
+    TT_CHECK_EQ(p.osc[1].inc, plain.osc[1].inc);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
+    TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
     TT_RUN(pulse_width_outside_its_range_is_clamped);
