@@ -530,14 +530,18 @@ static int32_t advance(fm_osc_pair *p)
     return 0;
 }
 
-/* The ring's a and c (Q8.24): PG-8X's fit for a square osc1. */
-#define RING_A 14092861 /* 0.84 */
-#define RING_C 3523215  /* 0.21 */
+/*
+ * The ring's a and c by osc1's wave (Q8.24), from PG-8X's fit (#105):
+ * saw 1.12 and 0.235, square 0.84 and 0.21.
+ */
+static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 14092861, 14092861, 14092861 };
+static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 3523215, 3523215, 3523215 };
 
 /* osc2's sample b ringed by osc1's sample m: b (a - m) + c m, Q8.24. */
-static int32_t ring(int32_t b, int32_t m)
+static int32_t ring(const fm_osc_pair *p, int32_t b, int32_t m)
 {
-    return (int32_t)(((int64_t)b * (RING_A - m) + (int64_t)RING_C * m) >> 24);
+    uint8_t w = p->wave[0];
+    return (int32_t)(((int64_t)b * (ring_a[w] - m) + (int64_t)ring_c[w] * m) >> 24);
 }
 
 /*
@@ -571,7 +575,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     b += advance(p);
     p->osc[1].inc = inc;
     if (p->ring)
-        b = ring(b, a);
+        b = ring(p, b, a);
     if (p->mix == FM_OSC_MIX_FULL) return b;
     return a + (int32_t)(((int64_t)(b - a) * p->mix) >> 30);
 }

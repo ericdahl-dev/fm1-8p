@@ -1344,59 +1344,6 @@ TT_TEST(pitch_mod_bends_each_oscillator_by_its_own_offset)
     TT_CHECK_EQ(p.osc[1].inc, plain.osc[1].inc);
 }
 
-static void run_osc_tests(void)
-{
-    TT_RUN(each_wave_renders_at_note_pitch);
-    TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
-    TT_RUN(pulse_width_sets_duty_cycle);
-    TT_RUN(square_ignores_pulse_width);
-    TT_RUN(pulse_width_outside_its_range_is_clamped);
-    TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
-    TT_RUN(octave_and_fine_tune_shift_pitch);
-    TT_RUN(mix_env_at_full_depth_plays_osc2);
-    TT_RUN(mix_env_back_to_zero_restores_the_fixed_mix);
-    TT_RUN(mix_env_zero_matches_the_fixed_mix);
-    TT_RUN(mix_env_fades_osc2_in_with_the_envelope);
-    TT_RUN(mix_env_negative_depth_fades_osc2_out);
-    TT_RUN(mix_env_can_follow_the_amp_envelope);
-    TT_RUN(mix_env_depth_change_glides_without_a_click);
-    TT_RUN(mix_env_off_settles_at_the_fixed_mix);
-    TT_RUN(mix_env_off_renders_as_never_set);
-    TT_RUN(osc_mix_change_with_the_mix_env_on_glides);
-    TT_RUN(mix_env_from_the_amp_env_ignores_velocity);
-    TT_RUN(mix_env_from_the_amp_env_leaves_the_filter_env_lazy);
-    TT_RUN(mix_env_source_switch_reads_the_filter_env_where_it_is);
-    TT_RUN(osc2_coarse_tune_shifts_by_semitones);
-    TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
-    TT_RUN(osc2_coarse_zero_matches_no_coarse);
-    TT_RUN(osc2_coarse_change_retunes_a_held_note_without_a_restart);
-    TT_RUN(tuned_increment_matches_exact_pitch);
-    TT_RUN(octave_shifts_keep_their_ratio_at_the_extremes);
-    TT_RUN(retuning_a_held_note_takes_effect);
-    TT_RUN(pitch_bend_moves_both_oscillators);
-    TT_RUN(retuning_a_bent_note_keeps_the_bend);
-    TT_RUN(each_voice_makes_its_own_noise);
-    TT_RUN(unison_detune_moves_both_oscillators);
-    TT_RUN(unison_voices_make_distinct_noise);
-    TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
-    TT_RUN(noise_is_bounded_and_not_periodic);
-    TT_RUN(high_pulse_and_square_notes_have_low_aliasing);
-    TT_RUN(extreme_osc_settings_stay_bounded_and_release);
-    TT_RUN(sync_restarts_osc2_on_every_cycle_of_osc1);
-    TT_RUN(synced_osc2_has_low_aliasing);
-    TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
-    TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
-    TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
-    TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
-    TT_RUN(xmod_follows_osc2_coarse_changed_on_a_held_note);
-    TT_RUN(xmod_zero_matches_no_xmod);
-    TT_RUN(xmod_adds_sidebands);
-    TT_RUN(max_xmod_and_sync_stay_in_range);
-    TT_RUN(pair_render_matches_next_sample_by_sample);
-    TT_RUN(pair_render_with_sync_matches_next_sample_by_sample);
-    TT_RUN(pair_render_with_xmod_matches_next_sample_by_sample);
-}
-
 /*
  * The JX-8P's ring (#105): osc2 times osc1, as PG-8X 2.0.13 plays SYNC 2
  * and X-MOD. A pair with osc2 a fifth and 37 cents up, osc2 heard alone,
@@ -1445,4 +1392,67 @@ TT_TEST(ring_multiplies_osc2_by_osc1_square)
     double err = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, 0.21, 20000);
     printf("    ring square/square: largest error %.2e\n", err);
     TT_CHECK(err < 1e-4);
+}
+
+/* A saw osc1 has PG-8X's a of 1.12 (osc1's wave sets it, whatever osc2's), and c 0.235. */
+TT_TEST(ring_depth_follows_a_saw_osc1)
+{
+    double err = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, 0.235, 20000);
+    printf("    ring saw/square: largest error %.2e\n", err);
+    TT_CHECK(err < 1e-4);
+}
+
+static void run_osc_tests(void)
+{
+    TT_RUN(each_wave_renders_at_note_pitch);
+    TT_RUN(ring_multiplies_osc2_by_osc1_square);
+    TT_RUN(ring_depth_follows_a_saw_osc1);
+    TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
+    TT_RUN(pulse_width_sets_duty_cycle);
+    TT_RUN(square_ignores_pulse_width);
+    TT_RUN(pulse_width_outside_its_range_is_clamped);
+    TT_RUN(pulse_peaks_at_the_saw_level_at_every_width);
+    TT_RUN(octave_and_fine_tune_shift_pitch);
+    TT_RUN(mix_env_at_full_depth_plays_osc2);
+    TT_RUN(mix_env_back_to_zero_restores_the_fixed_mix);
+    TT_RUN(mix_env_zero_matches_the_fixed_mix);
+    TT_RUN(mix_env_fades_osc2_in_with_the_envelope);
+    TT_RUN(mix_env_negative_depth_fades_osc2_out);
+    TT_RUN(mix_env_can_follow_the_amp_envelope);
+    TT_RUN(mix_env_depth_change_glides_without_a_click);
+    TT_RUN(mix_env_off_settles_at_the_fixed_mix);
+    TT_RUN(mix_env_off_renders_as_never_set);
+    TT_RUN(osc_mix_change_with_the_mix_env_on_glides);
+    TT_RUN(mix_env_from_the_amp_env_ignores_velocity);
+    TT_RUN(mix_env_from_the_amp_env_leaves_the_filter_env_lazy);
+    TT_RUN(mix_env_source_switch_reads_the_filter_env_where_it_is);
+    TT_RUN(osc2_coarse_tune_shifts_by_semitones);
+    TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
+    TT_RUN(osc2_coarse_zero_matches_no_coarse);
+    TT_RUN(osc2_coarse_change_retunes_a_held_note_without_a_restart);
+    TT_RUN(tuned_increment_matches_exact_pitch);
+    TT_RUN(octave_shifts_keep_their_ratio_at_the_extremes);
+    TT_RUN(retuning_a_held_note_takes_effect);
+    TT_RUN(pitch_bend_moves_both_oscillators);
+    TT_RUN(retuning_a_bent_note_keeps_the_bend);
+    TT_RUN(each_voice_makes_its_own_noise);
+    TT_RUN(unison_detune_moves_both_oscillators);
+    TT_RUN(unison_voices_make_distinct_noise);
+    TT_RUN(osc_mix_ends_play_one_oscillator_and_middle_plays_both);
+    TT_RUN(noise_is_bounded_and_not_periodic);
+    TT_RUN(high_pulse_and_square_notes_have_low_aliasing);
+    TT_RUN(extreme_osc_settings_stay_bounded_and_release);
+    TT_RUN(sync_restarts_osc2_on_every_cycle_of_osc1);
+    TT_RUN(synced_osc2_has_low_aliasing);
+    TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
+    TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
+    TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
+    TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
+    TT_RUN(xmod_follows_osc2_coarse_changed_on_a_held_note);
+    TT_RUN(xmod_zero_matches_no_xmod);
+    TT_RUN(xmod_adds_sidebands);
+    TT_RUN(max_xmod_and_sync_stay_in_range);
+    TT_RUN(pair_render_matches_next_sample_by_sample);
+    TT_RUN(pair_render_with_sync_matches_next_sample_by_sample);
+    TT_RUN(pair_render_with_xmod_matches_next_sample_by_sample);
 }
