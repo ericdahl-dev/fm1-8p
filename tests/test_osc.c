@@ -1519,6 +1519,44 @@ TT_TEST(ring_is_silent_with_osc2_unheard)
     TT_CHECK(heard);
 }
 
+/* Power of channel 0 over frames [from, to). */
+static double ring_power(const int16_t *stereo, size_t from, size_t to)
+{
+    double sum = 0;
+    size_t i;
+    for (i = from; i < to; i++) sum += (double)stereo[2 * i] * stereo[2 * i];
+    return sum / (double)(to - from);
+}
+
+/*
+ * osc_ring through the engine (the JX-8P's SYNC 2 and X-MOD): off by
+ * default; on, a sounding note's osc2 (square, an octave and 37 cents up,
+ * mixed alone) is ringed by osc1's square at once, 2.4 dB louder: the
+ * square law's mean square, 0.5 (0.16^2 + 1.84^2) + 0.21^2.
+ */
+TT_TEST(osc_ring_param_rings_sounding_notes)
+{
+    const fm_param_info *info = fm_param_info_get(FM_PARAM_OSC_RING);
+    double off, on, db;
+    TT_CHECK(info != NULL);
+    if (!info) return;
+    TT_CHECK_EQ(info->min, 0);
+    TT_CHECK_EQ(info->max, 1);
+    TT_CHECK_EQ(info->def, 0);
+    slave_init(44100, FM_WAVE_SQUARE);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SQUARE);
+    fm_engine_note_on(&eng, 48, 100);
+    fm_engine_render(&eng, buf, 12000);
+    off = ring_power(buf, 4000, 12000);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_RING, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_get_param(&eng, FM_PARAM_OSC_RING), 1);
+    fm_engine_render(&eng, buf, 12000);
+    on = ring_power(buf, 4000, 12000);
+    db = 10 * log10(on / off);
+    printf("    osc_ring on: %+.2f dB over osc2 alone\n", db);
+    TT_CHECK(db > 2.0 && db < 2.9);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
@@ -1529,6 +1567,7 @@ static void run_osc_tests(void)
     TT_RUN(ring_rides_the_synced_osc2);
     TT_RUN(ring_stays_within_two);
     TT_RUN(ring_is_silent_with_osc2_unheard);
+    TT_RUN(osc_ring_param_rings_sounding_notes);
     TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);

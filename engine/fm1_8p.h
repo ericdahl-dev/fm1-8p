@@ -93,6 +93,7 @@ typedef enum {
     FM_PARAM_PITCH_ENV_OSC2_CENTS, /* osc 2's */
     FM_PARAM_PITCH_ENV_SOURCE, /* the envelope it follows: 0 filter, 1 amp */
     FM_PARAM_PITCH_ENV_DYNA, /* DYNAMICS 0 (off) .. 3: velocity scales it */
+    FM_PARAM_OSC_RING, /* 1: osc2 times osc1, the JX-8P's SYNC 2 and X-MOD */
     FM_PARAM_COUNT
 } fm_param_id;
 

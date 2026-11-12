@@ -217,6 +217,10 @@ static void apply_param(fm_engine *e, uint16_t id)
         for (i = 0; i < FM_MAX_VOICES; i++)
             fm_osc_pair_set_sync(&e->voices[i].osc, (uint8_t)v);
         return;
+    case FM_PARAM_OSC_RING:
+        for (i = 0; i < FM_MAX_VOICES; i++)
+            fm_osc_pair_set_ring(&e->voices[i].osc, (uint8_t)v);
+        return;
     case FM_PARAM_OSC_MIX:
         for (i = 0; i < FM_MAX_VOICES; i++) {
             fm_voice *vc = &e->voices[i];
