@@ -1379,8 +1379,8 @@ static void ring_pair(fm_osc_pair *p, uint8_t w1, uint8_t w2, int32_t mix, uint8
     fm_osc_pair_set_ring(p, ring);
 }
 
-/* Largest error (in units of 1.0) of the ring against x2 (a - m1) + c m1, held to +-2.0, over n samples. */
-static double ring_law_error(uint8_t w1, uint8_t w2, double a, double c, uint32_t n)
+/* Largest error (in units of 1.0) of the ring against x2 (a + b m1) + c m1, held to +-2.0, over n samples. */
+static double ring_law_error(uint8_t w1, uint8_t w2, double a, double b, double c, uint32_t n)
 {
     static fm_osc_pair x1, x2, y;
     double worst = 0;
@@ -1390,7 +1390,7 @@ static double ring_law_error(uint8_t w1, uint8_t w2, double a, double c, uint32_
     ring_pair(&y, w1, w2, FM_OSC_MIX_FULL, 1);
     for (i = 0; i < n; i++) {
         double m1 = fm_osc_pair_next(&x1) / RING_ONE, s2 = fm_osc_pair_next(&x2) / RING_ONE;
-        double want = s2 * (a - m1) + c * m1, got = fm_osc_pair_next(&y) / RING_ONE;
+        double want = s2 * (a + b * m1) + c * m1, got = fm_osc_pair_next(&y) / RING_ONE;
         want = want > 2.0 ? 2.0 : want < -2.0 ? -2.0 : want; /* ring_stays_within_two */
         if (fabs(got - want) > worst) worst = fabs(got - want);
     }
@@ -1398,13 +1398,14 @@ static double ring_law_error(uint8_t w1, uint8_t w2, double a, double c, uint32_
 }
 
 /*
- * Square on both: osc2 passes at 0.84 - m1 (1.84x while osc1 is low,
- * -0.16x while it is high) with 0.21 of osc1 on top, the fit of PG-8X's
- * X-MOD (b = -1, the ring at full depth).
+ * Square on both: osc2 passes at 0.84 - 0.83 m1 (1.67x while osc1 is low,
+ * 0.01x while it is high) with 0.21 of osc1 on top, the fit of PG-8X's
+ * X-MOD with osc1 measured against a clean square (PG-8X's peaks 1.22x
+ * its plateau, which the fit at peak 1 read as b = -1.0).
  */
 TT_TEST(ring_multiplies_osc2_by_osc1_square)
 {
-    double err = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, 0.21, 20000);
+    double err = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, -0.83, 0.21, 20000);
     printf("    ring square/square: largest error %.2e\n", err);
     TT_CHECK(err < 1e-4);
 }
@@ -1412,7 +1413,7 @@ TT_TEST(ring_multiplies_osc2_by_osc1_square)
 /* A saw osc1 has PG-8X's a of 1.12 (osc1's wave sets it, whatever osc2's), and c 0.235. */
 TT_TEST(ring_depth_follows_a_saw_osc1)
 {
-    double err = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, 0.235, 20000);
+    double err = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, -1.0, 0.235, 20000);
     printf("    ring saw/square: largest error %.2e\n", err);
     TT_CHECK(err < 1e-4);
 }
@@ -1420,7 +1421,7 @@ TT_TEST(ring_depth_follows_a_saw_osc1)
 /* A pulse osc1 (25 %, the converter's) has PG-8X's a of 1.66 and c 0.15. */
 TT_TEST(ring_depth_follows_a_pulse_osc1)
 {
-    double err = ring_law_error(FM_WAVE_PULSE, FM_WAVE_SQUARE, 1.66, 0.15, 20000);
+    double err = ring_law_error(FM_WAVE_PULSE, FM_WAVE_SQUARE, 1.66, -1.0, 0.15, 20000);
     printf("    ring pulse/square: largest error %.2e\n", err);
     TT_CHECK(err < 1e-4);
 }
@@ -1428,7 +1429,7 @@ TT_TEST(ring_depth_follows_a_pulse_osc1)
 /* Noise on osc1 (not measured on PG-8X): plain ring modulation, a 1.0 and no bleed. */
 TT_TEST(ring_with_noise_osc1_is_plain_ring_modulation)
 {
-    double err = ring_law_error(FM_WAVE_NOISE, FM_WAVE_SQUARE, 1.0, 0.0, 20000);
+    double err = ring_law_error(FM_WAVE_NOISE, FM_WAVE_SQUARE, 1.0, -1.0, 0.0, 20000);
     printf("    ring noise/square: largest error %.2e\n", err);
     TT_CHECK(err < 1e-4);
 }
@@ -1441,8 +1442,8 @@ TT_TEST(ring_rides_the_synced_osc2)
 {
     double sq, saw;
     ring_sync = 1;
-    sq = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, 0.21, 20000);
-    saw = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, 0.235, 20000);
+    sq = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, -0.83, 0.21, 20000);
+    saw = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, -1.0, 0.235, 20000);
     ring_sync = 0;
     printf("    synced ring: largest error square %.2e, saw %.2e\n", sq, saw);
     TT_CHECK(sq < 1e-4);
@@ -1531,8 +1532,8 @@ static double ring_power(const int16_t *stereo, size_t from, size_t to)
 /*
  * osc_ring through the engine (the JX-8P's SYNC 2 and X-MOD): off by
  * default; on, a sounding note's osc2 (square, an octave and 37 cents up,
- * mixed alone) is ringed by osc1's square at once, 2.4 dB louder: the
- * square law's mean square, 0.5 (0.16^2 + 1.84^2) + 0.21^2.
+ * mixed alone) is ringed by osc1's square at once, 1.6 dB louder: the
+ * square law's mean square, 0.84^2 + 0.83^2 + 0.21^2 (PG-8X: +1.7 dB).
  */
 TT_TEST(osc_ring_param_rings_sounding_notes)
 {
@@ -1554,7 +1555,7 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
     on = ring_power(buf, 4000, 12000);
     db = 10 * log10(on / off);
     printf("    osc_ring on: %+.2f dB over osc2 alone\n", db);
-    TT_CHECK(db > 2.0 && db < 2.9);
+    TT_CHECK(db > 1.2 && db < 2.0);
 }
 
 static void run_osc_tests(void)
