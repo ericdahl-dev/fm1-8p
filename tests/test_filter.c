@@ -442,6 +442,101 @@ TT_TEST(negative_amount_from_envelope_2_closes_the_filter)
     TT_CHECK(late > 1.5 * early); /* 20 % sustain: -960 cents late */
 }
 
+/* VCF DYNAMICS (filter_env_dyna, #8): the note's velocity scales the
+ * envelope's cutoff depth by the shared DYNAMICS curve (engine/dyna.c).
+ * Half a second of note 36 at `velocity`, the filter envelope held at
+ * full (0 ms attack, 100 % sustain) from `source` at `amount` cents. */
+static void play_filter_dyna(int16_t *out, int32_t amount, int32_t dyna,
+                             uint8_t velocity, int32_t source)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 3600);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 400);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SOURCE, source);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, amount);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DYNA, dyna);
+    fm_engine_note_on(&feng, 36, velocity);
+    fm_engine_render(&feng, out, FRATE / 2);
+}
+
+/* Position 2 at velocity 64 plays fm_dyna_share_q15(2, 64) of the amount:
+ * the same samples as that many cents with DYNAMICS off, and not the
+ * full amount's. */
+TT_TEST(filter_envelope_dynamics_scale_the_depth_by_velocity)
+{
+    int32_t part = (int32_t)(4800 * fm_dyna_share_q15(2, 64) >> 15);
+    TT_CHECK_EQ(part, 2359);
+    play_filter_dyna(fbuf_a, 4800, 2, 64, 0);
+    play_filter_dyna(fbuf_b, part, 0, 64, 0);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+    play_filter_dyna(fbuf_b, 4800, 0, 64, 0);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) != 0);
+}
+
+/* The JX-8P has one DYNAMICS switch for the VCF whichever envelope it
+ * names: from envelope 2 (the amp envelope) the depth scales the same. */
+TT_TEST(filter_envelope_dynamics_scale_envelope_2_too)
+{
+    play_filter_dyna(fbuf_a, 4800, 2, 64, 1);
+    play_filter_dyna(fbuf_b, 2359, 0, 64, 1);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+}
+
+/* Inverted (a negative amount) scales the same: a soft note closes the
+ * filter less. -4800 cents at position 2, velocity 64 is -2360 (the
+ * share of a negative depth rounds down). */
+TT_TEST(filter_envelope_dynamics_scale_an_inverted_envelope)
+{
+    play_filter_dyna(fbuf_a, -4800, 2, 64, 0);
+    play_filter_dyna(fbuf_b, -2360, 0, 64, 0);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+}
+
+/* Half a second of notes 36 and 43 at velocities `v1` and `v2` (0: that
+ * note not played) on two voices, VCF DYNAMICS 2 on a +4800 cent envelope
+ * held at full. */
+static void play_dyna_pair(int16_t *out, uint8_t v1, uint8_t v2)
+{
+    fm_engine_init(&feng, FRATE, 2);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 3600);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DYNA, 2);
+    if (v1) fm_engine_note_on(&feng, 36, v1);
+    if (v2) fm_engine_note_on(&feng, 43, v2);
+    fm_engine_render(&feng, out, FRATE / 2);
+}
+
+/* Each voice takes the share of its own note's velocity: a hard and a
+ * soft note together are the sum of each played alone (to the output's
+ * rounding), whichever is played last. */
+TT_TEST(filter_envelope_dynamics_are_each_voices_own)
+{
+    static int16_t solo[2][FRATE];
+    int order;
+    for (order = 0; order < 2; order++) {
+        uint8_t v1 = order ? 1 : 127, v2 = order ? 127 : 1;
+        int worst = 0;
+        size_t i;
+        play_dyna_pair(solo[0], v1, 0);
+        play_dyna_pair(solo[1], 0, v2);
+        play_dyna_pair(fbuf_a, v1, v2);
+        for (i = 0; i < FRATE; i++) {
+            int d = abs(fbuf_a[i] - (solo[0][i] + solo[1][i]));
+            if (d > worst) worst = d;
+        }
+        printf("    velocities %d and %d: worst error against the sum %d\n",
+               v1, v2, worst);
+        TT_CHECK(worst <= 2);
+    }
+}
+
 /*
  * A positive amount opens the filter at the note start and sweeps the
  * cutoff back down as the envelope decays (bright, then dark); a
@@ -2126,6 +2221,10 @@ static void run_filter_tests(void)
     TT_RUN(negative_amount_from_envelope_2_closes_the_filter);
     TT_RUN(envelope_2_on_the_filter_ignores_velocity);
     TT_RUN(block_size_does_not_change_envelope_2_on_the_filter);
+    TT_RUN(filter_envelope_dynamics_scale_the_depth_by_velocity);
+    TT_RUN(filter_envelope_dynamics_scale_envelope_2_too);
+    TT_RUN(filter_envelope_dynamics_scale_an_inverted_envelope);
+    TT_RUN(filter_envelope_dynamics_are_each_voices_own);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);
     TT_RUN(filter_output_does_not_depend_on_block_size);
     TT_RUN(extreme_filter_settings_stay_bounded_and_release);

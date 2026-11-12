@@ -28,6 +28,7 @@
 #define FM_NOINLINE
 #endif
 
+static uint8_t mutant_last;
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
                     const fm_env_settings *amp, const fm_env_settings *filter)
 {
@@ -136,10 +137,16 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
                                            int32_t fenv)
 {
     int32_t cents;
+    int32_t env2 = m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF]
+                       ? amp_share(v, v->amp_env.level) : 0;
+    if (m->fenv_dyna) { /* VCF DYNAMICS: Q1.30 * Q15 share */
+        int64_t share = fm_dyna_share_q15(m->fenv_dyna, mutant_last);
+        fenv = (int32_t)((fenv * share) >> 15);
+        env2 = (int32_t)((env2 * share) >> 15);
+    }
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, fenv);
     if (m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF])
-        fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2,
-                          amp_share(v, v->amp_env.level));
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2, env2);
     cents = fm_filter_voice_cents(v->cutoff_cents, v->key_track, v->key_note,
                                   fm_mod_update(&v->mod, &m->routes,
                                                 FM_MOD_CUTOFF));
@@ -215,7 +222,7 @@ static void restart_lfo(fm_voice *v, uint32_t now)
 static void start(fm_voice *v, const fm_voice_mod *m, uint32_t sample_rate,
                   int32_t peak, uint8_t velocity, uint32_t now)
 {
-    v->velocity = velocity;
+    v->velocity = velocity; mutant_last = velocity;
     v->pending = 0;
     fm_voice_mark(v, FM_BUSY_STEAL, 0);
     v->ctrl_phase = 0; /* the new note's cutoff from its first sample */

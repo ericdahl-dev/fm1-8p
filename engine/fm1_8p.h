@@ -95,6 +95,8 @@ typedef enum {
     FM_PARAM_PITCH_ENV_DYNA, /* DYNAMICS 0 (off) .. 3: velocity scales it */
     FM_PARAM_OSC1_LEVEL, /* per mille: osc1's level into the sum, 0 off */
     FM_PARAM_OSC_RING, /* 1: osc2 times osc1, the JX-8P's SYNC 2 and X-MOD */
+    FM_PARAM_FILTER_ENV_DYNA, /* DYNAMICS 0 (off) .. 3: velocity scales
+                               * filter_env_amount_cents */
     FM_PARAM_COUNT
 } fm_param_id;
 

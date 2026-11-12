@@ -300,6 +300,9 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_PITCH_ENV_DYNA: /* read at the next tick */
         e->mod.penv_dyna = (uint8_t)v;
         return;
+    case FM_PARAM_FILTER_ENV_DYNA: /* read at the next cutoff update */
+        e->mod.fenv_dyna = (uint8_t)v;
+        return;
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
         return;
     default:
