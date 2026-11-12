@@ -385,6 +385,50 @@ TT_TEST(envelope_2_on_the_filter_ignores_velocity)
     TT_CHECK(fabs(soft / hard - 1) < 0.01);
 }
 
+/* Two voices, the filter on envelope 2: notes, a steal, a release to
+ * silence, the source switched to envelope 1 and back mid-note, one
+ * second in blocks of `block` frames. */
+static void env2_filter_in_blocks(int16_t *out, uint32_t block)
+{
+    static const uint32_t at[] = { 0, 3000, 9000, 15000, 22000, 30000, FRATE };
+    uint32_t k, done = 0;
+    fm_engine_init(&feng, FRATE, 2);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_DECAY_MS, 150);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 300);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 60);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 5400);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 500);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SOURCE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600);
+    for (k = 0; k + 1 < sizeof at / sizeof at[0]; k++) {
+        switch (k) {
+        case 0: fm_engine_note_on(&feng, 48, 100); break;
+        case 1: fm_engine_note_on(&feng, 55, 60); break;
+        case 2: fm_engine_note_on(&feng, 60, 127); break; /* steals */
+        case 3: fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SOURCE, 0); break;
+        case 4: fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SOURCE, 1);
+                fm_engine_note_off(&feng, 55); fm_engine_note_off(&feng, 60); break;
+        default: break;
+        }
+        while (done < at[k + 1]) {
+            uint32_t n = at[k + 1] - done < block ? at[k + 1] - done : block;
+            fm_engine_render(&feng, out + 2 * done, n);
+            done += n;
+        }
+    }
+}
+
+TT_TEST(block_size_does_not_change_envelope_2_on_the_filter)
+{
+    static const uint32_t blocks[] = { 1, 31, 100, 4096 };
+    size_t b;
+    env2_filter_in_blocks(fbuf_a, 64);
+    for (b = 0; b < 4; b++) {
+        env2_filter_in_blocks(fbuf_b, blocks[b]);
+        TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 4) == 0);
+    }
+}
+
 /* Inverted (the JX-8P's ENV-2 inverted) is a negative amount: from
  * envelope 2 the cutoff closes at the attack and opens as the amp
  * envelope decays, dark then bright. */
@@ -2042,6 +2086,7 @@ static void run_filter_tests(void)
     TT_RUN(filter_envelope_from_envelope_2_follows_the_amp_envelope);
     TT_RUN(negative_amount_from_envelope_2_closes_the_filter);
     TT_RUN(envelope_2_on_the_filter_ignores_velocity);
+    TT_RUN(block_size_does_not_change_envelope_2_on_the_filter);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);
     TT_RUN(filter_output_does_not_depend_on_block_size);
     TT_RUN(extreme_filter_settings_stay_bounded_and_release);
