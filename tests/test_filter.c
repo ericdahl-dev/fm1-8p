@@ -358,6 +358,33 @@ TT_TEST(filter_envelope_from_envelope_2_follows_the_amp_envelope)
                   brightness(fbuf_a, 39690, 44100) - 1) < 0.05);
 }
 
+/* Envelope 2 reaches the cutoff as the amp envelope's share of the
+ * note's peak: a soft note (amp_velocity_pct 100) sweeps the filter as
+ * far as a hard one. Held at full (sustain 100 %), the brightness is the
+ * same at velocity 30 and 127. */
+static double env2_held_brightness(uint8_t velocity)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_VELOCITY, 100);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 4800);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SOURCE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400);
+    fm_engine_note_on(&feng, 36, velocity);
+    fm_engine_render(&feng, fbuf_a, FRATE / 2);
+    return brightness(fbuf_a, 13230, 22050); /* 300..500 ms */
+}
+
+TT_TEST(envelope_2_on_the_filter_ignores_velocity)
+{
+    double soft = env2_held_brightness(30), hard = env2_held_brightness(127);
+    printf("    env 2 held: brightness at velocity 30 %.4f, 127 %.4f\n", soft, hard);
+    TT_CHECK(fabs(soft / hard - 1) < 0.01);
+}
+
 /* Inverted (the JX-8P's ENV-2 inverted) is a negative amount: from
  * envelope 2 the cutoff closes at the attack and opens as the amp
  * envelope decays, dark then bright. */
@@ -2014,6 +2041,7 @@ static void run_filter_tests(void)
     TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
     TT_RUN(filter_envelope_from_envelope_2_follows_the_amp_envelope);
     TT_RUN(negative_amount_from_envelope_2_closes_the_filter);
+    TT_RUN(envelope_2_on_the_filter_ignores_velocity);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);
     TT_RUN(filter_output_does_not_depend_on_block_size);
     TT_RUN(extreme_filter_settings_stay_bounded_and_release);
