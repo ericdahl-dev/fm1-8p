@@ -309,10 +309,24 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         f->s[3] = soft_clip(clamp_in(in));
         return f->s[3];
     }
-    /* hp_g > 0: a highpass; 0: off; < 0: the bass boost (its sign is the
-     * only test the highpass pays for it: a test of its own costs 0.9 % of
-     * the FM-1 at full load) */
-    if (f->hp_g > 0) {
+    /* hp_g < 0: the bass boost; 0: off; > 0: a highpass. Each test here
+     * costs about 0.9 % of the FM-1 at full load (emu F), so the boost,
+     * the costliest path and the one most factory tones take (23 of 32),
+     * is tested first: worst case 49.3 %, against 49.4 % highpass first
+     * and 50.0 % off first. */
+    if (f->hp_g < 0) {
+        if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* 1.26 x + 1.02 lowpass(x) */
+            f->hp += mul_q30(in - f->hp, -f->hp_g);
+            x = in + mul_q30(in, BOOST_HI) + mul_q30(f->hp, BOOST_LO);
+        } else {
+            int64_t d;
+            f->hp += (int32_t)((((int64_t)in - f->hp) * -f->hp_g) >> 30);
+            d = (int64_t)in + (((int64_t)in * BOOST_HI) >> 30) + (((int64_t)f->hp * BOOST_LO) >> 30);
+            x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
+        }
+    } else if (!f->hp_g) {
+        x = clamp_in(in);
+    } else {
         if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* input minus a one-pole lowpass of it */
             f->hp += mul_q30(in - f->hp, f->hp_g);
             x = in - f->hp;
@@ -322,16 +336,6 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
             d = (int64_t)in - f->hp;
             x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
         }
-    } else if (!f->hp_g) {
-        x = clamp_in(in);
-    } else if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* the boost: 1.26 x + 1.02 lowpass(x) */
-        f->hp += mul_q30(in - f->hp, -f->hp_g);
-        x = in + mul_q30(in, BOOST_HI) + mul_q30(f->hp, BOOST_LO);
-    } else {
-        int64_t d;
-        f->hp += (int32_t)((((int64_t)in - f->hp) * -f->hp_g) >> 30);
-        d = (int64_t)in + (((int64_t)in * BOOST_HI) >> 30) + (((int64_t)f->hp * BOOST_LO) >> 30);
-        x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
     }
     u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
     if (f->w == W_ZERO) { /* below the fade: w * d is d >> 2, exactly */
