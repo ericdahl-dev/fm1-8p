@@ -322,6 +322,42 @@ static void play_filter_env(int16_t *out, int32_t cutoff, int32_t amount)
     fm_engine_render(&feng, out, FRATE);
 }
 
+/* Note 36 for one second, envelope 1 held at 0 and the amp envelope (0 ms
+ * attack, 400 ms decay to 20 %) the shape, the filter envelope from
+ * `source` at `amount` cents. */
+static void play_amp_shaped_filter(int16_t *out, int32_t cutoff,
+                                   int32_t amount, int32_t source)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_DECAY_MS, 400);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 200);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, cutoff);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SOURCE, source);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, amount);
+    fm_engine_note_on(&feng, 36, 100);
+    fm_engine_render(&feng, out, FRATE);
+}
+
+/* filter_env_source 1: the cutoff follows envelope 2, the amp envelope,
+ * bright at the attack and darker as it decays, with envelope 1 at 0
+ * (which, as source 0, leaves the tone the same throughout). */
+TT_TEST(filter_envelope_from_envelope_2_follows_the_amp_envelope)
+{
+    double early, late;
+    play_amp_shaped_filter(fbuf_a, 4800, 4800, 1);
+    early = brightness(fbuf_a, 441, 2205);   /* 10..50 ms */
+    late = brightness(fbuf_a, 39690, 44100); /* 900..1000 ms */
+    printf("    env 2 +4800: brightness early %.4f, late %.4f\n", early, late);
+    TT_CHECK(early > 2.0 * late);
+    play_amp_shaped_filter(fbuf_a, 4800, 4800, 0);
+    TT_CHECK(fabs(brightness(fbuf_a, 441, 2205) /
+                  brightness(fbuf_a, 39690, 44100) - 1) < 0.05);
+}
+
 /*
  * A positive amount opens the filter at the note start and sweeps the
  * cutoff back down as the envelope decays (bright, then dark); a
@@ -1963,6 +1999,7 @@ static void run_filter_tests(void)
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
     TT_RUN(key_tracking_ignores_osc2_coarse_like_its_octave);
     TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
+    TT_RUN(filter_envelope_from_envelope_2_follows_the_amp_envelope);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);
     TT_RUN(filter_output_does_not_depend_on_block_size);
     TT_RUN(extreme_filter_settings_stay_bounded_and_release);

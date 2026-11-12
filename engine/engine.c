@@ -294,11 +294,19 @@ static void apply_param(fm_engine *e, uint16_t id)
     }
     if (apply_env_param(e, id, v))
         return;
-    if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) /* every voice's, shared */
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV1, FM_MOD_CUTOFF, v);
+    if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS ||
+        id == FM_PARAM_FILTER_ENV_SOURCE) { /* every voice's, shared */
+        int env2 = e->params[FM_PARAM_FILTER_ENV_SOURCE] != 0;
+        int32_t amount = e->params[FM_PARAM_FILTER_ENV_AMOUNT_CENTS];
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV1, FM_MOD_CUTOFF,
+                         env2 ? 0 : amount);
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV2, FM_MOD_CUTOFF,
+                         env2 ? amount : 0);
+    }
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *vc = &e->voices[i];
-        if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS)
+        if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS ||
+            id == FM_PARAM_FILTER_ENV_SOURCE)
             fm_voice_sync_filter_env(vc); /* current before it changes */
         switch (id) {
         case FM_PARAM_FILTER_CUTOFF_CENTS:
@@ -316,6 +324,7 @@ static void apply_param(fm_engine *e, uint16_t id)
             fm_voice_set_highpass(vc, (uint8_t)v);
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
+        case FM_PARAM_FILTER_ENV_SOURCE:
             /* busy while the envelope reaches the cutoff, and after it
              * stops until the cutoff is summed back (update_cutoff) */
             fm_voice_mark(vc, FM_BUSY_FILTER_ENV,

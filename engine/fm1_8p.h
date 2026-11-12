@@ -84,6 +84,9 @@ typedef enum {
     FM_PARAM_OSC2_COARSE_SEMIS, /* -12..+12 semitones, on top of osc2's octave and fine */
     FM_PARAM_OSC_MIX_ENV, /* per mille, -1000..+1000: the envelope's share added to osc_mix */
     FM_PARAM_OSC_MIX_ENV_SOURCE, /* the envelope it follows: 0 filter, 1 amp */
+    FM_PARAM_FILTER_ENV_SOURCE, /* the envelope the cutoff follows at
+                                 * filter_env_amount_cents: 0 envelope 1
+                                 * (filter), 1 envelope 2 (amp) */
     FM_PARAM_COUNT
 } fm_param_id;
 

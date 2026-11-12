@@ -52,6 +52,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_OSC2_COARSE_SEMIS, "osc2_coarse_semis", -12,  12,    0 },
     { FM_PARAM_OSC_MIX_ENV,    "osc_mix_env_permille", -1000, 1000, 0 },
     { FM_PARAM_OSC_MIX_ENV_SOURCE, "osc_mix_env_source", 0,     1,    0 },
+    { FM_PARAM_FILTER_ENV_SOURCE, "filter_env_source", 0,     1,    0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)
