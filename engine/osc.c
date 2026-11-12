@@ -605,8 +605,10 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     b = osc2_at(p);
     b += advance(p);
     p->osc[1].inc = inc;
-    if (p->ring)
-        b = ring(p, b, a);
+    if (p->ring) { /* osc1 plus the ringed osc2 could reach 3.0: the pair stays in +-2.0 */
+        int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->level[1]);
+        return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
+    }
     return gain(a, p->level[0]) + gain(b, p->level[1]);
 }
 

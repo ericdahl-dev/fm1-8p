@@ -1551,7 +1551,8 @@ TT_TEST(ring_rides_the_synced_osc2)
  * 2.12, less 0.235 of osc1), but the pair stays inside the soft clip's
  * untouched +-2.0 that the open-filter render relies on: every wave pair,
  * free and synced, osc2 at the pulse's narrowest and far up, at the
- * pitch and rate extremes.
+ * pitch and rate extremes, osc2 heard alone or summed with osc1 at full
+ * (the mixer's sum: osc1 plus the ringed osc2 would reach 3.0).
  */
 TT_TEST(ring_stays_within_two)
 {
@@ -1559,7 +1560,8 @@ TT_TEST(ring_stays_within_two)
     static const int32_t notes[] = { 0, 48, 60, 127 };
     static fm_osc_pair p;
     int32_t peak = 0;
-    size_t r, n, w1, w2, sy, i;
+    size_t r, n, w1, w2, sy, l1, i;
+    for (l1 = 0; l1 < 2; l1++)
     for (r = 0; r < 3; r++)
     for (n = 0; n < 4; n++)
     for (w1 = 0; w1 < FM_WAVE_COUNT; w1++)
@@ -1573,7 +1575,7 @@ TT_TEST(ring_stays_within_two)
         fm_osc_pair_set_width(&p, 1, 1);
         fm_osc_pair_set_tune(&p, 1, 3737, pitch, rates[r]);
         fm_osc_pair_set_pitch(&p, pitch, rates[r]);
-        fm_osc_pair_set_level(&p, 0, 0);
+        fm_osc_pair_set_level(&p, 0, l1 ? FM_OSC_LEVEL_FULL : 0);
         fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
         fm_osc_pair_set_sync(&p, (uint8_t)sy);
         fm_osc_pair_set_ring(&p, 1);
