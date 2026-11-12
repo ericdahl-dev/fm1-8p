@@ -665,16 +665,98 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
 }
 
 /*
+ * Samples before osc1's next wrap at its current phase, at most `left`:
+ * no restart of osc2 falls in them. One divide per osc1 cycle.
+ */
+static uint32_t until_wrap(const fm_osc_pair *p, uint32_t left)
+{
+    uint32_t inc0 = p->osc[0].inc, m;
+    if (inc0 == 0) return left; /* osc1 stopped: it never wraps */
+    m = ~p->osc[0].phase / inc0;
+    return m < left ? m : left;
+}
+
+/*
+ * osc1's next `n` samples times its level into out[], as next_special
+ * makes them (0 at level 0, where it isn't drawn: a noise keeps its
+ * generator). Leaves osc1's phase moved on by n.
+ */
+static void sync_osc1(fm_osc_pair *p, int32_t *out, uint32_t n)
+{
+    uint32_t i;
+    if (p->level[0]) {
+        wave_run(p, 0, out, n, p->level[0], 0);
+    } else {
+        for (i = 0; i < n; i++) out[i] = 0;
+        p->osc[0].phase += n * p->osc[0].inc;
+    }
+}
+
+/*
+ * The next `n` samples with sync on and cross-mod off, as next_special
+ * gives them. Sync never changes osc1, so it goes into out[] first, as in
+ * a plain chunk. Between osc1's wraps osc2 runs free, so those runs are
+ * wave_run's, added in; the sample where osc1 wraps (sync_reset's
+ * correction) and the one after it (the restart's polyBLEP) take
+ * next_special's own steps. At level 0 osc2 only moves its phase: by m
+ * increments, or a restart.
+ */
+static void sync_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+{
+    uint32_t t0 = p->osc[0].phase, inc0 = p->osc[0].inc, i = 0, m;
+    int32_t level = p->level[1], b;
+    if (level == 0) {
+        while (i < n) {
+            m = until_wrap(p, n - i);
+            p->osc[1].phase += m * p->osc[1].inc;
+            p->osc[0].phase += m * inc0;
+            i += m;
+            if (i < n) { /* osc1 wraps in this sample: osc2 restarts */
+                p->osc[0].phase += inc0;
+                p->osc[1].phase = (uint32_t)((restart_x(p, p->osc[0].phase) *
+                                              p->osc[1].inc) >> 16);
+                i++;
+            }
+        }
+        if (n) p->sync_pend = 0;
+        p->osc[0].phase = t0;
+        sync_osc1(p, out, n);
+        return;
+    }
+    sync_osc1(p, out, n);
+    p->osc[0].phase = t0;
+    while (i < n) {
+        m = p->sync_pend ? 0 : until_wrap(p, n - i);
+        if (m) {
+            wave_run(p, 1, out + i, m, level, 1);
+            p->osc[0].phase += m * inc0;
+            i += m;
+            continue;
+        }
+        /* a restart's next sample, or osc1 wraps in this one */
+        b = osc2_at(p);
+        b += advance(p);
+        out[i] += gain(b, level);
+        i++;
+    }
+}
+
+/*
  * The path is chosen once for the chunk: osc1 alone, osc2 alone, both
- * summed (osc1 into out[], then osc2 added), or sync / cross-mod a
- * sample at a time. An unheard oscillator only moves its phase, by n
- * increments at once. Two noises blend a sample at a time, as they share
- * one generator and fm_osc_pair_next draws them in turn.
+ * summed (osc1 into out[], then osc2 added), sync in runs between osc1's
+ * wraps, or cross-mod a sample at a time. An unheard oscillator only moves
+ * its phase, by n increments at once. Two noises go a sample at a time, as
+ * they share one generator and fm_osc_pair_next draws them in turn.
  */
 void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     uint32_t i;
+    int noises = p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE;
     if (p->special) {
+        if (!p->xmod && !noises) {
+            sync_run(p, out, n);
+            return;
+        }
         for (i = 0; i < n; i++) out[i] = next_special(p);
         return;
     }
@@ -693,7 +775,7 @@ void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
         wave_run(p, 0, out, n, p->level[0], 0);
         return;
     }
-    if (p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE) {
+    if (noises) {
         for (i = 0; i < n; i++) out[i] = fm_osc_pair_next(p);
         return;
     }
