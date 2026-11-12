@@ -9,7 +9,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define RENDER_MAX_SETTINGS 32
+#include "../engine/fm1_8p.h"
+
+#define RENDER_MAX_SETTINGS FM_PARAM_COUNT /* each param once: a whole patch */
 #define RENDER_DEFAULT_VOICES 6 /* the FM-1 target */
 
 typedef struct {

@@ -235,8 +235,7 @@ class MapTest(unittest.TestCase):
                          -60 * 75)
 
     # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
-    # depth to pitch linear to 572 cents (below). The engine has one vibrato depth, for both
-    # oscillators: DCO-1's sets it, DCO-2's waits (one per oscillator, no issue yet)
+    # depth to pitch linear to 572 cents (below), one per oscillator
     def test_lfo_shape_rate_delay_and_vibrato_depth(self):
         e = patch("SOUNDTRACK")                 # triangle, delay 78, rate 103, depths 0
         self.assertEqual((e["LFO_WAVE"], e["LFO_RATE_CENTIHZ"], e["LFO_DELAY_MS"]), (0, 585, 695))
@@ -245,7 +244,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch("ORGAN 2")["LFO_WAVE"], 2)       # 32: square
         self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 572)
         e = patch("CELLO SECT")                 # DCO-1 2 (a trace), DCO-2 34: mostly DCO-2 wobbles
-        self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (9, 86))
+        self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (9, 153))
 
     # DCO-1 LFO as PG-8X 2.0.13 plays it: linear, 4.5 cents per step (127 = 572 cents)
     def test_vibrato_depth_is_linear_as_pg8x_plays_it(self):
@@ -253,6 +252,14 @@ class MapTest(unittest.TestCase):
         self.assertEqual(depth, {0: 0, 16: 72, 64: 288, 127: 572})
         lo, hi = jx8p.engine_ranges()["LFO_PITCH_CENTS"]
         self.assertTrue(lo <= 0 and 572 <= hi, (lo, hi))
+
+    # DCO-2 LFO the same (agent2, PG-8X 2.0.13: 4.5 cents a step, 572 at 127), on osc 2 alone
+    def test_dco2_vibrato_depth_is_linear_on_osc2(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["LFO_PITCH_OSC2_CENTS"].param, "LFO_PITCH_OSC2_CENTS")
+        depth = {b: patch_with("SOUNDTRACK", DCO1_LFO=0, DCO2_LFO=b)["LFO_PITCH_OSC2_CENTS"]
+                 for b in (0, 16, 64, 127)}
+        self.assertEqual(depth, {0: 0, 16: 72, 64: 288, 127: 572})
 
     # LFO RATE as PG-8X 2.0.13 plays it: 0.537 Hz at 64, x 2.664 every 16 steps, from 32 up
     # (0.076 Hz at 32, 25.4 Hz at 127)
@@ -275,16 +282,52 @@ class MapTest(unittest.TestCase):
         e = patch("PIANO 2")                    # chorus 0, VCA dynamics 96
         self.assertEqual((e["CHORUS_MODE"], e["AMP_VELOCITY_PCT"]), (0, 100))
 
-    # Kept for the pitch envelope (#58): DCO-1 and DCO-2 ENV depth (quadratic to 2400 cents, signed
-    # by DCO ENV MODE), the mode and DCO DYNAMICS
+    # DCO-1 and DCO-2 ENV as PG-8X 2.0.13 plays them (#58): at full envelope 24.8 cents a step
+    # less 13 (0 at 0, 3137 at 127), linear, each moving its own oscillator, signed by DCO ENV MODE
+    def test_dco_env_depth_is_linear_as_pg8x_plays_it(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        for n in (1, 2):
+            self.assertEqual(fields["PITCH_ENV_OSC%d_CENTS" % n].param, "PITCH_ENV_OSC%d_CENTS" % n)
+        for b, want in ((0, 0), (1, 12), (64, 1574), (127, 3137)):
+            e = patch_with("SOUNDTRACK", DCO1_ENV=b, DCO2_ENV=0, DCO_ENV_MODE=96)
+            self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (want, 0))
+            e = patch_with("SOUNDTRACK", DCO1_ENV=0, DCO2_ENV=b, DCO_ENV_MODE=64)
+            self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (0, -want))
+        lo, hi = jx8p.engine_ranges()["PITCH_ENV_OSC1_CENTS"]
+        self.assertTrue(lo <= -3137 and 3137 <= hi, (lo, hi))
+
+    # DCO ENV MODE: 0 ENV-2 inverted, 32 ENV-2, 64 ENV-1 inverted, 96 ENV-1 (inverted the exact
+    # mirror). Like MIX ENV it follows the engine envelope that runs the JX-8P one it names: amp
+    # for ENV-2 when the VCA follows ENV-2, else filter
+    def test_dco_env_mode_sets_the_source_and_the_sign(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["PITCH_ENV_SOURCE"].param, "PITCH_ENV_SOURCE")
+        got = {}
+        for mode in (0, 32, 64, 96):
+            e = patch_with("SOUNDTRACK", DCO1_ENV=64, DCO_ENV_MODE=mode, VCA_MODE=127)
+            got[mode] = (e["PITCH_ENV_SOURCE"], e["PITCH_ENV_OSC1_CENTS"])
+        self.assertEqual(got, {0: (1, -1574), 32: (1, 1574), 64: (0, -1574), 96: (0, 1574)})
+        e = patch_with("SOUNDTRACK", DCO1_ENV=64, DCO_ENV_MODE=32, VCA_MODE=0)    # VCA on GATE
+        self.assertEqual(e["PITCH_ENV_SOURCE"], 0)
+
+    # DCO DYNAMICS off, 1, 2, 3 -> the engine's pitch_env_dyna position, which scales the depth
+    # by the curve PG-8X shares across its DYNAMICS (engine/dyna.c)
+    def test_dco_dynamics_is_the_dyna_position(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["PITCH_ENV_DYNA"].param, "PITCH_ENV_DYNA")
+        got = {b: patch_with("SOUNDTRACK", DCO_DYNA=b)["PITCH_ENV_DYNA"] for b in (0, 32, 64, 96, 127)}
+        self.assertEqual(got, {0: 0, 32: 1, 64: 2, 96: 3, 127: 3})
+
+    # The pitch envelope (#58) on factory tones: DCO-1 and DCO-2 ENV depth (above), the mode and
+    # DCO DYNAMICS
     def test_pitch_envelope_is_kept_for_later(self):
         e = patch("T O M S")                    # DCO-1 ENV 51, ENV-2 normal
-        self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (387, 0))
-        self.assertEqual(e["PITCH_ENV_SOURCE"], 1)
+        self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (1252, 0))
+        self.assertEqual(e["PITCH_ENV_SOURCE"], 1)            # the amp envelope (VCA on ENV-2)
         e = patch("BUBBLES")                    # both 127, ENV-1 inverted
-        self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (-2400, -2400))
-        self.assertEqual(e["PITCH_ENV_SOURCE"], 2)
-        self.assertEqual(patch("PIANO 3")["PITCH_ENV_VELOCITY_PCT"], 100)   # DCO DYNAMICS 96
+        self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (-3137, -3137))
+        self.assertEqual(e["PITCH_ENV_SOURCE"], 0)
+        self.assertEqual(patch("PIANO 3")["PITCH_ENV_DYNA"], 3)             # DCO DYNAMICS 96
 
     # MIX ENV (#33): the envelope scales DCO-2's level by its depth (est.), so osc_mix is the mix
     # with the envelope at rest and osc_mix_env the change at its peak. Inverted: the other way. It

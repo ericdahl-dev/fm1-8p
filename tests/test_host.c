@@ -365,6 +365,22 @@ TT_TEST(numeric_options_reject_negative_and_out_of_range_values)
     TT_CHECK(args_parse_u32("12x", &u) != 0);
 }
 
+/* A whole patch fits on the command line: every param once (a JX-8P
+ * tone from tools/jx8p.py sets 36). */
+TT_TEST(every_param_can_be_set_at_once)
+{
+    static render_opts o;
+    uint16_t id;
+    char s[64];
+    memset(&o, 0, sizeof o);
+    for (id = 0; id < FM_PARAM_COUNT; id++) {
+        const fm_param_info *p = fm_param_info_get(id);
+        snprintf(s, sizeof s, "%s=%ld", p->name, (long)p->def);
+        TT_CHECK_EQ(args_parse_setting(s, &o), 0);
+    }
+    TT_CHECK_EQ(o.param_count, FM_PARAM_COUNT);
+}
+
 TT_TEST(parameter_settings_reject_out_of_range_values)
 {
     render_opts o;
@@ -562,6 +578,7 @@ static void run_host_tests(void)
     TT_RUN(huge_tick_counts_are_rejected_not_wrapped);
     TT_RUN(wav_rejects_sample_rate_out_of_range);
     TT_RUN(numeric_options_reject_negative_and_out_of_range_values);
+    TT_RUN(every_param_can_be_set_at_once);
     TT_RUN(parameter_settings_reject_out_of_range_values);
     TT_RUN(render_takes_osc2_coarse_from_the_command_line);
     TT_RUN(chord_midi_file_plays_every_note_and_follows_pitch_bend);

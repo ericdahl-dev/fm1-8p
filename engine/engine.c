@@ -29,7 +29,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 5516u
+#define FM_ENGINE_BUDGET_32 5596u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -266,14 +266,32 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
                          v * 42949673);
         return;
-    case FM_PARAM_LFO_PITCH_CENTS: {
-        /* cents -> Q16.16 octaves: exact for multiples of 75 cents; the
-         * one vibrato depth moves both oscillators */
-        int32_t oct = v * 65536 / 1200;
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH1, oct);
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH2, oct);
+    case FM_PARAM_LFO_PITCH_CENTS:
+    case FM_PARAM_LFO_PITCH_OSC2_CENTS: {
+        /* cents -> Q16.16 octaves: exact for multiples of 75 cents. Osc 2
+         * has its own depth, or (-1) osc 1's */
+        int32_t c1 = e->params[FM_PARAM_LFO_PITCH_CENTS];
+        int32_t c2 = e->params[FM_PARAM_LFO_PITCH_OSC2_CENTS];
+        if (c2 < 0) c2 = c1;
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH1,
+                         c1 * 65536 / 1200);
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH2,
+                         c2 * 65536 / 1200);
         return;
     }
+    case FM_PARAM_PITCH_ENV_OSC1_CENTS: /* cents -> Q16.16 octaves */
+    case FM_PARAM_PITCH_ENV_OSC2_CENTS:
+        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_PENV,
+                         id == FM_PARAM_PITCH_ENV_OSC1_CENTS ? FM_MOD_PITCH1
+                                                             : FM_MOD_PITCH2,
+                         v * 65536 / 1200);
+        return;
+    case FM_PARAM_PITCH_ENV_SOURCE: /* read at the next tick */
+        e->mod.penv_amp = (uint8_t)(v != 0);
+        return;
+    case FM_PARAM_PITCH_ENV_DYNA: /* read at the next tick */
+        e->mod.penv_dyna = (uint8_t)v;
+        return;
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
         return;
     default:
@@ -497,12 +515,13 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
 
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune
  * is 0). */
-static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak)
+static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
+                      uint8_t velocity)
 {
     uint8_t i = (uint8_t)(v - e->voices);
     v->stamp = ++e->stamp;
-    fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, e->ticks + 1,
-                     e->sample_rate, e->fade_samples);
+    fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
+                     e->ticks + 1, e->sample_rate, e->fade_samples);
 }
 
 /* The voice fading `note` out after a steal, or null. */
@@ -521,20 +540,22 @@ static fm_voice *find_fading(fm_engine *e, uint8_t note)
  * takes it back, so one pitch is never on two voices, and the note that
  * was waiting for `f` gets a voice by the usual rule. With no other
  * voice (or if its key already came up) that waiting note is dropped:
- * the newest note wins. `peak` is the new strike's; the waiting note keeps
- * its own, which `f` still holds in next_peak.
+ * the newest note wins. `peak` and `velocity` are the new strike's; the
+ * waiting note keeps its own, which `f` still holds in next_peak and
+ * next_velocity.
  */
-static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak)
+static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak,
+                      uint8_t velocity)
 {
     uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
     fm_voice *w;
     fm_voice_take_back(f, &e->mod, voice_pitch(e, (uint8_t)(f - e->voices), note),
-                       peak, e->ticks + 1, e->sample_rate);
+                       peak, velocity, e->ticks + 1, e->sample_rate);
     f->stamp = ++e->stamp;
     if (!key_down && !sustained) return;
     w = pick_voice(e, f);
     if (!w) return;
-    poly_play(e, w, moved, f->next_peak);
+    poly_play(e, w, moved, f->next_peak, f->next_velocity);
     if (!key_down) fm_voice_key_up(w, 1); /* held by the pedal */
 }
 
@@ -551,21 +572,23 @@ static int forget_held(fm_engine *e, uint8_t note)
 }
 
 /* Every voice plays `note`, each at its detune; a retrigger at amp peak
- * `peak` (a legato change ignores it and keeps each voice's level). */
+ * `peak` and `velocity` (a legato change ignores them and keeps each
+ * voice's). */
 static void unison_play(fm_engine *e, uint8_t note, int retrigger,
-                        int32_t peak)
+                        int32_t peak, uint8_t velocity)
 {
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         v->stamp = ++e->stamp;
         fm_voice_change_note(v, &e->mod, note, voice_pitch(e, i, note), peak,
-                             e->ticks + 1, e->sample_rate, retrigger);
+                             velocity, e->ticks + 1, e->sample_rate, retrigger);
     }
 }
 
 /* Unison: the newest note wins and retriggers (docs/voices.md#unison). */
-static void unison_note_on(fm_engine *e, uint8_t note, int32_t peak)
+static void unison_note_on(fm_engine *e, uint8_t note, int32_t peak,
+                           uint8_t velocity)
 {
     uint8_t i;
     forget_held(e, note);
@@ -574,7 +597,7 @@ static void unison_note_on(fm_engine *e, uint8_t note, int32_t peak)
         e->held_count--;
     }
     e->held[e->held_count++] = note;
-    unison_play(e, note, 1, peak); /* a legato return later keeps it */
+    unison_play(e, note, 1, peak, velocity); /* a legato return keeps them */
 }
 
 /* Unison: releasing the sounding note goes back to the newest key still
@@ -584,7 +607,7 @@ static void unison_note_off(fm_engine *e, uint8_t note)
     uint8_t i;
     if (!forget_held(e, note)) return; /* not the sounding note */
     if (e->held_count) {
-        unison_play(e, e->held[e->held_count - 1], 0, 0);
+        unison_play(e, e->held[e->held_count - 1], 0, 0, 0);
         return;
     }
     for (i = 0; i < e->voice_count; i++) {
@@ -604,7 +627,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         return;
     }
     if (e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON) {
-        unison_note_on(e, note, velocity_peak(e, velocity));
+        unison_note_on(e, note, velocity_peak(e, velocity), velocity);
         return;
     }
     {
@@ -613,12 +636,12 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         if (!v) {
             fm_voice *f = find_fading(e, note);
             if (f) {
-                take_back(e, f, note, peak);
+                take_back(e, f, note, peak, velocity);
                 return;
             }
             v = pick_voice(e, 0);
         }
-        poly_play(e, v, note, peak);
+        poly_play(e, v, note, peak, velocity);
     }
 }
 
@@ -691,7 +714,8 @@ static int16_t to_int16(int32_t q24)
  * whether the control ticks have work for the voices. */
 static int lfo_live(const fm_engine *e)
 {
-    return e->mod_on || fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO);
+    return e->mod_on || fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
+           fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV);
 }
 
 /*
@@ -711,7 +735,8 @@ static void control_tick(fm_engine *e)
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_tick(&e->voices[k], lfo, &e->mod, e->ticks);
-    e->mod_on = (uint8_t)fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO);
+    e->mod_on = (uint8_t)(fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
+                          fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV));
 }
 
 /*

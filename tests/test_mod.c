@@ -1,3 +1,4 @@
+#include "../engine/dyna.h"
 /* LFO routing and velocity, through the engine's public interface. */
 
 #define MOD_RATE 44100u
@@ -488,6 +489,37 @@ TT_TEST(block_size_does_not_change_output_as_depths_come_and_go)
     }
 }
 
+/* Only the pitch envelope live, no LFO depth: two notes on a moving
+ * envelope 1, the depths on mid-note (one on each osc) and off again. */
+static void pitch_env_on_and_off_in_blocks(int16_t *out, uint32_t block)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 2);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 150);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_DECAY_MS, 300);
+    render_in_blocks(out, 333, block);
+    fm_engine_note_on(&mod_eng, 60, 100);
+    render_in_blocks(out + 2 * 333, 2000, block);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 1200);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, -700);
+    fm_engine_note_on(&mod_eng, 64, 100);
+    render_in_blocks(out + 2 * 2333, 9000, block);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, 0);
+    render_in_blocks(out + 2 * 11333, 6000, block);
+}
+
+TT_TEST(block_size_does_not_change_pitch_env_output)
+{
+    static const uint32_t blocks[] = { 1, 31, 100, 4096 };
+    size_t b, bytes = 17333u * 4;
+    pitch_env_on_and_off_in_blocks(mod_ref, 64);
+    for (b = 0; b < 4; b++) {
+        pitch_env_on_and_off_in_blocks(mod_buf, blocks[b]);
+        TT_CHECK(memcmp(mod_ref, mod_buf, bytes) == 0);
+    }
+}
+
 /* A pulse note, its LFO routed to pulse width only at `pct` for 9000
  * frames, then back to 0: 20000 frames in blocks of `block`. */
 static void pw_only_on_and_off(int16_t *out, int32_t pct, uint32_t block)
@@ -551,6 +583,149 @@ TT_TEST(vibrato_reaches_osc2)
     TT_CHECK(fabs(cents(hz_between(mod_buf, 20, 230), note_hz(69)) - 100) < 3);
 }
 
+/* Osc 2's own vibrato depth: at 0 with osc 1's at 100 cents, the heard
+ * osc 2 holds its pitch (BUBBLES: DCO-1's LFO wobbles the muted DCO-1). */
+TT_TEST(osc2_vibrato_depth_zero_holds_osc2_still)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
+    TT_CHECK_EQ(fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_OSC2_CENTS, 0), FM_OK);
+    fm_engine_note_on(&mod_eng, 69, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    TT_CHECK(fabs(cents(hz_between(mod_buf, 20, 230), note_hz(69))) < 3);
+}
+
+/* A4 with the filter envelope held at full (no attack, full sustain), a
+ * pitch envelope depth of `osc1` / `osc2` cents and the mix at `mix` per
+ * mille (0: osc 1 heard, 1000: osc 2); the pitch in cents over 0.3..0.5 s. */
+static double pitch_env_cents(int32_t osc1, int32_t osc2, int32_t mix)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, osc1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, osc2);
+    fm_engine_note_on(&mod_eng, 69, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 300, 500), note_hz(69));
+}
+
+/* DCO-1's envelope depth (agent2's first test on #58): +1573 cents with
+ * envelope 1 at full puts osc 1 1573 cents sharp, and osc 2 stays. */
+TT_TEST(osc1_pitch_env_bends_osc1_only)
+{
+    TT_CHECK(fabs(pitch_env_cents(1573, 0, 0) - 1573) < 3);
+    TT_CHECK(fabs(pitch_env_cents(1573, 0, 1000)) < 3);
+}
+
+/* DCO-2's envelope depth moves osc 2 only. */
+TT_TEST(osc2_pitch_env_bends_osc2_only)
+{
+    TT_CHECK(fabs(pitch_env_cents(0, 1573, 1000) - 1573) < 3);
+    TT_CHECK(fabs(pitch_env_cents(0, 1573, 0)) < 3);
+}
+
+/* A negative depth (the inverted modes) is the exact mirror: PG-8X reads
+ * -1576 against +1573 cents. */
+TT_TEST(negative_pitch_env_is_the_mirror)
+{
+    TT_CHECK(fabs(pitch_env_cents(-1573, 0, 0) + 1573) < 3);
+    TT_CHECK(fabs(pitch_env_cents(0, -1573, 1000) + 1573) < 3);
+}
+
+/* Linear in the envelope's level (PG-8X: half the sustain, half the
+ * cents): with envelope 1 held at half, +1600 cents reads +800. */
+TT_TEST(pitch_env_is_linear_in_the_level)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_DECAY_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 1600);
+    fm_engine_note_on(&mod_eng, 57, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    TT_CHECK(fabs(cents(hz_between(mod_buf, 300, 500), note_hz(57)) - 800) < 3);
+}
+
+/* pitch_env_source 1 follows envelope 2, the amp envelope's share of the
+ * note's peak: held at half, +1600 cents reads +800 at any velocity
+ * (envelope 1 held at 0 would give none). */
+static double pitch_env_amp_cents(uint8_t velocity)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_DECAY_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_SUSTAIN, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_SOURCE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 1600);
+    fm_engine_note_on(&mod_eng, 57, velocity);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 300, 500), note_hz(57));
+}
+
+TT_TEST(pitch_env_from_the_amp_envelope_ignores_velocity)
+{
+    TT_CHECK(fabs(pitch_env_amp_cents(127) - 800) < 3);
+    TT_CHECK(fabs(pitch_env_amp_cents(40) - 800) < 3);
+}
+
+/* DCO DYNAMICS: the note's velocity scales the pitch envelope by the
+ * shared DYNAMICS curve (engine/dyna.c): position 2 at velocity 64 plays
+ * fm_dyna_share_q15(2, 64) of +1600 cents; position 0 plays all of it. */
+static double pitch_env_dyna_cents(int32_t dyna, uint8_t velocity)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 1600);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_DYNA, dyna);
+    fm_engine_note_on(&mod_eng, 57, velocity);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 300, 500), note_hz(57));
+}
+
+TT_TEST(pitch_env_dynamics_scale_by_velocity)
+{
+    double want = 1600.0 * fm_dyna_share_q15(2, 64) / 32768.0;
+    TT_CHECK(fabs(pitch_env_dyna_cents(2, 64) - want) < 3);
+    TT_CHECK(fabs(pitch_env_dyna_cents(0, 64) - 1600) < 3);
+}
+
+/* The pitch envelope adds to each osc's tuning and the bend, also when
+ * the bend comes while the envelope is held: osc 1 an octave down, 50
+ * cents sharp, bent 2 semitones up and +700 cents of envelope reads -250
+ * cents; osc 2 coarse +3 with +400 reads +900. */
+static double tuned_pitch_env_cents(int32_t mix)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC_MIX, mix);
+    fm_engine_set_param(&mod_eng, FM_PARAM_BEND_RANGE, 2);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_OCTAVE, -1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC1_FINE_CENTS, 50);
+    fm_engine_set_param(&mod_eng, FM_PARAM_OSC2_COARSE_SEMIS, 3);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 700);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC2_CENTS, 400);
+    fm_engine_note_on(&mod_eng, 69, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 5);
+    fm_engine_pitch_bend(&mod_eng, 16383);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 100, 300), note_hz(69));
+}
+
+TT_TEST(pitch_env_adds_to_tuning_and_bend)
+{
+    TT_CHECK(fabs(tuned_pitch_env_cents(0) + 250) < 3);
+    TT_CHECK(fabs(tuned_pitch_env_cents(1000) - 900) < 3);
+}
+
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
     /* the delay ran out at 0.5 s whether or not a depth was set then */
@@ -581,5 +756,14 @@ static void run_mod_tests(void)
     TT_RUN(block_size_does_not_change_output_as_depths_come_and_go);
     TT_RUN(pulse_width_alone_ticks_the_voices_and_clears);
     TT_RUN(vibrato_reaches_osc2);
+    TT_RUN(osc2_vibrato_depth_zero_holds_osc2_still);
+    TT_RUN(osc1_pitch_env_bends_osc1_only);
+    TT_RUN(osc2_pitch_env_bends_osc2_only);
+    TT_RUN(negative_pitch_env_is_the_mirror);
+    TT_RUN(pitch_env_is_linear_in_the_level);
+    TT_RUN(pitch_env_from_the_amp_envelope_ignores_velocity);
+    TT_RUN(pitch_env_dynamics_scale_by_velocity);
+    TT_RUN(pitch_env_adds_to_tuning_and_bend);
+    TT_RUN(block_size_does_not_change_pitch_env_output);
     TT_RUN(lfo_delay_counts_from_the_note_even_with_no_depth_set);
 }

@@ -5,8 +5,8 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.4 KiB (5516 bytes on
- * 32-bit targets such as the FM-1 and Cortex-M, 5744 on 64-bit desktops,
+ * sets up everything inside it. fm_engine is about 5.5 KiB (5596 bytes on
+ * 32-bit targets such as the FM-1 and Cortex-M, 5792 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
  * storage is recommended; a task stack must have room for it on top of
@@ -87,6 +87,12 @@ typedef enum {
     FM_PARAM_FILTER_ENV_SOURCE, /* the envelope the cutoff follows at
                                  * filter_env_amount_cents: 0 envelope 1
                                  * (filter), 1 envelope 2 (amp) */
+    FM_PARAM_LFO_PITCH_OSC2_CENTS, /* osc 2's vibrato depth; -1 (default):
+                                    * lfo_pitch_cents, which is then both's */
+    FM_PARAM_PITCH_ENV_OSC1_CENTS, /* osc 1's pitch at full envelope, signed */
+    FM_PARAM_PITCH_ENV_OSC2_CENTS, /* osc 2's */
+    FM_PARAM_PITCH_ENV_SOURCE, /* the envelope it follows: 0 filter, 1 amp */
+    FM_PARAM_PITCH_ENV_DYNA, /* DYNAMICS 0 (off) .. 3: velocity scales it */
     FM_PARAM_COUNT
 } fm_param_id;
 
