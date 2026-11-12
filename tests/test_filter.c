@@ -2074,6 +2074,44 @@ TT_TEST(open_filter_with_sync_and_xmod_matches_the_full_render)
     TT_CHECK(peak_abs(fbuf_a, 0, 4096) > 100); /* still sounding */
 }
 
+/*
+ * The same with the ring on (SYNC 2: a saw osc1 ringing a synced square,
+ * mixed alone, where the ring peaks highest): the cheapest path passes it
+ * straight through, which needs it inside the soft clip's untouched +-2.0
+ * (ring_stays_within_two), so it must match the full path bit for bit.
+ */
+TT_TEST(open_filter_with_the_ring_matches_the_full_render)
+{
+    static fm_engine a, b;
+    static const uint32_t blocks[] = { 1, 15, 64, 333, 1000, 4096 };
+    int k, same = 1;
+    for (k = 0; k < 2; k++) {
+        fm_engine *e = k ? &b : &a;
+        fm_engine_init(e, FRATE, 4);
+        fm_engine_set_param(e, FM_PARAM_OSC1_WAVE, FM_WAVE_SAW);
+        fm_engine_set_param(e, FM_PARAM_OSC2_WAVE, FM_WAVE_SQUARE);
+        fm_engine_set_param(e, FM_PARAM_OSC2_OCTAVE, 1);
+        fm_engine_set_param(e, FM_PARAM_OSC2_FINE_CENTS, -30);
+        fm_engine_set_param(e, FM_PARAM_OSC_MIX, 1000);
+        fm_engine_set_param(e, FM_PARAM_OSC_SYNC, 1);
+        fm_engine_set_param(e, FM_PARAM_OSC_RING, 1);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_DECAY_MS, 3000);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+        fm_engine_set_param(e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, k * 1200);
+        fm_engine_note_on(e, 36, 127);
+        fm_engine_note_on(e, 79, 64);
+    }
+    for (k = 0; k < 6; k++) {
+        size_t n = blocks[k];
+        fm_engine_render(&a, fbuf_a, n);
+        fm_engine_render(&b, fbuf_b, n);
+        if (memcmp(fbuf_a, fbuf_b, n * 4) != 0) same = 0;
+    }
+    TT_CHECK(same);
+    TT_CHECK(peak_abs(fbuf_a, 0, 4096) > 100); /* still sounding */
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -2129,4 +2167,5 @@ static void run_filter_tests(void)
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
     TT_RUN(open_filter_with_sync_and_xmod_matches_the_full_render);
+    TT_RUN(open_filter_with_the_ring_matches_the_full_render);
 }
