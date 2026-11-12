@@ -44,12 +44,12 @@ static int32_t oracle_filter_process(fm_filter *f, int32_t in)
         f->s[3] = oracle_soft_clip(x);
         return f->s[3];
     }
-    if (f->hp_g) { /* highpass = input minus a one-pole lowpass of it */
+    if (f->hp_g > 0) { /* highpass = input minus a one-pole lowpass of it */
         f->hp += (int32_t)(((x - f->hp) * f->hp_g) >> 30);
-        if (f->hp_lo) /* the bass boost (#93, after #25): 1.26 x + hp_lo * that lowpass */
-            x += ((x * 279172874) >> 30) + (((int64_t)f->hp * f->hp_lo) >> 30);
-        else
-            x -= f->hp;
+        x -= f->hp;
+    } else if (f->hp_g < 0) { /* the bass boost (#93, after #25): 1.26 x + 1.02 that lowpass */
+        f->hp += (int32_t)(((x - f->hp) * -(int64_t)f->hp_g) >> 30);
+        x += ((x * 279172874) >> 30) + (((int64_t)f->hp * 1095216660) >> 30);
     }
     u = oracle_soft_clip(x - (((int64_t)f->s[3] * f->k) >> 28));
     u = oracle_stage(&f->s[0], &f->x1[0], u, f->w, f->g);

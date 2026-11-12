@@ -160,7 +160,6 @@ void fm_filter_reset(fm_filter *f)
     f->k = f->k_res = 0;
     f->fade = 0;
     f->hp_g = 0;
-    f->hp_lo = 0;
 }
 
 static int32_t mul_q30(int32_t a, int32_t b)
@@ -281,7 +280,7 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
         if (step && fm_filter_is_wire(f)) leave_open(f); /* hp_g is 0 here */
     }
     f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
-    f->hp_lo = step == FM_FILTER_HIGHPASS_BOOST ? BOOST_LO : 0;
+    if (step == FM_FILTER_HIGHPASS_BOOST) f->hp_g = -f->hp_g; /* negative: the boost */
 }
 
 /* One stage: m = x - w * (x - x1), y += g * (m - y). */
@@ -310,16 +309,28 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         f->s[3] = soft_clip(clamp_in(in));
         return f->s[3];
     }
-    if (!f->hp_g) {
+    /* hp_g > 0: a highpass; 0: off; < 0: the bass boost (its sign is the
+     * only test the highpass pays for it: a test of its own costs 0.9 % of
+     * the FM-1 at full load) */
+    if (f->hp_g > 0) {
+        if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* input minus a one-pole lowpass of it */
+            f->hp += mul_q30(in - f->hp, f->hp_g);
+            x = in - f->hp;
+        } else { /* louder than any oscillator: the same in 64 bits */
+            int64_t d;
+            f->hp += (int32_t)((((int64_t)in - f->hp) * f->hp_g) >> 30);
+            d = (int64_t)in - f->hp;
+            x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
+        }
+    } else if (!f->hp_g) {
         x = clamp_in(in);
-    } else if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* highpass = input minus a one-pole lowpass of it */
-        f->hp += mul_q30(in - f->hp, f->hp_g);
-        x = f->hp_lo ? in + mul_q30(in, BOOST_HI) + mul_q30(f->hp, f->hp_lo) : in - f->hp;
-    } else { /* louder than any oscillator: the same in 64 bits */
+    } else if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* the boost: 1.26 x + 1.02 lowpass(x) */
+        f->hp += mul_q30(in - f->hp, -f->hp_g);
+        x = in + mul_q30(in, BOOST_HI) + mul_q30(f->hp, BOOST_LO);
+    } else {
         int64_t d;
-        f->hp += (int32_t)((((int64_t)in - f->hp) * f->hp_g) >> 30);
-        d = f->hp_lo ? (int64_t)in + (((int64_t)in * BOOST_HI) >> 30) + (((int64_t)f->hp * f->hp_lo) >> 30)
-                     : (int64_t)in - f->hp;
+        f->hp += (int32_t)((((int64_t)in - f->hp) * -f->hp_g) >> 30);
+        d = (int64_t)in + (((int64_t)in * BOOST_HI) >> 30) + (((int64_t)f->hp * BOOST_LO) >> 30);
         x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
     }
     u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
