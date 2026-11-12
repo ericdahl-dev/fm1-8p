@@ -35,7 +35,7 @@ typedef enum {
     PATCH_FILTER_ENV_DECAY_MS,
     PATCH_FILTER_ENV_SUSTAIN_PERMILLE,
     PATCH_FILTER_ENV_RELEASE_MS,
-    PATCH_FILTER_ENV_SOURCE,            /* waits #59: 0 ENV-2 inv, 1 ENV-2, 2 ENV-1 inv, 3 ENV-1 */
+    PATCH_FILTER_ENV_SOURCE,            /* 0 the filter envelope, 1 the amp envelope (#59) */
     PATCH_AMP_ATTACK_MS,
     PATCH_AMP_DECAY_MS,
     PATCH_AMP_SUSTAIN_PERMILLE,

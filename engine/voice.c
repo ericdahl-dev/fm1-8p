@@ -113,8 +113,23 @@ void fm_voice_set_highpass(fm_voice *v, uint8_t step)
     mark_filter(v);
 }
 
+/*
+ * The amp envelope's level `level` against the note's peak (Q1.30), so
+ * velocity doesn't scale the depths that follow envelope 2 (the mix's,
+ * the cutoff's). A divide, once a control point (16 samples), only when
+ * one of them follows it.
+ */
+static int32_t amp_share(const fm_voice *v, int32_t level)
+{
+    int64_t r;
+    if (v->amp_env.peak <= 0) return 0;
+    r = ((int64_t)level << 30) / v->amp_env.peak;
+    return r > FM_ENV_FULL ? FM_ENV_FULL : (int32_t)r;
+}
+
 /* Recomputes the cutoff from the settings, the voice's note and its
- * modulation, with the filter envelope (envelope 1) at level `fenv`. The
+ * modulation, with the filter envelope (envelope 1) at level `fenv` and,
+ * when it reaches the cutoff, envelope 2 at the amp envelope's share. The
  * envelope keeps the voice busy while it moves the cutoff, and until a
  * cutoff it no longer reaches is summed back to rest. */
 static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
@@ -122,6 +137,9 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
 {
     int32_t cents;
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, fenv);
+    if (m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF])
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2,
+                          amp_share(v, v->amp_env.level));
     cents = fm_filter_voice_cents(v->cutoff_cents, v->key_track, v->key_note,
                                   fm_mod_update(&v->mod, &m->routes,
                                                 FM_MOD_CUTOFF));
@@ -302,19 +320,6 @@ void fm_voice_release(fm_voice *v)
         fm_env_gate_off(&v->amp_env);
         filter_env_gate_off(v);
     }
-}
-
-/*
- * The amp envelope's level `level` against the note's peak (Q1.30), so
- * velocity doesn't scale the mix envelope's depth. A divide, once a
- * control tick (16 samples), only when the mix follows the amp envelope.
- */
-static int32_t amp_share(const fm_voice *v, int32_t level)
-{
-    int64_t r;
-    if (v->amp_env.peak <= 0) return 0;
-    r = ((int64_t)level << 30) / v->amp_env.peak;
-    return r > FM_ENV_FULL ? FM_ENV_FULL : (int32_t)r;
 }
 
 /*
