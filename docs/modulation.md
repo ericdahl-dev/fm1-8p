@@ -10,7 +10,12 @@ in [fixed-point.md](fixed-point.md); voices, stealing and unison in
 | `lfo_wave` | 0..3 | 0 | 0 triangle, 1 saw (rising), 2 square, 3 random (sample and hold) |
 | `lfo_rate_centihz` | 1..3000 | 500 | rate in hundredths of a hertz: 0.01 Hz to 30 Hz (5 Hz) |
 | `lfo_delay_ms` | 0..5000 | 0 | after a note starts, the LFO is held at zero this long, then fades in over as long again |
-| `lfo_pitch_cents` | 0..1200 | 0 | pitch depth (vibrato) at full LFO, each way |
+| `lfo_pitch_cents` | 0..1200 | 0 | pitch depth (vibrato) at full LFO, each way: osc 1's, and osc 2's while `lfo_pitch_osc2_cents` is -1 |
+| `lfo_pitch_osc2_cents` | -1..1200 | -1 | osc 2's own vibrato depth; -1 takes `lfo_pitch_cents` |
+| `pitch_env_osc1_cents` | -3200..3200 | 0 | osc 1's pitch at full envelope, signed (the pitch envelope, #58) |
+| `pitch_env_osc2_cents` | -3200..3200 | 0 | osc 2's |
+| `pitch_env_source` | 0..1 | 0 | the envelope it follows: 0 envelope 1 (filter), 1 envelope 2 (amp) |
+| `pitch_env_dyna` | 0..3 | 0 | DYNAMICS: 0 off, 1..3 scale the depth by velocity (`engine/dyna.c`) |
 | `lfo_pw_pct` | 0..49 | 0 | pulse width depth at full LFO, in percent of a cycle, each way |
 | `amp_velocity_pct` | 0..100 | 0 | how much velocity sets the level: 0 ignores it, 100 follows the full curve |
 
@@ -124,7 +129,9 @@ voice's delay and fade, set every control tick), the note's velocity
 (its level from `amp_velocity_pct` and the curve below, set when the note
 starts), envelope 1 (the filter envelope's level) and envelope 2 (the amp
 envelope's level as a share of the note's peak), both set at the
-16-sample control points; the destinations are each oscillator's pitch
+16-sample control points, and the pitch envelope (envelope 1 or 2 as
+`pitch_env_source` picks, times the DYNAMICS share at the note's velocity
+when `pitch_env_dyna` is on, set every control tick); the destinations are each oscillator's pitch
 (`FM_MOD_PITCH1` and `FM_MOD_PITCH2`), pulse width, level
 (the amp envelope's peak, from velocity at full depth), cutoff (cents,
 from envelope 1 at `filter_env_amount_cents`) and mix (Q1.30 added to
@@ -150,8 +157,17 @@ no work and changes no sample.
 
 `lfo_pitch_cents` is kept as Q16.16 octaves (`cents * 65536 / 1200`, exact
 for multiples of 75 cents and otherwise off by under 1/65536 of an octave),
-the depth of the LFO's route to each oscillator's pitch (one depth for both
-today; #58 gives osc 2 its own). Each oscillator's offset `x` multiplies its
+the depth of the LFO's route to osc 1's pitch, and to osc 2's unless
+`lfo_pitch_osc2_cents` gives osc 2 its own (the JX-8P's DCO-1 and DCO-2 LFO;
+PG-8X plays both at 4.5 cents a step).
+
+The pitch envelope routes to each oscillator's pitch the same way, at
+`pitch_env_osc1_cents` and `pitch_env_osc2_cents`: linear in the envelope's
+level (half the level, half the cents), the same on every key, a negative
+depth the exact mirror. The two add with the vibrato in the summing point.
+With sync on nothing special happens and PG-8X's behavior follows: osc 1's
+envelope moves the heard pitch, osc 2's only its timbre
+(`synced_pitch_env_on_osc2_keeps_the_fundamental`). Each oscillator's offset `x` multiplies its
 phase increment by `2^x`,
 on top of the note, bend, unison detune and each oscillator's tuning:
 
@@ -160,8 +176,9 @@ on top of the note, bend, unison detune and each oscillator's tuning:
 - no divide: the increment for the unmodulated pitch is computed once per note
   or bend as before (a 64-by-32 divide per oscillator), and the tick only
   multiplies it, so vibrato adds no per-sample or per-tick divide;
-- a bend, retune or tuning change while the LFO runs recomputes the base
-  increment and keeps the current offset.
+- a bend, retune or tuning change while the LFO or the pitch envelope runs
+  recomputes the base increment and keeps the current offset
+  (`pitch_env_adds_to_tuning_and_bend`).
 
 The trade-off: the pulse width limits (at least two samples from each edge)
 and the 50 % square above a quarter of the sample rate are worked out from
