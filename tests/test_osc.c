@@ -1516,14 +1516,12 @@ TT_TEST(ringed_pair_render_matches_next_across_changes_between_chunks)
 }
 
 /*
- * With sync on, osc1's wrap placed on a chunk's first sample, its last,
- * and the one just past it, landing exactly on phase 0 or one step either
- * side, for every pair of waves and levels (each alone, both full, both
- * between, both 0): the render
- * gives fm_osc_pair_next's samples and state, the restart's second sample
- * falling in the next chunk.
+ * Places osc1's wrap on a chunk's first sample, its last and the one just
+ * past it, landing exactly on phase 0 or one step either side, for every
+ * pair of waves and of levels, with sync and the ring as given; returns
+ * the number of chunks where the render and fm_osc_pair_next differ.
  */
-TT_TEST(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
+static int edges_vs_next(uint8_t sync, uint8_t ring)
 {
     /* osc1's and osc2's levels: each alone, both full, both between, both 0 */
     static const int32_t levels[][2] = {
@@ -1546,7 +1544,8 @@ TT_TEST(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
         fm_osc_pair_set_wave(&a, 1, (uint8_t)w2);
         fm_osc_pair_set_tune(&a, 1, 1937, 45 << 16, RATE);
         fm_osc_pair_set_pitch(&a, 45 << 16, RATE);
-        fm_osc_pair_set_sync(&a, 1);
+        fm_osc_pair_set_sync(&a, sync);
+        fm_osc_pair_set_ring(&a, ring);
         fm_osc_pair_set_level(&a, 0, levels[mx][0]);
         fm_osc_pair_set_level(&a, 1, levels[mx][1]);
         /* after sample `wrap` osc1 is at 0 (land 1), just short or past */
@@ -1560,7 +1559,31 @@ TT_TEST(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
             if (!same || !pairs_match(&a, &b)) bad++;
         }
     }
-    TT_CHECK_EQ(bad, 0);
+    return bad;
+}
+
+/*
+ * With sync on, osc1's wrap placed on a chunk's first sample, its last,
+ * and the one just past it, landing exactly on phase 0 or one step either
+ * side, for every pair of waves and levels (each alone, both full, both
+ * between, both 0): the render
+ * gives fm_osc_pair_next's samples and state, the restart's second sample
+ * falling in the next chunk.
+ */
+TT_TEST(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
+{
+    TT_CHECK_EQ(edges_vs_next(1, 0), 0);
+}
+
+/*
+ * The same with the ring on, synced (SYNC 2) and not (X-MOD): osc1's wrap
+ * at a chunk's edges, every pair of waves, and the levels each alone, both
+ * full, both between and both 0.
+ */
+TT_TEST(ringed_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
+{
+    TT_CHECK_EQ(edges_vs_next(1, 1), 0);
+    TT_CHECK_EQ(edges_vs_next(0, 1), 0);
 }
 
 /* Each oscillator takes its own pitch offset: osc 1 bent an octave up
@@ -1862,4 +1885,5 @@ static void run_osc_tests(void)
     TT_RUN(synced_pair_render_matches_next_across_changes_between_chunks);
     TT_RUN(ringed_pair_render_matches_next_across_changes_between_chunks);
     TT_RUN(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges);
+    TT_RUN(ringed_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges);
 }
