@@ -143,7 +143,7 @@ in [Pending slots, once they land](#pending-slots-once-they-land).
 | 42 | K2 | `filter_resonance_permille` | RESO | 0..100 (100 self-oscillates) | 1 / 5 |
 | 43 | K3 | `filter_env_amount_cents` | ENV | -96..+96 st | 1 st / 6 st |
 | 44 | K4 | `filter_key_track_permille` | KEY | 0..100 % | 1 / 10 |
-| 45 | K1 | `highpass_step` | HPF | OFF, 100 Hz, 240 Hz, 560 Hz | 1 / 1 |
+| 45 | K1 | `highpass_step` | HPF | OFF, 100 Hz, 240 Hz, 560 Hz, BOOST (step 4, the JX-8P's HPF 0: #93) | 1 / 1 |
 | 46 | K2 | filter velocity amount (pending, #8) | VEL | -- | - |
 | 47 | K3 | DCO-2 envelope level (pending, #33) | D2 ENV | -- | - |
 | 48 | K4 | filter envelope source (pending, #59) | ENV SRC | -- | - |

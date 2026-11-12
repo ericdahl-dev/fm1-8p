@@ -5,7 +5,7 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.5 KiB (5636 bytes on
+ * sets up everything inside it. fm_engine is about 5.5 KiB (5668 bytes on
  * 32-bit targets such as the FM-1 and Cortex-M, 5800 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
@@ -80,7 +80,7 @@ typedef enum {
     /* cents the filter envelope adds to the cutoff at full level;
      * negative sweeps the cutoff down */
     FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
-    FM_PARAM_HIGHPASS_STEP, /* 0 (off) .. 3 (most low cut) */
+    FM_PARAM_HIGHPASS_STEP, /* 0 (off) .. 3 (most low cut); 4 is the bass boost */
     FM_PARAM_OSC2_COARSE_SEMIS, /* -12..+12 semitones, on top of osc2's octave and fine */
     FM_PARAM_OSC_MIX_ENV, /* per mille, -1000..+1000: the envelope's share added to osc2_level */
     FM_PARAM_OSC_MIX_ENV_SOURCE, /* the envelope it follows: 0 filter, 1 amp */
