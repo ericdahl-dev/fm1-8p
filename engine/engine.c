@@ -706,10 +706,61 @@ uint8_t fm_engine_active_voices(const fm_engine *e)
     return n;
 }
 
-/* Q8.24 to int16 with saturation (1.0 maps to 32768). */
+/*
+ * Q8.24 to int16 with +6 dB of output makeup (#24), then a soft clip.
+ * The mix keeps 12 dB of headroom inside the engine (both oscillators and
+ * the chorus); the makeup gives 6 of it back. Up to the knee at -6 dBFS
+ * it is a pure gain. Above it, d past the knee becomes
+ * knee + h d / (h + d), h = full scale - knee: slope 1 at the knee,
+ * monotonic, and short of full scale. That curve is read from a table
+ * (tools/gen_softclip_table.py), linearly interpolated, so the render path
+ * has no divide; past d = 2.0 it holds at 0.9 of full scale. The worst
+ * case short of self-oscillation (d about 1.0) never reaches the rails.
+ */
+#define OUT_KNEE (1 << 23) /* 0.5 of full scale, after the makeup, in Q8.24 */
+#define OUT_CLIP_SHIFT 18  /* table step: 2^18 in Q8.24 */
+static const int32_t out_clip[129] = {
+    0, 254200, 493448, 719024, 932068, 1133596,
+    1324517, 1505648, 1677722, 1841402, 1997288, 2145923,
+    2287802, 2423376, 2553055, 2677215, 2796203, 2910333,
+    3019899, 3125168, 3226388, 3323788, 3417581, 3507963,
+    3595118, 3679214, 3760410, 3838855, 3914684, 3988027,
+    4059004, 4127728, 4194304, 4258832, 4321404, 4382109,
+    4441028, 4498239, 4553816, 4607827, 4660338, 4711410,
+    4761102, 4809469, 4856563, 4902433, 4947128, 4990691,
+    5033165, 5074590, 5115005, 5154446, 5192948, 5230544,
+    5267265, 5303143, 5338205, 5372479, 5405992, 5438768,
+    5470831, 5502205, 5532912, 5562972, 5592405, 5621232,
+    5649471, 5677139, 5704253, 5730831, 5756888, 5782439,
+    5807498, 5832080, 5856198, 5879865, 5903095, 5925897,
+    5948286, 5970271, 5991863, 6013073, 6033911, 6054387,
+    6074509, 6094288, 6113731, 6132848, 6151646, 6170133,
+    6188317, 6206206, 6223806, 6241124, 6258168, 6274943,
+    6291456, 6307713, 6323720, 6339482, 6355006, 6370296,
+    6385358, 6400197, 6414818, 6429225, 6443424, 6457418,
+    6471212, 6484810, 6498217, 6511437, 6524473, 6537329,
+    6550009, 6562516, 6574855, 6587028, 6599038, 6610890,
+    6622585, 6634128, 6645521, 6656766, 6667868, 6678828,
+    6689649, 6700335, 6710886,
+};
+
 static int16_t to_int16(int32_t q24)
 {
-    int32_t s = q24 >> 9;
+    int64_t u = (int64_t)q24 * 2, a = u < 0 ? -u : u;
+    int32_t s;
+    if (a > OUT_KNEE) {
+        int64_t d = a - OUT_KNEE;
+        uint32_t k = (uint32_t)(d >> OUT_CLIP_SHIFT);
+        if (k >= 128) {
+            a = OUT_KNEE + out_clip[128];
+        } else {
+            int64_t frac = d & ((1 << OUT_CLIP_SHIFT) - 1);
+            a = OUT_KNEE + out_clip[k] +
+                (((int64_t)(out_clip[k + 1] - out_clip[k]) * frac) >> OUT_CLIP_SHIFT);
+        }
+        u = u < 0 ? -a : a;
+    }
+    s = (int32_t)(u >> 9);
     if (s > 32767) return 32767;
     if (s < -32768) return -32768;
     return (int16_t)s;
