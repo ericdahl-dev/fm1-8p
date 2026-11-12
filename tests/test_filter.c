@@ -2226,6 +2226,25 @@ TT_TEST(highpass_step_4_is_2_db_louder_than_flat_at_1_khz)
     TT_CHECK_NEAR(g, 2.0, 0.5);
 }
 
+/*
+ * Step 4 is a low shelf on top of that: PG-8X 2.0.13's HPF 0 against its flat HPF 1 (noise,
+ * 2026-11-10 spectral probe, #93) is +6.5 dB at 30 Hz, +5.4 at 60, +3.7 at 120, +2.6 at 250,
+ * +2.1 at 500 and +2.0 at 1 kHz. Each within 0.5 dB.
+ */
+TT_TEST(highpass_step_4_is_the_pg8x_bass_boost)
+{
+    static const double hz[6] = { 30, 60, 120, 250, 500, 1000 };
+    static const double pg8x_db[6] = { 6.5, 5.4, 3.7, 2.6, 2.1, 2.0 };
+    double g[6];
+    int i, close = 1;
+    for (i = 0; i < 6; i++) {
+        g[i] = boost_gain_db(hz[i]);
+        printf("    highpass step 4: %4.0f Hz %+.2f dB (PG-8X %+.1f)\n", hz[i], g[i], pg8x_db[i]);
+        close &= fabs(g[i] - pg8x_db[i]) <= 0.5;
+    }
+    TT_CHECK(close);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -2285,4 +2304,5 @@ static void run_filter_tests(void)
     TT_RUN(highpass_steps_0_to_3_are_bit_for_bit_what_they_were);
     TT_RUN(default_patch_and_highpass_steps_render_what_they_did);
     TT_RUN(highpass_step_4_is_2_db_louder_than_flat_at_1_khz);
+    TT_RUN(highpass_step_4_is_the_pg8x_bass_boost);
 }

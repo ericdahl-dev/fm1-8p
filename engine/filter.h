@@ -28,7 +28,7 @@ typedef struct {
     int32_t fade;  /* 1.0 below the top of the cutoff range, to 0 at open */
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
     int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
-    int32_t hp_lo; /* bass boost: nonzero on that step (0 = a highpass) */
+    int32_t hp_lo; /* bass boost: how much of that lowpass is added, Q1.30 (0 = a highpass) */
 } fm_filter;
 
 /* Pitch of the sample rate in cents above MIDI note 0. Computed once

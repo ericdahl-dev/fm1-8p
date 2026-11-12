@@ -249,12 +249,21 @@ static int32_t clamp_in(int32_t x)
 }
 
 /*
- * Highpass step 4, the JX-8P's HPF position 0, is about 2 dB louder than
- * the flat position on PG-8X 2.0.13 (+2.0 dB at 1 kHz, #93): the input
- * times 1.26, as the input plus BOOST_HI of it.
+ * Highpass step 4 is the JX-8P's HPF position 0, which is not flat but a
+ * bass boost. PG-8X 2.0.13 against its flat position (HPF 1; noise,
+ * 2026-11-10 spectral probe, #93) is +6.5 dB at 30 Hz, +5.4 at 60, +3.7
+ * at 120, +2.6 at 250, +2.1 at 500 and +2.0 at 1 kHz: a low shelf on top
+ * of 2 dB of gain. Here it is
+ *
+ *     y = 1.26 * x + 1.02 * lowpass(x)
+ *
+ * with the highpass's own one-pole lowpass at 62 Hz, which fits those six
+ * points within 0.1 dB. The gain at DC is 2.28 (+7.2 dB). The 1.26 is the
+ * input plus BOOST_HI of it.
  */
 #define FM_FILTER_HIGHPASS_BOOST 4
-#define BOOST_HI 279172874 /* 0.26, Q1.30 */
+#define BOOST_HI 279172874  /* 0.26, Q1.30 */
+#define BOOST_LO 1095216660 /* 1.02, Q1.30 */
 
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
 {
@@ -270,7 +279,7 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
         if (step && fm_filter_is_wire(f)) leave_open(f); /* hp_g is 0 here */
     }
     f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
-    f->hp_lo = step == FM_FILTER_HIGHPASS_BOOST;
+    f->hp_lo = step == FM_FILTER_HIGHPASS_BOOST ? BOOST_LO : 0;
 }
 
 /* One stage: m = x - w * (x - x1), y += g * (m - y). */
@@ -303,7 +312,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         x = clamp_in(in);
     } else if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* highpass = input minus a one-pole lowpass of it */
         f->hp += mul_q30(in - f->hp, f->hp_g);
-        x = f->hp_lo ? in + mul_q30(in, BOOST_HI) : in - f->hp;
+        x = f->hp_lo ? in + mul_q30(in, BOOST_HI) + mul_q30(f->hp, f->hp_lo) : in - f->hp;
     } else { /* louder than any oscillator: the same in 64 bits */
         int64_t d;
         f->hp += (int32_t)((((int64_t)in - f->hp) * f->hp_g) >> 30);
