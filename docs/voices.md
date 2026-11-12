@@ -219,22 +219,28 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | Mix gain | Q1.30 | `0.25 / voice_count` = `(1 << 28) / voice_count`, rounded down |
 | Output before conversion | Q8.24 | 0.5 with no resonance; up to 1.0 with high resonance |
 | Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; 8 voices in phase measure -0.1 dBFS at most |
-| Output | `int16_t` | 16384 (-6 dBFS) with no resonance and the chorus off; self-oscillating resonance can reach full scale, where the conversion saturates |
+| Output makeup and soft clip (#24) | Q8.24 to `int16_t` | x 2 (+6 dB), a pure gain up to the knee at 16384 (-6 dBFS); above it the soft clip bends toward full scale and holds at 0.9 of it (29491, -0.9 dBFS), so the output never reaches the rails |
 
 Each voice is scaled by `1 / voice_count`, then a fixed -12 dB (#24): a
 voice's two oscillators at full peak at 2.0 (they sum, as on PG-8X), and the
 chorus adds up to +5.9 dB to voices in phase. The worst case short of
 self-oscillation, 8 voices in unison with no detune at velocity 127, both
 oscillators full, resonance up to 700 at any cutoff, in any chorus mode,
-peaks at -0.1 dBFS (`the_worst_case_chord_stays_below_full_scale`). The filter (#7) now uses that
+peaks at -0.1 dBFS before the output stage. The output then gives 6 dB
+back (+6 dB makeup) and bends anything past -6 dBFS with a soft clip, so the
+same worst case peaks at -1.2 dBFS and never at the rails
+(`the_worst_case_chord_stays_below_full_scale`): below the knee the output
+is exactly what it was before the trim. The soft clip is
+knee + h d / (h + d) past the knee by d (h = full scale - knee), read from a
+129-entry table (`tools/gen_softclip_table.py`) with linear interpolation,
+so the render path has no divide. The filter (#7) uses the same
 headroom: at high resonance its peak near the cutoff lifts a voice above the
 saw's level, up to the soft clip's +-4.0 in theory (4x what the mix gain
 budgets). Measured at resonance 1000, cutoff 13700 cents and highpass 3, one
-note on a 1-voice engine peaks at about 27100 (-1.6 dBFS). So high resonance can
-reach full scale. When it does, the int16 conversion saturates: samples clamp
-at +-32767, with no wraparound and no undefined behavior. Gain staging for
-the filter and the chorus is a follow-up in
-[#24](https://github.com/ericdahl-dev/fm1-8p/issues/24).
+note on a 1-voice engine peaks at about 27100 (-1.6 dBFS) before the trim and
+makeup. High resonance, even self-oscillation, now goes through the output
+soft clip, which holds at 0.9 of full scale, so the conversion never
+saturates.
 
 The cost of this is level: one note on a 6-voice engine peaks at
 `16384 / 6` = 2731, about -21.6 dBFS (-18 dBFS for 4 voices). That is normal
