@@ -42,6 +42,9 @@ expect_ok "and the report says nothing differs" grep -q "^0 of [0-9]* clips diff
 # Each path the gate covers: a change that shows only where that path runs must fail it.
 PH='p->osc[1].phase += 0x01000000u;'    # osc2 a step out of phase
 expect_ok "a change in ring_run (X-MOD, SYNC 2 in chunks) fails the gate" caught ring osc.c ring_run "$PH"
+expect_ok "a change in sync_run (SYNC 1 in chunks) fails the gate" caught sync osc.c sync_run "$PH"
+expect_ok "a change in the highpass steps fails the gate" caught hpf filter.c fm_filter_set_highpass 'rate_cents += 1200;'
+expect_ok "a change in the filter envelope's depth fails the gate" caught fenv voice.c update_cutoff 'fenv += fenv >> 3;'
 
 echo
 echo "$run tests, $failed failed"
