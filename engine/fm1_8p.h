@@ -138,18 +138,22 @@ typedef struct {
     uint32_t tick_left;  /* samples until the next control tick */
     uint32_t ticks;      /* control ticks since init */
     uint8_t mod_on;      /* the last tick applied a nonzero depth */
+    uint8_t thump_pending; /* onset thump (#146): a note event since the last
+                            * tick, or a first note anywhere but at sustain */
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
     /* the chorus's right side, Q8.24; before the chorus writes it, the
      * voices' scratch (each voice's oscillators for the chunk): the chorus
      * only writes it (chorus_block_writes_right_without_reading_it) */
     int32_t mix_right[FM_MIX_FRAMES];
-    /* the onset thump (#146): the voices' amp levels as a step (Q8.24
-     * voice units) at the last control tick and the one before, through
-     * two one-pole highpasses (coefficients Q1.30), then the voices'
-     * highpass step (its lowpass state, thump_hp) */
-    int32_t thump_x, thump_prev, thump_y1, thump_y2, thump_a1, thump_a2, thump_hp;
-    int32_t thump_hold[FM_MAX_VOICES]; /* each voice's part of the step */
-    uint8_t thump_state[FM_MAX_VOICES]; /* 0 not played yet, 1 first note, 2 done */
+    /* the onset thump (#146): the step at the last tick, the two
+     * highpasses' states (the second's at the tick before too: the
+     * output) and the voices' highpass step's, Q8.24 voice units; the
+     * coefficients
+     * (Q1.30, a tick); each voice's part of the step, and whether it has
+     * played: 0 not yet, 1 its first note, 2 done */
+    int32_t thump[5], thump_c[2];
+    int32_t thump_hold[FM_MAX_VOICES];
+    uint8_t thump_state[FM_MAX_VOICES];
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;

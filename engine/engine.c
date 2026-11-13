@@ -401,122 +401,111 @@ static void end_mode(fm_engine *e)
 }
 
 /*
- * The onset thump (#146). PG-8X 2.0.13 adds, when a voice plays, a DC
- * step that follows the voice's amp level, through an overdamped
+ * The onset thump (#146). PG-8X 2.0.13 adds, when a voice first plays, a
+ * DC step that follows the voice's amp level, through an overdamped
  * highpass: 5.4 Hz, Q 0.42, whose poles are real, at 2.94 and 9.92 Hz.
- * Here that is two one-pole highpasses, y = a (y + x - x1), with
- * a = 1 - w / rate (w in rad/s: within 0.01 % of exp(-w / rate) at
- * 8 kHz and up). The step is 0.252 of a voice at full level
- * (tests/test_onset.c has the measurement).
+ * The step is 0.252 of a voice at full level (tests/test_onset.c has the
+ * measurement). It is read at the control ticks, and the highpasses run
+ * there too: they only take away its slow part, so between two ticks the
+ * output moves in a straight line, one tick late. Each is y = (1 - c)
+ * (y + x - x1), c = 1 - exp(-w x tick / rate), in 32 bits (the FM-1's
+ * width): a state under 2^-16 of a voice ends at 0.
  */
-#define THUMP_W1_MRAD 18481 /* 2.941 Hz */
-#define THUMP_W2_MRAD 62310 /* 9.917 Hz */
-#define THUMP_STEP 4227858 /* 0.252 in Q8.24 */
+#define THUMP_W1 38757466 /* 2.941 Hz: w = 18.481 rad/s x 2^(16 + 5), / the rate */
+#define THUMP_W2 130673541 /* 9.917 Hz: 62.310 rad/s */
+#define THUMP_STEP_Q15 8257 /* 0.252 x 2^15: level Q15 x this is the part Q8.24 x 2^6 */
+enum { THUMP_X, THUMP_Y1, THUMP_Y2, THUMP_Y2_1, THUMP_HP }; /* e->thump[]: Y2 is the output, Y2_1 at the tick before */
 
-static int32_t thump_coef(uint32_t rate, int32_t w_mrad)
+/* u x (1 - c), c Q16, toward 0; under 256 (2^-16 of a voice) it is 0 */
+static int32_t thump_keep(int32_t u, int32_t c)
 {
-    return (int32_t)((1 << 30) - ((int64_t)w_mrad << 30) / ((int64_t)rate * 1000));
+    int32_t m = u < 0 ? -u : u;
+    if (m < 256) return 0;
+    m -= ((m >> 8) * c) >> 8;
+    return u < 0 ? -m : m;
 }
 
+/* c = 1 - exp(-x), x = w x a tick / rate, Q16, from its series (x is
+ * at most 0.08, at 8 kHz) */
+static int32_t thump_coef(uint32_t rate, int32_t w)
+{
+    int32_t x = w / (int32_t)rate;
+    return x - ((x * x) >> 17);
+}
+
+/* The thump at rest, and its coefficients for the rate
+ * (each voice's part and state are cleared with the voice). */
 static void thump_init(fm_engine *e)
 {
-    uint8_t k;
-    e->thump_x = e->thump_prev = e->thump_y1 = e->thump_y2 = e->thump_hp = 0;
-    for (k = 0; k < FM_MAX_VOICES; k++) {
-        e->thump_state[k] = 0;
-        e->thump_hold[k] = 0;
-    }
-    e->thump_a1 = thump_coef(e->sample_rate, THUMP_W1_MRAD);
-    e->thump_a2 = thump_coef(e->sample_rate, THUMP_W2_MRAD);
+    int k;
+    for (k = 0; k < 5; k++) e->thump[k] = 0;
+    e->thump_pending = 0;
+    e->thump_c[0] = thump_coef(e->sample_rate, THUMP_W1);
+    e->thump_c[1] = thump_coef(e->sample_rate, THUMP_W2);
 }
 
 /*
- * The step now, from each voice's part of it: while a voice plays its
- * first note (attack to sustain), its amp level times the step; from its
- * first release on, the part it had at the tick before, held (PG-8X's
- * note off adds nothing of its own).
+ * Nonzero while the thump has something to do: since the last note event
+ * a voice may have begun or ended its first note (thump_pending, also
+ * kept while one plays it anywhere but at its sustain), or the
+ * highpasses are not back at rest. Then chunks stop at the control
+ * ticks, so the output does not depend on the caller's block size.
+ * Otherwise (a first note held at its sustain, the pulse over) it costs
+ * nothing.
  */
-static int32_t thump_input(fm_engine *e)
+static int thump_live(const fm_engine *e)
 {
-    int64_t x = 0;
-    uint8_t k;
+    return e->params[FM_PARAM_ONSET_THUMP] &&
+           (e->thump_pending | e->thump[THUMP_Y1] | e->thump[THUMP_Y2] | e->thump[THUMP_Y2_1]);
+}
+
+/*
+ * At a control tick: the step now, from each voice's part of it (while it
+ * plays its first note, attack to sustain, its amp level times the step;
+ * from its first release on, the part it had at the tick before, held:
+ * PG-8X's note off adds nothing of its own), through the highpasses.
+ */
+static void thump_tick(fm_engine *e)
+{
+    int32_t *t = e->thump, x = 0;
+    uint8_t k, pending = 0;
     for (k = 0; k < e->voice_count; k++) {
         const fm_env *a = &e->voices[k].amp_env;
         int playing = a->stage >= FM_ENV_ATTACK && a->stage <= FM_ENV_SUSTAIN;
         if (e->thump_state[k] == 0 && playing) e->thump_state[k] = 1;
         if (e->thump_state[k] == 1) {
             if (playing)
-                e->thump_hold[k] = (int32_t)(((int64_t)a->level * THUMP_STEP) >> 30);
+                e->thump_hold[k] = ((a->level >> 15) * THUMP_STEP_Q15) >> 6;
             else
                 e->thump_state[k] = 2;
+            pending |= a->stage != FM_ENV_SUSTAIN;
         }
         x += e->thump_hold[k];
     }
-    return (int32_t)x;
-}
-
-/*
- * Nonzero while the thump has something to do: a voice has just been
- * given its first note, or plays it anywhere but at its sustain (its
- * level moves, or its release has to be found to hold its part), or the
- * step moved at the last tick, or the highpasses are not back at rest.
- * Then chunks stop at the control ticks, where the step is read, so the
- * output does not depend on the caller's block size. Otherwise (a first
- * note held at its sustain, the pulse over) it costs nothing.
- */
-static int thump_live(const fm_engine *e)
-{
-    uint8_t k;
-    if (!e->params[FM_PARAM_ONSET_THUMP]) return 0;
-    if (e->thump_x != e->thump_prev || e->thump_y1 | e->thump_y2 | e->thump_hp) return 1;
-    for (k = 0; k < e->voice_count; k++) {
-        const fm_voice *v = &e->voices[k];
-        if (e->thump_state[k] == 0 ? fm_voice_active(v)
-                                   : e->thump_state[k] == 1 && v->amp_env.stage != FM_ENV_SUSTAIN)
-            return 1;
+    e->thump_pending = pending;
+    t[THUMP_Y2_1] = t[THUMP_Y2];
+    x -= t[THUMP_X];            /* the step's move, into the first highpass */
+    t[THUMP_X] += x;
+    for (k = 0; k < 2; k++) {   /* each highpass's move, into the next */
+        int32_t y = thump_keep(t[THUMP_Y1 + k] + x, e->thump_c[k]);
+        x = y - t[THUMP_Y1 + k];
+        t[THUMP_Y1 + k] = y;
     }
-    return 0;
 }
 
-/* At a control tick: the step as it is now. */
-static void thump_tick(fm_engine *e)
-{
-    e->thump_prev = e->thump_x;
-    e->thump_x = thump_input(e);
-}
-
-/* v x a (Q1.30), rounded toward 0: a highpass state then decays to
- * exactly 0, where a shift (rounding down) would hold a negative one at
- * the size where one step's change is under 1 (-770 here). */
-static int32_t thump_mul(int64_t v, int32_t a)
-{
-    int64_t p = v * a;
-    return (int32_t)(p >= 0 ? p >> 30 : -((-p) >> 30));
-}
-
-/*
- * Adds the thump to the chunk's mix (voice units). Over each tick the
- * step moves in a straight line from its value at the tick before to
- * its value at this one (one tick late, so a chunk that ends mid-tick
- * plays what one that does not would).
- */
+/* Adds the thump to the chunk's mix (voice units): a straight line from
+ * its value at the tick before to its value at this one, then the
+ * voices' highpass step (every voice has the same). */
 static void thump_add(fm_engine *e, uint32_t n)
 {
-    int64_t d = (int64_t)e->thump_x - e->thump_prev;
-    uint32_t p = FM_LFO_TICK_FRAMES - e->tick_left, i;
-    int32_t hp_g = e->voices[0].filter.hp_g; /* the voices' highpass (every voice has the same) */
-    for (i = 0; i < n; i++, p++) {
-        int32_t dx = (int32_t)(((d * (int32_t)(p + 1)) >> FM_LFO_TICK_SHIFT) -
-                               ((d * (int32_t)p) >> FM_LFO_TICK_SHIFT));
-        int32_t y1 = thump_mul((int64_t)e->thump_y1 + dx, e->thump_a1);
-        e->thump_y2 = thump_mul((int64_t)e->thump_y2 + y1 - e->thump_y1, e->thump_a2);
-        e->thump_y1 = y1;
-        if (hp_g) {
-            e->thump_hp += thump_mul((int64_t)e->thump_y2 - e->thump_hp, hp_g);
-            e->mix[i] += e->thump_y2 - e->thump_hp;
-        } else {
-            e->mix[i] += e->thump_y2;
-        }
+    int32_t *t = e->thump, hp_g = e->voices[0].filter.hp_g;
+    int32_t inc = (t[THUMP_Y2] - t[THUMP_Y2_1]) >> FM_LFO_TICK_SHIFT;
+    int32_t y = t[THUMP_Y2_1] + inc * (int32_t)(FM_LFO_TICK_FRAMES - e->tick_left);
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        y += inc;
+        /* the highpass step's one-pole, in 32 bits: (y - hp) >> 11 x g >> 15 */
+        e->mix[i] += hp_g ? y - (t[THUMP_HP] += ((y - t[THUMP_HP]) >> 11) * (hp_g >> 15) >> 4) : y;
     }
 }
 
@@ -557,6 +546,8 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
             fm_voice_reset(&e->voices[i], (uint32_t)(i + 1) * 0x9E3779B9u,
                            rate_cents, &e->amp_set, &e->filter_set);
             e->detune[i] = 0;
+            e->thump_hold[i] = 0;
+            e->thump_state[i] = 0;
         }
     }
     fm_chorus_init(&e->chorus, sample_rate);
@@ -584,8 +575,10 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value)
 #endif
     if (value < info->min) value = info->min;
     if (value > info->max) value = info->max;
-    if (id == FM_PARAM_VOICE_MODE && value != e->params[id])
+    if (id == FM_PARAM_VOICE_MODE && value != e->params[id]) {
         end_mode(e);
+        e->thump_pending = 1; /* a first note may end */
+    }
     e->params[id] = value;
     apply_param(e, id);
     return FM_OK;
@@ -762,6 +755,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
 {
     if (e->sample_rate == 0 || note > 127 || velocity > 127)
         return; /* not initialized, or not MIDI */
+    e->thump_pending = 1; /* a voice may begin its first note */
     if (velocity == 0) {
         fm_engine_note_off(e, note);
         return;
@@ -788,6 +782,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
 void fm_engine_note_off(fm_engine *e, uint8_t note)
 {
     uint8_t i;
+    e->thump_pending = 1; /* a first note may end */
     if (e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON) {
         unison_note_off(e, note);
         return;
@@ -804,6 +799,7 @@ void fm_engine_note_off(fm_engine *e, uint8_t note)
 void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
 {
     uint8_t i;
+    e->thump_pending = 1; /* the pedal or all notes off may end a first note */
     if (controller == 64) e->pedal_down = value >= 64;
     if (controller == 120 || controller == 123) unison_reset(e);
     if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
