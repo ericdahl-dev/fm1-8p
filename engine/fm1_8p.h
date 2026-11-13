@@ -5,8 +5,8 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.8 KiB (5952 bytes on
- * 32-bit targets such as the FM-1 and Cortex-M, 6208 on 64-bit desktops,
+ * sets up everything inside it. fm_engine is about 5.8 KiB (6200 bytes on
+ * 32-bit targets such as the FM-1 and Cortex-M, 6552 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
  * storage is recommended; a task stack must have room for it on top of
@@ -104,6 +104,10 @@ typedef enum {
                         * the DYNAMICS share at the velocity (engine/dyna.c) */
     FM_PARAM_OSC_MIX_ENV_DYNA, /* MIX DYNAMICS 0 (off) .. 3: osc_mix_env's depth
                                 * times the DYNAMICS share at the velocity */
+    FM_PARAM_AMP_GATE, /* VCA MODE GATE (#63): 1, the amp envelope is a gate
+                        * (on with the key, a fixed short ramp), and the
+                        * amp_* settings run envelope 2 for the cutoff,
+                        * pitch and mix instead */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -129,6 +133,7 @@ typedef struct {
     uint32_t fade_samples; /* fast fade of a stolen voice */
     fm_env_settings amp_set;    /* every voice's amp envelope reads these */
     fm_env_settings filter_set; /* and its filter envelope these (#19) */
+    fm_env_settings gate_set;   /* the amp envelope's with amp_gate (#63) */
     uint8_t pedal_down;    /* sustain pedal (CC 64 >= 64) */
     int32_t bend_value;    /* last pitch bend, -8192..8191 from center */
     int32_t bend;          /* Q16.16 semitones added to every note */

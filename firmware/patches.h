@@ -42,7 +42,7 @@ typedef enum {
     PATCH_AMP_SUSTAIN_PERMILLE,
     PATCH_AMP_RELEASE_MS,
     PATCH_AMP_DYNA,                     /* VCA DYNAMICS: 0 off .. 3 (engine/dyna.c) */
-    PATCH_AMP_GATE,                     /* waits #63: 1 the VCA is a gate (the amp env is one now) */
+    PATCH_AMP_GATE,                     /* VCA MODE GATE: 1 the VCA is the engine's gate (#63) */
     PATCH_CHORUS_MODE,
     PATCH_LFO_WAVE,
     PATCH_LFO_RATE_CENTIHZ,

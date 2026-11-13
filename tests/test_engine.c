@@ -536,6 +536,100 @@ TT_TEST(output_soft_clip_is_monotonic_and_short_of_full_scale)
     TT_CHECK(p > 16384 && p < 32767);
 }
 
+/*
+ * VCA MODE GATE (#63): the VCA follows the key, whatever envelope 2's
+ * settings are (they run envelope 2 for the cutoff, pitch and mix). A held
+ * note stays at its peak, though envelope 2 decays to a sustain of 0.
+ */
+TT_TEST(gate_mode_holds_a_note_at_full_level)
+{
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 50);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_GATE, 1);
+    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_render(&eng, buf, RATE * 3 / 10);
+    printf("    gate, 300 ms into the note: %.4f of the peak\n",
+           (double)eng.voices[0].amp_env.level / eng.voices[0].amp_env.peak);
+    TT_CHECK_EQ(eng.voices[0].amp_env.level, eng.voices[0].amp_env.peak);
+}
+
+/*
+ * The gate closes on PG-8X 2.0.13's time constant, about 0.6 ms (#160:
+ * -20 / -40 dB in 1.4 / 2.6 ms), whatever envelope 2's release: still above
+ * -40 dB (0.01 of the peak) 2.5 ms after the key comes up, under it by 3.
+ */
+TT_TEST(gate_mode_closes_on_pg8x_time_constant)
+{
+    int32_t peak, at25, at30;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 2000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_GATE, 1);
+    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_render(&eng, buf, RATE / 10);
+    peak = eng.voices[0].amp_env.peak;
+    fm_engine_note_off(&eng, 60);
+    fm_engine_render(&eng, buf, RATE * 25 / 10000);
+    at25 = eng.voices[0].amp_env.level;
+    fm_engine_render(&eng, buf, RATE * 5 / 10000);
+    at30 = eng.voices[0].amp_env.level;
+    printf("    gate release: %.1f dB at 2.5 ms, %.1f dB at 3.0 ms\n",
+           20.0 * log10((double)at25 / peak + 1e-9), 20.0 * log10((double)at30 / peak + 1e-9));
+    TT_CHECK(at25 > peak / 100);
+    TT_CHECK(at30 < peak / 100);
+}
+
+/*
+ * With the gate, envelope 2 still runs, on its own: the cutoff that follows
+ * it (filter_env_source 1) falls with envelope 2's decay while the VCA holds
+ * the note at full, as the JX-8P's VCF on ENV-2 with the VCA on GATE.
+ */
+TT_TEST(gate_mode_runs_envelope_2_for_the_cutoff)
+{
+    int32_t early, late;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_CUTOFF_CENTS, 3000);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 6000);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SOURCE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 100);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_GATE, 1);
+    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_render(&eng, buf, RATE * 5 / 1000);
+    early = eng.voices[0].cutoff_now;
+    fm_engine_render(&eng, buf, RATE * 6 / 10);
+    late = eng.voices[0].cutoff_now;
+    printf("    gate, ENV-2 to the cutoff: %d cents at 5 ms, %d at 605 ms; VCA %.3f\n",
+           (int)early, (int)late,
+           (double)eng.voices[0].amp_env.level / eng.voices[0].amp_env.peak);
+    TT_CHECK(early > 3000 + 4000);
+    TT_CHECK(late < 3000 + 600);
+    TT_CHECK_EQ(eng.voices[0].amp_env.level, eng.voices[0].amp_env.peak);
+}
+
+/* With the gate the mix envelope on envelope 2 reads it too: held at half,
+ * osc2 sits at half of full depth, while the gate holds the VCA. */
+TT_TEST(gate_mode_runs_envelope_2_for_the_mix)
+{
+    int32_t got;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 0);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV_SOURCE, 1);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 500);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_GATE, 1);
+    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_render(&eng, buf, RATE / 10);
+    got = eng.voices[0].osc.level[1];
+    printf("    gate, mix env on envelope 2 at half: osc2 at %.4f of full\n",
+           (double)got / FM_OSC_LEVEL_FULL);
+    TT_CHECK(got > FM_OSC_LEVEL_FULL / 2 - FM_OSC_LEVEL_FULL / 1000 &&
+             got < FM_OSC_LEVEL_FULL / 2 + FM_OSC_LEVEL_FULL / 1000);
+}
+
 static void run_engine_tests(void)
 {
     TT_RUN(output_makeup_is_6_db_below_the_knee);
@@ -550,6 +644,10 @@ static void run_engine_tests(void)
     TT_RUN(amp_release_follows_the_key);
     TT_RUN(amp_decay_follows_the_key_below_c2);
     TT_RUN(amp_attack_follows_the_key);
+    TT_RUN(gate_mode_holds_a_note_at_full_level);
+    TT_RUN(gate_mode_closes_on_pg8x_time_constant);
+    TT_RUN(gate_mode_runs_envelope_2_for_the_cutoff);
+    TT_RUN(gate_mode_runs_envelope_2_for_the_mix);
     TT_RUN(amp_decay_heads_exponentially_to_sustain_without_undershoot);
     TT_RUN(envelope_times_share_one_32_second_range);
     TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
