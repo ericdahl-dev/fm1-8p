@@ -225,6 +225,29 @@ TT_TEST(amp_attack_runs_to_25_seconds)
              eng.voices[0].amp_env.level < peak / 100 * 63);
 }
 
+/*
+ * VCA DYNAMICS, as PG-8X 2.0.13 plays it: the note's level is the DYNAMICS
+ * share at its velocity (engine/dyna.c, the curve measured for #8), so at
+ * position 3 velocity 40 is 15.6 dB under velocity 127 (PG-8X: 15.5).
+ */
+TT_TEST(amp_dyna_sets_the_level_by_the_dynamics_curve)
+{
+    int32_t p40, p127;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DYNA, 3);
+    fm_engine_note_on(&eng, 60, 40);
+    p40 = eng.voices[0].amp_env.peak;
+    fm_engine_note_off(&eng, 60);
+    fm_engine_render(&eng, buf, RATE);
+    fm_engine_note_on(&eng, 60, 127);
+    p127 = eng.voices[0].amp_env.peak;
+    printf("    amp_dyna 3: v40 %.4f, v127 %.4f of full (%.2f dB apart)\n",
+           (double)p40 / FM_ENV_FULL, (double)p127 / FM_ENV_FULL,
+           20.0 * log10((double)p40 / p127));
+    TT_CHECK_EQ(p40, (int32_t)(((int64_t)FM_ENV_FULL * 5322) >> 15));
+    TT_CHECK_EQ(p127, (int32_t)(((int64_t)FM_ENV_FULL * 31891) >> 15));
+}
+
 /* Release is exponential, as PG-8X's: the release time is its time constant
  * tau, so the level falls 20 dB every tau x ln 10 (here 2.303 s for 1 s) and
  * 40 dB in twice that. A ramp of the same time would be silent by then. */
@@ -422,6 +445,7 @@ static void run_engine_tests(void)
     TT_RUN(high_saw_note_has_low_aliasing);
     TT_RUN(amp_envelope_follows_adsr_settings);
     TT_RUN(amp_attack_runs_to_25_seconds);
+    TT_RUN(amp_dyna_sets_the_level_by_the_dynamics_curve);
     TT_RUN(amp_release_falls_exponentially_with_its_time_constant);
     TT_RUN(amp_decay_heads_exponentially_to_sustain_without_undershoot);
     TT_RUN(envelope_times_share_one_32_second_range);
