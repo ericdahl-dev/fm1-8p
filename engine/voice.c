@@ -135,11 +135,17 @@ static int32_t amp_share(const fm_voice *v, int32_t level)
 static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
                                            int32_t fenv)
 {
-    int32_t cents;
+    int32_t cents, env2 = 0;
+    if (m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF])
+        env2 = amp_share(v, v->amp_env.level);
+    if (m->fenv_dyna) { /* VCF DYNAMICS on either envelope: Q1.30 * Q15 */
+        int32_t share = (int32_t)fm_dyna_share_q15(m->fenv_dyna, v->velocity);
+        fenv = (int32_t)(((int64_t)fenv * share) >> 15);
+        env2 = (int32_t)(((int64_t)env2 * share) >> 15);
+    }
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, fenv);
     if (m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF])
-        fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2,
-                          amp_share(v, v->amp_env.level));
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2, env2);
     cents = fm_filter_voice_cents(v->cutoff_cents, v->key_track, v->key_note,
                                   fm_mod_update(&v->mod, &m->routes,
                                                 FM_MOD_CUTOFF));
