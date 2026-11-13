@@ -50,6 +50,8 @@ typedef struct {
     uint32_t decay_samples;
     uint32_t release_samples;
     int32_t sustain;
+    int32_t key_follow; /* per mille: the times x 2^(-this x octaves above
+                         * C2) for the note (fm_env_key) */
 } fm_env_settings;
 
 typedef struct {
@@ -66,6 +68,7 @@ typedef struct {
                     * sustain level is scaled by it too */
     int32_t sus_level; /* sustain * peak, set at gate on and retime */
     const fm_env_settings *set; /* the shared settings (fm_env_init) */
+    uint32_t ks; /* this note's time scale, Q16.16 (key follow; 1.0 at 0) */
 } fm_env;
 
 /* Starts an envelope, idle, on `set`: the only way to give it settings,
@@ -73,6 +76,9 @@ typedef struct {
 void fm_env_init(fm_env *e, const fm_env_settings *set);
 /* Back to idle, keeping its settings. */
 void fm_env_reset(fm_env *e);
+/* The time scale for `note` from the key follow setting: call before
+ * fm_env_gate_on. Exactly 1.0 when the setting is 0. */
+void fm_env_key(fm_env *e, uint8_t note);
 void fm_env_gate_on(fm_env *e);
 void fm_env_gate_off(fm_env *e);
 /* Falls from the current level to 0 in `samples`, then goes idle. */

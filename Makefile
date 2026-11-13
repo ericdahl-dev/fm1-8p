@@ -17,6 +17,11 @@
 #                           clips reach each engine function (GATE_COVERAGE=0 skips that). Either may be
 #                           a source directory instead of a commit.
 #   make check-gate         test the gate itself (renders: minutes, so not part of make check)
+#   make scorecard COMMIT=<commit> [BASE=<commit>]
+#                           how close COMMIT's 32 factory tones are to PG-8X (tools/scorecard.sh: needs
+#                           SCORECARD_REF, the reference renders, and a Python with numpy and scipy);
+#                           appends to a JSONL history and prints the worst 5 and the tones moved
+#   make check-scorecard    test the scorecard (SCORECARD_PYTHON: a Python with numpy and scipy)
 #
 # The FM-1 firmware itself is built by tools/fm1-build.sh (see README).
 #   make render-demo        render examples/demo.mid to build/demo.wav
@@ -50,7 +55,7 @@ RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
 .PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches render-demo clean \
-	gate check-gate
+	gate check-gate scorecard check-scorecard
 
 all: $(RENDER) $(BENCH)
 
@@ -104,6 +109,7 @@ check-runner:
 
 check-patches:
 	PYTHON="$(PYTHON)" sh tests/test_python_cache.sh
+	sh tests/test_python_without_numpy.sh
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 
 check: test check-runner check-float-free check-fm1-build check-patches
@@ -114,6 +120,13 @@ gate:
 
 check-gate:
 	sh tests/test_gate.sh
+
+scorecard:
+	@test -n "$(COMMIT)" || { echo "usage: make scorecard COMMIT=<commit> [BASE=<commit>]" >&2; exit 2; }
+	sh tools/scorecard.sh "$(COMMIT)" $(if $(BASE),"$(BASE)")
+
+check-scorecard:
+	$(if $(SCORECARD_PYTHON),$(SCORECARD_PYTHON),python3) -B -m unittest tests/test_scorecard.py
 
 render-demo: $(RENDER)
 	./$(RENDER) examples/demo.mid $(BUILD)/demo.wav

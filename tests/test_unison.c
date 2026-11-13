@@ -42,8 +42,9 @@ static int worst_unison_peak(int32_t res, int *wrapped)
         fm_engine_render(&poly, out, 4410);
         for (i = 0; i < 2 * 4410; i++) {
             if (abs(out[i]) > peak) peak = abs(out[i]);
-            /* a wrap shows as a jump from near one rail to near the other */
-            if (i >= 2 && abs(out[i] - out[i - 2]) > 60000) *wrapped = 1;
+            /* a wrap shows as a jump from near one rail to near the other:
+             * past 2 x 0.966 of full scale, where the soft clip holds */
+            if (i >= 2 && abs(out[i] - out[i - 2]) > 64000) *wrapped = 1;
         }
     }
     return peak;
@@ -191,14 +192,14 @@ TT_TEST(new_note_retriggers_and_release_returns_legato_to_held_note)
  * a legato return and the final release, on 4 detuned voices. Notes 0..4
  * as in no_click_when_a_voice_starts_is_stolen_or_ends: no saw wraps in
  * the 4000 frames, so any jump over CLICK_LSB is the engine's. The four
- * voices start in phase, so together they reach full scale (16384), four
- * times one poly voice: the attack is 10 ms rather than 5 to keep the
- * ramp itself (16384 / 441 per sample) as gentle as in the poly test.
+ * voices start in phase, so together they reach the knee (KNEE_LSB), four
+ * times one poly voice: the attack is 15 ms rather than 5 to keep the
+ * ramp itself (KNEE_LSB / 661 per sample) as gentle as in the poly test.
  */
 TT_TEST(unison_note_changes_do_not_click)
 {
     init_unison(4, 10);
-    fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 10);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 15);
     fm_engine_set_param(&poly, FM_PARAM_AMP_DECAY_MS, 50);
     fm_engine_set_param(&poly, FM_PARAM_AMP_SUSTAIN, 500);
     /* tau 2 ms: idle (-80 dB) in 18.4 ms, inside the last 1000 samples */
@@ -242,7 +243,7 @@ TT_TEST(unison_at_full_velocity_never_clips)
             for (i = 0; i < 2 * PRATE; i++)
                 if (pbuf[i] >= 32767 || pbuf[i] <= -32767) clipped = 1;
             TT_CHECK(!clipped);
-            TT_CHECK(peak_abs(pbuf, 0, PRATE) <= 16384);
+            TT_CHECK(peak_abs(pbuf, 0, PRATE) <= KNEE_LSB);
             if (spreads[d] == 0)
                 TT_CHECK(peak_abs(pbuf, 0, PRATE) > 8192 * 9 / 10); /* -12 dB mix gain */
         }
@@ -395,7 +396,7 @@ TT_TEST(random_unison_playing_stays_within_its_voices_and_bounds)
         for (i = 0; i < 2 * n; i++)
             if (whole[i] >= 32767 || whole[i] <= -32767) clipped = 1;
         TT_CHECK(!clipped);
-        TT_CHECK(peak_abs(whole, 0, n) <= 16384);
+        TT_CHECK(peak_abs(whole, 0, n) <= KNEE_LSB);
         fm_engine_controller(&poly, 64, 0);
         fm_engine_controller(&poly, 123, 0);
         fm_engine_render(&poly, pbuf, PRATE / 10);

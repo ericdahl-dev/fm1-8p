@@ -5,8 +5,8 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.5 KiB (5644 bytes on
- * 32-bit targets such as the FM-1 and Cortex-M, 5808 on 64-bit desktops,
+ * sets up everything inside it. fm_engine is about 5.8 KiB (6012 bytes on
+ * 32-bit targets such as the FM-1 and Cortex-M, 6272 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
  * storage is recommended; a task stack must have room for it on top of
@@ -33,6 +33,8 @@
 #define FM_MAX_VOICES 8
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
+/* settings that glide with setting_glide (#146) */
+#define FM_GLIDE_SETTINGS 8
 /* Keys unison mode remembers for last-note priority (oldest dropped). */
 #define FM_HELD_MAX 16
 
@@ -97,6 +99,15 @@ typedef enum {
     FM_PARAM_OSC_RING, /* 1: osc2 times osc1, the JX-8P's SYNC 2 and X-MOD */
     FM_PARAM_FILTER_ENV_DYNA, /* DYNAMICS 0 (off) .. 3: velocity scales the
                                * filter envelope's cutoff depth */
+    FM_PARAM_AMP_KEY_FOLLOW, /* per mille, 0..1000: the amp envelope's times
+                              * x 2^(-this x octaves above C2) (ENV-2 KEY) */
+    FM_PARAM_FILTER_ENV_KEY_FOLLOW, /* the same for the filter envelope (ENV-1 KEY) */
+    FM_PARAM_AMP_DYNA, /* VCA DYNAMICS 0 (off: amp_velocity) .. 3: the level is
+                        * the DYNAMICS share at the velocity (engine/dyna.c) */
+    FM_PARAM_OSC_MIX_ENV_DYNA, /* MIX DYNAMICS 0 (off) .. 3: osc_mix_env's depth
+                                * times the DYNAMICS share at the velocity */
+    FM_PARAM_AMP_LEVEL, /* per mille: the whole note's level (VCA LEVEL), read at note on */
+    FM_PARAM_SETTING_GLIDE, /* 1: levels, filter and LFO depths glide as PG-8X's (#146) */
     FM_PARAM_OSC1_COARSE_SEMIS, /* -12..+12 semitones, on top of osc1's octave and fine */
     FM_PARAM_COUNT
 } fm_param_id;
@@ -135,11 +146,18 @@ typedef struct {
     uint32_t tick_left;  /* samples until the next control tick */
     uint32_t ticks;      /* control ticks since init */
     uint8_t mod_on;      /* the last tick applied a nonzero depth */
+    uint8_t glide_moving; /* setting_glide (#146): a setting is on its way */
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
     /* the chorus's right side, Q8.24; before the chorus writes it, the
      * voices' scratch (each voice's oscillators for the chunk): the chorus
      * only writes it (chorus_block_writes_right_without_reading_it) */
     int32_t mix_right[FM_MIX_FRAMES];
+    /* setting_glide (#146): where each gliding setting is now, Q8 in
+     * its own units (its parameter holds it rounded), where it goes, and
+     * the one-pole's step (1 - a, Q16) */
+    int32_t glide_cur[FM_GLIDE_SETTINGS];
+    int16_t glide_to[FM_GLIDE_SETTINGS];
+    int32_t glide_k;
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
@@ -151,9 +169,8 @@ typedef struct {
  * Each note takes a voice; with more notes than voices the engine steals
  * one (the rule is in docs/voices.md). In unison mode (FM_PARAM_VOICE_MODE)
  * every voice plays the newest note instead, detuned. Each voice is mixed at
- * 1 / voice_count, then -6 dB, so a full chord never clips without filter
- * resonance; high resonance can reach full scale, where the output
- * saturates.
+ * 1 / voice_count, then -2.85 dB (PG-8X 2.0.13's level, #102); past the
+ * knee at -2.85 dBFS a soft clip bends the output short of full scale.
  */
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count);

@@ -529,16 +529,16 @@ TT_TEST(render_reports_voice_count_channel_and_level)
     printf("    %s\n", text);
     TT_CHECK(strstr(text, "6 voices") != NULL);
     TT_CHECK(strstr(text, "MIDI channel 1") != NULL);
-    TT_CHECK(strstr(text, "1/12") != NULL);
-    TT_CHECK(strstr(text, "-21.6 dBFS") != NULL);
+    TT_CHECK(strstr(text, "1/8.33") != NULL);
+    TT_CHECK(strstr(text, "-18.4 dBFS") != NULL);
     o.voice_count = 1;
     o.channel = 2;
     TT_CHECK_EQ(render_midi("build/two-ch.mid", "build/x.wav", &o, &info), 0);
     render_describe(&info, text, sizeof text);
     TT_CHECK(strstr(text, "1 voice,") != NULL);
     TT_CHECK(strstr(text, "MIDI channel 2") != NULL);
-    TT_CHECK(strstr(text, "-6.0 dBFS") != NULL);
-    /* in unison one note takes every voice, so it peaks at -6 dBFS */
+    TT_CHECK(strstr(text, "-2.9 dBFS") != NULL);
+    /* in unison one note takes every voice, so it peaks at -2.9 dBFS */
     o.voice_count = 6;
     o.param_count = 1;
     o.param_id[0] = FM_PARAM_VOICE_MODE;
@@ -547,9 +547,9 @@ TT_TEST(render_reports_voice_count_channel_and_level)
     render_describe(&info, text, sizeof text);
     printf("    %s\n", text);
     TT_CHECK(strstr(text, "6 voices in unison") != NULL);
-    TT_CHECK(strstr(text, "1/12") != NULL);
-    TT_CHECK(strstr(text, "-6.0 dBFS") != NULL);
-    TT_CHECK(strstr(text, "-21.6") == NULL);
+    TT_CHECK(strstr(text, "1/8.33") != NULL);
+    TT_CHECK(strstr(text, "-2.9 dBFS") != NULL);
+    TT_CHECK(strstr(text, "-18.4") == NULL);
 }
 
 TT_TEST(render_rejects_a_bad_voice_count)

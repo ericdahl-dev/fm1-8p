@@ -191,7 +191,7 @@ TT_TEST(extreme_settings_stay_bounded_and_release)
             fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 0);
             fm_engine_note_on(&eng, notes[n], 127);
             fm_engine_render(&eng, buf, 2000);
-            TT_CHECK(peak_abs(buf, 0, 2000) <= 16384 + 64);
+            TT_CHECK(peak_abs(buf, 0, 2000) <= KNEE_LSB + 64);
             fm_engine_note_off(&eng, notes[n]);
             fm_engine_render(&eng, buf, 2000);
             for (i = 2; i < 2 * 2000; i++)
@@ -225,6 +225,94 @@ TT_TEST(amp_attack_runs_to_25_seconds)
              eng.voices[0].amp_env.level < peak / 100 * 63);
 }
 
+/* The attack follows the key as well: at 260, C6 (four octaves above C2)
+ * reaches its peak at 1 s x 2^-1.04, 486 ms; still short of it at 95 % of
+ * that, on it by 105 %. */
+TT_TEST(amp_attack_follows_the_key)
+{
+    const uint32_t r = 8000;
+    const double t = 1000.0 * pow(2.0, -1.04); /* ms */
+    int32_t peak, before;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000); /* holds the peak */
+    fm_engine_set_param(&eng, FM_PARAM_AMP_KEY_FOLLOW, 260);
+    fm_engine_note_on(&eng, 84, 127);
+    peak = eng.voices[0].amp_env.peak;
+    fm_engine_render(&eng, buf, (uint32_t)(r * t * 0.95 / 1000.0));
+    before = eng.voices[0].amp_env.level;
+    fm_engine_render(&eng, buf, (uint32_t)(r * t * 0.10 / 1000.0));
+    printf("    C6, follow 260: %.3f of the peak at 95 %% of %.0f ms, %.3f at 105 %%\n",
+           (double)before / peak, t, (double)eng.voices[0].amp_env.level / peak);
+    TT_CHECK(before < peak);
+    TT_CHECK(eng.voices[0].amp_env.level >= peak);
+}
+
+/*
+ * VCA DYNAMICS, as PG-8X 2.0.13 plays it: the note's level is the DYNAMICS
+ * share at its velocity (engine/dyna.c, the curve measured for #8), so at
+ * position 3 velocity 40 is 15.6 dB under velocity 127 (PG-8X: 15.5).
+ */
+TT_TEST(amp_dyna_sets_the_level_by_the_dynamics_curve)
+{
+    int32_t p40, p127;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DYNA, 3);
+    fm_engine_note_on(&eng, 60, 40);
+    p40 = eng.voices[0].amp_env.peak;
+    fm_engine_note_off(&eng, 60);
+    fm_engine_render(&eng, buf, RATE);
+    fm_engine_note_on(&eng, 60, 127);
+    p127 = eng.voices[0].amp_env.peak;
+    printf("    amp_dyna 3: v40 %.4f, v127 %.4f of full (%.2f dB apart)\n",
+           (double)p40 / FM_ENV_FULL, (double)p127 / FM_ENV_FULL,
+           20.0 * log10((double)p40 / p127));
+    TT_CHECK_EQ(p40, (int32_t)(((int64_t)FM_ENV_FULL * 5322) >> 15));
+    TT_CHECK_EQ(p127, (int32_t)(((int64_t)FM_ENV_FULL * 31891) >> 15));
+}
+
+/*
+ * MIX DYNAMICS, as PG-8X 2.0.13 plays it: the MIX ENV depth times the
+ * DYNAMICS share at the note's velocity (engine/dyna.c). osc2 at 0 with
+ * MIX ENV at full depth on the filter envelope, held at full: at position
+ * 3 velocity 40 it settles at the share, 0.162 of full.
+ */
+TT_TEST(mix_env_dyna_scales_the_mix_envelope_by_the_dynamics_curve)
+{
+    int32_t got, want = (int32_t)(((int64_t)FM_OSC_LEVEL_FULL * 5322) >> 15);
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV_DYNA, 3);
+    fm_engine_note_on(&eng, 60, 40);
+    fm_engine_render(&eng, buf, RATE / 10);
+    got = eng.voices[0].osc.level[1];
+    printf("    mix env dyna 3, v40: osc2 at %.4f of full (want %.4f)\n",
+           (double)got / FM_OSC_LEVEL_FULL, (double)want / FM_OSC_LEVEL_FULL);
+    TT_CHECK(got > want - FM_OSC_LEVEL_FULL / 1000 && got < want + FM_OSC_LEVEL_FULL / 1000);
+}
+
+/*
+ * A held saw plays at PG-8X 2.0.13's level: -23.3 dBFS for one C4 voice
+ * with 6 voices set up (2026-11-13, the init tone through an open VCA,
+ * steady 0.3-1.3 s; the same 3.2 dB gap on every path, #102).
+ */
+TT_TEST(a_saw_voice_plays_at_pg8x_level)
+{
+    double sum = 0, db;
+    uint32_t i, from = RATE * 3 / 10, to = RATE * 13 / 10;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 6), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000); /* the VCA open, as the probe's */
+    fm_engine_note_on(&eng, 60, 100);
+    fm_engine_render(&eng, buf, to);
+    for (i = from; i < to; i++) sum += (double)buf[2 * i] * buf[2 * i];
+    db = 10.0 * log10(sum / (to - from) / (32768.0 * 32768.0));
+    printf("    one saw voice of 6, C4: %.2f dBFS (PG-8X -23.34)\n", db);
+    TT_CHECK_NEAR(db, -23.34, 0.15);
+}
+
 /* Release is exponential, as PG-8X's: the release time is its time constant
  * tau, so the level falls 20 dB every tau x ln 10 (here 2.303 s for 1 s) and
  * 40 dB in twice that. A ramp of the same time would be silent by then. */
@@ -246,6 +334,34 @@ TT_TEST(amp_release_falls_exponentially_with_its_time_constant)
     fm_engine_render(&eng, buf, r * 2303 / 1000);
     TT_CHECK(eng.voices[0].amp_env.level > peak / 10000 * 98 &&
              eng.voices[0].amp_env.level < peak / 10000 * 102);
+}
+
+/*
+ * Key follow shortens the envelope as the note rises, as PG-8X's ENV KEY:
+ * the time times 2^(-follow x octaves above C2), follow in per mille (the
+ * JX-8P's three positions measure 0.27, 0.52 and 0.77 an octave). At 520,
+ * C4 (two octaves up) releases with tau 1 s x 2^-1.04: 20 dB down after
+ * that tau x ln 10.
+ */
+TT_TEST(amp_release_follows_the_key)
+{
+    const uint32_t r = 8000;
+    const double tau = 1000.0 * pow(2.0, -1.04); /* ms: 486 */
+    int32_t peak;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_KEY_FOLLOW, 520);
+    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_render(&eng, buf, r / 10);
+    peak = eng.voices[0].amp_env.level;
+    fm_engine_note_off(&eng, 60);
+    fm_engine_render(&eng, buf, (uint32_t)(r * tau * 2.302585 / 1000.0));
+    printf("    C4, follow 520: %.4f of the peak after 2.303 tau (%.0f ms)\n",
+           (double)eng.voices[0].amp_env.level / peak, tau);
+    TT_CHECK(eng.voices[0].amp_env.level > peak / 1000 * 98 &&
+             eng.voices[0].amp_env.level < peak / 1000 * 102);
 }
 
 /* Decay is exponential toward the sustain level, not toward 0: the distance
@@ -275,6 +391,31 @@ TT_TEST(amp_decay_heads_exponentially_to_sustain_without_undershoot)
     }
     TT_CHECK(low >= sus);
     TT_CHECK(eng.voices[0].amp_env.level - sus <= sus / 100);
+}
+
+/* Below C2 key follow lengthens the times, as on PG-8X: at 780, C1 (an
+ * octave down) decays with tau 100 ms x 2^0.78, 172 ms, to 1/e of the way
+ * there after it. */
+TT_TEST(amp_decay_follows_the_key_below_c2)
+{
+    const uint32_t r = 8000;
+    const double tau = 100.0 * pow(2.0, 0.78); /* ms */
+    int32_t peak, sus, d;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 100);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 500);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_KEY_FOLLOW, 780);
+    fm_engine_note_on(&eng, 24, 127);
+    fm_engine_render(&eng, buf, 1); /* the attack lands on the peak */
+    peak = eng.voices[0].amp_env.peak;
+    sus = eng.voices[0].amp_env.sus_level;
+    fm_engine_render(&eng, buf, (uint32_t)(r * tau / 1000.0));
+    d = eng.voices[0].amp_env.level - sus;
+    printf("    C1, follow 780: %.4f of the way left after tau (%.0f ms)\n",
+           (double)d / (peak - sus), tau);
+    TT_CHECK(d > (int32_t)((int64_t)(peak - sus) * 360 / 1000) &&
+             d < (int32_t)((int64_t)(peak - sus) * 376 / 1000));
 }
 
 /* Every envelope time, both envelopes, has one range: 0 to 32 s, as long as
@@ -325,7 +466,7 @@ TT_TEST(raising_sustain_mid_decay_does_not_overflow)
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
     fm_engine_render(&eng, buf, 4410);
     TT_CHECK(peak_abs(buf, 2000, 4410) > 7500); /* -12 dB mix gain */
-    TT_CHECK(peak_abs(buf, 0, 4410) <= 16384 + 64);
+    TT_CHECK(peak_abs(buf, 0, 4410) <= KNEE_LSB + 64);
 }
 
 TT_TEST(shortening_release_mid_release_takes_effect)
@@ -384,22 +525,22 @@ static int saws_peak(int32_t osc1, int32_t osc2)
 }
 
 /*
- * Output makeup (#24): the mix gain leaves 12 dB of headroom inside the
- * engine; +6 dB at the output brings it back. Below the soft clip's knee
- * (-6 dBFS) it is a pure gain: this saw peaked at 5558 with the trim
- * alone (1995429), so twice that, within the 1 LSB of rounding.
+ * Output makeup (#24): +6 dB at the output. Below the soft clip's knee
+ * (-2.85 dBFS) it is a pure gain: this saw peaked at 5558 with the trim
+ * alone (1995429) and the old mix gain, so twice that, times the mix
+ * gain's 3.17 dB (#102), within the 1 LSB of rounding.
  */
 TT_TEST(output_makeup_is_6_db_below_the_knee)
 {
     int p = saws_peak(800, 0);
     printf("    one saw at level 800: peak %d (%.3f of full scale)\n", p, p / 32768.0);
-    TT_CHECK(abs(p - 2 * 5558) <= 1);
+    TT_CHECK(abs(p - 16012) <= 1);
 }
 
 /*
  * Through the knee and above it, more in is more out, and never full
  * scale: osc 1 full, osc 2 from 0 to full in steps of 100 takes one voice
- * from below the knee (0.42 of full scale) to past it (0.85 in).
+ * from below the knee (0.60 of full scale) to past it (1.22 in).
  */
 TT_TEST(output_soft_clip_is_monotonic_and_short_of_full_scale)
 {
@@ -422,7 +563,13 @@ static void run_engine_tests(void)
     TT_RUN(high_saw_note_has_low_aliasing);
     TT_RUN(amp_envelope_follows_adsr_settings);
     TT_RUN(amp_attack_runs_to_25_seconds);
+    TT_RUN(amp_dyna_sets_the_level_by_the_dynamics_curve);
+    TT_RUN(mix_env_dyna_scales_the_mix_envelope_by_the_dynamics_curve);
+    TT_RUN(a_saw_voice_plays_at_pg8x_level);
     TT_RUN(amp_release_falls_exponentially_with_its_time_constant);
+    TT_RUN(amp_release_follows_the_key);
+    TT_RUN(amp_decay_follows_the_key_below_c2);
+    TT_RUN(amp_attack_follows_the_key);
     TT_RUN(amp_decay_heads_exponentially_to_sustain_without_undershoot);
     TT_RUN(envelope_times_share_one_32_second_range);
     TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
