@@ -46,6 +46,18 @@ tree same
 expect_ok "two identical trees pass" sh tools/gate.sh "$T/base" "$T/same"
 cp "$T/out" "$T/report"
 expect_ok "and the report says nothing differs" grep -q "^0 of [0-9]* clips differ" "$T/report"
+# CPU rows (fm1-emu): only with the FM-1 inputs; without them the gate says so and still passes.
+expect_ok "without the FM-1 inputs the gate skips the CPU rows" env -u FM1_REF -u FM1_DOCK GATE_COVERAGE=0 \
+    sh tools/gate.sh "$T/base" "$T/same"
+expect_ok "and says the CPU rows were skipped" grep -q "^CPU rows: skipped" "$T/out.last"
+# Each CPU mode stages its own step F: SYNC 2 adds sync and the ring after the highpass step; pad adds
+# 3 KB of dead code ahead of the engine and a call that keeps it linked.
+mkdir -p "$T/fm1/dock" "$T/fm1/tc" "$T/fm1/sdk" && : >"$T/fm1/live"
+expect_ok "the CPU modes stage without an emulator" env GATE_CPU_PREPARE_ONLY=1 JIELI_TOOLCHAIN="$T/fm1/tc" \
+    AC79_SDK="$T/fm1/sdk" FM1_DOCK="$T/fm1/dock" FM1_LIVE="$T/fm1/live" sh tools/gate_cpu.sh "$T/base" "$T/cpu"
+expect_ok "SYNC 2's step F has sync then the ring" sh -c "grep -A2 '{FM_PARAM_HIGHPASS_STEP, 1},' '$T/cpu/ring/src/firmware/cpu_test.c' | tr -d '\\n ' | grep -q 'OSC_SYNC,1},{FM_PARAM_OSC_RING,1}'"
+expect_ok "plain's step F is the tree's own" cmp "$T/base/firmware/cpu_test.c" "$T/cpu/plain/src/firmware/cpu_test.c"
+expect_ok "pad links its dead code" sh -c "test -f '$T/cpu/plain-pad/src/engine/aa_pad.c' && grep -q 'fm1_8p_gate_pad(3)' '$T/cpu/plain-pad/src/firmware/fm1_8p_cpu/fm1_8p_cpu.c'"
 # make gate runs it: BASE is required, HEAD defaults to the commit checked out.
 expect_ok "make gate BASE=... HEAD=... runs the gate" make -s gate BASE="$T/base" HEAD="$T/same" GATE_COVERAGE=0
 expect_ok "and reports the clips compared" grep -q "^0 of [0-9]* clips differ" "$T/out.last"

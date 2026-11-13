@@ -82,10 +82,29 @@ coverage() {
 
 [ "${GATE_COVERAGE:-1}" = 0 ] || coverage "$H"
 
+# cpu DIR: the CPU rows of DIR (tools/gate_cpu.sh), kept by DIR's key like its renders
+cpu() {
+    k=$(key "$1"); o=$G/cpu/$k
+    if [ ! -f "$o/rows.txt" ]; then
+        sh "$ROOT/tools/gate_cpu.sh" "$1" "$o/runs" >"$o.rows" 2>"$o.err" || { cat "$o.err" >&2; return 1; }
+        mkdir -p "$o" && sort "$o.rows" >"$o/rows.txt" && rm -f "$o.rows" "$o.err"
+    fi
+    cat "$o/rows.txt"
+}
+
 n=0 d=0
 while IFS='	' read -r name mid args; do
     n=$((n + 1))
     if ! cmp -s "$OB/$name.wav" "$OH/$name.wav"; then d=$((d + 1)); echo "differs: $name"; fi
 done <"$OH/.cases"
 echo "$d of $n clips differ"
+
+if [ -z "${FM1_REF:-}${FM1_DOCK:-}" ]; then
+    echo "CPU rows: skipped (set FM1_REF or the FM-1 build inputs; see tools/gate_cpu.sh)"
+else
+    mkdir -p "$G/cpu"
+    echo "CPU rows, fm1-emu strict, worst % of a block (device ~= x 1.08):"
+    echo "base:"; cpu "$B" || echo "CPU rows: base failed"
+    echo "head:"; cpu "$H" || echo "CPU rows: head failed"
+fi
 [ "$d" -eq 0 ] || exit 1
