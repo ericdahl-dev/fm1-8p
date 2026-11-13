@@ -402,8 +402,8 @@ Q8.24 come out, and each is saturated to int16 as before. The `chorus_mode` para
 | Mode | LFO rate | Center delay | Sweep | Character |
 | --- | --- | --- | --- | --- |
 | 0 off | | | | input passed to both sides unchanged (bit-exact with the engine before the chorus) |
-| 1 slow (I) | 0.68 Hz | 5.5 ms | +-2.0 ms | PG-8X's chorus (#104) |
-| 2 deep (II) | 0.68 Hz | 5.5 ms | +-3.5 ms | the same, with a deeper sweep |
+| 1 slow (I) | 0.68 Hz | 2.0 ms | +-1.6 ms | PG-8X's chorus (#104) |
+| 2 deep (II) | 0.68 Hz | 2.1 ms | +-2.0 ms | the same, with a deeper sweep |
 | 3 fast | 6.0 Hz | 3.0 ms | +-0.3 ms | quick, shallow shimmer |
 
 How it works, per sample:
@@ -423,9 +423,9 @@ How it works, per sample:
 - Each output is the dry input plus its tap, at full size each, as on
   PG-8X 2.0.13 (#104). An output never exceeds the input peak plus 2.0 (the
   line's clamp). The dry part is limited to about +-126.0, so the sum fits
-  in int32 for any input (one clamp, no 64-bit math). On a held C3 saw the chorus raises the RMS level by about 3 dB
-  over chorus off (I +3.0, II +3.4; PG-8X +3.0), and the left and right
-  correlate at 0.43 (I) and 0.46 (II), against PG-8X's 0.46. The mix gain
+  in int32 for any input (one clamp, no 64-bit math). On a held C3 saw the chorus raises the RMS level by about 2.4 dB
+  over chorus off (I +2.4, II +2.4; PG-8X +3.0), and the left and right
+  correlate at 0.50 (I) and 0.44 (II), against PG-8X's 0.46. The mix gain
   keeps the chorus's input within +-0.5 (-6 dBFS), so dry plus wet stays
   under full scale: an eight-note chord at full level peaks at about
   25500 of 32767 with the chorus on (16100 off) and never clips. Before
@@ -433,9 +433,21 @@ How it works, per sample:
   3.6 to 4.3 dB.
 - Modes I and II both sweep at 0.68 Hz, PG-8X's rate, because the JX-8P
   loader sends CHORUS bytes 32..63 to I and 64..127 to II, and PG-8X's
-  chorus 1 and 2 measure the same. II keeps a deeper sweep (+-3.5 ms
-  against +-2.0 ms), so the two modes still differ; both match PG-8X
+  chorus 1 and 2 measure about the same. II keeps a deeper sweep (+-2.0 ms
+  against +-1.6 ms), so the two modes still differ; both match PG-8X
   within the param-match harness's tolerances.
+- **The bass stays in phase (2026-11-12).** The delays are short, as on
+  PG-8X: its wet is in phase with the dry at a low note's bass (+6.7 dB at
+  16-50 Hz, +5.9 at 65, +4.8 at 98, falling to 0 near 200 Hz, measured on
+  a held saw against chorus off). Until then the center was 5.5 ms, which
+  put a comb notch at 65-100 Hz (one side −3.8 dB at 65 Hz): low notes
+  lost their weight, and on PIANO 1's C2 DCO-2's A4 square stuck out. The
+  centers and depths are a fit of a model of this chorus to PG-8X's
+  per-harmonic gain from 16 Hz to 1 kHz (1.5 and 1.4 dB rms, from 2.8 and
+  2.2), held to its L/R correlation and to the depth that the Doppler spread
+  of its high harmonics shows. `chorus_keeps_a_low_notes_bass_in_phase`
+  holds a 65 Hz sine at +4.5 dB or more through I and II (now +5.1 and
+  +5.0, PG-8X +5.9).
 - Cost, per sample with the chorus on: one 64-bit multiply (the sweep), two
   32-bit multiplies (the interpolations), a few shifts, adds and masks, and
   four reads and one write of the delay line. The engine runs it over each
@@ -451,8 +463,8 @@ chorus writes it, each voice renders its oscillators' chunk there
 which is safe because the chorus only writes it
 (`chorus_block_writes_right_without_reading_it`). With the voices' modulation sources and sums (the pitch envelope among them), their note velocities, their sync and
 cross-mod state, their filters (124 bytes each) and their mix envelope
-settings, that makes `fm_engine` about 5.5 KiB (5648 bytes on the FM-1,
-5808 on x86-64), so
+settings, that makes `fm_engine` about 5.8 KiB (5952 bytes on the FM-1,
+6208 on x86-64), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 9.0 ms, so above about 113 kHz a mode's center and sweep

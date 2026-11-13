@@ -202,7 +202,7 @@ static inline void fm_voice_mark_mix(fm_voice *v, const fm_voice_mod *m)
 {
     fm_voice_mark(v, FM_BUSY_MIX,
                   !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
-                  v->mix_step || v->osc.level[1] != v->mix_base);
+                  v->mix_step || v->osc.req[1] != v->mix_base);
 }
 
 /* Nonzero while any of the voice's processors is away from rest; a voice

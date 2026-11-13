@@ -58,8 +58,8 @@ typedef enum {
     PATCH_OSC_MIX_ENV_DYNA,             /* MIX DYNAMICS: 0 off .. 3 */
     PATCH_FILTER_LFO_PERMILLE,          /* waits #8: LFO to cutoff */
     PATCH_FILTER_ENV_DYNA,              /* VCF DYNAMICS: 0 off .. 3 */
-    PATCH_ENV1_KEY_FOLLOW,              /* waits #60: 0 off .. 3 */
-    PATCH_ENV2_KEY_FOLLOW,              /* waits #60 */
+    PATCH_AMP_KEY_FOLLOW_PERMILLE,      /* ENV-2 KEY: 260 per mille a position (#60) */
+    PATCH_FILTER_ENV_KEY_FOLLOW_PERMILLE, /* the filter envelope's (ENV-1 KEY, or ENV-2's) */
     PATCH_AMP_LEVEL_PERMILLE,           /* waits: a VCA level (no issue yet) */
     PATCH_FIELD_COUNT,
 } patch_field;
