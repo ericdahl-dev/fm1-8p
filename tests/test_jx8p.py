@@ -203,12 +203,15 @@ class MapTest(unittest.TestCase):
         self.assertEqual(times, sorted(times))
         self.assertLessEqual(times[127], 32000)
 
-    # VCA mode GATE (#63): until the engine has it, an amp envelope that is a gate
+    # VCA mode GATE (#63): until the engine has it, an amp envelope that is a gate. PG-8X 2.0.13's
+    # GATE falls 20 / 40 dB in 1.4 / 2.6 ms after note-off (2026-11-13, analytic envelope on C6, C7
+    # and G7, sustain 64 and 127 alike): a time constant of about 0.6 ms. 1 ms is the engine's
+    # shortest that is still a ramp (0 is a step).
     def test_gate_mode_is_a_gate_shaped_amp_envelope(self):
         e = patch("E. BASS")                    # VCA mode 0
         self.assertEqual(e["AMP_GATE"], 1)
         self.assertEqual((e["AMP_ATTACK_MS"], e["AMP_SUSTAIN_PERMILLE"], e["AMP_RELEASE_MS"]),
-                         (1, 1000, 5))
+                         (1, 1000, 1))
 
     # VCF ENV MODE picks the envelope (ENV-1 or ENV-2) and its polarity: the cutoff follows the
     # engine envelope running it (below), the amount takes its sign.

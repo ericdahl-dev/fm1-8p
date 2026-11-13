@@ -365,7 +365,8 @@ def to_engine(tone):
     e["FILTER_RESONANCE_PERMILLE"] = permille(p[VCF_RES])
     e["FILTER_KEY_TRACK_PERMILLE"] = permille(p[VCF_KEY])
     gate = 1 if p[VCA_MODE] < 64 else 0
-    a, d, s, r = (1, 2, 1000, 5) if gate else env(p, ENV2)
+    # GATE releases as PG-8X's: -40 dB in 2.6 ms there (tau ~0.6 ms), 1 ms the shortest ramp here
+    a, d, s, r = (1, 2, 1000, 1) if gate else env(p, ENV2)
     e.update(AMP_ATTACK_MS=a, AMP_DECAY_MS=d, AMP_SUSTAIN_PERMILLE=s, AMP_RELEASE_MS=r, AMP_GATE=gate)
     # the engine's envelope 1 runs ENV-1's own times (#59), and the amp envelope ENV-2's; with the
     # VCA on GATE ENV-2 runs nowhere, so envelope 1 takes it for a VCF that names it
