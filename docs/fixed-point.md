@@ -128,22 +128,28 @@ resonant 4-pole (24 dB/octave) lowpass.
   RES 127 rings down at every cutoff (`jx_max_resonance_rings_down_at_every_cutoff`),
   and resonance 1000 still self-oscillates everywhere. The warp table is
   computed with the scaled feedback, so the peak keeps its place.
-- **Resonance (#98).** Resonance does three things besides the feedback,
-  each from a 9-point table over the per mille (125 apart, linearly
+- **Resonance (#98, #134).** The feedback and three more settings come
+  from 9-point tables over the per mille (125 apart, linearly
   interpolated) at control rate, fitted to PG-8X 2.0.13 (`match.py --param
-  VCF_RES` and noise sweeps at VCF FREQ 64):
-  - **Retune.** The coefficient is set for the cutoff less up to 190 cents
-    (0 at resonance 0, -130 at 500, -190 at 1000), so the peak sits under
+  VCF_RES` and noise sweeps at VCF FREQ 48-112; below 750 refitted in #134
+  to PG-8X's response re its open filter, without moving the peak's place
+  further from PG-8X's at any resonance):
+  - **Feedback.** k is 0.45 at resonance 0 (PG-8X's knee: -8 dB at the
+    cutoff, flat to half of it), 2.7 at 625; from 750 up 4.2 x the
+    resonance, as before.
+  - **Retune.** The coefficient is set for the cutoff plus up to 113 cents
+    at low resonance (no peak to place yet: the knee's corner) and less up
+    to 190 cents with a peak (-129 at 500, -190 at 1000), so the peak sits under
     the cutoff as on PG-8X (-5 semitones at a peak of +4 dB, -1 to -2 at
     +16 dB and more; the ladder's own peak sits under its corner too).
     Resonance 1000 rings at the cutoff less 190 cents.
-  - **Passband level.** The input is scaled by `a` (up to 1.7 at resonance
-    375, down to 0.66 at 1000). The plain ladder's passband is
+  - **Passband level.** The input is scaled by `a` (1.41 at resonance 0,
+    up to 1.73 at 500 and 625, down to 0.66 at 1000). The plain ladder's passband is
     `1 / (1 + k)` and its stopband barely moves; PG-8X's passband drops
     less (-3.7 dB at a +4 dB peak, -18 at +31) and its stopband drops
     with it, so the treble does not jump against the bass.
   - **Bass shelf.** The output is `s3 + h * (lp - s3)`, `lp` a one-pole
-    lowpass of `s3` at the stage coefficient, `h` up to 0.57. It takes back
+    lowpass of `s3` at the stage coefficient, `h` up to 0.69. It takes back
     the bass the ladder's own resonance removes, keeping the stopband less
     the passband within about 1.5 dB of PG-8X's (+1 to +7 dB, against
     +8 to +14 for the plain ladder).
@@ -213,19 +219,22 @@ above the cutoff 24 +-3 dB below the cutoff point.
 | Measurement | Measured | Ideal 4-pole | Test tolerance |
 | --- | --- | --- | --- |
 | 3 octaves below cutoff | -0.27 dB | -0.27 dB | above -0.5 dB |
-| At cutoff, no resonance | -12.0 dB | -12.0 dB | +-2 dB |
-| Drop over the 1st octave above cutoff (880 Hz: -28.0 dB) | 15.9 dB | 15.9 dB | +-2 dB |
-| Drop over the 2nd octave (1760 Hz: -49.3 dB) | 21.3 dB | 21.2 dB | +-2 dB |
-| Drop over the 3rd octave (3520 Hz: -73.0 dB) | 23.6 dB | 23.3 dB | +-2 dB |
-| Peak to the octave above it, resonance 600 | 24.0 dB | | 24 +-3 dB |
-| Peak over the passband, resonance 500 / 900 | +6.6 / +23.8 dB | | above 5, and 900 at least 12 dB above 500 |
+| At cutoff, no resonance, re 55 Hz | -8.34 dB | -8.0 dB (PG-8X) | +-0.7 dB |
+| Half the cutoff, no resonance, re 55 Hz | -0.71 dB | -1.0 dB (PG-8X) | +-0.7 dB |
+| Drop over the 1st octave above cutoff (880 Hz: -26.7 dB) | 18.1 dB | 19.2 dB (PG-8X) | +-2 dB |
+| Drop over the 2nd octave (1760 Hz: -48.9 dB) | 22.3 dB | 20.9 dB (PG-8X) | +-2 dB |
+| Drop over the 3rd octave (3520 Hz: -72.9 dB) | 24.0 dB | 24 dB | +-2 dB |
+| Peak to the octave above it, resonance 600 | 26.6 dB | | 24 +-3 dB |
+| Peak over the passband, resonance 500 / 900 | +6.9 / +23.8 dB | | above 5, and 900 at least 12 dB above 500 |
 | Peak under the cutoff, resonance 875 | -2.25 semitones | (PG-8X) | -2.25 +-0.5 |
-| Passband (55 Hz) against resonance 0, resonance 375 / 875 | -3.25 / -14.8 dB | -3.7 / -15.1 (PG-8X) | +-1 dB |
+| Passband (55 Hz) against resonance 0, resonance 375 / 875 | -3.37 / -14.8 dB | -3.7 / -15.1 (PG-8X) | +-1 dB |
 | 3 octaves above less 3 below, resonance 375 against 0 | -0.27 dB | (PG-8X: about 0) | 0.3 +-1 dB |
 
-With no resonance, four equal poles meet at the cutoff, so the cutoff point
-itself is -12 dB and the slope approaches 24 dB/octave further up (23.6 dB
-over the third octave).
+With no resonance the knee is PG-8X 2.0.13's, not four plain poles' (-12 dB
+at the cutoff): PG-8X's stays flat to half the cutoff and is -8 dB at it, as
+if a little feedback stays on, so the filter keeps some (k 0.45) at
+resonance 0 (#134). The slope still approaches 24 dB/octave further up
+(24.0 dB over the third octave).
 Resonance follows PG-8X 2.0.13 rather than the ideal ladder: its peak sits
 under the cutoff, and it lowers the passband and the stopband together
 (Resonance, above), so the peak over the passband is the figure to compare

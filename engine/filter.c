@@ -89,11 +89,24 @@ typedef char fm_require_fade_fits_q30[
  */
 #define RES_STEP     125
 #define RES_ENTRIES  (1000 / RES_STEP + 1)
+/*
+ * Feedback, per mille of K_PER_MILLE's 4.2: the resonance as the loop
+ * plays it. Below 750 fitted, with the three tables after it, to PG-8X
+ * 2.0.13's response at VCF FREQ 48-112, RES 0-88 (noise, re the open
+ * filter; #134): k 0.45 at resonance 0, as PG-8X's knee is sharper than
+ * four plain poles (-8 dB at the cutoff, not -12), up to 2.7 at 625. From
+ * 750 up it is the resonance itself (#130's), and the peak's place is no
+ * further from PG-8X's than #130's at any FREQ fitted.
+ */
+static const int16_t kres_tab[RES_ENTRIES] = {
+    108, 158, 278, 380, 509, 643, 750, 875, 1000
+};
 /* Retune, cents: the coefficient comes from the cutoff plus this, so the
  * peak sits as far under the cutoff as PG-8X's (1.25 semitones under its
- * asymptote's cutoff at a +24 dB peak, 4.6 at +4 dB). */
+ * asymptote's cutoff at a +24 dB peak). Up to about 375 there is no peak
+ * to place: there it sets the knee's corner, a semitone up at 0. */
 static const int16_t retune_tab[RES_ENTRIES] = {
-    0, -20, -40, -80, -130, -160, -177, -187, -190
+    102, 57, 113, -74, -129, -155, -177, -187, -190
 };
 /*
  * Bass shelf, Q2.13: the weight b of a one-pole lowpass of the output (at
@@ -102,23 +115,24 @@ static const int16_t retune_tab[RES_ENTRIES] = {
  * (1 / (1 + k)) mostly given back, relative to the treble. With it, 2-4
  * octaves above the cutoff less the level well below it moves with
  * resonance as PG-8X's does: +0.3 dB at a +4 dB peak, +7.4 at +31 (the
- * plain ladder: 20 log10(1 + k), 7.8 and 13.7). c by entry: 0, 0.5, 0.97,
- * 1.25, 1.3, 1.3, 1.2, 0.8, 0.44.
+ * plain ladder: 20 log10(1 + k), 7.8 and 13.7). c by entry: 0.85, 1.01,
+ * 2.28, 1.14, 1.29, 0.78, 1.2, 0.8, 0.44.
  */
 static const int16_t shelf_tab[RES_ENTRIES] = {
-    0, 2731, 4034, 4551, 4630, 4630, 4468, 3641, 2503
+    3763, 4119, 5691, 4357, 4617, 3595, 4468, 3641, 2503
 };
 /*
  * Input level, Q2.13: sets the passband (1 / (1 + k) on its own) to
  * PG-8X's, -3.7 dB at a +4 dB peak and -15.1 at +24. The shelf above is
  * relative to the treble, so this is (1 + c) times PG-8X's level re the
- * ladder's: 1, 1.503, 1.665, 1.696, 1.628, 1.547, 1.276, 0.817, 0.658.
+ * ladder's: 1.41, 1.526, 1.579, 1.685, 1.733, 1.733, 1.276, 0.817, 0.658.
+ * LEVEL_MAX stays under fm_require_level_sum_fits' limit (about 14230).
  * At the input it is smoothed by the stages: no step when it changes.
  */
 #define LEVEL_MIN 5390
-#define LEVEL_MAX 13894
+#define LEVEL_MAX 14200
 static const int16_t level_tab[RES_ENTRIES] = {
-    8192, 12313, 13640, LEVEL_MAX, 13337, 12673, 10453, 6693, LEVEL_MIN
+    11552, 12502, 12936, 13806, LEVEL_MAX, LEVEL_MAX, 10453, 6693, LEVEL_MIN
 };
 /*
  * Warp, cents, from tools/gen_filter_tables.py: added to the lowpass
@@ -280,7 +294,7 @@ static int32_t grid_lookup(const int16_t *tab, int32_t d)
 /* The coefficients from the cutoff, rate and resonance as set. */
 static void apply(fm_filter *f)
 {
-    int32_t c = f->cut + res_lookup(retune_tab, f->res), g, h, k = f->res * K_PER_MILLE;
+    int32_t c = f->cut + res_lookup(retune_tab, f->res), g, h, k = res_lookup(kres_tab, f->res) * K_PER_MILLE;
     c += grid_lookup(warp_tab, c - f->rate);
     k -= (int32_t)(((int64_t)k * grid_lookup(kcut_tab, c - f->rate)) >> 15);
     int32_t level = res_lookup(level_tab, f->res) << 17, shelf = res_lookup(shelf_tab, f->res) << 17;
@@ -326,7 +340,7 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
     if (f->rate) /* the retune moves the coefficient */
         apply(f);
     else
-        f->k = mul_q30(permille * K_PER_MILLE, f->fade);
+        f->k = mul_q30(res_lookup(kres_tab, permille) * K_PER_MILLE, f->fade);
 }
 
 /*
