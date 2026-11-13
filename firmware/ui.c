@@ -1,20 +1,22 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui.h"
 
-/* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3) */
-static const uint8_t HPF_ORDER[4] = {4, 0, 2, 3};
+/* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3), with
+ * the engine's own 100 Hz (1) in its place between, shown but not a knob position */
+static const uint8_t HPF_ORDER[5] = {4, 0, 1, 2, 3};
+#define HPF_STOPS 0x1Bu                     /* BOOST, FLAT, 240, 560 */
 
 /* The VCF section as the JX-8P's panel has it, with its PG-800 numbers (docs/patches.md): page
  * 5A 51-54, 5B 55-58 */
 static const ui_slot VCF_SLOTS[8] = {
-    {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 4},
-    {52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400, 0, 0},
-    {53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50, 0, 0},
-    {54, "LFO", "LFO DEPTH", 0, UI_PENDING, 0, 0, 0, 0},          /* #172 */
-    {55, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600, 0, 0},
-    {56, "KEY", "KEY FOLLOW", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100, 0, 0},
-    {57, "DYNA", "DYNAMICS", 0, UI_PENDING, 0, 0, 0, 0},
-    {58, "MODE", "ENV MODE", 0, UI_PENDING, 0, 0, 0, 0},
+    {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS},
+    {52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400, 0, 0, 0},
+    {53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50, 0, 0, 0},
+    {54, "LFO", "LFO DEPTH", 0, UI_PENDING, 0, 0, 0, 0, 0},          /* #172 */
+    {55, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600, 0, 0, 0},
+    {56, "KEY", "KEY FOLLOW", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100, 0, 0, 0},
+    {57, "DYNA", "DYNAMICS", 0, UI_PENDING, 0, 0, 0, 0, 0},
+    {58, "MODE", "ENV MODE", 0, UI_PENDING, 0, 0, 0, 0, 0},
 };
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
@@ -92,6 +94,10 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         num = put_u(num, st / 100u), u = "st";
     } else if (id == FM_PARAM_FILTER_KEY_TRACK) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
+    } else if (id == FM_PARAM_HIGHPASS_STEP) {  /* the JX positions; step 1 is the engine's own */
+        static const char *const HPF[5] = {"FLAT", "100", "240", "560", "BOOST"};
+        num = put_str(num, HPF[value < 0 ? 0 : value > 4 ? 4 : value]);
+        u = value == 0 || value >= 4 ? "" : "Hz";
     }
     *num = 0;
     *put_str(unit, u) = 0;
@@ -248,6 +254,18 @@ void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
     }
 }
 
+uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n)
+{
+    uint32_t i, pos = 0, seen = 0;
+    for (i = 0; i < sl->n_order; i++) {
+        seen += sl->stops >> i & 1u;
+        if (sl->order[i] == value && seen)
+            pos = seen - 1u;                    /* the last stop at or before the value */
+    }
+    *n = seen;
+    return pos;
+}
+
 void ui_init(ui *u, play *p)
 {
     uint32_t i;
@@ -279,17 +297,16 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     const ui_slot *s = ui_page_slot(u, k);
     if (!s || s->kind != UI_LIVE)
         return;
-    if (s->order) {                             /* a choice: clicks walk its order, clamped */
-        int32_t v = play_get_param(u->p, s->id), max = fm_param_info_get(s->id)->max, i = 0, j;
-        while (i < (int32_t)s->n_order && s->order[i] != v)
+    if (s->order) {                             /* a choice: each click to the next stop, clamped */
+        int32_t v = play_get_param(u->p, s->id), max = fm_param_info_get(s->id)->max;
+        int32_t way = clicks > 0 ? 1 : -1, i = 0, j;
+        while (i < (int32_t)s->n_order - 1 && s->order[i] != v)
             i++;
-        for (j = i; clicks && j + (clicks > 0 ? 1 : -1) >= 0 && j + (clicks > 0 ? 1 : -1) < (int32_t)s->n_order;) {
-            j += clicks > 0 ? 1 : -1;
-            if (s->order[j] <= max) {           /* (a value this engine doesn't have is skipped) */
+        for (j = i + way; clicks && j >= 0 && j < (int32_t)s->n_order; j += way)
+            if (s->stops >> j & 1u && s->order[j] <= max) {    /* (a value the engine lacks: none) */
                 i = j;
-                clicks += clicks > 0 ? -1 : 1;
+                clicks -= way;
             }
-        }
         play_set_param(u->p, s->id, s->order[i]);
     } else {
         play_set_param(u->p, s->id, play_get_param(u->p, s->id) +

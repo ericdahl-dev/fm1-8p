@@ -38,8 +38,9 @@ typedef struct {
     uint16_t id;                        /* fm_param_id, when live */
     uint8_t kind;                       /* ui_slot_kind */
     int32_t step, fast;                 /* engine units a click moves it; a fast turn's click */
-    const uint8_t *order;               /* a choice in panel order: the values a click walks (0: steps) */
+    const uint8_t *order;               /* a choice: every engine value in panel order (0: steps) */
     uint8_t n_order;
+    uint8_t stops;                      /* bit i: order[i] is a knob position (the rest only show) */
 } ui_slot;
 
 typedef struct {
@@ -102,6 +103,9 @@ uint32_t ui_meter(uint16_t id, int32_t value);
 /* a one-bar meter (Membrane) in a w px track: the bar from *a to *b px, a range from the left in
  * proportion, a bipolar param (min = -max) out from the middle */
 void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b);
+/* a choice slot's (order set) meter: value's knob position (a value between positions: the one
+ * before it), of *n positions */
+uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */

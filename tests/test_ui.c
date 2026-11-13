@@ -616,6 +616,50 @@ TT_TEST(ui_meter_bar_spans_the_value)
     TT_CHECK(a == 0 && b == 22);
 }
 
+/* HPF reads as the JX-8P's positions (#138): BOOST, FLAT, 240 Hz, 560 Hz; engine step 1, which
+ * only MIDI or an old patch sets, as 100 Hz. The column drops Hz as CUTOFF's does. */
+TT_TEST(ui_hpf_reads_as_its_positions)
+{
+    char n[UI_VALUE_LEN], u[UI_VALUE_LEN];
+    TT_CHECK(ui_shows(FM_PARAM_HIGHPASS_STEP, 4, "BOOST"));
+    TT_CHECK(ui_shows(FM_PARAM_HIGHPASS_STEP, 0, "FLAT"));
+    TT_CHECK(ui_shows(FM_PARAM_HIGHPASS_STEP, 2, "240 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_HIGHPASS_STEP, 3, "560 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_HIGHPASS_STEP, 1, "100 Hz"));
+    ui_column(FM_PARAM_HIGHPASS_STEP, 2, n, u);
+    TT_CHECK(strcmp(n, "240") == 0 && strcmp(u, "") == 0);
+}
+
+/* HPF at engine step 1 (100 Hz, between FLAT and 240 Hz; only MIDI or an old patch sets it): the
+ * first click snaps to the JX position the turn points to (interaction.md, units). */
+TT_TEST(ui_hpf_off_the_panel_snaps_the_way_it_turns)
+{
+    uint32_t enc;
+    ui_setup();
+    enc = ui_goto(FM_PARAM_HIGHPASS_STEP);
+    play_set_param(&ui_p, FM_PARAM_HIGHPASS_STEP, 1);
+    ui_event(&ui_u, UI_EV_ENC | enc, 1, 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_HIGHPASS_STEP), 2);
+    play_set_param(&ui_p, FM_PARAM_HIGHPASS_STEP, 1);
+    ui_event(&ui_u, UI_EV_ENC | enc, -1, 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_HIGHPASS_STEP), 0);
+}
+
+/* A choice's meter is one segment per knob position (visual.md), lit at the value's position: HPF
+ * BOOST, FLAT, 240, 560 are 0..3 of 4; the engine's 100 Hz sits on FLAT's segment. */
+TT_TEST(ui_choice_meter_lights_its_position)
+{
+    const ui_slot *hpf;
+    uint32_t n;
+    ui_setup();
+    hpf = ui_page_slot(&ui_u, ui_goto(FM_PARAM_HIGHPASS_STEP) - UI_ENC_KNOB1);
+    TT_CHECK_EQ(ui_choice_pos(hpf, 4, &n), 0u);
+    TT_CHECK_EQ(n, 4u);
+    TT_CHECK_EQ(ui_choice_pos(hpf, 0, &n), 1u);
+    TT_CHECK_EQ(ui_choice_pos(hpf, 1, &n), 1u);
+    TT_CHECK_EQ(ui_choice_pos(hpf, 3, &n), 3u);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -658,6 +702,9 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_choice_meter_lights_its_position);
+    TT_RUN(ui_hpf_off_the_panel_snaps_the_way_it_turns);
+    TT_RUN(ui_hpf_reads_as_its_positions);
     TT_RUN(ui_meter_bar_spans_the_value);
     TT_RUN(ui_hpf_turns_in_jx_order);
     TT_RUN(ui_vcf_slots_are_the_jx_panels);
