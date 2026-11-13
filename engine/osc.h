@@ -53,7 +53,11 @@ typedef struct {
     uint32_t pw[2];    /* duty played: width limited by the pitch */
     int32_t pw_gain[2]; /* Q1.30: brings the pulse's peak to 1.0 */
     int32_t tune[2];   /* offset from the played pitch, Q16.16 semitones */
-    int32_t level[2];  /* each oscillator's gain into the sum, Q1.30 0..1.0 */
+    int32_t level[2];  /* each oscillator's gain into the sum, Q1.30: req times
+                        * its wave's level against the saw (fm_osc_pair_set_level) */
+    int32_t req[2];    /* the level as set, Q1.30 0..1.0 */
+    int32_t ring_ab[2]; /* the ring's a and b for osc1's wave, times osc2's
+                         * wave level (osc.c ring), Q8.24 */
     int32_t xmod;      /* cross-mod depth, Q1.30 0..1.0 */
     uint32_t xmod_inc; /* osc2's increment times the depth: its largest bend */
     uint32_t recip0;   /* 1 / osc1's increment, scaled by 2^recip0_sh (for sync) */

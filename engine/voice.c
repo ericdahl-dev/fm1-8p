@@ -345,7 +345,7 @@ static FM_NOINLINE void update_mix(fm_voice *v, const fm_voice_mod *m,
     mix = (int64_t)v->mix_base + fm_mod_update(&v->mod, &m->routes, FM_MOD_MIX);
     if (mix < 0) mix = 0;
     if (mix > FM_OSC_LEVEL_FULL) mix = FM_OSC_LEVEL_FULL;
-    v->mix_step = ((int32_t)mix - v->osc.level[1]) / FILTER_CTRL_SAMPLES;
+    v->mix_step = ((int32_t)mix - v->osc.req[1]) / FILTER_CTRL_SAMPLES;
     if (!v->mix_step) /* within a glide's rounding: there now */
         fm_osc_pair_set_level(&v->osc, 1, (int32_t)mix);
     fm_voice_mark_mix(v, m);
@@ -413,7 +413,7 @@ uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m)
     return v->pending || v->gate_left ||
            !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) ||
            !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
-           v->mix_step || v->osc.level[1] != v->mix_base ||
+           v->mix_step || v->osc.req[1] != v->mix_base ||
            !fm_filter_is_wire(&v->filter) ||
            fm_filter_voice_cents(v->cutoff_cents, v->key_track, v->key_note,
                                  0) != v->cutoff_now;
@@ -535,7 +535,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         }
         v->ctrl_phase--;
         if (v->mix_step)
-            fm_osc_pair_set_level(&v->osc, 1, v->osc.level[1] + v->mix_step);
+            fm_osc_pair_set_level(&v->osc, 1, v->osc.req[1] + v->mix_step);
         out = fm_filter_run(&v->filter, whole ? osc[i] : fm_osc_pair_next(&v->osc));
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
