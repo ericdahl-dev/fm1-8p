@@ -37,6 +37,29 @@ static inline uint64_t fm_us_to_samples_q16(uint32_t us, uint32_t rate)
     return ((uint64_t)us * rate << 16) / 1000000u;
 }
 
+/*
+ * 2^(cents / 1200) in Q16.16, saturating at 2^31 - 1: the fraction of an
+ * octave from a quartic fit of 2^f on [0, 1) (Q30 coefficients, under
+ * 0.011 cent off, as the oscillators' pitch modulation), whole octaves as
+ * shifts. Exactly 65536 at 0. One division by 1200 (events only).
+ */
+static inline uint32_t fm_exp2_cents_q16(int32_t cents)
+{
+    static const int64_t c[4] = { 744149770, 259040010, 56213420, 14325366 };
+    int32_t k = cents >= 0 ? cents / 1200 : -((1199 - cents) / 1200);
+    int64_t f = (int64_t)(cents - k * 1200) * 65536 / 1200, acc; /* Q16, 0..1 */
+    acc = c[3];
+    acc = ((acc * f) >> 16) + c[2];
+    acc = ((acc * f) >> 16) + c[1];
+    acc = ((acc * f) >> 16) + c[0];
+    acc = ((int64_t)1 << 30) + ((acc * f) >> 16); /* 2^f, Q2.30 */
+    acc >>= 14;                                  /* Q16 */
+    if (k >= 15) return 0x7FFFFFFFu;
+    if (k >= 0) acc <<= k;
+    else acc = k <= -31 ? 0 : acc >> -k;
+    return acc > 0x7FFFFFFF ? 0x7FFFFFFFu : (uint32_t)acc;
+}
+
 /* The fastest phase step: just under half a cycle per step. */
 #define FM_PHASE_INC_MAX 0x7FFFFFFFu
 

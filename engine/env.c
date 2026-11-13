@@ -9,6 +9,7 @@
  * count and an add, nothing else (fm_env_step).
  */
 #include "env.h"
+#include "units.h"
 #ifdef FM_CHECK_ENGINE
 #include <assert.h>
 #endif
@@ -93,6 +94,7 @@ static int attack_segment(fm_env *e)
 void fm_env_init(fm_env *e, const fm_env_settings *set)
 {
     e->set = set;
+    e->ks = 1u << 16;
     fm_env_reset(e);
 }
 
@@ -113,6 +115,25 @@ static int32_t sustain_level(fm_env *e)
 {
     e->sus_level = (int32_t)(((int64_t)e->set->sustain * e->peak) >> 30);
     return e->sus_level;
+}
+
+/* Envelope key follow: C2 (MIDI 36) keeps the set times (PG-8X 2.0.13's
+ * ENV KEY; the time halves every 2 octaves up at 500 per mille). */
+#define KEY_CENTER 36
+
+void fm_env_key(fm_env *e, uint8_t note)
+{
+    int32_t f = e->set->key_follow;
+    e->ks = f ? fm_exp2_cents_q16(-f * ((int32_t)note - KEY_CENTER) / 10) : (uint32_t)1 << 16;
+}
+
+/* A time in samples at this note's scale: untouched at 1.0. */
+static uint32_t scaled(const fm_env *e, uint32_t t)
+{
+    uint64_t s;
+    if (e->ks == 1u << 16) return t;
+    s = ((uint64_t)t * e->ks) >> 16;
+    return s > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)s;
 }
 
 void fm_env_gate_on(fm_env *e)
@@ -224,7 +245,7 @@ int32_t fm_env_next(fm_env *e)
             hold(e);
             break;
         }
-        rem = start_segment(e, e->level, e->set->release_samples);
+        rem = start_segment(e, e->level, scaled(e, e->set->release_samples));
         e->step = -e->step;
         e->seg--;
         e->level += e->step - rem;

@@ -1368,7 +1368,7 @@ TT_TEST(env_settings_are_shared_by_every_envelope)
  */
 static double release_error_db(uint32_t tau)
 {
-    fm_env_settings set = { 0, 0, 0, FM_ENV_FULL };
+    fm_env_settings set = { 0, 0, 0, FM_ENV_FULL, 0 };
     fm_env e;
     double worst = 0;
     uint32_t t;
@@ -1408,7 +1408,7 @@ TT_TEST(exponential_release_stays_on_its_curve)
  */
 TT_TEST(sustain_changed_mid_decay_heads_there_at_once)
 {
-    fm_env_settings set = { 0, 4800, 0, 0 }; /* decay tau 4800 samples, to 0 */
+    fm_env_settings set = { 0, 4800, 0, 0, 0 }; /* decay tau 4800 samples, to 0 */
     fm_env e;
     int32_t before, moved, want;
     uint32_t i;
@@ -1432,7 +1432,7 @@ TT_TEST(sustain_changed_mid_decay_heads_there_at_once)
  */
 TT_TEST(attack_charges_toward_1_6_peak_and_stops_on_it)
 {
-    fm_env_settings set = { 4800, 0, 0, FM_ENV_FULL }; /* attack 4800 samples */
+    fm_env_settings set = { 4800, 0, 0, FM_ENV_FULL, 0 }; /* attack 4800 samples */
     fm_env e;
     const double tau = 4800 / log(1.6 / 0.6);
     uint32_t t, landed = 0;
