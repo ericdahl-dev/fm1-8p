@@ -365,8 +365,8 @@ TT_TEST(full_chord_at_max_velocity_never_clips)
         for (i = 0; i < 2 * PRATE; i++)
             if (pbuf[i] >= 32767 || pbuf[i] <= -32767) clipped = 1;
         TT_CHECK(!clipped);
-        /* headroom left for filter resonance and chorus: -6 dBFS */
-        TT_CHECK(peak_abs(pbuf, 0, PRATE) <= 16384);
+        /* headroom left for filter resonance and chorus: under the knee */
+        TT_CHECK(peak_abs(pbuf, 0, PRATE) <= KNEE_LSB);
         TT_CHECK(peak_abs(pbuf, 0, PRATE) > 8192 * 9 / 10); /* -12 dB mix gain */
     }
 }
@@ -428,7 +428,7 @@ TT_TEST(random_playing_stays_bounded_and_ends_silent)
             for (i = 0; i < 2 * n; i++)
                 if (pbuf[i] >= 32767 || pbuf[i] <= -32767) clipped = 1;
             TT_CHECK(!clipped);
-            TT_CHECK(peak_abs(pbuf, 0, n) <= 16384);
+            TT_CHECK(peak_abs(pbuf, 0, n) <= KNEE_LSB);
             fm_engine_controller(&poly, 64, 0);
             fm_engine_controller(&poly, 123, 0);
             fm_engine_render(&poly, pbuf, rates[r] / 20); /* 50 ms */

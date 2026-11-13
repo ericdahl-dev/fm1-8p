@@ -42,10 +42,9 @@ parameter.
 
 The render tool plays one MIDI channel (`-c`, by default the channel of the
 first note on) with 6 voices by default (`-v`). Each voice is mixed at
-1/(2 x voices), so with no filter resonance a full chord never clips. High
-resonance uses that headroom and can reach full scale, where the output
-saturates rather than wrapping (gain staging is a follow-up in #24). The
-mixing makes a single note quieter with more voices: -21.6 dBFS with 6, -6 dBFS
+1.44/(2 x voices), PG-8X's level (#102); past -2.85 dBFS a soft clip bends
+the output short of full scale, so it never wraps. The
+mixing makes a single note quieter with more voices: -18.4 dBFS with 6, -2.9 dBFS
 with `-v 1` or in unison (`-s voice_mode=1`, where one note takes every
 voice). After each render
 the tool prints the voice count, channel and that level.

@@ -409,6 +409,7 @@ TT_TEST(mix_env_fades_osc2_in_with_the_envelope)
     fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 600); /* both oscillators full stay under the knee */
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, buf, RATE + 4096);
     for (k = 0; k < 4; k++)
@@ -840,7 +841,7 @@ TT_TEST(noise_is_bounded_and_not_periodic)
                 FM_OK);
     fm_engine_note_on(&eng, 60, 100);
     fm_engine_render(&eng, buf, NOISE_FRAMES);
-    TT_CHECK(peak_abs(buf, 0, NOISE_FRAMES) <= 16384 + 64);
+    TT_CHECK(peak_abs(buf, 0, NOISE_FRAMES) <= KNEE_LSB + 64);
     TT_CHECK(peak_abs(buf, 0, NOISE_FRAMES) > 8000);
     for (i = 0; i < NOISE_FRAMES; i++) mean += buf[2 * i];
     mean /= NOISE_FRAMES;
@@ -1277,10 +1278,10 @@ TT_TEST(xmod_adds_sidebands)
  * Full cross-mod and sync on every wave, at the extremes of pitch and rate: no clipping, silent after release.
  * Synced, osc2 alone peaks at 1.0 plus the DC the pair takes off it (#139). Without cross-mod a saw's
  * is at most 0.1716 ((r - 1)(2 - r) / r at r = sqrt 2, r being osc2's pitch over osc1's); full cross-mod
- * bends osc2 within the cycle and moves its mean further (1.32 at worst here). 1.5 leaves the voice
- * well short of clipping.
+ * bends osc2 within the cycle and moves its mean further (1.32 at worst here). Full level is KNEE_LSB
+ * (the soft clip's knee, #102): past it the clip bends the peak toward full scale, so 1.5 holds it.
  */
-#define SYNC_PEAK (16384 * 3 / 2)
+#define SYNC_PEAK (KNEE_LSB * 3 / 2)
 TT_TEST(max_xmod_and_sync_stay_in_range)
 {
     static const uint32_t rates[] = { 8000, 44100, 192000 };
@@ -1308,11 +1309,11 @@ TT_TEST(max_xmod_and_sync_stay_in_range)
         fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 1000);
         fm_engine_note_on(&eng, notes[n], 127);
         fm_engine_render(&eng, buf, 2000);
-        if (peak_abs(buf, 0, 2000) > (sy ? SYNC_PEAK : 16384 + 64))
+        if (peak_abs(buf, 0, 2000) > (sy ? SYNC_PEAK : KNEE_LSB + 64))
             printf("    over at rate %u note %u waves %u/%u sync %u: %d\n", (unsigned)rates[r],
                    (unsigned)notes[n], (unsigned)w1, (unsigned)w2, (unsigned)sy, peak_abs(buf, 0, 2000));
         /* one voice at full level, like the noise test */
-        TT_CHECK(peak_abs(buf, 0, 2000) <= (sy ? SYNC_PEAK : 16384 + 64));
+        TT_CHECK(peak_abs(buf, 0, 2000) <= (sy ? SYNC_PEAK : KNEE_LSB + 64));
         fm_engine_note_off(&eng, notes[n]);
         fm_engine_render(&eng, buf, 2000);
         for (i = 2; i < 2 * 2000; i++)

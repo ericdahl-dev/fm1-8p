@@ -73,13 +73,15 @@ int render_midi_file(const char *midi_path, const char *wav_path,
 void render_describe(const render_info *info, char *buf, size_t len)
 {
     unsigned n = (unsigned)info->voice_count;
+    /* each voice at 1 / (2 n), 3.17 dB up to PG-8X's level (#102) */
+    double voice_gain = pow(10.0, 3.17 / 20.0) / (2.0 * n);
     /* one note sounds on one voice, or on all n in unison */
-    double note_gain = (info->unison ? n : 1.0) / (2.0 * n);
+    double note_gain = (info->unison ? n : 1.0) * voice_gain;
     snprintf(buf, len,
-             "%u voice%s%s, MIDI channel %u; each voice mixed at 1/%u "
+             "%u voice%s%s, MIDI channel %u; each voice mixed at 1/%.2f "
              "(one note peaks at %.1f dBFS)",
              n, n == 1 ? "" : "s", info->unison ? " in unison" : "",
-             (unsigned)info->channel, 2 * n, 20.0 * log10(note_gain));
+             (unsigned)info->channel, 1.0 / voice_gain, 20.0 * log10(note_gain));
 }
 
 int render_midi(const char *midi_path, const char *wav_path,
