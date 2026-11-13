@@ -332,6 +332,11 @@ static FM_NOINLINE void update_mix(fm_voice *v, const fm_voice_mod *m,
                                    int32_t env1, int32_t env2)
 {
     int64_t mix;
+    if (m->mix_dyna) { /* MIX DYNAMICS: the depth times the share (Q15) */
+        uint32_t s = fm_dyna_share_q15(m->mix_dyna, v->velocity);
+        env1 = (int32_t)(((int64_t)env1 * s) >> 15);
+        env2 = (int32_t)(((int64_t)env2 * s) >> 15);
+    }
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, env1);
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2, env2);
     mix = (int64_t)v->mix_base + fm_mod_update(&v->mod, &m->routes, FM_MOD_MIX);

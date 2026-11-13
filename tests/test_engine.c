@@ -248,6 +248,29 @@ TT_TEST(amp_dyna_sets_the_level_by_the_dynamics_curve)
     TT_CHECK_EQ(p127, (int32_t)(((int64_t)FM_ENV_FULL * 31891) >> 15));
 }
 
+/*
+ * MIX DYNAMICS, as PG-8X 2.0.13 plays it: the MIX ENV depth times the
+ * DYNAMICS share at the note's velocity (engine/dyna.c). osc2 at 0 with
+ * MIX ENV at full depth on the filter envelope, held at full: at position
+ * 3 velocity 40 it settles at the share, 0.162 of full.
+ */
+TT_TEST(mix_env_dyna_scales_the_mix_envelope_by_the_dynamics_curve)
+{
+    int32_t got, want = (int32_t)(((int64_t)FM_OSC_LEVEL_FULL * 5322) >> 15);
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV_DYNA, 3);
+    fm_engine_note_on(&eng, 60, 40);
+    fm_engine_render(&eng, buf, RATE / 10);
+    got = eng.voices[0].osc.level[1];
+    printf("    mix env dyna 3, v40: osc2 at %.4f of full (want %.4f)\n",
+           (double)got / FM_OSC_LEVEL_FULL, (double)want / FM_OSC_LEVEL_FULL);
+    TT_CHECK(got > want - FM_OSC_LEVEL_FULL / 1000 && got < want + FM_OSC_LEVEL_FULL / 1000);
+}
+
 /* Release is exponential, as PG-8X's: the release time is its time constant
  * tau, so the level falls 20 dB every tau x ln 10 (here 2.303 s for 1 s) and
  * 40 dB in twice that. A ramp of the same time would be silent by then. */
@@ -446,6 +469,7 @@ static void run_engine_tests(void)
     TT_RUN(amp_envelope_follows_adsr_settings);
     TT_RUN(amp_attack_runs_to_25_seconds);
     TT_RUN(amp_dyna_sets_the_level_by_the_dynamics_curve);
+    TT_RUN(mix_env_dyna_scales_the_mix_envelope_by_the_dynamics_curve);
     TT_RUN(amp_release_falls_exponentially_with_its_time_constant);
     TT_RUN(amp_decay_heads_exponentially_to_sustain_without_undershoot);
     TT_RUN(envelope_times_share_one_32_second_range);

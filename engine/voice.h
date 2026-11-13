@@ -74,6 +74,7 @@ typedef struct {
     uint8_t penv_amp;     /* the pitch envelope follows envelope 2 (amp),
                            * else envelope 1 (filter) */
     uint8_t penv_dyna;    /* its DYNAMICS position (dyna.h), 0 off */
+    uint8_t mix_dyna;     /* the mix envelope's DYNAMICS position, 0 off */
 } fm_voice_mod;
 
 /* Idle, with the filter open. `seed` starts the voice's noise; give each
