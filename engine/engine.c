@@ -30,7 +30,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 5952u
+#define FM_ENGINE_BUDGET_32 5956u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -315,6 +315,7 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
     case FM_PARAM_AMP_DYNA:
+    case FM_PARAM_AMP_LEVEL:
         return;
     default:
         break;
@@ -529,19 +530,24 @@ static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
 
 /*
  * Amp envelope peak (Q1.30) for a MIDI velocity 1..127: full level less
- * amp_velocity percent of the way down the curve (velocity / 127)^2.
- * Velocity 127 is always full. Two constant divides, per note on.
- * With amp_dyna (the JX-8P's VCA DYNAMICS) the peak is instead the
- * DYNAMICS share at the velocity, as PG-8X 2.0.13 plays it (#8's curve).
+ * amp_velocity percent of the way down the curve (velocity / 127)^2, or,
+ * with amp_dyna (the JX-8P's VCA DYNAMICS), the DYNAMICS share at the
+ * velocity as PG-8X 2.0.13 plays it (#8's curve); either times amp_level
+ * per mille (the VCA LEVEL). Velocity 127 at level 1000 is always full.
+ * Three constant divides, per note on.
  */
 static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
 {
     int32_t sens = e->params[FM_PARAM_AMP_VELOCITY];
-    if (e->params[FM_PARAM_AMP_DYNA])
-        return (int32_t)(((int64_t)FM_ENV_FULL *
-                          fm_dyna_share_q15(e->params[FM_PARAM_AMP_DYNA], velocity)) >> 15);
-    int64_t curve = (int64_t)velocity * velocity * FM_ENV_FULL / (127 * 127);
-    return FM_ENV_FULL - (int32_t)((FM_ENV_FULL - curve) * sens / 100);
+    int64_t peak;
+    if (e->params[FM_PARAM_AMP_DYNA]) {
+        peak = ((int64_t)FM_ENV_FULL *
+                fm_dyna_share_q15(e->params[FM_PARAM_AMP_DYNA], velocity)) >> 15;
+    } else {
+        int64_t curve = (int64_t)velocity * velocity * FM_ENV_FULL / (127 * 127);
+        peak = FM_ENV_FULL - (FM_ENV_FULL - curve) * sens / 100;
+    }
+    return (int32_t)(peak * e->params[FM_PARAM_AMP_LEVEL] / 1000);
 }
 
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune

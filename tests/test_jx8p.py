@@ -105,6 +105,16 @@ class MapTest(unittest.TestCase):
         e = patch("LO STRINGS")                 # 127 and 127, MIX ENV 0
         self.assertEqual((e["OSC1_LEVEL_PERMILLE"], e["OSC2_LEVEL_PERMILLE"]), (1000, 1000))
 
+    # VCA LEVEL, as PG-8X 2.0.13 plays it: 0.30 dB a step below 127, linear in dB down to 0
+    # (-38.1 dB, not silent), measured at 127/112/96/88/64/32/16/8/4/1/0 within 0.1 dB.
+    def test_vca_level_is_0_30_db_a_step_into_the_amp_level(self):
+        self.assertEqual(patch("PIANO 1")["AMP_LEVEL_PERMILLE"], 1000)    # 127
+        self.assertEqual(patch("FAT FIFTH")["AMP_LEVEL_PERMILLE"], 260)   # 88: -11.7 dB
+        self.assertEqual(jx8p.amp_level_permille(0), 12)                  # -38.1 dB
+        self.assertEqual(jx8p.amp_level_permille(64), 114)                # -18.9 dB
+        field = next(f for f in jx8p.FIELDS if f.name == "AMP_LEVEL_PERMILLE")
+        self.assertEqual(field.param, "AMP_LEVEL")
+
     # CROSS MOD: off, 1 (SYNC 1), 2 (SYNC 2: sync and the ring), 3 (X-MOD: the ring). The JX-8P's
     # cross mod is a ring (osc_ring, #105), not the engine's FM (osc_xmod), so XMOD_AM sets osc_ring.
     def test_cross_mod_sets_sync_and_the_ring(self):
@@ -459,11 +469,10 @@ class MapTest(unittest.TestCase):
             self.assertEqual(e["OSC1_LEVEL_PERMILLE"], 0, name)
             self.assertEqual(abs(e["OSC_MIX_ENV_PERMILLE"]), 1000, name)
 
-    # Kept for LFO to cutoff (#8) and the VCA level
+    # Kept for LFO to cutoff (#8)
     def test_other_features_the_engine_lacks_are_kept_for_later(self):
         e = patch("SOUNDTRACK")
         self.assertEqual(e["FILTER_LFO_PERMILLE"], 0)
-        self.assertEqual(e["AMP_LEVEL_PERMILLE"], 819)      # VCA LEVEL 104
 
 
 class RangeTest(unittest.TestCase):
