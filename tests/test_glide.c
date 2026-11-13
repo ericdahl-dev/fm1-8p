@@ -174,8 +174,32 @@ TT_TEST(glides_do_not_depend_on_block_size)
     TT_CHECK(memcmp(gl_buf, gl_buf_off, sizeof gl_buf / 2) == 0);
 }
 
+/* A patch load sets every field, setting_glide (still 1) among them: a
+ * change in the same load still glides. */
+TT_TEST(setting_the_glide_on_again_keeps_a_change_gliding)
+{
+    int n;
+    double early;
+    fm_engine *e[2] = { &gl_eng, &gl_off };
+    for (n = 0; n < 2; n++) {
+        TT_CHECK_EQ(fm_engine_init(e[n], GL_RATE, 6), FM_OK);
+        fm_engine_set_param(e[n], FM_PARAM_AMP_ATTACK_MS, 1);
+        fm_engine_set_param(e[n], FM_PARAM_AMP_SUSTAIN, 1000);
+        fm_engine_note_on(e[n], 72, 127);
+        fm_engine_render(e[n], n ? gl_buf_off : gl_buf, GL_RATE / 5);
+        if (!n) fm_engine_set_param(e[n], FM_PARAM_SETTING_GLIDE, 1);
+        fm_engine_set_param(e[n], FM_PARAM_FILTER_CUTOFF_CENTS, 8000);
+        if (!n) fm_engine_set_param(e[n], FM_PARAM_SETTING_GLIDE, 1); /* the load sets it again */
+        fm_engine_render(e[n], n ? gl_buf_off : gl_buf, GL_RATE / 10);
+    }
+    early = gl_rms_diff(gl_buf, gl_buf_off, 0, GL_RATE * 3 / 1000) / gl_rms(gl_buf_off, GL_RATE / 20, GL_RATE / 10);
+    printf("    cutoff set with the glide set on again: off the jump by %.0f %% over 3 ms\n", 100 * early);
+    TT_CHECK(early > 0.3);
+}
+
 static void run_glide_tests(void)
 {
+    TT_RUN(setting_the_glide_on_again_keeps_a_change_gliding);
     TT_RUN(glides_do_not_depend_on_block_size);
     TT_RUN(each_setting_glides_to_a_mid_note_change);
     TT_RUN(a_patch_set_after_init_glides_from_pg8xs_power_on_values);

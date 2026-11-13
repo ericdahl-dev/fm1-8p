@@ -289,11 +289,8 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_BEND_RANGE:
         apply_bend(e, e->bend_value);
         return;
-    case FM_PARAM_SETTING_GLIDE: { /* on after a render: from where they are */
+    case FM_PARAM_SETTING_GLIDE: { /* the settings play at their glides now, or not */
         int k;
-        if (v && e->ticks)
-            for (k = 0; k < FM_GLIDE_SETTINGS; k++)
-                e->glide_cur[k] = glide_target(e, k) * 65536;
         for (k = 0; k < FM_GLIDE_SETTINGS; k++)
             apply_param(e, glide_id[k]);
         return;
@@ -568,6 +565,14 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value)
     if (value > info->max) value = info->max;
     if (id == FM_PARAM_VOICE_MODE && value != e->params[id])
         end_mode(e);
+    if (id == FM_PARAM_SETTING_GLIDE && value && !e->params[id] && e->ticks) {
+        /* turned on after a render: the glides start where the settings
+         * are (only from init do they start at PG-8X's power-on values);
+         * set on again, as a patch load does, they go on */
+        int k;
+        for (k = 0; k < FM_GLIDE_SETTINGS; k++)
+            e->glide_cur[k] = glide_target(e, k) * 65536;
+    }
     e->params[id] = value;
     apply_param(e, id);
     return FM_OK;
