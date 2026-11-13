@@ -71,14 +71,14 @@ the desktop, where a division by zero does trap.
 
 Each voice is its oscillator mix (every waveform peaks at 1.0 in Q8.24),
 through the filter, times its amp envelope (Q1.30). The voices are summed in
-Q8.24 and the sum is scaled by `0.5 / voice_count` (Q1.30), so even every
-voice at full level with lined-up peaks stays at or below half of full scale
-(-6 dBFS) without filter resonance. High resonance uses that 6 dB and can
-reach full scale, where the int16 conversion saturates (follow-up: #24). The
-table and the reasoning are in [voices.md](voices.md#gain-staging).
+Q8.24 and the sum is scaled by `0.72 / voice_count` (Q1.30, with the output's
++6 dB makeup; PG-8X's level, #102), so every voice at full level with
+lined-up peaks stays at or below the soft clip's knee (-2.85 dBFS) without
+filter resonance. Past the knee the soft clip bends the output short of full
+scale. The table and the reasoning are in [voices.md](voices.md#gain-staging).
 The chorus (below) adds its wet signal to the dry one, as PG-8X's does (#104),
-so it can raise the peak by up to 6 dB: the -6 dBFS mix leaves room for that,
-and a full chord with the chorus on still does not clip.
+so it can raise the peak by up to 6 dB; past the knee the soft clip takes it,
+and a full chord with the chorus on still never reaches the rails.
 
 The pulse is the difference of two saws, `saw(t) - saw(t + width)`, so it has
 no DC (like an AC-coupled analog pulse): it sits at +2(1 - w) for the last
@@ -411,10 +411,10 @@ How it works, per sample:
 - The input is written to one delay line of 1024 `int16_t` samples, in units
   of Q8.24 >> 10 (1.0 = 16384), rounded, saturating at +-2.0. That keeps 14
   fraction bits, one fewer than the int16 output, on the wet signal only.
-  The chorus takes the mix after the mix gain, which peaks at 0.5 (every
+  The chorus takes the mix after the mix gain, which peaks at 0.72 (every
   voice's two oscillators at full with lined-up peaks, 2.0 each, times
-  `0.25 / voice_count`; see
-  [voices.md](voices.md#gain-staging)), so the line has 12 dB of headroom
+  `0.36 / voice_count`; see
+  [voices.md](voices.md#gain-staging)), so the line has 9 dB of headroom
   over the loudest mix for the filter's resonance and never clamps today.
 - A triangle LFO (Q0.32 phase, one add per sample) sweeps two taps in opposite
   directions: left at center + sweep, right at center - sweep. Delays are
@@ -426,9 +426,10 @@ How it works, per sample:
   in int32 for any input (one clamp, no 64-bit math). On a held C3 saw the chorus raises the RMS level by about 2.4 dB
   over chorus off (I +2.4, II +2.4; PG-8X +3.0), and the left and right
   correlate at 0.50 (I) and 0.44 (II), against PG-8X's 0.46. The mix gain
-  keeps the chorus's input within +-0.5 (-6 dBFS), so dry plus wet stays
-  under full scale: an eight-note chord at full level peaks at about
-  25500 of 32767 with the chorus on (16100 off) and never clips. Before
+  keeps the chorus's input within +-0.72 (-2.85 dBFS), and the soft clip
+  takes dry plus wet past the knee: an eight-note chord at full level peaks
+  at about 29400 of 32767 with the chorus on (23200 off) and never reaches
+  the rails. Before
   #104 each output was half dry plus half wet, which lowered the level by
   3.6 to 4.3 dB.
 - Modes I and II both sweep at 0.68 Hz, PG-8X's rate, because the JX-8P
@@ -463,8 +464,8 @@ chorus writes it, each voice renders its oscillators' chunk there
 which is safe because the chorus only writes it
 (`chorus_block_writes_right_without_reading_it`). With the voices' modulation sources and sums (the pitch envelope among them), their note velocities, their sync and
 cross-mod state, their filters (124 bytes each) and their mix envelope
-settings, that makes `fm_engine` about 5.8 KiB (6008 bytes on the FM-1,
-6272 on x86-64), so
+settings, that makes `fm_engine` about 5.8 KiB (5956 bytes on the FM-1,
+6216 on x86-64), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
 deepest mode needs 9.0 ms, so above about 113 kHz a mode's center and sweep

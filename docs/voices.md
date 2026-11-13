@@ -194,9 +194,9 @@ does changing the detune in poly mode. In poly every voice's detune is 0.
 
 ### Gain
 
-Unison changes no gain. Each voice is still mixed at `0.5 / voice_count`,
+Unison changes no gain. Each voice is still mixed at `0.72 / voice_count`,
 so a unison note at full level peaks exactly where a full chord does: at
-most 16384 (-6 dBFS) when the saws line up, which they do at 0 cents (all
+most the knee, 23600 (-2.85 dBFS), when the saws line up, which they do at 0 cents (all
 voices start a unison note from the same phase on a fresh engine). With
 detune the saws drift in and out of phase and the peak moves between that
 ceiling and well below it. That makes one unison note `voice_count` times
@@ -216,21 +216,25 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | Filter output | Q8.24 | 1.0 with the filter open or no resonance; with high resonance up to the soft clip's +-4.0 |
 | Voice: filter output times amp envelope | Q8.24 | as the filter output |
 | Sum of voices (`fm_engine.mix`) | Q8.24 | 2 x `voice_count` with no resonance (both oscillators full); at most 4.0 x 8 = 32.0, which uses 6 of the 7 headroom bits |
-| Mix gain | Q1.30 | `0.25 / voice_count` = `(1 << 28) / voice_count`, rounded down |
-| Output before conversion | Q8.24 | 0.5 with no resonance; up to 1.0 with high resonance |
+| Mix gain | Q1.30 | `0.36 / voice_count` = `386669466 / voice_count`, rounded down: 0.25 times 3.17 dB, PG-8X's level (#102) |
+| Output before conversion | Q8.24 | 0.72 with no resonance; more with high resonance |
 | Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; 8 voices in phase measure -0.1 dBFS at most |
-| Output makeup and soft clip (#24) | Q8.24 to `int16_t` | x 2 (+6 dB), a pure gain up to the knee at 16384 (-6 dBFS); above it the soft clip bends toward full scale and holds at 0.9 of it (29491, -0.9 dBFS), so the output never reaches the rails |
+| Output makeup and soft clip (#24, #102) | Q8.24 to `int16_t` | x 2 (+6 dB), a pure gain up to the knee at 23600 (-2.85 dBFS); above it the soft clip bends toward full scale and holds at 0.966 of it (31653, -0.3 dBFS), so the output never reaches the rails |
 
-Each voice is scaled by `1 / voice_count`, then a fixed -12 dB (#24): a
-voice's two oscillators at full peak at 2.0 (they sum, as on PG-8X), and the
-chorus adds up to +5.9 dB to voices in phase. The worst case short of
-self-oscillation, 8 voices in unison with no detune at velocity 127, both
-oscillators full, resonance up to 700 at any cutoff, in any chorus mode,
-peaks at -0.1 dBFS before the output stage. The output then gives 6 dB
-back (+6 dB makeup) and bends anything past -6 dBFS with a soft clip, so the
-same worst case peaks at -1.2 dBFS and never at the rails
-(`the_worst_case_chord_stays_below_full_scale`): below the knee the output
-is exactly what it was before the trim. The soft clip is
+Each voice is scaled by `1 / voice_count`, then a fixed -8.83 dB: the
+-12 dB of #24 (a voice's two oscillators at full peak at 2.0, as they sum on
+PG-8X, and the chorus adds up to +5.9 dB to voices in phase) plus 3.17 dB,
+which puts a voice at PG-8X 2.0.13's level (#102). PG-8X was 3.2 dB louder on
+every path measured (one DCO or two, one note or six, filter, highpass, VCA
+modes), and it stays linear: a six-note two-DCO chord at 1 and at 6 notes
+keeps the same ratio and peaks at -0.5 dBFS. So the soft clip's knee moved
+up by the same 3.17 dB, from -6 dBFS to -2.85: everything that was linear
+before is still linear, 3.17 dB louder. The output gives 6 dB back (+6 dB
+makeup) and bends anything past the knee with a soft clip. The worst case
+short of self-oscillation, 8 voices in unison with no detune at velocity
+127, both oscillators full, resonance up to 700 at any cutoff, in any chorus
+mode, peaks at -0.3 dBFS and never at the rails
+(`the_worst_case_chord_stays_below_full_scale`). The soft clip is
 knee + h d / (h + d) past the knee by d (h = full scale - knee), read from a
 129-entry table (`tools/gen_softclip_table.py`) with linear interpolation,
 so the render path has no divide. The filter (#7) uses the same
@@ -293,8 +297,8 @@ amp envelopes and one for the filter envelopes, and every voice's
 envelope points at it (#19), so a setting change is written once and
 retimes only the envelopes that are running. Unison adds 49 bytes (8
 detune offsets and the 16 held keys). With the chorus (its 2 KiB delay
-line and a 256-byte right-side buffer) `fm_engine` is about 5.8 KiB (6008
-bytes on the FM-1, 6272 on x86-64), so static storage is recommended.
+line and a 256-byte right-side buffer) `fm_engine` is about 5.8 KiB (5956
+bytes on the FM-1, 6216 on x86-64), so static storage is recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per
 voice (one per oscillator's pitch, plus one more for each pulse oscillator's
