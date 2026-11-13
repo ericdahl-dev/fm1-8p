@@ -387,6 +387,19 @@ def report(head, base):
     return "\n".join(out)
 
 
+def base_note(root, commit, base):
+    """None when COMMIT holds every commit of BASE; else a note naming their merge base, the fair base
+    (a head behind main moves tones by what it lacks, not by what it changes)."""
+    import subprocess
+    git = lambda *a: subprocess.run(["git", "-C", root, *a], capture_output=True, text=True, check=True).stdout.strip()
+    missing = int(git("rev-list", "--count", f"{commit}..{base}"))
+    if missing == 0:
+        return None
+    mb = git("rev-parse", "--short=7", git("merge-base", commit, base))
+    return (f"note: {commit} lacks {missing} commits of {base}; tones it moves may be what it lacks. "
+            f"Score its merge base {mb} and compare against that.")
+
+
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(description="fm1-8p's 32 factory tones against PG-8X 2.0.13 renders")
@@ -400,11 +413,15 @@ def main(argv=None):
     ap.add_argument("--bank", help="a .syx bank of 32 tones to score instead of the factory bank (kept out of "
                                    "this repo when it isn't ours)")
     ap.add_argument("--bank-name", default="factory", help="the bank's name in the history rows")
+    ap.add_argument("--root", help="the git repo, to check BASE is an ancestor of COMMIT")
     a = ap.parse_args(argv)
     if a.bank and a.bank_name == "factory":
         ap.error("--bank needs a --bank-name")
     rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match, a.bank, a.bank_name)
     base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if a.base else None
+    note = base_note(a.root, a.commit, a.base) if a.base and a.root else None
+    if note:
+        print(note)
     print(f"bank: {a.bank_name}")
     if a.base and base is None:
         print(f"scorecard: no rows for {a.base} against this reference in {a.history}")

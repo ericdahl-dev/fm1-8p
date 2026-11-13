@@ -37,4 +37,4 @@ fi
 ${SCORECARD_PYTHON:-python3} -B "$ROOT/tools/scorecard.py" --tree "$W/src" --commit "$s" --ref "$SCORECARD_REF" \
     --history "${SCORECARD_HISTORY:-$ROOT/build/scorecard/history.jsonl}" --work "$W/work${SCORECARD_BANK_NAME:+-$SCORECARD_BANK_NAME}" $match \
     ${SCORECARD_BANK:+--bank "$SCORECARD_BANK" --bank-name "${SCORECARD_BANK_NAME:?set SCORECARD_BANK_NAME}"} \
-    ${2:+--base "$(git -C "$ROOT" rev-parse --short "$2")"}
+    ${2:+--base "$(git -C "$ROOT" rev-parse --short "$2")" --root "$ROOT"}

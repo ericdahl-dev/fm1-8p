@@ -279,6 +279,29 @@ class RunTest(unittest.TestCase):
             self.sc.run(self.repo, "deadbee", bad, self.hist, work=os.path.join(self.tmp.name, "w2"))
 
 
+class BaseNoteTest(unittest.TestCase):
+    """A head that lacks commits its base has isn't a fair comparison: the note names the merge base."""
+
+    def setUp(self):
+        import subprocess
+        self.root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+        have = lambda c: subprocess.run(["git", "-C", self.root, "cat-file", "-e", c + "^{commit}"],
+                                        capture_output=True).returncode == 0
+        if not all(have(c) for c in ("47823da", "f1d85f4", "a254bee")):
+            self.skipTest("needs the repo's history (a full clone)")
+        sys.path.insert(0, os.path.join(self.root, "tools"))
+        import scorecard
+        self.sc = scorecard
+
+    def test_a_head_behind_its_base_is_pointed_at_the_merge_base(self):
+        note = self.sc.base_note(self.root, "47823da", "f1d85f4")
+        self.assertIn("lacks 5 commits", note)
+        self.assertIn("ebbbad9", note)
+
+    def test_a_head_on_its_base_needs_no_note(self):
+        self.assertIsNone(self.sc.base_note(self.root, "f1d85f4", "a254bee"))
+
+
 class ScoreMidiTest(unittest.TestCase):
     """The scorecard MIDI (tools/gate_midi.py score()) puts a note under every section scorecard.py reads."""
 
