@@ -34,8 +34,10 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
  * 6 dB for the summed oscillators and the chorus (#24: half of every sample,
  * within 2 LSB on all 32 factory tones). The output's +6 dB makeup (#24)
  * gave the old hash back: this phrase stays below the soft clip's knee.
+ * Retaken when the mix gain rose 3.17 dB to PG-8X's level (#102: every
+ * sample x 1.44; the knee rose with it, so the phrase stays below it).
  */
-#define CH_GOLDEN_HASH 0x5C4375C1u
+#define CH_GOLDEN_HASH 0x679ECF4Du
 
 /*
  * set_mode: set chorus_mode to `mode` before the phrase. was_on: first

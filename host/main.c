@@ -18,7 +18,7 @@ static void usage(void)
             "  -r RATE        sample rate in Hz (default 44100)\n"
             "  -t MS          tail rendered after the song ends (default 1000)\n"
             "  -v VOICES      voice count, 1..%d (default %d); each voice is\n"
-            "                 mixed at 1/(2 x VOICES), so fewer voices play louder\n"
+            "                 mixed at 1.44/(2 x VOICES), so fewer voices play louder\n"
             "  -c CHANNEL     MIDI channel to play, 1..16 (default: the channel\n"
             "                 of the first note on); other channels are ignored\n"
             "  -s NAME=VALUE  set a parameter (repeatable); parameters:\n",

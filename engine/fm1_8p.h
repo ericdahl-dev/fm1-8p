@@ -157,9 +157,8 @@ typedef struct {
  * Each note takes a voice; with more notes than voices the engine steals
  * one (the rule is in docs/voices.md). In unison mode (FM_PARAM_VOICE_MODE)
  * every voice plays the newest note instead, detuned. Each voice is mixed at
- * 1 / voice_count, then -6 dB, so a full chord never clips without filter
- * resonance; high resonance can reach full scale, where the output
- * saturates.
+ * 1 / voice_count, then -2.85 dB (PG-8X 2.0.13's level, #102); past the
+ * knee at -2.85 dBFS a soft clip bends the output short of full scale.
  */
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count);
