@@ -726,6 +726,27 @@ static double pitch_env_amp_cents(uint8_t velocity)
     return cents(hz_between(mod_buf, 300, 500), note_hz(57));
 }
 
+/* With the gate (#63) envelope 2 runs apart from the VCA: the pitch
+ * envelope on it reads envelope 2 held at half (+800 cents), not the gate,
+ * which holds the note at full. */
+TT_TEST(pitch_env_on_envelope_2_follows_it_with_the_gate)
+{
+    double got;
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_DECAY_MS, 0);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_SUSTAIN, 500);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_GATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_SOURCE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 1600);
+    fm_engine_note_on(&mod_eng, 57, 127);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    got = cents(hz_between(mod_buf, 300, 500), note_hz(57));
+    printf("    gate, pitch env on envelope 2 at half: %+.1f cents\n", got);
+    TT_CHECK(fabs(got - 800) < 3);
+}
+
 TT_TEST(pitch_env_from_the_amp_envelope_ignores_velocity)
 {
     TT_CHECK(fabs(pitch_env_amp_cents(127) - 800) < 3);
@@ -822,6 +843,7 @@ static void run_mod_tests(void)
     TT_RUN(negative_pitch_env_is_the_mirror);
     TT_RUN(pitch_env_is_linear_in_the_level);
     TT_RUN(pitch_env_from_the_amp_envelope_ignores_velocity);
+    TT_RUN(pitch_env_on_envelope_2_follows_it_with_the_gate);
     TT_RUN(pitch_env_dynamics_scale_by_velocity);
     TT_RUN(pitch_env_adds_to_tuning_and_bend);
     TT_RUN(block_size_does_not_change_pitch_env_output);
