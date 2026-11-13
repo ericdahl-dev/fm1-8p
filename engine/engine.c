@@ -209,6 +209,9 @@ static const uint16_t glide_id[FM_GLIDE_SETTINGS] = {
  * VCF FREQ 127 (tools/jx8p.py cutoff_cents), the rest 0 */
 static const int32_t glide_power_on[FM_GLIDE_SETTINGS] = { 1000, 0, 14728, 0, 0, 0, 0, 0 };
 #define GLIDE_TAU_MS 16
+/* a glide steps every 4 control ticks (2.7 ms at 48 kHz, 6 steps a tau):
+ * each step re-applies the settings that moved to every voice */
+#define GLIDE_TICKS 4
 
 static int glide_index(uint16_t id)
 {
@@ -248,12 +251,13 @@ static int glide_live(const fm_engine *e)
     return 0;
 }
 
-/* One tick of 1 - exp(-tick / tau), Q1.30, from its series (the tick is
- * at most a quarter of tau, at 8 kHz). */
+/* One step of 1 - exp(-step / tau), Q1.30, from its series (a step of
+ * GLIDE_TICKS ticks is 1 tau at 8 kHz, where the series' fourth term,
+ * dropped, is 1/24). */
 static void glide_init(fm_engine *e)
 {
     int k;
-    int64_t x = ((int64_t)FM_LFO_TICK_FRAMES << 30) * 1000 /
+    int64_t x = ((int64_t)(FM_LFO_TICK_FRAMES * GLIDE_TICKS) << 30) * 1000 /
                 ((int64_t)GLIDE_TAU_MS * e->sample_rate);
     int64_t x2 = (x * x) >> 30, x3 = (x2 * x) >> 30;
     e->glide_k = (int32_t)(x - x2 / 2 + x3 / 6);
@@ -917,7 +921,7 @@ static void control_tick(fm_engine *e)
     uint8_t k;
     e->ticks++;
     e->tick_left = FM_LFO_TICK_FRAMES;
-    if (glide_live(e)) glide_tick(e);
+    if (glide_live(e) && !(e->ticks % GLIDE_TICKS)) glide_tick(e);
     /* with every depth at 0 (after one tick that clears any offset still
      * applied) the voices have nothing to do */
     if (lfo_live(e))
