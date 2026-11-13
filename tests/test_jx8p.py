@@ -237,6 +237,16 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=0, VCA_MODE=127)["FILTER_ENV_AMOUNT_CENTS"],
                          -60 * 75)
 
+    # VCA DYNAMICS and MIX DYNAMICS are the engine's DYNAMICS positions (engine/dyna.c, PG-8X 2.0.13's
+    # curve): the VCA's level, and the MIX ENV depth, times the share at the velocity
+    def test_vca_and_mix_dynamics_are_dynamics_positions(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["AMP_DYNA"].param, "AMP_DYNA")
+        self.assertEqual(fields["OSC_MIX_ENV_DYNA"].param, "OSC_MIX_ENV_DYNA")
+        got = {v: patch_with("SOUNDTRACK", VCA_DYNA=v, MIX_DYNA=96 - v) for v in (0, 32, 64, 96)}
+        self.assertEqual({v: e["AMP_DYNA"] for v, e in got.items()}, {0: 0, 32: 1, 64: 2, 96: 3})
+        self.assertEqual({v: e["OSC_MIX_ENV_DYNA"] for v, e in got.items()}, {0: 3, 32: 2, 64: 1, 96: 0})
+
     # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
     # depth to pitch linear to 572 cents (below), one per oscillator
     def test_lfo_shape_rate_delay_and_vibrato_depth(self):
@@ -278,12 +288,12 @@ class MapTest(unittest.TestCase):
         lo, hi = jx8p.engine_ranges()["LFO_RATE_CENTIHZ"]
         self.assertTrue(lo <= 5 and 2544 <= hi, (lo, hi))
 
-    # CHORUS off, 1, 2 -> the engine's off, slow, deep; VCA DYNAMICS off, 1, 2, 3 -> 0..100 %
+    # CHORUS off, 1, 2 -> the engine's off, slow, deep; VCA DYNAMICS off, 1, 2, 3 -> its position
     def test_chorus_and_vca_dynamics(self):
         e = patch("SOUNDTRACK")                 # chorus 32, VCA dynamics 64
-        self.assertEqual((e["CHORUS_MODE"], e["AMP_VELOCITY_PCT"]), (1, 67))
+        self.assertEqual((e["CHORUS_MODE"], e["AMP_DYNA"]), (1, 2))
         e = patch("PIANO 2")                    # chorus 0, VCA dynamics 96
-        self.assertEqual((e["CHORUS_MODE"], e["AMP_VELOCITY_PCT"]), (0, 100))
+        self.assertEqual((e["CHORUS_MODE"], e["AMP_DYNA"]), (0, 3))
 
     # DCO-1 and DCO-2 ENV as PG-8X 2.0.13 plays them (#58): at full envelope 24.8 cents a step
     # less 13 (0 at 0, 3137 at 127), linear, each moving its own oscillator, signed by DCO ENV MODE
@@ -386,7 +396,6 @@ class MapTest(unittest.TestCase):
     # Kept for LFO to cutoff and filter velocity (#8), envelope key follow (#60) and the VCA level
     def test_other_features_the_engine_lacks_are_kept_for_later(self):
         e = patch("SOUNDTRACK")
-        self.assertEqual(e["OSC_MIX_ENV_VELOCITY_PCT"], 33)    # MIX DYNAMICS 32
         self.assertEqual(e["FILTER_LFO_PERMILLE"], 0)
         self.assertEqual(e["FILTER_VELOCITY_PCT"], 33)      # VCF DYNAMICS 32
         self.assertEqual((e["ENV1_KEY_FOLLOW"], e["ENV2_KEY_FOLLOW"]), (0, 1))
