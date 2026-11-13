@@ -5,6 +5,7 @@
 #define UI_H
 #include <stdint.h>
 #include "play.h"
+#include "ui_map.h"
 
 /* ui_event's events: the same values as fm1-dock's hb_module.h (the glue passes them on as they are) */
 #define UI_EV_BTN_DOWN 0x01000000u
@@ -37,6 +38,9 @@ typedef struct {
     uint16_t id;                        /* fm_param_id, when live */
     uint8_t kind;                       /* ui_slot_kind */
     int32_t step, fast;                 /* engine units a click moves it; a fast turn's click */
+    const uint8_t *order;               /* a choice: every engine value in panel order (0: steps) */
+    uint8_t n_order;
+    uint8_t stops;                      /* bit i: order[i] is a knob position (the rest only show) */
 } ui_slot;
 
 typedef struct {
@@ -52,6 +56,7 @@ typedef struct {
     uint32_t banner_ms;                 /* when it came */
     int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
     uint32_t warned_ms;                 /* when */
+    uint32_t page;                      /* the edit page: 0 5A VCF, 1 5B */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
@@ -95,6 +100,12 @@ uint32_t ui_seg7(char c);
 /* the knob meter's lit segments (bit k, left to right): a range from the left, a bipolar param
  * (min = -max) out from the middle */
 uint32_t ui_meter(uint16_t id, int32_t value);
+/* a one-bar meter (Membrane) in a w px track: the bar from *a to *b px, a range from the left in
+ * proportion, a bipolar param (min = -max) out from the middle */
+void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b);
+/* a choice slot's (order set) meter: value's knob position (a value between positions: the one
+ * before it), of *n positions */
+uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
