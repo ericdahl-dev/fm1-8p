@@ -9,7 +9,6 @@
  * count and an add, nothing else (fm_env_step).
  */
 #include "env.h"
-#include "units.h"
 #ifdef FM_CHECK_ENGINE
 #include <assert.h>
 #endif
@@ -65,7 +64,11 @@ static int32_t start_segment(fm_env *e, int32_t d, uint32_t tau)
     return (int32_t)(span - q * n);
 }
 
-/* A time in samples at this note's scale: untouched at 1.0. */
+/* A time in samples at this note's scale: untouched at 1.0. Out of line:
+ * once per segment, and three copies cost code. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#endif
 static uint32_t scaled(const fm_env *e, uint32_t t)
 {
     uint64_t s;
@@ -130,10 +133,33 @@ static int32_t sustain_level(fm_env *e)
  * ENV KEY; the time halves every 2 octaves up at 500 per mille). */
 #define KEY_CENTER 36
 
+/* 2^(i / 16) - 1, Q16, i = 0..15: 2^(cents / 1200) in 75-cent steps */
+static const uint16_t exp2_16th[16] = {
+    0, 2902, 5932, 9096, 12400, 15850, 19454, 23216,
+    27146, 31249, 35534, 40009, 44682, 49562, 54658, 59979
+};
+
+/* 2^(cents / 1200), Q16.16, from 1/256 to 256 (clamped): linear between
+ * the table's steps, within 0.03 %. 32-bit; on note on only. */
+static uint32_t exp2_cents(int32_t cents)
+{
+    int32_t k, f, i, a, b;
+    uint32_t v;
+    if (cents < -8 * 1200) cents = -8 * 1200;
+    if (cents > 8 * 1200) cents = 8 * 1200;
+    k = (cents + 8 * 1200) / 1200 - 8; /* floor, cents >= -9600 */
+    f = cents - k * 1200;              /* 0..1199 */
+    i = f / 75;
+    a = exp2_16th[i];
+    b = i == 15 ? 65536 : exp2_16th[i + 1];
+    v = (uint32_t)(65536 + a + (b - a) * (f - i * 75) / 75);
+    return k >= 0 ? v << k : v >> -k;
+}
+
 void fm_env_key(fm_env *e, uint8_t note)
 {
     int32_t f = e->set->key_follow;
-    e->ks = f ? fm_exp2_cents_q16(-f * ((int32_t)note - KEY_CENTER) / 10) : (uint32_t)1 << 16;
+    e->ks = f ? exp2_cents(-f * ((int32_t)note - KEY_CENTER) / 10) : (uint32_t)1 << 16;
 }
 
 void fm_env_gate_on(fm_env *e)
