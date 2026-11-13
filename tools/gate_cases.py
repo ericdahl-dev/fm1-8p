@@ -50,6 +50,8 @@ def controllers():
     yield "controllers", "controllers.mid", s(lfo_rate_centihz=550, lfo_pitch_cents=30, amp_release_ms=400,
                                               filter_cutoff_cents=6000, filter_env_amount_cents=3600,
                                               filter_env_decay_ms=500, chorus_mode=1)
+    yield "controllers-unison", "controllers.mid", s(voice_mode=1, unison_detune_cents=20, amp_release_ms=300,
+                                                     osc_sync=1, osc2_coarse_semis=5, chorus_mode=2)
 
 
 def hpf_steps():
