@@ -9,7 +9,9 @@ import os
 import numpy as np
 from scipy import signal
 
-SCHEMA = 2   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note)
+SCHEMA = 3   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+             # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference)
+FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = 48000
 
@@ -47,9 +49,17 @@ def band_levels(x):
                      for c in _BANDS])
 
 
+def _floored(levels):
+    """Band levels with everything more than FLOOR_DB under the loudest band raised to that floor: our
+    renders are int16 (as the device's output is) and PG-8X's float, so a band near silence would
+    otherwise read the 16-bit floor against PG-8X's nothing. That floor is real, but it isn't timbre."""
+    return np.maximum(levels, levels.max() - FLOOR_DB)
+
+
 def spectral_distance(ours, pg):
-    """RMS of the band level differences after taking their median out (level-matched), dB."""
-    d = band_levels(ours) - band_levels(pg)
+    """RMS of the band level differences after taking their median out (level-matched), dB; each side's
+    bands floored FLOOR_DB under its loudest."""
+    d = _floored(band_levels(ours)) - _floored(band_levels(pg))
     d -= np.median(d)
     return float(np.sqrt(np.mean(d ** 2)))
 
@@ -87,11 +97,11 @@ AIR_HZ = 6300.0
 
 
 def air_db(x):
-    """Energy above AIR_HZ as a share of the whole, dB."""
+    """Energy above AIR_HZ as a share of the whole, dB, floored at -FLOOR_DB (see _floored)."""
     x = mono(x)
     sp = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
     f = np.fft.rfftfreq(len(x), 1 / SR)
-    return 10 * np.log10(sp[f >= AIR_HZ].sum() / (sp.sum() + 1e-30) + 1e-30)
+    return max(10 * np.log10(sp[f >= AIR_HZ].sum() / (sp.sum() + 1e-30) + 1e-30), -FLOOR_DB)
 
 
 def air_gap(ours, pg):

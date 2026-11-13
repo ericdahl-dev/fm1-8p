@@ -73,6 +73,32 @@ class MetricTest(unittest.TestCase):
         self.assertAlmostEqual(gap, 20.0, delta=1.0)
         self.assertAlmostEqual(self.sc.air_gap(self.tone, self.tone), 0.0, places=6)
 
+    # Our renders are int16, PG-8X's float: a band far below the sound must not read the 16-bit floor
+    # against PG-8X's silence. Bands (and the air share) are floored 60 dB under the section's loudest
+    # band on both sides; a buzz above that still shows.
+    def test_a_float_saw_against_itself_in_int16_scores_zero(self):
+        np = self.np
+        t = np.arange(2 * SR) / SR
+        saw = 0.05 * (2 * ((261.63 * t) % 1.0) - 1)
+        as16 = np.round(saw * 32767) / 32767
+        self.assertLess(self.sc.spectral_distance(as16, saw), 0.5)
+        self.assertLess(abs(self.sc.air_gap(as16, saw)), 0.5)
+
+    def test_the_16_bit_floor_is_not_a_difference(self):
+        np = self.np
+        from scipy import signal
+        b, a = signal.butter(8, 300 / (SR / 2))
+        dark = signal.lfilter(b, a, self.tone)                  # little above 1 kHz ...
+        dark *= 10 ** (-30 / 20) / np.sqrt(np.mean(dark ** 2))  # ... at -30 dBFS, as the sections are
+        as16 = np.round(dark * 32767) / 32767
+        self.assertLess(self.sc.spectral_distance(as16, dark), 0.5)
+        self.assertLess(abs(self.sc.air_gap(as16, dark)), 0.5)
+        hb, ha = signal.butter(4, 5000 / (SR / 2), "high")
+        buzz = signal.lfilter(hb, ha, np.random.default_rng(4).standard_normal(len(dark)))
+        buzz *= np.sqrt(np.mean(dark ** 2)) / np.sqrt(np.mean(buzz ** 2)) * 10 ** (-30 / 20)
+        self.assertGreater(self.sc.spectral_distance(dark + buzz, dark), 3.0)
+        self.assertGreater(self.sc.air_gap(dark + buzz, dark), 20.0)
+
     # A tone's score on the scorecard MIDI (tools/gate_midi.py score.mid): against itself, all zero.
     def test_a_render_scored_against_itself_is_all_zero(self):
         np = self.np
@@ -105,7 +131,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 2)
+        self.assertEqual(row["schema"], 3)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -125,7 +151,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (2, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (3, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
