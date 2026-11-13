@@ -52,6 +52,8 @@ expect_ok "a change in the unison detune fails the gate" caught unison engine.c 
 expect_ok "a change in the noise fails the gate" caught noise osc.c noise_next 'p->noise ^= 1u;'
 expect_ok "a change in the per-sample special path fails the gate" caught special osc.c next_special "$PH"
 expect_ok "a change in the cross-mod depth (FM) fails the gate" caught xmod osc.c fm_osc_pair_set_xmod 'depth += depth >> 2;'
+expect_ok "a change in the LFO fails the gate" caught lfo lfo.c fm_lfo_tick 'l->phase += 1u << 28;'
+expect_ok "a change in a note's level (velocity) fails the gate" caught level voice.c set_level 'peak -= peak >> 4;'
 
 echo
 echo "$run tests, $failed failed"
