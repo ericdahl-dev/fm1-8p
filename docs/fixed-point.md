@@ -29,7 +29,7 @@ integer divided by 2^n.
 | Noise state | `uint32_t` | xorshift32 | | never 0 | Three shifts and three XORs a sample; the top bits, `>> 7`, are the Q8.24 sample. |
 | Filter pitch (cutoff, key tracking, envelope amount) | `int32_t` | cents above MIDI note 0 (8.18 Hz) | | cutoff 0 to 14400 | Cutoff, key tracking and the filter envelope add in this log domain, so one octave is always 1200 whatever the frequency. |
 | Filter stage coefficient `g` | `int32_t` | Q1.30 | 2^30 (fully open) | 0 to 1.0 | Same scale as the envelope; a stage is `y += (x - y) * g >> 30`. |
-| Resonance feedback `k` | `int32_t` | Q4.28 | 2^28 | 0 to 4.2 | 4.2 at resonance 1000. In theory the loop self-oscillates at about 4.0 across most of the range, dropping to 3.4 at the top; at the lowest cutoffs 4.2 is not enough (see Filter). |
+| Resonance feedback `k` | `int32_t` | Q4.28 | 2^28 | 0 to 4.2 | 4.2 at resonance 1000, then scaled by the cutoff (`kcut_tab`): the loop self-oscillates at a feedback of 4.0 at the bottom of the range but 3.44 at Nyquist, so k is scaled by that threshold and every resonance sits as far from self-oscillation at any cutoff as at the bottom. JX-8P RES 127 (935) never oscillates; resonance 1000 always does, except at the lowest cutoffs, where 4.2 is not enough (see Filter). |
 | Output | `int16_t` | Q1.15 | 32768 | -32768 to 32767 | What a codec or a WAV file takes. Q8.24 maps to it with `>> 9` and saturation. |
 
 Multiplies of two 32-bit values go through a 64-bit intermediate
@@ -116,14 +116,61 @@ resonant 4-pole (24 dB/octave) lowpass.
   overflow or run away at any resonance, for any Q8.24 input (the whole
   +-128.0), and self-oscillation settles at a fixed level (about 0.83 of
   full scale at mid cutoffs).
+- **Feedback by cutoff.** The feedback at which the loop oscillates falls
+  from 4.0 well below the rate to 3.44 at Nyquist (the stage zeros and the
+  one-sample delay add phase up there). A fixed `k` that stays just under it
+  at the bottom (JX-8P RES 127, resonance 935, 3.93) self-oscillates from
+  about 4.6 kHz up: a steady 12 kHz whistle on BUBBLES at 48 kHz. So
+  `apply()` scales `k` by the threshold at the corner over the threshold 6
+  octaves under the rate (`kcut_tab`, 21 points a quarter octave apart, from
+  `tools/gen_filter_tables.py`, rounded so the interpolated scale never
+  exceeds the exact one). Below that the feedback is exactly as before.
+  RES 127 rings down at every cutoff (`jx_max_resonance_rings_down_at_every_cutoff`),
+  and resonance 1000 still self-oscillates everywhere. The warp table is
+  computed with the scaled feedback, so the peak keeps its place.
+- **Resonance (#98, #134).** The feedback and three more settings come
+  from 9-point tables over the per mille (125 apart, linearly
+  interpolated) at control rate, fitted to PG-8X 2.0.13 (`match.py --param
+  VCF_RES` and noise sweeps at VCF FREQ 48-112; below 750 refitted in #134
+  to PG-8X's response re its open filter, without moving the peak's place
+  further from PG-8X's at any resonance):
+  - **Feedback.** k is 0.45 at resonance 0 (PG-8X's knee: -8 dB at the
+    cutoff, flat to half of it), 2.7 at 625; from 750 up 4.2 x the
+    resonance, as before.
+  - **Retune.** The coefficient is set for the cutoff plus up to 113 cents
+    at low resonance (no peak to place yet: the knee's corner) and less up
+    to 190 cents with a peak (-129 at 500, -190 at 1000), so the peak sits under
+    the cutoff as on PG-8X (-5 semitones at a peak of +4 dB, -1 to -2 at
+    +16 dB and more; the ladder's own peak sits under its corner too).
+    Resonance 1000 rings at the cutoff less 190 cents.
+  - **Passband level.** The input is scaled by `a` (1.41 at resonance 0,
+    up to 1.73 at 500 and 625, down to 0.66 at 1000). The plain ladder's passband is
+    `1 / (1 + k)` and its stopband barely moves; PG-8X's passband drops
+    less (-3.7 dB at a +4 dB peak, -18 at +31) and its stopband drops
+    with it, so the treble does not jump against the bass.
+  - **Bass shelf.** The output is `s3 + h * (lp - s3)`, `lp` a one-pole
+    lowpass of `s3` at the stage coefficient, `h` up to 0.69. It takes back
+    the bass the ladder's own resonance removes, keeping the stopband less
+    the passband within about 1.5 dB of PG-8X's (+1 to +7 dB, against
+    +8 to +14 for the plain ladder).
+
+  The retune and the level fade with the feedback over the top 600 cents,
+  so the open filter is still a wire; the shelf is off there (above
+  Nyquist at 44.1 and 48 kHz its weight is under 0.2 dB), which keeps
+  step F of the CPU test (it sweeps into the fade) within a point of
+  before (fm1-emu strict: 45.0 % on main, 46.0 %). `a * 64.0` plus the feedback stays within the
+  32-bit sum (checked at compile time), the shelf is a weighted average of
+  two values within the clip's limit, and the output is still bit for bit
+  the 64-bit reference's.
 - **32-bit sums (#34).** The sums run in 32 bits; only the products need 64
   (one 32x32->64 multiply each). The highpass state stays within the input's
   range, so while the input and that state are within +-32.0 (an oscillator
-  stays near +-1.0) the highpass output is within +-64.0 and, less the
-  feedback (within +-4.0 * 4.2), the lowpass input still fits 32 bits.
-  Louder, the highpass runs in 64 bits and its output is clamped to +-32.0
+  stays near +-1.0) the highpass output is within +-64.0 and, times the
+  input level (at most 1.7) and less the feedback (within +-4.0 * 4.2), the
+  lowpass input still fits 32 bits. Louder, the highpass runs in 64 bits and
+  its output is clamped to +-64.0
   (with the highpass off, the input is), which changes nothing: the clamped
-  value less the largest feedback still drives the soft clip past its
+  value at the least input level (0.66) less the largest feedback still drives the soft clip past its
   saturation (6.0) with the same sign. The output is bit for bit that
   of the same filter in 64 bits over the whole +-128.0
   (`tests/test_filter_oracle.c` holds it to a 64-bit reference).
@@ -158,7 +205,7 @@ resonant 4-pole (24 dB/octave) lowpass.
   `exponential_release_stays_on_its_curve`). A release goes idle below -80 dB
   (`FM_ENV_FLOOR`), a decay lands on sustain within it.
 - **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
-  amp envelope; its amount is -9600 to +9600 cents (8 octaves either way).
+  amp envelope; its amount is -16400 to +16400 cents (about 13.7 octaves either way: a JX-8P VCF ENV of 127 at 129 cents a step is 16383).
   It starts where the amp envelope does: from 0 on an idle voice or after a
   steal fade (whatever level the last note left it at), from its level on a
   retrigger. During a steal fade the old note keeps its own key-tracked
@@ -172,29 +219,34 @@ above the cutoff 24 +-3 dB below the cutoff point.
 | Measurement | Measured | Ideal 4-pole | Test tolerance |
 | --- | --- | --- | --- |
 | 3 octaves below cutoff | -0.27 dB | -0.27 dB | above -0.5 dB |
-| At cutoff, no resonance | -12.0 dB | -12.0 dB | +-2 dB |
-| Drop over the 1st octave above cutoff (880 Hz: -28.0 dB) | 15.9 dB | 15.9 dB | +-2 dB |
-| Drop over the 2nd octave (1760 Hz: -49.3 dB) | 21.3 dB | 21.2 dB | +-2 dB |
-| Drop over the 3rd octave (3520 Hz: -73.0 dB) | 23.6 dB | 23.3 dB | +-2 dB |
-| Drop over the 1st octave, resonance 600 | 24.4 dB | 24.4 dB | 24 +-3 dB |
-| At cutoff, resonance 500 / 900 | -5.6 / +9.6 dB | -5.6 / +13.2 dB | each at least 5 / 12 dB above the previous |
+| At cutoff, no resonance, re 55 Hz | -8.34 dB | -8.0 dB (PG-8X) | +-0.7 dB |
+| Half the cutoff, no resonance, re 55 Hz | -0.71 dB | -1.0 dB (PG-8X) | +-0.7 dB |
+| Drop over the 1st octave above cutoff (880 Hz: -26.7 dB) | 18.1 dB | 19.2 dB (PG-8X) | +-2 dB |
+| Drop over the 2nd octave (1760 Hz: -48.9 dB) | 22.3 dB | 20.9 dB (PG-8X) | +-2 dB |
+| Drop over the 3rd octave (3520 Hz: -72.9 dB) | 24.0 dB | 24 dB | +-2 dB |
+| Peak to the octave above it, resonance 600 | 26.6 dB | | 24 +-3 dB |
+| Peak over the passband, resonance 500 / 900 | +6.9 / +23.8 dB | | above 5, and 900 at least 12 dB above 500 |
+| Peak under the cutoff, resonance 875 | -2.25 semitones | (PG-8X) | -2.25 +-0.5 |
+| Passband (55 Hz) against resonance 0, resonance 375 / 875 | -3.37 / -14.8 dB | -3.7 / -15.1 (PG-8X) | +-1 dB |
+| 3 octaves above less 3 below, resonance 375 against 0 | -0.27 dB | (PG-8X: about 0) | 0.3 +-1 dB |
 
-With no resonance, four equal poles meet at the cutoff, so the cutoff point
-itself is -12 dB and the slope approaches 24 dB/octave further up (23.6 dB
-over the third octave).
-A moderate resonance (around 600) lifts the cutoff point to about -3.4 dB,
-and the octave above it is then about 24 dB lower. Near self-oscillation the
-peak is lower than the ideal analog ladder's (+9.6 against +13.2 dB at 900):
-close to threshold, the small differences between the digital loop and the
-analog one matter most. Resonance also costs bass (the
-passband is `1 / (1 + k)` of the input; -14 dB at resonance 1000), as in the
-analog ladder it is modeled on; there is no gain compensation.
+With no resonance the knee is PG-8X 2.0.13's, not four plain poles' (-12 dB
+at the cutoff): PG-8X's stays flat to half the cutoff and is -8 dB at it, as
+if a little feedback stays on, so the filter keeps some (k 0.45) at
+resonance 0 (#134). The slope still approaches 24 dB/octave further up
+(24.0 dB over the third octave).
+Resonance follows PG-8X 2.0.13 rather than the ideal ladder: its peak sits
+under the cutoff, and it lowers the passband and the stopband together
+(Resonance, above), so the peak over the passband is the figure to compare
+(PG-8X at VCF FREQ 64: +4.2 dB at RES 64, +15.8 at 96, +30.6 at 127; the
+converter maps RES onto these, docs/patches.md).
 
 Highpass gains: at 55 Hz, 0 / -6.4 / -13.2 / -20.6 dB for positions 0 to 3;
 at 110 Hz, 0 / -2.7 / -7.8 / -14.7 dB.
 
 Cost per sample, per voice: five 32x32->64 multiplies (four stages and the
-feedback) and about 40 adds, shifts and compares, plus one multiply for the
+feedback), three more with resonance on (the input level and the shelf's
+lowpass and mix), and about 40 adds, shifts and compares, plus one multiply for the
 highpass when it is on, one in the clip only above +-2.0, and the filter
 envelope step. Inside the top 600 cents of cutoff the stage zero takes a
 multiply instead of a shift (four more). The cutoff update every 16 samples
@@ -399,7 +451,7 @@ chorus writes it, each voice renders its oscillators' chunk there
 which is safe because the chorus only writes it
 (`chorus_block_writes_right_without_reading_it`). With the voices' modulation sources and sums (the pitch envelope among them), their note velocities, their sync and
 cross-mod state, their filters (124 bytes each) and their mix envelope
-settings, that makes `fm_engine` about 5.5 KiB (5636 bytes on the FM-1,
+settings, that makes `fm_engine` about 5.5 KiB (5640 bytes on the FM-1,
 5800 on x86-64), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the

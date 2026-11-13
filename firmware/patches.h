@@ -57,7 +57,7 @@ typedef enum {
     PATCH_OSC_MIX_ENV_SOURCE,           /* 0 filter envelope, 1 amp envelope */
     PATCH_OSC_MIX_ENV_VELOCITY_PCT,     /* waits: velocity on the mix envelope (no issue yet) */
     PATCH_FILTER_LFO_PERMILLE,          /* waits #8: LFO to cutoff */
-    PATCH_FILTER_VELOCITY_PCT,          /* waits #8 */
+    PATCH_FILTER_ENV_DYNA,              /* VCF DYNAMICS: 0 off .. 3 */
     PATCH_ENV1_KEY_FOLLOW,              /* waits #60: 0 off .. 3 */
     PATCH_ENV2_KEY_FOLLOW,              /* waits #60 */
     PATCH_AMP_LEVEL_PERMILLE,           /* waits: a VCA level (no issue yet) */
