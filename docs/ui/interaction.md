@@ -69,156 +69,152 @@ issue, and its LED stays off.
 
 ## 3. Parameter map
 
-Each row gives the number, then page and knob, the engine parameter, the
-on-screen label, the value as shown, the step per click, and the fast step.
-A fast step is used when one event carries 3 or more clicks.
+The map mirrors the JX-8P's panel (as PG-8X 2.0.13 draws it), section by
+section, with the **JX-8P's own parameter numbers**: the PG-800 numbers in
+[docs/patches.md](../patches.md), from F. Vecoven's JX-8P manual. The PG-8X
+manual gives no numbers. The tens digit is the section and the units digit the
+parameter. The number shows in the LED window and in each knob column.
 
-- **"Pending":** the parameter comes from an open PR or issue. Its knob and
-  number are reserved now, so the map does not change when it lands. Until
-  then the screen shows `--` and the knob does nothing.
+- **Ours:** a parameter the JX-8P doesn't have as a tone parameter (fm1-8p's
+  own, or a JX-8P performance control with no PG-800 number) takes a free
+  number in its section, marked *ours*.
+- **Pending:** the parameter waits for an open issue. Its number and knob are
+  kept, it shows `--`, and its knob does nothing until it lands.
+- **Reserved:** an empty slot. It shows nothing and its knob does nothing.
+- **Pages:** a section has page A (its x1-x4) and, if it has more, page B
+  (x5-x8). KNOB1-4 are the page's four slots, left to right.
+- **Two engine parameters on one knob:** the JX-8P's CROSS MOD and its three
+  ENV MODE switches each set two engine parameters, as `tools/jx8p.py` maps them.
+  The knob turns through the JX positions and sets both.
 
-**Pending on main at `d1c50e6`** (checked 2026-11-10). Everything else in the
-map is live in `engine/fm1_8p.h` and `engine/params.c`.
+Each row gives the number, the knob, the engine parameter(s), the label (at
+most 7 characters), the value as shown, and the step and fast step per click. A
+fast step applies when one event carries 3 or more clicks.
 
-| Slots | Waits for |
-| --- | --- |
-| 25, 26 | #58 (pitch envelope) |
-| 46 | #8, its second PR (filter velocity) |
-| 47 | #33 (DCO-2 envelope level) |
-| 48 | #59 (filter envelope source and invert) |
-| 55 | #60 (envelope key follow) |
-| 66 | #60 (envelope key follow) |
-| 67 | #63 (amp gate mode) |
-| 68 | #61 (aftertouch) |
-| 76 | #8, its second PR (LFO to cutoff) |
-| 77 | #61 (aftertouch) |
-| 78 | #61, after 76 lands |
-| 85-86 | #41 (mod wheel) |
-| 87 | #41, after 76 lands |
-| 88 | #62 (portamento) |
-
-A pending slot shows `--` until it lands. What each slot will show then is
-in [Pending slots, once they land](#pending-slots-once-they-land).
-
-- **"Reserved":** the slot is empty. It shows nothing and the knob does
-  nothing.
-
-### 1x DCO-1 (page 1A)
+### 1x DCO-1 (pages 1A, 1B)
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 11 | K1 | `osc1_wave` | WAVE | SAW, PULSE, SQUARE, NOISE | 1 / 1 |
-| 12 | K2 | `osc1_octave` | RANGE | 32', 16', 8', 4', 2' (octave -2..+2; 8' = 0) | 1 / 1 |
-| 13 | K3 | `osc1_fine_cents` | FINE | -100..+100 ct | 1 / 10 |
-| 14 | K4 | `osc1_pulse_width_pct` | WIDTH | 1..99 % (shown inactive unless WAVE is PULSE) | 1 / 5 |
+| 11 | K1 | `osc1_octave` | RANGE | 16', 8', 4', 2' (and our 32') | 1 / 1 |
+| 12 | K2 | `osc1_wave` | WAVE | SAW, PULSE, SQUARE, NOISE (panel order) | 1 / 1 |
+| 13 | K3 | `osc1_coarse_semis` (pending, #158) | TUNE | -12..+12 st | 1 / 1 |
+| 14 | K4 | `lfo_pitch_cents` | LFO | 0..1200 ct | 1 to 99 ct: 1 / 10; then 10 / 50 |
+| 15 | K1 | `pitch_env_osc1_cents` | ENV | -32..+32 st | 10 ct / 100 ct |
+| 16 | K2 | `osc1_fine_cents` (*ours*) | FINE | -100..+100 ct | 1 / 10 |
+| 17 | K3 | `osc1_pulse_width_pct` (*ours*) | WIDTH | 1..99 % (inactive unless WAVE is PULSE) | 1 / 5 |
+| 18 | K4 | reserved | | | |
 
-### 2x DCO-2 (pages 2A and 2B)
-
-| No. | Knob | Engine parameter | Label | Shown as | Step / fast |
-| --- | --- | --- | --- | --- | --- |
-| 21 | K1 | `osc2_wave` | WAVE | as 11 | 1 / 1 |
-| 22 | K2 | `osc2_octave` | RANGE | as 12 | 1 / 1 |
-| 23 | K3 | `osc2_fine_cents` | FINE | as 13 | 1 / 10 |
-| 24 | K4 | `osc2_pulse_width_pct` | WIDTH | as 14 | 1 / 5 |
-| 25 | K1 | pitch envelope amount (pending, #58) | P.ENV | -- | - |
-| 26 | K2 | pitch envelope target (pending, #58) | P.ENV> | -- | - |
-| 27-28 | K3-K4 | reserved | | | |
-
-### 3x MIX (page 3A)
+### 2x DCO-2 (pages 2A, 2B)
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 31 | K1 | `osc2_level_permille` | DCO-2 | 0..100 (1 = 10 per mille); `osc1_level_permille` has no knob yet | 1 / 5 |
-| 32 | K2 | `osc_sync` | SYNC | OFF, ON | 1 / 1 |
-| 33 | K3 | `osc_xmod_permille` | X-MOD | 0..100 % | 1 / 5 |
-| 34 | K4 | `osc2_coarse_semis` | COARSE | -12..+12 st | 1 / 1 |
+| 21 | K1 | `osc2_octave` | RANGE | as 11 | 1 / 1 |
+| 22 | K2 | `osc2_wave` | WAVE | as 12 | 1 / 1 |
+| 23 | K3 | `osc_sync` + `osc_ring` | X-MOD | OFF, SYNC 1, SYNC 2, X-MOD (the JX's CROSS MOD) | 1 / 1 |
+| 24 | K4 | `osc2_coarse_semis` | TUNE | -12..+12 st | 1 / 1 |
+| 25 | K1 | `osc2_fine_cents` | FINE | -100..+100 ct | 1 / 10 |
+| 26 | K2 | `lfo_pitch_osc2_cents` | LFO | `=D1` (follows 14), 0..1200 ct | as 14 |
+| 27 | K3 | `pitch_env_osc2_cents` | ENV | as 15 | as 15 |
+| 28 | K4 | `osc2_pulse_width_pct` (*ours*) | WIDTH | as 17 | 1 / 5 |
 
-### 4x VCF (pages 4A and 4B)
+### 3x DCO ENV (page 3A)
 
-46 and 47 are pending on their own issues.
-
-| No. | Knob | Engine parameter | Label | Shown as | Step / fast |
-| --- | --- | --- | --- | --- | --- |
-| 41 | K1 | `filter_cutoff_cents` | CUTOFF | Hz, 3 significant digits (8.18 Hz .. 33.5 kHz); `OPEN` at 14400 | 100 ct / 400 ct |
-| 42 | K2 | `filter_resonance_permille` | RESO | 0..100 (100 self-oscillates) | 1 / 5 |
-| 43 | K3 | `filter_env_amount_cents` | ENV | -164..+164 st | 1 st / 6 st |
-| 44 | K4 | `filter_key_track_permille` | KEY | 0..130 % | 1 / 10 |
-| 45 | K1 | `highpass_step` | HPF | OFF, 100 Hz, 240 Hz, 560 Hz | 1 / 1 |
-| 46 | K2 | filter velocity amount (pending, #8) | VEL | -- | - |
-| 47 | K3 | DCO-2 envelope level (pending, #33) | D2 ENV | -- | - |
-| 48 | K4 | filter envelope source (pending, #59) | ENV SRC | -- | - |
-
-### 5x VCF ENV (pages 5A and 5B)
+The DCO envelope's DYNAMICS and MODE, under DCO-1 on the panel. They apply to
+both 15 and 27.
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 51 | K1 | `filter_env_attack_ms` | ATTACK | time (see below) | time table |
-| 52 | K2 | `filter_env_decay_ms` | DECAY | time | time table |
-| 53 | K3 | `filter_env_sustain_permille` | SUSTAIN | 0..100 | 1 / 5 |
-| 54 | K4 | `filter_env_release_ms` | RELEASE | time | time table |
-| 55 | K1 | envelope 1 key follow (pending, #60) | KEY | -- | - |
-| 56-58 | K2-K4 | reserved | | | |
+| 31 | K1 | `pitch_env_dyna` | DYNA | OFF, 1, 2, 3 | 1 / 1 |
+| 32 | K2 | `pitch_env_source` + the sign of 15 and 27 | MODE | ENV2 INV, ENV2, ENV1 INV, ENV1 | 1 / 1 |
+| 33 | K3 | `osc_xmod_permille` (*ours*) | XMOD AMT | 0..100 % | 1 / 5 |
+| 34 | K4 | reserved | | | |
 
-### 6x VCA (pages 6A and 6B)
+### 4x MIXER (pages 4A, 4B)
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 61 | K1 | `amp_attack_ms` | ATTACK | time | time table |
-| 62 | K2 | `amp_decay_ms` | DECAY | time | time table |
-| 63 | K3 | `amp_sustain_permille` | SUSTAIN | 0..100 | 1 / 5 |
-| 64 | K4 | `amp_release_ms` | RELEASE | time | time table |
-| 65 | K1 | `amp_velocity_pct` | VEL | 0..100 % | 1 / 5 |
-| 66 | K2 | envelope 2 key follow (pending, #60) | KEY | -- | - |
-| 67 | K3 | amp gate mode (pending, #63) | AMP | -- | - |
-| 68 | K4 | aftertouch to VCA (pending, #61) | AT>VCA | -- | - |
+| 41 | K1 | `osc1_level_permille` | DCO-1 | 0..100 | 1 / 5 |
+| 42 | K2 | `osc2_level_permille` | DCO-2 | 0..100 | 1 / 5 |
+| 43 | K3 | `osc_mix_env_permille` (its size) | ENV | 0..100 | 1 / 5 |
+| 44 | K4 | `osc_mix_env_dyna` | DYNA | OFF, 1, 2, 3 | 1 / 1 |
+| 45 | K1 | `osc_mix_env_source` + the sign of 43 | MODE | as 32 | 1 / 1 |
+| 46-48 | K2-K4 | reserved | | | |
 
-### 7x LFO (pages 7A and 7B)
+### 5x VCF (pages 5A, 5B)
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 71 | K1 | `lfo_wave` | WAVE | TRI, SAW, SQUARE, RANDOM | 1 / 1 |
-| 72 | K2 | `lfo_rate_centihz` | RATE | 0.01..30.0 Hz, 3 significant digits | rate table |
-| 73 | K3 | `lfo_delay_ms` | DELAY | time, 0..5.00 s | time table |
-| 74 | K4 | `lfo_pitch_cents` | PITCH | 0..1200 ct | 1 to 99 ct: 1 / 10; then 10 / 50 |
-| 75 | K1 | `lfo_pw_pct` | PW | 0..49 % | 1 / 5 |
-| 76 | K2 | LFO to cutoff depth (pending, #8) | VCF | -- | - |
-| 77 | K3 | aftertouch to vibrato (pending, #61) | AT>VIB | -- | - |
-| 78 | K4 | aftertouch to cutoff (pending, #61, and with 76 on #8) | AT>VCF | -- | - |
+| 51 | K1 | `highpass_step` | HPF | BOOST, FLAT, 240 Hz, 560 Hz (JX order, #138) | 1 / 1 |
+| 52 | K2 | `filter_cutoff_cents` | CUTOFF | Hz, 3 significant digits; `OPEN` at 14400 | 100 ct / 400 ct |
+| 53 | K3 | `filter_resonance_permille` | RES | 0..100 (100 self-oscillates) | 1 / 5 |
+| 54 | K4 | LFO to cutoff (pending, #172) | LFO | -- | - |
+| 55 | K1 | `filter_env_amount_cents` (its size) | ENV | 0..164 st | 1 st / 6 st |
+| 56 | K2 | `filter_key_track_permille` | KEY | 0..130 % | 1 / 10 |
+| 57 | K3 | `filter_env_dyna` | DYNA | OFF, 1, 2, 3 | 1 / 1 |
+| 58 | K4 | `filter_env_source` + the sign of 55 | MODE | as 32 | 1 / 1 |
 
-### 8x CTRL (pages 8A and 8B)
+### 6x VCA and CHORUS (pages 6A, 6B)
+
+The JX-8P numbers CHORUS 64, with the VCA, so it shares the VCA's page.
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 81 | K1 | `chorus_mode` | CHORUS | OFF, SLOW, DEEP, FAST | 1 / 1 |
-| 82 | K2 | `voice_mode` | MODE | POLY, UNISON | 1 / 1 |
-| 83 | K3 | `unison_detune_cents` | DETUNE | 0..100 ct (inactive in POLY) | 1 / 10 |
-| 84 | K4 | `bend_range_semitones` | BEND | 0..24 st | 1 / 2 |
-| 85 | K1 | wheel adds to vibrato (pending, #41) | W>PITCH | -- | - |
-| 86 | K2 | wheel adds to PW (pending, #41) | W>PW | -- | - |
-| 87 | K3 | wheel adds to cutoff (pending, #41, and with 76 on #8) | W>VCF | -- | - |
-| 88 | K4 | portamento time (pending, #62) | PORTA | -- | - |
+| 61 | K1 | `amp_level_permille` | LEVEL | 0..100 | 1 / 5 |
+| 62 | K2 | `amp_gate` | MODE | ENV2, GATE | 1 / 1 |
+| 63 | K3 | `amp_dyna` | DYNA | OFF, 1, 2, 3 | 1 / 1 |
+| 64 | K4 | `chorus_mode` | CHORUS | OFF, I, II (and our FAST) | 1 / 1 |
+| 65 | K1 | `amp_velocity_pct` (*ours*: the curve while DYNA is OFF) | VEL | 0..100 % (inactive unless DYNA is OFF) | 1 / 5 |
+| 66-68 | K2-K4 | reserved | | | |
 
-### Pending slots, once they land
+### 7x LFO (page 7A)
 
-Until its issue lands, each of these slots shows `--` and its knob sends
-nothing (test 12). When it lands, its row in the map above takes these values:
+| No. | Knob | Engine parameter | Label | Shown as | Step / fast |
+| --- | --- | --- | --- | --- | --- |
+| 71 | K1 | `lfo_wave` | WAVE | RANDOM, SQUARE, TRI (panel order), and our SAW | 1 / 1 |
+| 72 | K2 | `lfo_delay_ms` | DELAY | time, 0..5.00 s | time table |
+| 73 | K3 | `lfo_rate_centihz` | RATE | 0.01..30.0 Hz, 3 significant digits | rate table |
+| 74 | K4 | `lfo_pw_pct` (*ours*) | PW | 0..49 % | 1 / 5 |
 
-| No. | Label | Shown as | Step / fast |
-| --- | --- | --- | --- |
-| 25 | P.ENV | -24..+24 st | 1 st / 4 st |
-| 26 | P.ENV> | BOTH, D2 | 1 / 1 |
-| 46 | VEL | 0..100 % | 1 / 5 |
-| 48 | ENV SRC | ENV1, ENV1 INV, ENV2, ENV2 INV | 1 / 1 |
-| 55 | KEY | 0..100 % | 1 / 10 |
-| 66 | KEY | 0..100 % | 1 / 10 |
-| 67 | AMP | ENV, GATE | 1 / 1 |
-| 68 | AT>VCA | 0..100 % | 1 / 5 |
-| 77 | AT>VIB | same unit as 74 | as 74 |
-| 78 | AT>VCF | same unit as 76 (once 76 has landed too) | as 76 |
-| 85 | W>PITCH | same unit as 74 | as 74 |
-| 86 | W>PW | same unit as 75 | as 75 |
-| 87 | W>VCF | same unit as 76 (once 76 has landed too) | as 76 |
-| 88 | PORTA | time, 0..10.0 s; 0 shows `OFF` | time table |
+### 8x ENV-1 (pages 8A, 8B)
+
+ENV-1 is the engine's filter envelope.
+
+| No. | Knob | Engine parameter | Label | Shown as | Step / fast |
+| --- | --- | --- | --- | --- | --- |
+| 81 | K1 | `filter_env_attack_ms` | ATTACK | time | time table |
+| 82 | K2 | `filter_env_decay_ms` | DECAY | time (a time constant) | time table |
+| 83 | K3 | `filter_env_sustain_permille` | SUSTAIN | 0..100 | 1 / 5 |
+| 84 | K4 | `filter_env_release_ms` | RELEASE | time (a time constant) | time table |
+| 85 | K1 | `filter_env_key_follow_permille` | KEY | OFF, 1, 2, 3 | 1 / 1 |
+| 86-88 | K2-K4 | reserved | | | |
+
+### 9x ENV-2 (pages 9A, 9B)
+
+ENV-2 is the engine's amp envelope (with 62 MODE at GATE, it still runs for the
+cutoff, pitch and mix, #63).
+
+| No. | Knob | Engine parameter | Label | Shown as | Step / fast |
+| --- | --- | --- | --- | --- | --- |
+| 91-94 | K1-K4 | `amp_attack_ms`, `amp_decay_ms`, `amp_sustain_permille`, `amp_release_ms` | ATTACK, DECAY, SUSTAIN, RELEASE | as 81-84 | as 81-84 |
+| 95 | K1 | `amp_key_follow_permille` | KEY | OFF, 1, 2, 3 | 1 / 1 |
+| 96-98 | K2-K4 | reserved | | | |
+
+### 0x AFTERTOUCH and CONTROL (pages 0A, 0B)
+
+None of these has a PG-800 number: on the JX-8P, aftertouch, bend and
+portamento aren't tone parameters. Section 0 holds them, and our own voice
+settings.
+
+| No. | Knob | Engine parameter | Label | Shown as | Step / fast |
+| --- | --- | --- | --- | --- | --- |
+| 01 | K1 | aftertouch to vibrato (pending, #61) | AT VIB | -- | - |
+| 02 | K2 | aftertouch to cutoff (pending, #61) | AT BRI | -- | - |
+| 03 | K3 | aftertouch to level (pending, #61) | AT VOL | -- | - |
+| 04 | K4 | `setting_glide` (*ours*, Eric's Q4) | GLIDE | OFF, ON | 1 / 1 |
+| 05 | K1 | `bend_range_semitones` | BEND | 0..24 st | 1 / 2 |
+| 06 | K2 | portamento time (pending, #62) | PORTA | -- | - |
+| 07 | K3 | `voice_mode` (*ours*) | VOICE | POLY, UNISON | 1 / 1 |
+| 08 | K4 | `unison_detune_cents` (*ours*) | DETUNE | 0..100 ct (inactive in POLY) | 1 / 10 |
 
 ### Units and value tables
 
@@ -256,17 +252,17 @@ nothing (test 12). When it lands, its row in the map above takes these values:
 
 ### Page order
 
-The SELECT encoder walks the pages in number order, and wraps at both ends:
+The SELECT encoder walks the pages in number order, section 1 to 9 then 0, and
+wraps at both ends:
 
-`1A, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 7B, 8A, 8B` (14 pages)
+`1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B` (18 pages)
 
 **Pages with nothing live are skipped.** The SELECT walk and the section
-button rings skip a page whose slots are all pending or reserved. The page
-joins them once one of its slots is live. Today that skips 2B (25-28), 5B
-(55-58) and 8B (85-88). A number jump to a slot on a skipped page still shows
-that page (test 7), and the screen's page position still counts all 14.
+button rings skip a page whose slots are all pending or reserved, and the page
+joins them once one of its slots is live. A number jump to a slot on a skipped
+page still shows that page, and the screen's page position still counts all 18.
 
-ALGORITHM jumps by section (1..8, wrapping) to the section's page A.
+ALGORITHM jumps by section (1..9, 0, wrapping) to the section's page A.
 
 ## 4. Buttons and encoders
 
@@ -279,22 +275,25 @@ is shown, and glows otherwise.
 
 | Button | Ring | Why |
 | --- | --- | --- |
-| SEL | 1A DCO-1, 2A DCO-2, 2B DCO-2 (once live), 3A MIX | the oscillators: "select the source" |
-| ENV | 4A VCF, 4B VCF, 5A VCF ENV, 5B VCF ENV (once live), 6A VCA, 6B VCA | the filter and amp, with their envelopes |
-| LFO | 7A LFO, 7B LFO, 8B WHEEL (once live) | modulation |
-| FX | 8A CTRL (chorus, voice mode, bend) | the output end |
+| SEL | 1A, 1B DCO-1; 2A, 2B DCO-2; 3A DCO ENV; 4A, 4B MIXER | the sources: "select the source" |
+| ENV | 5A, 5B VCF; 8A, 8B ENV-1; 9A, 9B ENV-2 | the filter, with the envelopes |
+| FX | 6A, 6B VCA and CHORUS | the output end |
+| LFO | 7A LFO; 0A, 0B AFTERTOUCH and CONTROL | modulation and performance |
 
-VCF is the most-edited section, so it comes first on ENV, and the PLAY
-screen's knobs are a VCF shortcut too (see [PLAY](#play-the-home-state)).
+The FM-1 has four section buttons for the panel's ten sections, so each
+button holds the sections that sit together on the panel. VCF is the
+most-edited section, so it comes first on ENV, and the PLAY screen's knobs are
+a VCF shortcut too (see [PLAY](#play-the-home-state)).
 
 ### Number jump (the original's "call a parameter by number")
 
 In PLAY or EDIT:
 
 1. Hold SEL and tap two white keys.
-2. The eight white keys from F3 to F4 (F3, G3, A3, B3, C4, D4, E4, F4) are the
-   digits 1..8. While SEL is held, keys make no sound, and those eight key
-   LEDs glow as a keypad.
+2. The ten white keys from F3 to A4 (F3, G3, A3, B3, C4, D4, E4, F4, G4, A4)
+   are the digits 1..9 and 0. While SEL is held, keys make no sound, and those
+   ten key LEDs glow as a keypad. (Sections run 1..9 and 0, so the keypad needs
+   all ten.)
 3. After the second digit, fm1-8p goes to that parameter's page and makes it
    the focus.
 4. A number with no parameter (a reserved slot) goes to its page, the focus is
@@ -306,7 +305,7 @@ In PLAY or EDIT:
 ### EDIT: edit page and compare
 
 - **EDIT tap** (under 400 ms):
-  - in PLAY: goes to the last edit page shown (4A the first time);
+  - in PLAY: goes to the last edit page shown (5A the first time);
   - in EDIT: goes back to PLAY;
   - in SEQ: goes to the last edit page while the sequencer keeps running.
 - **EDIT hold** (400 ms or more), in PLAY or EDIT: **compare**.
@@ -728,7 +727,7 @@ Everywhere, unless the state says otherwise:
 
 - **Must:** the patch number and name, large.
 - **Must:** the four performance knobs, each with its number, label and value:
-  K1 41 CUTOFF, K2 42 RESO, K3 43 ENV, K4 64 RELEASE.
+  K1 52 CUTOFF, K2 53 RES, K3 55 ENV, K4 94 RELEASE.
 - **Must:** the focus readout (number, section, label, value) after a knob is
   turned, cleared after 3 s of no turns.
 - **Should:** a hint that EDIT opens the edit pages and that section buttons
@@ -737,12 +736,12 @@ Everywhere, unless the state says otherwise:
 ### EDIT (a parameter page)
 
 - **Must:**
-  - the section name and number (`4 VCF`);
+  - the section name and number (`5 VCF`);
   - the page (A or B) and how many pages the section has;
-  - where the page sits in the full page order (for example, 5 of 14).
+  - where the page sits in the full page order (for example, 8 of 18).
 - **Must:** for each of the four knobs:
   - its number, label and value as shown in the map;
-  - a marker for an inactive value (14 WIDTH when WAVE isn't PULSE, 83
+  - a marker for an inactive value (17 WIDTH when WAVE isn't PULSE, 08
     DETUNE in POLY);
   - `--` for a pending parameter, and nothing for a reserved one.
 - **Must:** the focus parameter, large. This is the one-parameter display:
@@ -753,8 +752,8 @@ Everywhere, unless the state says otherwise:
   the physical knob is obvious.
 - **Must**, while SEL is held for a number jump:
   - the digits typed so far (`4_`);
-  - the eight sections by number and name;
-  - that the white keys F3-F4 are 1-8.
+  - the ten sections by number and name;
+  - that the white keys F3-A4 are 1-9 and 0.
 - **Must**, while EDIT is held for compare: a clear COMPARE marker, and the
   values shown are the stored patch's.
 
@@ -966,20 +965,22 @@ test.
 
 **Navigation**
 
-1. From PLAY, ENV tap shows page 4A. ENV again shows 4B, then 5A, 6A, 6B and
-   back to 4A: 5B is skipped while 55-58 are all pending or reserved.
-2. From page 7B, SEL tap shows 1A, the first page of SEL's ring, not the next
+1. From PLAY, ENV tap shows page 5A. ENV again shows 5B, then 8A, 8B, 9A, 9B
+   and back to 5A.
+2. From page 7A, SEL tap shows 1A, the first page of SEL's ring, not the next
    page.
-3. SELECT +1 from 8A shows 1A, and SELECT -1 from 1A shows 8A, while 8B is
-   skipped (85-88 all pending). SELECT +1 from 2A shows 3A, skipping 2B.
-4. ALGORITHM +1 from 4B shows 5A, the next section's page A.
-5. Holding SEL, tapping keys A3 then G3 (digits 3, 2), then releasing SEL
-   shows 3A with 32 SYNC as the focus. No note-on is sent for those keys.
+3. SELECT +1 from 0B shows 1A, and SELECT -1 from 1A shows 0B. A page whose
+   slots are all pending or reserved is skipped (0A while 01-04 have only
+   04 GLIDE live is not skipped).
+4. ALGORITHM +1 from 4B shows 5A, the next section's page A, and ALGORITHM +1
+   from 9A shows 0A.
+5. Holding SEL, tapping keys G3 then A3 (digits 2, 3), then releasing SEL
+   shows 2A with 23 X-MOD as the focus. No note-on is sent for those keys.
 6. Holding SEL, tapping C4 (digit 5) and releasing SEL shows 5A, and the
    focus is empty.
-7. Number 27 (reserved) shows page 2B, the focus is empty, and the banner is
+7. Number 18 (reserved) shows page 1B, the focus is empty, and the banner is
    `NO PARAMETER`.
-8. EDIT tap in PLAY shows the last edit page, and 4A on a fresh start. EDIT
+8. EDIT tap in PLAY shows the last edit page, and 5A on a fresh start. EDIT
    tap in EDIT shows PLAY.
 9. HOME tap in SAVE writes nothing and returns to the state SAVE came from.
 
@@ -992,13 +993,15 @@ test.
 12. Turning a knob on a pending or reserved slot sends no engine call.
 13. A knob turn makes that parameter the focus. A MIDI CC to another parameter
     does not change the focus.
-14. On page 1A, a KNOB3 event of +1 raises FINE by 1 ct, and +2 raises it by
-    2 ct (both normal steps). +3 raises it by 30 ct (3 x the fast step 10).
-15. A KNOB1 +1 on page 4A raises `filter_cutoff_cents` by 100. An event of +3
+14. On page 1B, a KNOB2 event of +1 raises 16 FINE by 1 ct, and +2 raises it
+    by 2 ct (both normal steps). +3 raises it by 30 ct (3 x the fast step 10).
+15. A KNOB2 +1 on page 5A raises `filter_cutoff_cents` by 100. An event of +3
     raises it by 1200, which is 3 x 400.
 16. Cutoff 14400 shows `OPEN`, and 6900 shows `440 Hz`.
-17. KNOB4 +1 on page 3A raises `osc2_coarse_semis` by 1 semitone, clamped to
+17. KNOB4 +1 on page 2A raises `osc2_coarse_semis` by 1 semitone, clamped to
     -12..+12.
+17a. KNOB3 on page 2A steps 23 X-MOD through OFF, SYNC 1, SYNC 2, X-MOD, setting
+    `osc_sync` and `osc_ring` as `tools/jx8p.py` maps the JX's CROSS MOD.
 
 **Compare, edits and save**
 
@@ -1120,20 +1123,19 @@ test.
 These tests use pending parameters. Each runs once the issue named lands, and
 until then test 12 (pending slots send nothing) covers those slots.
 
-66. After #58: on page 2B, KNOB1 +1 sets P.ENV to `+1 st` and sends the pitch
-    envelope amount to the engine; an event of +3 moves it by 12 st (3 x 4).
-    KNOB2 +1 from BOTH shows `D2` and sends the target.
-67. After #59: KNOB4 on page 4B steps ENV SRC through `ENV1`, `ENV1 INV`,
-    `ENV2`, `ENV2 INV`, sending each, and stays at `ENV2 INV` on a further +1.
-68. After #60: KNOB1 +1 on page 5B shows 55 KEY `1 %` and sends envelope 1's
-    key follow; KNOB2 +3 on page 6B shows 66 KEY `30 %` and sends envelope 2's.
-69. After #61: KNOB4 +1 on page 6B shows 68 AT>VCA `1 %` and sends it. With
-    AT>VCA at 100 %, key pressure 127 on a held sensed key reaches the engine
-    as that voice's aftertouch. 78 AT>VCF still shows `--` until 76 lands.
-70. After #62: 88 PORTA at 0 shows `OFF`. KNOB4 +1 shows the time table's next
-    entry (`1 ms`) and sends the portamento time; -1 from there shows `OFF`.
-71. After #63: KNOB3 +1 on page 6B shows 67 AMP `GATE` and sends the gate
-    mode; -1 shows `ENV` and sends it.
+66. Now live (the engine caught up since the first map): on page 3A, KNOB2 steps
+    32 MODE through ENV2 INV, ENV2, ENV1 INV, ENV1, setting `pitch_env_source`
+    and the sign of 15 and 27 together; 58 MODE and 45 MODE do the same for the
+    cutoff and the mix envelope.
+67. After #158: KNOB3 +1 on page 1A raises 13 TUNE (`osc1_coarse_semis`) by 1
+    semitone.
+68. After #172: KNOB4 +1 on page 5A raises 54 LFO and sends LFO to cutoff.
+69. After #61: KNOB1 +1 on page 0A shows 01 AT VIB `1 %` and sends it. With it
+    at 100 %, key pressure 127 on a held sensed key reaches the engine as that
+    voice's aftertouch.
+70. After #62: 06 PORTA at 0 shows `OFF`. KNOB2 +1 on page 0B shows the time
+    table's next entry (`1 ms`) and sends the portamento time; -1 from there
+    shows `OFF`.
 
 ## 10. Decisions (Eric, 2026-11-10)
 
