@@ -1,7 +1,7 @@
 /*
  * filter_oracle.c - the filter's per-sample processing as merged in #25 (engine/filter.c at
  * 7af3bd1), kept as a test-only reference: its lowpass, soft clip and highpass with every sum in
- * 64 bits, plus the resonance's bass shelf on the output (#98). It runs on the engine's own fm_filter, set up by the engine's own setters (the
+ * 64 bits, plus the resonance's bass shelf on the output (#98) and its bell (#130 follow-up). It runs on the engine's own fm_filter, set up by the engine's own setters (the
  * coefficients are not what is under test), and is never built into the engine. Tests hold the
  * engine's fm_filter_process to it (test_filter_oracle.c), so the engine can change its arithmetic
  * and still be held to the sound that shipped.
@@ -34,6 +34,21 @@ static void oracle_stage(int32_t *y, int32_t x, int32_t x1, int32_t w, int32_t g
     *y += oracle_mul_q30(m - *y, g);
 }
 
+/* The resonance's bell (#130 follow-up), every sum in 64 bits: the output plus a 2-pole bandpass
+ * of it (transposed direct form II), through the soft clip. Off (b0 0): the output as it is. */
+static int32_t oracle_bell(fm_filter *f, int32_t y)
+{
+    int64_t bx, bp;
+    if (!f->bell_b0) return y;
+    bx = ((int64_t)f->bell_b0 * y) >> 29;
+    bp = bx + f->bell_s1;
+    f->bell_s1 = (int32_t)(f->bell_s2 - ((f->bell_a1 * bp) >> 29));
+    f->bell_s2 = (int32_t)(-bx - ((f->bell_a2 * bp) >> 29));
+    /* the bell's knee: the soft clip at 1/16 of its scale */
+    bp = oracle_soft_clip(bp * 16) >> 4;
+    return oracle_soft_clip(y + bp);
+}
+
 /* #25's fm_filter_process, on `f` set up by the engine's setters. */
 static int32_t oracle_filter_process(fm_filter *f, int32_t in)
 {
@@ -57,12 +72,12 @@ static int32_t oracle_filter_process(fm_filter *f, int32_t in)
     oracle_stage(&f->s[2], f->s[1], p1, w, f->g);
     oracle_stage(&f->s[3], f->s[2], p2, w, f->g);
     f->x1 = u;
-    if (!f->h) return f->s[3];
+    if (!f->h) return oracle_bell(f, f->s[3]);
     /* #98's bass shelf: a weighted average of the output and its one-pole lowpass at the cutoff,
      * h = shelf * (1 - g) weighing the difference before lp's update */
     {
         int64_t d = (int64_t)f->s[3] - f->lp;
         f->lp += (int32_t)((d * f->g) >> 30);
-        return f->s[3] - (int32_t)((d * f->h) >> 30);
+        return oracle_bell(f, f->s[3] - (int32_t)((d * f->h) >> 30));
     }
 }

@@ -94,9 +94,10 @@ typedef char fm_require_fade_fits_q30[
  * plays it. Below 750 fitted, with the three tables after it, to PG-8X
  * 2.0.13's response at VCF FREQ 48-112, RES 0-88 (noise, re the open
  * filter; #134): k 0.45 at resonance 0, as PG-8X's knee is sharper than
- * four plain poles (-8 dB at the cutoff, not -12), up to 2.7 at 625. From
- * 750 up it is the resonance itself (#130's), and the peak's place is no
- * further from PG-8X's than #130's at any FREQ fitted.
+ * four plain poles (-8 dB at the cutoff, not -12), up to 2.7 at 625; the
+ * peak's place is no further from PG-8X's than #130's at any FREQ fitted.
+ * The 750 entry is the resonance itself, so 625..750 meets the top: from
+ * 750 up res_k takes ktop_tab (#135's bell), not this table.
  */
 static const int16_t kres_tab[RES_ENTRIES] = {
     108, 158, 278, 380, 509, 643, 750, 875, 1000
@@ -129,11 +130,54 @@ static const int16_t shelf_tab[RES_ENTRIES] = {
  * LEVEL_MAX stays under fm_require_level_sum_fits' limit (about 14230).
  * At the input it is smoothed by the stages: no step when it changes.
  */
-#define LEVEL_MIN 5390
+#define LEVEL_MIN 3293
 #define LEVEL_MAX 14200
 static const int16_t level_tab[RES_ENTRIES] = {
-    11552, 12502, 12936, 13806, LEVEL_MAX, LEVEL_MAX, 10453, 6693, LEVEL_MIN
+    11552, 12502, 12936, 13806, LEVEL_MAX, LEVEL_MAX, 10453, 6693, 5390
 };
+/*
+ * From resonance BELL_FROM up (JX-8P VCF RES 93 up) the peak is shaped
+ * differently, and these three-entry tables (750, 875, 1000, linear between)
+ * take over from the ones above: the ladder's feedback drops, the bass shelf
+ * is off, and a bell (a 2-pole bandpass at the peak, added to the lowpass
+ * output) makes the peak as broad as PG-8X 2.0.13's (a ladder's own peak
+ * narrows as it rises; PG-8X's is 500 cents wide at +17 dB, 213 at +33).
+ * Fitted to PG-8X's noise spectra (MIX 32, each against PG-8X's own at VCF
+ * RES 0, so the level is fitted too) at VCF FREQ 40, 64, 80 and 96: 1.3-2.1
+ * dB rms from FREQ 64 up at RES 96-120, 3.0 at FREQ 96 RES 127, 2.0-5.4 at
+ * FREQ 40, where PG-8X's peak is lower still. Below BELL_FROM the filter
+ * is exactly the plain ladder: the bell costs CPU (Eric, 2026-11-12).
+ */
+#define BELL_FROM    750
+#define TOP_ENTRIES  3
+/* feedback, per mille of K_PER_MILLE's 4.2 (1000 still self-oscillates) */
+static const int16_t ktop_tab[TOP_ENTRIES] = { 611, 635, 1000 };
+/* input level, Q2.13 (the least keeps fm_require_clamp_still_saturates) */
+static const int16_t leveltop_tab[TOP_ENTRIES] = { 6406, 5194, LEVEL_MIN };
+/* bell gain (its top is 1 + gain), in 1/256 */
+#define BELL_GAIN_MAX 2071
+static const int16_t bell_gain_tab[TOP_ENTRIES] = { 453, 1180, BELL_GAIN_MAX };
+/* 1 / (2 Q), Q15, for Q 5.62, 6.94 and 14.34 */
+static const int16_t bell_hq_tab[TOP_ENTRIES] = { 2915, 2361, 1143 };
+/* place, cents over the retuned cutoff */
+static const int16_t bell_off_tab[TOP_ENTRIES] = { 165, 72, 100 };
+/*
+ * The bell's knee. PG-8X's peak flattens as the input gets louder (noise at
+ * MIX 127 against MIX 32: 1 to 4 dB lower at VCF RES 127), and a tone
+ * drives it harder than noise. The bell's bandpass goes through the soft
+ * clip at 1/16 of its scale: straight to 0.125, flat at 0.25. Fitted on the
+ * factory tones with VCF RES 93 up (ORGAN 1, RES BELL, WAVEAURA, RES LEAD,
+ * PSYCHMELLO): without the knee they play 1 to 10 dB louder than with the
+ * plain ladder (PSYCHMELLO, a low cutoff at RES 126, the most); with it,
+ * within 1.5 dB.
+ */
+#define BELL_KNEE_SHIFT 4
+/* The bell's highest place, cents re the rate: 0.45 x the rate. */
+#define BELL_TOP (-1383)
+/* The bell's coefficients follow its place to within this many cents. */
+#define BELL_SLACK 8
+/* ... and its gain to within this many 1/256 (about 0.1 dB at the top). */
+#define BELL_GAIN_SLACK 8
 /*
  * Warp, cents, from tools/gen_filter_tables.py: added to the lowpass
  * cutoff before its coefficient, by the cutoff's distance below the rate,
@@ -176,6 +220,21 @@ static int32_t res_lookup(const int16_t *tab, int32_t permille)
     return tab[i] + (tab[i + 1] - tab[i]) * r / RES_STEP;
 }
 
+/* Resonance `permille` (BELL_FROM..1000) read from a top table. */
+static int32_t top_lookup(const int16_t *tab, int32_t permille)
+{
+    int32_t i = (permille - BELL_FROM) / RES_STEP, r = (permille - BELL_FROM) % RES_STEP;
+    if (i == TOP_ENTRIES - 1) return tab[i];
+    return tab[i] + (tab[i + 1] - tab[i]) * r / RES_STEP;
+}
+
+/* Feedback for resonance `permille`, Q4.28 (before the cut by cutoff). */
+static int32_t res_k(int32_t permille)
+{
+    return (permille < BELL_FROM ? res_lookup(kres_tab, permille)
+                                 : top_lookup(ktop_tab, permille)) * K_PER_MILLE;
+}
+
 /* 2^(f / 1200) for f in 0..1199 cents, Q2.30 (1.0 .. just under 2.0). */
 static uint32_t exp2_cents(uint32_t f)
 {
@@ -212,16 +271,25 @@ int32_t fm_filter_rate_cents(uint32_t sample_rate)
  * x = 2 pi fc / fs, as x * h(x). Corners at or above Nyquist use the
  * Nyquist value (about 0.957).
  */
-static int32_t coef_for(int32_t cents, int32_t rate_cents)
+/* 2 pi fc / fs, Q2.30, for d = the pitch of fc / fs in cents, at most
+ * -OCTAVE (Nyquist); 0 below -(OCT_BIAS - 1) octaves. */
+static uint32_t omega(int32_t d)
 {
-    int32_t d = cents - rate_cents; /* pitch of fc / fs */
-    uint32_t t, oct, r, x, i, frac, h;
-    if (d > -OCTAVE) d = -OCTAVE;
+    uint32_t t, oct, r;
     if (d < -(OCT_BIAS - 1) * OCTAVE) return 0;
     t = (uint32_t)(d + OCT_BIAS * OCTAVE);
     oct = t / OCTAVE; /* <= 31 */
     r = exp2_cents(t % OCTAVE) >> (OCT_BIAS - oct); /* fc / fs, Q2.30 */
-    x = (uint32_t)(((uint64_t)r * TWO_PI_Q29) >> 29); /* <= pi, Q2.30 */
+    return (uint32_t)(((uint64_t)r * TWO_PI_Q29) >> 29); /* <= pi, Q2.30 */
+}
+
+static int32_t coef_for(int32_t cents, int32_t rate_cents)
+{
+    int32_t d = cents - rate_cents; /* pitch of fc / fs */
+    uint32_t x, i, frac, h;
+    if (d > -OCTAVE) d = -OCTAVE;
+    x = omega(d);
+    if (!x) return 0;
     i = x >> 26;
     frac = x & 0x3FFFFFFu;
     h = h_tab[i] - (uint32_t)(((uint64_t)(h_tab[i] - h_tab[i + 1]) * frac) >> 26);
@@ -241,6 +309,7 @@ void fm_filter_clear(fm_filter *f)
     int i;
     for (i = 0; i < 4; i++) f->s[i] = 0;
     f->x1 = 0;
+    f->bell_s1 = f->bell_s2 = 0;
     f->hp = 0;
     f->lp = 0;
 }
@@ -257,6 +326,7 @@ void fm_filter_reset(fm_filter *f)
     f->rate = 0;
     f->fade = 0;
     f->hp_g = 0;
+    f->bell_b0 = f->bell_a1 = f->bell_a2 = 0;
 }
 
 static int32_t mul_q30(int32_t a, int32_t b)
@@ -291,13 +361,88 @@ static int32_t grid_lookup(const int16_t *tab, int32_t d)
     return tab[i] + (tab[i + 1] - tab[i]) * r / WARP_STEP;
 }
 
+/* t * u, both Q30 within +-2.0 (the product within +-4.0): Q30 */
+static int64_t mq30(int64_t t, int64_t u)
+{
+    return (int64_t)(int32_t)t * (int32_t)u >> 30;
+}
+
+/*
+ * sin and cos of w (0 .. 2.9, Q30), Q30 each: their Taylor series at w / 4
+ * (to the t^9 and t^10 terms, under 1e-9 off), then the double angle
+ * twice. No division: control rate on the device, where a 64-bit divide is
+ * a library call.
+ */
+static void sincos_q30(int64_t w, int64_t *sn, int64_t *cs)
+{
+    /* 1 / ((2n)(2n+1)) and 1 / ((2n-1)(2n)), Q30, innermost first */
+    static const int32_t sd[4] = {14913081, 25565282, 53687091, 178956971};
+    static const int32_t cd[5] = {11930465, 19173961, 35791394, 89478485, 536870912};
+    int64_t t = w >> 2, t2 = mq30(t, t), s = ONE_Q30, c = ONE_Q30, s2;
+    int i;
+    for (i = 0; i < 4; i++) s = ONE_Q30 - mq30(mq30(t2, s), sd[i]);
+    for (i = 0; i < 5; i++) c = ONE_Q30 - mq30(mq30(t2, c), cd[i]);
+    s = mq30(t, s);
+    for (i = 0; i < 2; i++) { /* sin 2a = 2 sin cos, cos 2a = 1 - 2 sin^2 */
+        s2 = 2 * mq30(s, c);
+        c = ONE_Q30 - 2 * mq30(s, s);
+        s = s2;
+    }
+    *sn = s;
+    *cs = c;
+}
+
+/*
+ * The bell's coefficients (RBJ's constant-0-dB-peak bandpass, its gain
+ * folded into b0) at `cents`, gain in 1/256, 1 / (2 Q) in Q15. Control
+ * rate only.
+ */
+static void bell_set(fm_filter *f, int32_t cents, int32_t gain, int32_t hq)
+{
+    int64_t sn, cs, alpha, inv;
+    int32_t d = cents - f->rate;
+    if (gain <= 0) {
+        f->bell_b0 = f->bell_a1 = f->bell_a2 = 0;
+        return;
+    }
+    if (!f->bell_b0) {
+        f->bell_s1 = f->bell_s2 = 0; /* on: from rest */
+    } else if (gain - f->bell_gain < BELL_GAIN_SLACK && f->bell_gain - gain < BELL_GAIN_SLACK &&
+               cents - f->bell_at < BELL_SLACK && f->bell_at - cents < BELL_SLACK) {
+        return; /* close enough: the sweep of a filter envelope costs less */
+    }
+    f->bell_at = (int16_t)cents;
+    f->bell_gain = (int16_t)gain;
+    if (d > BELL_TOP) d = BELL_TOP;
+    sincos_q30(omega(d), &sn, &cs);
+    alpha = (sn * hq) >> 15; /* sin w / (2 Q), Q30, under 0.1 */
+    /* 1 / (1 + alpha): 1 - alpha + alpha^2, then two Newton steps */
+    inv = ONE_Q30 - alpha + mq30(alpha, alpha);
+    inv = mq30(inv, (int64_t)2 * ONE_Q30 - mq30(ONE_Q30 + alpha, inv));
+    inv = mq30(inv, (int64_t)2 * ONE_Q30 - mq30(ONE_Q30 + alpha, inv));
+    f->bell_b0 = (int32_t)((mq30(alpha, inv) * gain) >> 9);
+    f->bell_a1 = (int32_t)(-mq30(cs, inv));
+    f->bell_a2 = (int32_t)(mq30(ONE_Q30 - alpha, inv) >> 1);
+}
+
 /* The coefficients from the cutoff, rate and resonance as set. */
 static void apply(fm_filter *f)
 {
-    int32_t c = f->cut + res_lookup(retune_tab, f->res), g, h, k = res_lookup(kres_tab, f->res) * K_PER_MILLE;
-    c += grid_lookup(warp_tab, c - f->rate);
+    int top = f->res >= BELL_FROM;
+    int32_t c = f->cut + res_lookup(retune_tab, f->res), g, h, k = res_k(f->res);
+    int32_t bell_at = top ? c + top_lookup(bell_off_tab, f->res) : 0;
+    int32_t bell_gain = top ? top_lookup(bell_gain_tab, f->res) : 0;
+    {
+        /* the warp lifts the ladder's corner; the bell, exact at its place
+         * (no warp of its own), comes down by an eighth of it so the sum's
+         * peak keeps its place up the range */
+        int32_t warp = grid_lookup(warp_tab, c - f->rate);
+        c += warp;
+        bell_at -= warp / 8;
+    }
     k -= (int32_t)(((int64_t)k * grid_lookup(kcut_tab, c - f->rate)) >> 15);
-    int32_t level = res_lookup(level_tab, f->res) << 17, shelf = res_lookup(shelf_tab, f->res) << 17;
+    int32_t level = (top ? top_lookup(leveltop_tab, f->res) : res_lookup(level_tab, f->res)) << 17;
+    int32_t shelf = top ? 0 : res_lookup(shelf_tab, f->res) << 17;
     int was_open = fm_filter_is_wire(f);
     g = coef_for(c < 0 ? 0 : c, f->rate);
     if (f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS) { /* below the fade */
@@ -315,7 +460,10 @@ static void apply(fm_filter *f)
          * shelf * (1 - g) is under 0.03 (0.2 dB), and the fade's stages
          * already take four more multiplies */
         h = 0;
+        bell_gain = (int32_t)(((int64_t)bell_gain * f->fade) >> 30);
     }
+    if (top || f->bell_b0) /* below BELL_FROM: nothing to do once it is off */
+        bell_set(f, bell_at, bell_gain, top ? top_lookup(bell_hq_tab, f->res) : 0);
     h = mul_q30(h, ONE_Q30 - f->g); /* the weight of lp before its update */
     if (h && !f->h) f->lp = f->s[3]; /* shelf on: the output carries on */
     f->h = h;
@@ -340,7 +488,7 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
     if (f->rate) /* the retune moves the coefficient */
         apply(f);
     else
-        f->k = mul_q30(res_lookup(kres_tab, permille) * K_PER_MILLE, f->fade);
+        f->k = mul_q30(res_k(permille), f->fade);
 }
 
 /*
@@ -371,7 +519,7 @@ static int32_t soft_clip(int32_t u)
  *   fits 32 bits.
  * - Louder, the highpass runs in 64 bits and its output is clamped to
  *   +-IN_MAX (64.0). That changes nothing: a clamped value times the
- *   least input level (LEVEL_MIN, 0.66) less the largest feedback still
+ *   least input level (LEVEL_MIN, 0.40) less the largest feedback still
  *   drives the soft clip past its saturation (6.0) with the same sign, as
  *   the unclamped one does. With the highpass off the input is clamped
  *   the same way.
@@ -422,6 +570,27 @@ static void stage_quarter(int32_t *y, int32_t x, int32_t x1, int32_t g)
     *y += mul_q30(m - *y, g);
 }
 
+/* The soft clip at 1 / 2^BELL_KNEE_SHIFT of its scale. The input is held
+ * to where the clip goes flat first: beyond that the answer is the same,
+ * and the scaled value might not fit 32 bits. */
+static int32_t bell_knee(int32_t bp)
+{
+    const int32_t flat = (KNEE + KNEE_SPAN) >> BELL_KNEE_SHIFT;
+    if (bp > flat) bp = flat;
+    else if (bp < -flat) bp = -flat;
+    return soft_clip(bp * (1 << BELL_KNEE_SHIFT)) >> BELL_KNEE_SHIFT;
+}
+
+/* The lowpass output y plus the bell's bandpass of it, through the soft
+ * clip: within +-CLIP_MAX like every other output. */
+static int32_t bell(fm_filter *f, int32_t y)
+{
+    int32_t bx = (int32_t)(((int64_t)f->bell_b0 * y) >> 29), bp = bx + f->bell_s1;
+    f->bell_s1 = f->bell_s2 - (int32_t)(((int64_t)f->bell_a1 * bp) >> 29);
+    f->bell_s2 = -bx - (int32_t)(((int64_t)f->bell_a2 * bp) >> 29);
+    return soft_clip(y + bell_knee(bp));
+}
+
 int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
     int32_t x, u, p0, p1, p2;
@@ -460,7 +629,8 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         stage(&f->s[3], f->s[2], p2, w, f->g);
     }
     f->x1 = u;
-    if (!f->h) return f->s[3];
+    if (!f->h) /* from BELL_FROM up there is no shelf, so only here */
+        return f->bell_b0 ? bell(f, f->s[3]) : f->s[3];
     /* the bass shelf: lp follows the output at the cutoff, and the output
      * is s3 + shelf * (lp - s3) after lp's update, which is s3 - shelf *
      * (1 - g) * d with d the difference before it (two independent
@@ -468,6 +638,6 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
     {
         int32_t d = f->s[3] - f->lp;
         f->lp += mul_q30(d, f->g);
-        return f->s[3] - mul_q30(d, f->h);
+        return f->s[3] - mul_q30(d, f->h); /* the bell is off with the shelf on */
     }
 }

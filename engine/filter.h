@@ -38,6 +38,15 @@ typedef struct {
     int32_t lp;   /* the shelf's lowpass state, Q8.24 */
     int32_t a;    /* input level, Q1.30: the resonance's passband level */
     int32_t h;    /* shelf * (1 - g), Q1.30 (0 .. 0.57) */
+    /* Resonance's bell (#130 follow-up): a 2-pole bandpass of the lowpass
+     * output, added to it, so the peak is as broad as PG-8X's. Transposed
+     * direct form II: bp = b0 x + s1; s1 = s2 - a1 bp; s2 = -b0 x - a2 bp.
+     * Coefficients Q3.29 (b0 0: off, no state used), states Q8.24. */
+    int32_t bell_b0, bell_a1, bell_a2;
+    int32_t bell_s1, bell_s2;
+    /* the place (cents) and gain the bell's coefficients were worked out
+     * for: they are kept while the place stays within BELL_SLACK of it */
+    int16_t bell_at, bell_gain;
     int16_t res;  /* resonance as set, per mille */
     int16_t cut;  /* lowpass cutoff as set (clamped), cents */
     int16_t rate; /* rate_cents it was set with (0: not yet) */

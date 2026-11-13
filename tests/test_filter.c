@@ -177,6 +177,128 @@ TT_TEST(resonance_peak_keeps_its_place_up_the_range)
     }
 }
 
+/* Width of the resonant peak in cents, between the points 3 dB under its top
+ * (5-cent steps out from the peak, quiet sines). */
+static double peak_width_cents(fm_filter *f, double lo_hz)
+{
+    double hz = peak_hz(f, lo_hz), top = filter_gain_db(f, hz, 0.02);
+    int below = 0, above = 0;
+    while (below < 2400 && filter_gain_db(f, hz * pow(2.0, -(below + 5) / 1200.0), 0.02) > top - 3.0)
+        below += 5;
+    while (above < 2400 && filter_gain_db(f, hz * pow(2.0, (above + 5) / 1200.0), 0.02) > top - 3.0)
+        above += 5;
+    return below + above + 5;
+}
+
+/*
+ * The resonant peak is as wide as PG-8X 2.0.13's: a broad hump, not a sine
+ * ring. PG-8X's peak, 3 dB down, measured with noise at VCF FREQ 64, 80 and
+ * 96 (2026-11-11): 500 cents wide at VCF RES 96 (resonance 795), 290 at 112
+ * (900), 213 at 127 (935). The plain ladder's was a third of that or less
+ * (175, 100, 80). Within 25 %.
+ */
+TT_TEST(resonance_peak_is_as_wide_as_pg8x)
+{
+    static const int32_t res[3] = {795, 900, 935};
+    static const double pg[3] = {500.0, 290.0, 213.0};
+    static fm_filter f;
+    int i;
+    for (i = 0; i < 3; i++) {
+        double w;
+        lowpass_at(&f, 6900, res[i]);
+        w = peak_width_cents(&f, 220.0);
+        printf("    res %d: peak %.0f cents wide (PG-8X %.0f)\n", (int)res[i], w, pg[i]);
+        TT_CHECK_NEAR(w, pg[i], 0.25 * pg[i]);
+    }
+}
+
+/*
+ * ... and as high: the peak over the passband 3 octaves below it within
+ * 2 dB of PG-8X 2.0.13's (same noise measurement, averaged over VCF FREQ
+ * 64, 80 and 96): +17.1 dB at VCF RES 96, +26.0 at 112, +33.6 at 127.
+ */
+TT_TEST(resonance_peak_is_as_high_as_pg8x)
+{
+    static const int32_t res[3] = {795, 900, 935};
+    static const double pg[3] = {17.1, 26.0, 33.6};
+    static fm_filter f;
+    int i;
+    for (i = 0; i < 3; i++) {
+        double hz, top;
+        lowpass_at(&f, 6900, res[i]);
+        hz = peak_hz(&f, 220.0);
+        top = filter_gain_db(&f, hz, 0.02) - filter_gain_db(&f, hz / 8.0, 0.02);
+        printf("    res %d: peak %.1f dB over 3 octaves below (PG-8X %.1f)\n",
+               (int)res[i], top, pg[i]);
+        TT_CHECK_NEAR(top, pg[i], 2.0);
+    }
+}
+
+/*
+ * PG-8X's peak flattens as the input gets louder (noise at MIX 127 against
+ * MIX 32: 1 to 4 dB lower at VCF RES 127), and a tone drives it harder than
+ * noise does. The bell has a knee for that: quiet, the peak's gain does not
+ * depend on level; at an oscillator's level it is well down. Without it the
+ * factory tones with VCF RES 93 up played 3 to 19 dB louder than with the
+ * plain ladder; with it, within 1.5 dB.
+ */
+TT_TEST(resonance_peak_flattens_when_loud)
+{
+    static fm_filter f;
+    double hz, quiet, quieter, loud;
+    lowpass_at(&f, 6900, 935);
+    hz = peak_hz(&f, 220.0);
+    quieter = filter_gain_db(&f, hz, 0.0005);
+    quiet = filter_gain_db(&f, hz, 0.002);
+    loud = filter_gain_db(&f, hz, 0.25);
+    printf("    res 935: peak gain %.1f dB at 0.0005, %.1f at 0.002, %.1f at 0.25\n",
+           quieter, quiet, loud);
+    TT_CHECK_NEAR(quiet, quieter, 0.5);
+    TT_CHECK(loud < quiet - 6.0);
+}
+
+/*
+ * The bell costs CPU, so it is only on from resonance 750 up (JX-8P VCF RES
+ * 93 up: the tones that self-oscillated, Eric 2026-11-12). Below that the
+ * filter is exactly the layer under it in the stack, #144's (no-resonance
+ * knee), the full-patch CPU test's resonance 700 included: noise through a
+ * lowpass swept 6000..14400 cents and back, highpass 1, 44.1 kHz, hashed
+ * (FNV-1a) against that output (retaken 2026-11-12 when #135 moved onto
+ * #144: the same code on #144's filter.c gives these five).
+ */
+TT_TEST(resonance_below_750_is_exactly_the_plain_ladder)
+{
+    static const int32_t res[5] = {0, 375, 625, 700, 749};
+    static const uint32_t ladder[5] = {0xc68e7beau, 0xdf4bae6fu, 0xf9eb7838u,
+                                       0xbed031c1u, 0x7e02469eu};
+    static fm_filter f;
+    int32_t rc = fm_filter_rate_cents(FRATE);
+    int k, i, b;
+    for (k = 0; k < 5; k++) {
+        uint32_t h = 2166136261u, n = 1;
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, res[k]);
+        fm_filter_set_highpass(&f, 1, rc);
+        for (i = 0; i < (int)FRATE; i++) {
+            uint32_t y;
+            if (i % 16 == 0) {
+                int32_t half = (int32_t)FRATE / 2;
+                fm_filter_set_cutoff(&f, i < half ? 6000 + i * 8400 / half
+                                                  : 14400 - (i - half) * 8400 / half, rc);
+            }
+            n = n * 1664525u + 1013904223u;
+            y = (uint32_t)fm_filter_process(&f, (int32_t)(n >> 7) - (1 << 24));
+            for (b = 0; b < 4; b++) {
+                h ^= (y >> (8 * b)) & 0xFFu;
+                h *= 16777619u;
+            }
+        }
+        if (h != ladder[k])
+            printf("    res %d: hash 0x%08x, #144's 0x%08x\n", (int)res[k], h, ladder[k]);
+        TT_CHECK(h == ladder[k]);
+    }
+}
+
 /*
  * Resonance keeps the balance of treble to bass, as on PG-8X 2.0.13: the
  * feedback costs bass, and the filter gives it back (a low shelf at the
@@ -257,6 +379,60 @@ TT_TEST(max_resonance_stays_bounded_over_a_long_render)
                 printf("    cutoff %d, input %d: peak %.3f\n", (int)cutoffs[c],
                        (int)kind, peak / 16777216.0);
             TT_CHECK(peak <= FILTER_BOUND);
+        }
+    }
+}
+
+/*
+ * The bell (resonance 750 up) keeps the same bound at full-scale input, at
+ * every cutoff, into the fade at the top: its output goes through the soft
+ * clip. Its own states stay within +-64.0, half of what they can hold, so
+ * no sum in it wraps. 3 s per case: a saw at +-1.0, noise at +-2.0 and an
+ * impulse of 100.0. The worst seen is 4.9 (resonance 1000, cutoff 11000,
+ * the noise); the bound from its gain is 4.0 x 8.1 x 1.27, about 41. The
+ * knee acts on the bell's output only, so it does not lower these states.
+ */
+#define BELL_STATE_BOUND (64 << 24)
+
+TT_TEST(bell_stays_bounded_at_full_scale)
+{
+    static const int32_t res[4] = {750, 875, 935, 1000};
+    static const int32_t cutoffs[] = { 0, 2400, 6900, 9000, 11000, 12600,
+                                       13600, 14000, 14399 };
+    static fm_filter f;
+    size_t r, c, kind, i;
+    uint32_t noise = 12345;
+    for (r = 0; r < 4; r++) {
+        for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
+            for (kind = 0; kind < 3; kind++) {
+                int32_t peak = 0, state = 0;
+                lowpass_at(&f, cutoffs[c], res[r]);
+                for (i = 0; i < 3 * (size_t)FRATE; i++) {
+                    int32_t x, y, s1, s2;
+                    if (kind == 0) {
+                        x = (int32_t)((i * 220 * 2 % FRATE) * (2u << 24) / FRATE) -
+                            (1 << 24);
+                    } else if (kind == 1) {
+                        noise = noise * 1664525u + 1013904223u;
+                        x = (int32_t)(noise >> 6) - (1 << 25);
+                    } else {
+                        x = i == 0 ? 100 << 24 : 0;
+                    }
+                    y = fm_filter_process(&f, x);
+                    s1 = f.bell_s1 < 0 ? -f.bell_s1 : f.bell_s1;
+                    s2 = f.bell_s2 < 0 ? -f.bell_s2 : f.bell_s2;
+                    if (y < 0) y = -y;
+                    if (y > peak) peak = y;
+                    if (s1 > state) state = s1;
+                    if (s2 > state) state = s2;
+                }
+                if (peak > FILTER_BOUND || state > BELL_STATE_BOUND)
+                    printf("    res %d, cutoff %d, input %d: peak %.3f, bell state %.3f\n",
+                           (int)res[r], (int)cutoffs[c], (int)kind,
+                           peak / 16777216.0, state / 16777216.0);
+                TT_CHECK(peak <= FILTER_BOUND);
+                TT_CHECK(state <= BELL_STATE_BOUND);
+            }
         }
     }
 }
@@ -2362,9 +2538,14 @@ static void run_filter_tests(void)
     TT_RUN(resonance_raises_gain_near_cutoff);
     TT_RUN(resonance_peak_sits_below_the_cutoff_as_on_pg8x);
     TT_RUN(resonance_peak_keeps_its_place_up_the_range);
+    TT_RUN(resonance_peak_is_as_wide_as_pg8x);
+    TT_RUN(resonance_peak_is_as_high_as_pg8x);
+    TT_RUN(resonance_peak_flattens_when_loud);
+    TT_RUN(resonance_below_750_is_exactly_the_plain_ladder);
     TT_RUN(resonance_keeps_the_treble_to_bass_balance);
     TT_RUN(resonance_turns_the_passband_down_as_on_pg8x);
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
+    TT_RUN(bell_stays_bounded_at_full_scale);
     TT_RUN(max_resonance_self_oscillates_near_cutoff);
     TT_RUN(jx_max_resonance_rings_down_at_every_cutoff);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
