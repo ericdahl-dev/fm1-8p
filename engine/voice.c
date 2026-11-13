@@ -168,6 +168,8 @@ static void gate_on(fm_voice *v)
         v->fenv_lag = 0;
     }
     fm_voice_sync_filter_env(v);
+    fm_env_key(&v->amp_env, v->note);
+    fm_env_key(&v->filter_env, v->note);
     fm_env_gate_on(&v->amp_env);
     fm_env_gate_on(&v->filter_env);
 }

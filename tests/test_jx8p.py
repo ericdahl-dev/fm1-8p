@@ -278,6 +278,23 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=0, VCA_MODE=127)["FILTER_ENV_AMOUNT_CENTS"],
                          -60 * 129)
 
+    # #60: ENV KEY is a 4-position switch; PG-8X 2.0.13 shortens the times by 0.26 octave an octave
+    # above C2 per position, so 260 per mille each. The amp envelope takes ENV-2's (none on GATE,
+    # a fixed gate); the filter envelope the key follow of the JX-8P envelope whose times it runs
+    def test_env_key_switch_is_each_envelopes_key_follow(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["AMP_KEY_FOLLOW_PERMILLE"].param, "AMP_KEY_FOLLOW")
+        self.assertEqual(fields["FILTER_ENV_KEY_FOLLOW_PERMILLE"].param, "FILTER_ENV_KEY_FOLLOW")
+        got = {v: patch_with("SOUNDTRACK", ENV2_KEY=v, ENV1_KEY=127 - v, VCA_MODE=127)
+               for v in (0, 32, 64, 96)}
+        self.assertEqual({v: e["AMP_KEY_FOLLOW_PERMILLE"] for v, e in got.items()},
+                         {0: 0, 32: 260, 64: 520, 96: 780})
+        self.assertEqual({v: e["FILTER_ENV_KEY_FOLLOW_PERMILLE"] for v, e in got.items()},
+                         {0: 780, 32: 520, 64: 260, 96: 0})
+        gate = patch_with("SOUNDTRACK", ENV2_KEY=96, ENV1_KEY=0, VCA_MODE=0, VCF_ENV_MODE=32)
+        self.assertEqual(gate["AMP_KEY_FOLLOW_PERMILLE"], 0)          # the VCA is a gate
+        self.assertEqual(gate["FILTER_ENV_KEY_FOLLOW_PERMILLE"], 780)  # it runs ENV-2's times
+
     # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
     # depth to pitch linear to 572 cents (below), one per oscillator
     def test_lfo_shape_rate_delay_and_vibrato_depth(self):
@@ -438,12 +455,11 @@ class MapTest(unittest.TestCase):
             self.assertEqual(e["OSC1_LEVEL_PERMILLE"], 0, name)
             self.assertEqual(abs(e["OSC_MIX_ENV_PERMILLE"]), 1000, name)
 
-    # Kept for LFO to cutoff (#8), envelope key follow (#60) and the VCA level
+    # Kept for LFO to cutoff (#8) and the VCA level
     def test_other_features_the_engine_lacks_are_kept_for_later(self):
         e = patch("SOUNDTRACK")
         self.assertEqual(e["OSC_MIX_ENV_VELOCITY_PCT"], 33)    # MIX DYNAMICS 32
         self.assertEqual(e["FILTER_LFO_PERMILLE"], 0)
-        self.assertEqual((e["ENV1_KEY_FOLLOW"], e["ENV2_KEY_FOLLOW"]), (0, 1))
         self.assertEqual(e["AMP_LEVEL_PERMILLE"], 819)      # VCA LEVEL 104
 
 

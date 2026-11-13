@@ -64,6 +64,19 @@ static int32_t start_segment(fm_env *e, int32_t d, uint32_t tau)
     return (int32_t)(span - q * n);
 }
 
+/* A time in samples at this note's scale: untouched at 1.0. Out of line:
+ * once per segment, and three copies cost code. */
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#endif
+static uint32_t scaled(const fm_env *e, uint32_t t)
+{
+    uint64_t s;
+    if (e->ks == 1u << 16) return t;
+    s = ((uint64_t)t * e->ks) >> 16;
+    return s > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)s;
+}
+
 /*
  * The attack charges like PG-8X's, an RC toward 1.6 x the peak, and stops on
  * the peak, which takes tau x ln(1.6 / 0.6) = 0.98 tau: so tau is the attack
@@ -75,7 +88,7 @@ static int32_t start_segment(fm_env *e, int32_t d, uint32_t tau)
 static int attack_segment(fm_env *e)
 {
     int32_t d = e->peak - e->level, rem;
-    uint32_t t = e->set->attack_samples, k;
+    uint32_t t = scaled(e, e->set->attack_samples), k;
     if (d <= 0 || t == 0) return 0;
     rem = start_segment(e, d + e->peak / 5 * 3,
                         (uint32_t)(((uint64_t)t * 66817u) >> 16));
@@ -93,6 +106,7 @@ static int attack_segment(fm_env *e)
 void fm_env_init(fm_env *e, const fm_env_settings *set)
 {
     e->set = set;
+    e->ks = 1u << 16;
     fm_env_reset(e);
 }
 
@@ -113,6 +127,39 @@ static int32_t sustain_level(fm_env *e)
 {
     e->sus_level = (int32_t)(((int64_t)e->set->sustain * e->peak) >> 30);
     return e->sus_level;
+}
+
+/* Envelope key follow: C2 (MIDI 36) keeps the set times (PG-8X 2.0.13's
+ * ENV KEY; the time halves every 2 octaves up at 500 per mille). */
+#define KEY_CENTER 36
+
+/* 2^(i / 16) - 1, Q16, i = 0..15: 2^(cents / 1200) in 75-cent steps */
+static const uint16_t exp2_16th[16] = {
+    0, 2902, 5932, 9096, 12400, 15850, 19454, 23216,
+    27146, 31249, 35534, 40009, 44682, 49562, 54658, 59979
+};
+
+/* 2^(cents / 1200), Q16.16, from 1/256 to 256 (clamped): linear between
+ * the table's steps, within 0.03 %. 32-bit; on note on only. */
+static uint32_t exp2_cents(int32_t cents)
+{
+    int32_t k, f, i, a, b;
+    uint32_t v;
+    if (cents < -8 * 1200) cents = -8 * 1200;
+    if (cents > 8 * 1200) cents = 8 * 1200;
+    k = (cents + 8 * 1200) / 1200 - 8; /* floor, cents >= -9600 */
+    f = cents - k * 1200;              /* 0..1199 */
+    i = f / 75;
+    a = exp2_16th[i];
+    b = i == 15 ? 65536 : exp2_16th[i + 1];
+    v = (uint32_t)(65536 + a + (b - a) * (f - i * 75) / 75);
+    return k >= 0 ? v << k : v >> -k;
+}
+
+void fm_env_key(fm_env *e, uint8_t note)
+{
+    int32_t f = e->set->key_follow;
+    e->ks = f ? exp2_cents(-f * ((int32_t)note - KEY_CENTER) / 10) : (uint32_t)1 << 16;
 }
 
 void fm_env_gate_on(fm_env *e)
@@ -209,7 +256,7 @@ int32_t fm_env_next(fm_env *e)
             hold(e);
             break;
         }
-        rem = start_segment(e, d, e->set->decay_samples);
+        rem = start_segment(e, d, scaled(e, e->set->decay_samples));
         if (e->level > s) {
             e->step = -e->step;
             rem = -rem;
@@ -224,7 +271,7 @@ int32_t fm_env_next(fm_env *e)
             hold(e);
             break;
         }
-        rem = start_segment(e, e->level, e->set->release_samples);
+        rem = start_segment(e, e->level, scaled(e, e->set->release_samples));
         e->step = -e->step;
         e->seg--;
         e->level += e->step - rem;
