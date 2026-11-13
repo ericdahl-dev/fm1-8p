@@ -97,6 +97,7 @@ typedef enum {
     FM_PARAM_OSC_RING, /* 1: osc2 times osc1, the JX-8P's SYNC 2 and X-MOD */
     FM_PARAM_FILTER_ENV_DYNA, /* DYNAMICS 0 (off) .. 3: velocity scales the
                                * filter envelope's cutoff depth */
+    FM_PARAM_ONSET_THUMP, /* 1: PG-8X 2.0.13's thump when a voice first plays (#146) */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -139,6 +140,13 @@ typedef struct {
      * voices' scratch (each voice's oscillators for the chunk): the chorus
      * only writes it (chorus_block_writes_right_without_reading_it) */
     int32_t mix_right[FM_MIX_FRAMES];
+    /* the onset thump (#146): the voices' amp levels as a step (Q8.24
+     * voice units) at the last control tick and the one before, through
+     * two one-pole highpasses (coefficients Q1.30), then the voices'
+     * highpass step (its lowpass state, thump_hp) */
+    int32_t thump_x, thump_prev, thump_y1, thump_y2, thump_a1, thump_a2, thump_hp;
+    int32_t thump_hold[FM_MAX_VOICES]; /* each voice's part of the step */
+    uint8_t thump_state[FM_MAX_VOICES]; /* 0 not played yet, 1 first note, 2 done */
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;

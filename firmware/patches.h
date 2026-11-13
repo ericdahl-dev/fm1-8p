@@ -61,6 +61,7 @@ typedef enum {
     PATCH_ENV1_KEY_FOLLOW,              /* waits #60: 0 off .. 3 */
     PATCH_ENV2_KEY_FOLLOW,              /* waits #60 */
     PATCH_AMP_LEVEL_PERMILLE,           /* waits: a VCA level (no issue yet) */
+    PATCH_ONSET_THUMP,                  /* 1: PG-8X's thump when a voice first plays (#146) */
     PATCH_FIELD_COUNT,
 } patch_field;
 

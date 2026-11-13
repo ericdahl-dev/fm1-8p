@@ -394,6 +394,119 @@ static void end_mode(fm_engine *e)
     unison_reset(e);
 }
 
+/*
+ * The onset thump (#146). PG-8X 2.0.13 adds, when a voice plays, a DC
+ * step that follows the voice's amp level, through an overdamped
+ * highpass: 5.4 Hz, Q 0.42, whose poles are real, at 2.94 and 9.92 Hz.
+ * Here that is two one-pole highpasses, y = a (y + x - x1), with
+ * a = 1 - w / rate (w in rad/s: within 0.01 % of exp(-w / rate) at
+ * 8 kHz and up). The step is 0.252 of a voice at full level
+ * (tests/test_onset.c has the measurement).
+ */
+#define THUMP_W1_MRAD 18481 /* 2.941 Hz */
+#define THUMP_W2_MRAD 62310 /* 9.917 Hz */
+#define THUMP_STEP 4227858 /* 0.252 in Q8.24 */
+
+static int32_t thump_coef(uint32_t rate, int32_t w_mrad)
+{
+    return (int32_t)((1 << 30) - ((int64_t)w_mrad << 30) / ((int64_t)rate * 1000));
+}
+
+static void thump_init(fm_engine *e)
+{
+    uint8_t k;
+    e->thump_x = e->thump_prev = e->thump_y1 = e->thump_y2 = e->thump_hp = 0;
+    for (k = 0; k < FM_MAX_VOICES; k++) {
+        e->thump_state[k] = 0;
+        e->thump_hold[k] = 0;
+    }
+    e->thump_a1 = thump_coef(e->sample_rate, THUMP_W1_MRAD);
+    e->thump_a2 = thump_coef(e->sample_rate, THUMP_W2_MRAD);
+}
+
+/*
+ * The step now, from each voice's part of it: while a voice plays its
+ * first note (attack to sustain), its amp level times the step; from its
+ * first release on, the part it had at the tick before, held (PG-8X's
+ * note off adds nothing of its own).
+ */
+static int32_t thump_input(fm_engine *e)
+{
+    int64_t x = 0;
+    uint8_t k;
+    for (k = 0; k < e->voice_count; k++) {
+        const fm_env *a = &e->voices[k].amp_env;
+        int playing = a->stage >= FM_ENV_ATTACK && a->stage <= FM_ENV_SUSTAIN;
+        if (e->thump_state[k] == 0 && playing) e->thump_state[k] = 1;
+        if (e->thump_state[k] == 1) {
+            if (playing)
+                e->thump_hold[k] = (int32_t)(((int64_t)a->level * THUMP_STEP) >> 30);
+            else
+                e->thump_state[k] = 2;
+        }
+        x += e->thump_hold[k];
+    }
+    return (int32_t)x;
+}
+
+/* Nonzero while the thump has something to do: a voice plays its first
+ * note (or has just been given one), or the step moved at the last tick,
+ * or the highpasses are not back at rest. Then chunks stop at the
+ * control ticks, where the step is read, so the output does not depend
+ * on the caller's block size. Otherwise it costs nothing. */
+static int thump_live(const fm_engine *e)
+{
+    uint8_t k;
+    if (!e->params[FM_PARAM_ONSET_THUMP]) return 0;
+    if (e->thump_x != e->thump_prev || e->thump_y1 | e->thump_y2 | e->thump_hp) return 1;
+    for (k = 0; k < e->voice_count; k++)
+        if (e->thump_state[k] == 1 || (e->thump_state[k] == 0 && fm_voice_active(&e->voices[k])))
+            return 1;
+    return 0;
+}
+
+/* Under this (Q8.24 voice units, 1/100 of an output LSB at 6 voices) a
+ * highpass state is at rest: a negative one would otherwise stay at -1. */
+#define THUMP_REST 64
+#define THUMP_AT_REST(v) ((uint32_t)(v) + THUMP_REST < 2u * THUMP_REST)
+
+/* At a control tick: the step as it is now; once it holds still and the
+ * highpasses have settled, they rest at exactly 0. */
+static void thump_tick(fm_engine *e)
+{
+    e->thump_prev = e->thump_x;
+    e->thump_x = thump_input(e);
+    if (e->thump_x == e->thump_prev && THUMP_AT_REST(e->thump_y1) &&
+        THUMP_AT_REST(e->thump_y2) && THUMP_AT_REST(e->thump_hp))
+        e->thump_y1 = e->thump_y2 = e->thump_hp = 0;
+}
+
+/*
+ * Adds the thump to the chunk's mix (voice units). Over each tick the
+ * step moves in a straight line from its value at the tick before to
+ * its value at this one (one tick late, so a chunk that ends mid-tick
+ * plays what one that does not would).
+ */
+static void thump_add(fm_engine *e, uint32_t n)
+{
+    int64_t d = (int64_t)e->thump_x - e->thump_prev;
+    uint32_t p = FM_LFO_TICK_FRAMES - e->tick_left, i;
+    int32_t hp_g = e->voices[0].filter.hp_g; /* the voices' highpass (every voice has the same) */
+    for (i = 0; i < n; i++, p++) {
+        int32_t dx = (int32_t)(((d * (int32_t)(p + 1)) >> FM_LFO_TICK_SHIFT) -
+                               ((d * (int32_t)p) >> FM_LFO_TICK_SHIFT));
+        int32_t y1 = (int32_t)(((int64_t)(e->thump_y1 + dx) * e->thump_a1) >> 30);
+        e->thump_y2 = (int32_t)(((int64_t)(e->thump_y2 + y1 - e->thump_y1) * e->thump_a2) >> 30);
+        e->thump_y1 = y1;
+        if (hp_g) {
+            e->thump_hp += (int32_t)(((int64_t)(e->thump_y2 - e->thump_hp) * hp_g) >> 30);
+            e->mix[i] += e->thump_y2 - e->thump_hp;
+        } else {
+            e->mix[i] += e->thump_y2;
+        }
+    }
+}
+
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count)
 {
@@ -434,6 +547,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         }
     }
     fm_chorus_init(&e->chorus, sample_rate);
+    thump_init(e);
     /* all defaults first: some settings combine several parameters */
     for (id = 0; id < FM_PARAM_COUNT; id++)
         e->params[id] = fm_param_info_get(id)->def;
@@ -798,6 +912,7 @@ static void control_tick(fm_engine *e)
     uint8_t k;
     e->ticks++;
     e->tick_left = FM_LFO_TICK_FRAMES;
+    if (thump_live(e)) thump_tick(e);
     /* with every depth at 0 (after one tick that clears any offset still
      * applied) the voices have nothing to do */
     if (lfo_live(e))
@@ -822,7 +937,7 @@ static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    if (lfo_live(e) && n > e->tick_left)
+    if ((lfo_live(e) || thump_live(e)) && n > e->tick_left)
         n = e->tick_left;
     return n;
 }
@@ -848,6 +963,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n, e->sample_rate,
                                     e->ticks + 1, e->tick_left);
+        if (thump_live(e)) thump_add(e, n);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);

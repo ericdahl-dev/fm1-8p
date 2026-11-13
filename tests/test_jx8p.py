@@ -370,6 +370,12 @@ class MapTest(unittest.TestCase):
         got = {b: patch_with("SOUNDTRACK", VCF_DYNA=b)["FILTER_ENV_DYNA"] for b in (0, 32, 64, 96, 127)}
         self.assertEqual(got, {0: 0, 32: 1, 64: 2, 96: 3, 127: 3})
 
+    # PG-8X 2.0.13 thumps when each voice first plays (#146): every tone turns it on
+    def test_every_tone_has_pg8xs_onset_thump(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["ONSET_THUMP"].param, "ONSET_THUMP")
+        self.assertEqual({jx8p.to_engine(t)["ONSET_THUMP"] for t in factory()}, {1})
+
     # The pitch envelope (#58) on factory tones: DCO-1 and DCO-2 ENV depth (above), the mode and
     # DCO DYNAMICS
     def test_pitch_envelope_is_kept_for_later(self):

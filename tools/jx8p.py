@@ -165,6 +165,7 @@ FIELDS = [
     Field("ENV1_KEY_FOLLOW", None, 0, 3, "#60"),
     Field("ENV2_KEY_FOLLOW", None, 0, 3, "#60"),
     Field("AMP_LEVEL_PERMILLE", None, 0, 1000, "a VCA level (no issue yet)"),
+    Field("ONSET_THUMP", "ONSET_THUMP", None, None, None),
 ]
 _RANGES = engine_ranges()
 FIELDS = [f._replace(lo=_RANGES[f.param][0], hi=_RANGES[f.param][1]) if f.param else f for f in FIELDS]
@@ -398,6 +399,7 @@ def to_engine(tone):
     e["OSC_SYNC"] = 1 if xmod in (1, 2) else 0
     e["XMOD_AM"] = 1 if xmod in (2, 3) else 0
     e["HIGHPASS_STEP"] = hpf_step(p[HPF])
+    e["ONSET_THUMP"] = 1                    # PG-8X 2.0.13's thump when a voice first plays (#146)
     e["FILTER_CUTOFF_CENTS"] = cutoff_cents(p[VCF_FREQ])
     e["FILTER_RESONANCE_PERMILLE"] = resonance_permille(p[VCF_RES])
     # PG-8X's key follow pivots at C2 and the engine's at C4: the track's rise from C2 to C4 moves
