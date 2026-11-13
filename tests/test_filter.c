@@ -44,11 +44,11 @@ static void lowpass_at(fm_filter *f, int32_t cutoff_cents, int32_t res)
 }
 
 /*
- * Cutoff 440 Hz (6900 cents above MIDI note 0), no resonance. Four equal
- * real poles meet at the cutoff, so the cutoff point itself is -12 dB and
- * the slope steepens toward 24 dB/octave: the theory for an ideal 4-pole
- * gives 15.9 dB for the first octave above cutoff, 21.2 dB for the second
- * and 23.3 dB for the third. Tolerance: +-2 dB on each.
+ * Cutoff 440 Hz (6900 cents above MIDI note 0), no resonance: the passband
+ * passes and the slope steepens toward 24 dB/octave above the cutoff. As
+ * on PG-8X 2.0.13 (noise, VCF FREQ 64-96): 19.2 dB for the first octave
+ * above the cutoff, 20.9 for the second; the third near the full 24.
+ * Tolerance +-2 dB on each. (The cutoff point itself: the knee, below.)
  */
 TT_TEST(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave)
 {
@@ -63,10 +63,28 @@ TT_TEST(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave)
     printf("    lowpass 440 Hz: 55 Hz %.2f dB, 440 %.2f, 880 %.2f, "
            "1760 %.2f, 3520 %.2f\n", below, at, oct1, oct2, oct3);
     TT_CHECK(below > -0.5);
-    TT_CHECK_NEAR(at, -12.0, 2.0);
-    TT_CHECK_NEAR(at - oct1, 15.9, 2.0);
-    TT_CHECK_NEAR(oct1 - oct2, 21.2, 2.0);
-    TT_CHECK_NEAR(oct2 - oct3, 23.3, 2.0);
+    TT_CHECK_NEAR(at - oct1, 19.2, 2.0);
+    TT_CHECK_NEAR(oct1 - oct2, 20.9, 2.0);
+    TT_CHECK_NEAR(oct2 - oct3, 24.0, 2.0);
+}
+
+/*
+ * With no resonance the knee is PG-8X 2.0.13's (noise, VCF FREQ 64, 80 and
+ * 96, re the passband): flat to half the cutoff (-0.8 to -1.2 dB there),
+ * -7.6 to -8.4 dB at the cutoff, as if a little feedback stays on. Four
+ * plain poles dip 3 to 4 dB deeper there (#134).
+ */
+TT_TEST(no_resonance_knee_is_pg8x)
+{
+    static fm_filter f;
+    double pass, half, at;
+    lowpass_at(&f, 6900, 0);
+    pass = filter_gain_db(&f, 55.0, 0.25);
+    half = filter_gain_db(&f, 220.0, 0.25) - pass;
+    at = filter_gain_db(&f, 440.0, 0.25) - pass;
+    printf("    res 0, 440 Hz cutoff, re 55 Hz: 220 Hz %.2f dB, 440 Hz %.2f\n", half, at);
+    TT_CHECK_NEAR(half, -1.0, 0.7);
+    TT_CHECK_NEAR(at, -8.0, 0.7);
 }
 
 /* The frequency, in 5-cent steps from `lo_hz` up an octave, where a quiet
@@ -2340,6 +2358,7 @@ TT_TEST(open_filter_with_the_ring_matches_the_full_render)
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
+    TT_RUN(no_resonance_knee_is_pg8x);
     TT_RUN(resonance_raises_gain_near_cutoff);
     TT_RUN(resonance_peak_sits_below_the_cutoff_as_on_pg8x);
     TT_RUN(resonance_peak_keeps_its_place_up_the_range);
