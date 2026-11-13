@@ -167,6 +167,7 @@ FIELDS = [
     Field("FILTER_ENV_DYNA", "FILTER_ENV_DYNA", None, None, None),
     Field("AMP_KEY_FOLLOW_PERMILLE", "AMP_KEY_FOLLOW", None, None, None),
     Field("FILTER_ENV_KEY_FOLLOW_PERMILLE", "FILTER_ENV_KEY_FOLLOW", None, None, None),
+    Field("SETTING_GLIDE", "SETTING_GLIDE", None, None, None),
 ]
 _RANGES = engine_ranges()
 FIELDS = [f._replace(lo=_RANGES[f.param][0], hi=_RANGES[f.param][1]) if f.param else f for f in FIELDS]
@@ -407,6 +408,7 @@ def to_engine(tone):
     e["OSC_SYNC"] = 1 if xmod in (1, 2) else 0
     e["XMOD_AM"] = 1 if xmod in (2, 3) else 0
     e["HIGHPASS_STEP"] = hpf_step(p[HPF])
+    e["SETTING_GLIDE"] = 1                  # levels, filter and LFO depths glide as PG-8X's (#146)
     e["FILTER_CUTOFF_CENTS"] = cutoff_cents(p[VCF_FREQ])
     e["FILTER_RESONANCE_PERMILLE"] = resonance_permille(p[VCF_RES])
     # PG-8X's key follow pivots at C2 and the engine's at C4: the track's rise from C2 to C4 moves
