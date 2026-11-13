@@ -20,14 +20,27 @@
 
 typedef struct {
     int32_t s[4];  /* lowpass stage outputs, Q8.24 */
-    int32_t x1[4]; /* lowpass stage inputs one sample ago, Q8.24 */
+    /* the first stage's input one sample ago, Q8.24 (each later stage's
+     * is the stage before it one sample ago: s[i - 1] before the update) */
+    int32_t x1;
     int32_t g;     /* lowpass stage coefficient, Q1.30 (1.0 = open) */
-    int32_t w;     /* weight of the previous input in a stage, Q1.30 */
     int32_t k;     /* resonance feedback in use, Q4.28 (0 .. 4.2) */
-    int32_t k_res; /* feedback the resonance setting asks for, Q4.28 */
-    int32_t fade;  /* 1.0 below the top of the cutoff range, to 0 at open */
+    /* 1.0 below the top of the cutoff range, to 0 at open; a stage weighs
+     * its previous input by fade / 4 (the zero, 1/4 below the top) */
+    int32_t fade;
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
     int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
+    /* Resonance's bass shelf: the output is s[3] + shelf * (lp - s[3]), lp
+     * a one-pole lowpass of s[3] at the cutoff (0: off, the plain ladder),
+     * a weighted average of the two, so within their range. It is worked
+     * out as s[3] - h * (s[3] - lp), lp as it was before this sample's
+     * update, with h = shelf * (1 - g). */
+    int32_t lp;   /* the shelf's lowpass state, Q8.24 */
+    int32_t a;    /* input level, Q1.30: the resonance's passband level */
+    int32_t h;    /* shelf * (1 - g), Q1.30 (0 .. 0.57) */
+    int16_t res;  /* resonance as set, per mille */
+    int16_t cut;  /* lowpass cutoff as set (clamped), cents */
+    int16_t rate; /* rate_cents it was set with (0: not yet) */
 } fm_filter;
 
 /* Pitch of the sample rate in cents above MIDI note 0. Computed once
@@ -53,8 +66,11 @@ void fm_filter_clear(fm_filter *f);
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                           int32_t rate_cents);
 
-/* Resonance, per mille (0 = none, 1000 = self-oscillation near the
- * cutoff; the feedback fades out over the top 600 cents of cutoff). */
+/* Resonance, per mille (0 = none, 1000 = self-oscillation 190 cents under
+ * the cutoff). As on PG-8X 2.0.13 it also lowers the peak under the
+ * cutoff, sets the passband level and keeps the treble-to-bass balance
+ * (docs/fixed-point.md, Resonance). All of it fades out over the top 600
+ * cents of cutoff. */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
 /* Highpass position 0..3 (higher is clamped to 3): 0 is off (a wire),
