@@ -140,6 +140,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->sync_after = 0;
     p->sync_pend = 0;
     p->xmod = 0;
+    p->ring = 0;
     p->special = 0;
     p->only1 = 1;
     p->xmod_inc = 0;
@@ -161,6 +162,8 @@ void fm_osc_pair_set_level(fm_osc_pair *p, uint8_t which, int32_t level)
     if (level < 0) level = 0;
     if (level > FM_OSC_LEVEL_FULL) level = FM_OSC_LEVEL_FULL;
     p->level[which] = level;
+    /* the ring is silent with osc2 unheard: osc1 alone stays the fast path */
+    p->special = (uint8_t)(p->sync || p->xmod || (p->ring && p->level[1]));
     update_only1(p);
 }
 
@@ -237,7 +240,7 @@ static void update_pw(fm_osc_pair *p, uint8_t i)
  * Newton steps, good to the Q30 rounding. xmod_inc is osc2's increment
  * times the cross-mod depth.
  */
-static void update_derived(fm_osc_pair *p)
+static inline void derive(fm_osc_pair *p)
 {
     uint32_t m = p->osc[0].inc;
     uint8_t s = 0;
@@ -256,6 +259,13 @@ static void update_derived(fm_osc_pair *p)
     p->recip0_sh = (uint8_t)(46 - s); /* t / inc0 in Q16 = t * recip0 >> recip0_sh */
 }
 
+/* derive() out of line, for the event-rate setters (one copy, not one in
+ * each); the LFO's per-tick fm_osc_pair_set_pitch_mod keeps its own. */
+static FM_NOINLINE void update_derived(fm_osc_pair *p)
+{
+    derive(p);
+}
+
 void fm_osc_pair_set_pw_mod(fm_osc_pair *p, int32_t offset)
 {
     uint8_t i;
@@ -270,7 +280,7 @@ void fm_osc_pair_set_pw_mod(fm_osc_pair *p, int32_t offset)
  * The fraction uses a quartic fit of 2^f on [0, 1) (Q30 coefficients,
  * under 0.011 cent off); whole octaves are shifts. No division.
  */
-static uint32_t mod_inc(uint32_t inc, int32_t x)
+static FM_NOINLINE uint32_t mod_inc(uint32_t inc, int32_t x)
 {
     static const int64_t c[4] = { 744149770, 259040010, 56213420, 14325366 };
     int32_t k;
@@ -301,9 +311,9 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
 }
 
 /* sync or cross-mod on: fm_osc_pair_next takes the slower path */
-static void update_special(fm_osc_pair *p)
+static FM_NOINLINE void update_special(fm_osc_pair *p)
 {
-    p->special = (uint8_t)(p->sync || p->xmod);
+    p->special = (uint8_t)(p->sync || p->xmod || (p->ring && p->level[1]));
     p->sync_pend = 0;
     update_only1(p);
     update_derived(p);
@@ -312,6 +322,12 @@ static void update_special(fm_osc_pair *p)
 void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on)
 {
     p->sync = on ? 1 : 0;
+    update_special(p);
+}
+
+void fm_osc_pair_set_ring(fm_osc_pair *p, uint8_t on)
+{
+    p->ring = on ? 1 : 0;
     update_special(p);
 }
 
@@ -330,7 +346,7 @@ void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct1, int32_t oct2)
     p->mod_oct[1] = oct2;
     fm_osc_set_inc(&p->osc[0], mod_inc(p->base[0], oct1));
     fm_osc_set_inc(&p->osc[1], mod_inc(p->base[1], oct2));
-    update_derived(p);
+    derive(p);
 }
 
 void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
@@ -539,6 +555,34 @@ static inline int32_t gain(int32_t x, int32_t level)
 }
 
 /*
+ * The ring's a, b and c by osc1's wave (Q8.24), from PG-8X's fit (#105),
+ * osc1 measured against the clean wave (PG-8X's peaks over its plateau
+ * read as a deeper b at peak 1):
+ *   saw 1.12, -0.85, 0.235; pulse (fit at PG-8X's 2-3 % width) 1.66, -1.0,
+ *   0.15; square 0.84, -0.83, 0.21.
+ * Noise isn't measured: plain ring modulation, 1.0, -1.0 and 0.
+ */
+static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216 };
+static const int32_t ring_b[FM_WAVE_COUNT] = { -14260634, -16777216, -13925089, -16777216 };
+static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0 };
+
+/*
+ * osc2's sample x ringed by osc1's sample m: x (a + b m) + c m, Q8.24,
+ * held to +-2.0. It reaches past that only where both waves are near
+ * their extremes at once (a saw osc1 at its trough: 1.97 x less 0.235);
+ * the pair stays inside the soft clip's untouched +-2.0, which the
+ * open-filter render passes straight through.
+ */
+#define RING_MAX (2 << 24)
+static int32_t ring(const fm_osc_pair *p, int32_t x, int32_t m)
+{
+    uint8_t w = p->wave[0];
+    int32_t g = ring_a[w] + (int32_t)(((int64_t)ring_b[w] * m) >> 24);
+    int32_t v = (int32_t)(((int64_t)x * g + (int64_t)ring_c[w] * m) >> 24);
+    return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
+}
+
+/*
  * One sample with sync or cross-mod on. Cross-mod runs osc2 this sample
  * at its increment times (1 + depth * osc1), 0..2x and capped under
  * Nyquist, so its polyBLEPs follow the bent pitch; the set increment is
@@ -549,7 +593,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
 {
     uint32_t inc = p->osc[1].inc;
     int32_t a = 0, b;
-    if (p->level[0] || p->xmod)
+    if (p->level[0] || p->xmod || p->ring)
         a = wave_at(p, 0);
     if (p->level[1] == 0) { /* osc2 unheard: with sync, only its phase restarts */
         uint32_t t = p->osc[0].phase + p->osc[0].inc;
@@ -568,6 +612,10 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     b = osc2_at(p);
     b += advance(p);
     p->osc[1].inc = inc;
+    if (p->ring) { /* osc1 plus the ringed osc2 could reach 3.0: the pair stays in +-2.0 */
+        int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->level[1]);
+        return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
+    }
     return gain(a, p->level[0]) + gain(b, p->level[1]);
 }
 
@@ -665,16 +713,183 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
 }
 
 /*
+ * Samples before osc1's next wrap at its current phase, at most `left`:
+ * no restart of osc2 falls in them. One divide per osc1 cycle.
+ */
+static uint32_t until_wrap(const fm_osc_pair *p, uint32_t left)
+{
+    uint32_t inc0 = p->osc[0].inc, m;
+    if (inc0 == 0) return left; /* osc1 stopped: it never wraps */
+    m = ~p->osc[0].phase / inc0;
+    return m < left ? m : left;
+}
+
+static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n);
+static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b);
+
+/*
+ * osc2's runs over a chunk whose osc1 part is already in out[] (osc1's
+ * phase back at the chunk's start): free runs between osc1's wraps (the
+ * whole chunk without sync), added in at osc2's level or, with `ring`,
+ * ringed by osc1's raw samples there; the sample where osc1 wraps (sync_reset's
+ * correction) and the one after it (the restart's polyBLEP) take
+ * next_special's own steps. One loop for sync and the ring: the test of
+ * `ring` is per run and per wrap, not per sample.
+ */
+static void pair_runs(fm_osc_pair *p, int32_t *out, uint32_t n, int ring)
+{
+    uint32_t inc0 = p->osc[0].inc, i = 0, m;
+    int32_t level = p->level[1], b;
+    while (i < n) {
+        m = p->sync_pend ? 0 : p->sync ? until_wrap(p, n - i) : n - i;
+        if (m) {
+            if (ring)
+                ring_wave_run(p, out + i, m);
+            else
+                wave_run(p, 1, out + i, m, level, 1);
+            p->osc[0].phase += m * inc0;
+            i += m;
+            continue;
+        }
+        /* a restart's next sample, or osc1 wraps in this one */
+        b = osc2_at(p);
+        b += advance(p);
+        out[i] = ring ? ring_sum(p, out[i], b) : out[i] + gain(b, level);
+        i++;
+    }
+}
+
+/*
+ * osc1's next `n` samples times its level into out[], as next_special
+ * makes them (0 at level 0, where it isn't drawn: a noise keeps its
+ * generator). Leaves osc1's phase moved on by n.
+ */
+static void sync_osc1(fm_osc_pair *p, int32_t *out, uint32_t n)
+{
+    uint32_t i;
+    if (p->level[0]) {
+        wave_run(p, 0, out, n, p->level[0], 0);
+    } else {
+        for (i = 0; i < n; i++) out[i] = 0;
+        p->osc[0].phase += n * p->osc[0].inc;
+    }
+}
+
+/*
+ * The next `n` samples with sync on and cross-mod off, as next_special
+ * gives them. Sync never changes osc1, so it goes into out[] first, as in
+ * a plain chunk. Between osc1's wraps osc2 runs free, so those runs are
+ * wave_run's, added in; the sample where osc1 wraps (sync_reset's
+ * correction) and the one after it (the restart's polyBLEP) take
+ * next_special's own steps. At level 0 osc2 only moves its phase: by m
+ * increments, or a restart.
+ */
+static void sync_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+{
+    uint32_t t0 = p->osc[0].phase, inc0 = p->osc[0].inc, i = 0, m;
+    int32_t level = p->level[1];
+    if (level == 0) {
+        while (i < n) {
+            m = until_wrap(p, n - i);
+            p->osc[1].phase += m * p->osc[1].inc;
+            p->osc[0].phase += m * inc0;
+            i += m;
+            if (i < n) { /* osc1 wraps in this sample: osc2 restarts */
+                p->osc[0].phase += inc0;
+                p->osc[1].phase = (uint32_t)((restart_x(p, p->osc[0].phase) *
+                                              p->osc[1].inc) >> 16);
+                i++;
+            }
+        }
+        if (n) p->sync_pend = 0;
+        p->osc[0].phase = t0;
+        sync_osc1(p, out, n);
+        return;
+    }
+    sync_osc1(p, out, n);
+    p->osc[0].phase = t0;
+    pair_runs(p, out, n, 0);
+}
+
+/*
+ * osc1's raw sample a and osc2's b as next_special sums a ring pair: osc1
+ * at its level plus the ringed osc2 at its own, held to +-2.0.
+ */
+static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b)
+{
+    int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->level[1]);
+    return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
+}
+
+/*
+ * osc2's next `n` free-running samples ringed by osc1's raw samples in
+ * out[], which become the pair's. Square and saw (osc2 on 12 of the 13
+ * factory tones with the ring) get loops of their own, wave_run's with
+ * ring_sum for the sum; pulse and noise take wave_next a sample at a
+ * time, which saves two more copies of the ring's loop (the FM-1 runs
+ * from a 32 KB cache).
+ */
+static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+{
+    fm_osc *o = &p->osc[1];
+    uint32_t t = o->phase, dt = o->inc, i;
+    switch (p->wave[1]) {
+    case FM_WAVE_SQUARE:
+        for (i = 0; i < n; i++, t += dt)
+            out[i] = ring_sum(p, out[i], saw_at(t, dt) - saw_at(t + 0x80000000u, dt));
+        break;
+    case FM_WAVE_SAW:
+        for (i = 0; i < n; i++, t += dt)
+            out[i] = ring_sum(p, out[i], saw_at(t, dt));
+        break;
+    default: /* pulse and noise (one factory tone, none): a sample at a time */
+        for (i = 0; i < n; i++)
+            out[i] = ring_sum(p, out[i], wave_next(p, 1));
+        return;
+    }
+    o->phase = t;
+}
+
+/*
+ * The next `n` samples of a ring pair with osc2 heard and cross-mod off
+ * (the JX-8P's X-MOD, and SYNC 2 with sync), as next_special gives them.
+ * osc1 goes into out[] raw, at full level whatever its own: the ring reads
+ * it there. Then osc2's free runs take ring_wave_run, the whole chunk
+ * without sync, between osc1's wraps with it; the wrap's two samples take
+ * next_special's own steps, as in sync_run.
+ */
+static void ring_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+{
+    uint32_t t0 = p->osc[0].phase;
+    wave_run(p, 0, out, n, FM_OSC_LEVEL_FULL, 0);
+    p->osc[0].phase = t0;
+    pair_runs(p, out, n, 1);
+}
+
+/*
  * The path is chosen once for the chunk: osc1 alone, osc2 alone, both
- * summed (osc1 into out[], then osc2 added), or sync / cross-mod a
- * sample at a time. An unheard oscillator only moves its phase, by n
- * increments at once. Two noises blend a sample at a time, as they share
- * one generator and fm_osc_pair_next draws them in turn.
+ * summed (osc1 into out[], then osc2 added), sync in runs between osc1's
+ * wraps, or cross-mod a sample at a time. An unheard oscillator only moves
+ * its phase, by n increments at once. Two noises go a sample at a time, as
+ * they share one generator and fm_osc_pair_next draws them in turn.
  */
 void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     uint32_t i;
+    int noises = p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE;
     if (p->special) {
+        if (!p->xmod && !noises) {
+            if (p->ring && p->level[1]) {
+                ring_run(p, out, n);
+                return;
+            }
+            /* the ring with osc2 unheard is silent, but next_special still
+             * draws osc1 for it: a noise osc1 at level 0 goes per sample */
+            if (!p->ring || p->level[0]) {
+                sync_run(p, out, n);
+                return;
+            }
+        }
         for (i = 0; i < n; i++) out[i] = next_special(p);
         return;
     }
@@ -693,7 +908,7 @@ void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
         wave_run(p, 0, out, n, p->level[0], 0);
         return;
     }
-    if (p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE) {
+    if (noises) {
         for (i = 0; i < n; i++) out[i] = fm_osc_pair_next(p);
         return;
     }

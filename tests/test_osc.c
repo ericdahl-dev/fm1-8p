@@ -1337,7 +1337,8 @@ static int pairs_match(const fm_osc_pair *a, const fm_osc_pair *b)
 /*
  * Random settings through the pair's setters: waves (noise too), widths,
  * tunings, pitch, pitch and width modulation, and each level 0, full or
- * between. `special` also sets sync (1), cross-mod (2) or both (3).
+ * between. `special` also sets sync (1), cross-mod (2) or both (3), and
+ * the ring (4).
  */
 static void random_pair(fm_osc_pair *p, uint32_t *seed, int special)
 {
@@ -1354,6 +1355,7 @@ static void random_pair(fm_osc_pair *p, uint32_t *seed, int special)
     if (special & 1) fm_osc_pair_set_sync(p, 1);
     if (special & 2)
         fm_osc_pair_set_xmod(p, (int32_t)(pair_rand(seed) % (FM_OSC_LEVEL_FULL + 1u)));
+    if (special & 4) fm_osc_pair_set_ring(p, 1);
     for (i = 0; i < 2; i++) fm_osc_pair_set_level(p, i, levels[pair_rand(seed) % 5]);
     if (pair_rand(seed) & 1) {
         int32_t oct1 = (int32_t)(pair_rand(seed) % 131073) - 65536;
@@ -1420,6 +1422,170 @@ TT_TEST(pair_render_with_xmod_matches_next_sample_by_sample)
     TT_CHECK_EQ(render_vs_next(3, 93, 400), 0);
 }
 
+/*
+ * With the ring (alone, then with sync): the same samples and state as
+ * fm_osc_pair_next, osc1 ringing osc2 every sample.
+ */
+TT_TEST(pair_render_with_ring_matches_next_sample_by_sample)
+{
+    TT_CHECK_EQ(render_vs_next(4, 105, 400), 0);
+    TT_CHECK_EQ(render_vs_next(5, 1105, 400), 0);
+}
+
+/*
+ * A random change between chunks, as the voice makes them at control
+ * ticks: pitch modulation (now and then far enough down to stop osc1, or
+ * up near Nyquist so it wraps every sample or two), width modulation, one
+ * oscillator's level (0, full or between) or a new pitch.
+ */
+static void random_change(fm_osc_pair *p, uint32_t *seed)
+{
+    static const int32_t levels[] = {0, FM_OSC_LEVEL_FULL, 1 << 29, 3 << 28, 12345678};
+    static const int32_t octs[] = {-(32 << 16), 5 << 16, 6 << 16, 0};
+    switch (pair_rand(seed) % 5) {
+    case 0:
+        fm_osc_pair_set_pitch_mod(p, (int32_t)(pair_rand(seed) % 131073) - 65536,
+                                  (int32_t)(pair_rand(seed) % 131073) - 65536);
+        break;
+    case 1:
+        fm_osc_pair_set_pitch_mod(p, octs[pair_rand(seed) % 4],
+                                  (int32_t)(pair_rand(seed) % 131073) - 65536);
+        break;
+    case 2:
+        fm_osc_pair_set_pw_mod(p, (int32_t)(pair_rand(seed) << 8));
+        break;
+    case 3:
+        fm_osc_pair_set_level(p, (uint8_t)(pair_rand(seed) & 1), levels[pair_rand(seed) % 5]);
+        break;
+    default:
+        fm_osc_pair_set_pitch(p, (int32_t)(12 + pair_rand(seed) % 110) << 16, RATE);
+        break;
+    }
+}
+
+/*
+ * Renders random chunks of random pairs (`special` as random_pair takes
+ * it) with fm_osc_pair_render and of a copy with fm_osc_pair_next, with a
+ * random change to both between chunks; returns the number of chunks where
+ * a sample or the pair's state differ.
+ */
+static int changes_vs_next(int special, uint32_t seed, int pairs)
+{
+    static fm_osc_pair a, b;
+    int32_t got[FM_MIX_FRAMES];
+    int k, chunk, bad = 0;
+    for (k = 0; k < pairs; k++) {
+        random_pair(&a, &seed, special);
+        b = a;
+        for (chunk = 0; chunk < 60; chunk++) {
+            uint32_t n = pair_rand(&seed) % (FM_MIX_FRAMES + 1), i;
+            int same = 1;
+            fm_osc_pair_render(&a, got, n);
+            for (i = 0; i < n; i++) same &= got[i] == fm_osc_pair_next(&b);
+            if (!same || !pairs_match(&a, &b)) bad++;
+            if (pair_rand(&seed) & 1) {
+                uint32_t s2 = seed;
+                random_change(&a, &seed);
+                random_change(&b, &s2);
+            }
+        }
+    }
+    return bad;
+}
+
+/*
+ * With sync on and the pair changed between chunks (pitch and width
+ * modulation, the levels, the pitch, osc1 stopped or wrapping every sample
+ * or two): fm_osc_pair_render gives the samples and state of
+ * fm_osc_pair_next, a restart's correction pending across a change too.
+ */
+TT_TEST(synced_pair_render_matches_next_across_changes_between_chunks)
+{
+    TT_CHECK_EQ(changes_vs_next(1, 4242, 300), 0);
+}
+
+/*
+ * With the ring on (alone, as X-MOD, then with sync, as SYNC 2) and the
+ * pair changed between chunks, a level to 0 or full among the changes:
+ * fm_osc_pair_render gives the samples and state of fm_osc_pair_next.
+ */
+TT_TEST(ringed_pair_render_matches_next_across_changes_between_chunks)
+{
+    TT_CHECK_EQ(changes_vs_next(4, 5151, 300), 0);
+    TT_CHECK_EQ(changes_vs_next(5, 6161, 300), 0);
+}
+
+/*
+ * Places osc1's wrap on a chunk's first sample, its last and the one just
+ * past it, landing exactly on phase 0 or one step either side, for every
+ * pair of waves and of levels, with sync and the ring as given; returns
+ * the number of chunks where the render and fm_osc_pair_next differ.
+ */
+static int edges_vs_next(uint8_t sync, uint8_t ring)
+{
+    /* osc1's and osc2's levels: each alone, both full, both between, both 0 */
+    static const int32_t levels[][2] = {
+        {FM_OSC_LEVEL_FULL, 0}, {0, FM_OSC_LEVEL_FULL}, {FM_OSC_LEVEL_FULL, FM_OSC_LEVEL_FULL},
+        {1 << 29, 3 << 28}, {0, 0}, {1 << 29, 0}};
+    static const uint32_t ns[] = {1, 2, 17, FM_MIX_FRAMES};
+    static fm_osc_pair a, b;
+    int32_t got[FM_MIX_FRAMES];
+    uint32_t w1, w2, mx, k, at, land, i;
+    int bad = 0;
+    for (w1 = 0; w1 < FM_WAVE_COUNT; w1++)
+    for (w2 = 0; w2 < FM_WAVE_COUNT; w2++)
+    for (mx = 0; mx < 6; mx++)
+    for (k = 0; k < 4; k++)
+    for (at = 0; at < 3; at++)
+    for (land = 0; land < 3; land++) {
+        uint32_t n = ns[k], wrap = at == 0 ? 0 : at == 1 ? n - 1 : n, c;
+        fm_osc_pair_reset(&a, 99);
+        fm_osc_pair_set_wave(&a, 0, (uint8_t)w1);
+        fm_osc_pair_set_wave(&a, 1, (uint8_t)w2);
+        fm_osc_pair_set_tune(&a, 1, 1937, 45 << 16, RATE);
+        fm_osc_pair_set_pitch(&a, 45 << 16, RATE);
+        fm_osc_pair_set_sync(&a, sync);
+        fm_osc_pair_set_ring(&a, ring);
+        fm_osc_pair_set_level(&a, 0, levels[mx][0]);
+        fm_osc_pair_set_level(&a, 1, levels[mx][1]);
+        /* after sample `wrap` osc1 is at 0 (land 1), just short or past */
+        a.osc[0].phase = (land - 1) - (wrap + 1) * a.osc[0].inc;
+        a.osc[1].phase = 0x12345678u;
+        b = a;
+        for (c = 0; c < 3; c++) {
+            int same = 1;
+            fm_osc_pair_render(&a, got, n);
+            for (i = 0; i < n; i++) same &= got[i] == fm_osc_pair_next(&b);
+            if (!same || !pairs_match(&a, &b)) bad++;
+        }
+    }
+    return bad;
+}
+
+/*
+ * With sync on, osc1's wrap placed on a chunk's first sample, its last,
+ * and the one just past it, landing exactly on phase 0 or one step either
+ * side, for every pair of waves and levels (each alone, both full, both
+ * between, both 0): the render
+ * gives fm_osc_pair_next's samples and state, the restart's second sample
+ * falling in the next chunk.
+ */
+TT_TEST(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
+{
+    TT_CHECK_EQ(edges_vs_next(1, 0), 0);
+}
+
+/*
+ * The same with the ring on, synced (SYNC 2) and not (X-MOD): osc1's wrap
+ * at a chunk's edges, every pair of waves, and the levels each alone, both
+ * full, both between and both 0.
+ */
+TT_TEST(ringed_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges)
+{
+    TT_CHECK_EQ(edges_vs_next(1, 1), 0);
+    TT_CHECK_EQ(edges_vs_next(0, 1), 0);
+}
+
 /* Each oscillator takes its own pitch offset: osc 1 bent an octave up
  * plays what a bend of both would give it, osc 2 stays at its pitch, and
  * a new pitch keeps each oscillator's offset. */
@@ -1444,9 +1610,226 @@ TT_TEST(pitch_mod_bends_each_oscillator_by_its_own_offset)
     TT_CHECK_EQ(p.osc[1].inc, plain.osc[1].inc);
 }
 
+/*
+ * The JX-8P's ring (#105): osc2 times osc1, as PG-8X 2.0.13 plays SYNC 2
+ * and X-MOD. A pair with osc2 a fifth and 37 cents up, osc2 heard alone,
+ * rendered three ways in step: osc1 alone (m1, peak 1), osc2 alone (x2)
+ * and with the ring on.
+ */
+#define RING_ONE 16777216.0 /* 1.0 in Q8.24 */
+static uint8_t ring_sync; /* 1: the pairs run synced (SYNC 2) */
+static void ring_pair(fm_osc_pair *p, uint8_t w1, uint8_t w2, uint8_t alone, uint8_t ring)
+{
+    int32_t pitch = 48 << 16;
+    fm_osc_pair_reset(p, 1);
+    fm_osc_pair_set_wave(p, 0, w1);
+    fm_osc_pair_set_wave(p, 1, w2);
+    fm_osc_pair_set_width(p, 0, 25);
+    fm_osc_pair_set_width(p, 1, 25);
+    fm_osc_pair_set_tune(p, 1, 737, pitch, RATE);
+    fm_osc_pair_set_pitch(p, pitch, RATE);
+    fm_osc_pair_set_level(p, 0, alone ? 0 : FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_level(p, 1, alone ? FM_OSC_LEVEL_FULL : 0);
+    fm_osc_pair_set_sync(p, ring_sync);
+    fm_osc_pair_set_ring(p, ring);
+}
+
+/* Largest error (in units of 1.0) of the ring against x2 (a + b m1) + c m1, held to +-2.0, over n samples. */
+static double ring_law_error(uint8_t w1, uint8_t w2, double a, double b, double c, uint32_t n)
+{
+    static fm_osc_pair x1, x2, y;
+    double worst = 0;
+    uint32_t i;
+    ring_pair(&x1, w1, w2, 0, 0);
+    ring_pair(&x2, w1, w2, 1, 0);
+    ring_pair(&y, w1, w2, 1, 1);
+    for (i = 0; i < n; i++) {
+        double m1 = fm_osc_pair_next(&x1) / RING_ONE, s2 = fm_osc_pair_next(&x2) / RING_ONE;
+        double want = s2 * (a + b * m1) + c * m1, got = fm_osc_pair_next(&y) / RING_ONE;
+        want = want > 2.0 ? 2.0 : want < -2.0 ? -2.0 : want; /* ring_stays_within_two */
+        if (fabs(got - want) > worst) worst = fabs(got - want);
+    }
+    return worst;
+}
+
+/*
+ * Square on both: osc2 passes at 0.84 - 0.83 m1 (1.67x while osc1 is low,
+ * 0.01x while it is high) with 0.21 of osc1 on top, the fit of PG-8X's
+ * X-MOD with osc1 measured against a clean square (PG-8X's peaks 1.22x
+ * its plateau, which the fit at peak 1 read as b = -1.0).
+ */
+TT_TEST(ring_multiplies_osc2_by_osc1_square)
+{
+    double err = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, -0.83, 0.21, 20000);
+    printf("    ring square/square: largest error %.2e\n", err);
+    TT_CHECK(err < 1e-4);
+}
+
+/* A saw osc1 has PG-8X's a of 1.12 (osc1's wave sets it, whatever osc2's), b -0.85 (against a
+ * clean saw: PG-8X's peaks 1.17x the ramp's) and c 0.235. */
+TT_TEST(ring_depth_follows_a_saw_osc1)
+{
+    double err = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, -0.85, 0.235, 20000);
+    printf("    ring saw/square: largest error %.2e\n", err);
+    TT_CHECK(err < 1e-4);
+}
+
+/* A pulse osc1 (25 %, the converter's) has PG-8X's a of 1.66 and c 0.15. */
+TT_TEST(ring_depth_follows_a_pulse_osc1)
+{
+    double err = ring_law_error(FM_WAVE_PULSE, FM_WAVE_SQUARE, 1.66, -1.0, 0.15, 20000);
+    printf("    ring pulse/square: largest error %.2e\n", err);
+    TT_CHECK(err < 1e-4);
+}
+
+/* Noise on osc1 (not measured on PG-8X): plain ring modulation, a 1.0 and no bleed. */
+TT_TEST(ring_with_noise_osc1_is_plain_ring_modulation)
+{
+    double err = ring_law_error(FM_WAVE_NOISE, FM_WAVE_SQUARE, 1.0, -1.0, 0.0, 20000);
+    printf("    ring noise/square: largest error %.2e\n", err);
+    TT_CHECK(err < 1e-4);
+}
+
+/*
+ * SYNC 2 is sync plus the ring: the same law on the synced osc2, its
+ * restarts and their polyBLEPs ringed like the rest of its wave.
+ */
+TT_TEST(ring_rides_the_synced_osc2)
+{
+    double sq, saw;
+    ring_sync = 1;
+    sq = ring_law_error(FM_WAVE_SQUARE, FM_WAVE_SQUARE, 0.84, -0.83, 0.21, 20000);
+    saw = ring_law_error(FM_WAVE_SAW, FM_WAVE_SQUARE, 1.12, -0.85, 0.235, 20000);
+    ring_sync = 0;
+    printf("    synced ring: largest error square %.2e, saw %.2e\n", sq, saw);
+    TT_CHECK(sq < 1e-4);
+    TT_CHECK(saw < 1e-4);
+}
+
+/*
+ * The ring can reach past +-2.0 (a saw osc1 at its trough: osc2 times
+ * 2.12, less 0.235 of osc1), but the pair stays inside the soft clip's
+ * untouched +-2.0 that the open-filter render relies on: every wave pair,
+ * free and synced, osc2 at the pulse's narrowest and far up, at the
+ * pitch and rate extremes, osc2 heard alone or summed with osc1 at full
+ * (the mixer's sum: osc1 plus the ringed osc2 would reach 3.0).
+ */
+TT_TEST(ring_stays_within_two)
+{
+    static const uint32_t rates[] = { 8000, 44100, 192000 };
+    static const int32_t notes[] = { 0, 48, 60, 127 };
+    static fm_osc_pair p;
+    int32_t peak = 0;
+    size_t r, n, w1, w2, sy, l1, i;
+    for (l1 = 0; l1 < 2; l1++)
+    for (r = 0; r < 3; r++)
+    for (n = 0; n < 4; n++)
+    for (w1 = 0; w1 < FM_WAVE_COUNT; w1++)
+    for (w2 = 0; w2 < FM_WAVE_COUNT; w2++)
+    for (sy = 0; sy < 2; sy++) {
+        int32_t pitch = notes[n] << 16;
+        fm_osc_pair_reset(&p, 7);
+        fm_osc_pair_set_wave(&p, 0, (uint8_t)w1);
+        fm_osc_pair_set_wave(&p, 1, (uint8_t)w2);
+        fm_osc_pair_set_width(&p, 0, 25);
+        fm_osc_pair_set_width(&p, 1, 1);
+        fm_osc_pair_set_tune(&p, 1, 3737, pitch, rates[r]);
+        fm_osc_pair_set_pitch(&p, pitch, rates[r]);
+        fm_osc_pair_set_level(&p, 0, l1 ? FM_OSC_LEVEL_FULL : 0);
+        fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_sync(&p, (uint8_t)sy);
+        fm_osc_pair_set_ring(&p, 1);
+        for (i = 0; i < 20000; i++) {
+            int32_t v = fm_osc_pair_next(&p);
+            if (v < 0) v = -v;
+            if (v > peak) peak = v;
+        }
+    }
+    printf("    ring: largest sample %.3f\n", peak / RING_ONE);
+    TT_CHECK(peak <= (2 << 24));
+}
+
+/*
+ * With osc2 unheard (mix 0: 29 AGOGO BELL's X-MOD with MIX DCO-2 at 0) the
+ * ring is silent: the same samples and the same state as the ring off, the
+ * osc1-alone path included, every wave on osc1, free and synced. Once osc2
+ * is mixed in the ring sounds.
+ */
+TT_TEST(ring_is_silent_with_osc2_unheard)
+{
+    static fm_osc_pair on, off;
+    uint8_t w, sy;
+    int bad = 0, heard;
+    uint32_t i;
+    for (w = 0; w < FM_WAVE_COUNT; w++)
+    for (sy = 0; sy < 2; sy++) {
+        ring_sync = sy;
+        ring_pair(&on, w, FM_WAVE_SAW, 0, 1);
+        ring_pair(&off, w, FM_WAVE_SAW, 0, 0);
+        for (i = 0; i < 5000; i++)
+            if (fm_osc_pair_next(&on) != fm_osc_pair_next(&off)) bad++;
+        if (!pairs_match(&on, &off)) bad++;
+    }
+    ring_sync = 0;
+    fm_osc_pair_set_level(&on, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_level(&off, 1, FM_OSC_LEVEL_FULL);
+    for (i = 0, heard = 0; i < 5000; i++)
+        if (fm_osc_pair_next(&on) != fm_osc_pair_next(&off)) heard = 1;
+    TT_CHECK_EQ(bad, 0);
+    TT_CHECK(heard);
+}
+
+/* Power of channel 0 over frames [from, to). */
+static double ring_power(const int16_t *stereo, size_t from, size_t to)
+{
+    double sum = 0;
+    size_t i;
+    for (i = from; i < to; i++) sum += (double)stereo[2 * i] * stereo[2 * i];
+    return sum / (double)(to - from);
+}
+
+/*
+ * osc_ring through the engine (the JX-8P's SYNC 2 and X-MOD): off by
+ * default; on, a sounding note's osc2 (square, an octave and 37 cents up,
+ * mixed alone, low enough that the output's soft clip stays out of it)
+ * is ringed by osc1's square at once, 1.6 dB louder: the square law's
+ * mean square, 0.84^2 + 0.83^2 + 0.21^2 (PG-8X: +1.7 dB).
+ */
+TT_TEST(osc_ring_param_rings_sounding_notes)
+{
+    const fm_param_info *info = fm_param_info_get(FM_PARAM_OSC_RING);
+    double off, on, db;
+    TT_CHECK(info != NULL);
+    if (!info) return;
+    TT_CHECK_EQ(info->min, 0);
+    TT_CHECK_EQ(info->max, 1);
+    TT_CHECK_EQ(info->def, 0);
+    slave_init(44100, FM_WAVE_SQUARE);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SQUARE);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 125); /* under the output's soft clip, ringed too */
+    fm_engine_note_on(&eng, 48, 100);
+    fm_engine_render(&eng, buf, 12000);
+    off = ring_power(buf, 4000, 12000);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC_RING, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_get_param(&eng, FM_PARAM_OSC_RING), 1);
+    fm_engine_render(&eng, buf, 12000);
+    on = ring_power(buf, 4000, 12000);
+    db = 10 * log10(on / off);
+    printf("    osc_ring on: %+.2f dB over osc2 alone\n", db);
+    TT_CHECK(db > 1.2 && db < 2.0);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(each_wave_renders_at_note_pitch);
+    TT_RUN(ring_multiplies_osc2_by_osc1_square);
+    TT_RUN(ring_depth_follows_a_saw_osc1);
+    TT_RUN(ring_depth_follows_a_pulse_osc1);
+    TT_RUN(ring_with_noise_osc1_is_plain_ring_modulation);
+    TT_RUN(ring_rides_the_synced_osc2);
+    TT_RUN(ring_stays_within_two);
+    TT_RUN(ring_is_silent_with_osc2_unheard);
+    TT_RUN(osc_ring_param_rings_sounding_notes);
     TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
     TT_RUN(pulse_width_sets_duty_cycle);
     TT_RUN(square_ignores_pulse_width);
@@ -1498,4 +1881,9 @@ static void run_osc_tests(void)
     TT_RUN(pair_render_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_sync_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_xmod_matches_next_sample_by_sample);
+    TT_RUN(pair_render_with_ring_matches_next_sample_by_sample);
+    TT_RUN(synced_pair_render_matches_next_across_changes_between_chunks);
+    TT_RUN(ringed_pair_render_matches_next_across_changes_between_chunks);
+    TT_RUN(synced_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges);
+    TT_RUN(ringed_pair_render_matches_next_with_osc1_wrapping_at_chunk_edges);
 }
