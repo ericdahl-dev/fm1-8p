@@ -192,15 +192,112 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
     return 1;
 }
 
+/*
+ * setting_glide (#146): PG-8X 2.0.13 glides these settings to a new value
+ * as a one-pole of about 16 ms (measured mid-note through DawDreamer
+ * automation: VCA LEVEL 15.9 ms, MIX DCO-2 16.7 / 15.7, VCF FREQ 16.4 /
+ * 15.9, VCF ENV, KEY and RES alike, the LFO depth about 20). From init
+ * they start at PG-8X's power-on values, so a patch set before the first
+ * render glides in from them, as PG-8X's renders start.
+ */
+static const uint16_t glide_id[FM_GLIDE_SETTINGS] = {
+    FM_PARAM_OSC1_LEVEL, FM_PARAM_OSC2_LEVEL, FM_PARAM_FILTER_CUTOFF_CENTS,
+    FM_PARAM_FILTER_RESONANCE, FM_PARAM_FILTER_KEY_TRACK, FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
+    FM_PARAM_LFO_PITCH_CENTS, FM_PARAM_LFO_PITCH_OSC2_CENTS
+};
+/* PG-8X's power-on values in engine units: DCO-1 at full mix, DCO-2 off,
+ * VCF FREQ 127 (tools/jx8p.py cutoff_cents), the rest 0 */
+static const int32_t glide_power_on[FM_GLIDE_SETTINGS] = { 1000, 0, 14728, 0, 0, 0, 0, 0 };
+#define GLIDE_TAU_MS 16
+
+static int glide_index(uint16_t id)
+{
+    int k;
+    for (k = 0; k < FM_GLIDE_SETTINGS; k++)
+        if (glide_id[k] == id) return k;
+    return -1;
+}
+
+/* Where setting k is going: its parameter (osc 2's LFO depth -1 is osc
+ * 1's). */
+static int32_t glide_target(const fm_engine *e, int k)
+{
+    int32_t v = e->params[glide_id[k]];
+    if (glide_id[k] == FM_PARAM_LFO_PITCH_OSC2_CENTS && v < 0)
+        v = e->params[FM_PARAM_LFO_PITCH_CENTS];
+    return v;
+}
+
+/* The value a setting plays at now: where its glide is, or (no glide)
+ * its parameter. */
+static int32_t live_value(const fm_engine *e, uint16_t id)
+{
+    int k;
+    if (!e->params[FM_PARAM_SETTING_GLIDE] || (k = glide_index(id)) < 0)
+        return e->params[id];
+    return (e->glide_cur[k] + (1 << 15)) >> 16;
+}
+
+/* Nonzero while a setting is still on its way. */
+static int glide_live(const fm_engine *e)
+{
+    int k;
+    if (!e->params[FM_PARAM_SETTING_GLIDE]) return 0;
+    for (k = 0; k < FM_GLIDE_SETTINGS; k++)
+        if (e->glide_cur[k] != glide_target(e, k) * 65536) return 1;
+    return 0;
+}
+
+/* One tick of 1 - exp(-tick / tau), Q1.30, from its series (the tick is
+ * at most a quarter of tau, at 8 kHz). */
+static void glide_init(fm_engine *e)
+{
+    int k;
+    int64_t x = ((int64_t)FM_LFO_TICK_FRAMES << 30) * 1000 /
+                ((int64_t)GLIDE_TAU_MS * e->sample_rate);
+    int64_t x2 = (x * x) >> 30, x3 = (x2 * x) >> 30;
+    e->glide_k = (int32_t)(x - x2 / 2 + x3 / 6);
+    for (k = 0; k < FM_GLIDE_SETTINGS; k++)
+        e->glide_cur[k] = glide_power_on[k] * 65536;
+}
+
+static void apply_param(fm_engine *e, uint16_t id);
+
+/* At a control tick: each setting one step on its way; what moves is
+ * applied as its parameter would be. */
+static void glide_tick(fm_engine *e)
+{
+    int k;
+    for (k = 0; k < FM_GLIDE_SETTINGS; k++) {
+        int32_t to = glide_target(e, k) * 65536, was = live_value(e, glide_id[k]);
+        int64_t d = (int64_t)to - e->glide_cur[k];
+        if (!d) continue;
+        if (d > -65536 && d < 65536)
+            e->glide_cur[k] = to;
+        else
+            e->glide_cur[k] += (int32_t)((d * e->glide_k) / (1 << 30));
+        if (live_value(e, glide_id[k]) != was) apply_param(e, glide_id[k]);
+    }
+}
+
 /* Recomputes the derived settings a parameter feeds. */
 static void apply_param(fm_engine *e, uint16_t id)
 {
-    int32_t v = e->params[id];
+    int32_t v = live_value(e, id);
     uint8_t i;
     switch (id) {
     case FM_PARAM_BEND_RANGE:
         apply_bend(e, e->bend_value);
         return;
+    case FM_PARAM_SETTING_GLIDE: { /* on after a render: from where they are */
+        int k;
+        if (v && e->ticks)
+            for (k = 0; k < FM_GLIDE_SETTINGS; k++)
+                e->glide_cur[k] = glide_target(e, k) * 65536;
+        for (k = 0; k < FM_GLIDE_SETTINGS; k++)
+            apply_param(e, glide_id[k]);
+        return;
+    }
     case FM_PARAM_OSC1_WAVE:
     case FM_PARAM_OSC1_PULSE_WIDTH_PCT:
     case FM_PARAM_OSC1_OCTAVE:
@@ -285,8 +382,8 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_LFO_PITCH_OSC2_CENTS: {
         /* cents -> Q16.16 octaves: exact for multiples of 75 cents. Osc 2
          * has its own depth, or (-1) osc 1's */
-        int32_t c1 = e->params[FM_PARAM_LFO_PITCH_CENTS];
-        int32_t c2 = e->params[FM_PARAM_LFO_PITCH_OSC2_CENTS];
+        int32_t c1 = live_value(e, FM_PARAM_LFO_PITCH_CENTS);
+        int32_t c2 = live_value(e, FM_PARAM_LFO_PITCH_OSC2_CENTS);
         if (c2 < 0) c2 = c1;
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH1,
                          c1 * 65536 / 1200);
@@ -337,7 +434,7 @@ static void apply_param(fm_engine *e, uint16_t id)
     if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS ||
         id == FM_PARAM_FILTER_ENV_SOURCE) { /* every voice's, shared */
         int env2 = e->params[FM_PARAM_FILTER_ENV_SOURCE] != 0;
-        int32_t amount = e->params[FM_PARAM_FILTER_ENV_AMOUNT_CENTS];
+        int32_t amount = live_value(e, FM_PARAM_FILTER_ENV_AMOUNT_CENTS);
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV1, FM_MOD_CUTOFF,
                          env2 ? 0 : amount);
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV2, FM_MOD_CUTOFF,
@@ -445,6 +542,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         }
     }
     fm_chorus_init(&e->chorus, sample_rate);
+    glide_init(e);
     /* all defaults first: some settings combine several parameters */
     for (id = 0; id < FM_PARAM_COUNT; id++)
         e->params[id] = fm_param_info_get(id)->def;
@@ -814,6 +912,7 @@ static void control_tick(fm_engine *e)
     uint8_t k;
     e->ticks++;
     e->tick_left = FM_LFO_TICK_FRAMES;
+    if (glide_live(e)) glide_tick(e);
     /* with every depth at 0 (after one tick that clears any offset still
      * applied) the voices have nothing to do */
     if (lfo_live(e))
@@ -838,7 +937,7 @@ static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    if (lfo_live(e) && n > e->tick_left)
+    if ((lfo_live(e) || glide_live(e)) && n > e->tick_left)
         n = e->tick_left;
     return n;
 }

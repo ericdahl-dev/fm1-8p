@@ -33,6 +33,8 @@
 #define FM_MAX_VOICES 8
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
+/* settings that glide with setting_glide (#146) */
+#define FM_GLIDE_SETTINGS 8
 /* Keys unison mode remembers for last-note priority (oldest dropped). */
 #define FM_HELD_MAX 16
 
@@ -104,6 +106,7 @@ typedef enum {
                         * the DYNAMICS share at the velocity (engine/dyna.c) */
     FM_PARAM_OSC_MIX_ENV_DYNA, /* MIX DYNAMICS 0 (off) .. 3: osc_mix_env's depth
                                 * times the DYNAMICS share at the velocity */
+    FM_PARAM_SETTING_GLIDE, /* 1: levels, filter and LFO depths glide as PG-8X's (#146) */
     FM_PARAM_COUNT
 } fm_param_id;
 
@@ -146,6 +149,10 @@ typedef struct {
      * voices' scratch (each voice's oscillators for the chunk): the chorus
      * only writes it (chorus_block_writes_right_without_reading_it) */
     int32_t mix_right[FM_MIX_FRAMES];
+    /* setting_glide (#146): where each gliding setting is now, Q16 in
+     * its own units, and the one-pole's step a control tick, Q1.30 */
+    int32_t glide_cur[FM_GLIDE_SETTINGS];
+    int32_t glide_k;
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
