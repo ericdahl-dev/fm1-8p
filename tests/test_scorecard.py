@@ -171,14 +171,14 @@ class HistoryTest(unittest.TestCase):
 
     def test_rows_carry_their_bank_and_rows_without_one_are_the_factory_bank(self):
         row = self.sc.tone_row("abc", "2026-11-13T01:00:00-05:00", 1, "T1", {"spectral_db_mean": 3.0}, "r1",
-                               bank="jandreas")
-        self.assertEqual(row["bank"], "jandreas")
+                               bank="other")
+        self.assertEqual(row["bank"], "other")
         self.assertEqual(self.sc.tone_row("abc", "d", 1, "T1", {}, "r1")["bank"], "factory")
         old = {"schema": 2, "kind": "tone", "commit": "abc", "date": "2026-11-13T00:00:00-05:00", "tone": 1,
                "name": "T1", "ref": "r1", "spectral_db_mean": 9.0}
         self.sc.append_rows(self.path, [old, row])
         self.assertEqual([r["spectral_db_mean"] for r in self.sc.rows_for(self.path, "abc", "r1")], [9.0])
-        self.assertEqual([r["spectral_db_mean"] for r in self.sc.rows_for(self.path, "abc", "r1", "jandreas")], [3.0])
+        self.assertEqual([r["spectral_db_mean"] for r in self.sc.rows_for(self.path, "abc", "r1", "other")], [3.0])
 
     def test_worst_five_are_the_largest_spectral_means(self):
         got = self.sc.worst(self.rows([5, 30, 1, 25, 9, 40, 2]), 5)
