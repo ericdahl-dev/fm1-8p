@@ -191,6 +191,20 @@ TT_TEST(osc2_coarse_tune_shifts_by_semitones)
     }
 }
 
+/* osc1's coarse tune too (#108: JX-8P DCO-1 TUNE, which the converter had to fold into whole octaves):
+ * +7 a fifth up, -7 a fifth down. */
+TT_TEST(osc1_coarse_tune_shifts_by_semitones)
+{
+    static const int32_t semis[] = { 7, -7 };
+    size_t k;
+    for (k = 0; k < sizeof semis / sizeof semis[0]; k++) {
+        double want = RATE / (note_hz(57) * pow(2.0, semis[k] / 12.0));
+        osc_init();
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC1_COARSE_SEMIS, semis[k]), FM_OK);
+        TT_CHECK_NEAR(held_period(57), want, want * 0.0006); /* 1 cent */
+    }
+}
+
 /* Coarse tune past +-12 clamps to +-12: an octave up or down, no further. */
 TT_TEST(osc2_coarse_tune_clamps_to_an_octave)
 {
@@ -1853,6 +1867,7 @@ static void run_osc_tests(void)
     TT_RUN(mix_env_from_the_amp_env_leaves_the_filter_env_lazy);
     TT_RUN(mix_env_source_switch_reads_the_filter_env_where_it_is);
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
+    TT_RUN(osc1_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
     TT_RUN(osc2_coarse_change_retunes_a_held_note_without_a_restart);

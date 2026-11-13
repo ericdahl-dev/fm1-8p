@@ -100,9 +100,7 @@ static int32_t osc_tune_cents(const fm_engine *e, uint8_t which)
 {
     const int32_t *p = &e->params[which ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE];
     int32_t cents = p[2] * 1200 + p[3];
-    if (which)
-        cents += e->params[FM_PARAM_OSC2_COARSE_SEMIS] * 100;
-    return cents;
+    return cents + e->params[which ? FM_PARAM_OSC2_COARSE_SEMIS : FM_PARAM_OSC1_COARSE_SEMIS] * 100;
 }
 
 /* Retunes oscillator `which` on every voice to its octave, coarse and fine. */
@@ -208,6 +206,9 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     case FM_PARAM_OSC2_COARSE_SEMIS:
         retune_osc(e, 1);
+        return;
+    case FM_PARAM_OSC1_COARSE_SEMIS:
+        retune_osc(e, 0);
         return;
     case FM_PARAM_OSC_XMOD:
         for (i = 0; i < FM_MAX_VOICES; i++)
