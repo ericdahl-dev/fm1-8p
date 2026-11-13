@@ -138,8 +138,47 @@ TT_TEST(each_voice_thumps_once_after_init)
     TT_CHECK(again <= 1);
 }
 
+/* A first note held until the pulse is over (where the thump rests),
+ * then released: its voice does not thump when it plays again, softer
+ * (a part followed again would step down to the new level). */
+TT_TEST(a_voice_released_after_its_pulse_is_over_does_not_thump_again)
+{
+    int again;
+    uint8_t k;
+    uint32_t i;
+    on_silent_tone();
+    fm_engine_set_param(&on_eng, FM_PARAM_AMP_RELEASE_MS, 1);
+    fm_engine_set_param(&on_eng, FM_PARAM_AMP_VELOCITY, 100);
+    for (k = 0; k < ON_VOICES; k++) fm_engine_note_on(&on_eng, (uint8_t)(84 + k), 127);
+    fm_engine_render(&on_eng, on_buf, 2 * ON_RATE);
+    for (k = 0; k < ON_VOICES; k++) fm_engine_note_off(&on_eng, (uint8_t)(84 + k));
+    fm_engine_render(&on_eng, on_buf, 100);
+    for (k = 0; k < ON_VOICES; k++) fm_engine_note_on(&on_eng, (uint8_t)(60 + k), 40);
+    for (i = 0; i < ON_RATE / 10; i += 32)   /* small blocks, as the firmware renders */
+        fm_engine_render(&on_eng, on_buf + 2 * i, 32);
+    again = peak_abs(on_buf, 0, ON_RATE / 10);
+    printf("    played again after its pulse: %d counts\n", again);
+    TT_CHECK(again <= 1);
+}
+
+/* The pulse ends: with the oscillators off, a held chord's output is
+ * exactly 0 again (no DC left, PG-8X: +6.19e-07 over 0.5..1 s after) */
+TT_TEST(the_thump_comes_back_to_exactly_zero)
+{
+    uint8_t k;
+    size_t i, nonzero = 0;
+    on_silent_tone();
+    for (k = 0; k < ON_VOICES; k++) fm_engine_note_on(&on_eng, (uint8_t)(84 + k), 127);
+    fm_engine_render(&on_eng, on_buf, 2 * ON_RATE);
+    for (i = 2 * ON_RATE * 3 / 2; i < 2 * 2 * ON_RATE; i++) nonzero += on_buf[i] != 0;
+    printf("    nonzero samples 1.5..2 s: %zu (last %d)\n", nonzero, on_buf[2 * 2 * ON_RATE - 1]);
+    TT_CHECK(nonzero == 0);
+}
+
 static void run_onset_tests(void)
 {
+    TT_RUN(the_thump_comes_back_to_exactly_zero);
+    TT_RUN(a_voice_released_after_its_pulse_is_over_does_not_thump_again);
     TT_RUN(each_voice_thumps_once_after_init);
     TT_RUN(the_highpass_step_shapes_the_thump_like_pg8x);
     TT_RUN(note_off_adds_no_thump_of_its_own);

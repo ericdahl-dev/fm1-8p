@@ -449,36 +449,43 @@ static int32_t thump_input(fm_engine *e)
     return (int32_t)x;
 }
 
-/* Nonzero while the thump has something to do: a voice plays its first
- * note (or has just been given one), or the step moved at the last tick,
- * or the highpasses are not back at rest. Then chunks stop at the
- * control ticks, where the step is read, so the output does not depend
- * on the caller's block size. Otherwise it costs nothing. */
+/*
+ * Nonzero while the thump has something to do: a voice has just been
+ * given its first note, or plays it anywhere but at its sustain (its
+ * level moves, or its release has to be found to hold its part), or the
+ * step moved at the last tick, or the highpasses are not back at rest.
+ * Then chunks stop at the control ticks, where the step is read, so the
+ * output does not depend on the caller's block size. Otherwise (a first
+ * note held at its sustain, the pulse over) it costs nothing.
+ */
 static int thump_live(const fm_engine *e)
 {
     uint8_t k;
     if (!e->params[FM_PARAM_ONSET_THUMP]) return 0;
     if (e->thump_x != e->thump_prev || e->thump_y1 | e->thump_y2 | e->thump_hp) return 1;
-    for (k = 0; k < e->voice_count; k++)
-        if (e->thump_state[k] == 1 || (e->thump_state[k] == 0 && fm_voice_active(&e->voices[k])))
+    for (k = 0; k < e->voice_count; k++) {
+        const fm_voice *v = &e->voices[k];
+        if (e->thump_state[k] == 0 ? fm_voice_active(v)
+                                   : e->thump_state[k] == 1 && v->amp_env.stage != FM_ENV_SUSTAIN)
             return 1;
+    }
     return 0;
 }
 
-/* Under this (Q8.24 voice units, 1/100 of an output LSB at 6 voices) a
- * highpass state is at rest: a negative one would otherwise stay at -1. */
-#define THUMP_REST 64
-#define THUMP_AT_REST(v) ((uint32_t)(v) + THUMP_REST < 2u * THUMP_REST)
-
-/* At a control tick: the step as it is now; once it holds still and the
- * highpasses have settled, they rest at exactly 0. */
+/* At a control tick: the step as it is now. */
 static void thump_tick(fm_engine *e)
 {
     e->thump_prev = e->thump_x;
     e->thump_x = thump_input(e);
-    if (e->thump_x == e->thump_prev && THUMP_AT_REST(e->thump_y1) &&
-        THUMP_AT_REST(e->thump_y2) && THUMP_AT_REST(e->thump_hp))
-        e->thump_y1 = e->thump_y2 = e->thump_hp = 0;
+}
+
+/* v x a (Q1.30), rounded toward 0: a highpass state then decays to
+ * exactly 0, where a shift (rounding down) would hold a negative one at
+ * the size where one step's change is under 1 (-770 here). */
+static int32_t thump_mul(int64_t v, int32_t a)
+{
+    int64_t p = v * a;
+    return (int32_t)(p >= 0 ? p >> 30 : -((-p) >> 30));
 }
 
 /*
@@ -495,11 +502,11 @@ static void thump_add(fm_engine *e, uint32_t n)
     for (i = 0; i < n; i++, p++) {
         int32_t dx = (int32_t)(((d * (int32_t)(p + 1)) >> FM_LFO_TICK_SHIFT) -
                                ((d * (int32_t)p) >> FM_LFO_TICK_SHIFT));
-        int32_t y1 = (int32_t)(((int64_t)(e->thump_y1 + dx) * e->thump_a1) >> 30);
-        e->thump_y2 = (int32_t)(((int64_t)(e->thump_y2 + y1 - e->thump_y1) * e->thump_a2) >> 30);
+        int32_t y1 = thump_mul((int64_t)e->thump_y1 + dx, e->thump_a1);
+        e->thump_y2 = thump_mul((int64_t)e->thump_y2 + y1 - e->thump_y1, e->thump_a2);
         e->thump_y1 = y1;
         if (hp_g) {
-            e->thump_hp += (int32_t)(((int64_t)(e->thump_y2 - e->thump_hp) * hp_g) >> 30);
+            e->thump_hp += thump_mul((int64_t)e->thump_y2 - e->thump_hp, hp_g);
             e->mix[i] += e->thump_y2 - e->thump_hp;
         } else {
             e->mix[i] += e->thump_y2;
