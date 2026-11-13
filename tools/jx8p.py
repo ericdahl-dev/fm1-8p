@@ -161,7 +161,7 @@ FIELDS = [
     Field("OSC_MIX_ENV_SOURCE", "OSC_MIX_ENV_SOURCE", None, None, None),
     Field("OSC_MIX_ENV_VELOCITY_PCT", None, 0, 100, "velocity on the mix envelope (no issue yet)"),
     Field("FILTER_LFO_PERMILLE", None, 0, 1000, "#8"),
-    Field("FILTER_VELOCITY_PCT", None, 0, 100, "#8"),
+    Field("FILTER_ENV_DYNA", "FILTER_ENV_DYNA", None, None, None),
     Field("ENV1_KEY_FOLLOW", None, 0, 3, "#60"),
     Field("ENV2_KEY_FOLLOW", None, 0, 3, "#60"),
     Field("AMP_LEVEL_PERMILLE", None, 0, 1000, "a VCA level (no issue yet)"),
@@ -243,6 +243,23 @@ def permille(v):
     return rnd(v * 1000 / 127)
 
 
+# VCF RES byte -> the engine's resonance per mille, for PG-8X 2.0.13's peak heights over the passband
+# (VCF FREQ 64 and 80, noise in): +4 dB at 64, +8 at 80, +16 at 96, +24 at 112, +31 at 127. PG-8X's
+# curve has a hump: +6.5 dB at 32, down to +3.7 at 56 (#98; docs/patches.md).
+RESONANCE_PERMILLE = ((0, 0), (8, 180), (12, 245), (16, 290), (20, 340), (24, 390), (28, 445), (32, 500),
+                      (36, 465), (40, 435), (44, 415), (48, 395), (52, 380), (56, 375), (60, 380),
+                      (64, 400), (68, 425), (72, 465), (80, 575), (88, 690), (96, 795), (104, 860),
+                      (112, 900), (120, 925), (127, 935))
+
+
+def resonance_permille(v):
+    """VCF RES, 0..127, as the engine's resonance: RESONANCE_PERMILLE, linear between its points."""
+    for (b0, p0), (b1, p1) in zip(RESONANCE_PERMILLE, RESONANCE_PERMILLE[1:]):
+        if v <= b1:
+            return rnd(p0 + (p1 - p0) * (v - b0) / (b1 - b0))
+    return RESONANCE_PERMILLE[-1][1]
+
+
 def env(p, base):
     """The envelope at base (ENV1 or ENV2) as engine attack ms, decay ms, sustain per mille and
     release ms. Attack is the time to the peak of PG-8X 2.0.13's RC charge (attack_ms), 1 ms to
@@ -298,6 +315,26 @@ def env_mode(v):
     envelope's offset and the sign it is applied with."""
     pos = switch(v)
     return (ENV1 if pos >= 2 else ENV2), (1 if pos & 1 else -1)
+
+
+def cutoff_cents(v):
+    """VCF FREQ, 0..127, as the engine's cutoff in cents from MIDI note 0: 0.0988 v^2 + 115.03 v - 1474,
+    fitted so the engine's resonant peak lands on PG-8X 2.0.13's (VCF RES 96-127, no key follow, C4;
+    within 0.45 semitone over 48..112; docs/patches.md). Below 13 it is under the engine's lowest
+    cutoff, note 0 (8.2 Hz), and clamps there."""
+    return max(0, rnd(0.0988 * v * v + 115.03 * v - 1474))
+
+
+def key_track_permille(v):
+    """VCF KEY, 0..127, as the engine's key track: up to 1.29 octaves an octave at 127, as PG-8X
+    2.0.13 (match.py --param VCF_KEY, #95)."""
+    return rnd(1290 * v / 127)
+
+
+def filter_env_cents(v):
+    """VCF ENV, 0..127, as the filter envelope's depth in cents: 129 a step, fitted to PG-8X 2.0.13
+    (within 5 % over 8..48; docs/patches.md). 127 is 16383 cents."""
+    return 129 * v
 
 
 def hpf_step(v):
@@ -356,9 +393,13 @@ def to_engine(tone):
     e["OSC_SYNC"] = 1 if xmod in (1, 2) else 0
     e["XMOD_AM"] = 1 if xmod in (2, 3) else 0
     e["HIGHPASS_STEP"] = hpf_step(p[HPF])
-    e["FILTER_CUTOFF_CENTS"] = 1200 + 100 * p[VCF_FREQ]
-    e["FILTER_RESONANCE_PERMILLE"] = permille(p[VCF_RES])
-    e["FILTER_KEY_TRACK_PERMILLE"] = permille(p[VCF_KEY])
+    e["FILTER_CUTOFF_CENTS"] = cutoff_cents(p[VCF_FREQ])
+    e["FILTER_RESONANCE_PERMILLE"] = resonance_permille(p[VCF_RES])
+    # PG-8X's key follow pivots at C2 and the engine's at C4: the track's rise from C2 to C4 moves
+    # the cutoff, so every note gets PG-8X's cutoff (#95)
+    track = key_track_permille(p[VCF_KEY])
+    e["FILTER_KEY_TRACK_PERMILLE"] = track
+    e["FILTER_CUTOFF_CENTS"] += track * 24 // 10
     gate = 1 if p[VCA_MODE] < 64 else 0
     a, d, s, r = (1, 2, 1000, 5) if gate else env(p, ENV2)
     e.update(AMP_ATTACK_MS=a, AMP_DECAY_MS=d, AMP_SUSTAIN_PERMILLE=s, AMP_RELEASE_MS=r, AMP_GATE=gate)
@@ -369,7 +410,7 @@ def to_engine(tone):
     e.update(FILTER_ENV_ATTACK_MS=a, FILTER_ENV_DECAY_MS=d, FILTER_ENV_SUSTAIN_PERMILLE=s,
              FILTER_ENV_RELEASE_MS=r,
              FILTER_ENV_SOURCE=1 if src == ENV2 and p[VCA_MODE] >= 64 else 0,   # as MIX ENV's
-             FILTER_ENV_AMOUNT_CENTS=sign * 75 * p[VCF_ENV])
+             FILTER_ENV_AMOUNT_CENTS=sign * filter_env_cents(p[VCF_ENV]))
     e["LFO_WAVE"] = LFO_WAVE[switch(p[LFO_WF])]
     # PG-8X 2.0.13: 0.537 Hz at 64, x 2.664 every 16 steps (25.4 Hz at 127), from 32 up. Below 32
     # PG-8X flattens near 0.05 Hz (0.050 Hz measured at 16): the curve stops there (at 25)
@@ -392,7 +433,7 @@ def to_engine(tone):
     e["OSC_MIX_ENV_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[MIX_DYNA])]
     # waiting for LFO to cutoff and filter velocity (#8), envelope key follow (#60), a VCA level
     e["FILTER_LFO_PERMILLE"] = permille(p[VCF_LFO])
-    e["FILTER_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[VCF_DYNA])]
+    e["FILTER_ENV_DYNA"] = switch(p[VCF_DYNA])    # the engine's DYNAMICS curve (engine/dyna.c)
     e["ENV1_KEY_FOLLOW"] = switch(p[ENV1 + 4])
     e["ENV2_KEY_FOLLOW"] = switch(p[ENV2 + 4])
     e["AMP_LEVEL_PERMILLE"] = permille(p[VCA_LEVEL])
