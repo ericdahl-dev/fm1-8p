@@ -5,8 +5,8 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.5 KiB (5640 bytes on
- * 32-bit targets such as the FM-1 and Cortex-M, 5800 on 64-bit desktops,
+ * sets up everything inside it. fm_engine is about 5.5 KiB (5720 bytes on
+ * 32-bit targets such as the FM-1 and Cortex-M, 5944 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
  * storage is recommended; a task stack must have room for it on top of
@@ -97,6 +97,9 @@ typedef enum {
     FM_PARAM_OSC_RING, /* 1: osc2 times osc1, the JX-8P's SYNC 2 and X-MOD */
     FM_PARAM_FILTER_ENV_DYNA, /* DYNAMICS 0 (off) .. 3: velocity scales the
                                * filter envelope's cutoff depth */
+    FM_PARAM_AMP_KEY_FOLLOW, /* per mille, 0..1000: the amp envelope's times
+                              * x 2^(-this x octaves above C2) (ENV-2 KEY) */
+    FM_PARAM_FILTER_ENV_KEY_FOLLOW, /* the same for the filter envelope (ENV-1 KEY) */
     FM_PARAM_COUNT
 } fm_param_id;
 

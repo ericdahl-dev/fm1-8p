@@ -29,7 +29,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 5640u
+#define FM_ENGINE_BUDGET_32 5720u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -153,6 +153,12 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
     case FM_PARAM_AMP_DECAY_MS: time = &e->amp_set.decay_samples; break;
     case FM_PARAM_AMP_SUSTAIN: sustain = &e->amp_set.sustain; break;
     case FM_PARAM_AMP_RELEASE_MS: time = &e->amp_set.release_samples; break;
+    case FM_PARAM_AMP_KEY_FOLLOW: /* read at the next note on */
+        e->amp_set.key_follow = v;
+        return 1;
+    case FM_PARAM_FILTER_ENV_KEY_FOLLOW:
+        e->filter_set.key_follow = v;
+        return 1;
     case FM_PARAM_FILTER_ENV_ATTACK_MS:
         time = &e->filter_set.attack_samples, filter = 1;
         break;

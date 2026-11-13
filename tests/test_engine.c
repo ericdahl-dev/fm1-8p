@@ -225,6 +225,29 @@ TT_TEST(amp_attack_runs_to_25_seconds)
              eng.voices[0].amp_env.level < peak / 100 * 63);
 }
 
+/* The attack follows the key as well: at 260, C6 (four octaves above C2)
+ * reaches its peak at 1 s x 2^-1.04, 486 ms; still short of it at 95 % of
+ * that, on it by 105 %. */
+TT_TEST(amp_attack_follows_the_key)
+{
+    const uint32_t r = 8000;
+    const double t = 1000.0 * pow(2.0, -1.04); /* ms */
+    int32_t peak, before;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000); /* holds the peak */
+    fm_engine_set_param(&eng, FM_PARAM_AMP_KEY_FOLLOW, 260);
+    fm_engine_note_on(&eng, 84, 127);
+    peak = eng.voices[0].amp_env.peak;
+    fm_engine_render(&eng, buf, (uint32_t)(r * t * 0.95 / 1000.0));
+    before = eng.voices[0].amp_env.level;
+    fm_engine_render(&eng, buf, (uint32_t)(r * t * 0.10 / 1000.0));
+    printf("    C6, follow 260: %.3f of the peak at 95 %% of %.0f ms, %.3f at 105 %%\n",
+           (double)before / peak, t, (double)eng.voices[0].amp_env.level / peak);
+    TT_CHECK(before < peak);
+    TT_CHECK(eng.voices[0].amp_env.level >= peak);
+}
+
 /* Release is exponential, as PG-8X's: the release time is its time constant
  * tau, so the level falls 20 dB every tau x ln 10 (here 2.303 s for 1 s) and
  * 40 dB in twice that. A ramp of the same time would be silent by then. */
@@ -246,6 +269,34 @@ TT_TEST(amp_release_falls_exponentially_with_its_time_constant)
     fm_engine_render(&eng, buf, r * 2303 / 1000);
     TT_CHECK(eng.voices[0].amp_env.level > peak / 10000 * 98 &&
              eng.voices[0].amp_env.level < peak / 10000 * 102);
+}
+
+/*
+ * Key follow shortens the envelope as the note rises, as PG-8X's ENV KEY:
+ * the time times 2^(-follow x octaves above C2), follow in per mille (the
+ * JX-8P's three positions measure 0.27, 0.52 and 0.77 an octave). At 520,
+ * C4 (two octaves up) releases with tau 1 s x 2^-1.04: 20 dB down after
+ * that tau x ln 10.
+ */
+TT_TEST(amp_release_follows_the_key)
+{
+    const uint32_t r = 8000;
+    const double tau = 1000.0 * pow(2.0, -1.04); /* ms: 486 */
+    int32_t peak;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_KEY_FOLLOW, 520);
+    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_render(&eng, buf, r / 10);
+    peak = eng.voices[0].amp_env.level;
+    fm_engine_note_off(&eng, 60);
+    fm_engine_render(&eng, buf, (uint32_t)(r * tau * 2.302585 / 1000.0));
+    printf("    C4, follow 520: %.4f of the peak after 2.303 tau (%.0f ms)\n",
+           (double)eng.voices[0].amp_env.level / peak, tau);
+    TT_CHECK(eng.voices[0].amp_env.level > peak / 1000 * 98 &&
+             eng.voices[0].amp_env.level < peak / 1000 * 102);
 }
 
 /* Decay is exponential toward the sustain level, not toward 0: the distance
@@ -275,6 +326,31 @@ TT_TEST(amp_decay_heads_exponentially_to_sustain_without_undershoot)
     }
     TT_CHECK(low >= sus);
     TT_CHECK(eng.voices[0].amp_env.level - sus <= sus / 100);
+}
+
+/* Below C2 key follow lengthens the times, as on PG-8X: at 780, C1 (an
+ * octave down) decays with tau 100 ms x 2^0.78, 172 ms, to 1/e of the way
+ * there after it. */
+TT_TEST(amp_decay_follows_the_key_below_c2)
+{
+    const uint32_t r = 8000;
+    const double tau = 100.0 * pow(2.0, 0.78); /* ms */
+    int32_t peak, sus, d;
+    TT_CHECK_EQ(fm_engine_init(&eng, r, 1), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 100);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 500);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_KEY_FOLLOW, 780);
+    fm_engine_note_on(&eng, 24, 127);
+    fm_engine_render(&eng, buf, 1); /* the attack lands on the peak */
+    peak = eng.voices[0].amp_env.peak;
+    sus = eng.voices[0].amp_env.sus_level;
+    fm_engine_render(&eng, buf, (uint32_t)(r * tau / 1000.0));
+    d = eng.voices[0].amp_env.level - sus;
+    printf("    C1, follow 780: %.4f of the way left after tau (%.0f ms)\n",
+           (double)d / (peak - sus), tau);
+    TT_CHECK(d > (int32_t)((int64_t)(peak - sus) * 360 / 1000) &&
+             d < (int32_t)((int64_t)(peak - sus) * 376 / 1000));
 }
 
 /* Every envelope time, both envelopes, has one range: 0 to 32 s, as long as
@@ -423,6 +499,9 @@ static void run_engine_tests(void)
     TT_RUN(amp_envelope_follows_adsr_settings);
     TT_RUN(amp_attack_runs_to_25_seconds);
     TT_RUN(amp_release_falls_exponentially_with_its_time_constant);
+    TT_RUN(amp_release_follows_the_key);
+    TT_RUN(amp_decay_follows_the_key_below_c2);
+    TT_RUN(amp_attack_follows_the_key);
     TT_RUN(amp_decay_heads_exponentially_to_sustain_without_undershoot);
     TT_RUN(envelope_times_share_one_32_second_range);
     TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
