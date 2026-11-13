@@ -16,6 +16,9 @@
 #define MAX_SAMPLE_RATE 192000u
 /* A stolen voice fades out over this long before its new note starts. */
 #define STEAL_FADE_MS 3
+/* the gate's release time constant (#63), tenths of a ms: PG-8X 2.0.13's, from
+ * its 1.4 / 2.6 ms to -20 / -40 dB (#160) */
+#define GATE_RELEASE_TENTHS_MS 6u
 
 /*
  * The engine relies on >> of a negative value being an arithmetic shift
@@ -30,7 +33,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 6016u
+#define FM_ENGINE_BUDGET_32 6260u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -173,7 +176,8 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
     default:
         return 0;
     }
-    if (filter) /* each voice's envelope current before it changes */
+    if (filter || e->params[FM_PARAM_AMP_GATE]) /* each voice's envelope
+                                                 * current before it changes */
         for (i = 0; i < e->voice_count; i++)
             fm_voice_sync_filter_env(&e->voices[i]);
     if (time)
@@ -181,7 +185,10 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
     else
         *sustain = fm_permille_to_q30(v);
     for (i = 0; i < e->voice_count; i++) {
-        fm_env *env = filter ? &e->voices[i].filter_env : &e->voices[i].amp_env;
+        /* the amp settings run env2 with the gate (#63), caught up above */
+        fm_env *env = filter ? &e->voices[i].filter_env
+                      : e->params[FM_PARAM_AMP_GATE] ? &e->voices[i].env2
+                                                     : &e->voices[i].amp_env;
         /* an idle one leaves IDLE only by fm_env_gate_on, which reads
          * the settings and recomputes sus_level itself */
         if (env->stage != FM_ENV_IDLE)
@@ -422,6 +429,10 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_AMP_DYNA:
     case FM_PARAM_AMP_LEVEL:
         return;
+    case FM_PARAM_AMP_GATE: /* every voice, as fm_voice_reset gave them all */
+        for (i = 0; i < FM_MAX_VOICES; i++)
+            fm_voice_set_amp(&e->voices[i], v ? &e->gate_set : &e->amp_set);
+        return;
     default:
         break;
     }
@@ -533,6 +544,13 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend_value = 0;
     unison_reset(e);
     e->fade_samples = fm_ms_to_samples(STEAL_FADE_MS, e->sample_rate);
+    /* the gate (#63): up in 1 ms, held at full, down with a 0.6 ms time
+     * constant, as PG-8X 2.0.13's GATE falls 20 / 40 dB in 1.4 / 2.6 ms */
+    e->gate_set.attack_samples = fm_ms_to_samples(1, e->sample_rate);
+    e->gate_set.decay_samples = 0;
+    e->gate_set.sustain = fm_permille_to_q30(1000);
+    e->gate_set.release_samples = e->sample_rate * GATE_RELEASE_TENTHS_MS / 10000u;
+    e->gate_set.key_follow = 0;
     fm_lfo_reset(&e->lfo);
     e->tick_left = 0;
     e->ticks = 0;
@@ -571,8 +589,10 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value)
     {
         uint8_t i;
         for (i = 0; e->voice_count && i < FM_MAX_VOICES; i++)
-            assert(e->voices[i].amp_env.set == &e->amp_set &&
-                   e->voices[i].filter_env.set == &e->filter_set);
+            assert(e->voices[i].amp_env.set ==
+                       (e->params[FM_PARAM_AMP_GATE] ? &e->gate_set : &e->amp_set) &&
+                   e->voices[i].filter_env.set == &e->filter_set &&
+                   e->voices[i].env2.set == &e->amp_set);
     }
 #endif
     if (value < info->min) value = info->min;

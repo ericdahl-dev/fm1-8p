@@ -149,7 +149,7 @@ FIELDS = [
     Field("AMP_SUSTAIN_PERMILLE", "AMP_SUSTAIN", None, None, None),
     Field("AMP_RELEASE_MS", "AMP_RELEASE_MS", None, None, None),
     Field("AMP_DYNA", "AMP_DYNA", None, None, None),
-    Field("AMP_GATE", None, 0, 1, "#63"),
+    Field("AMP_GATE", "AMP_GATE", None, None, None),
     Field("CHORUS_MODE", "CHORUS_MODE", None, None, None),
     Field("LFO_WAVE", "LFO_WAVE", None, None, None),
     Field("LFO_RATE_CENTIHZ", "LFO_RATE_CENTIHZ", None, None, None),
@@ -398,7 +398,7 @@ def to_engine(tone):
     src, sign = env_mode(p[MIX_ENV_MODE])
     e["OSC1_LEVEL_PERMILLE"], e["OSC2_LEVEL_PERMILLE"] = rnd(1000 * l1 / 127), rnd(1000 * l2 / 127)
     e["OSC_MIX_ENV_PERMILLE"] = sign * rnd(1000 * p[MIX_ENV] / 127)
-    e["OSC_MIX_ENV_SOURCE"] = 1 if src == ENV2 and p[VCA_MODE] >= 64 else 0
+    e["OSC_MIX_ENV_SOURCE"] = 1 if src == ENV2 else 0     # envelope 2, apart from a gate (#63)
     xmod = switch(p[DCO_XMOD])
     e["OSC_SYNC"] = 1 if xmod in (1, 2) else 0
     e["XMOD_AM"] = 1 if xmod in (2, 3) else 0
@@ -411,20 +411,20 @@ def to_engine(tone):
     track = key_track_permille(p[VCF_KEY])
     e["FILTER_KEY_TRACK_PERMILLE"] = track
     e["FILTER_CUTOFF_CENTS"] += track * 24 // 10
-    gate = 1 if p[VCA_MODE] < 64 else 0
-    a, d, s, r = (1, 2, 1000, 5) if gate else env(p, ENV2)
+    # the amp settings run ENV-2; VCA MODE GATE (0-63) makes the VCA the engine's gate (#63: up in
+    # 1 ms, down on PG-8X's 0.6 ms), and envelope 2 then runs apart from it for what names it
+    a, d, s, r = env(p, ENV2)
     # ENV KEY (#60): the times shorten above C2, 260 per mille an ENV KEY position (PG-8X 2.0.13)
-    e["AMP_KEY_FOLLOW_PERMILLE"] = 0 if gate else KEY_FOLLOW_PERMILLE * switch(p[ENV2_KEY])
-    e.update(AMP_ATTACK_MS=a, AMP_DECAY_MS=d, AMP_SUSTAIN_PERMILLE=s, AMP_RELEASE_MS=r, AMP_GATE=gate)
-    # the engine's envelope 1 runs ENV-1's own times (#59), and the amp envelope ENV-2's; with the
-    # VCA on GATE ENV-2 runs nowhere, so envelope 1 takes it for a VCF that names it
+    e["AMP_KEY_FOLLOW_PERMILLE"] = KEY_FOLLOW_PERMILLE * switch(p[ENV2_KEY])
+    e.update(AMP_ATTACK_MS=a, AMP_DECAY_MS=d, AMP_SUSTAIN_PERMILLE=s, AMP_RELEASE_MS=r,
+             AMP_GATE=1 if p[VCA_MODE] < 64 else 0)
+    # the engine's envelope 1 runs ENV-1's own times (#59), and envelope 2 ENV-2's
     src, sign = env_mode(p[VCF_ENV_MODE])
-    runs = ENV2 if src == ENV2 and p[VCA_MODE] < 64 else ENV1
-    a, d, s, r = env(p, runs)
-    e["FILTER_ENV_KEY_FOLLOW_PERMILLE"] = KEY_FOLLOW_PERMILLE * switch(p[runs + 4])
+    a, d, s, r = env(p, ENV1)
+    e["FILTER_ENV_KEY_FOLLOW_PERMILLE"] = KEY_FOLLOW_PERMILLE * switch(p[ENV1 + 4])
     e.update(FILTER_ENV_ATTACK_MS=a, FILTER_ENV_DECAY_MS=d, FILTER_ENV_SUSTAIN_PERMILLE=s,
              FILTER_ENV_RELEASE_MS=r,
-             FILTER_ENV_SOURCE=1 if src == ENV2 and p[VCA_MODE] >= 64 else 0,   # as MIX ENV's
+             FILTER_ENV_SOURCE=1 if src == ENV2 else 0,                   # as MIX ENV's
              FILTER_ENV_AMOUNT_CENTS=sign * filter_env_cents(p[VCF_ENV]))
     e["LFO_WAVE"] = LFO_WAVE[switch(p[LFO_WF])]
     # PG-8X 2.0.13: 0.537 Hz at 64, x 2.664 every 16 steps (25.4 Hz at 127), from 32 up. Below 32
@@ -442,7 +442,7 @@ def to_engine(tone):
     src, sign = env_mode(p[DCO_ENV_MODE])
     for n, byte in ((1, DCO1_ENV), (2, DCO2_ENV)):
         e["PITCH_ENV_OSC%d_CENTS" % n] = sign * rnd(24.8 * p[byte] - 13) if p[byte] else 0
-    e["PITCH_ENV_SOURCE"] = 1 if src == ENV2 and p[VCA_MODE] >= 64 else 0   # as MIX ENV's
+    e["PITCH_ENV_SOURCE"] = 1 if src == ENV2 else 0   # as MIX ENV's
     e["PITCH_ENV_DYNA"] = switch(p[DCO_DYNA])     # the engine's DYNAMICS curve (engine/dyna.c)
     e["OSC_MIX_ENV_DYNA"] = switch(p[MIX_DYNA])  # the MIX ENV depth times the DYNAMICS share
     # waiting for LFO to cutoff and filter velocity (#8), a VCA level

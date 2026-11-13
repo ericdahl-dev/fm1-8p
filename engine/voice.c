@@ -56,16 +56,25 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->key_note = 0;
     v->next_key = 0;
     fm_env_init(&v->filter_env, filter);
+    fm_env_init(&v->env2, amp); /* its level is its share: peak is full */
     v->cutoff_now = INT32_MIN;
     v->busy = FM_BUSY_CUTOFF;
     v->ctrl_phase = 0;
     v->fenv_lag = 0;
 }
 
+/* With the gate (#63) the amp envelope runs the gate's settings, and
+ * env2 the amp settings it was given. */
+static int gated(const fm_voice *v)
+{
+    return v->amp_env.set != v->env2.set;
+}
+
 void fm_voice_sync_filter_env(fm_voice *v)
 {
     if (v->fenv_lag) {
         fm_env_advance(&v->filter_env, v->fenv_lag);
+        if (gated(v)) fm_env_advance(&v->env2, v->fenv_lag);
         v->fenv_lag = 0;
     }
 }
@@ -78,10 +87,12 @@ static int32_t filter_env_level(fm_voice *v)
     return v->filter_env.level;
 }
 
+/* The key is up for the filter envelope, and with the gate envelope 2. */
 static void filter_env_gate_off(fm_voice *v)
 {
     fm_voice_sync_filter_env(v);
     fm_env_gate_off(&v->filter_env);
+    if (gated(v)) fm_env_gate_off(&v->env2);
 }
 
 int fm_voice_active(const fm_voice *v)
@@ -127,6 +138,15 @@ static int32_t amp_share(const fm_voice *v, int32_t level)
     return r > FM_ENV_FULL ? FM_ENV_FULL : (int32_t)r;
 }
 
+/* Envelope 2 for the depths that follow it: the amp envelope's share at
+ * its level `level`, or with the gate env2's own level (#63). */
+static int32_t env2_share(fm_voice *v, int32_t level)
+{
+    if (!gated(v)) return amp_share(v, level);
+    fm_voice_sync_filter_env(v);
+    return v->env2.level;
+}
+
 /* Recomputes the cutoff from the settings, the voice's note and its
  * modulation, with the filter envelope (envelope 1) at level `fenv` and,
  * when it reaches the cutoff, envelope 2 at the amp envelope's share. The
@@ -137,7 +157,7 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
 {
     int32_t cents, env2 = 0;
     if (m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF])
-        env2 = amp_share(v, v->amp_env.level);
+        env2 = env2_share(v, v->amp_env.level);
     if (m->fenv_dyna) { /* VCF DYNAMICS on either envelope: Q1.30 * Q15 */
         int32_t share = (int32_t)fm_dyna_share_q15(m->fenv_dyna, v->velocity);
         fenv = (int32_t)(((int64_t)fenv * share) >> 15);
@@ -165,6 +185,7 @@ static void gate_on(fm_voice *v)
 {
     if (v->amp_env.stage == FM_ENV_IDLE) {
         fm_env_reset(&v->filter_env);
+        fm_env_reset(&v->env2);
         v->fenv_lag = 0;
     }
     fm_voice_sync_filter_env(v);
@@ -172,6 +193,10 @@ static void gate_on(fm_voice *v)
     fm_env_key(&v->filter_env, v->note);
     fm_env_gate_on(&v->amp_env);
     fm_env_gate_on(&v->filter_env);
+    if (gated(v)) {
+        fm_env_key(&v->env2, v->note);
+        fm_env_gate_on(&v->env2);
+    }
 }
 
 /* The oscillators apply the LFO's current offsets. */
@@ -326,7 +351,7 @@ void fm_voice_release(fm_voice *v)
     v->sustained = 0;
     if (!v->pending) {
         fm_env_gate_off(&v->amp_env);
-        filter_env_gate_off(v);
+        filter_env_gate_off(v); /* and env2 */
     }
 }
 
@@ -360,6 +385,7 @@ void fm_voice_silence(fm_voice *v)
 {
     fm_env_reset(&v->amp_env);
     fm_env_reset(&v->filter_env);
+    fm_env_reset(&v->env2);
     v->fenv_lag = 0;
     fm_filter_clear(&v->filter); /* no ringing left for the next note */
     v->pending = 0;
@@ -368,6 +394,15 @@ void fm_voice_silence(fm_voice *v)
     fm_voice_mark(v, FM_BUSY_GATE, 0);
     v->key_down = 0;
     v->sustained = 0;
+}
+
+void fm_voice_set_amp(fm_voice *v, const fm_env_settings *amp)
+{
+    if (v->amp_env.set == amp) return;
+    fm_voice_sync_filter_env(v); /* env2 current while it still runs */
+    v->amp_env.set = amp;
+    if (v->amp_env.stage != FM_ENV_IDLE) fm_env_retime(&v->amp_env);
+    if (!gated(v)) fm_env_reset(&v->env2); /* idle without the gate */
 }
 
 void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
@@ -395,7 +430,7 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
     fm_mod_set_source(&v->mod, FM_MOD_SRC_LFO, lfo);
     if (fm_mod_source_routed(&m->routes, FM_MOD_SRC_PENV))
     {
-        int32_t penv = m->penv_amp ? amp_share(v, v->amp_env.level)
+        int32_t penv = m->penv_amp ? env2_share(v, v->amp_env.level)
                                    : filter_env_level(v);
         if (m->penv_dyna) /* Q1.30 * Q15 share */
             penv = (int32_t)(((int64_t)penv *
@@ -534,7 +569,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
             if (fm_voice_busy(v) & FM_BUSY_MIX) /* the divide only if routed */
                 update_mix(v, m, fenv,
                            m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_MIX] ?
-                           amp_share(v, level) : 0);
+                           env2_share(v, level) : 0);
             if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
         }
