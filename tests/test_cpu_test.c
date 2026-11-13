@@ -297,6 +297,7 @@ TT_TEST(cpu_test_full_patch_step_turns_on_every_modulation)
     TT_CHECK(fm_engine_get_param(&ct_a.engine, FM_PARAM_LFO_PW_PCT) > 0);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_LFO_DELAY_MS), 0);   /* modulating from the start */
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_AMP_VELOCITY), 100);
+    TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_ONSET_THUMP), 1);   /* as every JX-8P tone (#146) */
 }
 
 /* F strikes its notes at different velocities, so the amp velocity curve gives each a different peak. */

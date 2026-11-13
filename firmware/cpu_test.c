@@ -8,7 +8,8 @@ static const uint8_t FULL_VEL[FM_MAX_VOICES] = {112, 64, 96, 40, 120, 80, 104, 5
 
 uint8_t cpu_test_full_velocity(uint32_t i) { return FULL_VEL[i % FM_MAX_VOICES]; }
 
-/* Step F's sound: both oscillators, vibrato, pulse-width modulation, amp velocity, the filter and the chorus. */
+/* Step F's sound: both oscillators, vibrato, pulse-width modulation, amp velocity, the filter, the chorus,
+ * and the onset thump every JX-8P tone has (#146): each voice's first note after the step's init. */
 static const cpu_test_param FULL_PATCH[] = {
     {FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE},
     {FM_PARAM_OSC2_WAVE, FM_WAVE_SAW},
@@ -24,6 +25,7 @@ static const cpu_test_param FULL_PATCH[] = {
     {FM_PARAM_FILTER_RESONANCE, 700},
     {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600},
     {FM_PARAM_HIGHPASS_STEP, 1},
+    {FM_PARAM_ONSET_THUMP, 1},
 };
 
 void cpu_test_set_full_patch(cpu_test *t, const cpu_test_param *p, uint32_t n)
