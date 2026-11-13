@@ -123,9 +123,75 @@ class HistoryTest(unittest.TestCase):
         self.assertIn("| 02 T2 |", text)
         self.assertIn("20.0 → 12.0", text)
 
+    def test_the_report_has_every_tone_the_worst_five_and_what_moved(self):
+        head = self.rows([5, 30, 1, 25, 9, 40, 2])
+        for r in head:
+            r.update({"spectral_db": {"chord": r["spectral_db_mean"]}, "timing_gap_ms": {"low_decay20": 10.0},
+                      "pitch_cents": {"low": 0.0, "high": 5.0}})
+        text = self.sc.report(head, self.rows([5, 20, 1, 25, 9, 40, 2]))
+        self.assertIn("| 07 T7 |", text)
+        self.assertIn("worst 5", text)
+        self.assertIn("tones moved", text)
+        self.assertIn("20.0 → 30.0", text)
+        self.assertIn("no base", self.sc.report(head, None))
+
+    def test_the_latest_rows_of_a_commit_are_read_back(self):
+        old = self.sc.tone_row("abc", "2026-11-12T01:00:00-05:00", 1, "T1", {"spectral_db_mean": 9.0}, "r1")
+        new = self.sc.tone_row("abc", "2026-11-12T02:00:00-05:00", 1, "T1", {"spectral_db_mean": 7.0}, "r1")
+        other = self.sc.tone_row("abc", "2026-11-12T03:00:00-05:00", 1, "T1", {"spectral_db_mean": 1.0}, "r2")
+        self.sc.append_rows(self.path, [old, new, other])
+        got = self.sc.rows_for(self.path, "abc", "r1")
+        self.assertEqual([r["spectral_db_mean"] for r in got], [7.0])
+        self.assertIsNone(self.sc.rows_for(self.path, "zzz", "r1"))
+
     def test_worst_five_are_the_largest_spectral_means(self):
         got = self.sc.worst(self.rows([5, 30, 1, 25, 9, 40, 2]), 5)
         self.assertEqual([r["tone"] for r in got], [6, 2, 4, 5, 1])
+
+
+@unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
+class RunTest(unittest.TestCase):
+    """The whole run on this checkout, against a "reference" of its own renders: every tone scores 0."""
+
+    @classmethod
+    def setUpClass(cls):
+        import subprocess
+        import tempfile
+        cls.repo = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+        subprocess.run(["make", "-s", "-C", cls.repo, "build/fm1-8p-render"], check=True)
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.ref = os.path.join(cls.tmp.name, "ref")
+        cls.hist = os.path.join(cls.tmp.name, "history.jsonl")
+        import scorecard
+        cls.sc = scorecard
+        work = os.path.join(cls.tmp.name, "w0")
+        mid = scorecard.write_midi(work)
+        os.makedirs(cls.ref)
+        for i, path in scorecard.render_tones(cls.repo, mid, work):
+            os.replace(path, os.path.join(cls.ref, f"{i:02d}.wav"))
+        scorecard.write_manifest(cls.ref, mid)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_a_run_against_its_own_renders_scores_zero_and_appends_32_rows(self):
+        import json
+        rows = self.sc.run(self.repo, "deadbee", self.ref, self.hist, work=os.path.join(self.tmp.name, "w1"))
+        self.assertEqual(len(rows), 32)
+        self.assertTrue(all(r["spectral_db_mean"] == 0.0 and r["loudness_gap_lu"] == 0.0 for r in rows))
+        with open(self.hist) as fh:
+            got = [json.loads(line) for line in fh]
+        self.assertEqual(len([r for r in got if r["kind"] == "tone" and r["commit"] == "deadbee"]), 32)
+
+    def test_a_reference_made_from_other_midi_is_refused(self):
+        import json
+        bad = os.path.join(self.tmp.name, "badref")
+        os.makedirs(bad, exist_ok=True)
+        with open(os.path.join(bad, "manifest.json"), "w") as fh:
+            json.dump({"midi_sha256": "0" * 64}, fh)
+        with self.assertRaises(SystemExit):
+            self.sc.run(self.repo, "deadbee", bad, self.hist, work=os.path.join(self.tmp.name, "w2"))
 
 
 class ScoreMidiTest(unittest.TestCase):
