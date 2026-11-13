@@ -230,7 +230,7 @@ int32_t fm_env_next(fm_env *e)
             hold(e);
             break;
         }
-        rem = start_segment(e, d, e->set->decay_samples);
+        rem = start_segment(e, d, scaled(e, e->set->decay_samples));
         if (e->level > s) {
             e->step = -e->step;
             rem = -rem;
