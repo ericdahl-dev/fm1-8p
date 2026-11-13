@@ -584,6 +584,87 @@ TT_TEST(negative_amount_from_envelope_2_closes_the_filter)
     TT_CHECK(late > 1.5 * early); /* 20 % sustain: -960 cents late */
 }
 
+/* VCF DYNAMICS (filter_env_dyna, #8): the note's velocity scales the
+ * envelope's cutoff depth by the shared DYNAMICS curve (engine/dyna.c),
+ * as PG-8X 2.0.13 plays it (measured at nine velocities, within 0.007).
+ * Half a second of note 36 at `velocity`, the filter envelope held at
+ * full (0 ms attack, 100 % sustain) from `source` at `amount` cents. */
+static void play_filter_dyna(int16_t *out, int32_t amount, int32_t dyna,
+                             uint8_t velocity, int32_t source)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 3600);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 400);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SOURCE, source);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, amount);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DYNA, dyna);
+    fm_engine_note_on(&feng, 36, velocity);
+    fm_engine_render(&feng, out, FRATE / 2);
+}
+
+/* Position 2 at velocity 64 plays fm_dyna_share_q15(2, 64) of the amount:
+ * the same samples as that many cents with DYNAMICS off. */
+TT_TEST(filter_envelope_dynamics_scale_the_depth_by_velocity)
+{
+    int32_t part = (int32_t)(4800 * fm_dyna_share_q15(2, 64) >> 15);
+    TT_CHECK_EQ(part, 2359);
+    play_filter_dyna(fbuf_a, 4800, 2, 64, 0);
+    play_filter_dyna(fbuf_b, part, 0, 64, 0);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+}
+
+/* The JX-8P has one DYNAMICS switch for the VCF whichever envelope it
+ * follows: from envelope 2 (the amp envelope) the depth scales the same,
+ * as PG-8X's does (0.299, 0.486 and 0.986 at velocities 40, 64, 127). */
+TT_TEST(filter_envelope_dynamics_scale_envelope_2_too)
+{
+    play_filter_dyna(fbuf_a, 4800, 2, 64, 1);
+    play_filter_dyna(fbuf_b, 2359, 0, 64, 1);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+}
+
+/* Each position plays its own row of the curve: position 3 at velocity
+ * 64 is fm_dyna_share_q15(3, 64) of the amount, not position 2's. */
+TT_TEST(filter_envelope_dynamics_follow_the_position)
+{
+    int32_t part = (int32_t)(4800 * fm_dyna_share_q15(3, 64) >> 15);
+    play_filter_dyna(fbuf_a, 4800, 3, 64, 0);
+    play_filter_dyna(fbuf_b, part, 0, 64, 0);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+}
+
+/* Each voice keeps its own note's velocity: a loud note on a second
+ * voice leaves the first note's cutoff, still decaying, where its own soft
+ * velocity puts it, as if it played alone. */
+TT_TEST(filter_envelope_dynamics_are_per_voice)
+{
+    int32_t both[20], solo[20];
+    uint32_t i, k;
+    for (k = 0; k < 2; k++) { /* both notes, then the soft one alone */
+        int32_t *cut = k ? solo : both;
+        fm_engine_init(&feng, FRATE, 2);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 3600);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 400);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 300);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DYNA, 2);
+        fm_engine_note_on(&feng, 36, 30);
+        fm_engine_render(&feng, fbuf_a, 1000);
+        if (!k) fm_engine_note_on(&feng, 43, 120);
+        for (i = 0; i < 20; i++) {
+            fm_engine_render(&feng, fbuf_a, 100);
+            cut[i] = feng.voices[0].cutoff_now;
+        }
+        TT_CHECK_EQ(feng.voices[0].key_note, 36);
+    }
+    TT_CHECK(memcmp(both, solo, sizeof both) == 0);
+}
+
 /*
  * A positive amount opens the filter at the note start and sweeps the
  * cutoff back down as the envelope decays (bright, then dark); a
@@ -2272,6 +2353,10 @@ static void run_filter_tests(void)
     TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
     TT_RUN(filter_envelope_from_envelope_2_follows_the_amp_envelope);
     TT_RUN(negative_amount_from_envelope_2_closes_the_filter);
+    TT_RUN(filter_envelope_dynamics_scale_the_depth_by_velocity);
+    TT_RUN(filter_envelope_dynamics_scale_envelope_2_too);
+    TT_RUN(filter_envelope_dynamics_follow_the_position);
+    TT_RUN(filter_envelope_dynamics_are_per_voice);
     TT_RUN(envelope_2_on_the_filter_ignores_velocity);
     TT_RUN(block_size_does_not_change_envelope_2_on_the_filter);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);

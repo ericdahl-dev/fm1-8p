@@ -161,7 +161,7 @@ FIELDS = [
     Field("OSC_MIX_ENV_SOURCE", "OSC_MIX_ENV_SOURCE", None, None, None),
     Field("OSC_MIX_ENV_VELOCITY_PCT", None, 0, 100, "velocity on the mix envelope (no issue yet)"),
     Field("FILTER_LFO_PERMILLE", None, 0, 1000, "#8"),
-    Field("FILTER_VELOCITY_PCT", None, 0, 100, "#8"),
+    Field("FILTER_ENV_DYNA", "FILTER_ENV_DYNA", None, None, None),
     Field("ENV1_KEY_FOLLOW", None, 0, 3, "#60"),
     Field("ENV2_KEY_FOLLOW", None, 0, 3, "#60"),
     Field("AMP_LEVEL_PERMILLE", None, 0, 1000, "a VCA level (no issue yet)"),
@@ -438,7 +438,7 @@ def to_engine(tone):
     e["OSC_MIX_ENV_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[MIX_DYNA])]
     # waiting for LFO to cutoff and filter velocity (#8), envelope key follow (#60), a VCA level
     e["FILTER_LFO_PERMILLE"] = permille(p[VCF_LFO])
-    e["FILTER_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[VCF_DYNA])]
+    e["FILTER_ENV_DYNA"] = switch(p[VCF_DYNA])    # the engine's DYNAMICS curve (engine/dyna.c)
     e["ENV1_KEY_FOLLOW"] = switch(p[ENV1 + 4])
     e["ENV2_KEY_FOLLOW"] = switch(p[ENV2 + 4])
     e["AMP_LEVEL_PERMILLE"] = permille(p[VCA_LEVEL])

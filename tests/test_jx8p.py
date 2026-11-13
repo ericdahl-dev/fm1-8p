@@ -362,6 +362,14 @@ class MapTest(unittest.TestCase):
         got = {b: patch_with("SOUNDTRACK", DCO_DYNA=b)["PITCH_ENV_DYNA"] for b in (0, 32, 64, 96, 127)}
         self.assertEqual(got, {0: 0, 32: 1, 64: 2, 96: 3, 127: 3})
 
+    # VCF DYNAMICS off, 1, 2, 3 -> the engine's filter_env_dyna position: the same shared curve
+    # (engine/dyna.c) on the filter envelope's cutoff depth (#8)
+    def test_vcf_dynamics_is_the_dyna_position(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["FILTER_ENV_DYNA"].param, "FILTER_ENV_DYNA")
+        got = {b: patch_with("SOUNDTRACK", VCF_DYNA=b)["FILTER_ENV_DYNA"] for b in (0, 32, 64, 96, 127)}
+        self.assertEqual(got, {0: 0, 32: 1, 64: 2, 96: 3, 127: 3})
+
     # The pitch envelope (#58) on factory tones: DCO-1 and DCO-2 ENV depth (above), the mode and
     # DCO DYNAMICS
     def test_pitch_envelope_is_kept_for_later(self):
@@ -424,12 +432,11 @@ class MapTest(unittest.TestCase):
             self.assertEqual(e["OSC1_LEVEL_PERMILLE"], 0, name)
             self.assertEqual(abs(e["OSC_MIX_ENV_PERMILLE"]), 1000, name)
 
-    # Kept for LFO to cutoff and filter velocity (#8), envelope key follow (#60) and the VCA level
+    # Kept for LFO to cutoff (#8), envelope key follow (#60) and the VCA level
     def test_other_features_the_engine_lacks_are_kept_for_later(self):
         e = patch("SOUNDTRACK")
         self.assertEqual(e["OSC_MIX_ENV_VELOCITY_PCT"], 33)    # MIX DYNAMICS 32
         self.assertEqual(e["FILTER_LFO_PERMILLE"], 0)
-        self.assertEqual(e["FILTER_VELOCITY_PCT"], 33)      # VCF DYNAMICS 32
         self.assertEqual((e["ENV1_KEY_FOLLOW"], e["ENV2_KEY_FOLLOW"]), (0, 1))
         self.assertEqual(e["AMP_LEVEL_PERMILLE"], 819)      # VCA LEVEL 104
 
