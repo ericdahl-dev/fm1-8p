@@ -442,7 +442,7 @@ chorus writes it, each voice renders its oscillators' chunk there
 which is safe because the chorus only writes it
 (`chorus_block_writes_right_without_reading_it`). With the voices' modulation sources and sums (the pitch envelope among them), their note velocities, their sync and
 cross-mod state, their filters (124 bytes each) and their mix envelope
-settings, that makes `fm_engine` about 5.5 KiB (5636 bytes on the FM-1,
+settings, that makes `fm_engine` about 5.5 KiB (5640 bytes on the FM-1,
 5800 on x86-64), so
 static storage is recommended over a task stack. Nothing is allocated and
 the render path adds no stack arrays. The line holds 23 ms at 44.1 kHz; the
