@@ -147,7 +147,7 @@ FIELDS = [
     Field("AMP_DECAY_MS", "AMP_DECAY_MS", None, None, None),
     Field("AMP_SUSTAIN_PERMILLE", "AMP_SUSTAIN", None, None, None),
     Field("AMP_RELEASE_MS", "AMP_RELEASE_MS", None, None, None),
-    Field("AMP_VELOCITY_PCT", "AMP_VELOCITY", None, None, None),
+    Field("AMP_DYNA", "AMP_DYNA", None, None, None),
     Field("AMP_GATE", None, 0, 1, "#63"),
     Field("CHORUS_MODE", "CHORUS_MODE", None, None, None),
     Field("LFO_WAVE", "LFO_WAVE", None, None, None),
@@ -161,7 +161,7 @@ FIELDS = [
     Field("PITCH_ENV_DYNA", "PITCH_ENV_DYNA", None, None, None),
     Field("OSC_MIX_ENV_PERMILLE", "OSC_MIX_ENV", None, None, None),
     Field("OSC_MIX_ENV_SOURCE", "OSC_MIX_ENV_SOURCE", None, None, None),
-    Field("OSC_MIX_ENV_VELOCITY_PCT", None, 0, 100, "velocity on the mix envelope (no issue yet)"),
+    Field("OSC_MIX_ENV_DYNA", "OSC_MIX_ENV_DYNA", None, None, None),
     Field("FILTER_LFO_PERMILLE", None, 0, 1000, "#8"),
     Field("FILTER_ENV_DYNA", "FILTER_ENV_DYNA", None, None, None),
     Field("AMP_KEY_FOLLOW_PERMILLE", "AMP_KEY_FOLLOW", None, None, None),
@@ -432,7 +432,7 @@ def to_engine(tone):
     e["LFO_PITCH_CENTS"] = rnd(4.5 * p[DCO1_LFO])
     e["LFO_PITCH_OSC2_CENTS"] = rnd(4.5 * p[DCO2_LFO])
     e["CHORUS_MODE"] = min(switch(p[CHORUS]), 2)
-    e["AMP_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[VCA_DYNA])]
+    e["AMP_DYNA"] = switch(p[VCA_DYNA])         # the DYNAMICS curve (engine/dyna.c), as PG-8X plays it
     # DCO ENV (#58), PG-8X 2.0.13: at full envelope 24.8 cents a step less 13 (0 at 0, 3137 at
     # 127), linear in the envelope, the same on every key; each moves its own oscillator
     src, sign = env_mode(p[DCO_ENV_MODE])
@@ -440,8 +440,7 @@ def to_engine(tone):
         e["PITCH_ENV_OSC%d_CENTS" % n] = sign * rnd(24.8 * p[byte] - 13) if p[byte] else 0
     e["PITCH_ENV_SOURCE"] = 1 if src == ENV2 and p[VCA_MODE] >= 64 else 0   # as MIX ENV's
     e["PITCH_ENV_DYNA"] = switch(p[DCO_DYNA])     # the engine's DYNAMICS curve (engine/dyna.c)
-    # waiting for velocity on the mix envelope
-    e["OSC_MIX_ENV_VELOCITY_PCT"] = DYNAMICS_PCT[switch(p[MIX_DYNA])]
+    e["OSC_MIX_ENV_DYNA"] = switch(p[MIX_DYNA])  # the MIX ENV depth times the DYNAMICS share
     # waiting for LFO to cutoff and filter velocity (#8), a VCA level
     e["FILTER_LFO_PERMILLE"] = permille(p[VCF_LFO])
     e["FILTER_ENV_DYNA"] = switch(p[VCF_DYNA])    # the engine's DYNAMICS curve (engine/dyna.c)

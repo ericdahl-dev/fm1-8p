@@ -63,6 +63,8 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_FILTER_ENV_DYNA, "filter_env_dyna",    0,     3,    0 },
     { FM_PARAM_AMP_KEY_FOLLOW, "amp_key_follow_permille", 0, 1000, 0 },
     { FM_PARAM_FILTER_ENV_KEY_FOLLOW, "filter_env_key_follow_permille", 0, 1000, 0 },
+    { FM_PARAM_AMP_DYNA,       "amp_dyna",            0,     3,    0 },
+    { FM_PARAM_OSC_MIX_ENV_DYNA, "osc_mix_env_dyna",  0,     3,    0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)
