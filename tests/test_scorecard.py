@@ -62,6 +62,17 @@ class MetricTest(unittest.TestCase):
         self.assertAlmostEqual(self.sc.pitch_cents(saw(220 * 2 ** (25 / 1200)), saw(220)), 25, delta=5)
         self.assertAlmostEqual(self.sc.pitch_cents(saw(220), saw(220)), 0, delta=1)
 
+    # Air: energy above 6.3 kHz as a share of the whole, dB, ours minus PG-8X, so a quiet buzz far above the
+    # body of the sound shows even when the band-by-band distance weighs it like any other band.
+    def test_air_gap_reads_added_high_hiss(self):
+        np = self.np
+        from scipy import signal
+        b, a = signal.butter(4, 8000 / (SR / 2), "high")
+        hiss = signal.lfilter(b, a, np.random.default_rng(3).standard_normal(len(self.tone))) * 0.01
+        gap = self.sc.air_gap(self.tone + hiss, self.tone + hiss * 0.1)
+        self.assertAlmostEqual(gap, 20.0, delta=1.0)
+        self.assertAlmostEqual(self.sc.air_gap(self.tone, self.tone), 0.0, places=6)
+
     # A tone's score on the scorecard MIDI (tools/gate_midi.py score.mid): against itself, all zero.
     def test_a_render_scored_against_itself_is_all_zero(self):
         np = self.np
@@ -69,7 +80,8 @@ class MetricTest(unittest.TestCase):
         x = rng.standard_normal((13 * SR, 2)) * np.exp(-np.arange(13 * SR) / SR)[:, None] * 0.1
         s = self.sc.score_tone(x, x)
         self.assertEqual(set(s), {"loudness_gap_lu", "spectral_db", "spectral_db_mean", "timing_gap_ms",
-                                  "pitch_cents"})
+                                  "pitch_cents", "air_gap_db"})
+        self.assertEqual(s["air_gap_db"], 0.0)
         self.assertEqual(s["loudness_gap_lu"], 0.0)
         self.assertEqual(s["spectral_db_mean"], 0.0)
         self.assertTrue(all(v == 0.0 for v in s["spectral_db"].values()))
@@ -157,6 +169,17 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual([r["spectral_db_mean"] for r in got], [7.0])
         self.assertIsNone(self.sc.rows_for(self.path, "zzz", "r1"))
 
+    def test_rows_carry_their_bank_and_rows_without_one_are_the_factory_bank(self):
+        row = self.sc.tone_row("abc", "2026-11-13T01:00:00-05:00", 1, "T1", {"spectral_db_mean": 3.0}, "r1",
+                               bank="jandreas")
+        self.assertEqual(row["bank"], "jandreas")
+        self.assertEqual(self.sc.tone_row("abc", "d", 1, "T1", {}, "r1")["bank"], "factory")
+        old = {"schema": 2, "kind": "tone", "commit": "abc", "date": "2026-11-13T00:00:00-05:00", "tone": 1,
+               "name": "T1", "ref": "r1", "spectral_db_mean": 9.0}
+        self.sc.append_rows(self.path, [old, row])
+        self.assertEqual([r["spectral_db_mean"] for r in self.sc.rows_for(self.path, "abc", "r1")], [9.0])
+        self.assertEqual([r["spectral_db_mean"] for r in self.sc.rows_for(self.path, "abc", "r1", "jandreas")], [3.0])
+
     def test_worst_five_are_the_largest_spectral_means(self):
         got = self.sc.worst(self.rows([5, 30, 1, 25, 9, 40, 2]), 5)
         self.assertEqual([r["tone"] for r in got], [6, 2, 4, 5, 1])
@@ -196,6 +219,29 @@ class RunTest(unittest.TestCase):
         with open(self.hist) as fh:
             got = [json.loads(line) for line in fh]
         self.assertEqual(len([r for r in got if r["kind"] == "tone" and r["commit"] == "deadbee"]), 32)
+
+    def test_another_bank_is_scored_and_its_rows_say_so(self):
+        import json
+        import shutil
+        bank = os.path.join(self.tmp.name, "other.syx")
+        shutil.copy(os.path.join(self.repo, "data", "jx8p-factory-1-32.syx"), bank)
+        ref = os.path.join(self.tmp.name, "bankref")
+        shutil.copytree(self.ref, ref)
+        mid = self.sc.write_midi(os.path.join(self.tmp.name, "w3"))
+        self.sc.write_manifest(ref, mid, bank)
+        hist = os.path.join(self.tmp.name, "bank-history.jsonl")
+        rows = self.sc.run(self.repo, "deadbee", ref, hist, work=os.path.join(self.tmp.name, "w4"),
+                           bank=bank, bank_name="other")
+        self.assertEqual({r["bank"] for r in rows}, {"other"})
+        self.assertTrue(all(r["spectral_db_mean"] == 0.0 for r in rows))
+        with open(os.path.join(ref, "manifest.json")) as fh:
+            man = json.load(fh)
+        man["bank_sha256"] = "0" * 64
+        with open(os.path.join(ref, "manifest.json"), "w") as fh:
+            json.dump(man, fh)
+        with self.assertRaises(SystemExit):
+            self.sc.run(self.repo, "deadbee", ref, hist, work=os.path.join(self.tmp.name, "w5"),
+                        bank=bank, bank_name="other")
 
     def test_a_reference_made_from_other_midi_is_refused(self):
         import json

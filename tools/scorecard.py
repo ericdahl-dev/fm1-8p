@@ -83,6 +83,22 @@ def release_ms(x, off, end, f0, drop):
     return float(below[0] * 1000.0 / SR) if len(below) else None
 
 
+AIR_HZ = 6300.0
+
+
+def air_db(x):
+    """Energy above AIR_HZ as a share of the whole, dB."""
+    x = mono(x)
+    sp = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
+    f = np.fft.rfftfreq(len(x), 1 / SR)
+    return 10 * np.log10(sp[f >= AIR_HZ].sum() / (sp.sum() + 1e-30) + 1e-30)
+
+
+def air_gap(ours, pg):
+    """Ours' air minus PG-8X's, dB: + means more energy up there than PG-8X has."""
+    return float(air_db(ours) - air_db(pg))
+
+
 _GRID = 30 * 2 ** (np.arange(0, 1200 * np.log2(8000 / 30), 5) / 1200)   # 5-cent steps, 30 Hz .. 8 kHz
 
 
@@ -124,8 +140,9 @@ def _gap(a, b):
 def score_tone(ours, pg):
     """One tone, ours against PG-8X's render of the same MIDI: loudness gap (LU), spectral distance per
     section and its mean (dB), the high note's decay (to -20 dB, from 30 ms after onset) and release (to
-    -40 dB after note-off) gaps (ms, ours minus PG-8X; None where either never falls that far), and the
-    pitch offset of the held low and high notes (cents)."""
+    -40 dB after note-off) gaps (ms, ours minus PG-8X; None where either never falls that far), the
+    pitch offset of the held low and high notes (cents; harmonic tones only: an inharmonic one, a ring
+    or cross-mod, has no single pitch and reads nonsense), and the chord's air gap (dB)."""
     spec = {k: round(spectral_distance(_cut(ours, *w), _cut(pg, *w)), 2) for k, w in SECTIONS.items()}
     return {
         "loudness_gap_lu": round(loudness_gap(ours, pg), 2),
@@ -136,13 +153,15 @@ def score_tone(ours, pg):
             "high_release40": _gap(release_ms(ours, HIGH[1], HIGH[1] + 2.5, HIGH[2], 40),
                                    release_ms(pg, HIGH[1], HIGH[1] + 2.5, HIGH[2], 40))},
         "pitch_cents": {k: pitch_cents(_cut(ours, *SECTIONS[k]), _cut(pg, *SECTIONS[k])) for k in ("low", "high")},
+        "air_gap_db": round(air_gap(_cut(ours, *SECTIONS["chord"]), _cut(pg, *SECTIONS["chord"])), 2),
     }
 
 
-def tone_row(commit, date, tone, name, score, ref):
-    """One history row for one tone at one commit (schema SCHEMA)."""
-    return {"schema": SCHEMA, "kind": "tone", "commit": commit, "date": date, "tone": tone, "name": name,
-            "ref": ref, **score}
+def tone_row(commit, date, tone, name, score, ref, bank="factory"):
+    """One history row for one tone of BANK at one commit (schema SCHEMA). A row without "bank" (written
+    before banks) is the factory bank."""
+    return {"schema": SCHEMA, "kind": "tone", "commit": commit, "date": date, "bank": bank, "tone": tone,
+            "name": name, "ref": ref, **score}
 
 
 def append_rows(path, rows):
@@ -225,21 +244,26 @@ def sha256(path):
         return hashlib.sha256(fh.read()).hexdigest()
 
 
-def write_manifest(ref, mid):
-    """A reference folder's manifest: the MIDI it was rendered from (make_ref.py writes the real one)."""
+def write_manifest(ref, mid, bank=None):
+    """A reference folder's manifest: the MIDI (and bank) it was rendered from (make_ref.py writes the
+    real one)."""
+    man = {"midi_sha256": sha256(mid)}
+    if bank:
+        man["bank_sha256"] = sha256(bank)
     with open(os.path.join(ref, "manifest.json"), "w") as fh:
-        json.dump({"midi_sha256": sha256(mid)}, fh)
+        json.dump(man, fh)
 
 
-def tone_args(tree):
-    """[(tone number, name, render args)] for the 32 factory tones, as TREE's converter maps them."""
+def tone_args(tree, bank=None):
+    """[(tone number, name, render args)] for BANK's tones (default: TREE's factory bank), as TREE's
+    converter maps them."""
     import re
     import sys
     sys.path.insert(0, os.path.join(tree, "tools"))
     import jx8p
     with open(os.path.join(tree, "engine", "params.c")) as fh:
         names = dict(re.findall(r'\{\s*FM_PARAM_(\w+)\s*,\s*"([^"]+)"', fh.read()))
-    with open(os.path.join(tree, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
+    with open(bank or os.path.join(tree, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
         tones = jx8p.parse_syx(fh.read())
     out = []
     for i, t in enumerate(tones, 1):
@@ -252,13 +276,13 @@ def tone_args(tree):
     return out
 
 
-def render_tones(tree, mid, work):
+def render_tones(tree, mid, work, bank=None):
     """Renders the 32 tones with TREE's build/fm1-8p-render (48 kHz, 3 s tail, 6 voices); yields
     (tone number, wav path)."""
     import subprocess
     d = os.path.join(work, "ours")
     os.makedirs(d, exist_ok=True)
-    for i, _, args in tone_args(tree):
+    for i, _, args in tone_args(tree, bank):
         path = os.path.join(d, f"{i:02d}.wav")
         subprocess.run([os.path.join(tree, "build", "fm1-8p-render"), "-r", str(SR), "-t", "3000", "-v", "6",
                         *args, mid, path], check=True, capture_output=True)
@@ -279,9 +303,10 @@ def now():
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def run(tree, commit, ref, history, work=None, match=None):
-    """Scores TREE's 32 tones against the reference renders in REF; appends a row per tone (and, with
-    MATCH, a match harness results folder, a row per parameter) to HISTORY; returns the tone rows."""
+def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name="factory"):
+    """Scores BANK's tones (default: the factory bank) on TREE against the reference renders in REF;
+    appends a row per tone (and, with MATCH, a match harness results folder, a row per parameter) to
+    HISTORY; returns the tone rows. REF must have been rendered from the same MIDI and bank."""
     work = work or os.path.join(tree, "build", "scorecard")
     mid = write_midi(work)
     try:
@@ -291,12 +316,14 @@ def run(tree, commit, ref, history, work=None, match=None):
         raise SystemExit(f"scorecard: {ref}: no manifest.json (make the reference first)")
     if man.get("midi_sha256") != sha256(mid):
         raise SystemExit(f"scorecard: {ref} was rendered from other MIDI; make the reference again")
-    names = {i: n for i, n, _ in tone_args(tree)}
+    if bank and man.get("bank_sha256") != sha256(bank):
+        raise SystemExit(f"scorecard: {ref} was not rendered from {bank}")
+    names = {i: n for i, n, _ in tone_args(tree, bank)}
     date, ref_id = now(), man["midi_sha256"][:12]
     rows = []
-    for i, path in render_tones(tree, mid, work):
+    for i, path in render_tones(tree, mid, work, bank):
         score = score_tone(read_wav(path), read_wav(os.path.join(ref, f"{i:02d}.wav")))
-        rows.append(tone_row(commit, date, i, names[i], score, ref_id))
+        rows.append(tone_row(commit, date, i, names[i], score, ref_id, bank_name))
     params = []
     if match:
         import glob
@@ -307,14 +334,15 @@ def run(tree, commit, ref, history, work=None, match=None):
     return rows
 
 
-def rows_for(history, commit, ref):
-    """The tone rows of COMMIT's latest run against reference REF in HISTORY, or None."""
+def rows_for(history, commit, ref, bank="factory"):
+    """The tone rows of COMMIT's latest run of BANK against reference REF in HISTORY, or None."""
     try:
         with open(history) as fh:
             rows = [json.loads(line) for line in fh if line.strip()]
     except OSError:
         return None
-    rows = [r for r in rows if r.get("kind") == "tone" and r.get("commit") == commit and r.get("ref") == ref]
+    rows = [r for r in rows if r.get("kind") == "tone" and r.get("commit") == commit and r.get("ref") == ref
+            and r.get("bank", "factory") == bank]
     if not rows:
         return None
     last = max(r["date"] for r in rows)
@@ -327,12 +355,13 @@ def _fmt(v, f="{:+.0f}"):
 
 def report(head, base):
     """Markdown: every tone, the worst 5, and the tones moved against BASE's rows (None: no base)."""
-    out = ["| tone | spectral dB (mean) | worst section | loudness gap LU | high decay / release gap ms | pitch low / high c |",
-           "|---|---|---|---|---|---|"]
+    out = ["| tone | spectral dB (mean) | worst section | loudness gap LU | air gap dB | high decay / release gap ms | "
+           "pitch low / high c |", "|---|---|---|---|---|---|---|"]
     for r in sorted(head, key=lambda r: r["tone"]):
         sec = max(r["spectral_db"], key=r["spectral_db"].get)
         out.append(f"| {r['tone']:02d} {r['name']} | {r['spectral_db_mean']:.1f} | {sec} {r['spectral_db'][sec]:.1f} | "
-                   f"{r['loudness_gap_lu']:+.1f} | {_fmt(r['timing_gap_ms'].get('high_decay20'))} / "
+                   f"{r['loudness_gap_lu']:+.1f} | {_fmt(r.get('air_gap_db'), '{:+.1f}')} | "
+                   f"{_fmt(r['timing_gap_ms'].get('high_decay20'))} / "
                    f"{_fmt(r['timing_gap_ms'].get('high_release40'))} | "
                    f"{_fmt(r['pitch_cents']['low'])} / {_fmt(r['pitch_cents']['high'])} |")
     out += ["", "worst 5 (spectral dB): " + ", ".join(f"{r['tone']:02d} {r['name']} {r['spectral_db_mean']:.1f}"
@@ -358,9 +387,15 @@ def main(argv=None):
     ap.add_argument("--match", help="a match harness output folder (results/*.json): adds a row per parameter")
     ap.add_argument("--base", help="a commit already in the history: print the tones moved against it")
     ap.add_argument("--work", help="scratch folder (default TREE/build/scorecard)")
+    ap.add_argument("--bank", help="a .syx bank of 32 tones to score instead of the factory bank (kept out of "
+                                   "this repo when it isn't ours)")
+    ap.add_argument("--bank-name", default="factory", help="the bank's name in the history rows")
     a = ap.parse_args(argv)
-    rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match)
-    base = rows_for(a.history, a.base, rows[0]["ref"]) if a.base else None
+    if a.bank and a.bank_name == "factory":
+        ap.error("--bank needs a --bank-name")
+    rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match, a.bank, a.bank_name)
+    base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if a.base else None
+    print(f"bank: {a.bank_name}")
     if a.base and base is None:
         print(f"scorecard: no rows for {a.base} against this reference in {a.history}")
     print(report(rows, base))
