@@ -11,6 +11,12 @@
 #   make check-runner       test tools/run-tests.sh (make test fails on an empty or silent test binary)
 #                           and that a build killed partway leaves no empty output make would reuse
 #   make check              test + check-runner + check-float-free + check-fm1-build + check-patches
+#   make gate BASE=<commit> [HEAD=<commit>]
+#                           the no-sound gate (tools/gate.sh): renders every gate clip on BASE and HEAD
+#                           (default: the commit checked out) and fails if any differs; prints how many
+#                           clips reach each engine function (GATE_COVERAGE=0 skips that). Either may be
+#                           a source directory instead of a commit.
+#   make check-gate         test the gate itself (renders: minutes, so not part of make check)
 #
 # The FM-1 firmware itself is built by tools/fm1-build.sh (see README).
 #   make render-demo        render examples/demo.mid to build/demo.wav
@@ -43,7 +49,8 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches render-demo clean
+.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches render-demo clean \
+	gate check-gate
 
 all: $(RENDER) $(BENCH)
 
@@ -100,6 +107,13 @@ check-patches:
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 
 check: test check-runner check-float-free check-fm1-build check-patches
+
+gate:
+	@test -n "$(BASE)" || { echo "usage: make gate BASE=<commit> [HEAD=<commit>]" >&2; exit 2; }
+	GATE_COVERAGE="$(GATE_COVERAGE)" PYTHON="$(PYTHON)" sh tools/gate.sh "$(BASE)" $(if $(HEAD),"$(HEAD)")
+
+check-gate:
+	sh tests/test_gate.sh
 
 render-demo: $(RENDER)
 	./$(RENDER) examples/demo.mid $(BUILD)/demo.wav
