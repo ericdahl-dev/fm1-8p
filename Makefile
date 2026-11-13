@@ -109,6 +109,7 @@ check-runner:
 
 check-patches:
 	PYTHON="$(PYTHON)" sh tests/test_python_cache.sh
+	sh tests/test_python_without_numpy.sh
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 
 check: test check-runner check-float-free check-fm1-build check-patches

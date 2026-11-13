@@ -279,6 +279,7 @@ class RunTest(unittest.TestCase):
             self.sc.run(self.repo, "deadbee", bad, self.hist, work=os.path.join(self.tmp.name, "w2"))
 
 
+@unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard): tools/scorecard.py imports them")
 class BaseNoteTest(unittest.TestCase):
     """A head that lacks commits its base has isn't a fair comparison: the note names the merge base."""
 
