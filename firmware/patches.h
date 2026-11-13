@@ -24,6 +24,7 @@ typedef enum {
     PATCH_OSC2_COARSE_SEMIS,
     PATCH_OSC2_FINE_CENTS,
     PATCH_OSC1_LEVEL_PERMILLE,          /* DCO-1 level over 127, summed with DCO-2 (#102) */
+    PATCH_AMP_LEVEL_PERMILLE,           /* VCA LEVEL, 0.30 dB a step below 127 */
     PATCH_OSC2_LEVEL_PERMILLE,          /* DCO-2 level over 127, before MIX ENV */
     PATCH_OSC_SYNC,
     PATCH_XMOD_AM,                      /* osc_ring: the JX-8P's ring, SYNC 2 and X-MOD (#105) */
@@ -60,7 +61,6 @@ typedef enum {
     PATCH_FILTER_ENV_DYNA,              /* VCF DYNAMICS: 0 off .. 3 */
     PATCH_AMP_KEY_FOLLOW_PERMILLE,      /* ENV-2 KEY: 260 per mille a position (#60) */
     PATCH_FILTER_ENV_KEY_FOLLOW_PERMILLE, /* the filter envelope's (ENV-1 KEY, or ENV-2's) */
-    PATCH_AMP_LEVEL_PERMILLE,           /* waits: a VCA level (no issue yet) */
     PATCH_FIELD_COUNT,
 } patch_field;
 

@@ -5,8 +5,8 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.8 KiB (5952 bytes on
- * 32-bit targets such as the FM-1 and Cortex-M, 6208 on 64-bit desktops,
+ * sets up everything inside it. fm_engine is about 5.8 KiB (5956 bytes on
+ * 32-bit targets such as the FM-1 and Cortex-M, 6216 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
  * storage is recommended; a task stack must have room for it on top of
@@ -104,6 +104,7 @@ typedef enum {
                         * the DYNAMICS share at the velocity (engine/dyna.c) */
     FM_PARAM_OSC_MIX_ENV_DYNA, /* MIX DYNAMICS 0 (off) .. 3: osc_mix_env's depth
                                 * times the DYNAMICS share at the velocity */
+    FM_PARAM_AMP_LEVEL, /* per mille: the whole note's level (VCA LEVEL), read at note on */
     FM_PARAM_COUNT
 } fm_param_id;
 
