@@ -35,6 +35,15 @@ def xmod():
     yield "noise-noise", "vel.mid", s(osc1_wave=3, osc2_wave=3, osc2_level_permille=500)
 
 
+def pwm():
+    """Pulse-width modulation from the LFO, on a pulse and a pulse pair with chorus."""
+    yield "pwm", "chords.mid", s(osc1_wave=1, osc1_pulse_width_pct=50, lfo_rate_centihz=60, lfo_pw_pct=40,
+                                 amp_attack_ms=20, amp_release_ms=600, chorus_mode=1)
+    yield "pwm-pair", "unison.mid", s(osc1_wave=1, osc2_wave=1, osc1_pulse_width_pct=30,
+                                      osc2_pulse_width_pct=70, osc2_level_permille=600,
+                                      lfo_rate_centihz=420, lfo_pw_pct=25, lfo_wave=1)
+
+
 def controllers():
     """Sustain pedal, mod wheel, pitch bend, all notes off and all sound off, with vibrato and a
     filter envelope so each one shows."""
@@ -113,6 +122,7 @@ def cases(tree):
     yield "demo", "demo.mid", []
     yield from pair_matrix()
     yield from xmod()
+    yield from pwm()
     yield from controllers()
     yield from hpf_steps()
     yield from filter_env()

@@ -68,6 +68,7 @@ expect_ok "a change in the LFO fails the gate" caught lfo lfo.c fm_lfo_tick 'l->
 expect_ok "a change in a note's level (velocity) fails the gate" caught level voice.c set_level 'peak -= peak >> 4;'
 expect_ok "a change in pitch bend fails the gate" caught bend engine.c fm_engine_pitch_bend 'value ^= 64;'
 expect_ok "a change in the controllers (sustain pedal, mod wheel) fails the gate" caught cc engine.c fm_engine_controller 'if (controller == 64 || controller == 1) value = (uint8_t)(127 - value);'
+expect_ok "a change in pulse-width modulation fails the gate" caught pwm osc.c pulse_gain_fast 'w ^= 1u << 24;'
 
 echo
 echo "$run tests, $failed failed"
