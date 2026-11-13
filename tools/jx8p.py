@@ -255,9 +255,11 @@ def env(p, base):
 # Below 16 PG-8X 2.0.13 steps in pairs and leaves the curve: its decay floors near 4 ms (tau in ms per
 # even byte, sample-accurate probe, 2026-11-11). Its release there falls 20 dB fast and then tails
 # (byte 0: -20 dB in 3 ms, -40 in 17, about its GATE's 18); the release tau is the geometric mean of
-# t_20dB / ln 10 and t_40dB / (2 ln 10) (2026-11-12), so neither end is far off.
+# t_20dB / ln 10 and t_40dB / (2 ln 10) (2026-11-12), so neither end is far off; bytes 0-1 take 3 ms,
+# the top of that range, as PG-8X's RELEASE 0 tails like its GATE (slower than 2-3: -40 dB in 17 ms
+# against 7).
 _LOW_DECAY_MS = (4, 4, 4, 4, 4, 5, 7, 12)
-_LOW_RELEASE_MS = (2, 2, 2, 2, 4, 5, 8, 12)
+_LOW_RELEASE_MS = (3, 2, 2, 2, 4, 5, 8, 12)
 
 
 def _tau_ms(v):

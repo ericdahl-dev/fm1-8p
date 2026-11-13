@@ -193,8 +193,11 @@ class MapTest(unittest.TestCase):
                     self.assertLessEqual(abs(f(b) - ms), max(1, 0.15 * ms), (f.__name__, b, f(b), ms))
         e = patch("SOUNDTRACK")                            # ENV-2 release 77: the long curve
         self.assertEqual(e["AMP_RELEASE_MS"], jx8p.release_ms(77))
-        times = [jx8p.release_ms(v) for v in range(128)]
+        # longer as the knob turns up, from byte 2: PG-8X's RELEASE 0 and 1 tail slower than 2 and 3 do
+        # (-40 dB in 17 ms against 7, like its GATE's 18), so the table does too
+        times = [jx8p.release_ms(v) for v in range(2, 128)]
         self.assertEqual(times, sorted(times))
+        self.assertGreater(jx8p.release_ms(0), jx8p.release_ms(2))
 
     def test_decay_and_release_are_pg8x_time_constants(self):
         for table in (self.PG8X_DECAY_TAU_MS, self.PG8X_RELEASE_TAU_MS):
