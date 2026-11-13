@@ -11,7 +11,7 @@
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 G=${GATE_DIR:-$ROOT/build/gate}
-PY=${PYTHON:-python3}
+PY=${PYTHON:-python3}   # a command and its flags: used unquoted
 mkdir -p "$G" || exit 2
 G=$(cd "$G" && pwd -P)
 
@@ -42,7 +42,7 @@ renders() {
         rm -rf "$o" && mkdir -p "$o" "$G/build/$k"
         make -s -C "$1" BUILD="$G/build/$k" "$G/build/$k/fm1-8p-render" >"$o/.build.log" 2>&1 ||
             { cat "$o/.build.log" >&2; die "$1: the renderer does not build"; }
-        "$PY" -B "$ROOT/tools/gate_cases.py" "$1" >"$o/.cases" || die "$1: cannot list the clips"
+        $PY -B "$ROOT/tools/gate_cases.py" "$1" >"$o/.cases" || die "$1: cannot list the clips"
         while IFS='	' read -r name mid args; do
             # shellcheck disable=SC2086 # args are words
             "$G/build/$k/fm1-8p-render" $args "$G/midi/$mid" "$o/$name.wav" >/dev/null 2>"$o/$name.err" ||
@@ -55,7 +55,7 @@ renders() {
 
 [ $# -ge 1 ] || die "usage: gate.sh BASE [HEAD]"
 mkdir -p "$G/midi" && cp "$ROOT/examples/demo.mid" "$G/midi/demo.mid" &&
-    "$PY" "$ROOT/tools/gate_midi.py" "$G/midi" || die "cannot write the MIDI"
+    $PY "$ROOT/tools/gate_midi.py" "$G/midi" || die "cannot write the MIDI"
 B=$(src "$1") || exit 2
 H=$(src "${2:-HEAD}") || exit 2
 OB=$(renders "$B") || exit 2
@@ -77,7 +77,7 @@ coverage() {
             -exec mv {} "$c/runs/$name/" \;
         rm -rf "$c/p/$name"
     done <"$OH/.cases"
-    "$PY" -B "$ROOT/tools/gate_coverage.py" "$c/build/engine" "$1" "$c/runs" || die "coverage failed"
+    $PY -B "$ROOT/tools/gate_coverage.py" "$c/build/engine" "$1" "$c/runs" || die "coverage failed"
 }
 
 [ "${GATE_COVERAGE:-1}" = 0 ] || coverage "$H"

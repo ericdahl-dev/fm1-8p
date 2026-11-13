@@ -46,6 +46,10 @@ tree same
 expect_ok "two identical trees pass" sh tools/gate.sh "$T/base" "$T/same"
 cp "$T/out" "$T/report"
 expect_ok "and the report says nothing differs" grep -q "^0 of [0-9]* clips differ" "$T/report"
+# make gate runs it: BASE is required, HEAD defaults to the commit checked out.
+expect_ok "make gate BASE=... HEAD=... runs the gate" make -s gate BASE="$T/base" HEAD="$T/same" GATE_COVERAGE=0
+expect_ok "and reports the clips compared" grep -q "^0 of [0-9]* clips differ" "$T/out.last"
+expect_fail "make gate without BASE fails" make -s gate
 # Coverage: how many clips reach each engine function, so a change can't pass on one clip.
 reach() { awk -v f="$1" '$3 == f { print $1 }' "$T/report"; }
 expect_ok "the report counts the clips that reach each engine function" grep -q "clips reaching each engine function" "$T/report"
