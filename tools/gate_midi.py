@@ -70,6 +70,13 @@ def ab():
             (71, 7.0, 7.3, 90), (69, 7.4, 8.0, 40), (36, 8.3, 10.0, 100)]
 
 
+def score():
+    """The scorecard's MIDI (tools/scorecard.py SECTIONS): a held C major triad, a phrase at velocities
+    110, 60, 90, 40, a low C held, then a high C held."""
+    return [(60, 0, 3, 100), (64, 0, 3, 100), (67, 0, 3, 100), (67, 4.0, 4.4, 110), (72, 4.5, 4.9, 60),
+            (71, 5.0, 5.3, 90), (69, 5.4, 6.0, 40), (36, 6.4, 8.1, 100), (84, 8.6, 10.0, 100)]
+
+
 def controllers():
     """The sustain pedal holding released keys, then letting go; the mod wheel swept; pitch bend up and
     back; all notes off under the pedal; all sound off."""
@@ -87,7 +94,7 @@ def controllers():
 
 
 FILES = {"chords.mid": chords, "unison.mid": unison, "vel.mid": vel, "ab.mid": ab,
-         "controllers.mid": controllers}
+         "controllers.mid": controllers, "score.mid": score}
 
 if __name__ == "__main__":
     d = sys.argv[1]

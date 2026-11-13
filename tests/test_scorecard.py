@@ -128,5 +128,22 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual([r["tone"] for r in got], [6, 2, 4, 5, 1])
 
 
+class ScoreMidiTest(unittest.TestCase):
+    """The scorecard MIDI (tools/gate_midi.py score()) puts a note under every section scorecard.py reads."""
+
+    def test_each_section_lies_inside_its_note(self):
+        import gate_midi
+        notes = gate_midi.score()
+        want = {"chord": (60, 100), "v110": (67, 110), "v60": (72, 60), "v90": (71, 90), "v40": (69, 40),
+                "low": (36, 100), "high": (84, 100)}
+        src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "scorecard.py")).read()
+        for name, (a, b) in {"chord": (0.3, 2.9), "v110": (4.0, 4.4), "v60": (4.5, 4.9), "v90": (5.0, 5.3),
+                             "v40": (5.4, 6.0), "low": (6.7, 8.0), "high": (8.9, 9.9)}.items():
+            self.assertIn(f'"{name}": ({a}, {b})', src)
+            note, vel = want[name]
+            self.assertTrue(any(n == note and v == vel and s <= a and b <= e + 0.001 for n, s, e, v in notes),
+                            (name, a, b))
+
+
 if __name__ == "__main__":
     unittest.main()
