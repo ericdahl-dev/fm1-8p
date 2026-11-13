@@ -185,7 +185,7 @@ class MapTest(unittest.TestCase):
 
     def test_attack_follows_pg8x_measured_curve(self):
         self.assertEqual(jx8p.attack_ms(0), 1)                    # at least 1 ms: a ramp, not a click
-        self.assertEqual(jx8p.attack_ms(0), patch("E. BASS")["AMP_ATTACK_MS"])   # GATE
+        self.assertEqual(jx8p.attack_ms(0), patch("E. BASS")["AMP_ATTACK_MS"])   # ENV-2 ATTACK 0
         for v, ms in self.PG8X_ATTACK_TO_PEAK_MS.items():
             if v == 127:                                          # the range's end: 32 s
                 self.assertEqual(jx8p.attack_ms(v), 32000)
@@ -229,12 +229,16 @@ class MapTest(unittest.TestCase):
         self.assertEqual(times, sorted(times))
         self.assertLessEqual(times[127], 32000)
 
-    # VCA mode GATE (#63): until the engine has it, an amp envelope that is a gate
-    def test_gate_mode_is_a_gate_shaped_amp_envelope(self):
-        e = patch("E. BASS")                    # VCA mode 0
+    # VCA mode GATE (#63) is the engine's amp_gate: the VCA follows the key, and the amp settings
+    # carry ENV-2's times all the same, which run envelope 2 for whatever names it (E. BASS's VCF)
+    def test_gate_mode_is_the_engines_gate_and_env2_still_runs(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["AMP_GATE"].param, "AMP_GATE")
+        t = next(t for t in factory() if t.name == "E. BASS")    # VCA mode 0
+        e = jx8p.to_engine(t)
         self.assertEqual(e["AMP_GATE"], 1)
-        self.assertEqual((e["AMP_ATTACK_MS"], e["AMP_SUSTAIN_PERMILLE"], e["AMP_RELEASE_MS"]),
-                         (1, 1000, 5))
+        self.assertEqual((e["AMP_ATTACK_MS"], e["AMP_DECAY_MS"], e["AMP_SUSTAIN_PERMILLE"],
+                          e["AMP_RELEASE_MS"]), jx8p.env(t.params, jx8p.ENV2))
 
     # VCF KEY as PG-8X 2.0.13 plays it (match.py --param VCF_KEY, #95): it pivots at C2 (note 36) and
     # tracks up to 1.29 octaves an octave. The engine pivots at C4, so the converter moves the pivot by
@@ -285,13 +289,13 @@ class MapTest(unittest.TestCase):
         got = {m: patch_with("SOUNDTRACK", VCF_ENV_MODE=m, VCA_MODE=127)["FILTER_ENV_SOURCE"]
                for m in (0, 32, 64, 96)}
         self.assertEqual(got, {0: 1, 32: 1, 64: 0, 96: 0})
-        self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=32, VCA_MODE=0)["FILTER_ENV_SOURCE"], 0)
+        self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=32, VCA_MODE=0)["FILTER_ENV_SOURCE"], 1)
         self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=0, VCA_MODE=127)["FILTER_ENV_AMOUNT_CENTS"],
                          -60 * 129)
 
     # #60: ENV KEY is a 4-position switch; PG-8X 2.0.13 shortens the times by 0.26 octave an octave
-    # above C2 per position, so 260 per mille each. The amp envelope takes ENV-2's (none on GATE,
-    # a fixed gate); the filter envelope the key follow of the JX-8P envelope whose times it runs
+    # above C2 per position, so 260 per mille each. The amp settings take ENV-2's (on GATE too:
+    # they run envelope 2 apart from the gate, #63); the filter envelope ENV-1's
     def test_env_key_switch_is_each_envelopes_key_follow(self):
         fields = {f.name: f for f in jx8p.FIELDS}
         self.assertEqual(fields["AMP_KEY_FOLLOW_PERMILLE"].param, "AMP_KEY_FOLLOW")
@@ -303,8 +307,8 @@ class MapTest(unittest.TestCase):
         self.assertEqual({v: e["FILTER_ENV_KEY_FOLLOW_PERMILLE"] for v, e in got.items()},
                          {0: 780, 32: 520, 64: 260, 96: 0})
         gate = patch_with("SOUNDTRACK", ENV2_KEY=96, ENV1_KEY=0, VCA_MODE=0, VCF_ENV_MODE=32)
-        self.assertEqual(gate["AMP_KEY_FOLLOW_PERMILLE"], 0)          # the VCA is a gate
-        self.assertEqual(gate["FILTER_ENV_KEY_FOLLOW_PERMILLE"], 780)  # it runs ENV-2's times
+        self.assertEqual(gate["AMP_KEY_FOLLOW_PERMILLE"], 780)        # envelope 2, apart (#63)
+        self.assertEqual(gate["FILTER_ENV_KEY_FOLLOW_PERMILLE"], 0)    # envelope 1 runs ENV-1
 
     # VCA DYNAMICS and MIX DYNAMICS are the engine's DYNAMICS positions (engine/dyna.c, PG-8X 2.0.13's
     # curve): the VCA's level, and the MIX ENV depth, times the share at the velocity
@@ -390,7 +394,7 @@ class MapTest(unittest.TestCase):
             got[mode] = (e["PITCH_ENV_SOURCE"], e["PITCH_ENV_OSC1_CENTS"])
         self.assertEqual(got, {0: (1, -1574), 32: (1, 1574), 64: (0, -1574), 96: (0, 1574)})
         e = patch_with("SOUNDTRACK", DCO1_ENV=64, DCO_ENV_MODE=32, VCA_MODE=0)    # VCA on GATE
-        self.assertEqual(e["PITCH_ENV_SOURCE"], 0)
+        self.assertEqual(e["PITCH_ENV_SOURCE"], 1)                  # envelope 2 runs apart (#63)
 
     # DCO DYNAMICS off, 1, 2, 3 -> the engine's pitch_env_dyna position, which scales the depth
     # by the curve PG-8X shares across its DYNAMICS (engine/dyna.c)
@@ -441,11 +445,11 @@ class MapTest(unittest.TestCase):
         self.assertEqual(e["OSC_MIX_ENV_SOURCE"], 0)
         e = patch("VOICES")                     # 123 and 127, MIX ENV 71, ENV-1 inverted
         self.assertEqual((e["OSC2_LEVEL_PERMILLE"], e["OSC_MIX_ENV_PERMILLE"]), (1000, -559))
-        self.assertEqual(patch("ORGAN 2")["OSC_MIX_ENV_SOURCE"], 0)         # ENV-2, VCA on GATE
+        self.assertEqual(patch("ORGAN 2")["OSC_MIX_ENV_SOURCE"], 0)         # ENV-1 (MIX ENV MODE 96)
 
     # MIX ENV MODE names ENV-1 but VCF ENV MODE names ENV-2 (PIANO 1, PIANO 3, TIMBALES, WINDCHIMES,
     # E. BASS, SOFT BRASS, CHURCHBELL): the mix follows the filter envelope, which runs ENV-1's
-    # times (#59), and the cutoff the amp envelope. E. BASS (VCA on GATE) stays an approximation.
+    # times (#59), and the cutoff envelope 2 (with the VCA on GATE, E. BASS, it runs apart: #63).
     def test_mix_env_on_env1_while_the_filter_runs_env2_takes_the_filter_envelope(self):
         e = patch("PIANO 1")                    # MIX ENV MODE ENV-1, VCF ENV MODE ENV-2
         self.assertEqual(e["OSC_MIX_ENV_SOURCE"], 0)
@@ -453,8 +457,8 @@ class MapTest(unittest.TestCase):
 
     # After #59 the engine's envelope 1 (the filter envelope) runs ENV-1's own times, so PIANO 1's
     # MIX ENV (ENV-1, while its VCF names ENV-2 and follows the amp envelope) gets its real
-    # envelope. Only with the VCA on GATE, where ENV-2 runs nowhere, does envelope 1 run ENV-2's
-    # times for a VCF that names it (E. BASS)
+    # envelope. With the VCA on GATE too: envelope 2 then runs apart from the VCA (#63), so
+    # envelope 1 keeps ENV-1's times and a VCF on ENV-2 follows envelope 2 (E. BASS)
     def test_envelope_1_runs_env1s_own_times(self):
         def times(e):
             return tuple(e["FILTER_ENV_%s" % k] for k in ("ATTACK_MS", "DECAY_MS", "SUSTAIN_PERMILLE",
@@ -466,7 +470,9 @@ class MapTest(unittest.TestCase):
         e = patch("PIANO 1")
         self.assertEqual((e["OSC_MIX_ENV_SOURCE"], e["FILTER_ENV_SOURCE"]), (0, 1))
         t = next(t for t in factory() if t.name == "E. BASS")    # VCA on GATE, VCF ENV-2
-        self.assertEqual(times(jx8p.to_engine(t)), jx8p.env(t.params, jx8p.ENV2))
+        e = jx8p.to_engine(t)
+        self.assertEqual(times(e), jx8p.env(t.params, jx8p.ENV1))
+        self.assertEqual(e["FILTER_ENV_SOURCE"], 1)
 
     # DCO-1 at 0 is osc1 off: only DCO-2 sounds, at its level plus MIX ENV, so with the envelope
     # at rest and DCO-2's byte 0 the tone is silent, as on PG-8X

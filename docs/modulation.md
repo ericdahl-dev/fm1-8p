@@ -18,6 +18,7 @@ in [fixed-point.md](fixed-point.md); voices, stealing and unison in
 | `pitch_env_dyna` | 0..3 | 0 | DYNAMICS: 0 off, 1..3 scale the depth by velocity (`engine/dyna.c`) |
 | `lfo_pw_pct` | 0..49 | 0 | pulse width depth at full LFO, in percent of a cycle, each way |
 | `amp_velocity_pct` | 0..100 | 0 | how much velocity sets the level: 0 ignores it, 100 follows the full curve |
+| `amp_gate` | 0..1 | 0 | 1: the VCA is a gate (VCA MODE GATE, #63), up in 1 ms and down with a 0.6 ms time constant; the `amp_*` settings then run envelope 2 apart from it |
 
 Every depth defaults to 0 and so does `amp_velocity_pct`, so a patch that
 does not set them renders byte-identical to an engine without this module
@@ -128,7 +129,9 @@ the int32 limits rather than wrapping. The sources are the LFO (after the
 voice's delay and fade, set every control tick), the note's velocity
 (its level from `amp_velocity_pct` and the curve below, set when the note
 starts), envelope 1 (the filter envelope's level) and envelope 2 (the amp
-envelope's level as a share of the note's peak), both set at the
+envelope's level as a share of the note's peak; with `amp_gate`, #63, the
+amp envelope is the VCA's gate and envelope 2 runs the `amp_*` settings
+on its own, its level its share), both set at the
 16-sample control points, and the pitch envelope (envelope 1 or 2 as
 `pitch_env_source` picks, times the DYNAMICS share at the note's velocity
 when `pitch_env_dyna` is on, set every control tick); the destinations are each oscillator's pitch

@@ -165,6 +165,10 @@ static void busy_random_param(fm_engine *e)
         {FM_PARAM_AMP_RELEASE_MS, {5, 20, 200, 800}},
         {FM_PARAM_AMP_ATTACK_MS, {0, 2, 30, 300}},
         {FM_PARAM_FILTER_ENV_ATTACK_MS, {0, 10, 100, 1000}},
+        /* the gate (#63): envelope 2 apart from the VCA, on and off mid-note */
+        {FM_PARAM_AMP_GATE, {0, 0, 1, 1}},
+        {FM_PARAM_FILTER_ENV_SOURCE, {0, 0, 1, 1}},
+        {FM_PARAM_AMP_SUSTAIN, {0, 300, 1000, 1000}},
     };
     uint32_t k = busy_pick(sizeof p / sizeof p[0]);
     fm_engine_set_param(e, p[k].id, p[k].v[busy_pick(4)]);

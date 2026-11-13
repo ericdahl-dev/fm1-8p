@@ -64,6 +64,10 @@ typedef struct {
     /* last: read only at control ticks and note starts, so the fields the
      * render reads keep their offsets */
     fm_mod mod;             /* the modulation sources and sums (mod.h) */
+    /* envelope 2 apart from the VCA, with the gate (#63): amp_env runs the
+     * gate then, and this the amp settings for the cutoff, pitch and mix.
+     * Caught up with filter_env (fenv_lag); idle without the gate */
+    fm_env env2;
 } fm_voice;
 
 /* What the LFO does to every voice, set by the engine from the patch. */
@@ -152,6 +156,10 @@ void fm_voice_release(fm_voice *v);
 
 /* Silences the voice at once (all sound off). */
 void fm_voice_silence(fm_voice *v);
+
+/* The amp envelope reads `amp` (envelope 2's settings, or the gate's with
+ * amp_gate, #63). A sounding note takes the new times at once. */
+void fm_voice_set_amp(fm_voice *v, const fm_env_settings *amp);
 
 /* New pitch for the note (bend). An old note that is fading keeps its. */
 void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate);
