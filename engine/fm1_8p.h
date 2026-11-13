@@ -5,8 +5,8 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 6.1 KiB (6204 bytes on
- * 32-bit targets such as the FM-1 and Cortex-M, 6560 on 64-bit desktops,
+ * sets up everything inside it. fm_engine is about 6.1 KiB (6260 bytes on
+ * 32-bit targets such as the FM-1 and Cortex-M, 6616 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
  * storage is recommended; a task stack must have room for it on top of
@@ -33,6 +33,8 @@
 #define FM_MAX_VOICES 8
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
+/* settings that glide with setting_glide (#146) */
+#define FM_GLIDE_SETTINGS 8
 /* Keys unison mode remembers for last-note priority (oldest dropped). */
 #define FM_HELD_MAX 16
 
@@ -105,6 +107,7 @@ typedef enum {
     FM_PARAM_OSC_MIX_ENV_DYNA, /* MIX DYNAMICS 0 (off) .. 3: osc_mix_env's depth
                                 * times the DYNAMICS share at the velocity */
     FM_PARAM_AMP_LEVEL, /* per mille: the whole note's level (VCA LEVEL), read at note on */
+    FM_PARAM_SETTING_GLIDE, /* 1: levels, filter and LFO depths glide as PG-8X's (#146) */
     FM_PARAM_AMP_GATE, /* VCA MODE GATE (#63): 1, the amp envelope is a gate
                         * (on with the key, a fixed short ramp), and the
                         * amp_* settings run envelope 2 for the cutoff,
@@ -147,11 +150,18 @@ typedef struct {
     uint32_t tick_left;  /* samples until the next control tick */
     uint32_t ticks;      /* control ticks since init */
     uint8_t mod_on;      /* the last tick applied a nonzero depth */
+    uint8_t glide_moving; /* setting_glide (#146): a setting is on its way */
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
     /* the chorus's right side, Q8.24; before the chorus writes it, the
      * voices' scratch (each voice's oscillators for the chunk): the chorus
      * only writes it (chorus_block_writes_right_without_reading_it) */
     int32_t mix_right[FM_MIX_FRAMES];
+    /* setting_glide (#146): where each gliding setting is now, Q8 in
+     * its own units (its parameter holds it rounded), where it goes, and
+     * the one-pole's step (1 - a, Q16) */
+    int32_t glide_cur[FM_GLIDE_SETTINGS];
+    int16_t glide_to[FM_GLIDE_SETTINGS];
+    int32_t glide_k;
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;

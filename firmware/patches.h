@@ -61,6 +61,7 @@ typedef enum {
     PATCH_FILTER_ENV_DYNA,              /* VCF DYNAMICS: 0 off .. 3 */
     PATCH_AMP_KEY_FOLLOW_PERMILLE,      /* ENV-2 KEY: 260 per mille a position (#60) */
     PATCH_FILTER_ENV_KEY_FOLLOW_PERMILLE, /* the filter envelope's (ENV-1 KEY, or ENV-2's) */
+    PATCH_SETTING_GLIDE,                /* 1: levels, filter and LFO depths glide as PG-8X's (#146) */
     PATCH_FIELD_COUNT,
 } patch_field;
 

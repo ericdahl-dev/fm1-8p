@@ -66,6 +66,7 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_AMP_DYNA,       "amp_dyna",            0,     3,    0 },
     { FM_PARAM_OSC_MIX_ENV_DYNA, "osc_mix_env_dyna",  0,     3,    0 },
     { FM_PARAM_AMP_LEVEL,      "amp_level_permille",  0, 1000, 1000 },
+    { FM_PARAM_SETTING_GLIDE,  "setting_glide",       0,     1,    0 },
     { FM_PARAM_AMP_GATE,       "amp_gate",            0,     1,    0 },
 };
 

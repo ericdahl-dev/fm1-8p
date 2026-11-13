@@ -135,6 +135,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | DCO-1 ENV, DCO-2 ENV | `pitch_env_osc1_cents`, `pitch_env_osc2_cents` | as PG-8X 2.0.13 plays them (#58): at full envelope 24.8 cents x value less 13 (0 at 0, 3137 at 127), linear in the envelope's level, the same on every key, each on its own oscillator. Signed by DCO ENV MODE: inverted is the exact mirror. With sync on, DCO-1's moves the heard pitch and DCO-2's only the timbre, as on PG-8X |
 | DCO ENV MODE | `pitch_env_source` | ENV-1: the filter envelope; ENV-2: envelope 2, with the VCA on GATE too (#63; as MIX ENV MODE) |
 | DCO DYNAMICS | `pitch_env_dyna` | the position, 0 off .. 3: the depth times the DYNAMICS curve's share at the note's velocity (`engine/dyna.c`) |
+| (none) | `setting_glide` | 1 for every tone: PG-8X 2.0.13 glides its levels, filter and LFO depths to a new value as a one-pole of about 16 ms (measured mid-note through DawDreamer automation: VCA LEVEL 15.9 ms, MIX DCO-2 16.7 / 15.7, VCF FREQ 16.4 / 15.9; VCF ENV, KEY and RES alike; the LFO depth about 20; DCO tune, DCO ENV, ENV-2 SUS, VCA DYNA and HPF do not glide). The engine glides osc 1 and 2's levels, the cutoff (in cents), resonance, key track, filter envelope depth and both LFO pitch depths, from PG-8X's power-on values (DCO-1 full, the filter open) when a patch is set before the first render (#146) |
 
 ## What waits for the engine
 
