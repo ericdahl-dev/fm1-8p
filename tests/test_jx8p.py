@@ -178,9 +178,13 @@ class MapTest(unittest.TestCase):
     PG8X_RELEASE_TAU_MS = {16: 24, 32: 69, 48: 182, 64: 493, 80: 1335, 96: 3570, 112: 9617}
 
     # Bytes below 16, sample-accurate (2026-11-11: a C7, |analytic signal|, t_20dB after the peak or
-    # note-off / ln 10). PG-8X steps in pairs there; its decay floors near 4 ms, its release does not
+    # note-off / ln 10). PG-8X steps in pairs there; its decay floors near 4 ms
     PG8X_LOW_DECAY_TAU_MS = {0: 4.1, 2: 4.1, 4: 4.1, 6: 3.7, 8: 3.5, 10: 4.9, 12: 6.8, 14: 12.0}
-    PG8X_LOW_RELEASE_TAU_MS = {0: 0.8, 2: 1.2, 4: 2.4, 6: 2.6, 8: 4.5, 10: 4.9, 12: 8.9, 14: 13.1}
+    # Its release there is not one exponential: the first 20 dB fall fast, a tail slower (byte 0: -20 dB
+    # in 3 ms, -40 in 17, about its GATE's 18). The tau is the geometric mean of t_20dB / ln 10 and
+    # t_40dB / (2 ln 10) (2026-11-12, C4 through the VCA on ENV-2, 1 ms frames, sustain 127 and 64 alike),
+    # which keeps both inside match.py's tolerance (VCA_MODE's release40 was 3 ms against 17)
+    PG8X_LOW_RELEASE_TAU_MS = {0: 2.2, 2: 1.6, 4: 2.0, 6: 2.4, 8: 3.8, 10: 4.5, 12: 7.9, 14: 11.5}
 
     def test_short_decay_and_release_follow_pg8x_below_16(self):
         for table, f in ((self.PG8X_LOW_DECAY_TAU_MS, jx8p.decay_ms), (self.PG8X_LOW_RELEASE_TAU_MS, jx8p.release_ms)):
