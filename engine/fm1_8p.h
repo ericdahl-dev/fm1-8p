@@ -149,8 +149,8 @@ typedef struct {
      * voices' scratch (each voice's oscillators for the chunk): the chorus
      * only writes it (chorus_block_writes_right_without_reading_it) */
     int32_t mix_right[FM_MIX_FRAMES];
-    /* setting_glide (#146): where each gliding setting is now, Q16 in
-     * its own units, and the one-pole's step a control tick, Q1.30 */
+    /* setting_glide (#146): where each gliding setting is now, Q8 in
+     * its own units, and the one-pole's step (1 - a, Q16) */
     int32_t glide_cur[FM_GLIDE_SETTINGS];
     int32_t glide_k;
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
