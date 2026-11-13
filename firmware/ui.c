@@ -15,8 +15,7 @@ static const ui_slot VCF_SLOTS[8] = {
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
-    (void)u;
-    return k < 4u ? &VCF_SLOTS[k] : 0;
+    return k < 4u ? &VCF_SLOTS[4u * u->page + k] : 0;
 }
 
 /* 8.1758 Hz x 2^(s / 12), s = 0..12, in mHz x 16: CUTOFF's semitones in its lowest octave */
@@ -243,6 +242,7 @@ void ui_init(ui *u, play *p)
     u->banner_ms = 0;
     u->warned = 0;
     u->warned_ms = 0;
+    u->page = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -302,8 +302,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->down_ms[id] = ms;
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
         u->warned = 0;                          /* anything else cancels the warning (decision Q4) */
-    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV) && u->state != UI_EDIT)   /* (on 4A: 4B, with #47) */
+    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV)) {  /* its ring: 4A, then 4B, and around */
+        u->page = u->state == UI_EDIT ? u->page ^ 1u : 0u;
         show_page(u, UI_EDIT);
+    }
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)

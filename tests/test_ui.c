@@ -329,16 +329,24 @@ TT_TEST(ui_home_hold_keeps_the_page)
     TT_CHECK_EQ(ui_u.state, UI_EDIT);
 }
 
-/* ENV while 4A shows does nothing yet (stepping to 4B comes with #47): no redraw, the focus kept. */
-TT_TEST(ui_env_on_4a_does_nothing)
+/* ENV again while 4A shows steps to 4B (its ring), a new page to draw; there KNOB1 is 45 HPF. ENV on
+ * 4B goes back to 4A while the rest of its ring isn't built. */
+TT_TEST(ui_env_on_4a_steps_to_4b)
 {
+    int32_t cut;
     ui_setup();
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 0);
     (void)ui_take_full(&ui_u, 100);
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 200);
-    TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
-    TT_CHECK_EQ(ui_u.focus, 3u);
+    TT_CHECK(ui_take(&ui_u, 1000) & UI_D_FULL);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 45);
+    cut = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    play_set_param(&ui_p, FM_PARAM_HIGHPASS_STEP, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1100);
+    TT_CHECK(play_get_param(&ui_p, FM_PARAM_HIGHPASS_STEP) != 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 1200);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 41);
 }
 
 /* On PLAY a new last note marks the note's strip, coalesced like the other redraws, and only once. */
@@ -590,7 +598,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_octave_label_reads_like_the_hosts);
     TT_RUN(ui_octave_change_marks_the_header);
     TT_RUN(ui_new_last_note_marks_the_note_strip);
-    TT_RUN(ui_env_on_4a_does_nothing);
+    TT_RUN(ui_env_on_4a_steps_to_4b);
     TT_RUN(ui_home_hold_keeps_the_page);
     TT_RUN(ui_redraw_goes_one_band_at_a_time);
     TT_RUN(ui_focus_value_splits_number_and_unit);
