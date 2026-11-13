@@ -438,6 +438,38 @@ TT_TEST(bell_stays_bounded_at_full_scale)
 }
 
 /*
+ * A jump of the cutoff while the bell rings hard: its old state is a start
+ * the new, slower bell was never fitted to. Found by the busy test's random
+ * steps: the bell rang near Nyquist (resonance 900, cutoff 13600, states
+ * near 18.0, within the bound above), then the cutoff fell to 5700, and
+ * the states grew by 13 a sample until they wrapped. They must stay within
+ * the bound, so no sum in the bell wraps.
+ */
+TT_TEST(bell_stays_bounded_when_the_cutoff_jumps)
+{
+    static fm_filter f;
+    int32_t state = 0, i;
+    lowpass_at(&f, 13600, 900);
+    for (i = 0; i < 64; i++) /* the bell on, at its place up top */
+        fm_filter_process(&f, 0);
+    f.bell_s1 = -315390980; /* as the busy test had them */
+    f.bell_s2 = -281925319;
+    fm_filter_set_cutoff(&f, 5700, fm_filter_rate_cents(FRATE));
+    for (i = 0; i < (int32_t)FRATE; i++) {
+        int32_t s1, s2;
+        fm_filter_process(&f, -330000);
+        s1 = f.bell_s1 < 0 ? -f.bell_s1 : f.bell_s1;
+        s2 = f.bell_s2 < 0 ? -f.bell_s2 : f.bell_s2;
+        if (s1 > state) state = s1;
+        if (s2 > state) state = s2;
+        if (state > BELL_STATE_BOUND) break; /* before it can wrap */
+    }
+    if (state > BELL_STATE_BOUND)
+        printf("    bell state %.3f after the jump\n", state / 16777216.0);
+    TT_CHECK(state <= BELL_STATE_BOUND);
+}
+
+/*
  * Resonance 1000 self-oscillates: a single click sets the filter ringing
  * at a steady level near the peak's frequency (190 cents under the
  * cutoff, the retune as on PG-8X), and never at Nyquist (the one-sample
@@ -2546,6 +2578,7 @@ static void run_filter_tests(void)
     TT_RUN(resonance_turns_the_passband_down_as_on_pg8x);
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
     TT_RUN(bell_stays_bounded_at_full_scale);
+    TT_RUN(bell_stays_bounded_when_the_cutoff_jumps);
     TT_RUN(max_resonance_self_oscillates_near_cutoff);
     TT_RUN(jx_max_resonance_rings_down_at_every_cutoff);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
