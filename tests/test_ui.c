@@ -599,6 +599,23 @@ TT_TEST(ui_hpf_turns_in_jx_order)
     }
 }
 
+/* Membrane's meter is one bar in a 44 px track (visual.md): a range fills from the left in
+ * proportion, rounded; a bipolar param fills out from the middle, either way. */
+TT_TEST(ui_meter_bar_spans_the_value)
+{
+    int32_t a, b;
+    ui_meter_bar(FM_PARAM_FILTER_RESONANCE, 500, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 22);
+    ui_meter_bar(FM_PARAM_FILTER_RESONANCE, 1000, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 44);
+    ui_meter_bar(FM_PARAM_FILTER_RESONANCE, 0, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 0);
+    ui_meter_bar(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 8200, 44, &a, &b);    /* +82 of +-164 st */
+    TT_CHECK(a == 22 && b == 33);
+    ui_meter_bar(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -16400, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 22);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -641,6 +658,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_meter_bar_spans_the_value);
     TT_RUN(ui_hpf_turns_in_jx_order);
     TT_RUN(ui_vcf_slots_are_the_jx_panels);
     TT_RUN(ui_patch_number_is_p_and_its_place);

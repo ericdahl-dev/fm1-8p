@@ -230,6 +230,24 @@ uint32_t ui_meter(uint16_t id, int32_t value)
     return (1u << ((2u * UI_METER_SEGS * at + span) / (2u * span))) - 1u;   /* rounded */
 }
 
+void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
+{
+    const fm_param_info *in = fm_param_info_get(id);
+    int32_t span, at, x;
+    *a = *b = 0;
+    if (!in || in->max <= in->min)
+        return;
+    span = in->max - in->min;
+    at = value < in->min ? 0 : value > in->max ? span : value - in->min;
+    x = (2 * w * at + span) / (2 * span);       /* rounded (w x span stays well inside 32 bits) */
+    if (in->min == -in->max) {                  /* bipolar: from the middle */
+        *a = x < w / 2 ? x : w / 2;
+        *b = x < w / 2 ? w / 2 : x;
+    } else {
+        *b = x;
+    }
+}
+
 void ui_init(ui *u, play *p)
 {
     uint32_t i;
