@@ -61,6 +61,27 @@ H=$(src "${2:-HEAD}") || exit 2
 OB=$(renders "$B") || exit 2
 OH=$(renders "$H") || exit 2
 
+# coverage DIR: renders every clip on a --coverage build of DIR's renderer, one .gcda set per clip,
+# and prints how many clips reach each engine function (tools/gate_coverage.py)
+coverage() {
+    k=$(key "$1"); c=$G/cov/$k
+    rm -rf "$c" && mkdir -p "$c/runs" || die "cannot write $c"
+    make -s -C "$1" BUILD="$c/build" CFLAGS="-O0 -g --coverage" "$c/build/fm1-8p-render" >"$c/build.log" 2>&1 ||
+        { cat "$c/build.log" >&2; die "$1: the coverage build fails"; }
+    while IFS='	' read -r name mid args; do
+        mkdir -p "$c/p/$name"
+        # shellcheck disable=SC2086
+        GCOV_PREFIX="$c/p/$name" GCOV_PREFIX_STRIP=0 "$c/build/fm1-8p-render" $args "$G/midi/$mid" \
+            "$c/x.wav" >/dev/null 2>&1 || die "$1: $name does not render (coverage build)"
+        mkdir -p "$c/runs/$name" && find "$c/p/$name" -name '*.gcda' -path '*/engine/*' \
+            -exec mv {} "$c/runs/$name/" \;
+        rm -rf "$c/p/$name"
+    done <"$OH/.cases"
+    "$PY" -B "$ROOT/tools/gate_coverage.py" "$c/build/engine" "$1" "$c/runs" || die "coverage failed"
+}
+
+[ "${GATE_COVERAGE:-1}" = 0 ] || coverage "$H"
+
 n=0 d=0
 while IFS='	' read -r name mid args; do
     n=$((n + 1))

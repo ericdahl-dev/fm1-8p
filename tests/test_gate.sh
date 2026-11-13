@@ -32,12 +32,17 @@ open(path, "w").write(s[:m.end()] + "    " + stmt + "\n" + s[m.end():])
 PY
 }
 # caught NAME FILE FUNC STATEMENT: the gate fails on that mutant
-caught() { mutant "$1" "$2" "$3" "$4" && ! sh tools/gate.sh "$T/base" "$T/$1"; }
+caught() { mutant "$1" "$2" "$3" "$4" && ! GATE_COVERAGE=0 sh tools/gate.sh "$T/base" "$T/$1"; }
 
 tree base
 tree same
 expect_ok "two identical trees pass" sh tools/gate.sh "$T/base" "$T/same"
-expect_ok "and the report says nothing differs" grep -q "^0 of [0-9]* clips differ" "$T/out.last"
+cp "$T/out" "$T/report"
+expect_ok "and the report says nothing differs" grep -q "^0 of [0-9]* clips differ" "$T/report"
+# Coverage: how many clips reach each engine function, so a change can't pass on one clip.
+reach() { awk -v f="$1" '$3 == f { print $1 }' "$T/report"; }
+expect_ok "the report counts the clips that reach each engine function" grep -q "clips reaching each engine function" "$T/report"
+expect_ok "ring_run is reached by more than one clip" test "$(reach ring_run)" -gt 1
 
 # Each path the gate covers: a change that shows only where that path runs must fail it.
 PH='p->osc[1].phase += 0x01000000u;'    # osc2 a step out of phase
