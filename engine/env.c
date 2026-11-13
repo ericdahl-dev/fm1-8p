@@ -65,6 +65,15 @@ static int32_t start_segment(fm_env *e, int32_t d, uint32_t tau)
     return (int32_t)(span - q * n);
 }
 
+/* A time in samples at this note's scale: untouched at 1.0. */
+static uint32_t scaled(const fm_env *e, uint32_t t)
+{
+    uint64_t s;
+    if (e->ks == 1u << 16) return t;
+    s = ((uint64_t)t * e->ks) >> 16;
+    return s > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)s;
+}
+
 /*
  * The attack charges like PG-8X's, an RC toward 1.6 x the peak, and stops on
  * the peak, which takes tau x ln(1.6 / 0.6) = 0.98 tau: so tau is the attack
@@ -76,7 +85,7 @@ static int32_t start_segment(fm_env *e, int32_t d, uint32_t tau)
 static int attack_segment(fm_env *e)
 {
     int32_t d = e->peak - e->level, rem;
-    uint32_t t = e->set->attack_samples, k;
+    uint32_t t = scaled(e, e->set->attack_samples), k;
     if (d <= 0 || t == 0) return 0;
     rem = start_segment(e, d + e->peak / 5 * 3,
                         (uint32_t)(((uint64_t)t * 66817u) >> 16));
@@ -125,15 +134,6 @@ void fm_env_key(fm_env *e, uint8_t note)
 {
     int32_t f = e->set->key_follow;
     e->ks = f ? fm_exp2_cents_q16(-f * ((int32_t)note - KEY_CENTER) / 10) : (uint32_t)1 << 16;
-}
-
-/* A time in samples at this note's scale: untouched at 1.0. */
-static uint32_t scaled(const fm_env *e, uint32_t t)
-{
-    uint64_t s;
-    if (e->ks == 1u << 16) return t;
-    s = ((uint64_t)t * e->ks) >> 16;
-    return s > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)s;
 }
 
 void fm_env_gate_on(fm_env *e)
