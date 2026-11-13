@@ -8,7 +8,8 @@
  * input and two dry-plus-wet adds. Divisions happen only in fm_chorus_set_mode.
  *
  * Modes I and II are matched to PG-8X 2.0.13's chorus (#104): dry plus
- * wet (+3 dB on a held saw), 0.68 Hz, L/R correlation about 0.46.
+ * wet, 0.68 Hz, L/R correlation about 0.46, and a short delay, so the wet
+ * stays in phase with the dry on a low note's bass, as on PG-8X.
  */
 #include "chorus.h"
 #include "units.h"
@@ -23,8 +24,8 @@ typedef struct {
 
 static const mode_spec modes[FM_CHORUS_MODE_COUNT] = {
     { 0, 0, 0 },         /* off */
-    { 680, 5500, 2000 }, /* slow (I): PG-8X's rate and width */
-    { 680, 5500, 3500 }, /* deep (II): the same rate, swept deeper */
+    { 680, 2000, 1600 }, /* slow (I): PG-8X's rate, delay and width */
+    { 680, 2100, 2000 }, /* deep (II): the same rate, swept deeper */
     { 6000, 3000, 300 }, /* fast */
 };
 

@@ -44,11 +44,11 @@ static void lowpass_at(fm_filter *f, int32_t cutoff_cents, int32_t res)
 }
 
 /*
- * Cutoff 440 Hz (6900 cents above MIDI note 0), no resonance. Four equal
- * real poles meet at the cutoff, so the cutoff point itself is -12 dB and
- * the slope steepens toward 24 dB/octave: the theory for an ideal 4-pole
- * gives 15.9 dB for the first octave above cutoff, 21.2 dB for the second
- * and 23.3 dB for the third. Tolerance: +-2 dB on each.
+ * Cutoff 440 Hz (6900 cents above MIDI note 0), no resonance: the passband
+ * passes and the slope steepens toward 24 dB/octave above the cutoff. As
+ * on PG-8X 2.0.13 (noise, VCF FREQ 64-96): 19.2 dB for the first octave
+ * above the cutoff, 20.9 for the second; the third near the full 24.
+ * Tolerance +-2 dB on each. (The cutoff point itself: the knee, below.)
  */
 TT_TEST(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave)
 {
@@ -63,38 +63,160 @@ TT_TEST(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave)
     printf("    lowpass 440 Hz: 55 Hz %.2f dB, 440 %.2f, 880 %.2f, "
            "1760 %.2f, 3520 %.2f\n", below, at, oct1, oct2, oct3);
     TT_CHECK(below > -0.5);
-    TT_CHECK_NEAR(at, -12.0, 2.0);
-    TT_CHECK_NEAR(at - oct1, 15.9, 2.0);
-    TT_CHECK_NEAR(oct1 - oct2, 21.2, 2.0);
-    TT_CHECK_NEAR(oct2 - oct3, 23.3, 2.0);
+    TT_CHECK_NEAR(at - oct1, 19.2, 2.0);
+    TT_CHECK_NEAR(oct1 - oct2, 20.9, 2.0);
+    TT_CHECK_NEAR(oct2 - oct3, 24.0, 2.0);
+}
+
+/*
+ * With no resonance the knee is PG-8X 2.0.13's (noise, VCF FREQ 64, 80 and
+ * 96, re the passband): flat to half the cutoff (-0.8 to -1.2 dB there),
+ * -7.6 to -8.4 dB at the cutoff, as if a little feedback stays on. Four
+ * plain poles dip 3 to 4 dB deeper there (#134).
+ */
+TT_TEST(no_resonance_knee_is_pg8x)
+{
+    static fm_filter f;
+    double pass, half, at;
+    lowpass_at(&f, 6900, 0);
+    pass = filter_gain_db(&f, 55.0, 0.25);
+    half = filter_gain_db(&f, 220.0, 0.25) - pass;
+    at = filter_gain_db(&f, 440.0, 0.25) - pass;
+    printf("    res 0, 440 Hz cutoff, re 55 Hz: 220 Hz %.2f dB, 440 Hz %.2f\n", half, at);
+    TT_CHECK_NEAR(half, -1.0, 0.7);
+    TT_CHECK_NEAR(at, -8.0, 0.7);
+}
+
+/* The frequency, in 5-cent steps from `lo_hz` up an octave, where a quiet
+ * sine comes through the filter loudest. */
+static double peak_hz(fm_filter *f, double lo_hz)
+{
+    double best = -1e9, at = lo_hz;
+    int c;
+    for (c = 0; c <= 1200; c += 5) {
+        double hz = lo_hz * pow(2.0, c / 1200.0), db = filter_gain_db(f, hz, 0.02);
+        if (db > best) {
+            best = db;
+            at = hz;
+        }
+    }
+    return at;
 }
 
 /*
  * Resonance feeds the last stage back to the input, which lifts the
- * response at the cutoff (theory for the analog ladder: 0.25 / (1 - k/4)
- * at feedback k; k = 4.2 at resonance 1000) and costs some bass. Midway,
- * where the cutoff point is near the passband level, the octave above
- * cutoff is about 24 dB below the cutoff point (theory 24.4 dB at 600).
+ * response at the peak over the passband (the passband is 3 octaves
+ * below): over +5 dB at resonance 500 and over 12 dB more at 900 (PG-8X:
+ * +4 dB and +31 dB at VCF RES 64 and 127). Midway, where the peak is near
+ * the passband level, the octave above it is about 24 dB below it (theory
+ * for the ladder 24.4 dB at 600). The peak sits under the cutoff (the
+ * retune, below).
  */
+static double peak_over_passband_db(fm_filter *f)
+{
+    return filter_gain_db(f, peak_hz(f, 220.0), 0.25) - filter_gain_db(f, 55.0, 0.25);
+}
+
 TT_TEST(resonance_raises_gain_near_cutoff)
 {
     static fm_filter f;
-    double at0, at500, at900, at600, oct600;
-    lowpass_at(&f, 6900, 0);
-    at0 = filter_gain_db(&f, 440.0, 0.25);
+    double pk500, pk900, at600, oct600, hz;
     lowpass_at(&f, 6900, 500);
-    at500 = filter_gain_db(&f, 440.0, 0.25);
+    pk500 = peak_over_passband_db(&f);
     lowpass_at(&f, 6900, 900);
-    at900 = filter_gain_db(&f, 440.0, 0.25);
+    pk900 = peak_over_passband_db(&f);
     lowpass_at(&f, 6900, 600);
-    at600 = filter_gain_db(&f, 440.0, 0.25);
-    oct600 = filter_gain_db(&f, 880.0, 0.25);
-    printf("    gain at cutoff: res 0 %.2f dB, 500 %.2f, 900 %.2f; "
-           "res 600: cutoff %.2f, octave above %.2f\n",
-           at0, at500, at900, at600, oct600);
-    TT_CHECK(at500 > at0 + 5.0);    /* theory +6.5 dB */
-    TT_CHECK(at900 > at500 + 12.0); /* theory +18.7 dB */
+    hz = peak_hz(&f, 220.0);
+    at600 = filter_gain_db(&f, hz, 0.25);
+    oct600 = filter_gain_db(&f, 2.0 * hz, 0.25);
+    printf("    peak over the passband: res 500 %.2f dB, 900 %.2f; "
+           "res 600: peak %.2f, octave above %.2f\n", pk500, pk900, at600, oct600);
+    TT_CHECK(pk500 > 5.0);
+    TT_CHECK(pk900 > pk500 + 12.0);
     TT_CHECK_NEAR(at600 - oct600, 24.0, 3.0);
+}
+
+/*
+ * As on PG-8X 2.0.13, the resonance peak sits below the cutoff: about 1.25
+ * semitones under the 24 dB/octave asymptote's cutoff at a +24 dB peak
+ * (PG-8X VCF RES 112). That asymptote reads a semitone under this filter's
+ * nominal cutoff, so the peak belongs 2.25 semitones under 440 Hz.
+ */
+TT_TEST(resonance_peak_sits_below_the_cutoff_as_on_pg8x)
+{
+    static fm_filter f;
+    double st;
+    lowpass_at(&f, 6900, 875);
+    st = 12.0 * log2(peak_hz(&f, 220.0) / 440.0);
+    printf("    res 875: peak %.2f semitones from the cutoff\n", st);
+    TT_CHECK_NEAR(st, -2.25, 0.5);
+}
+
+/*
+ * The peak keeps its place under the cutoff up the range. PG-8X 2.0.13's
+ * resonant peak sits about the same distance under its cutoff at every
+ * VCF FREQ (2026-11-11 sweep); a digital ladder's peak sinks toward
+ * Nyquist. Res 875, at 44.1 kHz: within 20 cents of its 440 Hz place at
+ * 1.76, 3.5 and 7 kHz.
+ */
+TT_TEST(resonance_peak_keeps_its_place_up_the_range)
+{
+    static fm_filter f;
+    static const int32_t up[3] = {2400, 3600, 4800};
+    double ref, c;
+    int i;
+    lowpass_at(&f, 6900, 875);
+    ref = 1200.0 * log2(peak_hz(&f, 220.0) / 440.0);
+    for (i = 0; i < 3; i++) {
+        double fc = 440.0 * pow(2.0, up[i] / 1200.0);
+        lowpass_at(&f, 6900 + up[i], 875);
+        c = 1200.0 * log2(peak_hz(&f, fc / 2.0) / fc);
+        printf("    res 875: peak %.0f cents from a %.0f Hz cutoff (at 440 Hz: %.0f)\n",
+               c, fc, ref);
+        TT_CHECK_NEAR(c, ref, 20.0);
+    }
+}
+
+/*
+ * Resonance keeps the balance of treble to bass, as on PG-8X 2.0.13: the
+ * feedback costs bass, and the filter gives it back (a low shelf at the
+ * cutoff), so 3 octaves above the cutoff stays as far below 3 octaves
+ * below it as with no resonance. Measured on PG-8X at a +4 dB peak: +0.3
+ * dB brighter; the plain ladder was +7.8 dB, which made ORGAN 1 bright.
+ */
+TT_TEST(resonance_keeps_the_treble_to_bass_balance)
+{
+    static fm_filter f;
+    double tilt0, tilt;
+    lowpass_at(&f, 6900, 0);
+    tilt0 = filter_gain_db(&f, 3520.0, 0.25) - filter_gain_db(&f, 55.0, 0.25);
+    lowpass_at(&f, 6900, 375);
+    tilt = filter_gain_db(&f, 3520.0, 0.25) - filter_gain_db(&f, 55.0, 0.25);
+    printf("    3 octaves above minus 3 below: res 0 %.2f dB, res 375 %.2f\n",
+           tilt0, tilt);
+    TT_CHECK_NEAR(tilt - tilt0, 0.3, 1.0);
+}
+
+/*
+ * Resonance turns the passband down by PG-8X 2.0.13's amount (measured
+ * with noise, VCF FREQ 64 and 80): -3.7 dB at a +4 dB peak, -15.1 at +24.
+ * The plain ladder's 1 / (1 + k) was too much at the first (-8 dB), too
+ * little at the second (-13.4).
+ */
+TT_TEST(resonance_turns_the_passband_down_as_on_pg8x)
+{
+    static fm_filter f;
+    double pass0, pass375, pass875;
+    lowpass_at(&f, 6900, 0);
+    pass0 = filter_gain_db(&f, 55.0, 0.25);
+    lowpass_at(&f, 6900, 375);
+    pass375 = filter_gain_db(&f, 55.0, 0.25) - pass0;
+    lowpass_at(&f, 6900, 875);
+    pass875 = filter_gain_db(&f, 55.0, 0.25) - pass0;
+    printf("    passband re no resonance: res 375 %.2f dB, res 875 %.2f\n",
+           pass375, pass875);
+    TT_CHECK_NEAR(pass375, -3.7, 1.0);
+    TT_CHECK_NEAR(pass875, -15.1, 1.0);
 }
 
 /*
@@ -141,8 +263,9 @@ TT_TEST(max_resonance_stays_bounded_over_a_long_render)
 
 /*
  * Resonance 1000 self-oscillates: a single click sets the filter ringing
- * at a steady level near the cutoff frequency, and never at Nyquist (the
- * one-sample feedback delay can make a naive 4-pole loop buzz there).
+ * at a steady level near the peak's frequency (190 cents under the
+ * cutoff, the retune as on PG-8X), and never at Nyquist (the one-sample
+ * feedback delay can make a naive 4-pole loop buzz there).
  */
 TT_TEST(max_resonance_self_oscillates_near_cutoff)
 {
@@ -151,7 +274,8 @@ TT_TEST(max_resonance_self_oscillates_near_cutoff)
     static fm_filter f;
     size_t c, i;
     for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
-        double fc = 440.0 * pow(2.0, (cutoffs[c] - 6900) / 1200.0);
+        /* the peak's place at resonance 1000: 190 cents under the cutoff */
+        double fc = 440.0 * pow(2.0, (cutoffs[c] - 6900 - 190) / 1200.0);
         double first = -1, last = -1, hz;
         int32_t prev = 0, peak = 0;
         int crossings = 0;
@@ -178,6 +302,42 @@ TT_TEST(max_resonance_self_oscillates_near_cutoff)
         if (fc < 4000.0) /* tuned within a semitone up to a few kHz */
             TT_CHECK(fabs(1200.0 * log2(hz / fc)) < 100.0);
     }
+}
+
+/*
+ * JX-8P RES 127 (resonance 935) never self-oscillates, at any cutoff, as on
+ * PG-8X: a click rings down to nothing within 2 s. Near Nyquist the loop
+ * needs less feedback to oscillate than at the bottom of the range, so a
+ * fixed feedback that stays just under the threshold low down whistles
+ * up there (BUBBLES' 12 kHz line at 48 kHz).
+ */
+TT_TEST(jx_max_resonance_rings_down_at_every_cutoff)
+{
+    static const int32_t cutoffs[] = { 6900, 9000, 11000, 12000, 12600, 13000,
+                                       13400, 13600, 13799 };
+    static const uint32_t rates[] = { 44100u, 48000u };
+    static fm_filter f;
+    size_t c, r, i;
+    int ringing = 0;
+    for (r = 0; r < 2; r++) {
+        for (c = 0; c < sizeof cutoffs / sizeof cutoffs[0]; c++) {
+            int32_t peak = 0;
+            fm_filter_reset(&f);
+            fm_filter_set_resonance(&f, 935);
+            fm_filter_set_cutoff(&f, cutoffs[c], fm_filter_rate_cents(rates[r]));
+            for (i = 0; i < 2 * (size_t)rates[r]; i++) {
+                int32_t y = fm_filter_process(&f, i == 0 ? 1 << 24 : 0);
+                if (i >= 2 * (size_t)rates[r] - rates[r] / 4 && (y < 0 ? -y : y) > peak)
+                    peak = y < 0 ? -y : y;
+            }
+            if (peak >= (1 << 24) / 1000) {
+                printf("    %u Hz, cutoff %d: still %.4f after 1.75 s\n",
+                       (unsigned)rates[r], (int)cutoffs[c], peak / 16777216.0);
+                ringing++;
+            }
+        }
+    }
+    TT_CHECK_EQ(ringing, 0);
 }
 
 /*
@@ -440,6 +600,87 @@ TT_TEST(negative_amount_from_envelope_2_closes_the_filter)
     late = brightness(fbuf_a, 39690, 44100);
     printf("    env 2 -4800: brightness early %.4f, late %.4f\n", early, late);
     TT_CHECK(late > 1.5 * early); /* 20 % sustain: -960 cents late */
+}
+
+/* VCF DYNAMICS (filter_env_dyna, #8): the note's velocity scales the
+ * envelope's cutoff depth by the shared DYNAMICS curve (engine/dyna.c),
+ * as PG-8X 2.0.13 plays it (measured at nine velocities, within 0.007).
+ * Half a second of note 36 at `velocity`, the filter envelope held at
+ * full (0 ms attack, 100 % sustain) from `source` at `amount` cents. */
+static void play_filter_dyna(int16_t *out, int32_t amount, int32_t dyna,
+                             uint8_t velocity, int32_t source)
+{
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 3600);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 400);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SOURCE, source);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, amount);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DYNA, dyna);
+    fm_engine_note_on(&feng, 36, velocity);
+    fm_engine_render(&feng, out, FRATE / 2);
+}
+
+/* Position 2 at velocity 64 plays fm_dyna_share_q15(2, 64) of the amount:
+ * the same samples as that many cents with DYNAMICS off. */
+TT_TEST(filter_envelope_dynamics_scale_the_depth_by_velocity)
+{
+    int32_t part = (int32_t)(4800 * fm_dyna_share_q15(2, 64) >> 15);
+    TT_CHECK_EQ(part, 2359);
+    play_filter_dyna(fbuf_a, 4800, 2, 64, 0);
+    play_filter_dyna(fbuf_b, part, 0, 64, 0);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+}
+
+/* The JX-8P has one DYNAMICS switch for the VCF whichever envelope it
+ * follows: from envelope 2 (the amp envelope) the depth scales the same,
+ * as PG-8X's does (0.299, 0.486 and 0.986 at velocities 40, 64, 127). */
+TT_TEST(filter_envelope_dynamics_scale_envelope_2_too)
+{
+    play_filter_dyna(fbuf_a, 4800, 2, 64, 1);
+    play_filter_dyna(fbuf_b, 2359, 0, 64, 1);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+}
+
+/* Each position plays its own row of the curve: position 3 at velocity
+ * 64 is fm_dyna_share_q15(3, 64) of the amount, not position 2's. */
+TT_TEST(filter_envelope_dynamics_follow_the_position)
+{
+    int32_t part = (int32_t)(4800 * fm_dyna_share_q15(3, 64) >> 15);
+    play_filter_dyna(fbuf_a, 4800, 3, 64, 0);
+    play_filter_dyna(fbuf_b, part, 0, 64, 0);
+    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+}
+
+/* Each voice keeps its own note's velocity: a loud note on a second
+ * voice leaves the first note's cutoff, still decaying, where its own soft
+ * velocity puts it, as if it played alone. */
+TT_TEST(filter_envelope_dynamics_are_per_voice)
+{
+    int32_t both[20], solo[20];
+    uint32_t i, k;
+    for (k = 0; k < 2; k++) { /* both notes, then the soft one alone */
+        int32_t *cut = k ? solo : both;
+        fm_engine_init(&feng, FRATE, 2);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 3600);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 400);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 300);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DYNA, 2);
+        fm_engine_note_on(&feng, 36, 30);
+        fm_engine_render(&feng, fbuf_a, 1000);
+        if (!k) fm_engine_note_on(&feng, 43, 120);
+        for (i = 0; i < 20; i++) {
+            fm_engine_render(&feng, fbuf_a, 100);
+            cut[i] = feng.voices[0].cutoff_now;
+        }
+        TT_CHECK_EQ(feng.voices[0].key_note, 36);
+    }
+    TT_CHECK(memcmp(both, solo, sizeof both) == 0);
 }
 
 /*
@@ -937,6 +1178,30 @@ static void sweep_patch(fm_engine *e)
 }
 
 /*
+ * The filter envelope follows the key as the amp envelope does (PG-8X's
+ * ENV-1 KEY): at 520, C4 (two octaves above C2) decays with tau 100 ms x
+ * 2^-1.04, 48.6 ms, to 1/e of full after it (sustain 0).
+ */
+TT_TEST(filter_envelope_follows_the_key)
+{
+    const double tau = 100.0 * pow(2.0, -1.04); /* ms */
+    double left;
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 3000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 100);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_KEY_FOLLOW, 520);
+    fm_engine_note_on(&feng, 60, 100);
+    fm_engine_render(&feng, fbuf_a, 1 + (uint32_t)(FRATE * tau / 1000.0));
+    fm_voice_sync_filter_env(&feng.voices[0]);
+    left = (double)feng.voices[0].filter_env.level / FM_ENV_FULL;
+    printf("    filter env, C4, follow 520: %.4f of full after tau (%.1f ms)\n", left, tau);
+    TT_CHECK_NEAR(left, 0.368, 0.01);
+}
+
+/*
  * A note that steals a voice mid-sustain starts its filter envelope from
  * 0, as its amp envelope does after the steal fade, so its sweep is the
  * same as on a fresh voice whichever voice it lands on.
@@ -1126,7 +1391,8 @@ TT_TEST(leaving_the_open_filter_continues_from_a_consistent_state)
         }
         TT_CHECK(wire);
         ref = f;
-        for (j = 0; j < 4; j++) ref.s[j] = ref.x1[j] = last;
+        for (j = 0; j < 4; j++) ref.s[j] = last;
+        ref.x1 = last;
         if (how) {
             fm_filter_set_highpass(&f, 1, rate_cents);
             fm_filter_set_highpass(&ref, 1, rate_cents);
@@ -1368,7 +1634,7 @@ TT_TEST(env_settings_are_shared_by_every_envelope)
  */
 static double release_error_db(uint32_t tau)
 {
-    fm_env_settings set = { 0, 0, 0, FM_ENV_FULL };
+    fm_env_settings set = { 0, 0, 0, FM_ENV_FULL, 0 };
     fm_env e;
     double worst = 0;
     uint32_t t;
@@ -1408,7 +1674,7 @@ TT_TEST(exponential_release_stays_on_its_curve)
  */
 TT_TEST(sustain_changed_mid_decay_heads_there_at_once)
 {
-    fm_env_settings set = { 0, 4800, 0, 0 }; /* decay tau 4800 samples, to 0 */
+    fm_env_settings set = { 0, 4800, 0, 0, 0 }; /* decay tau 4800 samples, to 0 */
     fm_env e;
     int32_t before, moved, want;
     uint32_t i;
@@ -1432,7 +1698,7 @@ TT_TEST(sustain_changed_mid_decay_heads_there_at_once)
  */
 TT_TEST(attack_charges_toward_1_6_peak_and_stops_on_it)
 {
-    fm_env_settings set = { 4800, 0, 0, FM_ENV_FULL }; /* attack 4800 samples */
+    fm_env_settings set = { 4800, 0, 0, FM_ENV_FULL, 0 }; /* attack 4800 samples */
     fm_env e;
     const double tau = 4800 / log(1.6 / 0.6);
     uint32_t t, landed = 0;
@@ -2153,11 +2419,12 @@ static uint32_t golden_filter_hash(uint8_t step)
 
 /*
  * Highpass steps 0 to 3 are, bit for bit, what they were before the bass-boost step was added
- * (#93): the hashes are of main at 38bfa6d, computed by this test before any engine change.
+ * (#93): the hashes are of main's filter at dc9d495 (engine/filter.c and filter.h from main, this
+ * test unchanged), retaken after main's #98 changed the filter; first taken on 38bfa6d.
  */
 TT_TEST(highpass_steps_0_to_3_are_bit_for_bit_what_they_were)
 {
-    static const uint32_t golden[4] = { 0x70C29055u, 0xCE19A1E3u, 0xE606AE84u, 0x79FFFCD1u };
+    static const uint32_t golden[4] = { 0x43A2BD72u, 0xD2B2C63Fu, 0x7A5A3797u, 0xE68ED416u };
     uint8_t step;
     int same = 1;
     for (step = 0; step < 4; step++) {
@@ -2189,13 +2456,13 @@ static uint32_t golden_engine_hash(int step)
 
 /*
  * The default patch (highpass step 0, the filter a wire) and a filtered patch at each of steps
- * 0 to 3 render, through the engine, bit for bit what main rendered at 38bfa6d before the
- * bass-boost step (#93).
+ * 0 to 3 render, through the engine, bit for bit what main renders without the bass-boost step
+ * (#93): retaken on dc9d495 with main's engine/filter.c and filter.h, first taken on 38bfa6d.
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {
-    static const uint32_t golden[5] = { 0x2F60B1A9u, 0x9027F3ADu, 0x47078CF5u, 0xC4439B21u,
-                                        0xA4E96DA1u };
+    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x55C96591u, 0xD31D4E05u, 0x498D2B0Du,
+                                        0x2D943F81u };
     int step, same = 1;
     for (step = -1; step < 4; step++) {
         uint32_t h = golden_engine_hash(step);
@@ -2248,14 +2515,24 @@ TT_TEST(highpass_step_4_is_the_pg8x_bass_boost)
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
+    TT_RUN(no_resonance_knee_is_pg8x);
     TT_RUN(resonance_raises_gain_near_cutoff);
+    TT_RUN(resonance_peak_sits_below_the_cutoff_as_on_pg8x);
+    TT_RUN(resonance_peak_keeps_its_place_up_the_range);
+    TT_RUN(resonance_keeps_the_treble_to_bass_balance);
+    TT_RUN(resonance_turns_the_passband_down_as_on_pg8x);
     TT_RUN(max_resonance_stays_bounded_over_a_long_render);
     TT_RUN(max_resonance_self_oscillates_near_cutoff);
+    TT_RUN(jx_max_resonance_rings_down_at_every_cutoff);
     TT_RUN(key_tracking_moves_cutoff_with_note_pitch);
     TT_RUN(key_tracking_ignores_osc2_coarse_like_its_octave);
     TT_RUN(filter_envelope_sweeps_cutoff_up_or_down);
     TT_RUN(filter_envelope_from_envelope_2_follows_the_amp_envelope);
     TT_RUN(negative_amount_from_envelope_2_closes_the_filter);
+    TT_RUN(filter_envelope_dynamics_scale_the_depth_by_velocity);
+    TT_RUN(filter_envelope_dynamics_scale_envelope_2_too);
+    TT_RUN(filter_envelope_dynamics_follow_the_position);
+    TT_RUN(filter_envelope_dynamics_are_per_voice);
     TT_RUN(envelope_2_on_the_filter_ignores_velocity);
     TT_RUN(block_size_does_not_change_envelope_2_on_the_filter);
     TT_RUN(each_highpass_step_cuts_low_frequencies_more);
@@ -2271,6 +2548,7 @@ static void run_filter_tests(void)
     TT_RUN(unison_retrigger_restarts_the_filter_envelope_and_legato_does_not);
     TT_RUN(unison_note_change_gets_its_cutoff_from_the_first_sample);
     TT_RUN(mode_switch_release_keeps_the_key_tracked_cutoff);
+    TT_RUN(filter_envelope_follows_the_key);
     TT_RUN(stolen_voice_starts_the_filter_envelope_from_zero);
     TT_RUN(idle_voice_starts_the_filter_envelope_from_zero);
     TT_RUN(steal_fade_keeps_the_old_notes_key_tracked_cutoff);

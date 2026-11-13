@@ -171,6 +171,59 @@ static int vel_peak(int32_t sens, uint8_t velocity)
     return peak_abs(mod_buf, MOD_RATE / 5, MOD_RATE / 2);
 }
 
+/*
+ * The VCA level (JX-8P VCA LEVEL) scales the whole note: a level of L per
+ * mille plays at L/1000 of full level, at any velocity. The default, 1000,
+ * is full level.
+ */
+static int level_peak(int32_t level, uint8_t velocity)
+{
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
+    if (level >= 0) fm_engine_set_param(&mod_eng, FM_PARAM_AMP_LEVEL, level);
+    fm_engine_note_on(&mod_eng, 69, velocity);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    return peak_abs(mod_buf, MOD_RATE / 5, MOD_RATE / 2);
+}
+
+TT_TEST(amp_level_scales_the_whole_note)
+{
+    int full = level_peak(-1, 127);
+    static const int32_t levels[] = { 1000, 707, 500, 250, 12 };
+    size_t i;
+    TT_CHECK(full > 4000);
+    for (i = 0; i < sizeof levels / sizeof levels[0]; i++) {
+        double got = (double)level_peak(levels[i], 127) / full;
+        double soft = (double)level_peak(levels[i], 64) / level_peak(-1, 64);
+        printf("    amp level %4d: %.4f of full (velocity 64: %.4f)\n",
+               (int)levels[i], got, soft);
+        TT_CHECK_NEAR(got, levels[i] / 1000.0, 0.002 + levels[i] / 1000.0 * 0.002);
+        TT_CHECK_NEAR(soft, levels[i] / 1000.0, 0.004 + levels[i] / 1000.0 * 0.004);
+    }
+}
+
+/* VCA LEVEL scales the note with VCA DYNAMICS on as well (#8's curve sets
+ * the velocity's share, the level the whole note), as on PG-8X. */
+TT_TEST(amp_level_scales_a_dynamics_note_too)
+{
+    int full, half;
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_DYNA, 3);
+    fm_engine_note_on(&mod_eng, 69, 64);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    full = peak_abs(mod_buf, MOD_RATE / 5, MOD_RATE / 2);
+    fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_DYNA, 3);
+    fm_engine_set_param(&mod_eng, FM_PARAM_AMP_LEVEL, 500);
+    fm_engine_note_on(&mod_eng, 69, 64);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 2);
+    half = peak_abs(mod_buf, MOD_RATE / 5, MOD_RATE / 2);
+    printf("    amp dyna 3, velocity 64: level 500 is %.4f of level 1000\n",
+           (double)half / full);
+    TT_CHECK(full > 1000);
+    TT_CHECK_NEAR((double)half / full, 0.5, 0.004);
+}
+
 TT_TEST(higher_velocity_gives_louder_output)
 {
     int full = vel_peak(100, 127), prev = 0;
@@ -202,8 +255,8 @@ static int retrigger_at(uint8_t again, int *level)
     int jump;
     fm_engine_init(&mod_eng, MOD_RATE, 1);
     fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
-    /* one voice peaks at 16384, so a 20 ms attack keeps the start under
-     * CLICK_LSB too. Note 2 (9 Hz): its saw changes by about 7 LSB per
+    /* one voice peaks at the knee (KNEE_LSB), so a 20 ms attack keeps the
+     * start under CLICK_LSB too. Note 2 (9 Hz): its saw changes by about 7 LSB per
      * sample and does not wrap inside the 4500 frames checked */
     fm_engine_set_param(&mod_eng, FM_PARAM_AMP_ATTACK_MS, 20);
     fm_engine_set_param(&mod_eng, FM_PARAM_AMP_DECAY_MS, 50);
@@ -750,6 +803,8 @@ static void run_mod_tests(void)
     TT_RUN(zero_pulse_width_depth_leaves_the_output_untouched);
     TT_RUN(lfo_to_pulse_width_moves_the_duty_by_the_depth);
     TT_RUN(higher_velocity_gives_louder_output);
+    TT_RUN(amp_level_scales_the_whole_note);
+    TT_RUN(amp_level_scales_a_dynamics_note_too);
     TT_RUN(softer_retrigger_glides_down_without_a_click);
     TT_RUN(unison_legato_return_keeps_the_last_strike_velocity);
     TT_RUN(pulse_width_limits_do_not_depend_on_the_lfo_phase);

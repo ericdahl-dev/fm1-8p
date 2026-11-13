@@ -105,6 +105,16 @@ class MapTest(unittest.TestCase):
         e = patch("LO STRINGS")                 # 127 and 127, MIX ENV 0
         self.assertEqual((e["OSC1_LEVEL_PERMILLE"], e["OSC2_LEVEL_PERMILLE"]), (1000, 1000))
 
+    # VCA LEVEL, as PG-8X 2.0.13 plays it: 0.30 dB a step below 127, linear in dB down to 0
+    # (-38.1 dB, not silent), measured at 127/112/96/88/64/32/16/8/4/1/0 within 0.1 dB.
+    def test_vca_level_is_0_30_db_a_step_into_the_amp_level(self):
+        self.assertEqual(patch("PIANO 1")["AMP_LEVEL_PERMILLE"], 1000)    # 127
+        self.assertEqual(patch("FAT FIFTH")["AMP_LEVEL_PERMILLE"], 260)   # 88: -11.7 dB
+        self.assertEqual(jx8p.amp_level_permille(0), 12)                  # -38.1 dB
+        self.assertEqual(jx8p.amp_level_permille(64), 114)                # -18.9 dB
+        field = next(f for f in jx8p.FIELDS if f.name == "AMP_LEVEL_PERMILLE")
+        self.assertEqual(field.param, "AMP_LEVEL")
+
     # CROSS MOD: off, 1 (SYNC 1), 2 (SYNC 2: sync and the ring), 3 (X-MOD: the ring). The JX-8P's
     # cross mod is a ring (osc_ring, #105), not the engine's FM (osc_xmod), so XMOD_AM sets osc_ring.
     def test_cross_mod_sets_sync_and_the_ring(self):
@@ -118,15 +128,30 @@ class MapTest(unittest.TestCase):
         fields = {f.name: f for f in jx8p.FIELDS}
         self.assertEqual(fields["XMOD_AM"].param, "OSC_RING")
 
-    # one step of VCF FREQ is a semitone (100 cents), from MIDI note 12 (16.4 Hz) at 0
-    def test_cutoff_is_a_semitone_per_step(self):
-        self.assertEqual(patch("SOUNDTRACK")["FILTER_CUTOFF_CENTS"], 1200 + 100 * 52)
-        self.assertEqual(patch("BUBBLES")["FILTER_CUTOFF_CENTS"], 1200 + 100 * 59)
+    # VCF FREQ puts the resonant peak where PG-8X 2.0.13's is. Its peak at VCF RES 127, noise in,
+    # C4, no key follow, as a MIDI note (filter sweep, 2026-11-11). The engine's peak at resonance
+    # 935 (RES 127) sits ENGINE_PEAK_UNDER semitones under its cutoff, the same up the range
+    # (test_filter.c, resonance_peak_keeps_its_place_up_the_range). The peak, not the asymptote:
+    # PG-8X's knee is sharper than the engine's, so the same 24 dB/oct asymptote reads about a
+    # semitone lower on the engine (match.py --param VCF_FREQ judges that one).
+    PG8X_PEAK_NOTE = {48: 40.73, 64: 61.22, 80: 81.84, 96: 102.43}
+    ENGINE_PEAK_UNDER = 1.96
 
-    def test_resonance_and_key_follow_scale_0_127_to_per_mille(self):
-        e = patch("PSYCHMELLO")                 # resonance 122, key follow 93
-        self.assertEqual(e["FILTER_RESONANCE_PERMILLE"], 961)
-        self.assertEqual(e["FILTER_KEY_TRACK_PERMILLE"], 732)
+    def test_cutoff_puts_the_resonant_peak_on_pg8x(self):
+        for v, note in self.PG8X_PEAK_NOTE.items():
+            got = jx8p.cutoff_cents(v) / 100 - self.ENGINE_PEAK_UNDER
+            self.assertLess(abs(got - note), 0.5, (v, round(got, 2), note))
+
+    def test_key_follow_scales_0_127_to_1290_per_mille(self):
+        self.assertEqual(patch("PSYCHMELLO")["FILTER_KEY_TRACK_PERMILLE"], 945)   # key follow 93
+
+    # VCF RES follows PG-8X 2.0.13's peak heights (VCF FREQ 64, noise in): +4 dB at 64, +8 at 80,
+    # +16 at 96, +24 at 112, +31 at 127 (#98), including PG-8X's hump at 32 (+6.5 dB, more than 56)
+    def test_resonance_follows_pg8x_peak_heights(self):
+        r = jx8p.resonance_permille
+        self.assertEqual([r(v) for v in (0, 64, 80, 96, 112, 127)], [0, 400, 575, 795, 900, 935])
+        self.assertGreater(r(32), r(56))
+        self.assertEqual(patch("PSYCHMELLO")["FILTER_RESONANCE_PERMILLE"], 928)     # resonance 122
         self.assertEqual(patch("SOUNDTRACK")["FILTER_RESONANCE_PERMILLE"], 0)
 
     # HPF as PG-8X 2.0.13 plays it (2026-11-10 probe, docs/patches.md): 0 is a bass boost, the
@@ -211,17 +236,43 @@ class MapTest(unittest.TestCase):
         self.assertEqual((e["AMP_ATTACK_MS"], e["AMP_SUSTAIN_PERMILLE"], e["AMP_RELEASE_MS"]),
                          (1, 1000, 5))
 
+    # VCF KEY as PG-8X 2.0.13 plays it (match.py --param VCF_KEY, #95): it pivots at C2 (note 36) and
+    # tracks up to 1.29 octaves an octave. The engine pivots at C4, so the converter moves the pivot by
+    # adding the track's rise from C2 to C4 to the cutoff. The cutoff a note gets, as the engine plays it
+    # (fm_filter_voice_cents, no envelope):
+    @staticmethod
+    def cutoff_at(e, note):
+        return e["FILTER_CUTOFF_CENTS"] + e["FILTER_KEY_TRACK_PERMILLE"] * (note - 60) / 10
+
+    def test_vcf_key_pivots_at_c2_and_tracks_up_to_1_29(self):
+        d = bytearray(next(t.params for t in factory() if t.name == "SOUNDTRACK"))
+        d[jx8p.VCF_KEY] = 127
+        e = jx8p.to_engine(jx8p.Tone("KEY 127", bytes(d)))
+        base = jx8p.cutoff_cents(d[jx8p.VCF_FREQ])
+        self.assertLess(abs(self.cutoff_at(e, 36) - base), 5)
+        self.assertLess(abs(self.cutoff_at(e, 60) - base - 2 * 1.29 * 1200), 5)
+        self.assertLess(abs(self.cutoff_at(e, 84) - base - 4 * 1.29 * 1200), 5)
+
+    # VCF ENV depth as PG-8X 2.0.13 plays it (match.py --param VCF_ENV, 2026-11-10): the cutoff's
+    # rise at the envelope's peak, in semitones, about 1.25 a step
+    PG8X_ENV_SHIFT = {8: 9.86, 16: 19.90, 24: 29.99, 32: 40.28, 40: 51.28, 48: 62.24}
+
+    def test_filter_env_depth_follows_pg8x(self):
+        for v, st in self.PG8X_ENV_SHIFT.items():
+            got = jx8p.filter_env_cents(v) / 100
+            self.assertLess(abs(got / st - 1), 0.05, (v, got, st))
+
     # VCF ENV MODE picks the envelope (ENV-1 or ENV-2) and its polarity: the cutoff follows the
     # engine envelope running it (below), the amount takes its sign.
     def test_vcf_env_mode_picks_the_filter_envelope_and_its_sign(self):
         e = patch("SOUNDTRACK")                 # ENV-1 normal; depth 60; ENV-1 127, 83, 54, 91
         self.assertEqual(e["FILTER_ENV_SOURCE"], 0)
-        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 75)
+        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 129)
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
                           e["FILTER_ENV_SUSTAIN_PERMILLE"]), (32000, 1616, 425))   # attack_ms(127), the range's end; decay: tau
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
         self.assertEqual(e["FILTER_ENV_SOURCE"], 0)
-        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 75)
+        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 129)
         e = patch("PIANO 1")                    # ENV-2 normal, VCA on ENV-2: the amp envelope
         self.assertEqual(e["FILTER_ENV_SOURCE"], 1)
 
@@ -236,7 +287,34 @@ class MapTest(unittest.TestCase):
         self.assertEqual(got, {0: 1, 32: 1, 64: 0, 96: 0})
         self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=32, VCA_MODE=0)["FILTER_ENV_SOURCE"], 0)
         self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=0, VCA_MODE=127)["FILTER_ENV_AMOUNT_CENTS"],
-                         -60 * 75)
+                         -60 * 129)
+
+    # #60: ENV KEY is a 4-position switch; PG-8X 2.0.13 shortens the times by 0.26 octave an octave
+    # above C2 per position, so 260 per mille each. The amp envelope takes ENV-2's (none on GATE,
+    # a fixed gate); the filter envelope the key follow of the JX-8P envelope whose times it runs
+    def test_env_key_switch_is_each_envelopes_key_follow(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["AMP_KEY_FOLLOW_PERMILLE"].param, "AMP_KEY_FOLLOW")
+        self.assertEqual(fields["FILTER_ENV_KEY_FOLLOW_PERMILLE"].param, "FILTER_ENV_KEY_FOLLOW")
+        got = {v: patch_with("SOUNDTRACK", ENV2_KEY=v, ENV1_KEY=127 - v, VCA_MODE=127)
+               for v in (0, 32, 64, 96)}
+        self.assertEqual({v: e["AMP_KEY_FOLLOW_PERMILLE"] for v, e in got.items()},
+                         {0: 0, 32: 260, 64: 520, 96: 780})
+        self.assertEqual({v: e["FILTER_ENV_KEY_FOLLOW_PERMILLE"] for v, e in got.items()},
+                         {0: 780, 32: 520, 64: 260, 96: 0})
+        gate = patch_with("SOUNDTRACK", ENV2_KEY=96, ENV1_KEY=0, VCA_MODE=0, VCF_ENV_MODE=32)
+        self.assertEqual(gate["AMP_KEY_FOLLOW_PERMILLE"], 0)          # the VCA is a gate
+        self.assertEqual(gate["FILTER_ENV_KEY_FOLLOW_PERMILLE"], 780)  # it runs ENV-2's times
+
+    # VCA DYNAMICS and MIX DYNAMICS are the engine's DYNAMICS positions (engine/dyna.c, PG-8X 2.0.13's
+    # curve): the VCA's level, and the MIX ENV depth, times the share at the velocity
+    def test_vca_and_mix_dynamics_are_dynamics_positions(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["AMP_DYNA"].param, "AMP_DYNA")
+        self.assertEqual(fields["OSC_MIX_ENV_DYNA"].param, "OSC_MIX_ENV_DYNA")
+        got = {v: patch_with("SOUNDTRACK", VCA_DYNA=v, MIX_DYNA=96 - v) for v in (0, 32, 64, 96)}
+        self.assertEqual({v: e["AMP_DYNA"] for v, e in got.items()}, {0: 0, 32: 1, 64: 2, 96: 3})
+        self.assertEqual({v: e["OSC_MIX_ENV_DYNA"] for v, e in got.items()}, {0: 3, 32: 2, 64: 1, 96: 0})
 
     # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
     # depth to pitch linear to 572 cents (below), one per oscillator
@@ -279,12 +357,12 @@ class MapTest(unittest.TestCase):
         lo, hi = jx8p.engine_ranges()["LFO_RATE_CENTIHZ"]
         self.assertTrue(lo <= 5 and 2544 <= hi, (lo, hi))
 
-    # CHORUS off, 1, 2 -> the engine's off, slow, deep; VCA DYNAMICS off, 1, 2, 3 -> 0..100 %
+    # CHORUS off, 1, 2 -> the engine's off, slow, deep; VCA DYNAMICS off, 1, 2, 3 -> its position
     def test_chorus_and_vca_dynamics(self):
         e = patch("SOUNDTRACK")                 # chorus 32, VCA dynamics 64
-        self.assertEqual((e["CHORUS_MODE"], e["AMP_VELOCITY_PCT"]), (1, 67))
+        self.assertEqual((e["CHORUS_MODE"], e["AMP_DYNA"]), (1, 2))
         e = patch("PIANO 2")                    # chorus 0, VCA dynamics 96
-        self.assertEqual((e["CHORUS_MODE"], e["AMP_VELOCITY_PCT"]), (0, 100))
+        self.assertEqual((e["CHORUS_MODE"], e["AMP_DYNA"]), (0, 3))
 
     # DCO-1 and DCO-2 ENV as PG-8X 2.0.13 plays them (#58): at full envelope 24.8 cents a step
     # less 13 (0 at 0, 3137 at 127), linear, each moving its own oscillator, signed by DCO ENV MODE
@@ -320,6 +398,14 @@ class MapTest(unittest.TestCase):
         fields = {f.name: f for f in jx8p.FIELDS}
         self.assertEqual(fields["PITCH_ENV_DYNA"].param, "PITCH_ENV_DYNA")
         got = {b: patch_with("SOUNDTRACK", DCO_DYNA=b)["PITCH_ENV_DYNA"] for b in (0, 32, 64, 96, 127)}
+        self.assertEqual(got, {0: 0, 32: 1, 64: 2, 96: 3, 127: 3})
+
+    # VCF DYNAMICS off, 1, 2, 3 -> the engine's filter_env_dyna position: the same shared curve
+    # (engine/dyna.c) on the filter envelope's cutoff depth (#8)
+    def test_vcf_dynamics_is_the_dyna_position(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["FILTER_ENV_DYNA"].param, "FILTER_ENV_DYNA")
+        got = {b: patch_with("SOUNDTRACK", VCF_DYNA=b)["FILTER_ENV_DYNA"] for b in (0, 32, 64, 96, 127)}
         self.assertEqual(got, {0: 0, 32: 1, 64: 2, 96: 3, 127: 3})
 
     # The pitch envelope (#58) on factory tones: DCO-1 and DCO-2 ENV depth (above), the mode and
@@ -384,14 +470,10 @@ class MapTest(unittest.TestCase):
             self.assertEqual(e["OSC1_LEVEL_PERMILLE"], 0, name)
             self.assertEqual(abs(e["OSC_MIX_ENV_PERMILLE"]), 1000, name)
 
-    # Kept for LFO to cutoff and filter velocity (#8), envelope key follow (#60) and the VCA level
+    # Kept for LFO to cutoff (#8)
     def test_other_features_the_engine_lacks_are_kept_for_later(self):
         e = patch("SOUNDTRACK")
-        self.assertEqual(e["OSC_MIX_ENV_VELOCITY_PCT"], 33)    # MIX DYNAMICS 32
         self.assertEqual(e["FILTER_LFO_PERMILLE"], 0)
-        self.assertEqual(e["FILTER_VELOCITY_PCT"], 33)      # VCF DYNAMICS 32
-        self.assertEqual((e["ENV1_KEY_FOLLOW"], e["ENV2_KEY_FOLLOW"]), (0, 1))
-        self.assertEqual(e["AMP_LEVEL_PERMILLE"], 819)      # VCA LEVEL 104
 
 
 class RangeTest(unittest.TestCase):

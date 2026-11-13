@@ -24,6 +24,7 @@ typedef enum {
     PATCH_OSC2_COARSE_SEMIS,
     PATCH_OSC2_FINE_CENTS,
     PATCH_OSC1_LEVEL_PERMILLE,          /* DCO-1 level over 127, summed with DCO-2 (#102) */
+    PATCH_AMP_LEVEL_PERMILLE,           /* VCA LEVEL, 0.30 dB a step below 127 */
     PATCH_OSC2_LEVEL_PERMILLE,          /* DCO-2 level over 127, before MIX ENV */
     PATCH_OSC_SYNC,
     PATCH_XMOD_AM,                      /* osc_ring: the JX-8P's ring, SYNC 2 and X-MOD (#105) */
@@ -41,7 +42,7 @@ typedef enum {
     PATCH_AMP_DECAY_MS,
     PATCH_AMP_SUSTAIN_PERMILLE,
     PATCH_AMP_RELEASE_MS,
-    PATCH_AMP_VELOCITY_PCT,
+    PATCH_AMP_DYNA,                     /* VCA DYNAMICS: 0 off .. 3 (engine/dyna.c) */
     PATCH_AMP_GATE,                     /* waits #63: 1 the VCA is a gate (the amp env is one now) */
     PATCH_CHORUS_MODE,
     PATCH_LFO_WAVE,
@@ -55,12 +56,11 @@ typedef enum {
     PATCH_PITCH_ENV_DYNA,               /* DCO DYNAMICS: 0 off .. 3 */
     PATCH_OSC_MIX_ENV_PERMILLE,         /* MIX ENV: the mix's change at the envelope's peak */
     PATCH_OSC_MIX_ENV_SOURCE,           /* 0 filter envelope, 1 amp envelope */
-    PATCH_OSC_MIX_ENV_VELOCITY_PCT,     /* waits: velocity on the mix envelope (no issue yet) */
+    PATCH_OSC_MIX_ENV_DYNA,             /* MIX DYNAMICS: 0 off .. 3 */
     PATCH_FILTER_LFO_PERMILLE,          /* waits #8: LFO to cutoff */
-    PATCH_FILTER_VELOCITY_PCT,          /* waits #8 */
-    PATCH_ENV1_KEY_FOLLOW,              /* waits #60: 0 off .. 3 */
-    PATCH_ENV2_KEY_FOLLOW,              /* waits #60 */
-    PATCH_AMP_LEVEL_PERMILLE,           /* waits: a VCA level (no issue yet) */
+    PATCH_FILTER_ENV_DYNA,              /* VCF DYNAMICS: 0 off .. 3 */
+    PATCH_AMP_KEY_FOLLOW_PERMILLE,      /* ENV-2 KEY: 260 per mille a position (#60) */
+    PATCH_FILTER_ENV_KEY_FOLLOW_PERMILLE, /* the filter envelope's (ENV-1 KEY, or ENV-2's) */
     PATCH_FIELD_COUNT,
 } patch_field;
 

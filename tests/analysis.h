@@ -143,4 +143,7 @@ static double tone_amp(const int16_t *stereo, size_t n, int channel,
     return 2.0 * sqrt(re * re + im * im) / wsum;
 }
 
+/* the output soft clip's knee in int16 LSB: -2.85 dBFS (OUT_KNEE >> 9, #102) */
+#define KNEE_LSB 23600
+
 #endif /* ANALYSIS_H */

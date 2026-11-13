@@ -39,13 +39,13 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_FILTER_CUTOFF_CENTS, "filter_cutoff_cents", 0,
       FM_FILTER_OPEN_CENTS, FM_FILTER_OPEN_CENTS },
     { FM_PARAM_FILTER_RESONANCE, "filter_resonance_permille", 0, 1000, 0 },
-    { FM_PARAM_FILTER_KEY_TRACK, "filter_key_track_permille", 0, 1000, 0 },
+    { FM_PARAM_FILTER_KEY_TRACK, "filter_key_track_permille", 0, 1300, 0 },
     { FM_PARAM_FILTER_ENV_ATTACK_MS,  "filter_env_attack_ms",  0, 32000,   5 },
     { FM_PARAM_FILTER_ENV_DECAY_MS,   "filter_env_decay_ms",   0, 32000, 300 },
     { FM_PARAM_FILTER_ENV_SUSTAIN,    "filter_env_sustain_permille", 0, 1000,
       500 },
     { FM_PARAM_FILTER_ENV_RELEASE_MS, "filter_env_release_ms", 0, 32000, 300 },
-    { FM_PARAM_FILTER_ENV_AMOUNT_CENTS, "filter_env_amount_cents", -9600, 9600,
+    { FM_PARAM_FILTER_ENV_AMOUNT_CENTS, "filter_env_amount_cents", -16400, 16400,
       0 },
     { FM_PARAM_HIGHPASS_STEP, "highpass_step", 0,
       FM_FILTER_HIGHPASS_STEPS - 1, 0 },
@@ -60,6 +60,12 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_PITCH_ENV_DYNA, "pitch_env_dyna", 0, 3, 0 },
     { FM_PARAM_OSC1_LEVEL,     "osc1_level_permille", 0, 1000, 1000 },
     { FM_PARAM_OSC_RING,       "osc_ring",            0,     1,    0 },
+    { FM_PARAM_FILTER_ENV_DYNA, "filter_env_dyna",    0,     3,    0 },
+    { FM_PARAM_AMP_KEY_FOLLOW, "amp_key_follow_permille", 0, 1000, 0 },
+    { FM_PARAM_FILTER_ENV_KEY_FOLLOW, "filter_env_key_follow_permille", 0, 1000, 0 },
+    { FM_PARAM_AMP_DYNA,       "amp_dyna",            0,     3,    0 },
+    { FM_PARAM_OSC_MIX_ENV_DYNA, "osc_mix_env_dyna",  0,     3,    0 },
+    { FM_PARAM_AMP_LEVEL,      "amp_level_permille",  0, 1000, 1000 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)

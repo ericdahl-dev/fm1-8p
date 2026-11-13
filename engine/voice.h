@@ -74,6 +74,8 @@ typedef struct {
     uint8_t penv_amp;     /* the pitch envelope follows envelope 2 (amp),
                            * else envelope 1 (filter) */
     uint8_t penv_dyna;    /* its DYNAMICS position (dyna.h), 0 off */
+    uint8_t fenv_dyna;    /* the filter envelope's, on its cutoff depth */
+    uint8_t mix_dyna;     /* the mix envelope's DYNAMICS position, 0 off */
 } fm_voice_mod;
 
 /* Idle, with the filter open. `seed` starts the voice's noise; give each
@@ -200,7 +202,7 @@ static inline void fm_voice_mark_mix(fm_voice *v, const fm_voice_mod *m)
 {
     fm_voice_mark(v, FM_BUSY_MIX,
                   !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
-                  v->mix_step || v->osc.level[1] != v->mix_base);
+                  v->mix_step || v->osc.req[1] != v->mix_base);
 }
 
 /* Nonzero while any of the voice's processors is away from rest; a voice

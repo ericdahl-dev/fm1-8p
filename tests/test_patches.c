@@ -92,7 +92,7 @@ TT_TEST(patch_values_are_the_boot_state)
     TT_CHECK_EQ(v[FM_PARAM_OSC1_OCTAVE], -1);
     TT_CHECK_EQ(v[FM_PARAM_OSC2_OCTAVE], -1);
     TT_CHECK_EQ(v[FM_PARAM_OSC2_FINE_CENTS], -13);
-    TT_CHECK_EQ(v[FM_PARAM_FILTER_CUTOFF_CENTS], 6400);
+    TT_CHECK_EQ(v[FM_PARAM_FILTER_CUTOFF_CENTS], 6920);   /* VCF FREQ 52 (4775) + KEY 88 moved to a C2 pivot (894 x 2.4) */
     TT_CHECK_EQ(v[FM_PARAM_FILTER_RESONANCE], 0);
     TT_CHECK_EQ(v[FM_PARAM_HIGHPASS_STEP], 4);          /* HPF 0: the bass boost (#93) */
     TT_CHECK_EQ(v[FM_PARAM_BEND_RANGE], 2);             /* no field: the defaults */
