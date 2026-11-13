@@ -33,14 +33,26 @@ class MetricTest(unittest.TestCase):
         darker = signal.lfilter(b, a, self.tone + 0.05 * self.np.random.default_rng(1).standard_normal(len(self.tone)))
         self.assertGreater(self.sc.spectral_distance(darker, self.tone + 0.05 * self.np.random.default_rng(1).standard_normal(len(self.tone))), 3.0)
 
-    # Envelope timing: ms from the section's peak until it is `drop` dB down (10 ms RMS frames).
-    def test_fall_time_reads_an_exponential_decay(self):
+    # Envelope timing, sample-accurate (pg8x-measurement traps): the Hilbert magnitude, smoothed over two
+    # periods of the note, so neither the waveform's ripple nor PG-8X's onset burst moves the reading.
+    def saw_note(self, f0, burst_db, decay_s, off_s, release_s, total_s=2.5):
         np = self.np
-        t = np.arange(2 * SR) / SR
-        x = np.zeros(3 * SR)
-        x[SR // 2:SR // 2 + len(t)] = np.sin(2 * np.pi * 220 * t) * 10 ** (-20 * t / 0.3 / 20)
-        self.assertAlmostEqual(self.sc.fall_ms(x, 0.0, 3.0, 20), 300, delta=15)
-        self.assertIsNone(self.sc.fall_ms(x, 0.0, 0.6, 40))   # not 40 dB down inside the window
+        t = np.arange(int(total_s * SR)) / SR
+        saw = 2 * ((f0 * t) % 1.0) - 1
+        g = np.where(t < 0.01, 10 ** (burst_db / 20), 1.0)
+        g = g * np.where(t < off_s, 10 ** (-20 * t / decay_s / 20) if decay_s else 1.0, 1.0)
+        level_off = 10 ** (-20 * off_s / decay_s / 20) if decay_s else 1.0
+        g = np.where(t >= off_s, level_off * 10 ** (-40 * (t - off_s) / release_s / 20), g)
+        return 0.3 * saw * g
+
+    def test_decay_reads_past_an_onset_burst(self):
+        x = self.saw_note(261.63, 6.0, 0.3, 2.0, 0.12)
+        self.assertAlmostEqual(self.sc.decay_ms(x, 0.0, 2.0, 261.63, 20), 300, delta=5)
+        self.assertIsNone(self.sc.decay_ms(x, 0.0, 0.2, 261.63, 20))   # not 20 dB down inside the window
+
+    def test_release_reads_a_c4_saw_without_frame_ripple(self):
+        x = self.saw_note(261.63, 6.0, 0, 1.0, 0.12)
+        self.assertAlmostEqual(self.sc.release_ms(x, 1.0, 2.0, 261.63, 40), 120, delta=3)
 
     # Pitch: the shift that best lines up the two log-frequency spectra, cents (+ = ours sharp).
     def test_pitch_offset_reads_cents(self):
@@ -61,6 +73,7 @@ class MetricTest(unittest.TestCase):
         self.assertEqual(s["loudness_gap_lu"], 0.0)
         self.assertEqual(s["spectral_db_mean"], 0.0)
         self.assertTrue(all(v == 0.0 for v in s["spectral_db"].values()))
+        self.assertEqual(set(s["timing_gap_ms"]), {"high_decay20", "high_release40"})
         self.assertTrue(all(v in (0.0, None) for v in s["timing_gap_ms"].values()))
         self.assertTrue(all(v == 0.0 for v in s["pitch_cents"].values()))
 
@@ -80,7 +93,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 1)
+        self.assertEqual(row["schema"], 2)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -100,7 +113,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (1, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (2, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -126,7 +139,7 @@ class HistoryTest(unittest.TestCase):
     def test_the_report_has_every_tone_the_worst_five_and_what_moved(self):
         head = self.rows([5, 30, 1, 25, 9, 40, 2])
         for r in head:
-            r.update({"spectral_db": {"chord": r["spectral_db_mean"]}, "timing_gap_ms": {"low_decay20": 10.0},
+            r.update({"spectral_db": {"chord": r["spectral_db_mean"]}, "timing_gap_ms": {"high_decay20": 10.0},
                       "pitch_cents": {"low": 0.0, "high": 5.0}})
         text = self.sc.report(head, self.rows([5, 20, 1, 25, 9, 40, 2]))
         self.assertIn("| 07 T7 |", text)
@@ -203,8 +216,8 @@ class ScoreMidiTest(unittest.TestCase):
         want = {"chord": (60, 100), "v110": (67, 110), "v60": (72, 60), "v90": (71, 90), "v40": (69, 40),
                 "low": (36, 100), "high": (84, 100)}
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "scorecard.py")).read()
-        for name, (a, b) in {"chord": (0.3, 2.9), "v110": (4.0, 4.4), "v60": (4.5, 4.9), "v90": (5.0, 5.3),
-                             "v40": (5.4, 6.0), "low": (6.7, 8.0), "high": (8.9, 9.9)}.items():
+        for name, (a, b) in {"chord": (0.3, 2.9), "v110": (4.03, 4.4), "v60": (4.53, 4.9), "v90": (5.03, 5.3),
+                             "v40": (5.43, 6.0), "low": (6.7, 8.0), "high": (8.9, 9.9)}.items():
             self.assertIn(f'"{name}": ({a}, {b})', src)
             note, vel = want[name]
             self.assertTrue(any(n == note and v == vel and s <= a and b <= e + 0.001 for n, s, e, v in notes),

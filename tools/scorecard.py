@@ -9,7 +9,7 @@ import os
 import numpy as np
 from scipy import signal
 
-SCHEMA = 1   # history rows: bump when a field changes meaning
+SCHEMA = 2   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note)
 
 SR = 48000
 
@@ -54,22 +54,33 @@ def spectral_distance(ours, pg):
     return float(np.sqrt(np.mean(d ** 2)))
 
 
-def frames_db(x, frame_s=0.01):
-    """RMS level per frame, dB."""
+def envelope_db(x, period_s):
+    """Level in dB per sample: the Hilbert magnitude, RMS-smoothed over two periods of the note, so the
+    waveform's own ripple cancels (frame RMS shorter than a period reads crossings late)."""
     x = mono(x)
-    n = int(frame_s * SR)
-    k = len(x) // n
-    r = np.sqrt(np.mean(x[:k * n].reshape(k, n) ** 2, axis=1))
-    return 20 * np.log10(r + 1e-12)
+    e = np.abs(signal.hilbert(x))
+    n = max(1, int(round(2 * period_s * SR)))
+    k = np.ones(n) / n
+    return 10 * np.log10(np.convolve(e ** 2, k, mode="same") + 1e-24)
 
 
-def fall_ms(x, t0, t1, drop):
-    """Milliseconds from the loudest 10 ms frame in [t0, t1) s until a frame `drop` dB below it, within
-    the window; None if it never gets there."""
-    db = frames_db(x)[int(t0 * 100):int(t1 * 100)]
-    p = int(np.argmax(db))
-    below = np.nonzero(db[p:] < db[p] - drop)[0]
-    return float(below[0] * 10) if len(below) else None
+def decay_ms(x, onset, end, f0, drop, skip=0.03):
+    """ms the level takes to fall `drop` dB, from `skip` s after the note's onset (past PG-8X's onset burst);
+    None if it doesn't get there before `end` s."""
+    db = envelope_db(x, 1.0 / f0)
+    i0 = int((onset + skip) * SR)
+    below = np.nonzero(db[i0:int(end * SR)] < db[i0] - drop)[0]
+    return float(below[0] * 1000.0 / SR) if len(below) else None
+
+
+def release_ms(x, off, end, f0, drop):
+    """ms from note-off until the level is `drop` dB below its median over the 20 ms before it; None if it
+    doesn't get there before `end` s."""
+    db = envelope_db(x, 1.0 / f0)
+    i = int(off * SR)
+    ref = float(np.median(db[i - int(0.02 * SR):i]))
+    below = np.nonzero(db[i:int(end * SR)] < ref - drop)[0]
+    return float(below[0] * 1000.0 / SR) if len(below) else None
 
 
 _GRID = 30 * 2 ** (np.arange(0, 1200 * np.log2(8000 / 30), 5) / 1200)   # 5-cent steps, 30 Hz .. 8 kHz
@@ -95,12 +106,11 @@ def pitch_cents(ours, pg, span=200):
     return arg * 5.0
 
 
-# The scorecard MIDI's sections (tools/gate_midi.py score()), seconds
-SECTIONS = {"chord": (0.3, 2.9), "v110": (4.0, 4.4), "v60": (4.5, 4.9), "v90": (5.0, 5.3), "v40": (5.4, 6.0),
+# The scorecard MIDI's sections (tools/gate_midi.py score()), seconds; each starts 30 ms or more past
+# its note's onset, clear of PG-8X's onset burst (#146)
+SECTIONS = {"chord": (0.3, 2.9), "v110": (4.03, 4.4), "v60": (4.53, 4.9), "v90": (5.03, 5.3), "v40": (5.43, 6.0),
             "low": (6.7, 8.0), "high": (8.9, 9.9)}
-# (window start, end, dB): fall times compared, ms from the window's peak
-TIMINGS = {"chord_decay20": (0.0, 3.0, 20), "chord_release40": (2.95, 4.0, 40),
-           "low_decay20": (6.4, 8.1, 20), "low_release40": (8.05, 8.6, 40)}
+HIGH = (8.6, 10.0, 1046.50)   # the high C6: onset, note-off (s), f0 (Hz): about 1 ms a period
 
 
 def _cut(x, a, b):
@@ -113,14 +123,18 @@ def _gap(a, b):
 
 def score_tone(ours, pg):
     """One tone, ours against PG-8X's render of the same MIDI: loudness gap (LU), spectral distance per
-    section and its mean (dB), fall-time gaps (ms, ours minus PG-8X; None where either never falls that
-    far), and the pitch offset of the held low and high notes (cents)."""
+    section and its mean (dB), the high note's decay (to -20 dB, from 30 ms after onset) and release (to
+    -40 dB after note-off) gaps (ms, ours minus PG-8X; None where either never falls that far), and the
+    pitch offset of the held low and high notes (cents)."""
     spec = {k: round(spectral_distance(_cut(ours, *w), _cut(pg, *w)), 2) for k, w in SECTIONS.items()}
     return {
         "loudness_gap_lu": round(loudness_gap(ours, pg), 2),
         "spectral_db": spec,
         "spectral_db_mean": round(float(np.mean(list(spec.values()))), 2),
-        "timing_gap_ms": {k: _gap(fall_ms(ours, *w), fall_ms(pg, *w)) for k, w in TIMINGS.items()},
+        "timing_gap_ms": {
+            "high_decay20": _gap(decay_ms(ours, HIGH[0], HIGH[1], HIGH[2], 20), decay_ms(pg, HIGH[0], HIGH[1], HIGH[2], 20)),
+            "high_release40": _gap(release_ms(ours, HIGH[1], HIGH[1] + 2.5, HIGH[2], 40),
+                                   release_ms(pg, HIGH[1], HIGH[1] + 2.5, HIGH[2], 40))},
         "pitch_cents": {k: pitch_cents(_cut(ours, *SECTIONS[k]), _cut(pg, *SECTIONS[k])) for k in ("low", "high")},
     }
 
@@ -313,12 +327,13 @@ def _fmt(v, f="{:+.0f}"):
 
 def report(head, base):
     """Markdown: every tone, the worst 5, and the tones moved against BASE's rows (None: no base)."""
-    out = ["| tone | spectral dB (mean) | worst section | loudness gap LU | low decay gap ms | pitch low / high c |",
+    out = ["| tone | spectral dB (mean) | worst section | loudness gap LU | high decay / release gap ms | pitch low / high c |",
            "|---|---|---|---|---|---|"]
     for r in sorted(head, key=lambda r: r["tone"]):
         sec = max(r["spectral_db"], key=r["spectral_db"].get)
         out.append(f"| {r['tone']:02d} {r['name']} | {r['spectral_db_mean']:.1f} | {sec} {r['spectral_db'][sec]:.1f} | "
-                   f"{r['loudness_gap_lu']:+.1f} | {_fmt(r['timing_gap_ms'].get('low_decay20'))} | "
+                   f"{r['loudness_gap_lu']:+.1f} | {_fmt(r['timing_gap_ms'].get('high_decay20'))} / "
+                   f"{_fmt(r['timing_gap_ms'].get('high_release40'))} | "
                    f"{_fmt(r['pitch_cents']['low'])} / {_fmt(r['pitch_cents']['high'])} |")
     out += ["", "worst 5 (spectral dB): " + ", ".join(f"{r['tone']:02d} {r['name']} {r['spectral_db_mean']:.1f}"
                                                       for r in worst(head))]
