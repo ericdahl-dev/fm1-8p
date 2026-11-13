@@ -297,6 +297,7 @@ TT_TEST(cpu_test_full_patch_step_turns_on_every_modulation)
     TT_CHECK(fm_engine_get_param(&ct_a.engine, FM_PARAM_LFO_PW_PCT) > 0);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_LFO_DELAY_MS), 0);   /* modulating from the start */
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_AMP_VELOCITY), 100);
+    TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_SETTING_GLIDE), 1);   /* as every JX-8P tone (#146) */
 }
 
 /* F strikes its notes at different velocities, so the amp velocity curve gives each a different peak. */
@@ -383,7 +384,7 @@ TT_TEST(cpu_test_full_patch_that_fails_is_not_timed)
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_AMP_VELOCITY), 100);
 }
 
-/* F's filter does real work, off fm_filter_run's wide-open fast path (a wire): in every voice the lowpass
+/* F's filter does real work, off fm_filter_run's wide-open fast path (a wire): in every voice, from the second block, the lowpass
  * is below open (fade, and with it the resonance, engaged) and the highpass is on, each on its own. */
 TT_TEST(cpu_test_full_patch_filter_is_off_the_fast_path)
 {
@@ -392,6 +393,7 @@ TT_TEST(cpu_test_full_patch_filter_is_off_the_fast_path)
     cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
     for (b = 0; b < 200; b++) {                                 /* through attack and decay to sustain */
         cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+        if (b == 0) continue;   /* F glides in from PG-8X's power-on values (#146): its first block is open */
         for (i = 0; i < ct_a.engine.voice_count; i++) {
             const fm_filter *f = &ct_a.engine.voices[i].filter;
             TT_CHECK(f->fade != 0);                             /* the lowpass */
