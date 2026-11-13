@@ -5,6 +5,7 @@
 #define UI_H
 #include <stdint.h>
 #include "play.h"
+#include "ui_map.h"
 
 /* ui_event's events: the same values as fm1-dock's hb_module.h (the glue passes them on as they are) */
 #define UI_EV_BTN_DOWN 0x01000000u

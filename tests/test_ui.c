@@ -532,8 +532,48 @@ TT_TEST(ui_patch_number_is_p_and_its_place)
     TT_CHECK(strcmp(s, "P17") == 0);
 }
 
+/* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
+ * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
+static double ui_lum(uint16_t c)
+{
+    uint32_t r = c >> 11, g = c >> 5 & 63u, b = c & 31u, i;
+    double ch[3];
+    ch[0] = (double)(r << 3 | r >> 2);
+    ch[1] = (double)(g << 2 | g >> 4);
+    ch[2] = (double)(b << 3 | b >> 2);
+    for (i = 0; i < 3; i++) {
+        double s = ch[i] / 255.0;
+        ch[i] = s <= 0.03928 ? s / 12.92 : pow((s + 0.055) / 1.055, 2.4);
+    }
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+
+static double ui_contrast(uint16_t a, uint16_t b)
+{
+    double la = ui_lum(a), lb = ui_lum(b);
+    return floor(10.0 * (la > lb ? (la + 0.05) / (lb + 0.05) : (lb + 0.05) / (la + 0.05)) + 0.5) / 10.0;
+}
+
+/* Membrane (visual.md's style table) meets its contrast rules: text at least 10.2:1 on every
+ * surface, dim labels 4.9:1, each section color 4.7:1 on surface and 4.9:1 on bg. */
+TT_TEST(ui_membrane_meets_its_contrast_rules)
+{
+    const ui_theme *t = &UI_MEMBRANE;
+    const uint16_t surf[3] = {t->bg, t->surface, t->surface_hi};
+    uint32_t i;
+    for (i = 0; i < 3; i++) {
+        TT_CHECK(ui_contrast(t->text, surf[i]) >= 10.2);
+        TT_CHECK(ui_contrast(t->dim, surf[i]) >= 4.9);
+    }
+    for (i = 0; i < UI_SECTIONS; i++) {
+        TT_CHECK(ui_contrast(t->section[i], t->surface) >= 4.7);
+        TT_CHECK(ui_contrast(t->section[i], t->bg) >= 4.9);
+    }
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_membrane_meets_its_contrast_rules);
     TT_RUN(ui_patch_number_is_p_and_its_place);
     TT_RUN(ui_presets_load_redraws_the_values_and_keeps_the_page);
     TT_RUN(ui_presets_discard_takes_the_warning_down);
