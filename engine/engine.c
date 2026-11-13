@@ -33,7 +33,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 6260u
+#define FM_ENGINE_BUDGET_32 6264u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -104,9 +104,7 @@ static int32_t osc_tune_cents(const fm_engine *e, uint8_t which)
 {
     const int32_t *p = &e->params[which ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE];
     int32_t cents = p[2] * 1200 + p[3];
-    if (which)
-        cents += e->params[FM_PARAM_OSC2_COARSE_SEMIS] * 100;
-    return cents;
+    return cents + e->params[which ? FM_PARAM_OSC2_COARSE_SEMIS : FM_PARAM_OSC1_COARSE_SEMIS] * 100;
 }
 
 /* Retunes oscillator `which` on every voice to its octave, coarse and fine. */
@@ -326,6 +324,9 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     case FM_PARAM_OSC2_COARSE_SEMIS:
         retune_osc(e, 1);
+        return;
+    case FM_PARAM_OSC1_COARSE_SEMIS:
+        retune_osc(e, 0);
         return;
     case FM_PARAM_OSC_XMOD:
         for (i = 0; i < FM_MAX_VOICES; i++)

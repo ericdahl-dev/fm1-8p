@@ -5,8 +5,8 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 6.1 KiB (6260 bytes on
- * 32-bit targets such as the FM-1 and Cortex-M, 6616 on 64-bit desktops,
+ * sets up everything inside it. fm_engine is about 6.1 KiB (6264 bytes on
+ * 32-bit targets such as the FM-1 and Cortex-M, 6624 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
  * storage is recommended; a task stack must have room for it on top of
@@ -112,6 +112,7 @@ typedef enum {
                         * (on with the key, a fixed short ramp), and the
                         * amp_* settings run envelope 2 for the cutoff,
                         * pitch and mix instead */
+    FM_PARAM_OSC1_COARSE_SEMIS, /* -12..+12 semitones, on top of osc1's octave and fine */
     FM_PARAM_COUNT
 } fm_param_id;
 
