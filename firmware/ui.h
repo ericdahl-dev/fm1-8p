@@ -122,6 +122,10 @@ void ui_patch_number(const patch *t, char *s);
 void ui_slot_number(const ui_slot *sl, char *s);
 /* the host asked for all of it (draw(full)): UI_D_ALL, and nothing stays pending */
 uint32_t ui_take_full(ui *u, uint32_t ms);
+/* the band to draw now, out of pending (0: none). What changed (ui_take) is taken only once pending
+ * is drawn, so steady turns can't starve the later bands; a new page (UI_D_FULL) is taken at once and
+ * starts pending over as all of it. */
+uint32_t ui_band(ui *u, uint32_t *pending, uint32_t ms);
 /* the next band to draw out of pending (UI_D_* bits, in drawing order), taken out of it; 0: none */
 uint32_t ui_next_band(uint32_t *pending);
 /* a button's LED (interaction.md): UI_LED_OFF, UI_LED_LIT or UI_LED_GLOW (dim) */

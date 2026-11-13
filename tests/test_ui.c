@@ -660,6 +660,30 @@ TT_TEST(ui_choice_meter_lights_its_position)
     TT_CHECK_EQ(ui_choice_pos(hpf, 3, &n), 3u);
 }
 
+/* Under turns every frame, each frame's bands are all drawn before the next frame's start, so the
+ * columns aren't starved by the focus row and curve a turn marks again (#47, slice 1b): CUTOFF turns
+ * every 33 ms, draw() comes every 10 ms, and the turned column still draws. */
+TT_TEST(ui_steady_turns_still_reach_the_columns)
+{
+    uint32_t pending = 0, ms, cols = 0, busy = 0;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    for (ms = 0; ms < 1000u; ms += 10u) {
+        uint32_t b;
+        if (ms % 30u == 0)
+            ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, ms % 60u ? 1 : -1, ms);
+        if (busy) {                             /* the curve's other parts (draw.c: 3 a curve) */
+            busy--;
+            continue;
+        }
+        b = ui_band(&ui_u, &pending, ms);
+        cols += b == UI_D_COL(1);
+        busy = b == UI_D_SLOT ? 2u : 0u;
+    }
+    printf("    column drawn %u times in 1 s\n", (unsigned)cols);
+    TT_CHECK(cols >= 10u);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -702,6 +726,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_steady_turns_still_reach_the_columns);
     TT_RUN(ui_choice_meter_lights_its_position);
     TT_RUN(ui_hpf_off_the_panel_snaps_the_way_it_turns);
     TT_RUN(ui_hpf_reads_as_its_positions);

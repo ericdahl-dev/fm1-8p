@@ -353,25 +353,17 @@ static uint32_t worst_call;                     /* the longest draw() call, in 2
 #endif
 void ui_draw_frame(uint32_t full)
 {
-    uint32_t d;
 #ifdef FM1_DEBUG
     uint32_t t0 = H->ticks();
 #endif
-    if (full) {
-        d = ui_take_full(U, H->ms());
-    } else {
-        d = ui_take(U, H->ms());
-    }
-    if (d & UI_D_FULL) {
-        pending = UI_D_ALL;                     /* a new page: all of it, none of the old one's */
+    if (full) {                                 /* the host's: all of it, now */
+        pending = ui_take_full(U, H->ms());
         band = 0;
-    } else {
-        pending |= d;
     }
     if (H->ticks() - blit_t < blit_wait)
         return;                                 /* the panel is still taking the last part */
-    if (!band) {
-        band = ui_next_band(&pending);
+    if (!band) {                                /* the next band: a frame's all go first (ui_band) */
+        band = ui_band(U, &pending, H->ms());
         part = 0;
         if (!band)
             return;
