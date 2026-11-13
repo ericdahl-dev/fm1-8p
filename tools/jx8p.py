@@ -121,7 +121,7 @@ FIELDS = [
     Field("OSC1_WAVE", "OSC1_WAVE", None, None, None),
     Field("OSC1_PULSE_WIDTH_PCT", "OSC1_PULSE_WIDTH_PCT", None, None, None),
     Field("OSC1_OCTAVE", "OSC1_OCTAVE", None, None, None),
-    Field("OSC1_COARSE_SEMIS", None, -12, 12, "DCO-1 coarse tune, folded into osc2 for now (no issue yet)"),
+    Field("OSC1_COARSE_SEMIS", "OSC1_COARSE_SEMIS", None, None, None),
     Field("OSC2_WAVE", "OSC2_WAVE", None, None, None),
     Field("OSC2_PULSE_WIDTH_PCT", "OSC2_PULSE_WIDTH_PCT", None, None, None),
     Field("OSC2_OCTAVE", "OSC2_OCTAVE", None, None, None),
@@ -341,14 +341,9 @@ def to_engine(tone):
     }
     for n in (1, 2):
         e["OSC%d_PULSE_WIDTH_PCT" % n] = 25 if e["OSC%d_WAVE" % n] == 1 else 50
-    # osc1 has no coarse: it plays whole octaves, the nearest to its pitch that leaves osc2 in range,
-    # and osc2 moves by what osc1 lacks so the interval holds. OSC1_COARSE_SEMIS keeps that amount.
-    pitch1, pitch2 = pitch_semis(p[DCO1_RANGE], p[DCO1_TUNE]), pitch_semis(p[DCO2_RANGE], p[DCO2_TUNE])
-    octave1 = min((o for o in range(-2, 3) if -36 <= pitch2 - (pitch1 - 12 * o) <= 36),
-                  key=lambda o: abs(pitch1 - 12 * o))
-    lack = pitch1 - 12 * octave1
-    e["OSC1_OCTAVE"], e["OSC1_COARSE_SEMIS"] = octave1, lack
-    e["OSC2_OCTAVE"], e["OSC2_COARSE_SEMIS"] = octave_and_semis(pitch2 - lack)
+    # each DCO plays its own range and tune: octave plus coarse semitones (#108)
+    e["OSC1_OCTAVE"], e["OSC1_COARSE_SEMIS"] = octave_and_semis(pitch_semis(p[DCO1_RANGE], p[DCO1_TUNE]))
+    e["OSC2_OCTAVE"], e["OSC2_COARSE_SEMIS"] = octave_and_semis(pitch_semis(p[DCO2_RANGE], p[DCO2_TUNE]))
     e["OSC2_FINE_CENTS"] = max(-50, min(50, rnd((p[DCO2_FINE] - 64) * 50 / 64)))
     # The mixer sums the DCOs, each at its level byte over 127. MIX ENV adds depth x envelope to
     # DCO-2's byte (inverted: takes it away), clamped to 0..127: PG-8X 2.0.13, measured (#102).
