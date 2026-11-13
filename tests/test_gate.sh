@@ -45,6 +45,7 @@ expect_ok "a change in ring_run (X-MOD, SYNC 2 in chunks) fails the gate" caught
 expect_ok "a change in sync_run (SYNC 1 in chunks) fails the gate" caught sync osc.c sync_run "$PH"
 expect_ok "a change in the highpass steps fails the gate" caught hpf filter.c fm_filter_set_highpass 'rate_cents += 1200;'
 expect_ok "a change in the filter envelope's depth fails the gate" caught fenv voice.c update_cutoff 'fenv += fenv >> 3;'
+expect_ok "a change in the DYNAMICS curve fails the gate" caught dyna dyna.c fm_dyna_share_q15 'velocity ^= 1;'
 
 echo
 echo "$run tests, $failed failed"

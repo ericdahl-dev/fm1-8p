@@ -42,7 +42,7 @@ renders() {
         rm -rf "$o" && mkdir -p "$o" "$G/build/$k"
         make -s -C "$1" BUILD="$G/build/$k" "$G/build/$k/fm1-8p-render" >"$o/.build.log" 2>&1 ||
             { cat "$o/.build.log" >&2; die "$1: the renderer does not build"; }
-        "$PY" "$ROOT/tools/gate_cases.py" >"$o/.cases" || die "cannot list the clips"
+        "$PY" -B "$ROOT/tools/gate_cases.py" "$1" >"$o/.cases" || die "$1: cannot list the clips"
         while IFS='	' read -r name mid args; do
             # shellcheck disable=SC2086 # args are words
             "$G/build/$k/fm1-8p-render" $args "$G/midi/$mid" "$o/$name.wav" >/dev/null 2>"$o/$name.err" ||

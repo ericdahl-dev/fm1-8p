@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """The no-sound gate's clips (tools/gate.sh, #140): one line per clip, NAME<TAB>MIDI<TAB>render args.
 MIDI is a file name in the gate's MIDI folder. Original material only: no PG-8X renders.
-usage: python3 tools/gate_cases.py"""
+usage: python3 tools/gate_cases.py TREE   (TREE's own converter and params give the factory tones' args)"""
+import os
+import re
+import sys
 
 
 WAVES = range(4)          # saw, pulse, square, noise (engine/osc.h fm_wave)
@@ -57,13 +60,32 @@ def filter_env():
                                    amp_sustain_permille=300, filter_env_amount_cents=4800)
 
 
-def cases():
+def factory(tree):
+    """The 32 JX-8P factory tones (data/jx8p-factory-1-32.syx) as TREE's converter maps them, on a held
+    chord, a velocity phrase and a low note (ab.mid), 6 voices at 48 kHz."""
+    sys.path.insert(0, os.path.join(tree, "tools"))
+    import jx8p
+    with open(os.path.join(tree, "engine", "params.c")) as fh:
+        names = dict(re.findall(r'\{\s*FM_PARAM_(\w+)\s*,\s*"([^"]+)"', fh.read()))
+    with open(os.path.join(tree, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
+        tones = jx8p.parse_syx(fh.read())
+    for i, t in enumerate(tones, 1):
+        e = jx8p.to_engine(t)
+        args = ["-r", "48000", "-t", "3000", "-v", "6"]
+        for f in jx8p.FIELDS:
+            if f.param:
+                args += ["-s", f"{names[f.param]}={e[f.name]}"]
+        yield f"tone-{i:02d}", "ab.mid", args
+
+
+def cases(tree):
     yield "demo", "demo.mid", []
     yield from pair_matrix()
     yield from hpf_steps()
     yield from filter_env()
+    yield from factory(tree)
 
 
 if __name__ == "__main__":
-    for name, mid, args in cases():
+    for name, mid, args in cases(sys.argv[1]):
         print("\t".join([name, mid, " ".join(args)]))
