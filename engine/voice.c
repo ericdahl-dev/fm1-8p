@@ -163,6 +163,7 @@ static void gate_on(fm_voice *v)
     }
     fm_voice_sync_filter_env(v);
     fm_env_key(&v->amp_env, v->note);
+    fm_env_key(&v->filter_env, v->note);
     fm_env_gate_on(&v->amp_env);
     fm_env_gate_on(&v->filter_env);
 }

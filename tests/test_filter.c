@@ -937,6 +937,30 @@ static void sweep_patch(fm_engine *e)
 }
 
 /*
+ * The filter envelope follows the key as the amp envelope does (PG-8X's
+ * ENV-1 KEY): at 520, C4 (two octaves above C2) decays with tau 100 ms x
+ * 2^-1.04, 48.6 ms, to 1/e of full after it (sustain 0).
+ */
+TT_TEST(filter_envelope_follows_the_key)
+{
+    const double tau = 100.0 * pow(2.0, -1.04); /* ms */
+    double left;
+    fm_engine_init(&feng, FRATE, 1);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 3000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 4800);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 100);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_KEY_FOLLOW, 520);
+    fm_engine_note_on(&feng, 60, 100);
+    fm_engine_render(&feng, fbuf_a, 1 + (uint32_t)(FRATE * tau / 1000.0));
+    fm_voice_sync_filter_env(&feng.voices[0]);
+    left = (double)feng.voices[0].filter_env.level / FM_ENV_FULL;
+    printf("    filter env, C4, follow 520: %.4f of full after tau (%.1f ms)\n", left, tau);
+    TT_CHECK_NEAR(left, 0.368, 0.01);
+}
+
+/*
  * A note that steals a voice mid-sustain starts its filter envelope from
  * 0, as its amp envelope does after the steal fade, so its sweep is the
  * same as on a fresh voice whichever voice it lands on.
@@ -2139,6 +2163,7 @@ static void run_filter_tests(void)
     TT_RUN(unison_retrigger_restarts_the_filter_envelope_and_legato_does_not);
     TT_RUN(unison_note_change_gets_its_cutoff_from_the_first_sample);
     TT_RUN(mode_switch_release_keeps_the_key_tracked_cutoff);
+    TT_RUN(filter_envelope_follows_the_key);
     TT_RUN(stolen_voice_starts_the_filter_envelope_from_zero);
     TT_RUN(idle_voice_starts_the_filter_envelope_from_zero);
     TT_RUN(steal_fade_keeps_the_old_notes_key_tracked_cutoff);
