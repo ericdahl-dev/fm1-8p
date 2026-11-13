@@ -76,6 +76,35 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         num = put_u(num, st / 100u), u = "st";
     } else if (id == FM_PARAM_FILTER_KEY_TRACK) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
+    } else if (id == FM_PARAM_OSC1_OCTAVE || id == FM_PARAM_OSC2_OCTAVE) {    /* RANGE in feet */
+        static const char *const FEET[5] = {"32", "16", "8", "4", "2"};
+        num = put_str(num, FEET[value < -2 ? 0 : value > 2 ? 4 : value + 2]), u = "'";
+    } else if (id == FM_PARAM_OSC1_WAVE || id == FM_PARAM_OSC2_WAVE) {
+        static const char *const WAVE[4] = {"SAW", "PULSE", "SQUARE", "NOISE"};
+        num = put_str(num, WAVE[value < 0 ? 0 : value > 3 ? 3 : value]);
+    } else if (id == FM_PARAM_LFO_PITCH_CENTS || id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
+        if (value < 0)                          /* DCO-2's -1: DCO-1's depth */
+            num = put_str(num, "D1");
+        else
+            num = put_u(num, (uint32_t)value), u = "ct";
+    } else if (id == FM_PARAM_PITCH_ENV_OSC1_CENTS || id == FM_PARAM_PITCH_ENV_OSC2_CENTS) {
+        uint32_t t = ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u;    /* tenths of a st */
+        if (t)
+            *num++ = value < 0 ? '-' : '+';
+        num = put_u(num, t / 10u);
+        *num++ = '.';
+        num = put_u(num, t % 10u), u = "st";
+    } else if (id == FM_PARAM_OSC1_FINE_CENTS || id == FM_PARAM_OSC2_FINE_CENTS ||
+               id == FM_PARAM_OSC2_COARSE_SEMIS) {
+        if (value)
+            *num++ = value < 0 ? '-' : '+';
+        num = put_u(num, (uint32_t)(value < 0 ? -value : value));
+        u = id == FM_PARAM_OSC2_COARSE_SEMIS ? "st" : "ct";
+    } else if (id == FM_PARAM_OSC1_PULSE_WIDTH_PCT || id == FM_PARAM_OSC2_PULSE_WIDTH_PCT) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
+    } else if (id == FM_PARAM_OSC_SYNC) {       /* 23 X-MOD's sync | ring << 1 (CROSS MOD) */
+        static const char *const XMOD[4] = {"OFF", "SYNC 1", "X-MOD", "SYNC 2"};
+        num = put_str(num, XMOD[value & 3]);
     } else if (id == FM_PARAM_HIGHPASS_STEP) {  /* the JX positions; step 1 is the engine's own */
         static const char *const HPF[5] = {"FLAT", "100", "240", "560", "BOOST"};
         num = put_str(num, HPF[value < 0 ? 0 : value > 4 ? 4 : value]);
@@ -96,7 +125,8 @@ void ui_format(uint16_t id, int32_t value, char *s)
     char unit[UI_VALUE_LEN];
     s = value_parts(id, value, s, unit);
     if (*unit) {
-        *s++ = ' ';
+        if (*unit != '\'')                     /* (feet: 8') */
+            *s++ = ' ';
         *put_str(s, unit) = 0;
     }
 }
@@ -309,13 +339,29 @@ static void ring_step(ui *u, const uint8_t *r)
     }
 }
 
+int32_t ui_slot_value(const ui *u, const ui_slot *sl)
+{
+    int32_t v = play_get_param(u->p, sl->id);
+    return sl->paired ? v | play_get_param(u->p, sl->id2) << 1 : v;
+}
+
+static void set_slot(ui *u, const ui_slot *sl, int32_t v)
+{
+    if (sl->paired) {
+        play_set_param(u->p, sl->id, v & 1);
+        play_set_param(u->p, sl->id2, v >> 1 & 1);
+    } else {
+        play_set_param(u->p, sl->id, v);
+    }
+}
+
 static void turn(ui *u, uint32_t k, int32_t clicks)
 {
     const ui_slot *s = ui_page_slot(u, k);
     if (!s || s->kind != UI_LIVE)
         return;
     if (s->order) {                             /* a choice: each click to the next stop, clamped */
-        int32_t v = play_get_param(u->p, s->id), max = fm_param_info_get(s->id)->max;
+        int32_t v = ui_slot_value(u, s), max = s->paired ? 3 : fm_param_info_get(s->id)->max;
         int32_t way = clicks > 0 ? 1 : -1, i = 0, j;
         while (i < (int32_t)s->n_order - 1 && s->order[i] != v)
             i++;
@@ -324,7 +370,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
                 i = j;
                 clicks -= way;
             }
-        play_set_param(u->p, s->id, s->order[i]);
+        set_slot(u, s, s->order[i]);
     } else {
         play_set_param(u->p, s->id, play_get_param(u->p, s->id) +
                        (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);

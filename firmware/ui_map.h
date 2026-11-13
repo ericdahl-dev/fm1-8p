@@ -15,9 +15,11 @@ typedef struct {
     uint16_t id;                        /* fm_param_id, when live */
     uint8_t kind;                       /* ui_slot_kind */
     int32_t step, fast;                 /* engine units a click moves it; a fast turn's click */
-    const uint8_t *order;               /* a choice: every engine value in panel order (0: steps) */
+    const int8_t *order;                /* a choice: every engine value in panel order (0: steps) */
     uint8_t n_order;
     uint8_t stops;                      /* bit i: order[i] is a knob position (the rest only show) */
+    uint16_t id2;                       /* paired: a second param, the value's bit 1 (id's is bit 0) */
+    uint8_t paired;                     /* 1: one JX switch on two params (CROSS MOD: sync, ring) */
 } ui_slot;
 
 /* interaction.md's page order: 1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B */

@@ -712,6 +712,66 @@ TT_TEST(ui_section_led_follows_the_ring)
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_LIT);
 }
 
+/* DCO values (interaction.md 3, 1x/2x): RANGE in feet, WAVE by name, LFO depth in cents. */
+TT_TEST(ui_dco_values_read_as_the_panel)
+{
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_OCTAVE, 0, "8'"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_OCTAVE, -2, "32'"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_OCTAVE, 2, "2'"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_WAVE, 0, "SAW"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_WAVE, 3, "NOISE"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_CENTS, 450, "450 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_OSC2_CENTS, -1, "D1"));    /* follows DCO-1's depth */
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_OSC2_CENTS, 90, "90 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, 1240, "+12.4 st"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC2_CENTS, -3200, "-32.0 st"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, 0, "0.0 st"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_FINE_CENTS, 5, "+5 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_FINE_CENTS, -100, "-100 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_COARSE_SEMIS, 7, "+7 st"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_PULSE_WIDTH_PCT, 50, "50 %"));
+}
+
+/* SEL steps its ring (interaction.md 4): 1A, 1B, 2A, 2B, then pages not built yet are skipped
+ * (3A, 4A, 4B) and it comes back to 1A. */
+TT_TEST(ui_sel_walks_the_dco_pages)
+{
+    static const uint8_t WANT[5] = {11, 15, 21, 25, 11};
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 5u; i++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
+        ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
+        TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, WANT[i]);
+    }
+}
+
+/* 23 X-MOD is the JX-8P's CROSS MOD on one knob (interaction.md 17a): OFF, SYNC 1, SYNC 2, X-MOD,
+ * setting osc_sync and osc_ring as tools/jx8p.py maps it, and staying at either end. */
+TT_TEST(ui_xmod_steps_the_cross_mod_positions)
+{
+    static const struct { int32_t sync, ring; const char *shown; } WANT[5] = {
+        {0, 0, "OFF"}, {1, 0, "SYNC 1"}, {1, 1, "SYNC 2"}, {0, 1, "X-MOD"}, {0, 1, "X-MOD"},
+    };
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 3u; i++) {                  /* SEL: 1A, 1B, 2A */
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
+        ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
+    }
+    play_set_param(&ui_p, FM_PARAM_OSC_SYNC, 0);
+    play_set_param(&ui_p, FM_PARAM_OSC_RING, 0);
+    for (i = 0; i < 5u; i++) {
+        char s[UI_VALUE_LEN];
+        if (i)
+            ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 5000);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_SYNC), WANT[i].sync);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_RING), WANT[i].ring);
+        ui_format(ui_page_slot(&ui_u, 2)->id, ui_slot_value(&ui_u, ui_page_slot(&ui_u, 2)), s);
+        TT_CHECK(strcmp(s, WANT[i].shown) == 0);
+    }
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -754,6 +814,9 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_xmod_steps_the_cross_mod_positions);
+    TT_RUN(ui_sel_walks_the_dco_pages);
+    TT_RUN(ui_dco_values_read_as_the_panel);
     TT_RUN(ui_section_led_follows_the_ring);
     TT_RUN(ui_sel_opens_dco1);
     TT_RUN(ui_steady_turns_still_reach_the_columns);

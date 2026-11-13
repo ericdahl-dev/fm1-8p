@@ -88,6 +88,8 @@ void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
 /* a choice slot's (order set) meter: value's knob position (a value between positions: the one
  * before it), of *n positions */
 uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
+/* a slot's value: its param's, or a paired slot's two as id | id2 << 1 */
+int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */

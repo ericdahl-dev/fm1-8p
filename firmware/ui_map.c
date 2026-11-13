@@ -26,20 +26,39 @@ const ui_page_info UI_PAGE_INFO[UI_PAGES] = {
 
 /* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3), with
  * the engine's own 100 Hz (1) in its place between, shown but not a knob position */
-static const uint8_t HPF_ORDER[5] = {4, 0, 1, 2, 3};
+static const int8_t HPF_ORDER[5] = {4, 0, 1, 2, 3};
 #define HPF_STOPS 0x1Bu                     /* BOOST, FLAT, 240, 560 */
 
-#define LIVE(n, l, f, id, st, fa) {n, l, f, id, UI_LIVE, st, fa, 0, 0, 0}
-#define PEND(n, l, f) {n, l, f, 0, UI_PENDING, 0, 0, 0, 0, 0}
+/* CROSS MOD (tools/jx8p.py): OFF, SYNC 1 (sync), SYNC 2 (sync and ring), X-MOD (ring), as
+ * sync | ring << 1 */
+static const int8_t XMOD_ORDER[4] = {0, 1, 3, 2};
+/* RANGE, 32' (ours) to 2'; WAVE, SAW, PULSE, SQUARE, NOISE (the engine's order is the panel's) */
+static const int8_t RANGE_ORDER[5] = {-2, -1, 0, 1, 2};
+static const int8_t WAVE_ORDER[4] = {0, 1, 2, 3};
+#define CHOICE(n, l, f, id, o) {n, l, f, id, UI_LIVE, 1, 1, o, sizeof o, (1u << sizeof o) - 1u, 0, 0}
+
+#define LIVE(n, l, f, id, st, fa) {n, l, f, id, UI_LIVE, st, fa, 0, 0, 0, 0, 0}
+#define PEND(n, l, f) {n, l, f, 0, UI_PENDING, 0, 0, 0, 0, 0, 0, 0}
 #define PAGE(p) [4 * (p)] =
 
 /* interaction.md 3, page by page (a page left out is empty, and the rings skip it) */
 const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
-    PAGE(0) LIVE(11, "RANGE", "RANGE", FM_PARAM_OSC1_OCTAVE, 1, 1),
-    LIVE(12, "WAVE", "WAVEFORM", FM_PARAM_OSC1_WAVE, 1, 1),
+    PAGE(0) CHOICE(11, "RANGE", "RANGE", FM_PARAM_OSC1_OCTAVE, RANGE_ORDER),
+    CHOICE(12, "WAVE", "WAVEFORM", FM_PARAM_OSC1_WAVE, WAVE_ORDER),
     PEND(13, "TUNE", "TUNE"),                                      /* #158 */
     LIVE(14, "LFO", "LFO DEPTH", FM_PARAM_LFO_PITCH_CENTS, 1, 10),
-    PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS},
+    PAGE(1) LIVE(15, "ENV", "ENV DEPTH", FM_PARAM_PITCH_ENV_OSC1_CENTS, 10, 100),
+    LIVE(16, "FINE", "FINE TUNE", FM_PARAM_OSC1_FINE_CENTS, 1, 10),
+    LIVE(17, "WIDTH", "PULSE WIDTH", FM_PARAM_OSC1_PULSE_WIDTH_PCT, 1, 5),
+    PAGE(2) CHOICE(21, "RANGE", "RANGE", FM_PARAM_OSC2_OCTAVE, RANGE_ORDER),
+    CHOICE(22, "WAVE", "WAVEFORM", FM_PARAM_OSC2_WAVE, WAVE_ORDER),
+    {23, "X-MOD", "CROSS MOD", FM_PARAM_OSC_SYNC, UI_LIVE, 1, 1, XMOD_ORDER, 4, 0x0Fu, FM_PARAM_OSC_RING, 1},
+    LIVE(24, "TUNE", "TUNE", FM_PARAM_OSC2_COARSE_SEMIS, 1, 1),
+    PAGE(3) LIVE(25, "FINE", "FINE TUNE", FM_PARAM_OSC2_FINE_CENTS, 1, 10),
+    LIVE(26, "LFO", "LFO DEPTH", FM_PARAM_LFO_PITCH_OSC2_CENTS, 1, 10),
+    LIVE(27, "ENV", "ENV DEPTH", FM_PARAM_PITCH_ENV_OSC2_CENTS, 10, 100),
+    LIVE(28, "WIDTH", "PULSE WIDTH", FM_PARAM_OSC2_PULSE_WIDTH_PCT, 1, 5),
+    PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS, 0, 0},
     LIVE(52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, 100, 400),
     LIVE(53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, 10, 50),
     PEND(54, "LFO", "LFO DEPTH"),                                  /* #172 */
