@@ -145,14 +145,16 @@ static int held_peak(int32_t wave, int32_t width)
     return peak_abs(buf, 4410, 4410 + 8820);
 }
 
-/* Switching saw to pulse or square never jumps in level: same peak. */
+/* Switching saw to pulse never jumps in level: same peak at every width.
+ * The square peaks at osc1's square level against its saw, PG-8X's
+ * (+0.76 dB, 1.091x: #132). */
 TT_TEST(pulse_peaks_at_the_saw_level_at_every_width)
 {
     static const int32_t widths[] = { 1, 10, 25, 50, 75, 90, 99 };
     double saw = held_peak(FM_WAVE_SAW, 50);
     size_t k;
     TT_CHECK(saw > 1000);
-    TT_CHECK_NEAR(held_peak(FM_WAVE_SQUARE, 50) / saw, 1.0, 0.03);
+    TT_CHECK_NEAR(held_peak(FM_WAVE_SQUARE, 50) / saw, 1.091, 0.03);
     for (k = 0; k < sizeof widths / sizeof widths[0]; k++)
         TT_CHECK_NEAR(held_peak(FM_WAVE_PULSE, widths[k]) / saw, 1.0, 0.03);
 }
@@ -782,7 +784,10 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
 #define MIX_FRAMES 8820
     static int16_t a[2 * MIX_FRAMES], b[2 * MIX_FRAMES], m[2 * MIX_FRAMES];
     static int16_t other[2 * MIX_FRAMES];
-    const osc_setting sq = { FM_WAVE_SQUARE, 50, 0, 0 };
+    /* a 50 % pulse, the square's shape at the saw's level: the square plays
+     * 0.76 dB over it (#132), into the output's soft clip, which would bend
+     * the average below */
+    const osc_setting sq = { FM_WAVE_PULSE, 50, 0, 0 };
     const osc_setting saw_up = { FM_WAVE_SAW, 50, 1, 0 };
     const osc_setting pulse_detuned = { FM_WAVE_PULSE, 30, -1, 37 };
     const osc_setting pulse_up_detuned = { FM_WAVE_PULSE, 30, 1, 37 };
@@ -1399,6 +1404,50 @@ static int render_vs_next(int special, uint32_t seed, int pairs)
     return bad;
 }
 
+/* RMS (dB) of oscillator `which` alone at full requested level, wave `w`,
+ * C3, 2 s at RATE (noise from a fixed seed). */
+static double wave_rms_db(uint8_t which, uint8_t w)
+{
+    static fm_osc_pair p;
+    static int32_t out[FM_MIX_FRAMES];
+    double sum = 0;
+    uint32_t n = 0, i;
+    fm_osc_pair_reset(&p, 12345);
+    fm_osc_pair_set_wave(&p, which, w);
+    fm_osc_pair_set_pitch(&p, 48 << 16, RATE);
+    fm_osc_pair_set_level(&p, 0, which ? 0 : FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_level(&p, 1, which ? FM_OSC_LEVEL_FULL : 0);
+    while (n < 2 * RATE) {
+        fm_osc_pair_render(&p, out, FM_MIX_FRAMES);
+        for (i = 0; i < FM_MIX_FRAMES; i++) sum += (double)out[i] * out[i];
+        n += FM_MIX_FRAMES;
+    }
+    return 10.0 * log10(sum / n);
+}
+
+/*
+ * Each wave's level against the same oscillator's saw, as PG-8X 2.0.13
+ * plays them (2026-11-12, each DCO alone, steady C2..C6, #132): square
+ * +5.6 dB on DCO-1 and +2.5 on DCO-2. Noise is -6.0 and -9.0 through VCF
+ * FREQ 127, whose top (13900 cents here, PG-8X's the same shape) takes
+ * 4.8 dB of white noise on both synths: at the oscillator, -1.3 and -4.2.
+ * The saw and the pulse keep their levels.
+ */
+TT_TEST(each_wave_is_as_loud_as_pg8x_against_its_saw)
+{
+    static const double want[2][2] = { { 5.62, -1.30 }, { 2.48, -4.22 } }; /* square, noise */
+    uint8_t which;
+    for (which = 0; which < 2; which++) {
+        double saw = wave_rms_db(which, FM_WAVE_SAW);
+        double sq = wave_rms_db(which, FM_WAVE_SQUARE) - saw;
+        double noise = wave_rms_db(which, FM_WAVE_NOISE) - saw;
+        printf("    osc%d re its saw: square %+.2f dB (PG-8X %+.2f), noise %+.2f (%+.2f)\n",
+               which + 1, sq, want[which][0], noise, want[which][1]);
+        TT_CHECK_NEAR(sq, want[which][0], 0.2);
+        TT_CHECK_NEAR(noise, want[which][1], 0.3);
+    }
+}
+
 /*
  * fm_osc_pair_render (a chunk at once, the path chosen once) is
  * fm_osc_pair_next called once per sample: the same samples and the same
@@ -1775,7 +1824,9 @@ static void ring_pair(fm_osc_pair *p, uint8_t w1, uint8_t w2, uint8_t alone, uin
     fm_osc_pair_set_ring(p, ring);
 }
 
-/* Largest error (in units of 1.0) of the ring against x2 (a + b m1) + c m1, held to +-2.0, over n samples. */
+/* Largest error (in units of 1.0) of the ring against x2 (a + b m1) + c m1, held to +-2.0, over n samples.
+ * m1 is osc1's wave at peak 1, as the fit read it: its rendered sample less its wave's level (#132);
+ * x2 is osc2's sample, its wave's level included. */
 static double ring_law_error(uint8_t w1, uint8_t w2, double a, double b, double c, uint32_t n)
 {
     static fm_osc_pair x1, x2, y;
@@ -1785,7 +1836,8 @@ static double ring_law_error(uint8_t w1, uint8_t w2, double a, double b, double 
     ring_pair(&x2, w1, w2, 1, 0);
     ring_pair(&y, w1, w2, 1, 1);
     for (i = 0; i < n; i++) {
-        double m1 = fm_osc_pair_next(&x1) / RING_ONE, s2 = fm_osc_pair_next(&x2) / RING_ONE;
+        double m1 = fm_osc_pair_next(&x1) / RING_ONE * (double)FM_OSC_LEVEL_FULL / x1.level[0];
+        double s2 = fm_osc_pair_next(&x2) / RING_ONE;
         double want = s2 * (a + b * m1) + c * m1, got = fm_osc_pair_next(&y) / RING_ONE;
         want = want > 2.0 ? 2.0 : want < -2.0 ? -2.0 : want; /* ring_stays_within_two */
         if (fabs(got - want) > worst) worst = fabs(got - want);
@@ -1861,7 +1913,7 @@ static double synced_ring_law_error(uint8_t w1, uint8_t w2, double a, double b, 
     ring_pair(&x2, w1, w2, 1, 0);
     ring_pair(&y, w1, w2, 1, 1);
     for (i = 0; i < SYNC_LAW_N; i++) {
-        m1[i] = fm_osc_pair_next(&x1) / RING_ONE;
+        m1[i] = fm_osc_pair_next(&x1) / RING_ONE * (double)FM_OSC_LEVEL_FULL / x1.level[0];
         s2[i] = fm_osc_pair_next(&x2) / RING_ONE;
         got[i] = fm_osc_pair_next(&y) / RING_ONE;
         if (i < first) first_mean += s2[i] / cycle;
@@ -2079,6 +2131,7 @@ static void run_osc_tests(void)
     TT_RUN(xmod_zero_matches_no_xmod);
     TT_RUN(xmod_adds_sidebands);
     TT_RUN(max_xmod_and_sync_stay_in_range);
+    TT_RUN(each_wave_is_as_loud_as_pg8x_against_its_saw);
     TT_RUN(pair_render_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_sync_matches_next_sample_by_sample);
     TT_RUN(pair_render_with_xmod_matches_next_sample_by_sample);

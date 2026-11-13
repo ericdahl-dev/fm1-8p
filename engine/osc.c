@@ -120,6 +120,8 @@ static FM_NOINLINE int32_t pulse_at(uint32_t t, uint32_t dt0, uint32_t dt, uint3
     return saw_at(t, dt0) - saw_at(t + width, dt);
 }
 
+static void ring_coef(fm_osc_pair *p);
+
 void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
 {
     uint8_t i;
@@ -134,8 +136,8 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     }
     p->mod_oct[0] = p->mod_oct[1] = 0;
     p->pw_mod = 0;
-    p->level[0] = FM_OSC_LEVEL_FULL;
-    p->level[1] = 0;
+    p->level[0] = p->req[0] = FM_OSC_LEVEL_FULL;
+    p->level[1] = p->req[1] = 0;
     p->sync = 0;
     p->sync_after = 0;
     p->sync_pend = 0;
@@ -149,6 +151,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->recip0 = 0;
     p->recip0_sh = 0;
     p->noise = seed ? seed : 0x2545F491u;
+    ring_coef(p);
 }
 
 /* osc1 at full alone with nothing special: fm_osc_pair_next's fast path */
@@ -158,15 +161,36 @@ static void update_only1(fm_osc_pair *p)
                          !p->special);
 }
 
+/*
+ * Each wave's level against the same oscillator's saw, Q1.30, as PG-8X
+ * 2.0.13 plays them (#132: each DCO alone, steady C2..C6): square +0.76 dB
+ * on DCO-1 and -2.38 on DCO-2 over the engine's (+4.8 dB re the saw before),
+ * noise -1.34 and -4.26. Saw and pulse 1.0: unchanged.
+ */
+static const int32_t wave_level[2][FM_WAVE_COUNT] = {
+    { 1 << 30, 1 << 30, 1171925138, 920237379 }, /* osc1: saw, pulse, square, noise */
+    { 1 << 30, 1 << 30, 816394123, 657506227 },  /* osc2 */
+};
+
+/* The level played: as set, times the wave's level (exactly as set at 1.0). */
+static void apply_level(fm_osc_pair *p, uint8_t which)
+{
+    int32_t g = wave_level[which][p->wave[which]];
+    p->level[which] = g == 1 << 30 ? p->req[which]
+                                   : (int32_t)(((int64_t)p->req[which] * g) >> 30);
+    /* the ring is silent with osc2 unheard: osc1 alone stays the fast path */
+    p->special = (uint8_t)(p->sync || p->xmod || (p->ring && p->level[1]));
+    update_only1(p);
+    ring_coef(p);
+}
+
 void fm_osc_pair_set_level(fm_osc_pair *p, uint8_t which, int32_t level)
 {
     if (which > 1) return;
     if (level < 0) level = 0;
     if (level > FM_OSC_LEVEL_FULL) level = FM_OSC_LEVEL_FULL;
-    p->level[which] = level;
-    /* the ring is silent with osc2 unheard: osc1 alone stays the fast path */
-    p->special = (uint8_t)(p->sync || p->xmod || (p->ring && p->level[1]));
-    update_only1(p);
+    p->req[which] = level;
+    apply_level(p, which);
 }
 
 /*
@@ -375,6 +399,7 @@ void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave)
 {
     if (which >= 2 || wave >= FM_WAVE_COUNT) return;
     p->wave[which] = wave;
+    apply_level(p, which);
     if (wave == FM_WAVE_PULSE) update_pw(p, which); /* any LFO offset */
 }
 
@@ -575,11 +600,22 @@ static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0 };
  * the pair stays inside the soft clip's untouched +-2.0, which the
  * open-filter render passes straight through.
  */
+/* The ring's a and b for osc1's wave, times osc2's wave level: osc2's
+ * sample at its level against the saw, before the ring; the c term (osc1
+ * bleeding through) is osc1's alone. Exactly the table's at 1.0. */
+static void ring_coef(fm_osc_pair *p)
+{
+    uint8_t w = p->wave[0];
+    int32_t g = wave_level[1][p->wave[1]];
+    p->ring_ab[0] = g == 1 << 30 ? ring_a[w] : (int32_t)(((int64_t)ring_a[w] * g) >> 30);
+    p->ring_ab[1] = g == 1 << 30 ? ring_b[w] : (int32_t)(((int64_t)ring_b[w] * g) >> 30);
+}
+
 #define RING_MAX (2 << 24)
 static int32_t ring(const fm_osc_pair *p, int32_t x, int32_t m)
 {
     uint8_t w = p->wave[0];
-    int32_t g = ring_a[w] + (int32_t)(((int64_t)ring_b[w] * m) >> 24);
+    int32_t g = p->ring_ab[0] + (int32_t)(((int64_t)p->ring_ab[1] * m) >> 24);
     int32_t v = (int32_t)(((int64_t)x * g + (int64_t)ring_c[w] * m) >> 24);
     return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
 }
@@ -648,7 +684,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     b += advance(p);
     p->osc[1].inc = inc;
     if (p->ring) { /* osc1 plus the ringed osc2 could reach 3.0: the pair stays in +-2.0 */
-        int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->level[1]);
+        int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->req[1]);
         b = v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
     } else {
         b = gain(a, p->level[0]) + gain(b, p->level[1]);
@@ -876,7 +912,7 @@ static void sync_run(fm_osc_pair *p, int32_t *out, uint32_t n)
  */
 static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b)
 {
-    int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->level[1]);
+    int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->req[1]);
     return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
 }
 
