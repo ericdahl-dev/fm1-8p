@@ -2,7 +2,8 @@
 # Tests for tools/gate.sh, the no-sound gate (#140): renders two trees and compares every clip.
 # usage: sh tests/test_gate.sh       (run from the repo root; renders, so it takes minutes: make check-gate)
 set -u
-T=$(mktemp -d)
+# On disk under build/, not /tmp (a small tmpfs on some machines): every tree is a full source copy.
+mkdir -p build && T=$(mktemp -d "$PWD/build/test-gate.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 run=0 failed=0
 ok()   { run=$((run + 1)); echo "ok     $1"; }
@@ -31,8 +32,14 @@ if not m: sys.exit(1)
 open(path, "w").write(s[:m.end()] + "    " + stmt + "\n" + s[m.end():])
 PY
 }
-# caught NAME FILE FUNC STATEMENT: the gate fails on that mutant
-caught() { mutant "$1" "$2" "$3" "$4" && ! GATE_COVERAGE=0 sh tools/gate.sh "$T/base" "$T/$1"; }
+# caught NAME FILE FUNC STATEMENT: the gate finds a clip that differs on that mutant
+caught() {
+    mutant "$1" "$2" "$3" "$4" || return 1
+    GATE_COVERAGE=0 sh tools/gate.sh "$T/base" "$T/$1"
+    [ $? -eq 1 ] && r=0 || r=1          # 1: a clip differs (2 would be the gate failing to run)
+    rm -rf "${T:?}/$1"
+    return $r
+}
 
 tree base
 tree same
@@ -60,6 +67,7 @@ expect_ok "a change in the cross-mod depth (FM) fails the gate" caught xmod osc.
 expect_ok "a change in the LFO fails the gate" caught lfo lfo.c fm_lfo_tick 'l->phase += 1u << 28;'
 expect_ok "a change in a note's level (velocity) fails the gate" caught level voice.c set_level 'peak -= peak >> 4;'
 expect_ok "a change in pitch bend fails the gate" caught bend engine.c fm_engine_pitch_bend 'value ^= 64;'
+expect_ok "a change in the controllers (sustain pedal, mod wheel) fails the gate" caught cc engine.c fm_engine_controller 'if (controller == 64 || controller == 1) value = (uint8_t)(127 - value);'
 
 echo
 echo "$run tests, $failed failed"

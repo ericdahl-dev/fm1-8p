@@ -35,6 +35,14 @@ def xmod():
     yield "noise-noise", "vel.mid", s(osc1_wave=3, osc2_wave=3, osc2_level_permille=500)
 
 
+def controllers():
+    """Sustain pedal, mod wheel, pitch bend, all notes off and all sound off, with vibrato and a
+    filter envelope so each one shows."""
+    yield "controllers", "controllers.mid", s(lfo_rate_centihz=550, lfo_pitch_cents=30, amp_release_ms=400,
+                                              filter_cutoff_cents=6000, filter_env_amount_cents=3600,
+                                              filter_env_decay_ms=500, chorus_mode=1)
+
+
 def hpf_steps():
     """The highpass at each step on a bass line (step 0, off, is in every other clip)."""
     for step in (1, 2, 3):
@@ -105,6 +113,7 @@ def cases(tree):
     yield "demo", "demo.mid", []
     yield from pair_matrix()
     yield from xmod()
+    yield from controllers()
     yield from hpf_steps()
     yield from filter_env()
     yield from unison()
