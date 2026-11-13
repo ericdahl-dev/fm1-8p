@@ -5,8 +5,8 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 5.8 KiB (6200 bytes on
- * 32-bit targets such as the FM-1 and Cortex-M, 6552 on 64-bit desktops,
+ * sets up everything inside it. fm_engine is about 6.1 KiB (6204 bytes on
+ * 32-bit targets such as the FM-1 and Cortex-M, 6560 on 64-bit desktops,
  * where the envelopes' settings pointers take 8 bytes), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
  * storage is recommended; a task stack must have room for it on top of
@@ -104,6 +104,7 @@ typedef enum {
                         * the DYNAMICS share at the velocity (engine/dyna.c) */
     FM_PARAM_OSC_MIX_ENV_DYNA, /* MIX DYNAMICS 0 (off) .. 3: osc_mix_env's depth
                                 * times the DYNAMICS share at the velocity */
+    FM_PARAM_AMP_LEVEL, /* per mille: the whole note's level (VCA LEVEL), read at note on */
     FM_PARAM_AMP_GATE, /* VCA MODE GATE (#63): 1, the amp envelope is a gate
                         * (on with the key, a fixed short ramp), and the
                         * amp_* settings run envelope 2 for the cutoff,
@@ -162,9 +163,8 @@ typedef struct {
  * Each note takes a voice; with more notes than voices the engine steals
  * one (the rule is in docs/voices.md). In unison mode (FM_PARAM_VOICE_MODE)
  * every voice plays the newest note instead, detuned. Each voice is mixed at
- * 1 / voice_count, then -6 dB, so a full chord never clips without filter
- * resonance; high resonance can reach full scale, where the output
- * saturates.
+ * 1 / voice_count, then -2.85 dB (PG-8X 2.0.13's level, #102); past the
+ * knee at -2.85 dBFS a soft clip bends the output short of full scale.
  */
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count);

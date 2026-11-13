@@ -130,6 +130,7 @@ FIELDS = [
     Field("OSC2_COARSE_SEMIS", "OSC2_COARSE_SEMIS", None, None, None),
     Field("OSC2_FINE_CENTS", "OSC2_FINE_CENTS", None, None, None),
     Field("OSC1_LEVEL_PERMILLE", "OSC1_LEVEL", None, None, None),
+    Field("AMP_LEVEL_PERMILLE", "AMP_LEVEL", None, None, None),
     Field("OSC2_LEVEL_PERMILLE", "OSC2_LEVEL", None, None, None),
     Field("OSC_SYNC", "OSC_SYNC", None, None, None),
     Field("XMOD_AM", "OSC_RING", None, None, None),
@@ -166,7 +167,6 @@ FIELDS = [
     Field("FILTER_ENV_DYNA", "FILTER_ENV_DYNA", None, None, None),
     Field("AMP_KEY_FOLLOW_PERMILLE", "AMP_KEY_FOLLOW", None, None, None),
     Field("FILTER_ENV_KEY_FOLLOW_PERMILLE", "FILTER_ENV_KEY_FOLLOW", None, None, None),
-    Field("AMP_LEVEL_PERMILLE", None, 0, 1000, "a VCA level (no issue yet)"),
 ]
 _RANGES = engine_ranges()
 FIELDS = [f._replace(lo=_RANGES[f.param][0], hi=_RANGES[f.param][1]) if f.param else f for f in FIELDS]
@@ -238,6 +238,13 @@ def switch(v):
 def rnd(x):
     """Round half away from zero, to an int (the same on every Python)."""
     return int(math.copysign(math.floor(abs(x) + 0.5), x))
+
+
+def amp_level_permille(v):
+    """VCA LEVEL, 0..127, as the engine's amp level per mille: 0.30 dB a step below 127, linear in
+    dB down to 0 (-38.1 dB, not silent), as PG-8X 2.0.13 plays it (measured within 0.1 dB at
+    127/112/96/88/64/32/16/8/4/1/0)."""
+    return rnd(1000 * 10 ** (0.30 * (v - 127) / 20))
 
 
 def permille(v):
@@ -444,7 +451,7 @@ def to_engine(tone):
     # waiting for LFO to cutoff and filter velocity (#8), a VCA level
     e["FILTER_LFO_PERMILLE"] = permille(p[VCF_LFO])
     e["FILTER_ENV_DYNA"] = switch(p[VCF_DYNA])    # the engine's DYNAMICS curve (engine/dyna.c)
-    e["AMP_LEVEL_PERMILLE"] = permille(p[VCA_LEVEL])
+    e["AMP_LEVEL_PERMILLE"] = amp_level_permille(p[VCA_LEVEL])
     return e
 
 

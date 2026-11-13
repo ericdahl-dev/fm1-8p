@@ -191,7 +191,7 @@ TT_TEST(extreme_settings_stay_bounded_and_release)
             fm_engine_set_param(&eng, FM_PARAM_AMP_RELEASE_MS, 0);
             fm_engine_note_on(&eng, notes[n], 127);
             fm_engine_render(&eng, buf, 2000);
-            TT_CHECK(peak_abs(buf, 0, 2000) <= 16384 + 64);
+            TT_CHECK(peak_abs(buf, 0, 2000) <= KNEE_LSB + 64);
             fm_engine_note_off(&eng, notes[n]);
             fm_engine_render(&eng, buf, 2000);
             for (i = 2; i < 2 * 2000; i++)
@@ -292,6 +292,25 @@ TT_TEST(mix_env_dyna_scales_the_mix_envelope_by_the_dynamics_curve)
     printf("    mix env dyna 3, v40: osc2 at %.4f of full (want %.4f)\n",
            (double)got / FM_OSC_LEVEL_FULL, (double)want / FM_OSC_LEVEL_FULL);
     TT_CHECK(got > want - FM_OSC_LEVEL_FULL / 1000 && got < want + FM_OSC_LEVEL_FULL / 1000);
+}
+
+/*
+ * A held saw plays at PG-8X 2.0.13's level: -23.3 dBFS for one C4 voice
+ * with 6 voices set up (2026-11-13, the init tone through an open VCA,
+ * steady 0.3-1.3 s; the same 3.2 dB gap on every path, #102).
+ */
+TT_TEST(a_saw_voice_plays_at_pg8x_level)
+{
+    double sum = 0, db;
+    uint32_t i, from = RATE * 3 / 10, to = RATE * 13 / 10;
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 6), FM_OK);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000); /* the VCA open, as the probe's */
+    fm_engine_note_on(&eng, 60, 100);
+    fm_engine_render(&eng, buf, to);
+    for (i = from; i < to; i++) sum += (double)buf[2 * i] * buf[2 * i];
+    db = 10.0 * log10(sum / (to - from) / (32768.0 * 32768.0));
+    printf("    one saw voice of 6, C4: %.2f dBFS (PG-8X -23.34)\n", db);
+    TT_CHECK_NEAR(db, -23.34, 0.15);
 }
 
 /* Release is exponential, as PG-8X's: the release time is its time constant
@@ -447,7 +466,7 @@ TT_TEST(raising_sustain_mid_decay_does_not_overflow)
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
     fm_engine_render(&eng, buf, 4410);
     TT_CHECK(peak_abs(buf, 2000, 4410) > 7500); /* -12 dB mix gain */
-    TT_CHECK(peak_abs(buf, 0, 4410) <= 16384 + 64);
+    TT_CHECK(peak_abs(buf, 0, 4410) <= KNEE_LSB + 64);
 }
 
 TT_TEST(shortening_release_mid_release_takes_effect)
@@ -506,22 +525,22 @@ static int saws_peak(int32_t osc1, int32_t osc2)
 }
 
 /*
- * Output makeup (#24): the mix gain leaves 12 dB of headroom inside the
- * engine; +6 dB at the output brings it back. Below the soft clip's knee
- * (-6 dBFS) it is a pure gain: this saw peaked at 5558 with the trim
- * alone (1995429), so twice that, within the 1 LSB of rounding.
+ * Output makeup (#24): +6 dB at the output. Below the soft clip's knee
+ * (-2.85 dBFS) it is a pure gain: this saw peaked at 5558 with the trim
+ * alone (1995429) and the old mix gain, so twice that, times the mix
+ * gain's 3.17 dB (#102), within the 1 LSB of rounding.
  */
 TT_TEST(output_makeup_is_6_db_below_the_knee)
 {
     int p = saws_peak(800, 0);
     printf("    one saw at level 800: peak %d (%.3f of full scale)\n", p, p / 32768.0);
-    TT_CHECK(abs(p - 2 * 5558) <= 1);
+    TT_CHECK(abs(p - 16012) <= 1);
 }
 
 /*
  * Through the knee and above it, more in is more out, and never full
  * scale: osc 1 full, osc 2 from 0 to full in steps of 100 takes one voice
- * from below the knee (0.42 of full scale) to past it (0.85 in).
+ * from below the knee (0.60 of full scale) to past it (1.22 in).
  */
 TT_TEST(output_soft_clip_is_monotonic_and_short_of_full_scale)
 {
@@ -640,6 +659,7 @@ static void run_engine_tests(void)
     TT_RUN(amp_attack_runs_to_25_seconds);
     TT_RUN(amp_dyna_sets_the_level_by_the_dynamics_curve);
     TT_RUN(mix_env_dyna_scales_the_mix_envelope_by_the_dynamics_curve);
+    TT_RUN(a_saw_voice_plays_at_pg8x_level);
     TT_RUN(amp_release_falls_exponentially_with_its_time_constant);
     TT_RUN(amp_release_follows_the_key);
     TT_RUN(amp_decay_follows_the_key_below_c2);

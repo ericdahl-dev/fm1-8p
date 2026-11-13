@@ -33,7 +33,7 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
  * and this number. The FM-1 build fails past it; 64-bit desktops only
  * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 6200u
+#define FM_ENGINE_BUDGET_32 6204u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -322,6 +322,7 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
     case FM_PARAM_AMP_DYNA:
+    case FM_PARAM_AMP_LEVEL:
         return;
     case FM_PARAM_AMP_GATE: /* every voice, as fm_voice_reset gave them all */
         for (i = 0; i < FM_MAX_VOICES; i++)
@@ -426,10 +427,12 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         return FM_ERR_ARG;
     e->sample_rate = sample_rate;
     e->voice_count = voice_count;
-    /* each voice at 1 / voice_count, then -12 dB of headroom: both
-     * oscillators at full peak at 2.0, and the chorus adds up to +5.9 dB
-     * to a chord in phase (#24, the_worst_case_chord_stays_below_full_scale) */
-    e->mix_gain = (int32_t)((1u << 28) / voice_count);
+    /* each voice at 1 / voice_count, then -8.83 dB: the -12 dB of
+     * headroom (#24: both oscillators at full peak at 2.0, and the chorus
+     * adds up to +5.9 dB to a chord in phase) less PG-8X 2.0.13's 3.17 dB
+     * over it, the same on every path (#102: one DCO or two, any notes,
+     * the filter, the highpass, the VCA modes) */
+    e->mix_gain = (int32_t)(386669466u / voice_count);
     e->stamp = 0;
     e->pedal_down = 0;
     e->bend = 0;
@@ -547,19 +550,24 @@ static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
 
 /*
  * Amp envelope peak (Q1.30) for a MIDI velocity 1..127: full level less
- * amp_velocity percent of the way down the curve (velocity / 127)^2.
- * Velocity 127 is always full. Two constant divides, per note on.
- * With amp_dyna (the JX-8P's VCA DYNAMICS) the peak is instead the
- * DYNAMICS share at the velocity, as PG-8X 2.0.13 plays it (#8's curve).
+ * amp_velocity percent of the way down the curve (velocity / 127)^2, or,
+ * with amp_dyna (the JX-8P's VCA DYNAMICS), the DYNAMICS share at the
+ * velocity as PG-8X 2.0.13 plays it (#8's curve); either times amp_level
+ * per mille (the VCA LEVEL). Velocity 127 at level 1000 is always full.
+ * Three constant divides, per note on.
  */
 static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
 {
     int32_t sens = e->params[FM_PARAM_AMP_VELOCITY];
-    if (e->params[FM_PARAM_AMP_DYNA])
-        return (int32_t)(((int64_t)FM_ENV_FULL *
-                          fm_dyna_share_q15(e->params[FM_PARAM_AMP_DYNA], velocity)) >> 15);
-    int64_t curve = (int64_t)velocity * velocity * FM_ENV_FULL / (127 * 127);
-    return FM_ENV_FULL - (int32_t)((FM_ENV_FULL - curve) * sens / 100);
+    int64_t peak;
+    if (e->params[FM_PARAM_AMP_DYNA]) {
+        peak = ((int64_t)FM_ENV_FULL *
+                fm_dyna_share_q15(e->params[FM_PARAM_AMP_DYNA], velocity)) >> 15;
+    } else {
+        int64_t curve = (int64_t)velocity * velocity * FM_ENV_FULL / (127 * 127);
+        peak = FM_ENV_FULL - (FM_ENV_FULL - curve) * sens / 100;
+    }
+    return (int32_t)(peak * e->params[FM_PARAM_AMP_LEVEL] / 1000);
 }
 
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune
@@ -751,40 +759,41 @@ uint8_t fm_engine_active_voices(const fm_engine *e)
 
 /*
  * Q8.24 to int16 with +6 dB of output makeup (#24), then a soft clip.
- * The mix keeps 12 dB of headroom inside the engine (both oscillators and
- * the chorus); the makeup gives 6 of it back. Up to the knee at -6 dBFS
- * it is a pure gain. Above it, d past the knee becomes
- * knee + h d / (h + d), h = full scale - knee: slope 1 at the knee,
- * monotonic, and short of full scale. That curve is read from a table
- * (tools/gen_softclip_table.py), linearly interpolated, so the render path
- * has no divide; past d = 2.0 it holds at 0.9 of full scale. The worst
- * case short of self-oscillation (d about 1.0) never reaches the rails.
+ * The mix plays 3.17 dB over the old -12 dB of headroom, at PG-8X 2.0.13's
+ * level (#102); the makeup gives 6 dB back. Up to the knee at -2.85 dBFS
+ * it is a pure gain: the knee sat at -6 dBFS and moved up by the same
+ * 3.17 dB, since PG-8X stays linear to -0.5 dBFS (a six-note two-DCO
+ * chord), so what was linear here stays linear. Above it, d past the knee
+ * becomes knee + h d / (h + d), h = full scale - knee: slope 1 at the
+ * knee, monotonic, and short of full scale. That curve is read from a
+ * table (tools/gen_softclip_table.py), linearly interpolated, so the render
+ * path has no divide; past d = 2.0 it holds at 0.966 of full scale.
  */
-#define OUT_KNEE (1 << 23) /* 0.5 of full scale, after the makeup, in Q8.24 */
+#define OUT_KNEE 12083420 /* 0.7202 of full scale (-2.85 dBFS), after the makeup, in Q8.24 */
 #define OUT_CLIP_SHIFT 18  /* table step: 2^18 in Q8.24 */
 static const int32_t out_clip[129] = {
-    0, 254200, 493448, 719024, 932068, 1133596,
-    1324517, 1505648, 1677722, 1841402, 1997288, 2145923,
-    2287802, 2423376, 2553055, 2677215, 2796203, 2910333,
-    3019899, 3125168, 3226388, 3323788, 3417581, 3507963,
-    3595118, 3679214, 3760410, 3838855, 3914684, 3988027,
-    4059004, 4127728, 4194304, 4258832, 4321404, 4382109,
-    4441028, 4498239, 4553816, 4607827, 4660338, 4711410,
-    4761102, 4809469, 4856563, 4902433, 4947128, 4990691,
-    5033165, 5074590, 5115005, 5154446, 5192948, 5230544,
-    5267265, 5303143, 5338205, 5372479, 5405992, 5438768,
-    5470831, 5502205, 5532912, 5562972, 5592405, 5621232,
-    5649471, 5677139, 5704253, 5730831, 5756888, 5782439,
-    5807498, 5832080, 5856198, 5879865, 5903095, 5925897,
-    5948286, 5970271, 5991863, 6013073, 6033911, 6054387,
-    6074509, 6094288, 6113731, 6132848, 6151646, 6170133,
-    6188317, 6206206, 6223806, 6241124, 6258168, 6274943,
-    6291456, 6307713, 6323720, 6339482, 6355006, 6370296,
-    6385358, 6400197, 6414818, 6429225, 6443424, 6457418,
-    6471212, 6484810, 6498217, 6511437, 6524473, 6537329,
-    6550009, 6562516, 6574855, 6587028, 6599038, 6610890,
-    6622585, 6634128, 6645521, 6656766, 6667868, 6678828,
-    6689649, 6700335, 6710886,
+    0, 248278, 471610, 673576, 857103, 1024604,
+    1178092, 1319254, 1449518, 1570099, 1682038, 1786232,
+    1883457, 1974390, 2059624, 2139677, 2215007, 2286022,
+    2353081, 2416505, 2476584, 2533573, 2587707, 2639194,
+    2688223, 2734967, 2779582, 2822210, 2862980, 2902012,
+    2939415, 2975288, 3009723, 3042806, 3074613, 3105218,
+    3134688, 3163084, 3190465, 3216883, 3242389, 3267028,
+    3290845, 3313880, 3336171, 3357753, 3378659, 3398922,
+    3418569, 3437629, 3456128, 3474090, 3491538, 3508494,
+    3524978, 3541010, 3556608, 3571790, 3586571, 3600969,
+    3614996, 3628668, 3641998, 3654998, 3667681, 3680058,
+    3692140, 3703937, 3715460, 3726718, 3737719, 3748473,
+    3758987, 3769271, 3779330, 3789173, 3798807, 3808237,
+    3817471, 3826514, 3835372, 3844051, 3852557, 3860894,
+    3869067, 3877081, 3884942, 3892652, 3900217, 3907640,
+    3914925, 3922077, 3929099, 3935994, 3942766, 3949418,
+    3955953, 3962374, 3968685, 3974887, 3980984, 3986979,
+    3992874, 3998671, 4004373, 4009983, 4015502, 4020932,
+    4026276, 4031536, 4036714, 4041811, 4046830, 4051773,
+    4056640, 4061434, 4066156, 4070809, 4075393, 4079910,
+    4084361, 4088749, 4093073, 4097337, 4101540, 4105684,
+    4109771, 4113801, 4117777,
 };
 
 static int16_t to_int16(int32_t q24)
