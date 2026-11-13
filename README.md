@@ -50,6 +50,46 @@ with `-v 1` or in unison (`-s voice_mode=1`, where one note takes every
 voice). After each render
 the tool prints the voice count, channel and that level.
 
+### The no-sound gate
+
+A change that should not change the sound, such as a speed-up, a refactor or a smaller binary, must
+pass the gate:
+
+```sh
+make gate BASE=origin/main              # HEAD is the commit checked out
+make gate BASE=a254bee HEAD=my-branch   # either one may also be a source directory
+```
+
+It builds the renderer on both commits, renders every gate clip on each, and fails if any WAV
+differs by a single byte. It prints the clips that differ, then how many clips reach each engine
+function. That count comes from a second `--coverage` build of HEAD and gcov; the device build is
+untouched. A function reached by fewer than 2 clips is flagged, so a change can't pass on a path
+that only one clip plays. The count is per function, not per branch inside one. `GATE_COVERAGE=0`
+skips it.
+
+The clips are listed in `tools/gate_cases.py` and play MIDI that `tools/gate_midi.py` writes:
+- every DCO-1 × DCO-2 wave with X-MOD, SYNC 1 and SYNC 2 at three level pairs
+- FM cross-mod and two noises
+- pulse-width modulation
+- the controllers: sustain pedal, mod wheel, pitch bend, all notes off and all sound off
+- each highpass step
+- the filter and its envelope, including inverted and from envelope 2
+- unison
+- the 32 JX-8P factory tones, each tree on its own converter
+
+Nothing in it is PG-8X material. A tree's renders are kept in `build/gate` by a hash of its
+sources, so the next run against the same BASE renders only HEAD.
+
+With the FM-1 build inputs (`FM1_REF`, a folder holding fm1-dock, the JieLi toolchain, the AC79
+SDK, fm1-dock's venv and fm1-live; or `tools/fm1-build.sh`'s own variables), it also prints the
+CPU rows in fm1-emu's strict timing: 8 voices, U and F, with code bytes, for step F plain, with
+sync, the ring and both. Each runs as built and with 3 KB of padding ahead of the engine, which
+moves every function, so a gain that is only alignment shows. The device reads about 1.08 times
+the emulator. Without those inputs it says the rows were skipped.
+
+`make check-gate` tests the gate itself. For each covered path, a one-line change in a copy of
+the tree must fail the gate. It renders for a few minutes, so it is not part of `make check`.
+
 ### Benchmark
 
 `build/fm1-8p-bench [-b BLOCKS] [-r RUNS] [-w WORKLOAD]` (`-h` for help) times the engine on the
