@@ -224,7 +224,7 @@ TT_TEST(chorus_modes_differ_in_rate_and_depth)
 {
     /* the mode table documented in engine/chorus_state.h */
     static const double spec[FM_CHORUS_MODE_COUNT][3] = {
-        { 0, 0, 0 }, { 0.68, 5.5, 2.0 }, { 0.68, 5.5, 3.5 }, { 6.0, 3.0, 0.3 },
+        { 0, 0, 0 }, { 0.68, 2.0, 1.6 }, { 0.68, 2.1, 2.0 }, { 6.0, 3.0, 0.3 },
     };
     ch_sweep got[FM_CHORUS_MODE_COUNT];
     int a, b;
@@ -251,8 +251,53 @@ TT_TEST(chorus_modes_differ_in_rate_and_depth)
             double depth = got[a].depth_ms / got[b].depth_ms;
             if (rate < 1) rate = 1 / rate;
             if (depth < 1) depth = 1 / depth;
-            TT_CHECK(rate > 1.3 || depth > 1.3);
+            /*
+             * I and II share PG-8X's rate, and its L/R correlation is the
+             * same in both (0.456), so they differ by less than a third in
+             * depth: II sweeps 1.25 times as far as I.
+             */
+            TT_CHECK(rate > 1.2 || depth > 1.2);
         }
+}
+
+/*
+ * A low note's bass keeps its weight (Eric's listen, 2026-11-12: PIANO 1's
+ * C2 thinned out under chorus, so DCO-2's A4 square stuck out). PG-8X
+ * 2.0.13's chorus I and II add about +6 dB at 65 Hz: its wet stays in
+ * phase with the dry down there (measured: +5.9 dB at 65 Hz, +4.8 at
+ * 98, on a held saw). A longer delay puts a comb notch on the bass. A
+ * 65.4 Hz sine (C2), RMS over 8 whole LFO cycles (11.76 s at 0.68 Hz),
+ * must come out at least +4.5 dB over the input on both sides.
+ */
+TT_TEST(chorus_keeps_a_low_notes_bass_in_phase)
+{
+    static fm_chorus ch;
+    static const uint8_t modes[2] = { FM_CHORUS_SLOW, FM_CHORUS_DEEP };
+    const size_t settle = CH_RATE / 10;
+    const size_t span = (size_t)(8.0 / 0.68 * CH_RATE);
+    int m, thin = 0;
+    for (m = 0; m < 2; m++) {
+        double in2 = 0, l2 = 0, r2 = 0, gl, gr;
+        size_t i;
+        fm_chorus_init(&ch, CH_RATE);
+        fm_chorus_set_mode(&ch, modes[m]);
+        for (i = 0; i < settle + span; i++) {
+            int32_t x = (int32_t)(0.5 * (1 << 24) *
+                                  sin(2 * 3.14159265358979 * 65.406 * (double)i / CH_RATE));
+            int32_t l, r;
+            fm_chorus_process(&ch, x, &l, &r);
+            if (i < settle) continue;
+            in2 += (double)x * x;
+            l2 += (double)l * l;
+            r2 += (double)r * r;
+        }
+        gl = 10 * log10(l2 / in2);
+        gr = 10 * log10(r2 / in2);
+        printf("    chorus mode %d at 65 Hz: left %+.1f dB, right %+.1f dB (PG-8X +5.9)\n",
+               (int)modes[m], gl, gr);
+        if (gl < 4.5 || gr < 4.5) thin++;
+    }
+    TT_CHECK_EQ(thin, 0);
 }
 
 /*
@@ -361,11 +406,11 @@ TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
             TT_CHECK(ch_side_ratio(ch_buf, CH_RATE / 2, CH_RATE) > 0.05);
         }
     }
-    /* deep at 192 kHz: scaled to the line, same rate and shape */
+    /* deep at 192 kHz: 4.1 ms fits the line (5.3 ms there), unscaled */
     sw = ch_measure_sweep(FM_CHORUS_DEEP, 192000, NULL);
     TT_CHECK((sw.center_ms + sw.depth_ms) * 192.0 <= FM_CHORUS_DELAY_LEN - 2);
-    TT_CHECK((sw.center_ms + sw.depth_ms) * 192.0 > FM_CHORUS_DELAY_LEN - 4);
-    TT_CHECK_NEAR(sw.center_ms / sw.depth_ms, 5.5 / 3.5, 0.01);
+    TT_CHECK_NEAR(sw.center_ms, 2.1, 0.01);
+    TT_CHECK_NEAR(sw.depth_ms, 2.0, 0.01);
     TT_CHECK_NEAR(sw.rate_hz, 0.68, 0.0136);
     fm_chorus_init(&ch, CH_RATE);
     fm_chorus_set_mode(&ch, FM_CHORUS_MODE_COUNT);
@@ -761,6 +806,7 @@ static void run_chorus_tests(void)
     TT_RUN(chorus_switched_back_off_passes_input_through);
     TT_RUN(chorus_on_makes_left_and_right_differ_for_a_mono_voice);
     TT_RUN(chorus_modes_differ_in_rate_and_depth);
+    TT_RUN(chorus_keeps_a_low_notes_bass_in_phase);
     TT_RUN(chorus_output_stays_bounded_for_eight_full_scale_voices);
     TT_RUN(chorus_engine_full_chord_never_clips);
     TT_RUN(chorus_handles_extreme_rates_and_unknown_modes);

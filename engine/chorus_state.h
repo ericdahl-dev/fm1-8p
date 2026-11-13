@@ -32,8 +32,8 @@
 
 /*
  * Modes (LFO rate, center delay, sweep either side of the center):
- *   SLOW  0.68 Hz, 5.5 ms, +-2.0 ms - chorus I, PG-8X 2.0.13's chorus
- *   DEEP  0.68 Hz, 5.5 ms, +-3.5 ms - chorus II, the same, swept deeper
+ *   SLOW  0.68 Hz, 2.0 ms, +-1.6 ms - chorus I, PG-8X 2.0.13's chorus
+ *   DEEP  0.68 Hz, 2.1 ms, +-2.0 ms - chorus II, the same, swept deeper
  * (the JX-8P loader sends both to PG-8X's one chorus, so both match it)
  *   FAST  6.0 Hz, 3.0 ms, +-0.3 ms - quick, shallow shimmer
  */
