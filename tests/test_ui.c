@@ -540,6 +540,43 @@ TT_TEST(ui_patch_number_is_p_and_its_place)
     TT_CHECK(strcmp(s, "P17") == 0);
 }
 
+/* Opens the VCF page that has param id (ENV's ring) and returns its knob's encoder, 0 if none. */
+static uint32_t ui_goto(uint16_t id)
+{
+    uint32_t n, k;
+    for (n = 0; n < 4u; n++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+        for (k = 0; k < 4u; k++)
+            if (ui_page_slot(&ui_u, k)->kind == UI_LIVE && ui_page_slot(&ui_u, k)->id == id)
+                return UI_ENC_KNOB1 + k;
+    }
+    return 0;
+}
+
+/* HPF turns in the JX-8P's order (#138): BOOST (engine step 4), FLAT (0), 240 Hz (2), 560 Hz (3),
+ * and stays at either end. Engine step 1 (100 Hz) has no JX position. BOOST is offered once the
+ * engine has step 4 (#136); until then FLAT is the bottom. */
+TT_TEST(ui_hpf_turns_in_jx_order)
+{
+    static const int32_t UP[] = {0, 2, 3, 3};
+    int32_t boost = fm_param_info_get(FM_PARAM_HIGHPASS_STEP)->max >= 4 ? 4 : 0;
+    const int32_t DOWN[] = {0, boost, boost};
+    uint32_t enc, i;
+    ui_setup();
+    enc = ui_goto(FM_PARAM_HIGHPASS_STEP);
+    TT_CHECK(enc != 0);
+    play_set_param(&ui_p, FM_PARAM_HIGHPASS_STEP, 0);
+    for (i = 1; i < 4; i++) {
+        ui_event(&ui_u, UI_EV_ENC | enc, 1, 0);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_HIGHPASS_STEP), UP[i]);
+    }
+    play_set_param(&ui_p, FM_PARAM_HIGHPASS_STEP, 0);
+    for (i = 1; i < 3; i++) {
+        ui_event(&ui_u, UI_EV_ENC | enc, -1, 0);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_HIGHPASS_STEP), DOWN[i]);
+    }
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -582,6 +619,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_hpf_turns_in_jx_order);
     TT_RUN(ui_patch_number_is_p_and_its_place);
     TT_RUN(ui_presets_load_redraws_the_values_and_keeps_the_page);
     TT_RUN(ui_presets_discard_takes_the_warning_down);

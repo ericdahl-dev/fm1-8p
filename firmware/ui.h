@@ -38,6 +38,8 @@ typedef struct {
     uint16_t id;                        /* fm_param_id, when live */
     uint8_t kind;                       /* ui_slot_kind */
     int32_t step, fast;                 /* engine units a click moves it; a fast turn's click */
+    const uint8_t *order;               /* a choice in panel order: the values a click walks (0: steps) */
+    uint8_t n_order;
 } ui_slot;
 
 typedef struct {

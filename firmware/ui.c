@@ -1,16 +1,19 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui.h"
 
+/* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3) */
+static const uint8_t HPF_ORDER[4] = {4, 0, 2, 3};
+
 /* interaction.md section 3, the VCF section: page 4A (41-44) and 4B (45-48) */
 static const ui_slot VCF_SLOTS[8] = {
-    {41, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400},
-    {42, "RESO", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50},
-    {43, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600},
-    {44, "KEY", "KEY TRACK", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100},
-    {45, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1},
-    {46, "VEL", "VELOCITY", 0, UI_PENDING, 0, 0},
-    {47, "D2 ENV", "DCO-2 ENV", 0, UI_PENDING, 0, 0},
-    {48, "ENV SRC", "ENV SOURCE", 0, UI_PENDING, 0, 0},
+    {41, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400, 0, 0},
+    {42, "RESO", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50, 0, 0},
+    {43, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600, 0, 0},
+    {44, "KEY", "KEY TRACK", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100, 0, 0},
+    {45, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 4},
+    {46, "VEL", "VELOCITY", 0, UI_PENDING, 0, 0, 0, 0},
+    {47, "D2 ENV", "DCO-2 ENV", 0, UI_PENDING, 0, 0, 0, 0},
+    {48, "ENV SRC", "ENV SOURCE", 0, UI_PENDING, 0, 0, 0, 0},
 };
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
@@ -257,8 +260,22 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     const ui_slot *s = ui_page_slot(u, k);
     if (!s || s->kind != UI_LIVE)
         return;
-    play_set_param(u->p, s->id, play_get_param(u->p, s->id) +
-                   (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
+    if (s->order) {                             /* a choice: clicks walk its order, clamped */
+        int32_t v = play_get_param(u->p, s->id), max = fm_param_info_get(s->id)->max, i = 0, j;
+        while (i < (int32_t)s->n_order && s->order[i] != v)
+            i++;
+        for (j = i; clicks && j + (clicks > 0 ? 1 : -1) >= 0 && j + (clicks > 0 ? 1 : -1) < (int32_t)s->n_order;) {
+            j += clicks > 0 ? 1 : -1;
+            if (s->order[j] <= max) {           /* (a value this engine doesn't have is skipped) */
+                i = j;
+                clicks += clicks > 0 ? -1 : 1;
+            }
+        }
+        play_set_param(u->p, s->id, s->order[i]);
+    } else {
+        play_set_param(u->p, s->id, play_get_param(u->p, s->id) +
+                       (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
+    }
     u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
     if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE)
         u->dirty |= UI_D_SLOT;                  /* the curve shows only those two */
