@@ -79,7 +79,7 @@ TT_TEST(patches_keep_the_fields_the_engine_lacks)
 
 /* Soundtrack as every param's value, and what the playable module boots with, checked against values
  * known apart from patch_values: tone 17 of the factory dump decoded by hand (docs/patches.md; two
- * saws an octave down, DCO-2 a little flat, a dark unresonant low pass, no HPF) and the engine's
+ * saws an octave down, DCO-2 a little flat, a dark unresonant low pass, HPF 0) and the engine's
  * documented defaults (fm1_8p.h) for the params no field sets. */
 TT_TEST(patch_values_are_the_boot_state)
 {
@@ -94,7 +94,7 @@ TT_TEST(patch_values_are_the_boot_state)
     TT_CHECK_EQ(v[FM_PARAM_OSC2_FINE_CENTS], -13);
     TT_CHECK_EQ(v[FM_PARAM_FILTER_CUTOFF_CENTS], 6920);   /* VCF FREQ 52 (4775) + KEY 88 moved to a C2 pivot (894 x 2.4) */
     TT_CHECK_EQ(v[FM_PARAM_FILTER_RESONANCE], 0);
-    TT_CHECK_EQ(v[FM_PARAM_HIGHPASS_STEP], 0);
+    TT_CHECK_EQ(v[FM_PARAM_HIGHPASS_STEP], 4);          /* HPF 0: the bass boost (#93) */
     TT_CHECK_EQ(v[FM_PARAM_BEND_RANGE], 2);             /* no field: the defaults */
     TT_CHECK_EQ(v[FM_PARAM_VOICE_MODE], FM_VOICE_MODE_POLY);
     TT_CHECK_EQ(v[FM_PARAM_UNISON_DETUNE_CENTS], 20);
@@ -135,6 +135,70 @@ TT_TEST(patch_values_clamp_to_the_param_range)
     TT_CHECK_EQ(v[FM_PARAM_FILTER_RESONANCE], res->min);
 }
 
+/* Peak of patch `t` on an 8-note chord at velocity 127 held for 2 s, with `step` as its highpass
+ * step: the larger of the two channels, 16-bit. */
+static int chord_peak(const patch *t, int32_t step)
+{
+    static const uint8_t chord[8] = { 36, 43, 48, 52, 55, 60, 64, 67 };
+    static fm_engine e;
+    static int16_t out[2 * 512];
+    int32_t v[FM_PARAM_COUNT];
+    uint32_t id, n, i;
+    int peak = 0;
+    patch_values(t, v);
+    fm_engine_init(&e, 44100, 8);
+    for (id = 0; id < FM_PARAM_COUNT; id++)
+        fm_engine_set_param(&e, (uint16_t)id, v[id]);
+    fm_engine_set_param(&e, FM_PARAM_HIGHPASS_STEP, step);
+    for (i = 0; i < 8; i++)
+        fm_engine_note_on(&e, chord[i], 127);
+    for (n = 0; n < 2 * 44100; n += 512) {
+        fm_engine_render(&e, out, 512);
+        for (i = 0; i < 2 * 512; i++)
+            if (abs(out[i]) > peak) peak = abs(out[i]);
+    }
+    return peak;
+}
+
+/* A 16-bit output peak in dBFS, and the mix behind it before the output's soft clip (the clip
+ * undone: past the knee at half scale, d becomes h d / (h + d), h = half scale). */
+static double peak_dbfs(int peak) { return 20 * log10((peak > 0 ? peak : 1) / 32768.0); }
+static double mix_dbfs(int peak)
+{
+    double y = peak / 32768.0;
+    return 20 * log10(y <= 0.5 ? (y > 0 ? y : 1e-9) : 0.5 + 0.5 * (y - 0.5) / (1.0 - y));
+}
+
+/*
+ * Headroom with the bass boost (#93). The 23 factory tones on HPF 0 play highpass step 4, which is
+ * up to 7.2 dB louder in the bass than the flat step 0 they played before. On an 8-note chord at
+ * velocity 127 each stays short of full scale (the output's soft clip, #24) and is at least as loud
+ * as it was flat; the peaks are printed with and without the boost, and which tones the boost
+ * takes past the soft clip's knee (-6 dBFS). Nothing is scaled to make up for it.
+ */
+TT_TEST(hpf_0_tones_stay_short_of_full_scale_on_an_8_note_chord)
+{
+    uint32_t n, tones = 0, into_knee = 0;
+    for (n = 0; n < PATCH_COUNT; n++) {
+        const patch *t = &PATCHES[n];
+        int flat, boost;
+        if (patch_value(t, PATCH_HIGHPASS_STEP) != 4)
+            continue;
+        tones++;
+        flat = chord_peak(t, 0);
+        boost = chord_peak(t, 4);
+        printf("    %2u %-10s flat %5d (%+5.1f dBFS, mix %+5.1f)  boost %5d (%+5.1f dBFS, mix %+5.1f)%s\n",
+               (unsigned)n + 1, t->name, flat, peak_dbfs(flat), mix_dbfs(flat), boost, peak_dbfs(boost),
+               mix_dbfs(boost), flat <= 16384 && boost > 16384 ? "  <- into the knee" : "");
+        into_knee += flat <= 16384 && boost > 16384;
+        TT_CHECK(boost >= flat);
+        TT_CHECK(boost < 32767);
+    }
+    printf("    %u tones on HPF 0; the boost takes %u of them into the knee\n", (unsigned)tones,
+           (unsigned)into_knee);
+    TT_CHECK_EQ(tones, 23);
+}
+
 static void run_patches_tests(void)
 {
     TT_RUN(patches_fit_the_engine);
@@ -143,4 +207,5 @@ static void run_patches_tests(void)
     TT_RUN(patch_values_default_what_no_field_sets);
     TT_RUN(patch_values_clamp_to_the_param_range);
     TT_RUN(stab_brass_osc2_settles_to_the_sustain_within_env1s_decay);
+    TT_RUN(hpf_0_tones_stay_short_of_full_scale_on_an_8_note_chord);
 }

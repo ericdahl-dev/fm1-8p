@@ -349,10 +349,9 @@ def filter_env_cents(v):
 
 def hpf_step(v):
     """HPF, 0..127 (four positions), as the engine's highpass step, as PG-8X 2.0.13 plays it
-    (docs/patches.md): 1 is flat and 2 and 3 are the engine's steps 2 and 3. 0 is a bass boost
-    the engine lacks, so it is flat too for now (#93)."""
-    pos = switch(v)
-    return 0 if pos < 2 else pos
+    (docs/patches.md): 0 is a bass boost, the engine's step 4 (#93); 1 is flat, step 0; 2 and 3
+    are the engine's steps 2 and 3. The engine's step 1 (100 Hz) is no JX-8P position."""
+    return (4, 0, 2, 3)[switch(v)]
 
 
 def tune_semis(v):

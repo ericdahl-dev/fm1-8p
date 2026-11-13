@@ -29,7 +29,7 @@ typedef struct {
      * its previous input by fade / 4 (the zero, 1/4 below the top) */
     int32_t fade;
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
-    int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
+    int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off; negative = the bass boost) */
     /* Resonance's bass shelf: the output is s[3] + shelf * (lp - s[3]), lp
      * a one-pole lowpass of s[3] at the cutoff (0: off, the plain ladder),
      * a weighted average of the two, so within their range. It is worked
@@ -73,9 +73,11 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
  * cents of cutoff. */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
-/* Highpass position 0..3 (higher is clamped to 3): 0 is off (a wire),
- * then one-pole (6 dB/octave) corners at about 100, 240 and 560 Hz. */
-#define FM_FILTER_HIGHPASS_STEPS 4
+/* Highpass position 0..4 (higher is clamped to 4): 0 is off (a wire),
+ * then one-pole (6 dB/octave) corners at about 100, 240 and 560 Hz. 4 is
+ * not a highpass but the JX-8P's HPF position 0, a bass boost (filter.c). */
+#define FM_FILTER_HIGHPASS_STEPS 5
+#define FM_FILTER_HIGHPASS_BOOST 4
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents);
 
 /* Filters one Q8.24 sample: highpass, then lowpass. Any int32 input (the

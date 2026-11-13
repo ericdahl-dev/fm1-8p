@@ -154,14 +154,15 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch("PSYCHMELLO")["FILTER_RESONANCE_PERMILLE"], 928)     # resonance 122
         self.assertEqual(patch("SOUNDTRACK")["FILTER_RESONANCE_PERMILLE"], 0)
 
-    # HPF as PG-8X 2.0.13 plays it (2026-11-10 probe, docs/patches.md): 1 is flat and 2 and 3 are
-    # the engine's steps 2 and 3 (within about 2 dB); 0 is a bass boost the engine lacks, so flat.
+    # HPF as PG-8X 2.0.13 plays it (2026-11-10 probe, docs/patches.md): 0 is a bass boost, the
+    # engine's step 4 (#93); 1 is flat, step 0; 2 and 3 are the engine's steps 2 and 3 (within
+    # about 2 dB). The engine's step 1 (100 Hz) is no JX-8P position.
     def test_hpf_step_per_position(self):
-        self.assertEqual([jx8p.hpf_step(v) for v in (0, 32, 64, 96)], [0, 0, 2, 3])
-        self.assertEqual([jx8p.hpf_step(v) for v in (31, 63, 95, 127)], [0, 0, 2, 3])
+        self.assertEqual([jx8p.hpf_step(v) for v in (0, 32, 64, 96)], [4, 0, 2, 3])
+        self.assertEqual([jx8p.hpf_step(v) for v in (31, 63, 95, 127)], [4, 0, 2, 3])
 
-    def test_hpf_positions_are_the_engines_four_highpass_steps(self):
-        self.assertEqual(patch("SOUNDTRACK")["HIGHPASS_STEP"], 0)   # 0
+    def test_hpf_positions_are_the_engines_highpass_steps(self):
+        self.assertEqual(patch("SOUNDTRACK")["HIGHPASS_STEP"], 4)   # 0: the bass boost
         self.assertEqual(patch("PIANO 1")["HIGHPASS_STEP"], 0)      # 32: flat on PG-8X
         self.assertEqual(patch("WINDCHIMES")["HIGHPASS_STEP"], 2)   # 64
 
@@ -493,7 +494,7 @@ class RangeTest(unittest.TestCase):
         ranges = jx8p.engine_ranges()
         self.assertEqual(ranges["OSC1_WAVE"], (0, 3))                       # FM_WAVE_COUNT - 1
         self.assertEqual(ranges["FILTER_CUTOFF_CENTS"], (0, 14400))         # FM_FILTER_OPEN_CENTS
-        self.assertEqual(ranges["HIGHPASS_STEP"], (0, 3))
+        self.assertEqual(ranges["HIGHPASS_STEP"], (0, 4))                     # FM_FILTER_HIGHPASS_STEPS - 1
         self.assertEqual(ranges["OSC_MIX_ENV"], (-1000, 1000))
         for f in jx8p.FIELDS:
             if f.param:

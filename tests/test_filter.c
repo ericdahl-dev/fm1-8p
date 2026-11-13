@@ -749,9 +749,9 @@ TT_TEST(each_highpass_step_cuts_low_frequencies_more)
         TT_CHECK(g110[step] < g110[step - 1] - 2.0);
         TT_CHECK(level[step] < level[step - 1]);
     }
-    /* the highpass is out of range of the setting: clamped to step 3 */
+    /* the highpass is out of range of the setting: clamped to the last step, 4 (the boost) */
     TT_CHECK_EQ(fm_engine_set_param(&feng, FM_PARAM_HIGHPASS_STEP, 9), FM_OK);
-    TT_CHECK_EQ(fm_engine_get_param(&feng, FM_PARAM_HIGHPASS_STEP), 3);
+    TT_CHECK_EQ(fm_engine_get_param(&feng, FM_PARAM_HIGHPASS_STEP), 4);
 }
 
 /* Sets every filter control to something audible. */
@@ -2379,6 +2379,139 @@ TT_TEST(open_filter_with_the_ring_matches_the_full_render)
     TT_CHECK(peak_abs(fbuf_a, 0, 4096) > 100); /* still sounding */
 }
 
+/* FNV-1a over `n` bytes, continuing from `h` (start: 2166136261). */
+static uint32_t fnv1a(uint32_t h, const void *p, size_t n)
+{
+    const unsigned char *b = p;
+    while (n--) h = (h ^ *b++) * 16777619u;
+    return h;
+}
+
+/* A test signal in integers only (so it is the same on every host): a 110 Hz-ish saw at 0.5 plus
+ * noise at +-0.25, Q8.24. */
+static int32_t golden_input(size_t i, uint32_t *seed)
+{
+    *seed = *seed * 1664525u + 1013904223u;
+    return (int32_t)((i * 41943u) % 16777216u) - (1 << 23) + ((int32_t)(*seed >> 9) - (1 << 22));
+}
+
+/* Hash of one second of golden_input through the filter at highpass `step`: the lowpass open for
+ * the first half (step 0: the wire fast path), then at 9000 cents with resonance 700. */
+static uint32_t golden_filter_hash(uint8_t step)
+{
+    static fm_filter f;
+    int32_t rate_cents = fm_filter_rate_cents(FRATE);
+    uint32_t h = 2166136261u, seed = 7;
+    size_t i;
+    fm_filter_reset(&f);
+    fm_filter_set_highpass(&f, step, rate_cents);
+    for (i = 0; i < FRATE; i++) {
+        int32_t y;
+        if (i == FRATE / 2) {
+            fm_filter_set_resonance(&f, 700);
+            fm_filter_set_cutoff(&f, 9000, rate_cents);
+        }
+        y = fm_filter_run(&f, golden_input(i, &seed));
+        h = fnv1a(h, &y, sizeof y);
+    }
+    return h;
+}
+
+/*
+ * Highpass steps 0 to 3 are, bit for bit, what they were before the bass-boost step was added
+ * (#93): the hashes are of main's filter at dc9d495 (engine/filter.c and filter.h from main, this
+ * test unchanged), retaken after main's #98 changed the filter; first taken on 38bfa6d.
+ */
+TT_TEST(highpass_steps_0_to_3_are_bit_for_bit_what_they_were)
+{
+    static const uint32_t golden[4] = { 0x43A2BD72u, 0xD2B2C63Fu, 0x7A5A3797u, 0xE68ED416u };
+    uint8_t step;
+    int same = 1;
+    for (step = 0; step < 4; step++) {
+        uint32_t h = golden_filter_hash(step);
+        printf("    highpass step %u: hash 0x%08Xu\n", step, (unsigned)h);
+        same &= h == golden[step];
+    }
+    TT_CHECK(same);
+}
+
+/* Hash of an 8-note chord at velocity 127 through the engine, held 0.4 s and released 0.4 s.
+ * `step` < 0: the default patch untouched; else busy_filter_patch with that highpass step. */
+static uint32_t golden_engine_hash(int step)
+{
+    static const uint8_t chord[8] = { 36, 43, 48, 52, 55, 60, 64, 67 };
+    static fm_engine e;
+    size_t i;
+    fm_engine_init(&e, FRATE, 8);
+    if (step >= 0) {
+        busy_filter_patch(&e);
+        fm_engine_set_param(&e, FM_PARAM_HIGHPASS_STEP, step);
+    }
+    for (i = 0; i < 8; i++) fm_engine_note_on(&e, chord[i], 127);
+    fm_engine_render(&e, fbuf_a, 17640);
+    for (i = 0; i < 8; i++) fm_engine_note_off(&e, chord[i]);
+    fm_engine_render(&e, fbuf_a + 2 * 17640, 17640);
+    return fnv1a(2166136261u, fbuf_a, 2 * 2 * 17640 * sizeof fbuf_a[0]);
+}
+
+/*
+ * The default patch (highpass step 0, the filter a wire) and a filtered patch at each of steps
+ * 0 to 3 render, through the engine, bit for bit what main renders without the bass-boost step
+ * (#93): retaken on dc9d495 with main's engine/filter.c and filter.h, first taken on 38bfa6d.
+ */
+TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
+{
+    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x55C96591u, 0xD31D4E05u, 0x498D2B0Du,
+                                        0x2D943F81u };
+    int step, same = 1;
+    for (step = -1; step < 4; step++) {
+        uint32_t h = golden_engine_hash(step);
+        printf("    %s %d: hash 0x%08Xu\n", step < 0 ? "default patch" : "highpass step", step, (unsigned)h);
+        same &= h == golden[step + 1];
+    }
+    TT_CHECK(same);
+}
+
+/* Gain in dB of highpass step 4, the bass boost, for a sine at `hz`, the lowpass open. Step 0 is a
+ * wire (0 dB), so this is the gain against the flat step. */
+static double boost_gain_db(double hz)
+{
+    static fm_filter f;
+    fm_filter_reset(&f);
+    fm_filter_set_highpass(&f, 4, fm_filter_rate_cents(FRATE));
+    return filter_gain_db(&f, hz, 0.25);
+}
+
+/*
+ * Highpass step 4 is the JX-8P's HPF position 0, which is not flat: PG-8X 2.0.13 plays it about
+ * 2 dB louder than its flat position across the band (+2.0 dB at 1 kHz, #93).
+ */
+TT_TEST(highpass_step_4_is_2_db_louder_than_flat_at_1_khz)
+{
+    double g = boost_gain_db(1000.0);
+    printf("    highpass step 4: 1 kHz %+.2f dB\n", g);
+    TT_CHECK_NEAR(g, 2.0, 0.5);
+}
+
+/*
+ * Step 4 is a low shelf on top of that: PG-8X 2.0.13's HPF 0 against its flat HPF 1 (noise,
+ * 2026-11-10 spectral probe, #93) is +6.5 dB at 30 Hz, +5.4 at 60, +3.7 at 120, +2.6 at 250,
+ * +2.1 at 500 and +2.0 at 1 kHz. Each within 0.5 dB.
+ */
+TT_TEST(highpass_step_4_is_the_pg8x_bass_boost)
+{
+    static const double hz[6] = { 30, 60, 120, 250, 500, 1000 };
+    static const double pg8x_db[6] = { 6.5, 5.4, 3.7, 2.6, 2.1, 2.0 };
+    double g[6];
+    int i, close = 1;
+    for (i = 0; i < 6; i++) {
+        g[i] = boost_gain_db(hz[i]);
+        printf("    highpass step 4: %4.0f Hz %+.2f dB (PG-8X %+.1f)\n", hz[i], g[i], pg8x_db[i]);
+        close &= fabs(g[i] - pg8x_db[i]) <= 0.5;
+    }
+    TT_CHECK(close);
+}
+
 static void run_filter_tests(void)
 {
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
@@ -2446,4 +2579,8 @@ static void run_filter_tests(void)
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
     TT_RUN(open_filter_with_sync_and_xmod_matches_the_full_render);
     TT_RUN(open_filter_with_the_ring_matches_the_full_render);
+    TT_RUN(highpass_steps_0_to_3_are_bit_for_bit_what_they_were);
+    TT_RUN(default_patch_and_highpass_steps_render_what_they_did);
+    TT_RUN(highpass_step_4_is_2_db_louder_than_flat_at_1_khz);
+    TT_RUN(highpass_step_4_is_the_pg8x_bass_boost);
 }

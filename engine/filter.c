@@ -375,6 +375,11 @@ static int32_t soft_clip(int32_t u)
  *   drives the soft clip past its saturation (6.0) with the same sign, as
  *   the unclamped one does. With the highpass off the input is clamped
  *   the same way.
+ * - The bass boost (step 4) is at most 2.28 times the larger of the input
+ *   and that state, so it takes the 32-bit path only while both are
+ *   within +-16.0 (output within +-36.5, inside the +-64.0 above), and
+ *   otherwise the 64-bit one with the same clamp. Within +-32.0 it could
+ *   reach 73 and, times the level less the feedback, wrap 32 bits.
  * Only the products need 64 bits, and each is one 32x32->64 multiply.
  */
 #define IN_MAX ((1 << 30) - 1)
@@ -385,17 +390,34 @@ typedef char fm_require_level_sum_fits[
 typedef char fm_require_clamp_still_saturates[
     (int64_t)LEVEL_MIN * 64 - 4 * 42 * 8192 / 10 > 6 * 8192 ? 1 : -1];
 #define WITHIN_32(v) ((uint32_t)(v) + (1u << 29) < (1u << 30)) /* -32.0 <= v < 32.0 */
+#define WITHIN_16(v) ((uint32_t)(v) + (1u << 28) < (1u << 29)) /* -16.0 <= v < 16.0 */
 
 static int32_t clamp_in(int32_t x)
 {
     return x > IN_MAX ? IN_MAX : x < -IN_MAX ? -IN_MAX : x;
 }
 
+/*
+ * Highpass step 4 is the JX-8P's HPF position 0, which is not flat but a
+ * bass boost. PG-8X 2.0.13 against its flat position (HPF 1; noise,
+ * 2026-11-10 spectral probe, #93) is +6.5 dB at 30 Hz, +5.4 at 60, +3.7
+ * at 120, +2.6 at 250, +2.1 at 500 and +2.0 at 1 kHz: a low shelf on top
+ * of 2 dB of gain. Here it is
+ *
+ *     y = 1.26 * x + 1.02 * lowpass(x)
+ *
+ * with the highpass's own one-pole lowpass at 62 Hz, which fits those six
+ * points within 0.1 dB. The gain at DC is 2.28 (+7.2 dB). The 1.26 is the
+ * input plus BOOST_HI of it.
+ */
+#define BOOST_HI 279172874  /* 0.26, Q1.30 */
+#define BOOST_LO 1095216660 /* 1.02, Q1.30 */
+
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
 {
-    /* corners in cents: off, 100 Hz, 240 Hz, 560 Hz */
+    /* corners in cents: off, 100 Hz, 240 Hz, 560 Hz; the boost's 62 Hz */
     static const int32_t corner[FM_FILTER_HIGHPASS_STEPS] = {
-        0, 4335, 5851, 7318
+        0, 4335, 5851, 7318, 3507
     };
     if (step >= FM_FILTER_HIGHPASS_STEPS) step = FM_FILTER_HIGHPASS_STEPS - 1;
     /* off -> on: start from the signal as it is (output = input), not
@@ -405,6 +427,7 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
         if (step && fm_filter_is_wire(f)) leave_open(f); /* hp_g is 0 here */
     }
     f->hp_g = step ? coef_for(corner[step], rate_cents) : 0;
+    if (step == FM_FILTER_HIGHPASS_BOOST) f->hp_g = -f->hp_g; /* negative: the boost */
 }
 
 /* One stage: m = x - w * (x - x1), y += g * (m - y); x1 is the stage's
@@ -429,16 +452,33 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         f->s[3] = soft_clip(clamp_in(in));
         return f->s[3];
     }
-    if (!f->hp_g) {
+    /* hp_g < 0: the bass boost; 0: off; > 0: a highpass. Each test here
+     * costs about 0.9 % of the FM-1 at full load (emu F), so the boost,
+     * the costliest path and the one most factory tones take (23 of 32),
+     * is tested first: worst case 49.3 %, against 49.4 % highpass first
+     * and 50.0 % off first. */
+    if (f->hp_g < 0) {
+        if (WITHIN_16(in) && WITHIN_16(f->hp)) { /* 1.26 x + 1.02 lowpass(x) */
+            f->hp += mul_q30(in - f->hp, -f->hp_g);
+            x = in + mul_q30(in, BOOST_HI) + mul_q30(f->hp, BOOST_LO);
+        } else {
+            int64_t d;
+            f->hp += (int32_t)((((int64_t)in - f->hp) * -f->hp_g) >> 30);
+            d = (int64_t)in + (((int64_t)in * BOOST_HI) >> 30) + (((int64_t)f->hp * BOOST_LO) >> 30);
+            x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
+        }
+    } else if (!f->hp_g) {
         x = clamp_in(in);
-    } else if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* highpass = input minus a one-pole lowpass of it */
-        f->hp += mul_q30(in - f->hp, f->hp_g);
-        x = in - f->hp;
-    } else { /* louder than any oscillator: the same in 64 bits */
-        int64_t d;
-        f->hp += (int32_t)((((int64_t)in - f->hp) * f->hp_g) >> 30);
-        d = (int64_t)in - f->hp;
-        x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
+    } else {
+        if (WITHIN_32(in) && WITHIN_32(f->hp)) { /* input minus a one-pole lowpass of it */
+            f->hp += mul_q30(in - f->hp, f->hp_g);
+            x = in - f->hp;
+        } else { /* louder than any oscillator: the same in 64 bits */
+            int64_t d;
+            f->hp += (int32_t)((((int64_t)in - f->hp) * f->hp_g) >> 30);
+            d = (int64_t)in - f->hp;
+            x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
+        }
     }
     if (f->a != ONE_Q30) x = mul_q30(x, f->a);
     u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));

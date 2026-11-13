@@ -121,6 +121,18 @@ TT_TEST(busy_filter_says_when_it_is_a_wire)
     TT_CHECK(!fm_filter_is_wire(&f));
     fm_filter_set_highpass(&f, 0, rc);
     TT_CHECK(fm_filter_is_wire(&f));
+    /* The bass boost (step 4) is not a wire; back at 0 the filter is a wire
+     * again, and its output is its input even after the boost held state. */
+    fm_filter_set_highpass(&f, FM_FILTER_HIGHPASS_BOOST, rc);
+    TT_CHECK(!fm_filter_is_wire(&f));
+    for (int i = 0; i < 64; i++)
+        (void)fm_filter_process(&f, (i & 8) ? (1 << 22) : -(1 << 22));
+    fm_filter_set_highpass(&f, 0, rc);
+    TT_CHECK(fm_filter_is_wire(&f));
+    for (int i = 0; i < 64; i++) {
+        int32_t x = (i & 8) ? (1 << 22) : -(1 << 22);
+        TT_CHECK(fm_filter_process(&f, x) == x);
+    }
 }
 
 /*
@@ -141,7 +153,7 @@ static void busy_random_param(fm_engine *e)
 {
     static const struct { uint16_t id; int32_t v[4]; } p[] = {
         {FM_PARAM_FILTER_CUTOFF_CENTS, {3000, 6000, 9000, 20000}},
-        {FM_PARAM_HIGHPASS_STEP, {0, 0, 1, 3}},
+        {FM_PARAM_HIGHPASS_STEP, {0, 0, 1, 4}},
         {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, {0, 0, 2400, -1200}},
         {FM_PARAM_FILTER_KEY_TRACK, {0, 0, 500, 1000}},
         {FM_PARAM_FILTER_RESONANCE, {0, 0, 400, 900}},
