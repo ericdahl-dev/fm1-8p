@@ -581,11 +581,12 @@ static int32_t bell_knee(int32_t bp)
     return soft_clip(bp * (1 << BELL_KNEE_SHIFT)) >> BELL_KNEE_SHIFT;
 }
 
-/* The bell's states are held to +-32.0. At fixed coefficients they stay
+/* The bell's first state is held to +-32.0. At fixed coefficients it stays
  * far under it (the worst seen is 4.9), but a jump of the cutoff while the
  * bell rings hard starts the new bell from a state it was not fitted to,
- * and a slow bell then grows it without end. Held there, no sum below can
- * wrap: |a1| < 2 and |a2| < 1, so a state stays under 3 x 32.0 + |bx|. */
+ * and a slow bell then grows it without end. Holding s1 holds bp, and so
+ * s2 (|a2| < 1): no sum below can wrap, s1 staying under 3 x 32.0 + 3|bx|
+ * before it is held (|a1| < 2). */
 #define BELL_STATE_MAX (32 << 24)
 
 static int32_t bell_hold(int32_t s)
@@ -601,7 +602,7 @@ static int32_t bell(fm_filter *f, int32_t y)
 {
     int32_t bx = (int32_t)(((int64_t)f->bell_b0 * y) >> 29), bp = bx + f->bell_s1;
     f->bell_s1 = bell_hold(f->bell_s2 - (int32_t)(((int64_t)f->bell_a1 * bp) >> 29));
-    f->bell_s2 = bell_hold(-bx - (int32_t)(((int64_t)f->bell_a2 * bp) >> 29));
+    f->bell_s2 = -bx - (int32_t)(((int64_t)f->bell_a2 * bp) >> 29);
     return soft_clip(y + bell_knee(bp));
 }
 
