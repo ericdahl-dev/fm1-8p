@@ -69,6 +69,8 @@ typedef struct {
     uint8_t only1;     /* osc1 at full, osc2 at 0, nothing special: the fast path */
     uint8_t ring;      /* 1: osc2 times osc1, the JX-8P's SYNC 2 and X-MOD */
     int32_t sync_after; /* polyBLEP terms due on osc2's sample after a restart, Q8.24 */
+    int64_t dc_sum;    /* synced: the pair's samples so far in this osc1 cycle, Q8.24 */
+    int32_t dc;        /* synced: the last osc1 cycle's mean, taken off this one's samples */
 } fm_osc_pair;
 
 /*
