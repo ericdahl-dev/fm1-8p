@@ -4,16 +4,17 @@
 /* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3) */
 static const uint8_t HPF_ORDER[4] = {4, 0, 2, 3};
 
-/* interaction.md section 3, the VCF section: page 4A (41-44) and 4B (45-48) */
+/* The VCF section as the JX-8P's panel has it, with its PG-800 numbers (docs/patches.md): page
+ * 5A 51-54, 5B 55-58 */
 static const ui_slot VCF_SLOTS[8] = {
-    {41, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400, 0, 0},
-    {42, "RESO", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50, 0, 0},
-    {43, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600, 0, 0},
-    {44, "KEY", "KEY TRACK", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100, 0, 0},
-    {45, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 4},
-    {46, "VEL", "VELOCITY", 0, UI_PENDING, 0, 0, 0, 0},
-    {47, "D2 ENV", "DCO-2 ENV", 0, UI_PENDING, 0, 0, 0, 0},
-    {48, "ENV SRC", "ENV SOURCE", 0, UI_PENDING, 0, 0, 0, 0},
+    {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 4},
+    {52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400, 0, 0},
+    {53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50, 0, 0},
+    {54, "LFO", "LFO DEPTH", 0, UI_PENDING, 0, 0, 0, 0},          /* #172 */
+    {55, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600, 0, 0},
+    {56, "KEY", "KEY FOLLOW", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100, 0, 0},
+    {57, "DYNA", "DYNAMICS", 0, UI_PENDING, 0, 0, 0, 0},
+    {58, "MODE", "ENV MODE", 0, UI_PENDING, 0, 0, 0, 0},
 };
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)

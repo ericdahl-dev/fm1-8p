@@ -55,7 +55,7 @@ typedef struct {
     uint32_t banner_ms;                 /* when it came */
     int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
     uint32_t warned_ms;                 /* when */
-    uint32_t page;                      /* the edit page: 0 4A, 1 4B */
+    uint32_t page;                      /* the edit page: 0 5A VCF, 1 5B */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
