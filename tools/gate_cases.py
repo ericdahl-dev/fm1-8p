@@ -60,6 +60,20 @@ def filter_env():
                                    amp_sustain_permille=300, filter_env_amount_cents=4800)
 
 
+def unison():
+    """Unison: all voices on one note, detuned; plain, with sync and vibrato, and a fifth with chorus."""
+    u = s(voice_mode=1, unison_detune_cents=25, amp_attack_ms=5, amp_release_ms=250)
+    yield "unison", "unison.mid", u
+    yield "unison-sync", "unison.mid", u + s(osc_sync=1, osc2_octave=1, osc2_fine_cents=70,
+                                             osc1_level_permille=200, osc2_level_permille=800,
+                                             lfo_rate_centihz=550, lfo_pitch_cents=25, lfo_delay_ms=300,
+                                             chorus_mode=2)
+    yield "unison-fifth", "unison.mid", u + s(osc2_coarse_semis=7, osc2_fine_cents=4,
+                                              osc1_level_permille=550, osc2_level_permille=450,
+                                              filter_cutoff_cents=9000, filter_resonance_permille=300,
+                                              filter_env_amount_cents=2400, chorus_mode=1)
+
+
 def factory(tree):
     """The 32 JX-8P factory tones (data/jx8p-factory-1-32.syx) as TREE's converter maps them, on a held
     chord, a velocity phrase and a low note (ab.mid), 6 voices at 48 kHz."""
@@ -83,6 +97,7 @@ def cases(tree):
     yield from pair_matrix()
     yield from hpf_steps()
     yield from filter_env()
+    yield from unison()
     yield from factory(tree)
 
 

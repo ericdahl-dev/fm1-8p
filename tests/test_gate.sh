@@ -46,6 +46,9 @@ expect_ok "a change in sync_run (SYNC 1 in chunks) fails the gate" caught sync o
 expect_ok "a change in the highpass steps fails the gate" caught hpf filter.c fm_filter_set_highpass 'rate_cents += 1200;'
 expect_ok "a change in the filter envelope's depth fails the gate" caught fenv voice.c update_cutoff 'fenv += fenv >> 3;'
 expect_ok "a change in the DYNAMICS curve fails the gate" caught dyna dyna.c fm_dyna_share_q15 'velocity ^= 1;'
+expect_ok "a change in the mix envelope fails the gate" caught mix voice.c update_mix 'env1 += env1 >> 3;'
+expect_ok "a change in the chorus fails the gate" caught chorus chorus.c process_on 'in += in >> 3;'
+expect_ok "a change in the unison detune fails the gate" caught unison engine.c unison_detune 'if (i == 1) return 0;'
 
 echo
 echo "$run tests, $failed failed"
