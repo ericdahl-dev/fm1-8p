@@ -26,22 +26,6 @@
 
 typedef enum { UI_PLAY, UI_EDIT } ui_state;
 
-/* What a slot holds (interaction.md section 3): a live param, one whose issue hasn't landed (shown
- * as `--`, its knob does nothing), or nothing. */
-typedef enum { UI_LIVE, UI_PENDING, UI_RESERVED } ui_slot_kind;
-
-/* One numbered parameter slot. */
-typedef struct {
-    uint8_t num;                        /* 41: section 4, parameter 1 */
-    const char *label;                  /* the knob column's, at most 7 characters */
-    const char *full;                   /* the focus row's full label */
-    uint16_t id;                        /* fm_param_id, when live */
-    uint8_t kind;                       /* ui_slot_kind */
-    int32_t step, fast;                 /* engine units a click moves it; a fast turn's click */
-    const uint8_t *order;               /* a choice: every engine value in panel order (0: steps) */
-    uint8_t n_order;
-    uint8_t stops;                      /* bit i: order[i] is a knob position (the rest only show) */
-} ui_slot;
 
 typedef struct {
     play *p;
@@ -56,7 +40,7 @@ typedef struct {
     uint32_t banner_ms;                 /* when it came */
     int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
     uint32_t warned_ms;                 /* when */
-    uint32_t page;                      /* the edit page: 0 5A VCF, 1 5B */
+    uint32_t page;                      /* the edit page, in the page order (UI_PAGE_INFO) */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
@@ -91,8 +75,6 @@ typedef struct { uint32_t q2, n1; int32_t cut; } ui_curve;
 void ui_curve_begin(ui_curve *c, int32_t cutoff_cents, int32_t reso_permille, uint32_t n);
 int32_t ui_curve_db(const ui_curve *c, uint32_t i);
 /* the header's page strip: segment i (interaction.md's page order, 1A .. 8B) at x, w px wide */
-#define UI_PAGES 14u
-#define UI_PAGE_4A 4u
 void ui_strip(uint32_t i, int32_t *x, int32_t *w);
 /* a 7-segment digit's lit segments, bits a..g = 0..6 (0 for one it can't show) */
 uint32_t ui_seg7(char c);

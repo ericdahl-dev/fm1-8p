@@ -225,8 +225,8 @@ TT_TEST(ui_column_value_is_short)
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50", "%"));
 }
 
-/* The header's page strip: 14 segments with 2 px gaps share 230 px from x 5 (the leftover px one
- * each to the first); 4A is the 5th. */
+/* The header's page strip: 18 segments with 2 px gaps share 230 px from x 5 (the leftover px one
+ * each to the first); 5A is the 8th (interaction.md's page order). */
 TT_TEST(ui_page_strip_fills_the_rule)
 {
     int32_t x, w, end = 5;
@@ -237,7 +237,8 @@ TT_TEST(ui_page_strip_fills_the_rule)
         end = x + w + 2;
     }
     TT_CHECK_EQ(end - 2, 235);
-    TT_CHECK_EQ(UI_PAGE_4A, 4u);
+    TT_CHECK_EQ(UI_PAGES, 18u);
+    TT_CHECK(strcmp(UI_PAGE_INFO[UI_PAGE_5A].name, "5A") == 0);
 }
 
 /* The LED window's 7-segment digits (bits a..g = 0..6). */
@@ -684,6 +685,33 @@ TT_TEST(ui_steady_turns_still_reach_the_columns)
     TT_CHECK(cols >= 10u);
 }
 
+/* SEL from PLAY opens 1A, DCO-1 (interaction.md 3, 4): 11 RANGE and 12 WAVE on KNOB1 and KNOB2. */
+TT_TEST(ui_sel_opens_dco1)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 11);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->id, FM_PARAM_OSC1_OCTAVE);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 1)->num, 12);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 1)->id, FM_PARAM_OSC1_WAVE);
+}
+
+/* A section button is lit while a page of its ring shows (interaction.md 4): on 1A SEL is lit and
+ * ENV glows; on 5A, the other way round. */
+TT_TEST(ui_section_led_follows_the_ring)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_LIT);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_GLOW);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 200);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_LIT);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -726,6 +754,8 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_section_led_follows_the_ring);
+    TT_RUN(ui_sel_opens_dco1);
     TT_RUN(ui_steady_turns_still_reach_the_columns);
     TT_RUN(ui_choice_meter_lights_its_position);
     TT_RUN(ui_hpf_off_the_panel_snaps_the_way_it_turns);

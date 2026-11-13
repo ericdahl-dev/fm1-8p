@@ -1,27 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui.h"
 
-/* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3), with
- * the engine's own 100 Hz (1) in its place between, shown but not a knob position */
-static const uint8_t HPF_ORDER[5] = {4, 0, 1, 2, 3};
-#define HPF_STOPS 0x1Bu                     /* BOOST, FLAT, 240, 560 */
-
-/* The VCF section as the JX-8P's panel has it, with its PG-800 numbers (docs/patches.md): page
- * 5A 51-54, 5B 55-58 */
-static const ui_slot VCF_SLOTS[8] = {
-    {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS},
-    {52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400, 0, 0, 0},
-    {53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50, 0, 0, 0},
-    {54, "LFO", "LFO DEPTH", 0, UI_PENDING, 0, 0, 0, 0, 0},          /* #172 */
-    {55, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600, 0, 0, 0},
-    {56, "KEY", "KEY FOLLOW", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100, 0, 0, 0},
-    {57, "DYNA", "DYNAMICS", 0, UI_PENDING, 0, 0, 0, 0, 0},
-    {58, "MODE", "ENV MODE", 0, UI_PENDING, 0, 0, 0, 0, 0},
-};
-
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
-    return k < 4u ? &VCF_SLOTS[4u * u->page + k] : 0;
+    return k < 4u ? &UI_SLOTS[4u * u->page + k] : 0;
 }
 
 /* 8.1758 Hz x 2^(s / 12), s = 0..12, in mHz x 16: CUTOFF's semitones in its lowest octave */
@@ -282,7 +264,7 @@ void ui_init(ui *u, play *p)
     u->banner_ms = 0;
     u->warned = 0;
     u->warned_ms = 0;
-    u->page = 0;
+    u->page = UI_PAGE_5A;                       /* (EDIT's first page) */
 }
 
 static void show_page(ui *u, ui_state st)
@@ -290,6 +272,41 @@ static void show_page(ui *u, ui_state st)
     u->state = st;
     u->focus = 1;                               /* knob 2, as visual.md's pages open */
     u->dirty |= UI_D_FULL;
+}
+
+/* a page with a live slot (the rest are skipped: interaction.md, page order) */
+static int page_live(uint32_t p)
+{
+    uint32_t k;
+    for (k = 0; k < 4u; k++)
+        if (UI_SLOTS[4u * p + k].kind == UI_LIVE)
+            return 1;
+    return 0;
+}
+
+/* where page p is in ring r, or -1 */
+static int32_t ring_at(const uint8_t *r, uint32_t p)
+{
+    int32_t i;
+    for (i = 0; r[i] != UI_RING_END; i++)
+        if (r[i] == p)
+            return i;
+    return -1;
+}
+
+/* a section button: its ring's first live page, or on its ring the next live one, around */
+static void ring_step(ui *u, const uint8_t *r)
+{
+    int32_t i = u->state == UI_EDIT ? ring_at(r, u->page) : -1, n, j;
+    for (n = 0; r[n] != UI_RING_END; n++) {}
+    for (j = 1; j <= n; j++) {
+        uint32_t p = r[(i < 0 ? j - 1 : i + j) % n];
+        if (page_live(p)) {
+            u->page = p;
+            show_page(u, UI_EDIT);
+            return;
+        }
+    }
 }
 
 static void turn(ui *u, uint32_t k, int32_t clicks)
@@ -355,10 +372,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->down_ms[id] = ms;
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
         u->warned = 0;                          /* anything else cancels the warning (decision Q4) */
-    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV)) {  /* its ring: 4A, then 4B, and around */
-        u->page = u->state == UI_EDIT ? u->page ^ 1u : 0u;
-        show_page(u, UI_EDIT);
-    }
+    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV))
+        ring_step(u, UI_RING_ENV);
+    else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && tap)      /* (a hold: the number jump) */
+        ring_step(u, UI_RING_SEL);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)
@@ -395,13 +412,14 @@ uint32_t ui_take(ui *u, uint32_t ms)
 
 uint32_t ui_led(const ui *u, uint32_t button)
 {
+    const uint8_t *r = button == UI_BTN_SEL ? UI_RING_SEL : button == UI_BTN_ENV ? UI_RING_ENV :
+                       button == UI_BTN_FX ? UI_RING_FX : UI_RING_LFO;
     switch (button) {
-    case UI_BTN_ENV:                            /* its ring starts at 4A, the one page here */
-        return u->state == UI_EDIT ? UI_LED_LIT : UI_LED_GLOW;
     case UI_BTN_SEL:
-    case UI_BTN_LFO:
-    case UI_BTN_FX:                             /* none of their pages shows */
-        return UI_LED_GLOW;
+    case UI_BTN_ENV:
+    case UI_BTN_FX:
+    case UI_BTN_LFO:                            /* lit while a page of its ring shows */
+        return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
     case UI_BTN_EDIT:                           /* lit while the sound differs from the stored patch */
         return play_edited(u->p) ? UI_LED_LIT : UI_LED_GLOW;
     default:
