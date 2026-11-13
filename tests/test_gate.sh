@@ -49,6 +49,9 @@ expect_ok "a change in the DYNAMICS curve fails the gate" caught dyna dyna.c fm_
 expect_ok "a change in the mix envelope fails the gate" caught mix voice.c update_mix 'env1 += env1 >> 3;'
 expect_ok "a change in the chorus fails the gate" caught chorus chorus.c process_on 'in += in >> 3;'
 expect_ok "a change in the unison detune fails the gate" caught unison engine.c unison_detune 'if (i == 1) return 0;'
+expect_ok "a change in the noise fails the gate" caught noise osc.c noise_next 'p->noise ^= 1u;'
+expect_ok "a change in the per-sample special path fails the gate" caught special osc.c next_special "$PH"
+expect_ok "a change in the cross-mod depth (FM) fails the gate" caught xmod osc.c fm_osc_pair_set_xmod 'depth += depth >> 2;'
 
 echo
 echo "$run tests, $failed failed"

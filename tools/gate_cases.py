@@ -26,6 +26,15 @@ def pair_matrix():
                             "-s", "amp_release_ms=400"])
 
 
+def xmod():
+    """FM cross-mod, sample by sample: alone, synced, and with two noises (also sample by sample)."""
+    x = s(osc2_wave=1, osc2_pulse_width_pct=30, osc2_fine_cents=7, osc1_level_permille=500,
+          osc2_level_permille=500, amp_attack_ms=20, amp_release_ms=600)
+    yield "xmod", "chords.mid", x + s(osc_xmod_permille=300, chorus_mode=1)
+    yield "xmod-sync", "chords.mid", x + s(osc_xmod_permille=700, osc_sync=1)
+    yield "noise-noise", "vel.mid", s(osc1_wave=3, osc2_wave=3, osc2_level_permille=500)
+
+
 def hpf_steps():
     """The highpass at each step on a bass line (step 0, off, is in every other clip)."""
     for step in (1, 2, 3):
@@ -95,6 +104,7 @@ def factory(tree):
 def cases(tree):
     yield "demo", "demo.mid", []
     yield from pair_matrix()
+    yield from xmod()
     yield from hpf_steps()
     yield from filter_env()
     yield from unison()
