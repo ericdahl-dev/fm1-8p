@@ -395,14 +395,16 @@ THEMES = {
         focus=(1.0, 1.0),           # frames inward from the edge, as mixes of bg -> accent
         hatch=0.0,                  # fill under graph curves (0: none)
         art="badge",                # what fills the graph slot on PLAY
-        playhead="#F6F5F0", cursor="#DC9C9E", tie_mix=0.45,
+        playhead="#F6F5F0", cursor="#DE615A", tie_mix=0.45,
         black_key="#1E2023",        # the key strip's black keys
         index=0, short="MEMB",      # THEME's value: its index, and its label in a 56 px column
         # the buttons: red (top left, COPY/WRITE), amber (KEY MODE, AFTER TOUCH), cream-gray (TONE),
-        # light gray (EDIT), blue (PATCH CHAIN), lightened to meet the contrast rules
-        sec={"DCO-1": "#DC9C9E", "DCO-2": "#D8AC5F", "MIX": "#CDCAC4", "VCF": "#8DB0D6", "VCF ENV": "#E5B6B7",
-             "VCA": "#C2BCAE", "LFO": "#B0C8E2", "CTRL": "#CCA869", "SEQ": "#DC9C9E", "GLO": "#AAB0AC",
+        # light gray (EDIT), blue (PATCH CHAIN), lightened to meet the contrast rules; the red stays the
+        # panel's red, a fill only (its text takes the lettering)
+        sec={"DCO-1": "#DE615A", "DCO-2": "#D8AC5F", "MIX": "#CDCAC4", "VCF": "#8DB0D6", "VCF ENV": "#DE615A",
+             "VCA": "#C2BCAE", "LFO": "#B0C8E2", "CTRL": "#CCA869", "SEQ": "#DE615A", "GLO": "#AAB0AC",
              "PLAY": "#D6D5CE"},
+        fill_only=("DCO-1", "VCF ENV", "SEQ"),     # the red: too dark for text, its text the lettering
         sun=["#FFD040", "#FFB038", "#FF8C38", "#FF6848", "#F04870", "#D03890"], grid=None, horizon=None,
     ),
     "night-panel": dict(
@@ -423,6 +425,7 @@ THEMES = {
         sec={"DCO-1": "#FF5FA0", "DCO-2": "#FF8A3D", "MIX": "#D8D4F0", "VCF": "#2FD8FF", "VCF ENV": "#FFC23D",
              "VCA": "#7CF07C", "LFO": "#B07CFF", "CTRL": "#3DA0FF", "SEQ": "#FF3DD8", "GLO": "#D8D4F0",
              "PLAY": "#FF3DD8"},
+        fill_only=(),
         sun=["#FFD84A", "#FFB040", "#FF8840", "#FF5C60", "#F03C90", "#C030C0"], grid="#5A2A9A", horizon="#FF3DD8",
     ),
 }
@@ -527,6 +530,11 @@ def sun_cuts(hz, gaps, solid):
 # ================================================================ shared parts
 def accent(t, sec):
     return t["sec"][sec]
+
+
+def text_accent(t, sec):
+    # a section's color as text: the lettering where the color only fills (fill_only)
+    return t["text"] if sec in t["fill_only"] else t["sec"][sec]
 
 
 def led_color(t, sec):
@@ -656,7 +664,7 @@ def knob_columns(sc, t, rows, focus, sec_of=None):
         act = k == focus
         bg = t["surface_hi"] if act else t["surface"]
         sc.fill(x, y, COL_W, h, bg)
-        sc.text(x, y + 3, n, col, align="c", w=COL_W)
+        sc.text(x, y + 3, n, text_accent(t, sec), align="c", w=COL_W)
         sc.text(x, y + 19, label, t["text"] if act else t["dim"], align="c", w=COL_W)
         meter(sc, t, x + 6, y + 40, COL_W - 12, 6, mval, col, act, bg)
         if sc.dtext_w("D24", val) <= COL_W - 4 or not val.isalpha():
@@ -672,7 +680,7 @@ def focus_block(sc, t, sec, secname, num, label, val, unit):
     led_window(sc, t, M, y, 64, h, num, sec)
     x = M + 72
     col = accent(t, sec)
-    xe = sc.text(x, y, secname, col)
+    xe = sc.text(x, y, secname, text_accent(t, sec))
     sc.text(xe + 8, y, label, t["text"])
     xe = sc.dtext(x, y + 20, "D24", val, t["text"])
     if unit:
