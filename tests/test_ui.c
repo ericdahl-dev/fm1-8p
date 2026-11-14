@@ -1189,9 +1189,11 @@ TT_TEST(ui_mode_column_is_short)
 
 /* Whatever the buttons, keys and knobs do, an edit page is a real one, and the focus row shows no
  * slot (focus 4) or a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT,
- * HOME and GLO taps, holds and every knob, many times over, in a fixed pseudo-random order. GLO's
- * page and focus stay real too, and every banner fits the footer: 28 characters at most. */
-TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
+ * HOME, GLO and SAVE taps, holds and every knob, many times over, in a fixed pseudo-random order, on the
+ * unit as set up (with a patch store or without). GLO's page and focus stay real too, SAVE's
+ * destination, name and cursor stay in range, and every banner fits the footer: 28 characters at
+ * most. The bad states it found. */
+static uint32_t ui_hammer(void)
 {
     static const uint32_t EV[] = {UI_EV_BTN_DOWN | UI_BTN_SEL, UI_EV_BTN_UP | UI_BTN_SEL,
                                   UI_EV_BTN_DOWN | UI_BTN_ENV, UI_EV_BTN_UP | UI_BTN_ENV,
@@ -1201,9 +1203,9 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
                                   UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4,
                                   UI_EV_BTN_DOWN | UI_BTN_LFO, UI_EV_BTN_DOWN | UI_BTN_FX,
                                   UI_EV_ENC | UI_ENC_SELECT, UI_EV_ENC | UI_ENC_ALGORITHM,
-                                  UI_EV_ENC | UI_ENC_PRESETS, UI_EV_BTN_DOWN | UI_BTN_GLO, UI_EV_BTN_UP | UI_BTN_GLO};
-    uint32_t i, r = 12345u, ms = 0, bad = 0;
-    ui_setup();
+                                  UI_EV_ENC | UI_ENC_PRESETS, UI_EV_BTN_DOWN | UI_BTN_GLO, UI_EV_BTN_UP | UI_BTN_GLO,
+                                  UI_EV_BTN_DOWN | UI_BTN_SAVE, UI_EV_BTN_UP | UI_BTN_SAVE};
+    uint32_t i, r = 12345u, ms = 0, bad = 0, in_save = 0, in_glo = 0;
     for (i = 0; i < 20000u; i++) {
         const ui_slot *f;
         r = r * 1103515245u + 12345u;
@@ -1224,6 +1226,13 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
                                      (ui_u.focus < 4u ? ui_glo_slot_at(&ui_u, ui_u.focus)->kind != UI_LIVE
                                                       : ui_u.focus != 4u)))
             bad++;
+        in_save += ui_u.state == UI_SAVE;
+        in_glo += ui_u.state == UI_GLO;
+        if (ui_u.state == UI_SAVE && (ui_u.save_dest >= 64u || ui_u.save_cursor >= STORE_NAME_LEN ||
+                                      ui_u.save_step > UI_SAVE_CONFIRM ||
+                                      strlen(ui_u.save_name) != STORE_NAME_LEN ||
+                                      (ui_u.save_from != UI_PLAY && ui_u.save_from != UI_EDIT)))
+            bad++;
         if (ui_u.state != UI_EDIT)
             continue;
         if (ui_u.focus == 4u)                   /* no focus (a number with no parameter): an empty row */
@@ -1232,8 +1241,16 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
         if (ui_u.page >= UI_PAGES || ui_u.focus > 3u || f->kind == UI_RESERVED || !f->label || !f->full)
             bad++;
     }
-    printf("    %u bad states in 20000 events\n", (unsigned)bad);
-    TT_CHECK_EQ(bad, 0u);
+    printf("    %u bad states in 20000 events (%u in SAVE, %u in GLO)\n", (unsigned)bad, (unsigned)in_save,
+           (unsigned)in_glo);
+    return bad;
+}
+
+/* ... with no patch store: SAVE says it can't write, and nothing faults (agent2's #200 fix) */
+TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_hammer(), 0u);
 }
 
 /* The time table (interaction.md, units): 0 to 32000 ms in about 115 entries, 0, 1, 2, 3, 4, 5, 6,
