@@ -1189,9 +1189,11 @@ TT_TEST(ui_mode_column_is_short)
 
 /* Whatever the buttons, keys and knobs do, an edit page is a real one, and the focus row shows no
  * slot (focus 4) or a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT,
- * HOME and GLO taps, holds and every knob, many times over, in a fixed pseudo-random order. GLO's
- * page and focus stay real too, and every banner fits the footer: 28 characters at most. */
-TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
+ * HOME, GLO and SAVE taps, holds and every knob, many times over, in a fixed pseudo-random order, on the
+ * unit as set up (with a patch store or without). GLO's page and focus stay real too, SAVE's
+ * destination, name and cursor stay in range, and every banner fits the footer: 28 characters at
+ * most. The bad states it found. */
+static uint32_t ui_hammer(void)
 {
     static const uint32_t EV[] = {UI_EV_BTN_DOWN | UI_BTN_SEL, UI_EV_BTN_UP | UI_BTN_SEL,
                                   UI_EV_BTN_DOWN | UI_BTN_ENV, UI_EV_BTN_UP | UI_BTN_ENV,
@@ -1201,9 +1203,9 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
                                   UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4,
                                   UI_EV_BTN_DOWN | UI_BTN_LFO, UI_EV_BTN_DOWN | UI_BTN_FX,
                                   UI_EV_ENC | UI_ENC_SELECT, UI_EV_ENC | UI_ENC_ALGORITHM,
-                                  UI_EV_ENC | UI_ENC_PRESETS, UI_EV_BTN_DOWN | UI_BTN_GLO, UI_EV_BTN_UP | UI_BTN_GLO};
-    uint32_t i, r = 12345u, ms = 0, bad = 0;
-    ui_setup();
+                                  UI_EV_ENC | UI_ENC_PRESETS, UI_EV_BTN_DOWN | UI_BTN_GLO, UI_EV_BTN_UP | UI_BTN_GLO,
+                                  UI_EV_BTN_DOWN | UI_BTN_SAVE, UI_EV_BTN_UP | UI_BTN_SAVE};
+    uint32_t i, r = 12345u, ms = 0, bad = 0, in_save = 0, in_glo = 0;
     for (i = 0; i < 20000u; i++) {
         const ui_slot *f;
         r = r * 1103515245u + 12345u;
@@ -1224,6 +1226,13 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
                                      (ui_u.focus < 4u ? ui_glo_slot_at(&ui_u, ui_u.focus)->kind != UI_LIVE
                                                       : ui_u.focus != 4u)))
             bad++;
+        in_save += ui_u.state == UI_SAVE;
+        in_glo += ui_u.state == UI_GLO;
+        if (ui_u.state == UI_SAVE && (ui_u.save_dest >= 64u || ui_u.save_cursor >= STORE_NAME_LEN ||
+                                      ui_u.save_step > UI_SAVE_CONFIRM ||
+                                      strlen(ui_u.save_name) != STORE_NAME_LEN ||
+                                      (ui_u.save_from != UI_PLAY && ui_u.save_from != UI_EDIT)))
+            bad++;
         if (ui_u.state != UI_EDIT)
             continue;
         if (ui_u.focus == 4u)                   /* no focus (a number with no parameter): an empty row */
@@ -1232,8 +1241,16 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
         if (ui_u.page >= UI_PAGES || ui_u.focus > 3u || f->kind == UI_RESERVED || !f->label || !f->full)
             bad++;
     }
-    printf("    %u bad states in 20000 events\n", (unsigned)bad);
-    TT_CHECK_EQ(bad, 0u);
+    printf("    %u bad states in 20000 events (%u in SAVE, %u in GLO)\n", (unsigned)bad, (unsigned)in_save,
+           (unsigned)in_glo);
+    return bad;
+}
+
+/* ... with no patch store: SAVE says it can't write, and nothing faults (agent2's #200 fix) */
+TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_hammer(), 0u);
 }
 
 /* The time table (interaction.md, units): 0 to 32000 ms in about 115 entries, 0, 1, 2, 3, 4, 5, 6,
@@ -1740,8 +1757,13 @@ TT_TEST(ui_themes_meet_their_contrast_rules)
             TT_CHECK(ui_contrast(t->dim, surf[i]) >= TH[n].dim);
         }
         for (i = 0; i < UI_SECTIONS; i++) {
-            TT_CHECK(ui_contrast(t->section[i], t->surface) >= 4.7);
-            TT_CHECK(ui_contrast(t->section[i], t->bg) >= 4.9);
+            if (!(t->fill_only >> i & 1u)) {    /* a color that is also text */
+                TT_CHECK(ui_contrast(t->section[i], t->surface) >= 4.7);
+                TT_CHECK(ui_contrast(t->section[i], t->bg) >= 4.9);
+            }
+            TT_CHECK(ui_contrast(t->section[i], t->surface) >= 3.0);   /* a fill, a meter, a frame */
+            if (t->chip)
+                TT_CHECK(ui_contrast(t->ink, t->section[i]) >= 4.5);   /* the chip's name */
         }
     }
 }
@@ -1908,6 +1930,76 @@ TT_TEST(ui_theme_applies_after_its_debounce)
     TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_NIGHT);
 }
 
+/* an RGB565 color's hue (degrees, -180 .. 180), saturation and lightness (0 .. 1), as the panel shows it */
+static void ui_hsl(uint16_t c, double *hue, double *sat, double *l)
+{
+    uint32_t r5 = c >> 11, g6 = c >> 5 & 63u, b5 = c & 31u;
+    double r = (double)(r5 << 3 | r5 >> 2) / 255.0, g = (double)(g6 << 2 | g6 >> 4) / 255.0;
+    double b = (double)(b5 << 3 | b5 >> 2) / 255.0;
+    double hi = r > g ? (r > b ? r : b) : (g > b ? g : b), lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    double d = hi - lo;
+    *l = (hi + lo) / 2.0;
+    *sat = d > 0.0 ? d / (1.0 - fabs(2.0 * *l - 1.0)) : 0.0;
+    if (d <= 0.0)
+        *hue = 0.0;
+    else if (hi == r)
+        *hue = 60.0 * (g - b) / d;
+    else if (hi == g)
+        *hue = 60.0 * ((b - r) / d + 2.0);
+    else
+        *hue = 60.0 * ((r - g) / d + 4.0);
+    if (*hue > 180.0)
+        *hue -= 360.0;
+}
+
+/* Membrane's red sections read as the JX-8P's red buttons, not pink (Eric, 2026-11-14): saturated,
+ * no lighter than the panel's own, DCO-1 and SEQ true red to a little orange. ENV-1 (VCF ENV) is a
+ * shade of its own, a more orange red, told apart from DCO-1's at a glance. */
+TT_TEST(ui_membrane_red_is_the_panels_red)
+{
+    static const uint32_t RED[3] = {UI_SEC_DCO1, UI_SEC_VCF_ENV, UI_SEC_SEQ};
+    double hue[3], sat[3], l[3];
+    uint32_t i;
+    for (i = 0; i < 3u; i++) {
+        ui_hsl(UI_MEMBRANE.section[RED[i]], &hue[i], &sat[i], &l[i]);
+        TT_CHECK(sat[i] >= 0.6);
+        TT_CHECK(l[i] <= 0.62);
+        TT_CHECK(UI_MEMBRANE.fill_only >> RED[i] & 1u);  /* too dark for text: drawn as a fill */
+    }
+    TT_CHECK(hue[0] >= -2.0 && hue[0] <= 10.0);
+    TT_CHECK(hue[2] >= -2.0 && hue[2] <= 10.0);
+    TT_CHECK(hue[1] >= 8.0 && hue[1] <= 18.0);          /* still red, toward orange */
+    TT_CHECK(hue[1] - hue[0] >= 6.0);                   /* ENV-1 apart from DCO-1 */
+    TT_CHECK(fabs(sat[1] - sat[0]) >= 0.15);
+}
+
+/* A fill-only section's meter bar stands out from its track by lightness, not hue alone (Eric,
+ * 2026-11-14): its track is the theme's fill_track, and the bar, lit or dimmed as an unfocused
+ * column has it, is at least 3:1 on it. The track still shows on the column. */
+TT_TEST(ui_fill_only_meters_have_a_dark_track)
+{
+    static const ui_theme *const TH[2] = {&UI_MEMBRANE, &UI_NIGHT_PANEL};
+    uint32_t n, i;
+    for (n = 0; n < 2u; n++) {
+        const ui_theme *t = TH[n];
+        for (i = 0; i < UI_SECTIONS; i++) {
+            uint16_t c = t->section[i], dimmed;
+            uint32_t r, g, b;
+            if (!(t->fill_only >> i & 1u))
+                continue;
+            r = ((uint32_t)(t->surface >> 11) * 102u + (uint32_t)(c >> 11) * 154u) >> 8;   /* draw.c's mix, 154 */
+            g = ((uint32_t)(t->surface >> 5 & 63u) * 102u + (uint32_t)(c >> 5 & 63u) * 154u) >> 8;
+            b = ((uint32_t)(t->surface & 31u) * 102u + (uint32_t)(c & 31u) * 154u) >> 8;
+            dimmed = (uint16_t)(r << 11 | g << 5 | b);
+            TT_CHECK(ui_contrast(c, t->fill_track) >= 3.0);
+            TT_CHECK(ui_contrast(dimmed, t->fill_track) >= 3.0);
+            TT_CHECK(ui_contrast(t->fill_track, t->surface) >= 1.8);
+            TT_CHECK(ui_contrast(t->fill_track, t->surface_hi) >= 1.8);
+        }
+    }
+    TT_CHECK(UI_MEMBRANE.fill_only != 0u);              /* (the loop has something to check) */
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_theme_applies_after_its_debounce);
@@ -1916,6 +2008,8 @@ static void run_ui_tests(void)
     TT_RUN(ui_glo_holds_the_patch_controls);
     TT_RUN(ui_glo_opens_and_goes_back);
     TT_RUN(ui_themes_meet_their_contrast_rules);
+    TT_RUN(ui_membrane_red_is_the_panels_red);
+    TT_RUN(ui_fill_only_meters_have_a_dark_track);
     TT_RUN(ui_isqrt_is_the_floor);
     TT_RUN(ui_settings_default_and_ranges);
     TT_RUN(ui_jump_screen_holds_the_controls_in_edit);
