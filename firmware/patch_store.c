@@ -77,6 +77,40 @@ static const uint8_t TAG_PARAM[] = {
 typedef char store_every_record_fits_a_slot[HEADER + ENTRY * TAGS <= STORE_SLOT_BYTES ? 1 : -1];
 typedef char store_tags_fit_a_byte[TAGS <= 255u ? 1 : -1];
 
+#define BANKS (STORE_USER_SLOTS / STORE_BANK_SLOTS)
+
+void store_lib_load(store_lib *l, const store_io *io)
+{
+    uint32_t b;
+    uint32_t i;
+    for (b = 0; b < BANKS; b++) {
+        for (i = 0; i < STORE_BANK_BYTES; i++)  /* no bank, or a short one: empty slots */
+            l->img[b][i] = 0;
+        (void)io->load(io->ctx, 1u + b, l->img[b], STORE_BANK_BYTES);
+    }
+}
+
+int store_slot_read(const store_lib *l, uint32_t s, store_patch *p)
+{
+    return store_decode(l->img[s / STORE_BANK_SLOTS] + STORE_SLOT_BYTES * (s % STORE_BANK_SLOTS),
+                        STORE_SLOT_BYTES, p);
+}
+
+int store_slot_write(store_lib *l, const store_io *io, uint32_t s, const store_patch *p)
+{
+    uint32_t b = s / STORE_BANK_SLOTS, i;
+    uint8_t *rec = l->img[b] + STORE_SLOT_BYTES * (s % STORE_BANK_SLOTS);
+    uint8_t was[STORE_SLOT_BYTES];
+    for (i = 0; i < STORE_SLOT_BYTES; i++)
+        was[i] = rec[i];
+    (void)store_encode(p, rec);
+    if (io->save(io->ctx, 1u + b, l->img[b], STORE_BANK_BYTES) == 0)
+        return 0;
+    for (i = 0; i < STORE_SLOT_BYTES; i++)      /* not written: RAM keeps what flash has */
+        rec[i] = was[i];
+    return -1;
+}
+
 uint16_t store_tag_param(uint32_t tag)
 {
     return tag < TAGS ? TAG_PARAM[tag] : (uint16_t)FM_PARAM_COUNT;

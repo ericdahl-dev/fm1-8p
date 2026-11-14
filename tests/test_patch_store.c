@@ -161,6 +161,101 @@ TT_TEST(store_every_param_has_one_tag_and_fits_int16)
     TT_CHECK(ok);
 }
 
+/* A RAM stand-in for fm1-dock's banks: up to 4, each as saved (len -1: not there); `fail` makes a save
+ * fail. */
+typedef struct {
+    uint8_t data[4][8176];
+    int32_t len[4];
+    int fail;
+    uint32_t saves;
+} store_fake;
+
+static int store_fake_load(void *ctx, uint32_t idx, void *p, uint32_t n)
+{
+    store_fake *f = ctx;
+    if (idx >= 4 || f->len[idx] < 0) return -1;
+    memcpy(p, f->data[idx], n < (uint32_t)f->len[idx] ? n : (uint32_t)f->len[idx]);
+    return f->len[idx];
+}
+
+static int store_fake_save(void *ctx, uint32_t idx, const void *p, uint32_t n)
+{
+    store_fake *f = ctx;
+    if (idx >= 4 || f->fail || n > 8176) return -1;
+    memcpy(f->data[idx], p, n);
+    f->len[idx] = (int32_t)n;
+    f->saves++;
+    return 0;
+}
+
+static store_fake store_flash;
+static store_lib store_lib_a, store_lib_b;
+static const store_io store_fake_io = { store_fake_load, store_fake_save, &store_flash };
+
+static void store_flash_blank(void)
+{
+    uint32_t i;
+    memset(&store_flash, 0xFF, sizeof store_flash);
+    for (i = 0; i < 4; i++) store_flash.len[i] = -1;
+    store_flash.fail = 0;
+    store_flash.saves = 0;
+}
+
+/* A patch saved to a user slot is there after a power cycle: a fresh library loads it from flash. */
+TT_TEST(store_slot_survives_a_power_cycle)
+{
+    static store_patch in, out;
+    uint32_t s, id;
+    int same = 1;
+    store_flash_blank();
+    store_lib_load(&store_lib_a, &store_fake_io);
+    for (s = 0; s < STORE_USER_SLOTS; s += 21) {   /* 0, 21, 42, 63: both banks */
+        store_from_factory(s % PATCH_COUNT, &in);
+        same &= store_slot_write(&store_lib_a, &store_fake_io, s, &in) == 0;
+    }
+    store_lib_load(&store_lib_b, &store_fake_io);
+    for (s = 0; s < STORE_USER_SLOTS; s += 21) {
+        store_from_factory(s % PATCH_COUNT, &in);
+        same &= store_slot_read(&store_lib_b, s, &out) == 0 && strcmp(out.name, in.name) == 0;
+        for (id = 0; id < FM_PARAM_COUNT; id++) same &= out.v[id] == in.v[id];
+    }
+    TT_CHECK(same);
+}
+
+/* A unit that never saved has no banks: every slot reads empty, whatever was in RAM before. */
+TT_TEST(store_slots_start_empty)
+{
+    static store_patch in, out;
+    uint32_t s;
+    int empty = 1;
+    store_flash_blank();
+    store_from_factory(1, &in);
+    memset(&store_lib_b, 0, sizeof store_lib_b);
+    for (s = 0; s < STORE_USER_SLOTS; s++)     /* stale records in RAM */
+        (void)store_encode(&in, store_lib_b.img[s / STORE_BANK_SLOTS] + STORE_SLOT_BYTES * (s % STORE_BANK_SLOTS));
+    store_lib_load(&store_lib_b, &store_fake_io);
+    for (s = 0; s < STORE_USER_SLOTS; s++) empty &= store_slot_read(&store_lib_b, s, &out) == -1;
+    TT_CHECK(empty);
+}
+
+/* A save that fails (no free bank, a flash error) says so, and the slot stays as it was: what RAM
+ * shows is what flash holds. */
+TT_TEST(store_failed_write_leaves_the_slot_as_it_was)
+{
+    static store_patch a, b, out;
+    store_flash_blank();
+    store_lib_load(&store_lib_a, &store_fake_io);
+    store_from_factory(2, &a);
+    store_from_factory(9, &b);
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 40, &a), 0);
+    store_flash.fail = 1;
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 40, &b), -1);
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 41, &b), -1);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 40, &out), 0);
+    TT_CHECK(strcmp(out.name, a.name) == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 41, &out), -1);
+}
+
 static void run_patch_store_tests(void)
 {
     TT_RUN(store_record_round_trips_every_factory_patch);
@@ -170,4 +265,7 @@ static void run_patch_store_tests(void)
     TT_RUN(store_value_out_of_range_loads_clamped);
     TT_RUN(store_tags_keep_their_params);
     TT_RUN(store_every_param_has_one_tag_and_fits_int16);
+    TT_RUN(store_slot_survives_a_power_cycle);
+    TT_RUN(store_slots_start_empty);
+    TT_RUN(store_failed_write_leaves_the_slot_as_it_was);
 }
