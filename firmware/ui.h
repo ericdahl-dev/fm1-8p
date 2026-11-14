@@ -77,6 +77,10 @@ typedef struct {
     uint32_t set_dirty;                 /* 1: a GLO knob changed one since the store last wrote */
     uint32_t set_changed_ms;            /* when */
     uint32_t shown_theme;               /* the theme the screen is in: set.theme, UI_THEME_MS after it changed */
+    uint32_t cc_picked[(UI_PAGES * 4u + 31u) / 32u];   /* G24 PICKUP: bit per UI_SLOTS slot, taken over */
+    uint8_t cc_last[UI_PAGES * 4u];     /* each slot's last ignored CC value (0xFF: none yet) */
+    uint32_t cc_loads;                  /* play's loads when the pickup last started over */
+    char cc_msg[24];                    /* "CC 74: 52 (PICKUP)", the banner */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */

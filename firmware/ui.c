@@ -359,6 +359,7 @@ void ui_init(ui *u, play *p)
     uint32_t i;
     u->p = p;
     u->state = UI_PLAY;
+    u->cc_loads = p->loads + 1u;              /* (the first CC starts the pickup over) */
     u->focus = 1;
     u->dirty = UI_D_FULL;
     u->drawn_ms = 0;
@@ -863,16 +864,90 @@ static const ui_slot *cc_slot(uint32_t cc)
     return 0;
 }
 
+/* the value CC value v gives slot s (not a choice): along its table, or across its range (a SIZE:
+ * its size, 0 up) */
+static int32_t cc_value(const ui_slot *s, uint32_t v)
+{
+    const fm_param_info *in = fm_param_info_get(s->id);
+    int32_t lo = s->how == UI_HOW_SIZE ? 0 : in->min;
+    if (s->how == UI_HOW_TIME)
+        return UI_TIMES[(v * (UI_TIME_COUNT - 1u) + 63u) / 127u];
+    if (s->how == UI_HOW_RATE)
+        return UI_RATES[(v * (UI_RATE_COUNT - 1u) + 63u) / 127u];
+    return lo + (int32_t)(((int64_t)(in->max - lo) * (int32_t)v + 63) / 127);
+}
+
+/* G24 PICKUP: 1 when CC value v may set slot s, its i in UI_SLOTS: once taken over, or when v lands
+ * within a CC step of the value, or moves across it from the last ignored value. A patch load
+ * starts every slot over. */
+static int cc_pick(ui *u, const ui_slot *s, uint32_t i, uint32_t v)
+{
+    uint32_t a = v, b = v, j;
+    int32_t cur = ui_slot_value(u, s);
+    if (u->cc_loads != u->p->loads) {
+        for (j = 0; j < sizeof u->cc_picked / sizeof u->cc_picked[0]; j++)
+            u->cc_picked[j] = 0;
+        for (j = 0; j < UI_PAGES * 4u; j++)
+            u->cc_last[j] = 0xFFu;
+        u->cc_loads = u->p->loads;
+    }
+    if (u->cc_picked[i / 32u] >> (i % 32u) & 1u)
+        return 1;
+    if (u->cc_last[i] != 0xFFu)
+        a = u->cc_last[i] < a ? u->cc_last[i] : a, b = u->cc_last[i] > b ? u->cc_last[i] : b;
+    a = a ? a - 1u : 0u;
+    b = b < 127u ? b + 1u : 127u;
+    if (cc_value(s, a) <= cur && cur <= cc_value(s, b)) {
+        u->cc_picked[i / 32u] |= 1u << (i % 32u);
+        return 1;
+    }
+    u->cc_last[i] = (uint8_t)v;
+    return 0;
+}
+
+/* "CC 74: 52 (PICKUP)" into u->cc_msg, as the banner */
+static void cc_ignored(ui *u, uint32_t cc, uint32_t v, uint32_t ms)
+{
+    static const char TAIL[] = " (PICKUP)";
+    char *s = u->cc_msg;
+    uint32_t i;
+    *s++ = 'C', *s++ = 'C', *s++ = ' ';
+    if (cc >= 100u)
+        *s++ = (char)('0' + cc / 100u);
+    if (cc >= 10u)
+        *s++ = (char)('0' + cc / 10u % 10u);
+    *s++ = (char)('0' + cc % 10u), *s++ = ':', *s++ = ' ';
+    if (v >= 100u)
+        *s++ = (char)('0' + v / 100u);
+    if (v >= 10u)
+        *s++ = (char)('0' + v / 10u % 10u);
+    *s++ = (char)('0' + v % 10u);
+    for (i = 0; TAIL[i]; i++)
+        *s++ = TAIL[i];
+    *s = 0;
+    show_banner(u, u->cc_msg, ms);
+}
+
 void ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
 {
     const ui_slot *s = cc_slot(cc);
-    const fm_param_info *in;
     uint32_t k;
-    (void)ms;
-    if (!s || !u->set.cc_recv)
+    if (!s || !u->set.cc_recv || value > 127u)
         return;
-    in = fm_param_info_get(s->id);
-    set_slot(u, s, in->min + (int32_t)(((int64_t)(in->max - in->min) * (int32_t)value + 63) / 127));
+    if (s->order) {                             /* a choice: equal bands, one per knob position; no pickup */
+        int32_t max = s->how == UI_HOW_PLAIN ? fm_param_info_get(s->id)->max : 3, at[16];
+        uint32_t i, n = 0;
+        for (i = 0; i < s->n_order && n < 16u; i++)
+            if (s->stops >> i & 1u && s->order[i] <= max)
+                at[n++] = s->order[i];
+        if (n)
+            set_slot(u, s, at[value * n / 128u]);
+    } else if (u->set.ext_cc && !cc_pick(u, s, (uint32_t)(s - UI_SLOTS), value)) {
+        cc_ignored(u, cc, value, ms);
+        return;
+    } else {
+        set_slot(u, s, cc_value(s, value));
+    }
     for (k = 0; k < 4u; k++)                    /* on the page shown: its column redraws, the focus stays */
         if (ui_page_slot(u, k) == s) {
             u->dirty |= UI_D_COL(k) | (k == u->focus ? UI_D_FOCUS : 0u);

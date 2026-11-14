@@ -2022,10 +2022,123 @@ TT_TEST(ui_cc_redraws_its_column_and_keeps_the_focus)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), before);
 }
 
+/* A choice (WAVE, X-MOD) splits 0..127 into equal bands, one per knob position; a time goes along its
+ * table, 0 its first entry and 127 its last (interaction.md 8). */
+TT_TEST(ui_cc_choices_take_bands_and_times_their_table)
+{
+    const ui_slot *wave = &UI_SLOTS[1], *xmod = &UI_SLOTS[4u * 2u + 2u];   /* 12 WAVE, 23 X-MOD */
+    uint32_t n, v;
+    ui_setup();
+    TT_CHECK_EQ(wave->num, 12u);
+    TT_CHECK_EQ(xmod->num, 23u);
+    (void)ui_choice_pos(wave, 0, &n);
+    for (v = 0; v < 128u; v += 9u) {                          /* 12 WAVE: n bands */
+        ui_cc(&ui_u, 12, v, 1000 + v);
+        TT_CHECK_EQ(ui_choice_pos(wave, ui_slot_value(&ui_u, wave), &n), v * n / 128u);
+    }
+    ui_cc(&ui_u, 12, 127, 2000);
+    TT_CHECK_EQ(ui_choice_pos(wave, ui_slot_value(&ui_u, wave), &n), n - 1u);
+    ui_cc(&ui_u, 23, 127, 2100);                              /* 23 X-MOD: sync and ring, its last */
+    TT_CHECK_EQ(ui_choice_pos(xmod, ui_slot_value(&ui_u, xmod), &n), n - 1u);
+    ui_cc(&ui_u, 23, 0, 2200);
+    TT_CHECK_EQ(ui_choice_pos(xmod, ui_slot_value(&ui_u, xmod), &n), 0u);
+    ui_cc(&ui_u, 81, 0, 2300);                                /* 81 ATTACK along the time table */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS), ui_time_at(0));
+    ui_cc(&ui_u, 81, 127, 2400);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS), ui_time_at(ui_time_count() - 1u));
+    ui_cc(&ui_u, 81, 64, 2500);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS),
+                ui_time_at((64u * (ui_time_count() - 1u) + 63u) / 127u));
+}
+
+/* G24 PICKUP (interaction.md 8, cases 63 and 64): with cutoff at 64 on the CC scale, CC 20 is ignored
+ * and says so in the banner; 63, 64 or 65 takes over, as does a move across 64; after that it
+ * follows. A patch load starts every parameter over. JUMP sets at once. A choice is never picked up. */
+static int32_t ui_cc_jump(uint32_t v)          /* cutoff as JUMP sets it from v */
+{
+    ui_u.set.ext_cc = 0;
+    ui_cc(&ui_u, 52, v, 50);
+    return play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+}
+
+static void ui_cc_pickup_setup(int32_t cutoff)
+{
+    play_load_patch(&ui_p, 0);                                /* a load: nothing picked up */
+    play_set_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS, cutoff);
+    ui_u.set.ext_cc = 1;                                      /* G24 PICKUP */
+}
+
+TT_TEST(ui_cc_pickup_waits_for_the_value)
+{
+    static const uint32_t TAKE[3] = {63, 64, 65};
+    int32_t j20, j64, j100, jt[3];
+    uint32_t i, n;
+    ui_setup();
+    j20 = ui_cc_jump(20), j100 = ui_cc_jump(100);
+    for (i = 0; i < 3u; i++)
+        jt[i] = ui_cc_jump(TAKE[i]);
+    j64 = jt[1];
+    TT_CHECK(j20 < j64 && j64 < j100);
+    for (i = 0; i < 3u; i++) {
+        ui_cc_pickup_setup(j64);
+        ui_cc(&ui_u, 52, 20, 200);                            /* ignored, and shown */
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j64);
+        TT_CHECK(strcmp(ui_banner(&ui_u), "CC 52: 20 (PICKUP)") == 0);
+        ui_cc(&ui_u, 52, TAKE[i], 300);                       /* within a step: taken over */
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), jt[i]);
+        ui_cc(&ui_u, 52, 20, 400);                            /* then it follows */
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j20);
+    }
+    ui_cc_pickup_setup(j64);                                  /* across 64: 20, then 100 */
+    ui_cc(&ui_u, 52, 20, 500);
+    ui_cc(&ui_u, 52, 100, 600);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j100);
+    ui_cc(&ui_u, 52, 20, 650);                                /* picked up: a load starts it over */
+    ui_cc_pickup_setup(j64);
+    ui_cc(&ui_u, 52, 20, 700);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j64);
+    ui_cc(&ui_u, 12, 127, 800);                               /* a choice: at once */
+    TT_CHECK_EQ(ui_choice_pos(&UI_SLOTS[1], ui_slot_value(&ui_u, &UI_SLOTS[1]), &n), n - 1u);
+    ui_u.set.ext_cc = 0;                                      /* JUMP: at once */
+    ui_cc(&ui_u, 52, 20, 900);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j20);
+}
+
+/* A CC during compare goes to the edit buffer, not the stored patch: the stored value keeps sounding,
+ * and on EDIT's release the engine has the CC's (interaction.md 8, case 59). A CC lands where a knob
+ * would: the same value through the same path. */
+TT_TEST(ui_cc_during_compare_reaches_the_edit_buffer)
+{
+    uint32_t enc;
+    int32_t stored, want;
+    ui_setup();
+    ui_cc(&ui_u, 53, 127, 0);                                 /* (53 RES: the CC's top) */
+    want = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    TT_CHECK_EQ(want, fm_param_info_get(FM_PARAM_FILTER_RESONANCE)->max);
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    stored = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);                   /* an edit, so compare has something */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK(ui_p.comparing);
+    ui_cc(&ui_u, 53, 127, 1500);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), stored);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), stored);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), want);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), want);
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_cc_sets_its_parameter);
     TT_RUN(ui_cc_redraws_its_column_and_keeps_the_focus);
+    TT_RUN(ui_cc_choices_take_bands_and_times_their_table);
+    TT_RUN(ui_cc_pickup_waits_for_the_value);
+    TT_RUN(ui_cc_during_compare_reaches_the_edit_buffer);
     TT_RUN(ui_theme_applies_after_its_debounce);
     TT_RUN(ui_glo_knobs_and_pages);
     TT_RUN(ui_glo_table_is_well_formed);
