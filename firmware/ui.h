@@ -97,6 +97,11 @@ uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
 int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n);
 /* 0 while a slot does nothing to the sound (shown dim, no meter): WIDTH off a pulse wave */
 int ui_slot_active(const ui *u, const ui_slot *sl);
+/* the time table (interaction.md, units): its size, entry i, and a time clicks entries on (a time
+ * not in it snaps to the next entry the way of the turn first), clamped at both ends */
+uint32_t ui_time_count(void);
+int32_t ui_time_at(uint32_t i);
+int32_t ui_time_step(int32_t ms, int32_t clicks);
 /* a slot's value: its param's, or a paired slot's two as id | id2 << 1 */
 int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */

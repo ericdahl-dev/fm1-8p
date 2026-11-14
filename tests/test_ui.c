@@ -1053,6 +1053,28 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
     TT_CHECK_EQ(bad, 0u);
 }
 
+/* The time table (interaction.md, units): 0 to 32000 ms in about 115 entries, 0, 1, 2, 3, 4, 5, 6,
+ * 8, 10, 12, 15, 18, 20, 22 at the start, then about 7 % apart (none above 10 %: whole ms, 5 ms
+ * steps from 100 ms, 50 from 1 s, 500 from 10 s); a click moves
+ * one entry, a fast one four; a time not in the table snaps the way the knob turns. */
+TT_TEST(ui_time_table_steps_about_7_percent)
+{
+    static const int32_t START[14] = {0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 22};
+    uint32_t i, n = ui_time_count();
+    TT_CHECK(n >= 110u && n <= 125u);
+    for (i = 0; i < 14u; i++)
+        TT_CHECK_EQ(ui_time_at(i), START[i]);
+    TT_CHECK_EQ(ui_time_at(n - 1u), 32000);
+    for (i = 14; i < n; i++)
+        TT_CHECK(ui_time_at(i) > ui_time_at(i - 1u) && ui_time_at(i) * 100 <= ui_time_at(i - 1u) * 110);
+    TT_CHECK_EQ(ui_time_step(13, 1), 15);
+    TT_CHECK_EQ(ui_time_step(13, -1), 12);
+    TT_CHECK_EQ(ui_time_step(12, 1), 15);
+    TT_CHECK_EQ(ui_time_step(12, 4), ui_time_at(13));
+    TT_CHECK_EQ(ui_time_step(32000, 1), 32000);
+    TT_CHECK_EQ(ui_time_step(0, -1), 0);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1095,6 +1117,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_time_table_steps_about_7_percent);
     TT_RUN(ui_mode_column_is_short);
     TT_RUN(ui_map_table_is_well_formed);
     TT_RUN(ui_focus_opens_on_a_live_slot);

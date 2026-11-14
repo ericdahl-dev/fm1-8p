@@ -44,6 +44,9 @@ extern const ui_slot UI_SLOTS[UI_PAGES * 4u];   /* page p's knob k: UI_SLOTS[4 p
 #define UI_RING_END 0xFFu
 extern const uint8_t UI_RING_SEL[], UI_RING_ENV[], UI_RING_FX[], UI_RING_LFO[];
 
+#define UI_TIME_COUNT 122u
+extern const uint16_t UI_TIMES[UI_TIME_COUNT];   /* ms, rising (interaction.md, units) */
+
 /* the section colors' order (visual.md's table): 1x DCO-1 .. 8x CTRL, then SEQ, GLO and PLAY */
 enum { UI_SEC_DCO1, UI_SEC_DCO2, UI_SEC_MIX, UI_SEC_VCF, UI_SEC_VCF_ENV, UI_SEC_VCA, UI_SEC_LFO, UI_SEC_CTRL,
        UI_SEC_SEQ, UI_SEC_GLO, UI_SEC_PLAY, UI_SECTIONS };

@@ -412,6 +412,21 @@ static int inverted(const ui *u, uint16_t depth)
     return d < 0 || (d == 0 && u->inv & inv_bit(depth));
 }
 
+uint32_t ui_time_count(void) { return UI_TIME_COUNT; }
+
+int32_t ui_time_at(uint32_t i) { return UI_TIMES[i < UI_TIME_COUNT ? i : UI_TIME_COUNT - 1u]; }
+
+int32_t ui_time_step(int32_t ms, int32_t clicks)
+{
+    int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
+    while (i < n - 1 && UI_TIMES[i + 1] <= ms)  /* the last entry at or below ms */
+        i++;
+    if (clicks < 0 && UI_TIMES[i] < ms)         /* between entries: that one is already a click down */
+        clicks++;
+    i += clicks;
+    return UI_TIMES[i < 0 ? 0 : i >= n ? n - 1 : i];
+}
+
 int32_t ui_slot_value(const ui *u, const ui_slot *sl)
 {
     int32_t v = play_get_param(u->p, sl->id);
