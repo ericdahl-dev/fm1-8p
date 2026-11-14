@@ -1585,6 +1585,33 @@ TT_TEST(ui_jump_digits_and_sections)
     TT_CHECK(strcmp(UI_SECTION_NAME[5], "VCF") == 0);
 }
 
+/* While the jump screen is up, the other controls do nothing (Eric, 2026-11-14: only the keypad's keys
+ * and SEL's release act): in EDIT a knob, PRESETS, SELECT, ALGORITHM and the section buttons leave the
+ * page, its values and the patch as they were. */
+TT_TEST(ui_jump_screen_holds_the_controls_in_edit)
+{
+    static const uint32_t EV[] = {UI_EV_ENC | UI_ENC_KNOB2, UI_EV_ENC | UI_ENC_PRESETS, UI_EV_ENC | UI_ENC_SELECT,
+                                  UI_EV_ENC | UI_ENC_ALGORITHM, UI_EV_BTN_DOWN | UI_BTN_ENV,
+                                  UI_EV_BTN_DOWN | UI_BTN_FX, UI_EV_BTN_DOWN | UI_BTN_LFO};
+    const patch *was;
+    int32_t cut;
+    uint32_t i;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);        /* 5A */
+    was = play_patch(&ui_p);
+    cut = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    for (i = 0; i < sizeof EV / sizeof EV[0]; i++)
+        ui_event(&ui_u, EV[i], 2, 1500 + 10 * i);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
+    TT_CHECK(play_patch(&ui_p) == was);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 2000);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);             /* still 5A */
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1627,6 +1654,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_jump_screen_holds_the_controls_in_edit);
     TT_RUN(ui_jump_screen_comes_and_goes);
     TT_RUN(ui_jump_digits_and_sections);
     TT_RUN(ui_keypad_glows_while_sel_is_held);

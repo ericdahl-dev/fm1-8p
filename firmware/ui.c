@@ -774,6 +774,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             show_banner(u, "COMPARE: RELEASE EDIT", ms);
         return;
     }
+    if (ui_screen(u) == UI_SCREEN_JUMP && ev != (UI_EV_BTN_UP | UI_BTN_SEL))
+        return;                                 /* the jump's screen: only its keys and SEL's release act */
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_SEL) && (u->state == UI_PLAY || u->state == UI_EDIT))
         u->jump = 0;                            /* the keypad, while SEL is held (in PLAY or EDIT only) */
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
