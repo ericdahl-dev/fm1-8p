@@ -10,60 +10,8 @@
 #define PATCH_SOUNDTRACK 16u            /* tone 17: the boot default of the playable module */
 #define PATCH_NONE (-1)                 /* patch_param: a field the engine has no param for yet */
 
-/* A patch's fields, in engine units. The ones with an fm_param_id set that param (patch_param);
- * the others wait for the feature in the issue named, so a patch sounds closer as each one lands.
- * tests/test_jx8p.py checks this list against tools/jx8p.py's FIELDS. */
-typedef enum {
-    PATCH_OSC1_WAVE,                    /* fm_wave */
-    PATCH_OSC1_PULSE_WIDTH_PCT,
-    PATCH_OSC1_OCTAVE,
-    PATCH_OSC1_COARSE_SEMIS,            /* waits: what osc1 lacks of DCO-1 tune, folded into osc2 */
-    PATCH_OSC2_WAVE,
-    PATCH_OSC2_PULSE_WIDTH_PCT,
-    PATCH_OSC2_OCTAVE,
-    PATCH_OSC2_COARSE_SEMIS,
-    PATCH_OSC2_FINE_CENTS,
-    PATCH_OSC1_LEVEL_PERMILLE,          /* DCO-1 level over 127, summed with DCO-2 (#102) */
-    PATCH_AMP_LEVEL_PERMILLE,           /* VCA LEVEL, 0.30 dB a step below 127 */
-    PATCH_OSC2_LEVEL_PERMILLE,          /* DCO-2 level over 127, before MIX ENV */
-    PATCH_OSC_SYNC,
-    PATCH_XMOD_AM,                      /* osc_ring: the JX-8P's ring, SYNC 2 and X-MOD (#105) */
-    PATCH_HIGHPASS_STEP,
-    PATCH_FILTER_CUTOFF_CENTS,
-    PATCH_FILTER_RESONANCE_PERMILLE,
-    PATCH_FILTER_KEY_TRACK_PERMILLE,
-    PATCH_FILTER_ENV_AMOUNT_CENTS,
-    PATCH_FILTER_ENV_ATTACK_MS,
-    PATCH_FILTER_ENV_DECAY_MS,
-    PATCH_FILTER_ENV_SUSTAIN_PERMILLE,
-    PATCH_FILTER_ENV_RELEASE_MS,
-    PATCH_FILTER_ENV_SOURCE,            /* 0 the filter envelope, 1 the amp envelope (#59) */
-    PATCH_AMP_ATTACK_MS,
-    PATCH_AMP_DECAY_MS,
-    PATCH_AMP_SUSTAIN_PERMILLE,
-    PATCH_AMP_RELEASE_MS,
-    PATCH_AMP_DYNA,                     /* VCA DYNAMICS: 0 off .. 3 (engine/dyna.c) */
-    PATCH_AMP_GATE,                     /* VCA MODE GATE: 1 the VCA is the engine's gate (#63) */
-    PATCH_CHORUS_MODE,
-    PATCH_LFO_WAVE,
-    PATCH_LFO_RATE_CENTIHZ,
-    PATCH_LFO_DELAY_MS,
-    PATCH_LFO_PITCH_CENTS,              /* DCO-1's LFO depth: the engine's one moves both oscillators */
-    PATCH_LFO_PITCH_OSC2_CENTS,         /* DCO-2's LFO depth (LFO_PITCH_CENTS is DCO-1's) */
-    PATCH_PITCH_ENV_OSC1_CENTS,         /* signed, at full envelope (#58) */
-    PATCH_PITCH_ENV_OSC2_CENTS,
-    PATCH_PITCH_ENV_SOURCE,             /* 0 the filter envelope, 1 the amp envelope */
-    PATCH_PITCH_ENV_DYNA,               /* DCO DYNAMICS: 0 off .. 3 */
-    PATCH_OSC_MIX_ENV_PERMILLE,         /* MIX ENV: the mix's change at the envelope's peak */
-    PATCH_OSC_MIX_ENV_SOURCE,           /* 0 filter envelope, 1 amp envelope */
-    PATCH_OSC_MIX_ENV_DYNA,             /* MIX DYNAMICS: 0 off .. 3 */
-    PATCH_FILTER_LFO_PERMILLE,          /* waits #8: LFO to cutoff */
-    PATCH_FILTER_ENV_DYNA,              /* VCF DYNAMICS: 0 off .. 3 */
-    PATCH_AMP_KEY_FOLLOW_PERMILLE,      /* ENV-2 KEY: 260 per mille a position (#60) */
-    PATCH_FILTER_ENV_KEY_FOLLOW_PERMILLE, /* the filter envelope's (ENV-1 KEY, or ENV-2's) */
-    PATCH_SETTING_GLIDE,                /* 1: levels, filter and LFO depths glide as PG-8X's (#146) */
-    PATCH_FIELD_COUNT,
-} patch_field;
+/* The patch_field enum: generated from tools/params.py (PATCH_FIELDS). */
+#include "patch_fields.h"
 
 /* Each value is stored + PATCH_BIAS: as plain int16_t, a small negative value (-64..-49, 0xFFCx)
  * next to another could make a 32-bit word fm1-dock rejects as a ROM address (0xFFCxxxxx). With

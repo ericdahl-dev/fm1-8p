@@ -6,8 +6,10 @@
 #   make check-float-free   prove the engine (and the synth module's play.c) has no floating point or heap
 #                           use, and that the check catches both
 #   make check-fm1-build    test the FM-1 build script's pin and report checks
-#   make check-patches      test the JX-8P patch converter (python3) and that firmware/patches.c is
-#                           what it generates from data/jx8p-factory-1-32.syx
+#   make check-patches      test the JX-8P patch converter and the param list (python3), and that
+#                           firmware/patches.c, engine/params.c and engine/fm1_8p_params.h are what
+#                           they generate (from data/jx8p-factory-1-32.syx and tools/params.py)
+#   make generate           write those files again (after editing tools/params.py)
 #   make check-runner       test tools/run-tests.sh (make test fails on an empty or silent test binary)
 #                           and that a build killed partway leaves no empty output make would reuse
 #   make check              test + check-runner + check-float-free + check-fm1-build + check-patches
@@ -45,7 +47,7 @@ BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
 FW_SRC     = firmware/cpu_test.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c
-FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/patches.h firmware/patch_store.h firmware/ui_save.h
+FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/ui_save.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
@@ -54,7 +56,7 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches render-demo clean \
+.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches generate render-demo clean \
 	gate check-gate scorecard check-scorecard
 
 all: $(RENDER) $(BENCH)
@@ -106,6 +108,10 @@ check-fm1-build:
 check-runner:
 	sh tests/test_run_tests.sh
 	sh tests/test_build_outputs.sh
+
+# the files tools/params.py makes (engine/fm1_8p_params.h, engine/params.c) and firmware/patches.c
+generate:
+	$(PYTHON) tools/jx8p.py gen
 
 check-patches:
 	PYTHON="$(PYTHON)" sh tests/test_python_cache.sh
