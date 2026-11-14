@@ -326,8 +326,18 @@ TT_TEST(seq_busiest_block_fits)
         seq_set_step(&sq, i, chord, 6, 100);
     seq_play(&sq);
     seq_run(8000 * 4, SEQ_256, 1, 8000, 6);
+    seq_stop(&sq);
+    seq_run(256, SEQ_256, 1, 8000, 6);
     TT_CHECK(seq_worst_block <= SEQ_EVENTS);
     TT_CHECK(seq_logged > 0u);
+    {                                           /* none dropped: every on has its off (put clamps silently) */
+        uint32_t i, ons = 0, offs = 0;
+        for (i = 0; i < seq_logged; i++) {
+            ons += seq_log[i].vel != 0;
+            offs += seq_log[i].vel == 0;
+        }
+        TT_CHECK_EQ(ons, offs);
+    }
     TT_CHECK((uint64_t)192000u * 600u + (uint64_t)SEQ_TEMPO_MAX * SEQ_PPQ * SEQ_BLOCK < 0x100000000ull);
 }
 

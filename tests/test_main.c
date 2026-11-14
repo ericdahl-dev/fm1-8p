@@ -36,6 +36,7 @@
 #include "test_glide.c"
 #include "test_patch_store.c"
 #include "test_ui_save.c"
+#include "test_ui_reach.c"
 #include "test_seq.c"
 #include "test_seq_play.c"
 
@@ -63,6 +64,7 @@ int main(void)
     run_glide_tests();
     run_patch_store_tests();
     run_ui_save_tests();
+    run_ui_reach_tests();
     run_seq_tests();
     run_seq_play_tests();
     return tt_report();
