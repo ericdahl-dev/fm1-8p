@@ -228,6 +228,16 @@ static void focus_row(void)
 #define SLOT_PARTS 3u
 static ui_curve curve;                          /* the curve being drawn: one cutoff and resonance */
 static uint32_t wave, width;                    /* or the waveform: its wave and pulse width */
+static uint32_t adsr[4];                        /* or the ADSR: a, d, r positions, s, per mille */
+
+/* a time's place in the time table, per mille (the ADSR picture's stage widths) */
+static uint32_t time_pos(int32_t ms)
+{
+    uint32_t i = 0, n = ui_time_count();
+    while (i < n - 1u && ui_time_at(i + 1u) <= ms)
+        i++;
+    return 1000u * i / (n - 1u);
+}
 static void slot(uint32_t part)
 {
     const int32_t w = 240 - 2 * M, h = 56, n = w - 4, pw = 240 / (int32_t)SLOT_PARTS;
@@ -245,6 +255,34 @@ static void slot(uint32_t part)
     H->cv_begin(pw, 60, C_BG);
     H->cv_rect(M - x0, 0, w, h, C_WINDOW);      /* (the canvas clips what isn't this part's) */
     frame(M - x0, 0, w, h, C_LINE);
+    if (U->page >= 12u && U->page <= 15u) {     /* 8A-9B: the envelope's ADSR (render.py env_points) */
+        static const uint16_t ENV1[4] = {FM_PARAM_FILTER_ENV_ATTACK_MS, FM_PARAM_FILTER_ENV_DECAY_MS,
+                                         FM_PARAM_FILTER_ENV_SUSTAIN, FM_PARAM_FILTER_ENV_RELEASE_MS};
+        static const uint16_t ENV2[4] = {FM_PARAM_AMP_ATTACK_MS, FM_PARAM_AMP_DECAY_MS,
+                                         FM_PARAM_AMP_SUSTAIN, FM_PARAM_AMP_RELEASE_MS};
+        const uint16_t *e = U->page < 14u ? ENV1 : ENV2;
+        if (part == 0u) {                       /* (the values once, for all three parts) */
+            adsr[0] = time_pos(play_get_param(P, e[0]));
+            adsr[1] = time_pos(play_get_param(P, e[1]));
+            adsr[2] = (uint32_t)play_get_param(P, e[2]);
+            adsr[3] = time_pos(play_get_param(P, e[3]));
+        }
+        i = x0 - M - 3;
+        i0 = i = i < 0 ? 0 : i;
+        i1 = x0 + pw - M - 2;
+        i1 = i1 > n ? n : i1;
+        for (; i < i1; i++) {
+            int32_t xi = M + 2 + i - x0;
+            y = h - 6 - ui_adsr_level(adsr[0], adsr[1], adsr[2], adsr[3], (uint32_t)i, (uint32_t)n) * (h - 12) / 1000;
+            if (i > i0) {
+                int32_t lo = y < y0 ? y : y0, hi = y < y0 ? y0 : y;
+                H->cv_rect(xi - 1, lo, 2, hi - lo + 2, C_VCF);
+            }
+            y0 = y;
+        }
+        blit(x0, 78, pw, 60);
+        return;
+    }
     if (U->page < 4u) {                         /* 1A-2B: the waveform, two cycles, centered */
         H->cv_rect(M + 2 - x0, h / 2, w - 4, 1, C_LINE);
         i = x0 - M - 3;
@@ -319,7 +357,7 @@ static void column(uint32_t k)
                     H->cv_rect(x + 6 + (int32_t)(i * 46u / n), 40, (int32_t)(46u / n) - 2, 6,
                                i == at ? on : C_LINE);
             } else if (T->meter_segments) {
-                if (s->how == UI_HOW_SIZE) {    /* (an ENV size: from the left) */
+                if (s->how == UI_HOW_SIZE || s->how == UI_HOW_TIME) {   /* (from the left, as the bar) */
                     int32_t a, b;
                     ui_slot_bar(s, value, (int32_t)UI_METER_SEGS, &a, &b);
                     lit = (1u << b) - 1u;

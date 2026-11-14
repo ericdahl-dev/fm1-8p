@@ -26,20 +26,25 @@ const ui_page_info UI_PAGE_INFO[UI_PAGES] = {
 
 /* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3), with
  * the engine's own 100 Hz (1) in its place between, shown but not a knob position */
-static const int8_t HPF_ORDER[5] = {4, 0, 1, 2, 3};
+static const int16_t HPF_ORDER[5] = {4, 0, 1, 2, 3};
 #define HPF_STOPS 0x1Bu                     /* BOOST, FLAT, 240, 560 */
 
 /* CROSS MOD (tools/jx8p.py): OFF, SYNC 1 (sync), SYNC 2 (sync and ring), X-MOD (ring), as
  * sync | ring << 1 */
-static const int8_t XMOD_ORDER[4] = {0, 1, 3, 2};
+static const int16_t XMOD_ORDER[4] = {0, 1, 3, 2};
 /* RANGE, 32' (ours) to 2'; WAVE, SAW, PULSE, SQUARE, NOISE (the engine's order is the panel's) */
-static const int8_t RANGE_ORDER[5] = {-2, -1, 0, 1, 2};
-static const int8_t WAVE_ORDER[4] = {0, 1, 2, 3};
+static const int16_t RANGE_ORDER[5] = {-2, -1, 0, 1, 2};
+static const int16_t WAVE_ORDER[4] = {0, 1, 2, 3};
 /* DYNAMICS: OFF, 1, 2, 3 */
-static const int8_t DYNA_ORDER[4] = {0, 1, 2, 3};
+static const int16_t DYNA_ORDER[4] = {0, 1, 2, 3};
+/* VCA MODE: ENV2, GATE (#63); CHORUS: OFF, I, II, and our FAST; ENV KEY: OFF, 1, 2, 3 (260 per mille) */
+static const int16_t GATE_ORDER[2] = {0, 1};
+static const int16_t CHORUS_ORDER[4] = {0, 1, 2, 3};
+static const int16_t KEY_ORDER[4] = {0, 260, 520, 780};
 /* ENV MODE (tools/jx8p.py env_mode): ENV2 INV, ENV2, ENV1 INV, ENV1, as source | inverted << 1 */
-static const int8_t MODE_ORDER[4] = {3, 1, 2, 0};
-#define CHOICE(n, l, f, id, o) {n, l, f, id, UI_LIVE, 1, 1, o, sizeof o, (1u << sizeof o) - 1u, 0, 0, 0}
+static const int16_t MODE_ORDER[4] = {3, 1, 2, 0};
+#define CHOICE(n, l, f, id, o) {n, l, f, id, UI_LIVE, 1, 1, o, sizeof o / 2u, (1u << sizeof o / 2u) - 1u, 0, 0, 0}
+#define TIME(n, l, f, id) {n, l, f, id, UI_LIVE, 1, 4, 0, 0, 0, 0, UI_HOW_TIME, 0}
 /* an ENV MODE: source id, depths d1 and d2 */
 #define MODE(n, id, d1, d2) {n, "MODE", "ENV MODE", id, UI_LIVE, 1, 1, MODE_ORDER, 4, 0x0Fu, d1, UI_HOW_MODE, d2}
 
@@ -73,6 +78,21 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     SIZE(43, "ENV", "ENV DEPTH", FM_PARAM_OSC_MIX_ENV, 10, 50),
     CHOICE(44, "DYNA", "DYNAMICS", FM_PARAM_OSC_MIX_ENV_DYNA, DYNA_ORDER),
     PAGE(6) MODE(45, FM_PARAM_OSC_MIX_ENV_SOURCE, FM_PARAM_OSC_MIX_ENV, FM_PARAM_OSC_MIX_ENV),
+    PAGE(9) LIVE(61, "LEVEL", "VCA LEVEL", FM_PARAM_AMP_LEVEL, 10, 50),
+    CHOICE(62, "MODE", "VCA MODE", FM_PARAM_AMP_GATE, GATE_ORDER),
+    CHOICE(63, "DYNA", "DYNAMICS", FM_PARAM_AMP_DYNA, DYNA_ORDER),
+    CHOICE(64, "CHORUS", "CHORUS", FM_PARAM_CHORUS_MODE, CHORUS_ORDER),
+    PAGE(10) LIVE(65, "VEL", "VELOCITY", FM_PARAM_AMP_VELOCITY, 1, 5),               /* ours */
+    PAGE(12) TIME(81, "ATTACK", "ATTACK", FM_PARAM_FILTER_ENV_ATTACK_MS),
+    TIME(82, "DECAY", "DECAY", FM_PARAM_FILTER_ENV_DECAY_MS),
+    LIVE(83, "SUSTAIN", "SUSTAIN", FM_PARAM_FILTER_ENV_SUSTAIN, 10, 50),
+    TIME(84, "RELEASE", "RELEASE", FM_PARAM_FILTER_ENV_RELEASE_MS),
+    PAGE(13) CHOICE(85, "KEY", "KEY FOLLOW", FM_PARAM_FILTER_ENV_KEY_FOLLOW, KEY_ORDER),
+    PAGE(14) TIME(91, "ATTACK", "ATTACK", FM_PARAM_AMP_ATTACK_MS),
+    TIME(92, "DECAY", "DECAY", FM_PARAM_AMP_DECAY_MS),
+    LIVE(93, "SUSTAIN", "SUSTAIN", FM_PARAM_AMP_SUSTAIN, 10, 50),
+    TIME(94, "RELEASE", "RELEASE", FM_PARAM_AMP_RELEASE_MS),
+    PAGE(15) CHOICE(95, "KEY", "KEY FOLLOW", FM_PARAM_AMP_KEY_FOLLOW, KEY_ORDER),
     PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS, 0, 0, 0},
     LIVE(52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, 100, 400),
     LIVE(53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, 10, 50),
@@ -88,3 +108,17 @@ const uint8_t UI_RING_SEL[] = {0, 1, 2, 3, 4, 5, 6, UI_RING_END};
 const uint8_t UI_RING_ENV[] = {7, 8, 12, 13, 14, 15, UI_RING_END};
 const uint8_t UI_RING_FX[] = {9, 10, UI_RING_END};
 const uint8_t UI_RING_LFO[] = {11, 16, 17, UI_RING_END};
+
+/* interaction.md, units: the time table, 0 to 32000 ms. 0..22 as listed, then each the readable
+ * value nearest 7 % up (whole ms below 100, 5 ms below 1 s, 50 ms below 10 s, then 500 ms) */
+const uint16_t UI_TIMES[UI_TIME_COUNT] = {
+    0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 22,
+    24, 26, 28, 30, 32, 34, 36, 39, 42, 45, 48, 51, 55, 59,
+    63, 67, 72, 77, 82, 88, 94, 100, 105, 110, 120, 130, 140, 150,
+    160, 170, 180, 195, 210, 225, 240, 255, 275, 295, 315, 335, 360, 385,
+    410, 440, 470, 505, 540, 580, 620, 665, 710, 760, 815, 870, 930, 995,
+    1050, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1950, 2100, 2250, 2400, 2550,
+    2750, 2950, 3150, 3350, 3600, 3850, 4100, 4400, 4700, 5050, 5400, 5800, 6200, 6650,
+    7100, 7600, 8150, 8700, 9300, 9950, 10500, 11000, 12000, 13000, 14000, 15000, 16000, 17000,
+    18000, 19500, 21000, 22500, 24000, 25500, 27500, 29500, 31500, 32000,
+};

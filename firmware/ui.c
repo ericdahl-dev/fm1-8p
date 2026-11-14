@@ -105,6 +105,29 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_u(num, (uint32_t)value);
     } else if (id == FM_PARAM_OSC1_LEVEL || id == FM_PARAM_OSC2_LEVEL || id == FM_PARAM_OSC_MIX_ENV) {
         num = put_u(num, ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u);    /* 0..100 */
+    } else if (id == FM_PARAM_AMP_ATTACK_MS || id == FM_PARAM_AMP_DECAY_MS || id == FM_PARAM_AMP_RELEASE_MS ||
+               id == FM_PARAM_FILTER_ENV_ATTACK_MS || id == FM_PARAM_FILTER_ENV_DECAY_MS ||
+               id == FM_PARAM_FILTER_ENV_RELEASE_MS || id == FM_PARAM_LFO_DELAY_MS) {
+        uint32_t ms = (uint32_t)(value < 0 ? 0 : value);   /* 999 ms, 1.25 s, 12.5 s */
+        if (ms < 1000u)
+            num = put_u(num, ms), u = "ms";
+        else
+            num = put_3(num, ms), u = "s";
+    } else if (id == FM_PARAM_AMP_SUSTAIN || id == FM_PARAM_FILTER_ENV_SUSTAIN || id == FM_PARAM_AMP_LEVEL) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);     /* 0..100 */
+    } else if (id == FM_PARAM_AMP_KEY_FOLLOW || id == FM_PARAM_FILTER_ENV_KEY_FOLLOW) {
+        uint32_t k = (uint32_t)(value < 0 ? 0 : value + 130) / 260u;      /* the JX's positions */
+        if (k)
+            num = put_u(num, k > 3u ? 3u : k);
+        else
+            num = put_str(num, "OFF");
+    } else if (id == FM_PARAM_AMP_GATE) {
+        num = put_str(num, value ? "GATE" : "ENV2");
+    } else if (id == FM_PARAM_CHORUS_MODE) {
+        static const char *const CH[4] = {"OFF", "I", "II", "FAST"};
+        num = put_str(num, CH[value < 0 ? 0 : value > 3 ? 3 : value]);
+    } else if (id == FM_PARAM_AMP_VELOCITY) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
     } else if (id == FM_PARAM_OSC_XMOD) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
     } else if (id == FM_PARAM_PITCH_ENV_SOURCE || id == FM_PARAM_OSC_MIX_ENV_SOURCE ||
@@ -283,6 +306,14 @@ void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
 void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b)
 {
     int32_t max;
+    if (sl->how == UI_HOW_TIME) {               /* its place in the time table */
+        int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
+        while (i < n - 1 && UI_TIMES[i + 1] <= value)
+            i++;
+        *a = 0;
+        *b = (2 * w * i + (n - 1)) / (2 * (n - 1));
+        return;
+    }
     if (sl->how != UI_HOW_SIZE) {
         ui_meter_bar(sl->id, value, w, a, b);
         return;
@@ -396,6 +427,8 @@ int ui_slot_active(const ui *u, const ui_slot *sl)
         return play_get_param(u->p, FM_PARAM_OSC1_WAVE) == FM_WAVE_PULSE;
     if (sl->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT)
         return play_get_param(u->p, FM_PARAM_OSC2_WAVE) == FM_WAVE_PULSE;
+    if (sl->id == FM_PARAM_AMP_VELOCITY)        /* the curve DYNAMICS OFF uses */
+        return play_get_param(u->p, FM_PARAM_AMP_DYNA) == 0;
     return 1;
 }
 
@@ -410,6 +443,48 @@ static int inverted(const ui *u, uint16_t depth)
 {
     int32_t d = play_get_param(u->p, depth);
     return d < 0 || (d == 0 && u->inv & inv_bit(depth));
+}
+
+/* e^(-4 t) for t per mille, per mille (2^(-5.771 t) by exp2_q8) */
+static int32_t decay4(uint32_t t)
+{
+    return (int32_t)(exp2_q8(-(int32_t)(t * 23638u / 1000u)) * 1000u / 256u);
+}
+
+int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n)
+{
+    /* stage widths in tenths: attack 6 + 60 a, decay 8 + 70 d, hold 34, release 8 + 70 r */
+    uint32_t ta = 60u + 600u * a / 1000u, td = 80u + 700u * d / 1000u, th = 340u, tr = 80u + 700u * r / 1000u;
+    uint32_t x = n > 1u ? (ta + td + th + tr) * i / (n - 1u) : 0;
+    if (x < ta)
+        return (int32_t)(1000u * x / ta);
+    x -= ta;
+    if (x < td)
+        return (int32_t)s + (int32_t)(1000u - s) * decay4(1000u * x / td) / 1000;
+    x -= td;
+    if (x < th)
+        return (int32_t)s;
+    x -= th;
+    x = x > tr ? tr : x;
+    {
+        uint32_t t = 1000u * x / tr;
+        return (int32_t)s * decay4(t) / 1000 * (int32_t)(1000u - t) / 1000;
+    }
+}
+
+uint32_t ui_time_count(void) { return UI_TIME_COUNT; }
+
+int32_t ui_time_at(uint32_t i) { return UI_TIMES[i < UI_TIME_COUNT ? i : UI_TIME_COUNT - 1u]; }
+
+int32_t ui_time_step(int32_t ms, int32_t clicks)
+{
+    int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
+    while (i < n - 1 && UI_TIMES[i + 1] <= ms)  /* the last entry at or below ms */
+        i++;
+    if (clicks < 0 && UI_TIMES[i] < ms)         /* between entries: that one is already a click down */
+        clicks++;
+    i += clicks;
+    return UI_TIMES[i < 0 ? 0 : i >= n ? n - 1 : i];
 }
 
 int32_t ui_slot_value(const ui *u, const ui_slot *sl)
@@ -472,6 +547,9 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
                 clicks -= way;
             }
         set_slot(u, s, s->order[i]);
+    } else if (s->how == UI_HOW_TIME) {         /* the time table: an entry a click, four a fast one */
+        play_set_param(u->p, s->id, ui_time_step(play_get_param(u->p, s->id),
+                                                 clicks >= 3 || clicks <= -3 ? 4 * clicks : clicks));
     } else if (s->id == FM_PARAM_LFO_PITCH_CENTS || s->id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
         int32_t v = play_get_param(u->p, s->id), way = clicks > 0 ? 1 : -1, fast = clicks >= 3 || clicks <= -3;
         for (; clicks; clicks -= way) {         /* 1 to 99 ct by 1 (fast 10), from 100 by 10 (fast 50) */
@@ -485,8 +563,9 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
     if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
         s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
-        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT)
-        u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, or the waveform */
+        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT ||
+        (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
+        u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, the waveform, the ADSR */
     u->focus = k;
 }
 
@@ -532,6 +611,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         ring_step(u, UI_RING_ENV);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && tap)      /* (a hold: the number jump) */
         ring_step(u, UI_RING_SEL);
+    else if (ev == (UI_EV_BTN_DOWN | UI_BTN_FX))
+        ring_step(u, UI_RING_FX);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)
