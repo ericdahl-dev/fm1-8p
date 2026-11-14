@@ -659,13 +659,26 @@ static void jump_to(ui *u, int32_t n, int typed, uint32_t ms)
     }
 }
 
-/* 1: the edit page's slot picture draws s's value (the curve, the waveform, an ENV page's ADSR) */
-static int slot_draws(const ui *u, const ui_slot *s)
+/* What redraws once slot s's value changed (a knob or a CC): its column where the screen shows it, and
+ * in EDIT the slot picture when it is s's section's (on either of its pages) and draws s (the curve,
+ * the waveform, an ENV page's ADSR). VOICE MODE redraws its page's columns (08 DETUNE's activity
+ * follows it). */
+static uint32_t slot_redraw(const ui *u, const ui_slot *s)
 {
-    return s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
-           s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
-           s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
-           (u->page >= 12u && u->page <= 15u);  /* (an ENV page: any of its ADSR) */
+    uint32_t k, d = 0, sp = (uint32_t)(s - UI_SLOTS) / 4u;
+    if (u->state != UI_PLAY && u->state != UI_EDIT)
+        return 0;                               /* (GLO, SAVE: they redraw it all when they close) */
+    for (k = 0; k < 4u; k++)
+        if (ui_page_slot(u, k) == s)
+            d |= s->id == FM_PARAM_VOICE_MODE ? UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3)
+                                             : UI_D_COL(k);
+    if (u->state == UI_EDIT && UI_PAGE_INFO[sp].name[0] == UI_PAGE_INFO[u->page].name[0] &&
+        (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
+         s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
+         s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
+         (sp >= 12u && sp <= 15u)))             /* (an ENV page: any of its ADSR) */
+        d |= UI_D_SLOT;
+    return d;
 }
 
 static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
@@ -703,11 +716,8 @@ static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
     if (u->state == UI_PLAY) {                  /* the focus row reads the knob for 3 s; the slot is the badge */
         u->readout = 1;
         u->readout_ms = ms;
-    } else if (slot_draws(u, s)) {
-        u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, the waveform, the ADSR */
     }
-    if (s->id == FM_PARAM_VOICE_MODE)           /* 08 DETUNE's activity follows it, on the same page */
-        u->dirty |= UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3);
+    u->dirty |= slot_redraw(u, s);
     u->focus = k;
 }
 
@@ -937,6 +947,8 @@ static void cc_ignored(ui *u, uint32_t cc, uint32_t v, uint32_t ms)
     static const char TAIL[] = " (PICKUP)";
     char *s = u->cc_msg;
     uint32_t i;
+    if (u->state == UI_SAVE || (u->warned && ms - u->warned_ms < UI_DISCARD_MS))
+        return;                                 /* (a banner that asks something stays up) */
     *s++ = 'C', *s++ = 'C', *s++ = ' ';
     if (cc >= 100u)
         *s++ = (char)('0' + cc / 100u);
@@ -957,7 +969,6 @@ static void cc_ignored(ui *u, uint32_t cc, uint32_t v, uint32_t ms)
 int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
 {
     const ui_slot *s = cc_slot(cc);
-    uint32_t k;
     if (!s || !u->set.cc_recv || value > 127u)
         return 0;
     if (s->order) {                             /* a choice: equal bands, one per knob position; no pickup */
@@ -974,12 +985,9 @@ int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
     } else {
         set_slot(u, s, cc_value(s, value));
     }
-    for (k = 0; k < 4u; k++)                    /* on the page shown: its column redraws, the focus stays */
-        if (ui_page_slot(u, k) == s) {
-            u->dirty |= UI_D_COL(k) | (k == u->focus ? UI_D_FOCUS : 0u);
-            if (u->state == UI_EDIT && slot_draws(u, s))
-                u->dirty |= UI_D_SLOT;
-        }
+    u->dirty |= slot_redraw(u, s);              /* what shows it redraws; the focus stays */
+    if (u->focus < 4u && ui_page_slot(u, u->focus) == s && (u->state == UI_PLAY || u->state == UI_EDIT))
+        u->dirty |= UI_D_FOCUS;
     return 1;
 }
 

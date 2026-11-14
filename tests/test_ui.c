@@ -2220,6 +2220,11 @@ TT_TEST(ui_cc_lands_where_a_knob_does)
         ui_settle();
         TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS), knob);
     }
+    ui_setup();                                               /* inside the range: the same path */
+    ui_cc(&ui_u, 52, 64, 0);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS),
+                play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS));
 }
 
 /* docs/ui/interaction.md's CC map table is the code's: a row per slot (live or waiting), each with its
@@ -2259,6 +2264,55 @@ TT_TEST(ui_cc_map_doc_matches_the_code)
     TT_CHECK_EQ(rows, slots);
 }
 
+/* The slot picture is the section's, on both its pages: CC 52 CUTOFF while 5B is up redraws the curve
+ * (no column of 5B has it); a CC to another section's parameter doesn't. CC 108 (07 VOICE MODE) on 0B
+ * redraws all four columns, as a turn of it does (08 DETUNE's activity follows it). Off the page, a
+ * CC still edits the patch: the footer redraws with EDITED. */
+TT_TEST(ui_cc_redraws_the_sections_picture_and_followers)
+{
+    ui_setup();
+    ui_tap(UI_BTN_ENV, 0);                                    /* 5A */
+    ui_tap(UI_BTN_ENV, 200);                                  /* 5B */
+    TT_CHECK_EQ(ui_u.page, 8u);
+    (void)ui_take(&ui_u, 1000);
+    ui_cc(&ui_u, 52, 20, 1100);
+    TT_CHECK(ui_take(&ui_u, 1200) & UI_D_SLOT);
+    ui_cc(&ui_u, 81, 20, 1300);                               /* ENV-1 ATTACK: not this picture */
+    TT_CHECK_EQ(ui_take(&ui_u, 1400) & UI_D_SLOT, 0u);
+    TT_CHECK(play_edited(&ui_p));
+    ui_setup();
+    ui_tap(UI_BTN_LFO, 0);                                    /* 7A, 0A, 0B */
+    ui_tap(UI_BTN_LFO, 200);
+    ui_tap(UI_BTN_LFO, 400);
+    TT_CHECK_EQ(ui_u.page, 17u);
+    (void)ui_take(&ui_u, 1000);
+    ui_cc(&ui_u, 108, 127, 1100);
+    TT_CHECK_EQ(ui_take(&ui_u, 1200) & (UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3)),
+                UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3));
+    ui_setup();                                               /* PLAY: an off-page CC, the footer */
+    (void)ui_take(&ui_u, 1000);
+    ui_cc(&ui_u, 81, 20, 1100);
+    TT_CHECK(play_edited(&ui_p));
+    TT_CHECK(ui_take(&ui_u, 1200) & UI_D_FOOT);
+}
+
+/* A PICKUP banner never hides a banner that asks something: PRESETS' discard warning (a second turn
+ * discards, so it must stay on screen) and SAVE's screens. The CC is still ignored. */
+TT_TEST(ui_cc_pickup_banner_leaves_the_warnings_up)
+{
+    const char *warn;
+    int32_t mid;
+    ui_setup();
+    mid = ui_cc_jump(64);                                     /* an edit: cutoff to 64 on the CC scale */
+    ui_u.set.ext_cc = 1;                                      /* PICKUP */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1000);     /* the discard warning */
+    warn = ui_banner(&ui_u);
+    TT_CHECK(*warn);
+    ui_cc(&ui_u, 52, 0, 1100);                                /* far from 64: ignored */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), mid);
+    TT_CHECK(ui_banner(&ui_u) == warn);
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_cc_sets_its_parameter);
@@ -2271,6 +2325,8 @@ static void run_ui_tests(void)
     TT_RUN(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs);
     TT_RUN(ui_cc_lands_where_a_knob_does);
     TT_RUN(ui_cc_map_doc_matches_the_code);
+    TT_RUN(ui_cc_redraws_the_sections_picture_and_followers);
+    TT_RUN(ui_cc_pickup_banner_leaves_the_warnings_up);
     TT_RUN(ui_theme_applies_after_its_debounce);
     TT_RUN(ui_glo_knobs_and_pages);
     TT_RUN(ui_glo_table_is_well_formed);
