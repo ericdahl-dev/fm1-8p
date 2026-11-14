@@ -1618,6 +1618,20 @@ TT_TEST(ui_play_readout_ends_with_the_visit)
     TT_CHECK(!ui_play_readout(&ui_u, 1700));
 }
 
+/* The same in PLAY: under the jump screen the performance knobs don't turn (Eric's choice (a)). */
+TT_TEST(ui_jump_screen_holds_the_knobs_in_play)
+{
+    int32_t cut;
+    ui_setup();
+    cut = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 3, 1500);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
+    TT_CHECK(!ui_play_readout(&ui_u, 1600));
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1660,6 +1674,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_jump_screen_holds_the_knobs_in_play);
     TT_RUN(ui_play_readout_ends_with_the_visit);
     TT_RUN(ui_jump_screen_comes_and_goes);
     TT_RUN(ui_jump_digits_and_sections);
