@@ -384,9 +384,10 @@ class Screen:
 THEMES = {
     "membrane": dict(
         name="MEMBRANE",
-        bg="#1B1D20", surface="#26292D", surface_hi="#30343A", line="#3C4148", text="#ECE6D6",
-        dim="#A6A298", ink="#121314", window="#0C0D0E",
-        led="#FF3020",              # one red for every LED window
+        # the JX-8P's and PG-800's colors: the body's neutral charcoal gray, off-white lettering
+        bg="#252525", surface="#2F2F2F", surface_hi="#383838", line="#505050", text="#F4F2EC",
+        dim="#B8B8B4", ink="#141414", window="#0A0A0A",
+        led="#FF6A3F",              # one red for every LED window (the red buttons')
         ghost=0.10,                 # unlit segments: this much of the LED color in the window
         header="chip",              # section name on a chip of its color
         meter_segments=0,           # 0: one continuous bar
@@ -394,12 +395,14 @@ THEMES = {
         focus=(1.0, 1.0),           # frames inward from the edge, as mixes of bg -> accent
         hatch=0.0,                  # fill under graph curves (0: none)
         art="badge",                # what fills the graph slot on PLAY
-        playhead="#ECE6D6", cursor="#FF3020", tie_mix=0.45,
-        black_key="#121314",        # the key strip's black keys
+        playhead="#F4F2EC", cursor="#FF6A3F", tie_mix=0.45,
+        black_key="#141414",        # the key strip's black keys
         index=0, short="MEMB",      # THEME's value: its index, and its label in a 56 px column
-        sec={"DCO-1": "#E8823A", "DCO-2": "#E8B83A", "MIX": "#C8C0A8", "VCF": "#4FB0D0", "VCF ENV": "#D86A98",
-             "VCA": "#88C860", "LFO": "#9A88E0", "CTRL": "#50C8B8", "SEQ": "#F86A6A", "GLO": "#C8C0A8",
-             "PLAY": "#ECE6D6"},
+        # the buttons: red (COPY/WRITE), amber (KEY MODE, AFTER TOUCH), cream (TONE), gray (EDIT),
+        # sky blue (PATCH CHAIN/MIDI), the script's orange
+        sec={"DCO-1": "#FF6A3F", "DCO-2": "#FFC764", "MIX": "#E8E2CC", "VCF": "#6BA7FF", "VCF ENV": "#FFB889",
+             "VCA": "#B4B4B4", "LFO": "#A8CCFF", "CTRL": "#FFD26C", "SEQ": "#FF6A3F", "GLO": "#6BA7FF",
+             "PLAY": "#F4F2EC"},
         sun=["#FFD040", "#FFB038", "#FF8C38", "#FF6848", "#F04870", "#D03890"], grid=None, horizon=None,
     ),
     "night-panel": dict(

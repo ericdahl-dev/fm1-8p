@@ -4,9 +4,12 @@
 
 /* visual.md: Membrane */
 const ui_theme UI_MEMBRANE = {
-    .bg = 0x18E4u, .surface = 0x2145u, .surface_hi = 0x31A7u, .line = 0x3A09u, .text = 0xEF3Au,
-    .dim = 0xA513u, .ink = 0x1082u, .window = 0x0861u, .led = 0xF984u,
-    .section = {0xEC07u, 0xEDC7u, 0xCE15u, 0x4D9Au, 0xDB53u, 0x8E4Cu, 0x9C5Cu, 0x5657u, 0xFB4Du, 0xCE15u, 0xEF3Au},
+    /* the JX-8P's and PG-800's own colors (Eric, 2026-11-14): the body's neutral charcoal gray, off-white
+     * lettering, and the buttons' red, amber, cream, gray and sky blue as the sections, white-balanced
+     * from a photo (its room light made the body look brown) */
+    .bg = 0x2124u, .surface = 0x2965u, .surface_hi = 0x39C7u, .line = 0x528Au, .text = 0xF79Du,
+    .dim = 0xBDD6u, .ink = 0x10A2u, .window = 0x0841u, .led = 0xFB47u,
+    .section = {0xFB47u, 0xFE2Cu, 0xEF19u, 0x6D3Fu, 0xFDD1u, 0xB5B6u, 0xAE7Fu, 0xFE8Du, 0xFB47u, 0x6D3Fu, 0xF79Du},
     .ghost = 26u,                       /* 10 % */
     .chip = 1u,
     .meter_segments = 0u,
