@@ -197,10 +197,10 @@ const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT] = {
     {12, "CH OUT", "MIDI CHANNEL OUT", 1, UI_LIVE, 1, 4, 0, 0, 0},
     {13, "CLOCK", "CLOCK SOURCE", 2, UI_PENDING, 1, 1, CLOCK, 0, 0},          /* (#38) */
     {14, "CLKOUT", "CLOCK OUT", 3, UI_PENDING, 1, 1, OFF_ON, 0, 0},          /* (#38) */
-    {21, "CC IN", "CC RECEIVE", 4, UI_PENDING, 1, 1, OFF_ON, 0, 0},         /* (#49) */
-    {22, "CC OUT", "CC SEND", 5, UI_PENDING, 1, 1, OFF_ON, 0, 0},            /* (#49) */
+    {21, "CC IN", "CC RECEIVE", 4, UI_LIVE, 1, 1, OFF_ON, 0, 0},
+    {22, "CC OUT", "CC SEND", 5, UI_PENDING, 1, 1, OFF_ON, 0, 0},            /* (#49, CC send) */
     {23, "PROG", "PROGRAM CHANGE", 6, UI_PENDING, 1, 1, PROG, 0, 0},       /* (not built yet) */
-    {24, "EXT CC", "EXTERNAL CC", 7, UI_PENDING, 1, 1, EXT_CC, 0, 0},         /* (#49) */
+    {24, "EXT CC", "EXTERNAL CC", 7, UI_LIVE, 1, 1, EXT_CC, 0, 0},
     {31, "CURVE", "VELOCITY CURVE", 8, UI_LIVE, 5, 25, 0, 0, 0},
     {32, "FIXED", "FIXED VELOCITY", 9, UI_LIVE, 1, 10, 0, 0, 0},
     {33, "LEDS", "KEY LEDS", 10, UI_LIVE, 1, 1, OFF_ON, 0, 0},

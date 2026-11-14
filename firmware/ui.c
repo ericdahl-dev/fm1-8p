@@ -858,6 +858,8 @@ uint32_t ui_keypad_led(const ui *u, uint32_t k)
 static const ui_slot *cc_slot(uint32_t cc)
 {
     uint32_t i;
+    if (cc == 1u || cc == 7u || cc == 64u || cc >= 120u)  /* the standard CCs: mod wheel, volume, sustain, modes */
+        return 0;
     for (i = 0; i < UI_PAGES * 4u; i++)
         if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == cc)
             return &UI_SLOTS[i];
@@ -928,12 +930,12 @@ static void cc_ignored(ui *u, uint32_t cc, uint32_t v, uint32_t ms)
     show_banner(u, u->cc_msg, ms);
 }
 
-void ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
+int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
 {
     const ui_slot *s = cc_slot(cc);
     uint32_t k;
     if (!s || !u->set.cc_recv || value > 127u)
-        return;
+        return 0;
     if (s->order) {                             /* a choice: equal bands, one per knob position; no pickup */
         int32_t max = s->how == UI_HOW_PLAIN ? fm_param_info_get(s->id)->max : 3, at[16];
         uint32_t i, n = 0;
@@ -944,7 +946,7 @@ void ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
             set_slot(u, s, at[value * n / 128u]);
     } else if (u->set.ext_cc && !cc_pick(u, s, (uint32_t)(s - UI_SLOTS), value)) {
         cc_ignored(u, cc, value, ms);
-        return;
+        return 1;
     } else {
         set_slot(u, s, cc_value(s, value));
     }
@@ -954,6 +956,7 @@ void ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
             if (u->state == UI_EDIT && slot_draws(u, s))
                 u->dirty |= UI_D_SLOT;
         }
+    return 1;
 }
 
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)

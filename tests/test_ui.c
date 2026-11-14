@@ -1824,7 +1824,7 @@ TT_TEST(ui_glo_table_is_well_formed)
         TT_CHECK_EQ(g->num, num);
         TT_CHECK(g->label && strlen(g->label) <= 6u && g->full && strlen(g->full) <= 20u);   /* (7 touch) */
         TT_CHECK(g->setting < UI_SETTINGS_COUNT);
-        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || (num >= 21 && num <= 24) ? UI_PENDING : UI_LIVE));
+        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || num == 22 || num == 23 ? UI_PENDING : UI_LIVE));
     }
     TT_CHECK_EQ(UI_GLO_SLOTS[11].setting, 11u);                /* G34 THEME */
 }
@@ -1862,9 +1862,14 @@ TT_TEST(ui_glo_knobs_and_pages)
     TT_CHECK_EQ(ui_u.set.clock_src, 0u);
     TT_CHECK_EQ(ui_u.focus, 0u);
     TT_CHECK(ui_glo_reads(2, "--"));
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);       /* G2x: all wait */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);       /* G2x: G21 and G24 live (#49) */
     TT_CHECK_EQ(ui_u.glo_page, 1u);
-    TT_CHECK_EQ(ui_u.focus, 4u);
+    TT_CHECK_EQ(ui_u.focus, 0u);                                /* (G22 waits: the first live, G21) */
+    TT_CHECK(ui_glo_reads(0, "ON"));
+    TT_CHECK(ui_glo_reads(1, "--"));
+    TT_CHECK(ui_glo_reads(3, "JUMP"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1450);        /* G24 to PICKUP */
+    TT_CHECK_EQ(ui_u.set.ext_cc, 1u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1500);       /* G3x */
     TT_CHECK_EQ(ui_u.glo_page, 2u);
     TT_CHECK(ui_glo_reads(0, "100"));
@@ -2132,6 +2137,35 @@ TT_TEST(ui_cc_during_compare_reaches_the_edit_buffer)
     TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), want);
 }
 
+/* ui_cc says whether it took the CC, so the module passes the rest on to the engine: sustain (64), all
+ * sound off (120), all notes off (123) and any CC off the map; with G21 OFF, every one. */
+TT_TEST(ui_cc_leaves_the_engines_ccs_to_it)
+{
+    ui_setup();
+    TT_CHECK(ui_cc(&ui_u, 52, 10, 0));
+    TT_CHECK(!ui_cc(&ui_u, 64, 127, 0));
+    TT_CHECK(!ui_cc(&ui_u, 120, 0, 0));
+    TT_CHECK(!ui_cc(&ui_u, 123, 0, 0));
+    TT_CHECK(!ui_cc(&ui_u, 13, 10, 0));                       /* 13 TUNE: pending */
+    ui_u.set.cc_recv = 0;
+    TT_CHECK(!ui_cc(&ui_u, 52, 10, 0));
+}
+
+/* With #49, G21 CC RECEIVE and G24 EXTERNAL CC are live in GLO; G22 CC SEND still waits */
+TT_TEST(ui_glo_cc_settings_are_live)
+{
+    uint32_t i, seen = 0;
+    for (i = 0; i < UI_GLO_SLOTS_COUNT; i++) {
+        if (UI_GLO_SLOTS[i].num == 21u || UI_GLO_SLOTS[i].num == 24u) {
+            TT_CHECK_EQ(UI_GLO_SLOTS[i].kind, (uint8_t)UI_LIVE);
+            seen++;
+        }
+        if (UI_GLO_SLOTS[i].num == 22u)
+            TT_CHECK_EQ(UI_GLO_SLOTS[i].kind, (uint8_t)UI_PENDING);
+    }
+    TT_CHECK_EQ(seen, 2u);
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_cc_sets_its_parameter);
@@ -2139,6 +2173,8 @@ static void run_ui_tests(void)
     TT_RUN(ui_cc_choices_take_bands_and_times_their_table);
     TT_RUN(ui_cc_pickup_waits_for_the_value);
     TT_RUN(ui_cc_during_compare_reaches_the_edit_buffer);
+    TT_RUN(ui_cc_leaves_the_engines_ccs_to_it);
+    TT_RUN(ui_glo_cc_settings_are_live);
     TT_RUN(ui_theme_applies_after_its_debounce);
     TT_RUN(ui_glo_knobs_and_pages);
     TT_RUN(ui_glo_table_is_well_formed);
