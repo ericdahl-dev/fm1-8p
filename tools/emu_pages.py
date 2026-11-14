@@ -4,7 +4,8 @@ each screen's worst draw() call when the screen changes ("fm1-8p PAGES", FM1_DEB
 
 usage: emu_pages.py keys PART     part PART's run length in ms, then its key script (fm1-live's
                                   FM1_BENCH_KEYS); parts 0..6 (PARTS)
-       emu_pages.py report LOG...   a Markdown table of the worst draw call per screen (exit 1: none)
+       emu_pages.py report LOG...   a Markdown table of the worst draw call per screen, judged against
+                                  visual.md's 5 ms budget (exit 1: a screen over it, or no lines)
 
 The tour: every edit page with each knob turned once; PLAY with a knob turned; GLO through its three
 pages; SAVE with a letter changed, then HOME; the number jump's screen (SEL held)."""
@@ -15,6 +16,7 @@ PAGES = ["1A", "1B", "2A", "2B", "3A", "4A", "4B", "5A", "5B", "6A", "6B", "7A",
          "9A", "9B", "0A", "0B"]
 STATES = ["PLAY", "EDIT", "SAVE", "GLO"]
 TICKS_PER_MS = 24000                    # the FM-1's tick: 24 MHz
+BUDGET_MS = 5                           # visual.md: a draw() call takes at most 5 ms (Eric)
 DWELL = 600                             # ms on each screen
 PARTS = 7
 
@@ -89,10 +91,15 @@ def report(texts):
     if not worst:
         print("**No per-screen lines (\"fm1-8p PAGES\"): run the debug build (FM1_DEBUG=1).**")
         return 1
-    print("| Screen | Worst draw() call |")
-    print("| --- | --- |")
+    over = [n for n, w in worst.items() if w > BUDGET_MS * TICKS_PER_MS]
+    print("| Screen | Worst draw() call | Within %d ms |" % BUDGET_MS)
+    print("| --- | --- | --- |")
     for name, w in sorted(worst.items(), key=lambda kv: -kv[1]):
-        print("| %s | %.2f ms (%d ticks) |" % (name, w / TICKS_PER_MS, w))
+        print("| %s | %.2f ms (%d ticks) | %s |" % (name, w / TICKS_PER_MS, w,
+                                                  "**no**" if name in over else "yes"))
+    if over:
+        print("\n**Over the %d ms budget: %s.**" % (BUDGET_MS, ", ".join(sorted(over))))
+        return 1
     return 0
 
 
