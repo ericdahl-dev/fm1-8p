@@ -102,6 +102,14 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         u = id == FM_PARAM_OSC2_COARSE_SEMIS ? "st" : "ct";
     } else if (id == FM_PARAM_OSC1_PULSE_WIDTH_PCT || id == FM_PARAM_OSC2_PULSE_WIDTH_PCT) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
+    } else if (id == FM_PARAM_PITCH_ENV_DYNA || id == FM_PARAM_OSC_MIX_ENV_DYNA ||
+               id == FM_PARAM_FILTER_ENV_DYNA || id == FM_PARAM_AMP_DYNA) {    /* DYNAMICS */
+        if (value <= 0)
+            num = put_str(num, "OFF");
+        else
+            num = put_u(num, (uint32_t)value);
+    } else if (id == FM_PARAM_OSC_XMOD) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
     } else if (id == FM_PARAM_OSC_SYNC) {       /* 23 X-MOD's sync | ring << 1 (CROSS MOD) */
         static const char *const XMOD[4] = {"OFF", "SYNC 1", "X-MOD", "SYNC 2"};
         num = put_str(num, XMOD[value & 3]);

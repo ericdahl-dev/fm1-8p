@@ -732,14 +732,14 @@ TT_TEST(ui_dco_values_read_as_the_panel)
     TT_CHECK(ui_shows(FM_PARAM_OSC1_PULSE_WIDTH_PCT, 50, "50 %"));
 }
 
-/* SEL steps its ring (interaction.md 4): 1A, 1B, 2A, 2B, then pages not built yet are skipped
- * (3A, 4A, 4B) and it comes back to 1A. */
+/* SEL steps its ring (interaction.md 4): 1A, 1B, 2A, 2B, 3A, then pages not built yet are skipped
+ * (4A, 4B) and it comes back to 1A. */
 TT_TEST(ui_sel_walks_the_dco_pages)
 {
-    static const uint8_t WANT[5] = {11, 15, 21, 25, 11};
+    static const uint8_t WANT[6] = {11, 15, 21, 25, 31, 11};
     uint32_t i;
     ui_setup();
-    for (i = 0; i < 5u; i++) {
+    for (i = 0; i < 6u; i++) {
         ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
         ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
         TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, WANT[i]);
@@ -841,6 +841,29 @@ TT_TEST(ui_lfo_depth_steps_finer_below_100)
     }
 }
 
+/* SEL's ring goes on to 3A DCO ENV (interaction.md 3, 3x): 31 DYNA (OFF, 1, 2, 3), 32 MODE,
+ * 33 XMOD AMT (osc_xmod_permille, 0..100 %). */
+static void ui_sel_to(uint32_t times)
+{
+    uint32_t i;
+    for (i = 0; i < times; i++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
+        ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
+    }
+}
+
+TT_TEST(ui_sel_reaches_dco_env)
+{
+    ui_setup();
+    ui_sel_to(5);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 31);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->id, FM_PARAM_PITCH_ENV_DYNA);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->id, FM_PARAM_OSC_XMOD);
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_DYNA, 0, "OFF"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_DYNA, 2, "2"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC_XMOD, 450, "45 %"));
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -883,6 +906,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_sel_reaches_dco_env);
     TT_RUN(ui_lfo_depth_steps_finer_below_100);
     TT_RUN(ui_width_is_inactive_off_pulse);
     TT_RUN(ui_wave_turn_redraws_the_picture);

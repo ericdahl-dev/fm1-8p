@@ -35,6 +35,8 @@ static const int8_t XMOD_ORDER[4] = {0, 1, 3, 2};
 /* RANGE, 32' (ours) to 2'; WAVE, SAW, PULSE, SQUARE, NOISE (the engine's order is the panel's) */
 static const int8_t RANGE_ORDER[5] = {-2, -1, 0, 1, 2};
 static const int8_t WAVE_ORDER[4] = {0, 1, 2, 3};
+/* DYNAMICS: OFF, 1, 2, 3 */
+static const int8_t DYNA_ORDER[4] = {0, 1, 2, 3};
 #define CHOICE(n, l, f, id, o) {n, l, f, id, UI_LIVE, 1, 1, o, sizeof o, (1u << sizeof o) - 1u, 0, 0}
 
 #define LIVE(n, l, f, id, st, fa) {n, l, f, id, UI_LIVE, st, fa, 0, 0, 0, 0, 0}
@@ -58,6 +60,9 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     LIVE(26, "LFO", "LFO DEPTH", FM_PARAM_LFO_PITCH_OSC2_CENTS, 1, 10),
     LIVE(27, "ENV", "ENV DEPTH", FM_PARAM_PITCH_ENV_OSC2_CENTS, 10, 100),
     LIVE(28, "WIDTH", "PULSE WIDTH", FM_PARAM_OSC2_PULSE_WIDTH_PCT, 1, 5),
+    PAGE(4) CHOICE(31, "DYNA", "DYNAMICS", FM_PARAM_PITCH_ENV_DYNA, DYNA_ORDER),
+    PEND(32, "MODE", "ENV MODE"),
+    LIVE(33, "XMOD AMT", "X-MOD AMOUNT", FM_PARAM_OSC_XMOD, 10, 50),     /* ours */
     PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS, 0, 0},
     LIVE(52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, 100, 400),
     LIVE(53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, 10, 50),
