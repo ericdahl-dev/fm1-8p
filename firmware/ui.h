@@ -20,6 +20,7 @@
 #define UI_BTN_SAVE    9u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
 #define UI_ENC_SELECT  0u
+#define UI_ENC_ALGORITHM 1u
 #define UI_ENC_KNOB1   2u
 #define UI_ENC_KNOB2   3u
 #define UI_ENC_KNOB3   4u
@@ -56,6 +57,8 @@ typedef struct {
     uint32_t save_step;                 /* UI_SAVE_EDITING, UI_SAVE_CONFIRM */
     uint32_t save_cursor;               /* the name's character being edited, 0..11 */
     uint32_t save_waiting;              /* 1: a snapshot waits for silence to be written */
+    int32_t jump;                       /* the number jump: -1 SEL up; 0 held, no digit; 1..10 a first digit + 1 */
+    uint32_t jump_keys;                 /* keys taken by it while SEL is held (bit k: key k), so their ups go too */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
@@ -115,18 +118,28 @@ uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
 int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n);
 /* 0 while a slot does nothing to the sound (shown dim, no meter): WIDTH off a pulse wave */
 int ui_slot_active(const ui *u, const ui_slot *sl);
+/* 7A's picture: the LFO wave's (fm_lfo_wave) level, -1000..+1000, at column i of n, two cycles across
+ * (random: a fixed level each cycle) */
+int32_t ui_lfo_level(uint32_t wave, uint32_t i, uint32_t n);
 /* the ENV pages' ADSR picture (render.py's env_points): the level, per mille, at column i of n, for knob
  * positions a, d, r and sustain s (per mille): a linear attack, exponential decay and release */
 int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n);
 /* the time table (interaction.md, units): its size, entry i, and a time clicks entries on (a time
  * not in it snaps to the next entry the way of the turn first), clamped at both ends */
 uint32_t ui_time_count(void);
+uint32_t ui_rate_count(void);           /* the same for the LFO rate table, centihertz */
+int32_t ui_rate_at(uint32_t i);
 int32_t ui_time_at(uint32_t i);
 int32_t ui_time_step(int32_t ms, int32_t clicks);
 /* a slot's value: its param's, or a paired slot's two as id | id2 << 1 */
 int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
+/* a key (0..PLAY_KEYS-1) going down or up: 1 when the UI takes it (SEL held: the number jump's keypad,
+ * and the key makes no sound), 0 when it plays */
+int ui_key(ui *u, uint32_t k, int down, uint32_t ms);
+/* key k's LED as the keypad has it: UI_LED_GLOW for a digit key while SEL is held, else UI_LED_OFF */
+uint32_t ui_keypad_led(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 /* the banner's message ("": none) */

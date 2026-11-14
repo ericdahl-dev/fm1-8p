@@ -1130,7 +1130,8 @@ TT_TEST(ui_focus_opens_on_a_live_slot)
 }
 
 /* Every slot in the table (interaction.md 3): an empty one has no label; the rest have a label of
- * at most 7 characters (a column's width) and a full one, and their number is the page's section
+ * at most 7 characters (a column's width) and a full one that fits the focus row after the section's
+ * name (20 characters of Terminus, 163 px), and their number is the page's section
  * and the knob (page 5A's KNOB3 is 53); a live one names an engine param. */
 TT_TEST(ui_map_table_is_well_formed)
 {
@@ -1147,6 +1148,9 @@ TT_TEST(ui_map_table_is_well_formed)
             if (strlen(sl->label) > 7u || sl->num != sec * 10u + knob)
                 printf("    slot %u: \"%s\" on page %s knob %u\n", sl->num, sl->label, UI_PAGE_INFO[p].name, k + 1u);
             TT_CHECK(strlen(sl->label) <= 7u && sl->full != 0);
+            if (strlen(UI_PAGE_INFO[p].section) + 1u + strlen(sl->full) > 20u)  /* the focus row: 163 px */
+                printf("    slot %u: \"%s %s\" is over 20 characters\n", sl->num, UI_PAGE_INFO[p].section, sl->full);
+            TT_CHECK(strlen(UI_PAGE_INFO[p].section) + 1u + strlen(sl->full) <= 20u);
             TT_CHECK_EQ(sl->num, sec * 10u + knob);
             TT_CHECK(sl->kind != UI_LIVE || fm_param_info_get(sl->id) != 0);
         }
@@ -1162,8 +1166,8 @@ TT_TEST(ui_mode_column_is_short)
     TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_SOURCE, 3, "ENV2 INV"));
 }
 
-/* Whatever the buttons and knobs do, an edit page is a real one with a live slot, and the focus row
- * shows a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT and
+/* Whatever the buttons, keys and knobs do, an edit page is a real one, and the focus row shows no
+ * slot (focus 4) or a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT and
  * HOME taps, holds and every knob, many times over, in a fixed pseudo-random order. */
 TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
 {
@@ -1172,15 +1176,23 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
                                   UI_EV_BTN_DOWN | UI_BTN_EDIT, UI_EV_BTN_UP | UI_BTN_EDIT,
                                   UI_EV_BTN_DOWN | UI_BTN_HOME, UI_EV_BTN_UP | UI_BTN_HOME,
                                   UI_EV_ENC | UI_ENC_KNOB1, UI_EV_ENC | UI_ENC_KNOB2,
-                                  UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4};
+                                  UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4,
+                                  UI_EV_BTN_DOWN | UI_BTN_LFO, UI_EV_BTN_DOWN | UI_BTN_FX,
+                                  UI_EV_ENC | UI_ENC_SELECT, UI_EV_ENC | UI_ENC_ALGORITHM,
+                                  UI_EV_ENC | UI_ENC_PRESETS};
     uint32_t i, r = 12345u, ms = 0, bad = 0;
     ui_setup();
     for (i = 0; i < 20000u; i++) {
         const ui_slot *f;
         r = r * 1103515245u + 12345u;
         ms += (r >> 8) % 600u;                  /* taps and holds */
-        ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
+        if ((r >> 12) % 4u == 0)                /* a key now and then (the number jump's keypad) */
+            (void)ui_key(&ui_u, (r >> 20) % PLAY_KEYS, (int)((r >> 6) & 1u), ms);
+        else
+            ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
         if (ui_u.state != UI_EDIT)
+            continue;
+        if (ui_u.focus == 4u)                   /* no focus (a number with no parameter): an empty row */
             continue;
         f = ui_page_slot(&ui_u, ui_u.focus);
         if (ui_u.page >= UI_PAGES || ui_u.focus > 3u || f->kind == UI_RESERVED || !f->label || !f->full)
@@ -1317,6 +1329,204 @@ TT_TEST(ui_env_turn_redraws_the_adsr)
     TT_CHECK(ui_take(&ui_u, 500) & UI_D_SLOT);
 }
 
+/* LFO's ring (interaction.md 4): 7A LFO, 0A AFTERTOUCH (04 GLIDE live), 0B CONTROL. 7A: 71 WAVE in
+ * panel order (RANDOM, SQUARE, TRI, and our SAW), 72 DELAY a time, 73 RATE in Hz, 74 PW in %. */
+TT_TEST(ui_lfo_ring_and_page)
+{
+    static const uint8_t WANT[4] = {71, 1, 5, 71};
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 4u; i++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 100 * i);
+        TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, WANT[i]);
+    }
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_LFO), UI_LED_LIT);
+    TT_CHECK(ui_shows(FM_PARAM_LFO_WAVE, FM_LFO_RANDOM, "RANDOM"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_WAVE, FM_LFO_TRIANGLE, "TRI"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_DELAY_MS, 1500, "1.50 s"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_RATE_CENTIHZ, 585, "5.85 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_RATE_CENTIHZ, 3000, "30.0 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_RATE_CENTIHZ, 1, "0.01 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PW_PCT, 20, "20 %"));
+    play_set_param(&ui_p, FM_PARAM_LFO_WAVE, FM_LFO_RANDOM);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 900);         /* RANDOM -> SQUARE */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_WAVE), FM_LFO_SQUARE);
+}
+
+/* The LFO rate table (interaction.md, units): 0.01 Hz to 30.0 Hz, every 0.01 Hz to 0.17 Hz, then
+ * about 6 % apart (none above 8 %); 73 RATE walks it a click an entry, a fast turn four. */
+TT_TEST(ui_rate_table_steps_about_6_percent)
+{
+    uint32_t i, n = ui_rate_count();
+    TT_CHECK(n >= 100u && n <= 120u);
+    for (i = 0; i < 17u; i++)
+        TT_CHECK_EQ(ui_rate_at(i), (int32_t)i + 1);
+    TT_CHECK_EQ(ui_rate_at(n - 1u), 3000);
+    for (i = 17; i < n; i++)
+        TT_CHECK(ui_rate_at(i) > ui_rate_at(i - 1u) && ui_rate_at(i) * 100 <= ui_rate_at(i - 1u) * 108);
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 0);
+    play_set_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ, 3);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 100);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ), 4);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 3, 200);         /* fast: 12 entries */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ), 16);
+    play_set_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ, 3000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 300);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ), 3000);
+    {                                           /* its bar: the place in the table */
+        int32_t a, b;
+        ui_slot_bar(ui_page_slot(&ui_u, 2), ui_rate_at((n - 1u) / 2u), 44, &a, &b);
+        TT_CHECK(a == 0 && b >= 21 && b <= 23);
+    }
+}
+
+/* 08 DETUNE is the unison spread: inactive in POLY (interaction.md 3, 0x). */
+TT_TEST(ui_detune_is_inactive_in_poly)
+{
+    const ui_slot *det = &UI_SLOTS[4 * 17 + 3];
+    ui_setup();
+    TT_CHECK_EQ(det->num, 8);
+    play_set_param(&ui_p, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY);
+    TT_CHECK(!ui_slot_active(&ui_u, det));
+    play_set_param(&ui_p, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    TT_CHECK(ui_slot_active(&ui_u, det));
+}
+
+/* A VOICE turn redraws 08 DETUNE's column too: DETUNE's activity follows it, on the same page. */
+TT_TEST(ui_voice_turn_redraws_detune)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 100);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 200);      /* 0B */
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->num, 7);
+    (void)ui_take_full(&ui_u, 300);
+    play_set_param(&ui_p, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 400);
+    TT_CHECK(ui_take(&ui_u, 500) & UI_D_COL(3));
+}
+
+/* 7A's slot draws the LFO's wave, two cycles (levels -1000..+1000): a triangle peaks mid-cycle, a saw
+ * rises, a square is high half the cycle, random holds a level through each cycle. */
+TT_TEST(ui_lfo_picture_follows_the_wave)
+{
+    uint32_t i, high = 0;
+    TT_CHECK(ui_lfo_level(FM_LFO_TRIANGLE, 50, 200) > 900);
+    TT_CHECK(ui_lfo_level(FM_LFO_TRIANGLE, 0, 200) < -900);
+    TT_CHECK(ui_lfo_level(FM_LFO_SAW, 10, 200) < ui_lfo_level(FM_LFO_SAW, 90, 200));
+    for (i = 0; i < 200u; i++)
+        high += ui_lfo_level(FM_LFO_SQUARE, i, 200) > 0;
+    TT_CHECK(high >= 98u && high <= 102u);
+    TT_CHECK_EQ(ui_lfo_level(FM_LFO_RANDOM, 5, 200), ui_lfo_level(FM_LFO_RANDOM, 90, 200));
+    TT_CHECK(ui_lfo_level(FM_LFO_RANDOM, 90, 200) != ui_lfo_level(FM_LFO_RANDOM, 110, 200));
+}
+
+/* SELECT walks the pages in number order and wraps (interaction.md, page order): 5A +1 is 5B, 0B +1
+ * is 1A, 1A -1 is 0B. ALGORITHM jumps by section to its page A: 4B +1 is 5A, 9A +1 is 0A, 0B +1 is 1A,
+ * 1B -1 is 0A. In PLAY both go to EDIT, from the last edit page. */
+static uint32_t ui_num0(void) { return ui_page_slot(&ui_u, 0)->num; }
+
+TT_TEST(ui_select_and_algorithm_walk_pages_and_sections)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 0);           /* PLAY: on from 5A */
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_num0(), 55);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, -1, 100);
+    TT_CHECK_EQ(ui_num0(), 51);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 10, 200);        /* 5A + 10: 0B */
+    TT_CHECK_EQ(ui_num0(), 5);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 300);
+    TT_CHECK_EQ(ui_num0(), 11);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, -1, 400);
+    TT_CHECK_EQ(ui_num0(), 5);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 500);      /* 0B: on to 1A */
+    TT_CHECK_EQ(ui_num0(), 11);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 600);         /* 1B */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, -1, 700);     /* 1B: back to 0A */
+    TT_CHECK_EQ(ui_num0(), 1);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, -1, 800);     /* 0A: back to 9A */
+    TT_CHECK_EQ(ui_num0(), 91);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 900);
+    TT_CHECK_EQ(ui_num0(), 1);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 5, 1000);     /* 0 + 5 sections: 5A */
+    TT_CHECK_EQ(ui_num0(), 51);
+}
+
+/* The number jump (interaction.md 4, test 5): hold SEL and tap two white keys, F3..A4 being the
+ * digits 1..9 and 0: G3 then A3 (2, 3) opens 2A with 23 X-MOD the focus. The keys don't sound. */
+#define UI_KEY_G3 2u
+#define UI_KEY_A3 4u
+TT_TEST(ui_number_jump_goes_to_the_parameter)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    TT_CHECK(ui_key(&ui_u, UI_KEY_G3, 1, 100));
+    TT_CHECK(ui_key(&ui_u, UI_KEY_G3, 0, 150));
+    TT_CHECK(ui_key(&ui_u, UI_KEY_A3, 1, 200));
+    TT_CHECK(ui_key(&ui_u, UI_KEY_A3, 0, 250));
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 900);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, ui_u.focus)->num, 23);
+    TT_CHECK(!ui_key(&ui_u, UI_KEY_G3, 1, 1000));             /* SEL let go: keys play again */
+}
+
+/* Releasing SEL after one digit (C4, 5) opens 5A with no focus; number 18 (reserved) opens 1B with no
+ * focus and the banner NO PARAMETER (interaction.md tests 6, 7). A turn then focuses its knob. */
+#define UI_KEY_F3 0u
+#define UI_KEY_C4 7u
+#define UI_KEY_F4 12u
+TT_TEST(ui_number_jump_without_a_parameter)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    (void)ui_key(&ui_u, UI_KEY_C4, 1, 100);
+    (void)ui_key(&ui_u, UI_KEY_C4, 0, 150);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 900);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);
+    TT_CHECK(ui_page_slot(&ui_u, ui_u.focus) == 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 2000);
+    (void)ui_key(&ui_u, UI_KEY_F3, 1, 2100);
+    (void)ui_key(&ui_u, UI_KEY_F4, 1, 2200);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 15);              /* 1B */
+    TT_CHECK(ui_page_slot(&ui_u, ui_u.focus) == 0);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "NO PARAMETER") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 2300);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, ui_u.focus)->num, 16);
+}
+
+/* A key held before SEL went down still gets its note-off (its up isn't the keypad's), and a SEL tap
+ * with a key pressed in it is a jump, not SEL's ring step. */
+TT_TEST(ui_keypad_keeps_held_notes_and_taps_apart)
+{
+    ui_setup();
+    TT_CHECK(!ui_key(&ui_u, UI_KEY_C4, 1, 0));                /* plays */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 100);
+    TT_CHECK(!ui_key(&ui_u, UI_KEY_C4, 0, 150));              /* its up plays too: the note ends */
+    TT_CHECK(ui_key(&ui_u, UI_KEY_G3, 1, 200));
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 300);        /* under 400 ms, but a key came */
+    TT_CHECK(ui_key(&ui_u, UI_KEY_G3, 0, 350));               /* its up is still the keypad's */
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 21);             /* digit 2: 2A, not SEL's 1A */
+}
+
+/* While SEL is held the ten digit keys glow as a keypad (interaction.md 4); otherwise the keypad
+ * lights none (the keys' own LEDs are the module's). */
+TT_TEST(ui_keypad_glows_while_sel_is_held)
+{
+    uint32_t k, glow = 0;
+    ui_setup();
+    for (k = 0; k < PLAY_KEYS; k++)
+        glow += ui_keypad_led(&ui_u, k) == UI_LED_GLOW;
+    TT_CHECK_EQ(glow, 0u);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    for (glow = 0, k = 0; k < PLAY_KEYS; k++)
+        glow += ui_keypad_led(&ui_u, k) == UI_LED_GLOW;
+    TT_CHECK_EQ(glow, 10u);
+    TT_CHECK_EQ(ui_keypad_led(&ui_u, UI_KEY_F3), UI_LED_GLOW);
+    TT_CHECK_EQ(ui_keypad_led(&ui_u, 1u), UI_LED_OFF);         /* F#3, a black key */
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1359,6 +1569,16 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_keypad_glows_while_sel_is_held);
+    TT_RUN(ui_keypad_keeps_held_notes_and_taps_apart);
+    TT_RUN(ui_number_jump_without_a_parameter);
+    TT_RUN(ui_number_jump_goes_to_the_parameter);
+    TT_RUN(ui_select_and_algorithm_walk_pages_and_sections);
+    TT_RUN(ui_lfo_picture_follows_the_wave);
+    TT_RUN(ui_voice_turn_redraws_detune);
+    TT_RUN(ui_detune_is_inactive_in_poly);
+    TT_RUN(ui_rate_table_steps_about_6_percent);
+    TT_RUN(ui_lfo_ring_and_page);
     TT_RUN(ui_env_turn_redraws_the_adsr);
     TT_RUN(ui_time_bar_follows_the_table);
     TT_RUN(ui_adsr_picture_follows_the_envelope);

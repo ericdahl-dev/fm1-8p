@@ -58,19 +58,32 @@ static void page_leds(uint32_t all)
     }
 }
 
+/* the keys' LEDs: the keypad's glow while SEL is held, else lit while a key is held */
+static uint32_t keys_down;                      /* bit k: key k is down (and playing) */
+static void keypad_leds(void)
+{
+    uint32_t k;
+    for (k = 0; k < PLAY_KEYS; k++)
+        H->led(HB_LED_KEY(k), ui_keypad_led(&U, k) == UI_LED_GLOW ? UI_LED_GLOW : keys_down >> k & 1u);
+}
+
 static void ui_ev(uint32_t ev, int32_t arg)
 {
     uint32_t id = HB_EV_ID(ev), kind = HB_EV_KIND(ev);
     if ((kind == HB_EV_KEY_DOWN || kind == HB_EV_KEY_UP) && id >= PLAY_KEYS)
         return;
+    if ((kind == HB_EV_KEY_DOWN || kind == HB_EV_KEY_UP) && ui_key(&U, id, kind == HB_EV_KEY_DOWN, H->ms()))
+        return;                                 /* the number jump's keypad (SEL held): no sound */
     switch (kind) {
     case HB_EV_KEY_DOWN:                        /* arg: the velocity, 0 an unsensed key */
         play_key_down(&P, id, (uint32_t)arg);
+        keys_down |= 1u << id;
         H->led(HB_LED_KEY(id), 1);
         H->midi_send(0x90u, P.held[id], arg > 0 ? (uint32_t)arg : 100u);
         return;
     case HB_EV_KEY_UP:
         play_key_up(&P, id);
+        keys_down &= ~(1u << id);
         H->led(HB_LED_KEY(id), 0);
         H->midi_send(0x80u, P.held[id], 0);
         return;
@@ -91,6 +104,8 @@ static void ui_ev(uint32_t ev, int32_t arg)
 #endif
     ui_event(&U, ev, arg, H->ms());             /* pages and knobs */
     page_leds(0);
+    if (id == HB_BTN_SEL && (kind == HB_EV_BTN_DOWN || kind == HB_EV_BTN_UP))
+        keypad_leds();                          /* the keypad glows while SEL is held */
 }
 
 /* The host calls draw() from its main loop: the LEDs on a full redraw, then the screen (draw.c) */
@@ -123,6 +138,7 @@ static const store_io FLASH = { bank_load, bank_save, 0 };
 static int init(const hb_host_t *h)
 {
     H = h;
+    keys_down = 0;
     ui_draw_init(h, &P, &U);
     if (play_init(&P) != 0) {
         H->log("fm1-8p: engine init failed");
@@ -143,7 +159,8 @@ _Static_assert(UI_EV_BTN_DOWN == HB_EV_BTN_DOWN && UI_EV_BTN_UP == HB_EV_BTN_UP 
 _Static_assert(UI_BTN_FX == HB_BTN_FX && UI_BTN_SEL == HB_BTN_SEL && UI_BTN_ENV == HB_BTN_ENV &&
                UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_HOME == HB_BTN_HOME && UI_BTN_SAVE == HB_BTN_SAVE,
                "ui.h's buttons are hb_module.h's");
-_Static_assert(UI_ENC_KNOB1 == HB_ENC_KNOB1 && UI_ENC_KNOB2 == HB_ENC_KNOB2 &&
+_Static_assert(UI_ENC_SELECT == HB_ENC_SELECT && UI_ENC_ALGORITHM == HB_ENC_ALGORITHM &&
+               UI_ENC_KNOB1 == HB_ENC_KNOB1 && UI_ENC_KNOB2 == HB_ENC_KNOB2 &&
                UI_ENC_KNOB3 == HB_ENC_KNOB3 && UI_ENC_KNOB4 == HB_ENC_KNOB4 &&
                UI_ENC_PRESETS == HB_ENC_PRESETS,
                "ui.h's encoders are hb_module.h's");
