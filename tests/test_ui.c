@@ -1,5 +1,6 @@
 /* The on-device UI's logic (firmware/ui.c): pages, knobs and values, run on the desktop. */
 #include "../firmware/ui.h"
+#include "../firmware/ui_settings.h"
 
 static play ui_p;
 static ui ui_u;
@@ -1660,6 +1661,28 @@ TT_TEST(ui_jump_screen_holds_the_controls_in_edit)
     TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);             /* still 5A */
 }
 
+/* The settings record (interaction.md 4, GLO): defaults as the map has them, each in its range, and
+ * the table's offsets inside the struct (agent2's store clamps on load from it, the GLO knobs too). */
+TT_TEST(ui_settings_default_and_ranges)
+{
+    ui_settings s;
+    uint32_t i;
+    ui_settings_default(&s);
+    TT_CHECK_EQ(s.midi_in, 0u);                 /* ALL */
+    TT_CHECK_EQ(s.midi_out, 1u);
+    TT_CHECK_EQ(s.cc_recv, 1u);
+    TT_CHECK_EQ(s.prog_change, 1u);             /* RECV */
+    TT_CHECK_EQ(s.fixed_vel, 100u);
+    TT_CHECK_EQ(s.key_leds, 1u);
+    TT_CHECK_EQ(s.vel_curve_pct, 100u);
+    TT_CHECK_EQ(s.theme, (uint8_t)UI_THEME_MEMBRANE);  /* Eric: a fresh device is Membrane */
+    for (i = 0; i < UI_SETTINGS_COUNT; i++) {
+        const ui_setting_info *in = &UI_SETTINGS_INFO[i];
+        uint8_t v = ((const uint8_t *)&s)[in->offset];
+        TT_CHECK(in->offset < sizeof s && in->min <= in->def && in->def <= in->max && v == in->def);
+    }
+}
+
 /* The sun art's rows (render.py's disc_rows, in integers): ui_isqrt is the floor of the square root. */
 TT_TEST(ui_isqrt_is_the_floor)
 {
@@ -1718,6 +1741,7 @@ static void run_ui_tests(void)
 {
     TT_RUN(ui_themes_meet_their_contrast_rules);
     TT_RUN(ui_isqrt_is_the_floor);
+    TT_RUN(ui_settings_default_and_ranges);
     TT_RUN(ui_jump_screen_holds_the_controls_in_edit);
     TT_RUN(ui_jump_screen_holds_the_knobs_in_play);
     TT_RUN(ui_play_readout_ends_with_the_visit);
