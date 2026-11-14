@@ -437,6 +437,33 @@ static int inverted(const ui *u, uint16_t depth)
     return d < 0 || (d == 0 && u->inv & inv_bit(depth));
 }
 
+/* e^(-4 t) for t per mille, per mille (2^(-5.771 t) by exp2_q8) */
+static int32_t decay4(uint32_t t)
+{
+    return (int32_t)(exp2_q8(-(int32_t)(t * 23638u / 1000u)) * 1000u / 256u);
+}
+
+int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n)
+{
+    /* stage widths in tenths: attack 6 + 60 a, decay 8 + 70 d, hold 34, release 8 + 70 r */
+    uint32_t ta = 60u + 600u * a / 1000u, td = 80u + 700u * d / 1000u, th = 340u, tr = 80u + 700u * r / 1000u;
+    uint32_t x = n > 1u ? (ta + td + th + tr) * i / (n - 1u) : 0;
+    if (x < ta)
+        return (int32_t)(1000u * x / ta);
+    x -= ta;
+    if (x < td)
+        return (int32_t)s + (int32_t)(1000u - s) * decay4(1000u * x / td) / 1000;
+    x -= td;
+    if (x < th)
+        return (int32_t)s;
+    x -= th;
+    x = x > tr ? tr : x;
+    {
+        uint32_t t = 1000u * x / tr;
+        return (int32_t)s * decay4(t) / 1000 * (int32_t)(1000u - t) / 1000;
+    }
+}
+
 uint32_t ui_time_count(void) { return UI_TIME_COUNT; }
 
 int32_t ui_time_at(uint32_t i) { return UI_TIMES[i < UI_TIME_COUNT ? i : UI_TIME_COUNT - 1u]; }
@@ -528,8 +555,9 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
     if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
         s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
-        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT)
-        u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, or the waveform */
+        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT ||
+        (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
+        u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, the waveform, the ADSR */
     u->focus = k;
 }
 

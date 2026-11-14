@@ -1129,6 +1129,29 @@ TT_TEST(ui_vel_is_inactive_with_dynamics)
     TT_CHECK(ui_shows(FM_PARAM_AMP_VELOCITY, 40, "40 %"));
 }
 
+/* The ENV pages' slot draws the ADSR as render.py's env_points does (per mille knob positions a, d, r,
+ * sustain s): from 0 up to full at the end of the attack, down toward the sustain, held, then
+ * released to 0. */
+TT_TEST(ui_adsr_picture_follows_the_envelope)
+{
+    const uint32_t n = 200;
+    uint32_t i, peak = 0, at = 0;
+    TT_CHECK_EQ(ui_adsr_level(200, 500, 700, 400, 0, n), 0);
+    for (i = 0; i < n; i++)
+        if ((uint32_t)ui_adsr_level(200, 500, 700, 400, i, n) > peak)
+            peak = (uint32_t)ui_adsr_level(200, 500, 700, 400, i, n), at = i;
+    TT_CHECK(peak >= 980u);
+    TT_CHECK(at > 5u && at < 60u);             /* the attack's end, the first part of the window */
+    TT_CHECK(ui_adsr_level(200, 500, 700, 400, at + 40u, n) < 900);   /* decaying */
+    TT_CHECK(ui_adsr_level(200, 500, 700, 400, n - 1u, n) < 50);      /* released */
+    for (i = 0; i < n; i++) {                   /* the hold: at the sustain somewhere */
+        int32_t v = ui_adsr_level(200, 500, 700, 400, i, n);
+        if (v >= 690 && v <= 710)
+            break;
+    }
+    TT_CHECK(i < n);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1171,6 +1194,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_adsr_picture_follows_the_envelope);
     TT_RUN(ui_vel_is_inactive_with_dynamics);
     TT_RUN(ui_env_and_fx_rings_and_time_knobs);
     TT_RUN(ui_envelope_values_read_as_the_map);
