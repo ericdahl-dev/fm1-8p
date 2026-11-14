@@ -58,8 +58,7 @@ static void replace_prompt(ui *u)
     while (*w)
         *s++ = *w++;
     ui_prog_number(u->save_dest, s);
-    while (*s)
-        s++;
+    s += 2;                                     /* a user slot: two digits (a scan here is strlen to clang) */
     *s++ = ' ';
     if (store_slot_read(u->p->lib, u->save_dest, &there) == 0)
         for (i = 0; i < STORE_NAME_LEN && there.name[i]; i++)
