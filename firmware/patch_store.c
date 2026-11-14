@@ -77,6 +77,12 @@ static const uint8_t TAG_PARAM[] = {
 typedef char store_every_record_fits_a_slot[HEADER + ENTRY * TAGS <= STORE_SLOT_BYTES ? 1 : -1];
 typedef char store_tags_fit_a_byte[TAGS <= 255u ? 1 : -1];
 
+/* 1 when rec (n bytes) is a record this firmware reads; 0, 0xFF and damaged ones are not */
+static int is_record(const uint8_t *rec, uint32_t n)
+{
+    return n >= HEADER && rec[1] == VERSION && rec[0] <= n && rec[0] == HEADER + ENTRY * rec[14];
+}
+
 #define BANKS (STORE_USER_SLOTS / STORE_BANK_SLOTS)
 
 void store_lib_load(store_lib *l, const store_io *io)
@@ -94,6 +100,12 @@ int store_slot_read(const store_lib *l, uint32_t s, store_patch *p)
 {
     return store_decode(l->img[s / STORE_BANK_SLOTS] + STORE_SLOT_BYTES * (s % STORE_BANK_SLOTS),
                         STORE_SLOT_BYTES, p);
+}
+
+int store_slot_used(const store_lib *l, uint32_t s)
+{
+    return is_record(l->img[s / STORE_BANK_SLOTS] + STORE_SLOT_BYTES * (s % STORE_BANK_SLOTS),
+                     STORE_SLOT_BYTES);
 }
 
 int store_slot_write(store_lib *l, const store_io *io, uint32_t s, const store_patch *p)
@@ -138,11 +150,9 @@ uint32_t store_encode(const store_patch *p, uint8_t *rec)
 
 int store_decode(const uint8_t *rec, uint32_t n, store_patch *p)
 {
-    uint32_t i, len, count;
-    if (n < HEADER) return -1;
-    len = rec[0];
+    uint32_t i, count;
+    if (!is_record(rec, n)) return -1;
     count = rec[14];
-    if (rec[1] != VERSION || len > n || len != HEADER + ENTRY * count) return -1;   /* 0, 0xFF: empty */
     for (i = 0; i < FM_PARAM_COUNT; i++)       /* a param the record lacks: its default */
         p->v[i] = fm_param_info_get((uint16_t)i)->def;
     for (i = 0; i < STORE_NAME_LEN; i++)

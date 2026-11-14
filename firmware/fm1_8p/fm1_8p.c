@@ -192,9 +192,9 @@ static void footer(void)
     if (*b) {
         text_c(0, 240, 2, 0, b, C_PLAY);
     } else {
-        ui_patch_number(play_patch(&P), n);
+        ui_prog_number(play_prog(&P), n);
         H->cv_text(M, 2, 0, n, C_DIM);
-        H->cv_text(M + H->text_w(0, n) + 6, 2, 0, play_patch(&P)->name, C_TEXT);
+        H->cv_text(M + H->text_w(0, n) + 6, 2, 0, P.name, C_TEXT);
         H->cv_text(240 - M - H->text_w(0, v), 2, 0, v, C_DIM);
     }
     blit(0, 222, 240, 18);
@@ -325,13 +325,13 @@ static void play_part(uint32_t b, uint32_t part)
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
         header("PLAY", C_PLAY, "", "FM1-8P", "", -1);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: the patch's number, large */
-        ui_patch_number(play_patch(&P), s);
+        ui_prog_number(play_prog(&P), s);
         H->cv_begin(240, 50, C_BG);
         text_c(0, 240, 12, 1, s, HB_RGB(255, 176, 64));
         blit(0, 28, 240, 50);
     } else if (b == UI_D_SLOT) {                /* rows 78..137: its name, large */
         H->cv_begin(240, 60, C_BG);
-        text_c(0, 240, 0, 1, play_patch(&P)->name, C_TEXT);
+        text_c(0, 240, 0, 1, P.name, C_TEXT);
         text_c(0, 240, 40, 0, "ENV: VCF PAGE", C_DIM);
         blit(0, 78, 240, 60);
     } else if (b == UI_D_NOTE) {                /* rows 138..221: the last note */
@@ -473,6 +473,20 @@ static void draw(uint32_t full)
 #endif
 }
 
+/* The user slots (patch_store.c): fm1-dock's banks 1 and 2, found by this module's name. */
+static store_lib LIB;
+static int bank_load(void *ctx, uint32_t idx, void *p, uint32_t n)
+{
+    (void)ctx;
+    return H->bank_load_n(idx, p, n);
+}
+static int bank_save(void *ctx, uint32_t idx, const void *p, uint32_t n)
+{
+    (void)ctx;
+    return H->bank_save_n(idx, p, n);
+}
+static const store_io FLASH = { bank_load, bank_save, 0 };
+
 static int init(const hb_host_t *h)
 {
     H = h;
@@ -481,6 +495,10 @@ static int init(const hb_host_t *h)
     if (play_init(&P) != 0) {
         H->log("fm1-8p: engine init failed");
         return 1;                               /* the host falls back to the sine */
+    }
+    if (HB_HOST_HAS(H, bank_free)) {            /* (a host before the banks: no user slots) */
+        store_lib_load(&LIB, &FLASH);
+        P.lib = &LIB;
     }
     ui_init(&U, &P);
     octave_shown();

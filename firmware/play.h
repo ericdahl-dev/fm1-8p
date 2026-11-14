@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "../engine/fm1_8p.h"
 #include "patches.h"
+#include "patch_store.h"
 
 #define PLAY_FS 44100u
 #define PLAY_BLOCK 256u                 /* frames per fm1-dock render call */
@@ -38,11 +39,26 @@ typedef struct {
     volatile uint32_t loading;          /* main loop: 1 part way through a load (the ISR waits) */
     volatile uint32_t loads;            /* main loop: +1 per load done */
     uint32_t loads_seen;                /* ISR only: the last `loads` it applied */
+    const store_lib *lib;               /* main loop: the user slots (NULL: none) */
+    uint32_t prog;                      /* main loop: the program playing (PLAY_PROG_P + n: P n+1) */
+    char name[STORE_NAME_LEN + 1u];     /* main loop: its name */
 } play;
 
 /* Sets up the engine on PLAY_VOICES voices with the default patch, SOUNDTRACK
  * (PATCHES[PATCH_SOUNDTRACK]); 0: ready. */
 int play_init(play *p);
+/* Programs, as PRESETS goes through them: the user slots 0..63 (11..88), then P1.. (the factory
+ * patches) from PLAY_PROG_P. */
+#define PLAY_PROG_P STORE_USER_SLOTS
+#define PLAY_PROGS (PLAY_PROG_P + PATCH_COUNT)
+/* The program `clicks` steps from `from`, over the user slots that hold a patch, wrapping. */
+uint32_t play_prog_step(const play *p, uint32_t from, int32_t clicks);
+/* Loads program q (play_load_patch's way: one block, all notes off): 0, or -1 for an empty user slot
+ * (nothing changes). */
+int play_load_prog(play *p, uint32_t q);
+/* The program playing, and its name (STORE_NAME_LEN + 1 chars). */
+uint32_t play_prog(const play *p);
+void play_prog_name(const play *p, char *name);
 /* The patch playing. */
 const patch *play_patch(const play *p);
 /* main loop: load PATCHES[i] (PRESETS): the next render lets the sounding notes go and applies every

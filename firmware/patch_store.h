@@ -43,6 +43,8 @@ typedef struct {
 void store_lib_load(store_lib *l, const store_io *io);
 /* User slot s (0..63) into p: 0, or -1 when it is empty. */
 int store_slot_read(const store_lib *l, uint32_t s, store_patch *p);
+/* 1 when user slot s holds a patch */
+int store_slot_used(const store_lib *l, uint32_t s);
 /* p into user slot s, and its bank to flash: 0, or -1 when the write failed (the slot is then as
  * it was). */
 int store_slot_write(store_lib *l, const store_io *io, uint32_t s, const store_patch *p);
