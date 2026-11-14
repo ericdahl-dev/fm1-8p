@@ -159,3 +159,26 @@ Each patch is its name (12 characters and the end) and one `uint16_t` per field,
 it off): stored as plain `int16_t`, a value of -64..-49 next to another can make a 32-bit word
 in 0xFFC00000..0xFFCFFFFF, which fm1-dock rejects as a ROM address (`make check-float-free`
 catches it on the desktop).
+
+### Saved patches (`firmware/patch_store.c`, #3 and #48)
+
+A patch the user saves is a record of at most 248 bytes (`STORE_SLOT_BYTES`), so a flash bank
+(fm1-dock's `HB_BANK_MAX`, 8176 bytes) holds 32 of them. Version 1:
+
+| Bytes | What |
+| --- | --- |
+| 0 | the record's length, header and entries; 0 or 0xFF (erased flash) is an empty slot |
+| 1 | version, 1 |
+| 2..13 | the name, 12 bytes, `\0`-padded |
+| 14 | the entry count |
+| 15.. | 3 bytes per param: its tag, then the value as `int16_t`, low byte first |
+
+- **Tags** name params for good: the table in `patch_store.c` is append only, and
+  `store_tags_keep_their_params` holds every tag to its engine name. Each engine param has exactly
+  one tag, so a new param needs one or it is never saved.
+- **Older records**, from before a param existed, load that param at its engine default.
+- **Newer records** may carry tags this firmware doesn't know: those entries are skipped.
+- **Out of range:** a value outside the param's range loads clamped into it.
+- **Damaged:** a wrong version, a length that disagrees with the count, or a record longer than the
+  bytes read is an empty slot.
+- **Room:** 53 params take 174 bytes; a slot has room for 77.
