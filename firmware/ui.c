@@ -299,8 +299,15 @@ void ui_init(ui *u, play *p)
 
 static void show_page(ui *u, ui_state st)
 {
+    uint32_t k;
     u->state = st;
-    u->focus = 1;                               /* knob 2, as visual.md's pages open */
+    u->focus = 1;                               /* knob 2, as visual.md's pages open, */
+    if (UI_SLOTS[4u * u->page + 1u].kind != UI_LIVE)   /* or the first live one */
+        for (k = 0; k < 4u; k++)
+            if (UI_SLOTS[4u * u->page + k].kind == UI_LIVE) {
+                u->focus = k;
+                break;
+            }
     u->dirty |= UI_D_FULL;
 }
 

@@ -182,6 +182,11 @@ static void focus_row(void)
     const ui_slot *s = ui_page_slot(U, U->focus);
     char num[3], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
     int32_t x;
+    if (!s || s->kind == UI_RESERVED) {         /* (no focus: an empty row, never an empty slot's text) */
+        H->cv_begin(240, 50, C_BG);
+        blit(0, 28, 240, 50);
+        return;
+    }
     ui_slot_number(s, num);
     ui_value(s->id, ui_slot_value(U, s), val, unit);
     H->cv_begin(240, 50, C_BG);
