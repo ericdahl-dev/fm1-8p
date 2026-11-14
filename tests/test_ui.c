@@ -723,8 +723,8 @@ TT_TEST(ui_dco_values_read_as_the_panel)
     TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_CENTS, 450, "450 ct"));
     TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_OSC2_CENTS, -1, "D1"));    /* follows DCO-1's depth */
     TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_OSC2_CENTS, 90, "90 ct"));
-    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, 1240, "+12.4 st"));
-    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC2_CENTS, -3200, "-32.0 st"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, 1240, "12.4 st"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC2_CENTS, -3200, "32.0 st"));
     TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, 0, "0.0 st"));
     TT_CHECK(ui_shows(FM_PARAM_OSC1_FINE_CENTS, 5, "+5 ct"));
     TT_CHECK(ui_shows(FM_PARAM_OSC2_FINE_CENTS, -100, "-100 ct"));
@@ -864,6 +864,61 @@ TT_TEST(ui_sel_reaches_dco_env)
     TT_CHECK(ui_shows(FM_PARAM_OSC_XMOD, 450, "45 %"));
 }
 
+/* 32 MODE is the JX-8P's DCO ENV MODE on one knob (interaction.md 66): ENV2 INV, ENV2, ENV1 INV,
+ * ENV1, setting pitch_env_source and the sign of both DCO envelope depths (15, 27), which show their
+ * size. With the depths at 0 the knob still holds INV, and a depth turned up then goes negative. */
+TT_TEST(ui_dco_env_mode_sets_source_and_sign)
+{
+    static const struct { const char *shown; int32_t src, sign; } WANT[5] = {
+        {"ENV1", 0, 1}, {"ENV1 INV", 0, -1}, {"ENV2", 1, 1}, {"ENV2 INV", 1, -1}, {"ENV2 INV", 1, -1},
+    };
+    const ui_slot *mode;
+    uint32_t i;
+    char s[UI_VALUE_LEN];
+    ui_setup();
+    ui_sel_to(5);
+    mode = ui_page_slot(&ui_u, 1);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_SOURCE, 0);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS, 500);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC2_CENTS, 300);
+    for (i = 0; i < 5u; i++) {
+        if (i)
+            ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -1, 9000);
+        ui_format(mode->id, ui_slot_value(&ui_u, mode), s);
+        TT_CHECK(strcmp(s, WANT[i].shown) == 0);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_PITCH_ENV_SOURCE), WANT[i].src);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS), 500 * WANT[i].sign);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_PITCH_ENV_OSC2_CENTS), 300 * WANT[i].sign);
+    }
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, -500, "5.0 st"));    /* a size: MODE has the sign */
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS, 0);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC2_CENTS, 0);
+    ui_format(mode->id, ui_slot_value(&ui_u, mode), s);
+    TT_CHECK(strcmp(s, "ENV2 INV") == 0);       /* held with the depths at 0 */
+    ui_sel_to(2);                               /* (on to 1A, then 1B: 15 ENV on KNOB1) */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 9000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS), -10);
+}
+
+/* An ENV MODE held at INV with its depths at 0 is the edit's, not the next patch's: a PRESETS load
+ * reads MODE from the loaded patch (its depths' signs). */
+TT_TEST(ui_mode_memory_goes_with_a_load)
+{
+    const ui_slot *mode;
+    ui_setup();
+    ui_sel_to(5);
+    mode = ui_page_slot(&ui_u, 1);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS, 0);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC2_CENTS, 0);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_SOURCE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -1, 9000);       /* ENV1 INV */
+    TT_CHECK_EQ(ui_slot_value(&ui_u, mode) >> 1, 1);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 9100);       /* edited: warns */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 9200);       /* loads */
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS, 0);
+    TT_CHECK_EQ(ui_slot_value(&ui_u, mode) >> 1, 0);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -906,6 +961,8 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_mode_memory_goes_with_a_load);
+    TT_RUN(ui_dco_env_mode_sets_source_and_sign);
     TT_RUN(ui_sel_reaches_dco_env);
     TT_RUN(ui_lfo_depth_steps_finer_below_100);
     TT_RUN(ui_width_is_inactive_off_pulse);

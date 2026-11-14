@@ -41,6 +41,7 @@ typedef struct {
     int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
     uint32_t warned_ms;                 /* when */
     uint32_t page;                      /* the edit page, in the page order (UI_PAGE_INFO) */
+    uint32_t inv;                       /* an ENV MODE's INV while its depth is 0 (bit: ui.c inv_bit) */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */

@@ -88,9 +88,7 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         else
             num = put_u(num, (uint32_t)value), u = "ct";
     } else if (id == FM_PARAM_PITCH_ENV_OSC1_CENTS || id == FM_PARAM_PITCH_ENV_OSC2_CENTS) {
-        uint32_t t = ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u;    /* tenths of a st */
-        if (t)
-            *num++ = value < 0 ? '-' : '+';
+        uint32_t t = ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u;    /* its size (32 MODE: the sign) */
         num = put_u(num, t / 10u);
         *num++ = '.';
         num = put_u(num, t % 10u), u = "st";
@@ -110,6 +108,10 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_u(num, (uint32_t)value);
     } else if (id == FM_PARAM_OSC_XMOD) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
+    } else if (id == FM_PARAM_PITCH_ENV_SOURCE || id == FM_PARAM_OSC_MIX_ENV_SOURCE ||
+               id == FM_PARAM_FILTER_ENV_SOURCE) {   /* an ENV MODE: source | inverted << 1 */
+        static const char *const MODE[4] = {"ENV1", "ENV2", "ENV1 INV", "ENV2 INV"};
+        num = put_str(num, MODE[value & 3]);
     } else if (id == FM_PARAM_OSC_SYNC) {       /* 23 X-MOD's sync | ring << 1 (CROSS MOD) */
         static const char *const XMOD[4] = {"OFF", "SYNC 1", "X-MOD", "SYNC 2"};
         num = put_str(num, XMOD[value & 3]);
@@ -303,6 +305,7 @@ void ui_init(ui *u, play *p)
     u->warned = 0;
     u->warned_ms = 0;
     u->page = UI_PAGE_5A;                       /* (EDIT's first page) */
+    u->inv = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -373,18 +376,59 @@ int ui_slot_active(const ui *u, const ui_slot *sl)
     return 1;
 }
 
+/* the ENV MODE a depth's sign belongs to: its bit in ui.inv */
+static uint32_t inv_bit(uint16_t depth)
+{
+    return depth == FM_PARAM_OSC_MIX_ENV ? 2u : depth == FM_PARAM_FILTER_ENV_AMOUNT_CENTS ? 4u : 1u;
+}
+
+/* a depth is inverted: negative, or at 0 with its ENV MODE set to INV */
+static int inverted(const ui *u, uint16_t depth)
+{
+    int32_t d = play_get_param(u->p, depth);
+    return d < 0 || (d == 0 && u->inv & inv_bit(depth));
+}
+
 int32_t ui_slot_value(const ui *u, const ui_slot *sl)
 {
     int32_t v = play_get_param(u->p, sl->id);
-    return sl->paired ? v | play_get_param(u->p, sl->id2) << 1 : v;
+    switch (sl->how) {
+    case UI_HOW_PAIR:
+        return v | play_get_param(u->p, sl->id2) << 1;
+    case UI_HOW_MODE:
+        return v | inverted(u, sl->id2) << 1;
+    case UI_HOW_SIZE:
+        return v < 0 ? -v : v;
+    default:
+        return v;
+    }
+}
+
+static void set_depth(ui *u, uint16_t depth, int neg)
+{
+    int32_t d = play_get_param(u->p, depth);
+    d = d < 0 ? -d : d;
+    play_set_param(u->p, depth, neg ? -d : d);
 }
 
 static void set_slot(ui *u, const ui_slot *sl, int32_t v)
 {
-    if (sl->paired) {
+    switch (sl->how) {
+    case UI_HOW_PAIR:
         play_set_param(u->p, sl->id, v & 1);
         play_set_param(u->p, sl->id2, v >> 1 & 1);
-    } else {
+        return;
+    case UI_HOW_MODE:                           /* the source, and the sign of its depths */
+        play_set_param(u->p, sl->id, v & 1);
+        u->inv = v >> 1 & 1 ? u->inv | inv_bit(sl->id2) : u->inv & ~inv_bit(sl->id2);
+        set_depth(u, sl->id2, v >> 1 & 1);
+        set_depth(u, sl->id3, v >> 1 & 1);
+        return;
+    case UI_HOW_SIZE:                           /* the size, kept on its ENV MODE's side */
+        v = v < 0 ? 0 : v;
+        play_set_param(u->p, sl->id, inverted(u, sl->id) ? -v : v);
+        return;
+    default:
         play_set_param(u->p, sl->id, v);
     }
 }
@@ -395,7 +439,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     if (!s || s->kind != UI_LIVE)
         return;
     if (s->order) {                             /* a choice: each click to the next stop, clamped */
-        int32_t v = ui_slot_value(u, s), max = s->paired ? 3 : fm_param_info_get(s->id)->max;
+        int32_t v = ui_slot_value(u, s), max = s->how == UI_HOW_PLAIN ? fm_param_info_get(s->id)->max : 3;
         int32_t way = clicks > 0 ? 1 : -1, i = 0, j;
         while (i < (int32_t)s->n_order - 1 && s->order[i] != v)
             i++;
@@ -413,8 +457,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         }
         play_set_param(u->p, s->id, v);
     } else {
-        play_set_param(u->p, s->id, play_get_param(u->p, s->id) +
-                       (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
+        set_slot(u, s, ui_slot_value(u, s) + (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
     }
     u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
     if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
@@ -449,6 +492,7 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
         clicks = clicks > 0 ? 4 : -4;
     i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
     play_load_patch(u->p, (uint32_t)(i + (int32_t)PATCH_COUNT) % PATCH_COUNT);
+    u->inv = 0;                                 /* the ENV MODEs are the new patch's signs */
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
 }
 

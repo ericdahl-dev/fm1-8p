@@ -37,10 +37,15 @@ static const int8_t RANGE_ORDER[5] = {-2, -1, 0, 1, 2};
 static const int8_t WAVE_ORDER[4] = {0, 1, 2, 3};
 /* DYNAMICS: OFF, 1, 2, 3 */
 static const int8_t DYNA_ORDER[4] = {0, 1, 2, 3};
-#define CHOICE(n, l, f, id, o) {n, l, f, id, UI_LIVE, 1, 1, o, sizeof o, (1u << sizeof o) - 1u, 0, 0}
+/* ENV MODE (tools/jx8p.py env_mode): ENV2 INV, ENV2, ENV1 INV, ENV1, as source | inverted << 1 */
+static const int8_t MODE_ORDER[4] = {3, 1, 2, 0};
+#define CHOICE(n, l, f, id, o) {n, l, f, id, UI_LIVE, 1, 1, o, sizeof o, (1u << sizeof o) - 1u, 0, 0, 0}
+/* an ENV MODE: source id, depths d1 and d2 */
+#define MODE(n, id, d1, d2) {n, "MODE", "ENV MODE", id, UI_LIVE, 1, 1, MODE_ORDER, 4, 0x0Fu, d1, UI_HOW_MODE, d2}
 
-#define LIVE(n, l, f, id, st, fa) {n, l, f, id, UI_LIVE, st, fa, 0, 0, 0, 0, 0}
-#define PEND(n, l, f) {n, l, f, 0, UI_PENDING, 0, 0, 0, 0, 0, 0, 0}
+#define LIVE(n, l, f, id, st, fa) {n, l, f, id, UI_LIVE, st, fa, 0, 0, 0, 0, 0, 0}
+#define SIZE(n, l, f, id, st, fa) {n, l, f, id, UI_LIVE, st, fa, 0, 0, 0, 0, UI_HOW_SIZE, 0}
+#define PEND(n, l, f) {n, l, f, 0, UI_PENDING, 0, 0, 0, 0, 0, 0, 0, 0}
 #define PAGE(p) [4 * (p)] =
 
 /* interaction.md 3, page by page (a page left out is empty, and the rings skip it) */
@@ -49,21 +54,21 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     CHOICE(12, "WAVE", "WAVEFORM", FM_PARAM_OSC1_WAVE, WAVE_ORDER),
     PEND(13, "TUNE", "TUNE"),                                      /* #158 */
     LIVE(14, "LFO", "LFO DEPTH", FM_PARAM_LFO_PITCH_CENTS, 1, 10),
-    PAGE(1) LIVE(15, "ENV", "ENV DEPTH", FM_PARAM_PITCH_ENV_OSC1_CENTS, 10, 100),
+    PAGE(1) SIZE(15, "ENV", "ENV DEPTH", FM_PARAM_PITCH_ENV_OSC1_CENTS, 10, 100),
     LIVE(16, "FINE", "FINE TUNE", FM_PARAM_OSC1_FINE_CENTS, 1, 10),
     LIVE(17, "WIDTH", "PULSE WIDTH", FM_PARAM_OSC1_PULSE_WIDTH_PCT, 1, 5),
     PAGE(2) CHOICE(21, "RANGE", "RANGE", FM_PARAM_OSC2_OCTAVE, RANGE_ORDER),
     CHOICE(22, "WAVE", "WAVEFORM", FM_PARAM_OSC2_WAVE, WAVE_ORDER),
-    {23, "X-MOD", "CROSS MOD", FM_PARAM_OSC_SYNC, UI_LIVE, 1, 1, XMOD_ORDER, 4, 0x0Fu, FM_PARAM_OSC_RING, 1},
+    {23, "X-MOD", "CROSS MOD", FM_PARAM_OSC_SYNC, UI_LIVE, 1, 1, XMOD_ORDER, 4, 0x0Fu, FM_PARAM_OSC_RING, UI_HOW_PAIR, 0},
     LIVE(24, "TUNE", "TUNE", FM_PARAM_OSC2_COARSE_SEMIS, 1, 1),
     PAGE(3) LIVE(25, "FINE", "FINE TUNE", FM_PARAM_OSC2_FINE_CENTS, 1, 10),
     LIVE(26, "LFO", "LFO DEPTH", FM_PARAM_LFO_PITCH_OSC2_CENTS, 1, 10),
-    LIVE(27, "ENV", "ENV DEPTH", FM_PARAM_PITCH_ENV_OSC2_CENTS, 10, 100),
+    SIZE(27, "ENV", "ENV DEPTH", FM_PARAM_PITCH_ENV_OSC2_CENTS, 10, 100),
     LIVE(28, "WIDTH", "PULSE WIDTH", FM_PARAM_OSC2_PULSE_WIDTH_PCT, 1, 5),
     PAGE(4) CHOICE(31, "DYNA", "DYNAMICS", FM_PARAM_PITCH_ENV_DYNA, DYNA_ORDER),
-    PEND(32, "MODE", "ENV MODE"),
+    MODE(32, FM_PARAM_PITCH_ENV_SOURCE, FM_PARAM_PITCH_ENV_OSC1_CENTS, FM_PARAM_PITCH_ENV_OSC2_CENTS),
     LIVE(33, "XMOD AMT", "X-MOD AMOUNT", FM_PARAM_OSC_XMOD, 10, 50),     /* ours */
-    PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS, 0, 0},
+    PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS, 0, 0, 0},
     LIVE(52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, 100, 400),
     LIVE(53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, 10, 50),
     PEND(54, "LFO", "LFO DEPTH"),                                  /* #172 */
