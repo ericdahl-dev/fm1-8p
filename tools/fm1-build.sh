@@ -382,16 +382,19 @@ run_emu() {
 # `ms:id^` lets it go; `ms:mHEX` is MIDI into the jack). Keys: a C major 7th chord (C4 E4 G4 B4) held 2 s.
 # MIDI: the same chord with a full bend up and back, the sustain pedal over the note offs, then five
 # notes on four voices (one stolen), on another channel. Then ENV opens the VCF page and a chord plays
-# while KNOB2, KNOB1, KNOB3 and KNOB4 turn (the page redraws as the audio runs). Last, with a chord
-# held, PRESETS turns twice: the edits warn, then the next patch loads and the chord lets go.
+# while KNOB2, KNOB1, KNOB3 and KNOB4 turn (the page redraws as the audio runs), and ENV again turns
+# to page 5B. Last, with a chord held, PRESETS turns twice: the edits warn, then the next patch loads.
+# KNOB2 edits it, and EDIT held 600 ms compares (KNOB3 turned meanwhile changes nothing) before the
+# chord lets go.
 EMU_PLAY_MS=9500
 EMU_PLAY_KEYS="1000:21,1000:25,1000:28,1000:32,3000:21^,3000:25^,3000:28^,3000:32^,\
 3500:m903c64,3500:m904050,3500:m904364,3500:m904740,3700:me07f7f,4000:me00040,4200:mb0407f,\
 4300:m803c00,4300:m804000,4300:m804300,4300:m804700,4800:mb04000,\
 5200:m93306e,5250:m933464,5300:m93375a,5350:m933b50,5400:m933e46,\
 6500:m833000,6500:m833400,6500:m833700,6500:m833b00,6500:m833e00,\
-6700:4,6750:4^,6800:21,6800:25,6800:28,7000:e3:3,7200:e2:-4,7300:e4:1,7400:e5:-2,7600:21^,7600:25^,7600:28^,\
-7650:21,7650:25,7700:e6:1,7900:e6:1,8300:21^,8300:25^"
+6700:4,6750:4^,6800:21,6800:25,6800:28,7000:e3:3,7200:e2:-4,7300:e4:1,7400:e5:-2,7450:4,7500:4^,\
+7600:21^,7600:25^,7600:28^,7650:21,7650:25,7700:e6:1,7900:e6:1,7950:e3:2,8000:6,8450:e4:1,8600:6^,\
+8700:21^,8700:25^"
 
 # run_emu_play: plays $OUT/fm1-8p.fwsc, the one `build` made (run `build` again after a change); it
 # builds the synth first only when that file isn't there.

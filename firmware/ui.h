@@ -57,9 +57,13 @@ typedef struct {
     int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
     uint32_t warned_ms;                 /* when */
     uint32_t page;                      /* the edit page: 0 5A VCF, 1 5B */
+    uint32_t held;                      /* bit b: button b is down */
+    uint32_t comparing;                 /* EDIT held: UI_COMPARE_ON, or UI_COMPARE_NONE (no edits); 0 not */
+    uint32_t now_ms;                    /* ui_take's last ms (the EDIT LED's blink) */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
+enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
@@ -68,6 +72,7 @@ typedef struct {
 #define UI_D_FOOT   0x100u              /* the footer alone (the banner came or went) */
 #define UI_D_ALL    0xF7u               /* all of it */
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
+#define UI_BLINK_MS 250u                /* the EDIT LED's blink during compare: on, then off */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
 #define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
 /* PRESETS again within this, the same way: discard and load. The warning's time on screen, so a turn

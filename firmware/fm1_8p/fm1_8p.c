@@ -153,6 +153,13 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
     char o[UI_VALUE_LEN];
     int32_t x, w;
     uint32_t i;
+    if (U.comparing == UI_COMPARE_ON) {         /* EDIT held: the stored patch's values (interaction.md 6) */
+        chip = "COMPARE";
+        col = T->led;
+        lead = "";
+        lit = "STORED PATCH";
+        tail = "";
+    }
     H->cv_begin(240, 28, C_BG);
     if (T->chip) {
         x = M + H->text_w(0, chip) + M;
@@ -444,6 +451,7 @@ static void draw(uint32_t full)
         page_leds(1);
     } else {
         d = ui_take(&U, H->ms());
+        page_leds(0);                           /* a change ui_take made: compare, the EDIT blink */
     }
     if (d & UI_D_FULL) {
         pending = UI_D_ALL;                     /* a new page: all of it, none of the old one's */
