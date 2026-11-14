@@ -9,6 +9,7 @@ const ui_setting_info UI_SETTINGS_INFO[UI_SETTINGS_COUNT] = {
     S(cc_recv, 0, 1, 1), S(cc_send, 0, 1, 0), S(prog_change, 0, 3, 1), S(ext_cc, 0, 1, 0),
     S(vel_curve_pct, 50, 200, 100), S(fixed_vel, 1, 127, 100), S(key_leds, 0, 1, 1),
     S(theme, UI_THEME_MEMBRANE, UI_THEME_NIGHT, UI_THEME_MEMBRANE),
+    S(cc_map, UI_CC_MAP_JX, UI_CC_MAP_STANDARD, UI_CC_MAP_STANDARD),   /* a fresh FM-1: STANDARD (Eric) */
 };
 
 void ui_settings_default(ui_settings *s)

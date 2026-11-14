@@ -91,6 +91,11 @@ const ui_cc_move UI_CC_MOVED[UI_CC_MOVED_COUNT] = {
     {11, 110}, {32, 111}, {38, 112}, {64, 113},
 };
 
+const ui_cc_move UI_CC_STANDARD[] = {
+    {52, 23},                           /* (the layout waits on Eric) */
+};
+const uint32_t UI_CC_STANDARD_COUNT = sizeof UI_CC_STANDARD / sizeof UI_CC_STANDARD[0];
+
 /* interaction.md 3, page by page (a page left out is empty, and the rings skip it) */
 const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     PAGE(0) CHOICE(11, "RANGE", "RANGE", FM_PARAM_OSC1_OCTAVE, RANGE_ORDER),

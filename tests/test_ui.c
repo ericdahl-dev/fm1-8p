@@ -2019,6 +2019,7 @@ TT_TEST(ui_cc_sets_its_parameter)
     const fm_param_info *in = fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS);
     int32_t mid;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_cc(&ui_u, 52, 127, 1000);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), in->max);
     ui_cc(&ui_u, 52, 0, 1100);
@@ -2035,6 +2036,7 @@ TT_TEST(ui_cc_redraws_its_column_and_keeps_the_focus)
 {
     int32_t before;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);       /* 5A: 51 HPF, 52 CUTOFF, 53 RES, 54 LFO */
     ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_ENV, 0, 50);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 100);        /* the focus on 53 RES */
@@ -2058,6 +2060,7 @@ TT_TEST(ui_cc_choices_take_bands_and_times_their_table)
     const ui_slot *wave = &UI_SLOTS[1], *xmod = &UI_SLOTS[4u * 2u + 2u];   /* 12 WAVE, 23 X-MOD */
     uint32_t n, v;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     TT_CHECK_EQ(wave->num, 12u);
     TT_CHECK_EQ(xmod->num, 23u);
     (void)ui_choice_pos(wave, 0, &n);
@@ -2103,6 +2106,7 @@ TT_TEST(ui_cc_pickup_waits_for_the_value)
     int32_t j20, j64, j100, jt[3];
     uint32_t i, n;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     j20 = ui_cc_jump(20), j100 = ui_cc_jump(100);
     for (i = 0; i < 3u; i++)
         jt[i] = ui_cc_jump(TAKE[i]);
@@ -2141,10 +2145,12 @@ TT_TEST(ui_cc_during_compare_reaches_the_edit_buffer)
     uint32_t enc;
     int32_t stored, want;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_cc(&ui_u, 53, 127, 0);                                 /* (53 RES: the CC's top) */
     want = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
     TT_CHECK_EQ(want, fm_param_info_get(FM_PARAM_FILTER_RESONANCE)->max);
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
     stored = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
     ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);                   /* an edit, so compare has something */
@@ -2166,6 +2172,7 @@ TT_TEST(ui_cc_during_compare_reaches_the_edit_buffer)
 TT_TEST(ui_cc_leaves_the_engines_ccs_to_it)
 {
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     TT_CHECK(ui_cc(&ui_u, 52, 10, 0));
     TT_CHECK(!ui_cc(&ui_u, 64, 127, 0));
     TT_CHECK(!ui_cc(&ui_u, 120, 0, 0));
@@ -2198,27 +2205,28 @@ TT_TEST(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs)
                                          {7, 108}, {8, 109}, {11, 110}, {32, 111}, {38, 112}, {64, 113}};
     uint32_t i, used[4] = {0, 0, 0, 0};
     for (i = 0; i < 12u; i++) {
-        TT_CHECK_EQ(ui_cc_of(MOVED[i][0]), (uint32_t)MOVED[i][1]);
-        TT_CHECK_EQ(ui_pg800_of(MOVED[i][1]), (uint32_t)MOVED[i][0]);
-        TT_CHECK_EQ(ui_pg800_of(MOVED[i][0]), UI_CC_NONE);  /* (nothing left on the standard CC) */
+        TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_JX, MOVED[i][0]), (uint32_t)MOVED[i][1]);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, MOVED[i][1]), (uint32_t)MOVED[i][0]);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, MOVED[i][0]), UI_CC_NONE);  /* (nothing left on the standard CC) */
     }
-    TT_CHECK_EQ(ui_cc_of(52), 52u);
-    TT_CHECK_EQ(ui_pg800_of(52), 52u);
-    TT_CHECK_EQ(ui_pg800_of(0), UI_CC_NONE);
+    TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_JX, 52), 52u);
+    TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, 52), 52u);
+    TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, 0), UI_CC_NONE);
     for (i = 120; i < 128u; i++)
-        TT_CHECK_EQ(ui_pg800_of(i), UI_CC_NONE);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, i), UI_CC_NONE);
     for (i = 0; i < UI_PAGES * 4u; i++) {
         uint32_t cc;
         if (UI_SLOTS[i].kind != UI_LIVE)
             continue;
-        cc = ui_cc_of(UI_SLOTS[i].num);
+        cc = ui_cc_of(UI_CC_MAP_JX, UI_SLOTS[i].num);
         TT_CHECK(cc >= 2u && cc <= 119u && cc != 6u && cc != 7u && cc != 11u && cc != 32u && cc != 38u &&
                  cc != 64u);
         TT_CHECK(!(used[cc / 32u] >> (cc % 32u) & 1u));
         used[cc / 32u] |= 1u << (cc % 32u);
-        TT_CHECK_EQ(ui_pg800_of(cc), (uint32_t)UI_SLOTS[i].num);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, cc), (uint32_t)UI_SLOTS[i].num);
     }
     ui_setup();                                               /* 07 VOICE on CC 108; CC 7 is volume's */
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     TT_CHECK(ui_cc(&ui_u, 108, 127, 0));
     TT_CHECK(!ui_cc(&ui_u, 7, 127, 0));
 }
@@ -2232,16 +2240,19 @@ TT_TEST(ui_cc_lands_where_a_knob_does)
     int32_t knob;
     for (i = 0; i < 2u; i++) {
         ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
         enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
         ui_event(&ui_u, UI_EV_ENC | enc, 200 * WAY[i], 0);
         ui_settle();
         knob = fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS);
         ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
         ui_cc(&ui_u, 52, i ? 0u : 127u, 0);
         ui_settle();
         TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS), knob);
     }
     ui_setup();                                               /* inside the range: the same path */
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_cc(&ui_u, 52, 64, 0);
     ui_settle();
     TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS),
@@ -2269,10 +2280,10 @@ TT_TEST(ui_cc_map_doc_matches_the_code)
         bar = strrchr(line, '|');
         *bar = 0;
         cc = (uint32_t)atoi(strrchr(line, '|') + 1);
-        if (ui_cc_of(num) != cc)
+        if (ui_cc_of(UI_CC_MAP_JX, num) != cc)
             printf("    the doc has PG-800 %u on CC %u, the code %u\n", (unsigned)num, (unsigned)cc,
-                   (unsigned)ui_cc_of(num));
-        TT_CHECK_EQ(ui_cc_of(num), cc);
+                   (unsigned)ui_cc_of(UI_CC_MAP_JX, num));
+        TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_JX, num), cc);
         seen[num / 32u] |= 1u << (num % 32u);
         rows++;
     }
@@ -2292,6 +2303,7 @@ TT_TEST(ui_cc_map_doc_matches_the_code)
 TT_TEST(ui_cc_redraws_the_sections_picture_and_followers)
 {
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_tap(UI_BTN_ENV, 0);                                    /* 5A */
     ui_tap(UI_BTN_ENV, 200);                                  /* 5B */
     TT_CHECK_EQ(ui_u.page, 8u);
@@ -2302,6 +2314,7 @@ TT_TEST(ui_cc_redraws_the_sections_picture_and_followers)
     TT_CHECK_EQ(ui_take(&ui_u, 1400) & UI_D_SLOT, 0u);
     TT_CHECK(play_edited(&ui_p));
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_tap(UI_BTN_LFO, 0);                                    /* 7A, 0A, 0B */
     ui_tap(UI_BTN_LFO, 200);
     ui_tap(UI_BTN_LFO, 400);
@@ -2311,6 +2324,7 @@ TT_TEST(ui_cc_redraws_the_sections_picture_and_followers)
     TT_CHECK_EQ(ui_take(&ui_u, 1200) & (UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3)),
                 UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3));
     ui_setup();                                               /* PLAY: an off-page CC, the footer */
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     (void)ui_take(&ui_u, 1000);
     ui_cc(&ui_u, 81, 20, 1100);
     TT_CHECK(play_edited(&ui_p));
@@ -2324,6 +2338,7 @@ TT_TEST(ui_cc_pickup_banner_leaves_the_warnings_up)
     const char *warn;
     int32_t mid;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     mid = ui_cc_jump(64);                                     /* an edit: cutoff to 64 on the CC scale */
     ui_u.set.ext_cc = 1;                                      /* PICKUP */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1000);     /* the discard warning */
@@ -2343,6 +2358,7 @@ TT_TEST(ui_cc_send_sends_knob_turns)
     uint32_t enc, cc = 0, v = 0, n;
     int32_t at;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
     ui_event(&ui_u, UI_EV_ENC | enc, 1, 0);
     TT_CHECK(!ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));   /* G22 OFF (its default) */
@@ -2383,6 +2399,7 @@ TT_TEST(ui_cc_send_sends_knob_turns)
     TT_CHECK_EQ(ui_choice_pos(&UI_SLOTS[1], ui_slot_value(&ui_u, &UI_SLOTS[1]), &n),
                 ui_choice_pos(&UI_SLOTS[1], at, &n));
     ui_setup();                                               /* 07 VOICE MODE: out on CC 108 */
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_u.set.cc_send = 1;
     ui_tap(UI_BTN_LFO, 0);
     ui_tap(UI_BTN_LFO, 200);
@@ -2399,6 +2416,7 @@ TT_TEST(ui_cc_send_is_rate_bounded)
 {
     uint32_t enc, cc = 0, v = 0, first;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_u.set.cc_send = 1;
     enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
     ui_event(&ui_u, UI_EV_ENC | enc, 1, 1000);
@@ -2422,8 +2440,20 @@ TT_TEST(ui_cc_send_is_rate_bounded)
     TT_CHECK(!ui_cc_out(&ui_u, 1400 + 2u * UI_CC_OUT_MS, &cc, &v));
 }
 
+/* CC MAP (Eric): which CC map receive and send use, JX (the number on screen) or STANDARD (Kiwi-8P's,
+ * docs/ui/interaction.md); a fresh FM-1 starts on STANDARD. On JX, CC 52 is cutoff. */
+TT_TEST(ui_cc_map_setting_picks_the_map)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_u.set.cc_map, (uint8_t)UI_CC_MAP_STANDARD);
+    ui_u.set.cc_map = UI_CC_MAP_JX;
+    ui_cc(&ui_u, 52, 127, 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->max);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_cc_map_setting_picks_the_map);
     TT_RUN(ui_cc_send_sends_knob_turns);
     TT_RUN(ui_cc_send_is_rate_bounded);
     TT_RUN(ui_cc_sets_its_parameter);

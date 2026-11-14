@@ -192,9 +192,10 @@ uint32_t ui_keypad_led(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 #define UI_CC_NONE 0xFFu
-/* the CC map: PG-800 number num's CC, and CC cc's PG-800 number (UI_CC_NONE: none) */
-uint32_t ui_cc_of(uint32_t num);
-uint32_t ui_pg800_of(uint32_t cc);
+/* CC map `map` (UI_CC_MAP_*): PG-800 number num's CC (the one it sends), and CC cc's PG-800 number
+ * (UI_CC_NONE: none) */
+uint32_t ui_cc_of(uint32_t map, uint32_t num);
+uint32_t ui_pg800_of(uint32_t map, uint32_t cc);
 /* G22 CC SEND: a CC a knob turn made, taken (1), on the scale a CC in reads; 0: none now. Only knob
  * turns, never a CC that came in. At most one every UI_CC_OUT_MS, each slot's latest value when it
  * goes, round the slots turned; the same CC and value as the last sent isn't sent again. The module

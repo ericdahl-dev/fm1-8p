@@ -57,6 +57,10 @@ extern const uint8_t UI_RING_SEL[], UI_RING_ENV[], UI_RING_FX[], UI_RING_LFO[];
 typedef struct { uint8_t pg800, cc; } ui_cc_move;
 #define UI_CC_MOVED_COUNT 12u
 extern const ui_cc_move UI_CC_MOVED[UI_CC_MOVED_COUNT];
+/* CC MAP STANDARD (Kiwi-8P's, interaction.md): each pair a PG-800 number and a CC, nothing else on it; a
+ * number's first pair is the CC it sends, any later ones only receive */
+extern const ui_cc_move UI_CC_STANDARD[];
+extern const uint32_t UI_CC_STANDARD_COUNT;
 
 /* GLO's slots (interaction.md 4): G11..G34, each a setting (UI_SETTINGS_INFO's index), 3 pages of 4 */
 typedef struct {
