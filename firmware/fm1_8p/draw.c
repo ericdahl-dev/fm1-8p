@@ -3,7 +3,6 @@
  * docs/ui/visual.md theme (firmware/ui_map.c), only what changed (ui_take), a band part per call.
  * Apart from the module (fm1_8p.c) so the CPU test can draw the same pages while it times (#47). */
 #include "draw.h"
-#define DFONT_NO_D20                            /* (only D24 is drawn here) */
 #include "display_font.h"
 
 static const hb_host_t *H;
@@ -76,21 +75,26 @@ static uint32_t glyph(char c)                   /* its index in DFONT_CHARS: low
     return 0;
 }
 
-static int32_t d24_w(const char *s)
+/* the display font's sizes (display_font.h): D24 for values, D20 for PLAY's patch name */
+typedef struct { const uint8_t *w, *data; const uint16_t *off; uint32_t h; int32_t gap; } dfont;
+static const dfont F24 = {D24_W, D24_DATA, D24_OFF, D24_H, D24_GAP};
+static const dfont F20 = {D20_W, D20_DATA, D20_OFF, D20_H, D20_GAP};
+
+static int32_t dfont_w(const dfont *f, const char *s)
 {
     int32_t w = 0;
     for (; *s; s++)
-        w += D24_W[glyph(*s)] + D24_GAP;
-    return w ? w - D24_GAP : 0;
+        w += f->w[glyph(*s)] + f->gap;
+    return w ? w - f->gap : 0;
 }
 
-/* the display font's D24 at x, y: each row's runs as one rect; returns the x after it */
-static int32_t d24(int32_t x, int32_t y, const char *s, uint16_t c)
+/* text in a display font at x, y: each row's runs as one rect; returns the x after it */
+static int32_t dfont_text(const dfont *f, int32_t x, int32_t y, const char *s, uint16_t c)
 {
     for (; *s; s++) {
-        uint32_t g = glyph(*s), w = D24_W[g], bpr = (w + 7u) / 8u, r, b;
-        const uint8_t *row = &D24_DATA[D24_OFF[g]];
-        for (r = 0; r < D24_H; r++, row += bpr)
+        uint32_t g = glyph(*s), w = f->w[g], bpr = (w + 7u) / 8u, r, b;
+        const uint8_t *row = &f->data[f->off[g]];
+        for (r = 0; r < f->h; r++, row += bpr)
             for (b = 0; b < w;) {
                 uint32_t e;
                 if (!(row[b >> 3] >> (7u - (b & 7u)) & 1u)) { b++; continue; }
@@ -98,10 +102,13 @@ static int32_t d24(int32_t x, int32_t y, const char *s, uint16_t c)
                 H->cv_rect(x + (int32_t)b, y + (int32_t)r, (int32_t)(e - b), 1, c);
                 b = e;
             }
-        x += (int32_t)w + D24_GAP;
+        x += (int32_t)w + f->gap;
     }
-    return x - D24_GAP;
+    return x - f->gap;
 }
+
+#define d24_w(s) dfont_w(&F24, s)
+#define d24(x, y, s, c) dfont_text(&F24, x, y, s, c)
 
 /* text in size big (0: 16 px, 1: 32 px), centered in w */
 static void text_c(int32_t x, int32_t w, int32_t y, uint32_t big, const char *s, uint16_t c)
@@ -434,7 +441,7 @@ static void play_part(uint32_t b, uint32_t part)
         CV_TEXT(M + 72 + TEXT_W(0, "PATCH"), 0, 0, n, C_DIM);
         if (play_edited(P))
             CV_TEXT(240 - M - TEXT_W(0, "EDITED"), 0, 0, "EDITED", C_TEXT);
-        CV_TEXT(M + 72, 18, 1, play_patch(P)->name, C_TEXT);
+        dfont_text(&F20, M + 72, 22, play_patch(P)->name, C_TEXT);   /* the name in D20 (visual.md) */
         blit(0, 28, 240, 50);
     } else if (b == UI_D_SLOT) {                /* rows 78..137: the badge, six sunset bands */
         static const int32_t BAND_H[6] = {20, 10, 9, 7, 6, 4};
