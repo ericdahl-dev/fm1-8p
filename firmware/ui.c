@@ -370,7 +370,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     }
     if (u->comparing == UI_COMPARE_ON && (ev & 0xFF000000u) == UI_EV_ENC) {   /* nothing changes */
         if (id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4)
-            show_banner(u, "COMPARE: RELEASE EDIT TO CHANGE", ms);
+            show_banner(u, "COMPARE: RELEASE EDIT", ms);
         return;
     }
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))

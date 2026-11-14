@@ -340,7 +340,7 @@ TT_TEST(ui_compare_ignores_knobs_and_presets)
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
     (void)ui_take(&ui_u, 1400);
     ui_event(&ui_u, UI_EV_ENC | enc, 3, 1500);
-    TT_CHECK(strcmp(ui_banner(&ui_u), "COMPARE: RELEASE EDIT TO CHANGE") == 0);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "COMPARE: RELEASE EDIT") == 0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1600);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1700);
     TT_CHECK(play_patch(&ui_p) == t);
