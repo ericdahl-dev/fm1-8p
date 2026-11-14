@@ -1167,6 +1167,19 @@ TT_TEST(ui_time_bar_follows_the_table)
     TT_CHECK(a == 0 && b == 0);
 }
 
+/* On an ENV page the slot is its ADSR: a SUSTAIN turn redraws it. */
+TT_TEST(ui_env_turn_redraws_the_adsr)
+{
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 3u; i++)                    /* 5A, 5B, 8A */
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 100 * i);
+    (void)ui_take_full(&ui_u, 300);
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_SUSTAIN, 500);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 400);
+    TT_CHECK(ui_take(&ui_u, 500) & UI_D_SLOT);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1209,6 +1222,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_env_turn_redraws_the_adsr);
     TT_RUN(ui_time_bar_follows_the_table);
     TT_RUN(ui_adsr_picture_follows_the_envelope);
     TT_RUN(ui_vel_is_inactive_with_dynamics);
