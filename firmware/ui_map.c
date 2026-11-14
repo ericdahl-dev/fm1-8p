@@ -13,6 +13,23 @@ const ui_theme UI_MEMBRANE = {
     .focus = {256u, 256u, 0u},          /* a 2 px frame */
     .hatch = 0u,
     .sun = {0xFE88u, 0xFD87u, 0xFC67u, 0xFB49u, 0xF24Eu, 0xD1D2u},
+    .art = UI_ART_BADGE,
+};
+
+/* visual.md: Night Panel */
+const ui_theme UI_NIGHT_PANEL = {
+    .bg = 0x0863u, .surface = 0x18C5u, .surface_hi = 0x2107u, .line = 0x2969u, .text = 0xEF7Fu,
+    .dim = 0x9CB7u, .ink = 0x0863u, .window = 0x0021u, .led = 0u,
+    .section = {0xFAF4u, 0xFC47u, 0xDEBEu, 0x2EDFu, 0xFE07u, 0x7F8Fu, 0xB3FFu, 0x3D1Fu, 0xF9FBu, 0xDEBEu, 0xF9FBu},
+    .ghost = 20u,                       /* 8 % */
+    .chip = 0u,                         /* the name under a 3 px band */
+    .meter_segments = 8u,               /* an LED ladder */
+    .focus = {256u, 115u, 51u},         /* a glow: 1.0, 0.45, 0.2 */
+    .hatch = 41u,                       /* 16 % */
+    .sun = {0xFEC9u, 0xFD88u, 0xFC48u, 0xFAECu, 0xF1F2u, 0xC198u},
+    .led_section = 1u,
+    .art = UI_ART_SUN,
+    .grid = 0x5953u, .horizon = 0xF9FBu,
 };
 
 /* interaction.md 3: the pages, as the JX-8P's panel has its sections */
