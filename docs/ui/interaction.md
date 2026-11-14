@@ -621,8 +621,9 @@ Patterns have their own slots, separate from patches (decision Q2).
   - It survives power-off the same way (decision Q4).
 - **Browsing:** PRESETS in SEQ view.
   - **Stopped:** each click loads the next or previous pattern at once. With
-    PATTERN EDITED, the first event warns `PATTERN EDITED: TURN AGAIN TO
-    DISCARD`, per event as for patches.
+    PATTERN EDITED, the first event warns that the pattern is edited (wording
+    pending: decided when SEQ is built, to fit the footer's 28 characters), per
+    event as for patches.
   - **Playing:** the pattern doesn't change mid-pass. Clicks pick the **next
     pattern**, shown as `NEXT PATTERN 23`. It takes over when the running
     pattern ends its pass (after its last step).
@@ -709,7 +710,7 @@ Everywhere, unless the state says otherwise:
 - **Must:** a banner line for short messages, shown 1.5 s:
   - `SAVED 23`, `SAVED PATTERN 23`
   - `EDITED - TURN TO DISCARD`
-  - `PATTERN EDITED: TURN AGAIN TO DISCARD`
+  - the pattern-edited warning (wording pending, decided when SEQ is built)
   - `MAX n NOTES` (n = the build's voice count)
   - `SAVE CANCELED`
   - `STOP TO RECORD`
