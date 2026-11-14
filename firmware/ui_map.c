@@ -4,15 +4,36 @@
 
 /* visual.md: Membrane */
 const ui_theme UI_MEMBRANE = {
-    .bg = 0x18E4u, .surface = 0x2145u, .surface_hi = 0x31A7u, .line = 0x3A09u, .text = 0xEF3Au,
-    .dim = 0xA513u, .ink = 0x1082u, .window = 0x0861u, .led = 0xF984u,
-    .section = {0xEC07u, 0xEDC7u, 0xCE15u, 0x4D9Au, 0xDB53u, 0x8E4Cu, 0x9C5Cu, 0x5657u, 0xFB4Du, 0xCE15u, 0xEF3Au},
+    /* the JX-8P's own colors (Eric, 2026-11-14, from a render of its panel): the button strip's dark
+     * gray for the screen, the body's mid gray for rules and frames, the lettering for text, the LED
+     * display's pale cyan, and the buttons' red, amber, cream, gray and blue as the sections, lightened
+     * only as far as the contrast rules need (the body gray is too light to put text on) */
+    .bg = 0x2986u, .surface = 0x3A08u, .surface_hi = 0x4249u, .line = 0x83EFu, .text = 0xF7BEu,
+    .dim = 0xC659u, .ink = 0x1904u, .window = 0x0020u, .led = 0xAF9Eu,
+    .section = {0xDCF3u, 0xDD6Bu, 0xCE58u, 0x8D9Au, 0xE5B6u, 0xC5F5u, 0xB65Cu, 0xCD4Du, 0xDCF3u, 0xAD95u, 0xD6B9u},
     .ghost = 26u,                       /* 10 % */
     .chip = 1u,
     .meter_segments = 0u,
     .focus = {256u, 256u, 0u},          /* a 2 px frame */
     .hatch = 0u,
     .sun = {0xFE88u, 0xFD87u, 0xFC67u, 0xFB49u, 0xF24Eu, 0xD1D2u},
+    .art = UI_ART_BADGE,
+};
+
+/* visual.md: Night Panel */
+const ui_theme UI_NIGHT_PANEL = {
+    .bg = 0x0863u, .surface = 0x18C5u, .surface_hi = 0x2107u, .line = 0x2969u, .text = 0xEF7Fu,
+    .dim = 0x9CB7u, .ink = 0x0863u, .window = 0x0021u, .led = 0u,
+    .section = {0xFAF4u, 0xFC47u, 0xDEBEu, 0x2EDFu, 0xFE07u, 0x7F8Fu, 0xB3FFu, 0x3D1Fu, 0xF9FBu, 0xDEBEu, 0xF9FBu},
+    .ghost = 20u,                       /* 8 % */
+    .chip = 0u,                         /* the name under a 3 px band */
+    .meter_segments = 8u,               /* an LED ladder */
+    .focus = {256u, 115u, 51u},         /* a glow: 1.0, 0.45, 0.2 */
+    .hatch = 41u,                       /* 16 % */
+    .sun = {0xFEC9u, 0xFD88u, 0xFC48u, 0xFAECu, 0xF1F2u, 0xC198u},
+    .led_section = 1u,
+    .art = UI_ART_SUN,
+    .grid = 0x5953u, .horizon = 0xF9FBu,
 };
 
 /* interaction.md 3: the pages, as the JX-8P's panel has its sections */
@@ -157,3 +178,25 @@ const char *const UI_SECTION_NAME[10] = {"AFTERTOUCH", "DCO-1", "DCO-2", "DCO EN
                                          "LFO", "ENV-1", "ENV-2"};
 const uint8_t UI_SECTION_PAGE[10] = {16, 0, 2, 4, 5, 7, 9, 11, 12, 14};     /* 0A, 1A, ... 9A */
 const uint8_t UI_PLAY_SLOT[4] = {4 * 7 + 1, 4 * 7 + 2, 4 * 8 + 0, 4 * 14 + 3};   /* 52, 53, 55, 94 */
+
+/* interaction.md 4, GLO: the settings, G11..G34 (UI_SETTINGS_INFO's order) */
+static const char *const OFF_ON[] = {"OFF", "ON"};
+static const char *const CLOCK[] = {"AUTO", "INT", "MIDI"};
+static const char *const PROG[] = {"OFF", "RECV", "SEND", "BOTH"};
+static const char *const EXT_CC[] = {"JUMP", "PICKUP"};
+static const char *const THEME[] = {"MEMBRANE", "NIGHT PANEL"};
+static const char *const THEME_COL[] = {"MEMB", "NIGHT"};
+const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT] = {
+    {11, "CH IN", "MIDI CHANNEL IN", 0, UI_LIVE, 1, 4, 0, 0, "ALL"},
+    {12, "CH OUT", "MIDI CHANNEL OUT", 1, UI_LIVE, 1, 4, 0, 0, 0},
+    {13, "CLOCK", "CLOCK SOURCE", 2, UI_PENDING, 1, 1, CLOCK, 0, 0},          /* (#38) */
+    {14, "CLKOUT", "CLOCK OUT", 3, UI_PENDING, 1, 1, OFF_ON, 0, 0},          /* (#38) */
+    {21, "CC IN", "CC RECEIVE", 4, UI_PENDING, 1, 1, OFF_ON, 0, 0},         /* (#49) */
+    {22, "CC OUT", "CC SEND", 5, UI_PENDING, 1, 1, OFF_ON, 0, 0},            /* (#49) */
+    {23, "PROG", "PROGRAM CHANGE", 6, UI_PENDING, 1, 1, PROG, 0, 0},       /* (not built yet) */
+    {24, "EXT CC", "EXTERNAL CC", 7, UI_PENDING, 1, 1, EXT_CC, 0, 0},         /* (#49) */
+    {31, "CURVE", "VELOCITY CURVE", 8, UI_LIVE, 5, 25, 0, 0, 0},
+    {32, "FIXED", "FIXED VELOCITY", 9, UI_LIVE, 1, 10, 0, 0, 0},
+    {33, "LEDS", "KEY LEDS", 10, UI_LIVE, 1, 1, OFF_ON, 0, 0},
+    {34, "THEME", "THEME", 11, UI_LIVE, 1, 1, THEME, THEME_COL, 0},
+};
