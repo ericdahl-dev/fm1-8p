@@ -26,7 +26,7 @@ static void ui_settle(void)
 static uint32_t ui_goto(uint16_t id)
 {
     uint32_t n, k;
-    for (n = 0; n < 4u; n++) {
+    for (n = 0; n < 8u; n++) {                  /* (ENV's ring has 6 pages) */
         ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
         for (k = 0; k < 4u; k++)
             if (ui_page_slot(&ui_u, k)->kind == UI_LIVE && ui_page_slot(&ui_u, k)->id == id)
@@ -63,8 +63,8 @@ TT_TEST(ui_vcf_page_knobs_move_their_params_one_step)
         uint32_t enc;
         ui_setup();
         enc = ui_goto(K[k].id);
-        before = (fm_param_info_get(K[k].id)->min + fm_param_info_get(K[k].id)->max) / 2;
-        play_set_param(&ui_p, K[k].id, before);         /* away from the ends: the patch may sit at one */
+        before = fm_param_info_get(K[k].id)->max / 2;   /* away from the ends (an ENV size's is 0) */
+        play_set_param(&ui_p, K[k].id, before);
         ui_event(&ui_u, UI_EV_ENC | enc, -1, 0);
         ui_settle();
         TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, K[k].id), before - K[k].step);
@@ -84,14 +84,17 @@ TT_TEST(ui_fast_turn_moves_the_fast_step_per_click)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), before + 1000);
 }
 
-/* At the end of its range a value stays put (no wrap). */
+/* At the end of its range a value stays put (no wrap); an ENV size stops at 0 and at its top. */
 TT_TEST(ui_knob_clamps_at_the_ends_of_the_range)
 {
     ui_setup();
     ui_event(&ui_u, UI_EV_ENC | ui_goto(FM_PARAM_FILTER_RESONANCE), 120, 0);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), 1000);
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 500);
     ui_event(&ui_u, UI_EV_ENC | ui_goto(FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -200, 0);
-    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -16400);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 0);
+    ui_event(&ui_u, UI_EV_ENC | ui_goto(FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 200, 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 16400);
 }
 
 /* This slice's PLAY screen has no knobs: a turn there changes nothing. */
@@ -128,14 +131,15 @@ TT_TEST(ui_cutoff_reads_in_hz_three_digits)
     TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 7800, "740 Hz"));
 }
 
-/* RESO 0..100 (10 per mille a step), ENV signed semitones, KEY a percentage. */
+/* RES 0..100 (10 per mille a step), ENV its size in semitones (58 MODE has the sign), KEY a
+ * percentage. */
 TT_TEST(ui_reso_env_and_key_read_in_their_units)
 {
     TT_CHECK(ui_shows(FM_PARAM_FILTER_RESONANCE, 340, "34"));
     TT_CHECK(ui_shows(FM_PARAM_FILTER_RESONANCE, 1000, "100"));
-    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "+24 st"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "24 st"));
     TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 0, "0 st"));
-    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -9600, "-96 st"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -9600, "96 st"));
     TT_CHECK(ui_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50 %"));
 }
 
@@ -221,12 +225,12 @@ TT_TEST(ui_column_value_is_short)
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 6900, "440", ""));
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 14400, "OPEN", ""));
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_RESONANCE, 340, "34", ""));
-    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "+24", "st"));
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "24", "st"));
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50", "%"));
 }
 
-/* The header's page strip: 14 segments with 2 px gaps share 230 px from x 5 (the leftover px one
- * each to the first); 4A is the 5th. */
+/* The header's page strip: 18 segments with 2 px gaps share 230 px from x 5 (the leftover px one
+ * each to the first); 5A is the 8th (interaction.md's page order). */
 TT_TEST(ui_page_strip_fills_the_rule)
 {
     int32_t x, w, end = 5;
@@ -237,7 +241,8 @@ TT_TEST(ui_page_strip_fills_the_rule)
         end = x + w + 2;
     }
     TT_CHECK_EQ(end - 2, 235);
-    TT_CHECK_EQ(UI_PAGE_4A, 4u);
+    TT_CHECK_EQ(UI_PAGES, 18u);
+    TT_CHECK(strcmp(UI_PAGE_INFO[UI_PAGE_5A].name, "5A") == 0);
 }
 
 /* The LED window's 7-segment digits (bits a..g = 0..6). */
@@ -463,7 +468,7 @@ TT_TEST(ui_home_hold_keeps_the_page)
 }
 
 /* ENV again while 5A shows steps to 5B (its ring), a new page to draw; there KNOB1 is 55 ENV. ENV on
- * 5B goes back to 5A while the rest of its ring isn't built. */
+ * 5B goes on to 8A. */
 TT_TEST(ui_env_on_5a_steps_to_5b)
 {
     int32_t cut;
@@ -479,7 +484,7 @@ TT_TEST(ui_env_on_5a_steps_to_5b)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 100);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 1200);
-    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 81);    /* then on round its ring: 8A ENV-1 */
 }
 
 /* On PLAY a new last note marks the note's strip, coalesced like the other redraws, and only once. */
@@ -680,7 +685,8 @@ TT_TEST(ui_vcf_slots_are_the_jx_panels)
     static const struct { uint8_t num; uint16_t id; } WANT[8] = {
         {51, FM_PARAM_HIGHPASS_STEP}, {52, FM_PARAM_FILTER_CUTOFF_CENTS},
         {53, FM_PARAM_FILTER_RESONANCE}, {54, 0},
-        {55, FM_PARAM_FILTER_ENV_AMOUNT_CENTS}, {56, FM_PARAM_FILTER_KEY_TRACK}, {57, 0}, {58, 0},
+        {55, FM_PARAM_FILTER_ENV_AMOUNT_CENTS}, {56, FM_PARAM_FILTER_KEY_TRACK},
+        {57, FM_PARAM_FILTER_ENV_DYNA}, {58, FM_PARAM_FILTER_ENV_SOURCE},
     };
     uint32_t i;
     ui_setup();
@@ -780,6 +786,520 @@ TT_TEST(ui_choice_meter_lights_its_position)
     TT_CHECK_EQ(ui_choice_pos(hpf, 3, &n), 3u);
 }
 
+/* Under turns every frame, each frame's bands are all drawn before the next frame's start, so the
+ * columns aren't starved by the focus row and curve a turn marks again (#47, slice 1b): CUTOFF turns
+ * every 33 ms, draw() comes every 10 ms, and the turned column still draws. */
+TT_TEST(ui_steady_turns_still_reach_the_columns)
+{
+    uint32_t pending = 0, ms, cols = 0, busy = 0;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    for (ms = 0; ms < 1000u; ms += 10u) {
+        uint32_t b;
+        if (ms % 30u == 0)
+            ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, ms % 60u ? 1 : -1, ms);
+        if (busy) {                             /* the curve's other parts (draw.c: 3 a curve) */
+            busy--;
+            continue;
+        }
+        b = ui_band(&ui_u, &pending, ms);
+        cols += b == UI_D_COL(1);
+        busy = b == UI_D_SLOT ? 2u : 0u;
+    }
+    printf("    column drawn %u times in 1 s\n", (unsigned)cols);
+    TT_CHECK(cols >= 10u);
+}
+
+/* SEL from PLAY opens 1A, DCO-1 (interaction.md 3, 4): 11 RANGE and 12 WAVE on KNOB1 and KNOB2. */
+TT_TEST(ui_sel_opens_dco1)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 11);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->id, FM_PARAM_OSC1_OCTAVE);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 1)->num, 12);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 1)->id, FM_PARAM_OSC1_WAVE);
+}
+
+/* A section button is lit while a page of its ring shows (interaction.md 4): on 1A SEL is lit and
+ * ENV glows; on 5A, the other way round. */
+TT_TEST(ui_section_led_follows_the_ring)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_LIT);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_GLOW);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 200);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_LIT);
+}
+
+/* DCO values (interaction.md 3, 1x/2x): RANGE in feet, WAVE by name, LFO depth in cents. */
+TT_TEST(ui_dco_values_read_as_the_panel)
+{
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_OCTAVE, 0, "8'"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_OCTAVE, -2, "32'"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_OCTAVE, 2, "2'"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_WAVE, 0, "SAW"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_WAVE, 3, "NOISE"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_CENTS, 450, "450 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_OSC2_CENTS, -1, "D1"));    /* follows DCO-1's depth */
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_OSC2_CENTS, 90, "90 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, 1240, "12.4 st"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC2_CENTS, -3200, "32.0 st"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, 0, "0.0 st"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_FINE_CENTS, 5, "+5 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_FINE_CENTS, -100, "-100 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_COARSE_SEMIS, 7, "+7 st"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_PULSE_WIDTH_PCT, 50, "50 %"));
+}
+
+/* SEL steps its ring (interaction.md 4): 1A, 1B, 2A, 2B, 3A, 4A, 4B, and back to 1A. */
+TT_TEST(ui_sel_walks_the_dco_pages)
+{
+    static const uint8_t WANT[8] = {11, 15, 21, 25, 31, 41, 45, 11};
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 8u; i++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
+        ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
+        TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, WANT[i]);
+    }
+}
+
+/* 23 X-MOD is the JX-8P's CROSS MOD on one knob (interaction.md 17a): OFF, SYNC 1, SYNC 2, X-MOD,
+ * setting osc_sync and osc_ring as tools/jx8p.py maps it, and staying at either end. */
+TT_TEST(ui_xmod_steps_the_cross_mod_positions)
+{
+    static const struct { int32_t sync, ring; const char *shown; } WANT[5] = {
+        {0, 0, "OFF"}, {1, 0, "SYNC 1"}, {1, 1, "SYNC 2"}, {0, 1, "X-MOD"}, {0, 1, "X-MOD"},
+    };
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 3u; i++) {                  /* SEL: 1A, 1B, 2A */
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
+        ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
+    }
+    play_set_param(&ui_p, FM_PARAM_OSC_SYNC, 0);
+    play_set_param(&ui_p, FM_PARAM_OSC_RING, 0);
+    for (i = 0; i < 5u; i++) {
+        char s[UI_VALUE_LEN];
+        if (i)
+            ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 5000);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_SYNC), WANT[i].sync);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_RING), WANT[i].ring);
+        ui_format(ui_page_slot(&ui_u, 2)->id, ui_slot_value(&ui_u, ui_page_slot(&ui_u, 2)), s);
+        TT_CHECK(strcmp(s, WANT[i].shown) == 0);
+    }
+}
+
+/* The DCO pages' slot draws the waveform, two cycles across n columns (levels -1000..+1000): a saw
+ * rises through each cycle, a pulse is high for its width, a square half the cycle, noise anywhere
+ * in range. */
+TT_TEST(ui_wave_picture_follows_the_wave)
+{
+    uint32_t i, high = 0;
+    TT_CHECK(ui_wave_level(FM_WAVE_SAW, 50, 0, 200) < ui_wave_level(FM_WAVE_SAW, 50, 90, 200));
+    TT_CHECK(ui_wave_level(FM_WAVE_SAW, 50, 99, 200) > ui_wave_level(FM_WAVE_SAW, 50, 100, 200));
+    for (i = 0; i < 200u; i++)
+        high += ui_wave_level(FM_WAVE_PULSE, 25, i, 200) > 0;
+    TT_CHECK(high >= 48u && high <= 52u);
+    for (high = 0, i = 0; i < 200u; i++)
+        high += ui_wave_level(FM_WAVE_SQUARE, 25, i, 200) > 0;
+    TT_CHECK(high >= 98u && high <= 102u);
+    for (i = 0; i < 200u; i++) {
+        int32_t v = ui_wave_level(FM_WAVE_NOISE, 50, i, 200);
+        TT_CHECK(v >= -1000 && v <= 1000);
+    }
+}
+
+/* On a DCO page the slot is the waveform: a WAVE turn redraws it, a RANGE turn doesn't. */
+TT_TEST(ui_wave_turn_redraws_the_picture)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    (void)ui_take_full(&ui_u, 100);
+    play_set_param(&ui_p, FM_PARAM_OSC1_WAVE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 200);
+    TT_CHECK(ui_take(&ui_u, 300) & UI_D_SLOT);
+    play_set_param(&ui_p, FM_PARAM_OSC1_OCTAVE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 400);
+    TT_CHECK(!(ui_take(&ui_u, 500) & UI_D_SLOT));
+}
+
+/* 17 WIDTH is inactive unless DCO-1's WAVE is PULSE (interaction.md 3, 1x), and 28 likewise for
+ * DCO-2; other slots are active. */
+TT_TEST(ui_width_is_inactive_off_pulse)
+{
+    const ui_slot *w1 = &UI_SLOTS[4 * 1 + 2], *w2 = &UI_SLOTS[4 * 3 + 3];
+    ui_setup();
+    TT_CHECK_EQ(w1->num, 17);
+    TT_CHECK_EQ(w2->num, 28);
+    play_set_param(&ui_p, FM_PARAM_OSC1_WAVE, FM_WAVE_SAW);
+    play_set_param(&ui_p, FM_PARAM_OSC2_WAVE, FM_WAVE_PULSE);
+    TT_CHECK(!ui_slot_active(&ui_u, w1));
+    TT_CHECK(ui_slot_active(&ui_u, w2));
+    play_set_param(&ui_p, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
+    TT_CHECK(ui_slot_active(&ui_u, w1));
+    TT_CHECK(ui_slot_active(&ui_u, &UI_SLOTS[0]));
+}
+
+/* 14 LFO (interaction.md 3): 1 to 99 ct a click of 1 (fast 10), from 100 a click of 10 (fast 50). */
+TT_TEST(ui_lfo_depth_steps_finer_below_100)
+{
+    static const struct { int32_t from, clicks, to; } C[] = {
+        {98, 1, 99}, {99, 1, 100}, {100, 1, 110}, {110, -1, 100}, {100, -1, 99}, {50, 3, 80}, {100, 3, 250},
+    };
+    uint32_t i;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    for (i = 0; i < sizeof C / sizeof C[0]; i++) {
+        play_set_param(&ui_p, FM_PARAM_LFO_PITCH_CENTS, C[i].from);
+        ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, C[i].clicks, 200);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_PITCH_CENTS), C[i].to);
+    }
+}
+
+/* SEL's ring goes on to 3A DCO ENV (interaction.md 3, 3x): 31 DYNA (OFF, 1, 2, 3), 32 MODE,
+ * 33 XMOD AMT (osc_xmod_permille, 0..100 %). */
+static void ui_sel_to(uint32_t times)
+{
+    uint32_t i;
+    for (i = 0; i < times; i++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
+        ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
+    }
+}
+
+TT_TEST(ui_sel_reaches_dco_env)
+{
+    ui_setup();
+    ui_sel_to(5);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 31);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->id, FM_PARAM_PITCH_ENV_DYNA);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->id, FM_PARAM_OSC_XMOD);
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_DYNA, 0, "OFF"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_DYNA, 2, "2"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC_XMOD, 450, "45 %"));
+}
+
+/* 32 MODE is the JX-8P's DCO ENV MODE on one knob (interaction.md 66): ENV2 INV, ENV2, ENV1 INV,
+ * ENV1, setting pitch_env_source and the sign of both DCO envelope depths (15, 27), which show their
+ * size. With the depths at 0 the knob still holds INV, and a depth turned up then goes negative. */
+TT_TEST(ui_dco_env_mode_sets_source_and_sign)
+{
+    static const struct { const char *shown; int32_t src, sign; } WANT[5] = {
+        {"ENV1", 0, 1}, {"ENV1 INV", 0, -1}, {"ENV2", 1, 1}, {"ENV2 INV", 1, -1}, {"ENV2 INV", 1, -1},
+    };
+    const ui_slot *mode;
+    uint32_t i;
+    char s[UI_VALUE_LEN];
+    ui_setup();
+    ui_sel_to(5);
+    mode = ui_page_slot(&ui_u, 1);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_SOURCE, 0);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS, 500);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC2_CENTS, 300);
+    for (i = 0; i < 5u; i++) {
+        if (i)
+            ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -1, 9000);
+        ui_format(mode->id, ui_slot_value(&ui_u, mode), s);
+        TT_CHECK(strcmp(s, WANT[i].shown) == 0);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_PITCH_ENV_SOURCE), WANT[i].src);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS), 500 * WANT[i].sign);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_PITCH_ENV_OSC2_CENTS), 300 * WANT[i].sign);
+    }
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, -500, "5.0 st"));    /* a size: MODE has the sign */
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS, 0);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC2_CENTS, 0);
+    ui_format(mode->id, ui_slot_value(&ui_u, mode), s);
+    TT_CHECK(strcmp(s, "ENV2 INV") == 0);       /* held with the depths at 0 */
+    ui_sel_to(4);                               /* (on through 4A, 4B and 1A to 1B: 15 ENV on KNOB1) */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 9000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS), -10);
+}
+
+/* An ENV MODE held at INV with its depths at 0 is the edit's, not the next patch's: a PRESETS load
+ * reads MODE from the loaded patch (its depths' signs). */
+TT_TEST(ui_mode_memory_goes_with_a_load)
+{
+    const ui_slot *mode;
+    ui_setup();
+    ui_sel_to(5);
+    mode = ui_page_slot(&ui_u, 1);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS, 0);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC2_CENTS, 0);
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_SOURCE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -1, 9000);       /* ENV1 INV */
+    TT_CHECK_EQ(ui_slot_value(&ui_u, mode) >> 1, 1);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 9100);       /* edited: warns */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 9200);       /* loads */
+    play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS, 0);
+    TT_CHECK_EQ(ui_slot_value(&ui_u, mode) >> 1, 0);
+}
+
+/* MIXER (interaction.md 3, 4x): 4A 41 DCO-1, 42 DCO-2 (levels 0..100), 43 ENV (its size), 44 DYNA;
+ * 4B 45 MODE, the mix envelope's source and sign. SEL's ring: ... 3A, 4A, 4B, then 1A. */
+TT_TEST(ui_mixer_pages)
+{
+    const ui_slot *mode;
+    ui_setup();
+    ui_sel_to(6);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 41);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->id, FM_PARAM_OSC1_LEVEL);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->id, FM_PARAM_OSC_MIX_ENV);
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_LEVEL, 670, "67"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC_MIX_ENV, -500, "50"));
+    play_set_param(&ui_p, FM_PARAM_OSC_MIX_ENV, 400);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 9000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_MIX_ENV), 410);
+    ui_sel_to(1);
+    mode = ui_page_slot(&ui_u, 0);
+    TT_CHECK_EQ(mode->num, 45);
+    play_set_param(&ui_p, FM_PARAM_OSC_MIX_ENV_SOURCE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -1, 9000);       /* ENV1 INV */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_MIX_ENV), -410);
+    ui_sel_to(1);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 11);
+}
+
+/* 5B (interaction.md 3, 5x): 55 ENV is the cutoff envelope's size, 57 DYNA the VCF DYNAMICS,
+ * 58 MODE its source and sign. */
+TT_TEST(ui_vcf_env_mode_and_dynamics)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 100);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->kind, UI_LIVE);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->id, FM_PARAM_FILTER_ENV_DYNA);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 3)->kind, UI_LIVE);
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -2400, "24 st"));
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_SOURCE, 1);
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 200);         /* ENV2 -> ENV1 INV */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_SOURCE), 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -2400);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 300);         /* 55: the size grows, still inverted */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -2500);
+}
+
+/* An ENV size's bar fills from the left over 0..its top (the sign is MODE's): 55 ENV at 82 of 164 st
+ * is half the track, whichever way the envelope goes. */
+TT_TEST(ui_size_bar_fills_from_the_left)
+{
+    const ui_slot *env;
+    int32_t a, b;
+    ui_setup();
+    env = ui_page_slot(&ui_u, ui_goto(FM_PARAM_FILTER_ENV_AMOUNT_CENTS) - UI_ENC_KNOB1);
+    ui_slot_bar(env, 8200, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 22);
+    ui_slot_bar(env, 16400, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 44);
+}
+
+/* A page opens with the focus on knob 2 (visual.md), or on its first live slot when knob 2's is
+ * empty: 4B has only 45 MODE (knob 1), so the focus row never shows an empty slot. */
+TT_TEST(ui_focus_opens_on_a_live_slot)
+{
+    ui_setup();
+    ui_sel_to(7);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 45);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, ui_u.focus)->kind, UI_LIVE);
+}
+
+/* Every slot in the table (interaction.md 3): an empty one has no label; the rest have a label of
+ * at most 7 characters (a column's width) and a full one, and their number is the page's section
+ * and the knob (page 5A's KNOB3 is 53); a live one names an engine param. */
+TT_TEST(ui_map_table_is_well_formed)
+{
+    uint32_t p, k;
+    for (p = 0; p < UI_PAGES; p++)
+        for (k = 0; k < 4u; k++) {
+            const ui_slot *sl = &UI_SLOTS[4u * p + k];
+            uint32_t sec = (uint32_t)(UI_PAGE_INFO[p].name[0] - '0');
+            uint32_t knob = (UI_PAGE_INFO[p].name[1] == 'B' ? 5u : 1u) + k;
+            if (sl->kind == UI_RESERVED) {
+                TT_CHECK(sl->label == 0);
+                continue;
+            }
+            if (strlen(sl->label) > 7u || sl->num != sec * 10u + knob)
+                printf("    slot %u: \"%s\" on page %s knob %u\n", sl->num, sl->label, UI_PAGE_INFO[p].name, k + 1u);
+            TT_CHECK(strlen(sl->label) <= 7u && sl->full != 0);
+            TT_CHECK_EQ(sl->num, sec * 10u + knob);
+            TT_CHECK(sl->kind != UI_LIVE || fm_param_info_get(sl->id) != 0);
+        }
+}
+
+/* An inverted ENV MODE fits a column (56 px, 7 characters of Terminus) as E1 INV / E2 INV; the focus
+ * row has it in full. */
+TT_TEST(ui_mode_column_is_short)
+{
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_ENV_SOURCE, 3, "E2 INV", ""));
+    TT_CHECK(ui_column_shows(FM_PARAM_OSC_MIX_ENV_SOURCE, 2, "E1 INV", ""));
+    TT_CHECK(ui_column_shows(FM_PARAM_PITCH_ENV_SOURCE, 1, "ENV2", ""));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_SOURCE, 3, "ENV2 INV"));
+}
+
+/* Whatever the buttons and knobs do, an edit page is a real one with a live slot, and the focus row
+ * shows a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT and
+ * HOME taps, holds and every knob, many times over, in a fixed pseudo-random order. */
+TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
+{
+    static const uint32_t EV[] = {UI_EV_BTN_DOWN | UI_BTN_SEL, UI_EV_BTN_UP | UI_BTN_SEL,
+                                  UI_EV_BTN_DOWN | UI_BTN_ENV, UI_EV_BTN_UP | UI_BTN_ENV,
+                                  UI_EV_BTN_DOWN | UI_BTN_EDIT, UI_EV_BTN_UP | UI_BTN_EDIT,
+                                  UI_EV_BTN_DOWN | UI_BTN_HOME, UI_EV_BTN_UP | UI_BTN_HOME,
+                                  UI_EV_ENC | UI_ENC_KNOB1, UI_EV_ENC | UI_ENC_KNOB2,
+                                  UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4};
+    uint32_t i, r = 12345u, ms = 0, bad = 0;
+    ui_setup();
+    for (i = 0; i < 20000u; i++) {
+        const ui_slot *f;
+        r = r * 1103515245u + 12345u;
+        ms += (r >> 8) % 600u;                  /* taps and holds */
+        ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
+        if (ui_u.state != UI_EDIT)
+            continue;
+        f = ui_page_slot(&ui_u, ui_u.focus);
+        if (ui_u.page >= UI_PAGES || ui_u.focus > 3u || f->kind == UI_RESERVED || !f->label || !f->full)
+            bad++;
+    }
+    printf("    %u bad states in 20000 events\n", (unsigned)bad);
+    TT_CHECK_EQ(bad, 0u);
+}
+
+/* The time table (interaction.md, units): 0 to 32000 ms in about 115 entries, 0, 1, 2, 3, 4, 5, 6,
+ * 8, 10, 12, 15, 18, 20, 22 at the start, then about 7 % apart (none above 10 %: whole ms, 5 ms
+ * steps from 100 ms, 50 from 1 s, 500 from 10 s); a click moves
+ * one entry, a fast one four; a time not in the table snaps the way the knob turns. */
+TT_TEST(ui_time_table_steps_about_7_percent)
+{
+    static const int32_t START[14] = {0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 22};
+    uint32_t i, n = ui_time_count();
+    TT_CHECK(n >= 110u && n <= 125u);
+    for (i = 0; i < 14u; i++)
+        TT_CHECK_EQ(ui_time_at(i), START[i]);
+    TT_CHECK_EQ(ui_time_at(n - 1u), 32000);
+    for (i = 14; i < n; i++)
+        TT_CHECK(ui_time_at(i) > ui_time_at(i - 1u) && ui_time_at(i) * 100 <= ui_time_at(i - 1u) * 110);
+    TT_CHECK_EQ(ui_time_step(13, 1), 15);
+    TT_CHECK_EQ(ui_time_step(13, -1), 12);
+    TT_CHECK_EQ(ui_time_step(12, 1), 15);
+    TT_CHECK_EQ(ui_time_step(12, 4), ui_time_at(13));
+    TT_CHECK_EQ(ui_time_step(32000, 1), 32000);
+    TT_CHECK_EQ(ui_time_step(0, -1), 0);
+}
+
+/* Times read as interaction.md has them: 0 ms .. 999 ms, 1.00 s .. 9.99 s, 10.0 s .. 32.0 s; sustain
+ * 0..100; ENV KEY OFF, 1, 2, 3 (260 per mille a position). */
+TT_TEST(ui_envelope_values_read_as_the_map)
+{
+    TT_CHECK(ui_shows(FM_PARAM_AMP_ATTACK_MS, 0, "0 ms"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_DECAY_MS, 480, "480 ms"));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_RELEASE_MS, 1250, "1.25 s"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_ATTACK_MS, 12500, "12.5 s"));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_DECAY_MS, 32000, "32.0 s"));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_SUSTAIN, 700, "70"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_SUSTAIN, 0, "0"));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_KEY_FOLLOW, 0, "OFF"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_KEY_FOLLOW, 520, "2"));
+}
+
+/* ENV's ring (interaction.md 4): 5A, 5B, 8A ENV-1, 8B, 9A ENV-2, 9B, around. FX's: 6A VCA, 6B. A time
+ * knob walks the time table: 81 ATTACK from 13 ms clicks to 15, a fast turn moves 4 entries a click. */
+TT_TEST(ui_env_and_fx_rings_and_time_knobs)
+{
+    static const uint8_t ENVR[7] = {51, 55, 81, 85, 91, 95, 51};
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 7u; i++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 100 * i);
+        TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, ENVR[i]);
+    }
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 1000);     /* 5B */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 1100);     /* 8A */
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS, 13);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1200);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS), 15);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 3, 1300);        /* fast: 12 entries */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS), ui_time_at(10 + 12));
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_FX, 0, 1400);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 61);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_FX), UI_LED_LIT);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_FX, 0, 1500);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 65);
+}
+
+/* 65 VEL (ours) does something only while 63 DYNA is OFF (amp_dyna 0: the amp_velocity curve), so it
+ * is inactive otherwise. Its value reads in %. */
+TT_TEST(ui_vel_is_inactive_with_dynamics)
+{
+    const ui_slot *vel = &UI_SLOTS[4 * 10];
+    ui_setup();
+    TT_CHECK_EQ(vel->num, 65);
+    play_set_param(&ui_p, FM_PARAM_AMP_DYNA, 2);
+    TT_CHECK(!ui_slot_active(&ui_u, vel));
+    play_set_param(&ui_p, FM_PARAM_AMP_DYNA, 0);
+    TT_CHECK(ui_slot_active(&ui_u, vel));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_VELOCITY, 40, "40 %"));
+}
+
+/* The ENV pages' slot draws the ADSR as render.py's env_points does (per mille knob positions a, d, r,
+ * sustain s): from 0 up to full at the end of the attack, down toward the sustain, held, then
+ * released to 0. */
+TT_TEST(ui_adsr_picture_follows_the_envelope)
+{
+    const uint32_t n = 200;
+    uint32_t i, peak = 0, at = 0;
+    TT_CHECK_EQ(ui_adsr_level(200, 500, 700, 400, 0, n), 0);
+    for (i = 0; i < n; i++)
+        if ((uint32_t)ui_adsr_level(200, 500, 700, 400, i, n) > peak)
+            peak = (uint32_t)ui_adsr_level(200, 500, 700, 400, i, n), at = i;
+    TT_CHECK(peak >= 980u);
+    TT_CHECK(at > 5u && at < 60u);             /* the attack's end, the first part of the window */
+    TT_CHECK(ui_adsr_level(200, 500, 700, 400, at + 40u, n) < 900);   /* decaying */
+    TT_CHECK(ui_adsr_level(200, 500, 700, 400, n - 1u, n) < 50);      /* released */
+    for (i = 0; i < n; i++) {                   /* the hold: at the sustain somewhere */
+        int32_t v = ui_adsr_level(200, 500, 700, 400, i, n);
+        if (v >= 690 && v <= 710)
+            break;
+    }
+    TT_CHECK(i < n);
+}
+
+/* A time's bar is its place in the time table (where the knob is), not a share of 32 s: the middle
+ * entry fills half the track. */
+TT_TEST(ui_time_bar_follows_the_table)
+{
+    const ui_slot *att = &UI_SLOTS[4 * 12];
+    int32_t a, b, mid = ui_time_at((ui_time_count() - 1u) / 2u);
+    TT_CHECK_EQ(att->num, 81);
+    ui_slot_bar(att, mid, 44, &a, &b);
+    TT_CHECK(a == 0 && b >= 21 && b <= 23);
+    ui_slot_bar(att, 32000, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 44);
+    ui_slot_bar(att, 0, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 0);
+}
+
+/* On an ENV page the slot is its ADSR: a SUSTAIN turn redraws it. */
+TT_TEST(ui_env_turn_redraws_the_adsr)
+{
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 3u; i++)                    /* 5A, 5B, 8A */
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 100 * i);
+    (void)ui_take_full(&ui_u, 300);
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_SUSTAIN, 500);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 400);
+    TT_CHECK(ui_take(&ui_u, 500) & UI_D_SLOT);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -822,6 +1342,33 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_env_turn_redraws_the_adsr);
+    TT_RUN(ui_time_bar_follows_the_table);
+    TT_RUN(ui_adsr_picture_follows_the_envelope);
+    TT_RUN(ui_vel_is_inactive_with_dynamics);
+    TT_RUN(ui_env_and_fx_rings_and_time_knobs);
+    TT_RUN(ui_envelope_values_read_as_the_map);
+    TT_RUN(ui_time_table_steps_about_7_percent);
+    TT_RUN(ui_mode_column_is_short);
+    TT_RUN(ui_map_table_is_well_formed);
+    TT_RUN(ui_focus_opens_on_a_live_slot);
+    TT_RUN(ui_size_bar_fills_from_the_left);
+    TT_RUN(ui_vcf_env_mode_and_dynamics);
+    TT_RUN(ui_mixer_pages);
+    TT_RUN(ui_mode_memory_goes_with_a_load);
+    TT_RUN(ui_dco_env_mode_sets_source_and_sign);
+    TT_RUN(ui_sel_reaches_dco_env);
+    TT_RUN(ui_hammered_buttons_keep_a_live_page_and_focus);
+    TT_RUN(ui_lfo_depth_steps_finer_below_100);
+    TT_RUN(ui_width_is_inactive_off_pulse);
+    TT_RUN(ui_wave_turn_redraws_the_picture);
+    TT_RUN(ui_wave_picture_follows_the_wave);
+    TT_RUN(ui_xmod_steps_the_cross_mod_positions);
+    TT_RUN(ui_sel_walks_the_dco_pages);
+    TT_RUN(ui_dco_values_read_as_the_panel);
+    TT_RUN(ui_section_led_follows_the_ring);
+    TT_RUN(ui_sel_opens_dco1);
+    TT_RUN(ui_steady_turns_still_reach_the_columns);
     TT_RUN(ui_choice_meter_lights_its_position);
     TT_RUN(ui_hpf_off_the_panel_snaps_the_way_it_turns);
     TT_RUN(ui_hpf_reads_as_its_positions);

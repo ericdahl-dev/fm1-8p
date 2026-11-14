@@ -14,6 +14,8 @@
 #   canaries   each module in firmware/canary/ breaks an fm1-dock safety rule; its build must fail
 #   emu        run the CPU test in fm1-emu's strict timing mode; worst load per voice count
 #              into build/fm1/emu-report.md (report only)
+#   emu-ui     the same, with FM1-8P's VCF page redrawing every frame (firmware/fm1_8p_cpu_ui): the
+#              UI-active rows (build/fm1/emu-ui-report.md)
 #   emu-play   play a scripted note sequence (keys and MIDI) into build/fm1/fm1-8p.fwsc (built if
 #              missing) in fm1-emu's strict timing
 #              mode; fails on an overrun (build/fm1/emu-play-report.md)
@@ -353,28 +355,32 @@ run_canaries() {
     return $rc
 }
 
+# run_emu MODULE NAME: the CPU-test module firmware/MODULE (fm1_8p_cpu_quick, or fm1_8p_cpu_ui with a
+# page drawing) in fm1-emu's strict timing, into $OUT/NAME.log and $OUT/NAME-report.md
 run_emu() {
+    mod=${1:-fm1_8p_cpu_quick} name=${2:-emu}
+    fw=$(echo "$mod" | tr _ -)                # fm1-8p-cpu-quick, fm1-8p-cpu-ui
     check_inputs
     fetch_emu
     ulimit -n 8192 2>/dev/null || true
-    stage_module "$ROOT/firmware/fm1_8p_cpu_quick" "$OUT/modules/fm1_8p_cpu_quick" "$ROOT/engine"
-    dock build.py --modules "$OUT/modules/fm1_8p_cpu_quick" --name fm1-8p-cpu-quick \
+    stage_module "$ROOT/firmware/$mod" "$OUT/modules/$mod" "$ROOT/engine"
+    dock build.py --modules "$OUT/modules/$mod" --name "$fw" \
         --app-name "FM1-8P CPU" --identity "$FM1_IDENTITY"
-    check_module_symbols "$FM1_DOCK/build/modules/fm1_8p_cpu_quick" || return 1
+    check_module_symbols "$FM1_DOCK/build/modules/$mod" || return 1
     emu_rc=0      # (no pipefail in sh: the log goes to a file first, so a crash isn't hidden by tee)
     (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
-        --fwsc build/fm1-8p-cpu-quick.fwsc --ms "${FM1_EMU_MS:-$(emu_window_ms "$(sed -n 's/.*-DCPU_HOLD_BLOCKS=\([0-9]*\)u.*/\1/p' "$ROOT/firmware/fm1_8p_cpu_quick/module.cfg")")}" --out "$OUT/emu") \
-        >"$OUT/emu.log" 2>&1 || emu_rc=$?
-    cat "$OUT/emu.log"
+        --fwsc "build/$fw.fwsc" --ms "${FM1_EMU_MS:-$(emu_window_ms "$(sed -n 's/.*-DCPU_HOLD_BLOCKS=\([0-9]*\)u.*/\1/p' "$ROOT/firmware/$mod/module.cfg")")}" --out "$OUT/$name") \
+        >"$OUT/$name.log" 2>&1 || emu_rc=$?
+    cat "$OUT/$name.log"
     report_rc=0
-    emu_report "$OUT/emu.log" >"$OUT/emu-report.md" 2>&1 || report_rc=1
+    emu_report "$OUT/$name.log" >"$OUT/$name-report.md" 2>&1 || report_rc=1
     if ! verify_sha256 "$FM1_LIVE" "$FM1_LIVE_SHA256" 2>/dev/null; then
-        printf '\nNote: run with an unpinned fm1-live (%s).\n' "$FM1_LIVE" >>"$OUT/emu-report.md"
+        printf '\nNote: run with an unpinned fm1-live (%s).\n' "$FM1_LIVE" >>"$OUT/$name-report.md"
     fi
     if [ "$emu_rc" -ne 0 ]; then
-        printf '\n**The emulator run failed (exit %s): the table is partial or empty.**\n' "$emu_rc" >>"$OUT/emu-report.md"
+        printf '\n**The emulator run failed (exit %s): the table is partial or empty.**\n' "$emu_rc" >>"$OUT/$name-report.md"
     fi
-    cat "$OUT/emu-report.md"
+    cat "$OUT/$name-report.md"
     [ "$emu_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
 }
 
@@ -442,7 +448,8 @@ case "${1:-}" in
     fetch-emu) fetch_emu ;;
     build)    build_firmware ;;
     canaries) run_canaries ;;
-    emu)      run_emu ;;
+    emu)      run_emu fm1_8p_cpu_quick emu ;;
+    emu-ui)   run_emu fm1_8p_cpu_ui emu-ui ;;
     emu-play) run_emu_play ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
     *)        sed -n '2,27s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;

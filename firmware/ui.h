@@ -26,22 +26,6 @@
 
 typedef enum { UI_PLAY, UI_EDIT } ui_state;
 
-/* What a slot holds (interaction.md section 3): a live param, one whose issue hasn't landed (shown
- * as `--`, its knob does nothing), or nothing. */
-typedef enum { UI_LIVE, UI_PENDING, UI_RESERVED } ui_slot_kind;
-
-/* One numbered parameter slot. */
-typedef struct {
-    uint8_t num;                        /* 41: section 4, parameter 1 */
-    const char *label;                  /* the knob column's, at most 7 characters */
-    const char *full;                   /* the focus row's full label */
-    uint16_t id;                        /* fm_param_id, when live */
-    uint8_t kind;                       /* ui_slot_kind */
-    int32_t step, fast;                 /* engine units a click moves it; a fast turn's click */
-    const uint8_t *order;               /* a choice: every engine value in panel order (0: steps) */
-    uint8_t n_order;
-    uint8_t stops;                      /* bit i: order[i] is a knob position (the rest only show) */
-} ui_slot;
 
 typedef struct {
     play *p;
@@ -56,7 +40,8 @@ typedef struct {
     uint32_t banner_ms;                 /* when it came */
     int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
     uint32_t warned_ms;                 /* when */
-    uint32_t page;                      /* the edit page: 0 5A VCF, 1 5B */
+    uint32_t page;                      /* the edit page, in the page order (UI_PAGE_INFO) */
+    uint32_t inv;                       /* an ENV MODE's INV while its depth is 0 (bit: ui.c inv_bit) */
     uint32_t held;                      /* bit b: button b is down */
     uint32_t comparing;                 /* EDIT held: UI_COMPARE_ON, or UI_COMPARE_NONE (no edits); 0 not */
     uint32_t now_ms;                    /* ui_take's last ms (the EDIT LED's blink) */
@@ -96,8 +81,6 @@ typedef struct { uint32_t q2, n1; int32_t cut; } ui_curve;
 void ui_curve_begin(ui_curve *c, int32_t cutoff_cents, int32_t reso_permille, uint32_t n);
 int32_t ui_curve_db(const ui_curve *c, uint32_t i);
 /* the header's page strip: segment i (interaction.md's page order, 1A .. 8B) at x, w px wide */
-#define UI_PAGES 14u
-#define UI_PAGE_4A 4u
 void ui_strip(uint32_t i, int32_t *x, int32_t *w);
 /* a 7-segment digit's lit segments, bits a..g = 0..6 (0 for one it can't show) */
 uint32_t ui_seg7(char c);
@@ -108,9 +91,27 @@ uint32_t ui_meter(uint16_t id, int32_t value);
 /* a one-bar meter (Membrane) in a w px track: the bar from *a to *b px, a range from the left in
  * proportion, a bipolar param (min = -max) out from the middle */
 void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b);
+/* a slot's bar (its value from ui_slot_value): an ENV size from the left over 0..its top, the rest as
+ * ui_meter_bar */
+void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b);
 /* a choice slot's (order set) meter: value's knob position (a value between positions: the one
  * before it), of *n positions */
 uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
+/* the DCO pages' waveform picture: wave's (fm_wave) level, -1000..+1000, at column i of n, two cycles
+ * across (a pulse high for width_pct of each) */
+int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n);
+/* 0 while a slot does nothing to the sound (shown dim, no meter): WIDTH off a pulse wave */
+int ui_slot_active(const ui *u, const ui_slot *sl);
+/* the ENV pages' ADSR picture (render.py's env_points): the level, per mille, at column i of n, for knob
+ * positions a, d, r and sustain s (per mille): a linear attack, exponential decay and release */
+int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n);
+/* the time table (interaction.md, units): its size, entry i, and a time clicks entries on (a time
+ * not in it snaps to the next entry the way of the turn first), clamped at both ends */
+uint32_t ui_time_count(void);
+int32_t ui_time_at(uint32_t i);
+int32_t ui_time_step(int32_t ms, int32_t clicks);
+/* a slot's value: its param's, or a paired slot's two as id | id2 << 1 */
+int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
@@ -127,6 +128,10 @@ void ui_patch_number(const patch *t, char *s);
 void ui_slot_number(const ui_slot *sl, char *s);
 /* the host asked for all of it (draw(full)): UI_D_ALL, and nothing stays pending */
 uint32_t ui_take_full(ui *u, uint32_t ms);
+/* the band to draw now, out of pending (0: none). What changed (ui_take) is taken only once pending
+ * is drawn, so steady turns can't starve the later bands; a new page (UI_D_FULL) is taken at once and
+ * starts pending over as all of it. */
+uint32_t ui_band(ui *u, uint32_t *pending, uint32_t ms);
 /* the next band to draw out of pending (UI_D_* bits, in drawing order), taken out of it; 0: none */
 uint32_t ui_next_band(uint32_t *pending);
 /* a button's LED (interaction.md): UI_LED_OFF, UI_LED_LIT or UI_LED_GLOW (dim) */

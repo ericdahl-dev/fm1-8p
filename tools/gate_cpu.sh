@@ -2,7 +2,9 @@
 # gate_cpu.sh - the no-sound gate's CPU rows (#140): fm1-emu strict timing of TREE's CPU-test module,
 # step F playing the full patch plain, with sync (SYNC 1), the ring (X-MOD) and both (SYNC 2), each as
 # built and with 3 KB of padding ahead of the engine (tools/gate_pad.c), so a change that only moves
-# code shows up as one. Device ~= emu x 1.08 (FM-1, 2026-11-12).
+# code shows up as one; and, where TREE has it, "ui": plain with FM1-8P's VCF page redrawing every
+# frame (firmware/fm1_8p_cpu_ui, #47), the F budget with the UI drawing. Device ~= emu x 1.08 (FM-1,
+# 2026-11-12).
 #
 # usage: tools/gate_cpu.sh TREE OUT      (prints one line per mode: 8 voices, U and F, code bytes)
 # Inputs, as tools/fm1-build.sh takes them: JIELI_TOOLCHAIN, AC79_SDK, FM1_DOCK, PYTHON (fm1-dock's) and
@@ -44,15 +46,16 @@ stage() {
     fi
 }
 
-# run MODE PAD: one emulator run; prints "MODE[,pad]  8 = x %  U = x %  F = x %  overruns  code N B"
+# run MODE PAD: one emulator run; prints "MODE[,pad]  8 = x %  U = x %  F = x %  overruns  code N B".
+# MODE ui is plain with a page of the UI redrawing every frame (emu-ui, firmware/fm1_8p_cpu_ui).
 run() {
-    t=$1${2:+-$2}; d=$OUT/$t
+    t=$1${2:+-$2}; d=$OUT/$t; cmd=emu; [ "$1" = ui ] && cmd=emu-ui
     if [ "${GATE_CPU_PREPARE_ONLY:-0}" = 1 ]; then stage "$1" "$2" "$d/src"; return; fi
     stage "$1" "$2" "$d/src" || return 1
     rm -rf "$d/dock" && cp -a "$FM1_DOCK" "$d/dock" || return 1
     (cd "$d/src" && ulimit -n 8192 2>/dev/null; FM1_DOCK=$d/dock JIELI_TOOLCHAIN=$JIELI_TOOLCHAIN AC79_SDK=$AC79_SDK \
-        PYTHON=$PY FM1_LIVE=$FM1_LIVE FM1_EMU_UNPINNED=1 tools/fm1-build.sh emu) >"$d/emu.log" 2>&1
-    r=$d/src/build/fm1/emu-report.md
+        PYTHON=$PY FM1_LIVE=$FM1_LIVE FM1_EMU_UNPINNED=1 tools/fm1-build.sh $cmd) >"$d/emu.log" 2>&1
+    r=$d/src/build/fm1/$cmd-report.md
     [ -f "$r" ] || { echo "$t: no report (see $d/emu.log)"; return 1; }
     printf '%-10s %s %s %s\n' "$t" \
         "$(awk -F'|' '/^\| (8|U \(unison burst\)|F \(full patch\)) \|/ { gsub(/ +$/, "", $2); gsub(/^ +/, "", $2); printf "%s = %s  ", substr($2, 1, 1), $4 }' "$r")" \
@@ -64,4 +67,9 @@ for m in $modes; do
     run "$m" "" &
     [ "${GATE_CPU_PAD:-1}" = 0 ] || run "$m" pad &
 done
+if [ -d "$TREE/firmware/fm1_8p_cpu_ui" ]; then
+    run ui "" &                                 # the UI-active row (#47): no padded twin
+else
+    printf '%-10s n/a (no firmware/fm1_8p_cpu_ui in this tree)\n' ui
+fi
 wait

@@ -1,27 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui.h"
 
-/* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3), with
- * the engine's own 100 Hz (1) in its place between, shown but not a knob position */
-static const uint8_t HPF_ORDER[5] = {4, 0, 1, 2, 3};
-#define HPF_STOPS 0x1Bu                     /* BOOST, FLAT, 240, 560 */
-
-/* The VCF section as the JX-8P's panel has it, with its PG-800 numbers (docs/patches.md): page
- * 5A 51-54, 5B 55-58 */
-static const ui_slot VCF_SLOTS[8] = {
-    {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS},
-    {52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400, 0, 0, 0},
-    {53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50, 0, 0, 0},
-    {54, "LFO", "LFO DEPTH", 0, UI_PENDING, 0, 0, 0, 0, 0},          /* #172 */
-    {55, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600, 0, 0, 0},
-    {56, "KEY", "KEY FOLLOW", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100, 0, 0, 0},
-    {57, "DYNA", "DYNAMICS", 0, UI_PENDING, 0, 0, 0, 0, 0},
-    {58, "MODE", "ENV MODE", 0, UI_PENDING, 0, 0, 0, 0, 0},
-};
-
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
-    return k < 4u ? &VCF_SLOTS[4u * u->page + k] : 0;
+    return k < 4u ? &UI_SLOTS[4u * u->page + k] : 0;
 }
 
 /* 8.1758 Hz x 2^(s / 12), s = 0..12, in mHz x 16: CUTOFF's semitones in its lowest octave */
@@ -87,13 +69,74 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_3(num, mhz), u = "Hz";
     } else if (id == FM_PARAM_FILTER_RESONANCE) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);
-    } else if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) {
-        uint32_t st = (uint32_t)(value < 0 ? -value : value) + 50u;
-        if (st >= 100u)                         /* (0 has no sign) */
-            *num++ = value < 0 ? '-' : '+';
-        num = put_u(num, st / 100u), u = "st";
+    } else if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) {     /* its size (58 MODE: the sign) */
+        num = put_u(num, ((uint32_t)(value < 0 ? -value : value) + 50u) / 100u), u = "st";
     } else if (id == FM_PARAM_FILTER_KEY_TRACK) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
+    } else if (id == FM_PARAM_OSC1_OCTAVE || id == FM_PARAM_OSC2_OCTAVE) {    /* RANGE in feet */
+        static const char *const FEET[5] = {"32", "16", "8", "4", "2"};
+        num = put_str(num, FEET[value < -2 ? 0 : value > 2 ? 4 : value + 2]), u = "'";
+    } else if (id == FM_PARAM_OSC1_WAVE || id == FM_PARAM_OSC2_WAVE) {
+        static const char *const WAVE[4] = {"SAW", "PULSE", "SQUARE", "NOISE"};
+        num = put_str(num, WAVE[value < 0 ? 0 : value > 3 ? 3 : value]);
+    } else if (id == FM_PARAM_LFO_PITCH_CENTS || id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
+        if (value < 0)                          /* DCO-2's -1: DCO-1's depth */
+            num = put_str(num, "D1");
+        else
+            num = put_u(num, (uint32_t)value), u = "ct";
+    } else if (id == FM_PARAM_PITCH_ENV_OSC1_CENTS || id == FM_PARAM_PITCH_ENV_OSC2_CENTS) {
+        uint32_t t = ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u;    /* its size (32 MODE: the sign) */
+        num = put_u(num, t / 10u);
+        *num++ = '.';
+        num = put_u(num, t % 10u), u = "st";
+    } else if (id == FM_PARAM_OSC1_FINE_CENTS || id == FM_PARAM_OSC2_FINE_CENTS ||
+               id == FM_PARAM_OSC2_COARSE_SEMIS) {
+        if (value)
+            *num++ = value < 0 ? '-' : '+';
+        num = put_u(num, (uint32_t)(value < 0 ? -value : value));
+        u = id == FM_PARAM_OSC2_COARSE_SEMIS ? "st" : "ct";
+    } else if (id == FM_PARAM_OSC1_PULSE_WIDTH_PCT || id == FM_PARAM_OSC2_PULSE_WIDTH_PCT) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
+    } else if (id == FM_PARAM_PITCH_ENV_DYNA || id == FM_PARAM_OSC_MIX_ENV_DYNA ||
+               id == FM_PARAM_FILTER_ENV_DYNA || id == FM_PARAM_AMP_DYNA) {    /* DYNAMICS */
+        if (value <= 0)
+            num = put_str(num, "OFF");
+        else
+            num = put_u(num, (uint32_t)value);
+    } else if (id == FM_PARAM_OSC1_LEVEL || id == FM_PARAM_OSC2_LEVEL || id == FM_PARAM_OSC_MIX_ENV) {
+        num = put_u(num, ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u);    /* 0..100 */
+    } else if (id == FM_PARAM_AMP_ATTACK_MS || id == FM_PARAM_AMP_DECAY_MS || id == FM_PARAM_AMP_RELEASE_MS ||
+               id == FM_PARAM_FILTER_ENV_ATTACK_MS || id == FM_PARAM_FILTER_ENV_DECAY_MS ||
+               id == FM_PARAM_FILTER_ENV_RELEASE_MS || id == FM_PARAM_LFO_DELAY_MS) {
+        uint32_t ms = (uint32_t)(value < 0 ? 0 : value);   /* 999 ms, 1.25 s, 12.5 s */
+        if (ms < 1000u)
+            num = put_u(num, ms), u = "ms";
+        else
+            num = put_3(num, ms), u = "s";
+    } else if (id == FM_PARAM_AMP_SUSTAIN || id == FM_PARAM_FILTER_ENV_SUSTAIN || id == FM_PARAM_AMP_LEVEL) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);     /* 0..100 */
+    } else if (id == FM_PARAM_AMP_KEY_FOLLOW || id == FM_PARAM_FILTER_ENV_KEY_FOLLOW) {
+        uint32_t k = (uint32_t)(value < 0 ? 0 : value + 130) / 260u;      /* the JX's positions */
+        if (k)
+            num = put_u(num, k > 3u ? 3u : k);
+        else
+            num = put_str(num, "OFF");
+    } else if (id == FM_PARAM_AMP_GATE) {
+        num = put_str(num, value ? "GATE" : "ENV2");
+    } else if (id == FM_PARAM_CHORUS_MODE) {
+        static const char *const CH[4] = {"OFF", "I", "II", "FAST"};
+        num = put_str(num, CH[value < 0 ? 0 : value > 3 ? 3 : value]);
+    } else if (id == FM_PARAM_AMP_VELOCITY) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
+    } else if (id == FM_PARAM_OSC_XMOD) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
+    } else if (id == FM_PARAM_PITCH_ENV_SOURCE || id == FM_PARAM_OSC_MIX_ENV_SOURCE ||
+               id == FM_PARAM_FILTER_ENV_SOURCE) {   /* an ENV MODE: source | inverted << 1 */
+        static const char *const MODE[4] = {"ENV1", "ENV2", "ENV1 INV", "ENV2 INV"};
+        num = put_str(num, MODE[value & 3]);
+    } else if (id == FM_PARAM_OSC_SYNC) {       /* 23 X-MOD's sync | ring << 1 (CROSS MOD) */
+        static const char *const XMOD[4] = {"OFF", "SYNC 1", "X-MOD", "SYNC 2"};
+        num = put_str(num, XMOD[value & 3]);
     } else if (id == FM_PARAM_HIGHPASS_STEP) {  /* the JX positions; step 1 is the engine's own */
         static const char *const HPF[5] = {"FLAT", "100", "240", "560", "BOOST"};
         num = put_str(num, HPF[value < 0 ? 0 : value > 4 ? 4 : value]);
@@ -114,7 +157,8 @@ void ui_format(uint16_t id, int32_t value, char *s)
     char unit[UI_VALUE_LEN];
     s = value_parts(id, value, s, unit);
     if (*unit) {
-        *s++ = ' ';
+        if (*unit != '\'')                     /* (feet: 8') */
+            *s++ = ' ';
         *put_str(s, unit) = 0;
     }
 }
@@ -136,7 +180,12 @@ uint32_t ui_seg7(char c)
 
 void ui_column(uint16_t id, int32_t value, char *num, char *unit)
 {
+    uint32_t i;
     ui_value(id, value, num, unit);
+    if (num[0] == 'E' && num[1] == 'N' && num[4] == ' ') {     /* ENV2 INV: E2 INV (7 characters fit) */
+        num[1] = num[3];
+        for (i = 2; (num[i] = num[i + 2u]) != 0; i++) {}
+    }
     if (unit[0] == 'k')                         /* kHz: k */
         unit[1] = 0;
     else if (unit[0] == 'H')                    /* Hz: no room after three digits */
@@ -254,6 +303,26 @@ void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
     }
 }
 
+void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b)
+{
+    int32_t max;
+    if (sl->how == UI_HOW_TIME) {               /* its place in the time table */
+        int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
+        while (i < n - 1 && UI_TIMES[i + 1] <= value)
+            i++;
+        *a = 0;
+        *b = (2 * w * i + (n - 1)) / (2 * (n - 1));
+        return;
+    }
+    if (sl->how != UI_HOW_SIZE) {
+        ui_meter_bar(sl->id, value, w, a, b);
+        return;
+    }
+    max = fm_param_info_get(sl->id)->max;
+    *a = 0;
+    *b = value <= 0 || max <= 0 ? 0 : value >= max ? w : (2 * w * value + max) / (2 * max);
+}
+
 uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n)
 {
     uint32_t i, pos = 0, seen = 0;
@@ -282,7 +351,8 @@ void ui_init(ui *u, play *p)
     u->banner_ms = 0;
     u->warned = 0;
     u->warned_ms = 0;
-    u->page = 0;
+    u->page = UI_PAGE_5A;                       /* (EDIT's first page) */
+    u->inv = 0;
     u->held = 0;
     u->comparing = 0;
     u->now_ms = 0;
@@ -290,9 +360,178 @@ void ui_init(ui *u, play *p)
 
 static void show_page(ui *u, ui_state st)
 {
+    uint32_t k;
     u->state = st;
-    u->focus = 1;                               /* knob 2, as visual.md's pages open */
+    u->focus = 1;                               /* knob 2, as visual.md's pages open, */
+    if (UI_SLOTS[4u * u->page + 1u].kind != UI_LIVE)   /* or the first live one (4B: 45 alone) */
+        for (k = 0; k < 4u; k++)
+            if (UI_SLOTS[4u * u->page + k].kind == UI_LIVE) {
+                u->focus = k;
+                break;
+            }
     u->dirty |= UI_D_FULL;
+}
+
+/* a page with a live slot (the rest are skipped: interaction.md, page order) */
+static int page_live(uint32_t p)
+{
+    uint32_t k;
+    for (k = 0; k < 4u; k++)
+        if (UI_SLOTS[4u * p + k].kind == UI_LIVE)
+            return 1;
+    return 0;
+}
+
+/* where page p is in ring r, or -1 */
+static int32_t ring_at(const uint8_t *r, uint32_t p)
+{
+    int32_t i;
+    for (i = 0; r[i] != UI_RING_END; i++)
+        if (r[i] == p)
+            return i;
+    return -1;
+}
+
+/* a section button: its ring's first live page, or on its ring the next live one, around */
+static void ring_step(ui *u, const uint8_t *r)
+{
+    int32_t i = u->state == UI_EDIT ? ring_at(r, u->page) : -1, n, j;
+    for (n = 0; r[n] != UI_RING_END; n++) {}
+    for (j = 1; j <= n; j++) {
+        uint32_t p = r[(i < 0 ? j - 1 : i + j) % n];
+        if (page_live(p)) {
+            u->page = p;
+            show_page(u, UI_EDIT);
+            return;
+        }
+    }
+}
+
+int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n)
+{
+    uint32_t ph = n ? (2000u * i / n) % 1000u : 0;  /* the place in its cycle, per mille */
+    uint32_t r;
+    switch (wave) {
+    case FM_WAVE_SAW:
+        return 2 * (int32_t)ph - 1000;
+    case FM_WAVE_PULSE:
+        return ph < 10u * width_pct ? 1000 : -1000;
+    case FM_WAVE_SQUARE:
+        return ph < 500u ? 1000 : -1000;
+    default:                                    /* noise: a fixed scatter, the same every draw */
+        r = (i + 1u) * 2654435761u;
+        return (int32_t)(r >> 16 & 2047u) * 2000 / 2047 - 1000;
+    }
+}
+
+int ui_slot_active(const ui *u, const ui_slot *sl)
+{
+    if (sl->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT)
+        return play_get_param(u->p, FM_PARAM_OSC1_WAVE) == FM_WAVE_PULSE;
+    if (sl->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT)
+        return play_get_param(u->p, FM_PARAM_OSC2_WAVE) == FM_WAVE_PULSE;
+    if (sl->id == FM_PARAM_AMP_VELOCITY)        /* the curve DYNAMICS OFF uses */
+        return play_get_param(u->p, FM_PARAM_AMP_DYNA) == 0;
+    return 1;
+}
+
+/* the ENV MODE a depth's sign belongs to: its bit in ui.inv */
+static uint32_t inv_bit(uint16_t depth)
+{
+    return depth == FM_PARAM_OSC_MIX_ENV ? 2u : depth == FM_PARAM_FILTER_ENV_AMOUNT_CENTS ? 4u : 1u;
+}
+
+/* a depth is inverted: negative, or at 0 with its ENV MODE set to INV */
+static int inverted(const ui *u, uint16_t depth)
+{
+    int32_t d = play_get_param(u->p, depth);
+    return d < 0 || (d == 0 && u->inv & inv_bit(depth));
+}
+
+/* e^(-4 t) for t per mille, per mille (2^(-5.771 t) by exp2_q8) */
+static int32_t decay4(uint32_t t)
+{
+    return (int32_t)(exp2_q8(-(int32_t)(t * 23638u / 1000u)) * 1000u / 256u);
+}
+
+int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n)
+{
+    /* stage widths in tenths: attack 6 + 60 a, decay 8 + 70 d, hold 34, release 8 + 70 r */
+    uint32_t ta = 60u + 600u * a / 1000u, td = 80u + 700u * d / 1000u, th = 340u, tr = 80u + 700u * r / 1000u;
+    uint32_t x = n > 1u ? (ta + td + th + tr) * i / (n - 1u) : 0;
+    if (x < ta)
+        return (int32_t)(1000u * x / ta);
+    x -= ta;
+    if (x < td)
+        return (int32_t)s + (int32_t)(1000u - s) * decay4(1000u * x / td) / 1000;
+    x -= td;
+    if (x < th)
+        return (int32_t)s;
+    x -= th;
+    x = x > tr ? tr : x;
+    {
+        uint32_t t = 1000u * x / tr;
+        return (int32_t)s * decay4(t) / 1000 * (int32_t)(1000u - t) / 1000;
+    }
+}
+
+uint32_t ui_time_count(void) { return UI_TIME_COUNT; }
+
+int32_t ui_time_at(uint32_t i) { return UI_TIMES[i < UI_TIME_COUNT ? i : UI_TIME_COUNT - 1u]; }
+
+int32_t ui_time_step(int32_t ms, int32_t clicks)
+{
+    int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
+    while (i < n - 1 && UI_TIMES[i + 1] <= ms)  /* the last entry at or below ms */
+        i++;
+    if (clicks < 0 && UI_TIMES[i] < ms)         /* between entries: that one is already a click down */
+        clicks++;
+    i += clicks;
+    return UI_TIMES[i < 0 ? 0 : i >= n ? n - 1 : i];
+}
+
+int32_t ui_slot_value(const ui *u, const ui_slot *sl)
+{
+    int32_t v = play_get_param(u->p, sl->id);
+    switch (sl->how) {
+    case UI_HOW_PAIR:
+        return v | play_get_param(u->p, sl->id2) << 1;
+    case UI_HOW_MODE:
+        return v | inverted(u, sl->id2) << 1;
+    case UI_HOW_SIZE:
+        return v < 0 ? -v : v;
+    default:
+        return v;
+    }
+}
+
+static void set_depth(ui *u, uint16_t depth, int neg)
+{
+    int32_t d = play_get_param(u->p, depth);
+    d = d < 0 ? -d : d;
+    play_set_param(u->p, depth, neg ? -d : d);
+}
+
+static void set_slot(ui *u, const ui_slot *sl, int32_t v)
+{
+    switch (sl->how) {
+    case UI_HOW_PAIR:
+        play_set_param(u->p, sl->id, v & 1);
+        play_set_param(u->p, sl->id2, v >> 1 & 1);
+        return;
+    case UI_HOW_MODE:                           /* the source, and the sign of its depths */
+        play_set_param(u->p, sl->id, v & 1);
+        u->inv = v >> 1 & 1 ? u->inv | inv_bit(sl->id2) : u->inv & ~inv_bit(sl->id2);
+        set_depth(u, sl->id2, v >> 1 & 1);
+        set_depth(u, sl->id3, v >> 1 & 1);
+        return;
+    case UI_HOW_SIZE:                           /* the size, kept on its ENV MODE's side */
+        v = v < 0 ? 0 : v;
+        play_set_param(u->p, sl->id, inverted(u, sl->id) ? -v : v);
+        return;
+    default:
+        play_set_param(u->p, sl->id, v);
+    }
 }
 
 static void turn(ui *u, uint32_t k, int32_t clicks)
@@ -301,7 +540,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     if (!s || s->kind != UI_LIVE)
         return;
     if (s->order) {                             /* a choice: each click to the next stop, clamped */
-        int32_t v = play_get_param(u->p, s->id), max = fm_param_info_get(s->id)->max;
+        int32_t v = ui_slot_value(u, s), max = s->how == UI_HOW_PLAIN ? fm_param_info_get(s->id)->max : 3;
         int32_t way = clicks > 0 ? 1 : -1, i = 0, j;
         while (i < (int32_t)s->n_order - 1 && s->order[i] != v)
             i++;
@@ -310,14 +549,26 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
                 i = j;
                 clicks -= way;
             }
-        play_set_param(u->p, s->id, s->order[i]);
+        set_slot(u, s, s->order[i]);
+    } else if (s->how == UI_HOW_TIME) {         /* the time table: an entry a click, four a fast one */
+        play_set_param(u->p, s->id, ui_time_step(play_get_param(u->p, s->id),
+                                                 clicks >= 3 || clicks <= -3 ? 4 * clicks : clicks));
+    } else if (s->id == FM_PARAM_LFO_PITCH_CENTS || s->id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
+        int32_t v = play_get_param(u->p, s->id), way = clicks > 0 ? 1 : -1, fast = clicks >= 3 || clicks <= -3;
+        for (; clicks; clicks -= way) {         /* 1 to 99 ct by 1 (fast 10), from 100 by 10 (fast 50) */
+            int32_t big = way > 0 ? v >= 100 : v > 100;
+            v += way * (big ? (fast ? 50 : 10) : (fast ? 10 : 1));
+        }
+        play_set_param(u->p, s->id, v);
     } else {
-        play_set_param(u->p, s->id, play_get_param(u->p, s->id) +
-                       (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
+        set_slot(u, s, ui_slot_value(u, s) + (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
     }
     u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
-    if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE)
-        u->dirty |= UI_D_SLOT;                  /* the curve shows only those two */
+    if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
+        s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
+        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT ||
+        (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
+        u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, the waveform, the ADSR */
     u->focus = k;
 }
 
@@ -346,6 +597,7 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
         clicks = clicks > 0 ? 4 : -4;
     i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
     play_load_patch(u->p, (uint32_t)(i + (int32_t)PATCH_COUNT) % PATCH_COUNT);
+    u->inv = 0;                                 /* the ENV MODEs are the new patch's signs */
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
 }
 
@@ -375,10 +627,12 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     }
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
         u->warned = 0;                          /* anything else cancels the warning (decision Q4) */
-    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV)) {  /* its ring: 4A, then 4B, and around */
-        u->page = u->state == UI_EDIT ? u->page ^ 1u : 0u;
-        show_page(u, UI_EDIT);
-    }
+    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV))
+        ring_step(u, UI_RING_ENV);
+    else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && tap)      /* (a hold: the number jump) */
+        ring_step(u, UI_RING_SEL);
+    else if (ev == (UI_EV_BTN_DOWN | UI_BTN_FX))
+        ring_step(u, UI_RING_FX);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)
@@ -426,13 +680,14 @@ uint32_t ui_take(ui *u, uint32_t ms)
 
 uint32_t ui_led(const ui *u, uint32_t button)
 {
+    const uint8_t *r = button == UI_BTN_SEL ? UI_RING_SEL : button == UI_BTN_ENV ? UI_RING_ENV :
+                       button == UI_BTN_FX ? UI_RING_FX : UI_RING_LFO;
     switch (button) {
-    case UI_BTN_ENV:                            /* its ring starts at 4A, the one page here */
-        return u->state == UI_EDIT ? UI_LED_LIT : UI_LED_GLOW;
     case UI_BTN_SEL:
-    case UI_BTN_LFO:
-    case UI_BTN_FX:                             /* none of their pages shows */
-        return UI_LED_GLOW;
+    case UI_BTN_ENV:
+    case UI_BTN_FX:
+    case UI_BTN_LFO:                            /* lit while a page of its ring shows */
+        return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
     case UI_BTN_EDIT:                           /* lit while the edit buffer differs from the stored patch */
         if (u->comparing == UI_COMPARE_ON)      /* blinking during compare */
             return u->now_ms / UI_BLINK_MS & 1u ? UI_LED_OFF : UI_LED_LIT;
@@ -449,6 +704,19 @@ uint32_t ui_take_full(ui *u, uint32_t ms)
     u->dirty = 0;
     u->drawn_ms = ms;
     return UI_D_ALL;
+}
+
+uint32_t ui_band(ui *u, uint32_t *pending, uint32_t ms)
+{
+    uint32_t d;
+    if (!*pending || u->dirty & UI_D_FULL) {    /* a frame's bands all go before the next frame's */
+        d = ui_take(u, ms);
+        if (d & UI_D_FULL)
+            *pending = UI_D_ALL;                /* a new page: all of it, none of the old one's */
+        else
+            *pending |= d;
+    }
+    return ui_next_band(pending);
 }
 
 uint32_t ui_next_band(uint32_t *pending)
