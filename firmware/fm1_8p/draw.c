@@ -182,6 +182,11 @@ static void focus_row(void)
     const ui_slot *s = ui_page_slot(U, U->focus);
     char num[3], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
     int32_t x;
+    if (!s || s->kind == UI_RESERVED) {         /* (no focus: an empty row, never an empty slot's text) */
+        H->cv_begin(240, 50, C_BG);
+        blit(0, 28, 240, 50);
+        return;
+    }
     ui_slot_number(s, num);
     ui_value(s->id, ui_slot_value(U, s), val, unit);
     H->cv_begin(240, 50, C_BG);
@@ -218,7 +223,7 @@ static void slot(uint32_t part)
     H->cv_begin(pw, 60, C_BG);
     H->cv_rect(M - x0, 0, w, h, C_WINDOW);      /* (the canvas clips what isn't this part's) */
     frame(M - x0, 0, w, h, C_LINE);
-    if (col == UI_SEC_DCO1 || col == UI_SEC_DCO2) {     /* the waveform, two cycles, centered */
+    if (U->page < 4u) {                         /* 1A-2B: the waveform, two cycles, centered */
         H->cv_rect(M + 2 - x0, h / 2, w - 4, 1, C_LINE);
         i = x0 - M - 3;
         i0 = i = i < 0 ? 0 : i;

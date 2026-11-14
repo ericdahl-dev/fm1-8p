@@ -157,7 +157,12 @@ uint32_t ui_seg7(char c)
 
 void ui_column(uint16_t id, int32_t value, char *num, char *unit)
 {
+    uint32_t i;
     ui_value(id, value, num, unit);
+    if (num[0] == 'E' && num[1] == 'N' && num[4] == ' ') {     /* ENV2 INV: E2 INV (7 characters fit) */
+        num[1] = num[3];
+        for (i = 2; (num[i] = num[i + 2u]) != 0; i++) {}
+    }
     if (unit[0] == 'k')                         /* kHz: k */
         unit[1] = 0;
     else if (unit[0] == 'H')                    /* Hz: no room after three digits */
@@ -321,8 +326,15 @@ void ui_init(ui *u, play *p)
 
 static void show_page(ui *u, ui_state st)
 {
+    uint32_t k;
     u->state = st;
-    u->focus = 1;                               /* knob 2, as visual.md's pages open */
+    u->focus = 1;                               /* knob 2, as visual.md's pages open, */
+    if (UI_SLOTS[4u * u->page + 1u].kind != UI_LIVE)   /* or the first live one (4B: 45 alone) */
+        for (k = 0; k < 4u; k++)
+            if (UI_SLOTS[4u * u->page + k].kind == UI_LIVE) {
+                u->focus = k;
+                break;
+            }
     u->dirty |= UI_D_FULL;
 }
 

@@ -982,6 +982,49 @@ TT_TEST(ui_size_bar_fills_from_the_left)
     TT_CHECK(a == 0 && b == 44);
 }
 
+/* A page opens with the focus on knob 2 (visual.md), or on its first live slot when knob 2's is
+ * empty: 4B has only 45 MODE (knob 1), so the focus row never shows an empty slot. */
+TT_TEST(ui_focus_opens_on_a_live_slot)
+{
+    ui_setup();
+    ui_sel_to(7);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 45);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, ui_u.focus)->kind, UI_LIVE);
+}
+
+/* Every slot in the table (interaction.md 3): an empty one has no label; the rest have a label of
+ * at most 7 characters (a column's width) and a full one, and their number is the page's section
+ * and the knob (page 5A's KNOB3 is 53); a live one names an engine param. */
+TT_TEST(ui_map_table_is_well_formed)
+{
+    uint32_t p, k;
+    for (p = 0; p < UI_PAGES; p++)
+        for (k = 0; k < 4u; k++) {
+            const ui_slot *sl = &UI_SLOTS[4u * p + k];
+            uint32_t sec = (uint32_t)(UI_PAGE_INFO[p].name[0] - '0');
+            uint32_t knob = (UI_PAGE_INFO[p].name[1] == 'B' ? 5u : 1u) + k;
+            if (sl->kind == UI_RESERVED) {
+                TT_CHECK(sl->label == 0);
+                continue;
+            }
+            if (strlen(sl->label) > 7u || sl->num != sec * 10u + knob)
+                printf("    slot %u: \"%s\" on page %s knob %u\n", sl->num, sl->label, UI_PAGE_INFO[p].name, k + 1u);
+            TT_CHECK(strlen(sl->label) <= 7u && sl->full != 0);
+            TT_CHECK_EQ(sl->num, sec * 10u + knob);
+            TT_CHECK(sl->kind != UI_LIVE || fm_param_info_get(sl->id) != 0);
+        }
+}
+
+/* An inverted ENV MODE fits a column (56 px, 7 characters of Terminus) as E1 INV / E2 INV; the focus
+ * row has it in full. */
+TT_TEST(ui_mode_column_is_short)
+{
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_ENV_SOURCE, 3, "E2 INV", ""));
+    TT_CHECK(ui_column_shows(FM_PARAM_OSC_MIX_ENV_SOURCE, 2, "E1 INV", ""));
+    TT_CHECK(ui_column_shows(FM_PARAM_PITCH_ENV_SOURCE, 1, "ENV2", ""));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_SOURCE, 3, "ENV2 INV"));
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1024,6 +1067,9 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_mode_column_is_short);
+    TT_RUN(ui_map_table_is_well_formed);
+    TT_RUN(ui_focus_opens_on_a_live_slot);
     TT_RUN(ui_size_bar_fills_from_the_left);
     TT_RUN(ui_vcf_env_mode_and_dynamics);
     TT_RUN(ui_mixer_pages);

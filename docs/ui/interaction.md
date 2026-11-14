@@ -126,7 +126,7 @@ both 15 and 27.
 | --- | --- | --- | --- | --- | --- |
 | 31 | K1 | `pitch_env_dyna` | DYNA | OFF, 1, 2, 3 | 1 / 1 |
 | 32 | K2 | `pitch_env_source` + the sign of 15 and 27 | MODE | ENV2 INV, ENV2, ENV1 INV, ENV1 | 1 / 1 |
-| 33 | K3 | `osc_xmod_permille` (*ours*) | XMOD AMT | 0..100 % | 1 / 5 |
+| 33 | K3 | `osc_xmod_permille` (*ours*) | XM AMT | 0..100 % | 1 / 5 |
 | 34 | K4 | reserved | | | |
 
 ### 4x MIXER (pages 4A, 4B)
