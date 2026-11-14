@@ -7,10 +7,13 @@ const ui_theme UI_MEMBRANE = {
     /* the JX-8P's own colors (Eric, 2026-11-14, from a render of its panel): the button strip's dark
      * gray for the screen, the body's mid gray for rules and frames, the lettering for text, the LED
      * display's pale cyan, and the buttons' red, amber, cream, gray and blue as the sections, lightened
-     * only as far as the contrast rules need (the body gray is too light to put text on) */
+     * only as far as the contrast rules need (the body gray is too light to put text on). The red stays
+     * the panel's red (Eric: not pink), too dark for text: it fills chips, meters and frames, and its
+     * text takes the lettering (fill_only). ENV-1 (VCF ENV) has its own, more orange red (Eric: apart
+     * from DCO-1). */
     .bg = 0x2986u, .surface = 0x3A08u, .surface_hi = 0x4249u, .line = 0x83EFu, .text = 0xF7BEu,
     .dim = 0xC659u, .ink = 0x1904u, .window = 0x0020u, .led = 0xAF9Eu,
-    .section = {0xDCF3u, 0xDD6Bu, 0xCE58u, 0x8D9Au, 0xE5B6u, 0xC5F5u, 0xB65Cu, 0xCD4Du, 0xDCF3u, 0xAD95u, 0xD6B9u},
+    .section = {0xDB0Bu, 0xDD6Bu, 0xCE58u, 0x8D9Au, 0xFA23u, 0xC5F5u, 0xB65Cu, 0xCD4Du, 0xDB0Bu, 0xAD95u, 0xD6B9u},
     .ghost = 26u,                       /* 10 % */
     .chip = 1u,
     .meter_segments = 0u,
@@ -18,6 +21,8 @@ const ui_theme UI_MEMBRANE = {
     .hatch = 0u,
     .sun = {0xFE88u, 0xFD87u, 0xFC67u, 0xFB49u, 0xF24Eu, 0xD1D2u},
     .art = UI_ART_BADGE,
+    .fill_only = 1u << UI_SEC_DCO1 | 1u << UI_SEC_VCF_ENV | 1u << UI_SEC_SEQ,
+    .fill_track = 0x0020u,              /* the LED window's near black: the red bars by lightness too */
 };
 
 /* visual.md: Night Panel */
@@ -34,6 +39,7 @@ const ui_theme UI_NIGHT_PANEL = {
     .led_section = 1u,
     .art = UI_ART_SUN,
     .grid = 0x5953u, .horizon = 0xF9FBu,
+    .fill_track = 0x2969u,              /* (no fill_only sections: the line) */
 };
 
 /* interaction.md 3: the pages, as the JX-8P's panel has its sections */
