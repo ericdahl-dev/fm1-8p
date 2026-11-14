@@ -84,6 +84,13 @@ static const int16_t MODE_ORDER[4] = {3, 1, 2, 0};
 #define PEND(n, l, f) {n, l, f, 0, UI_PENDING, 0, 0, 0, 0, 0, 0, 0, 0}
 #define PAGE(p) [4 * (p)] =
 
+/* the 0x section, 11, 32, 38 and 64 would be mod wheel, data entry and volume, expression, bank
+ * select LSB, data entry LSB and sustain (Eric, #49) */
+const ui_cc_move UI_CC_MOVED[UI_CC_MOVED_COUNT] = {
+    {1, 102}, {2, 103}, {3, 104}, {4, 105}, {5, 106}, {6, 107}, {7, 108}, {8, 109},
+    {11, 110}, {32, 111}, {38, 112}, {64, 113},
+};
+
 /* interaction.md 3, page by page (a page left out is empty, and the rings skip it) */
 const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     PAGE(0) CHOICE(11, "RANGE", "RANGE", FM_PARAM_OSC1_OCTAVE, RANGE_ORDER),
@@ -197,10 +204,10 @@ const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT] = {
     {12, "CH OUT", "MIDI CHANNEL OUT", 1, UI_LIVE, 1, 4, 0, 0, 0},
     {13, "CLOCK", "CLOCK SOURCE", 2, UI_PENDING, 1, 1, CLOCK, 0, 0},          /* (#38) */
     {14, "CLKOUT", "CLOCK OUT", 3, UI_PENDING, 1, 1, OFF_ON, 0, 0},          /* (#38) */
-    {21, "CC IN", "CC RECEIVE", 4, UI_PENDING, 1, 1, OFF_ON, 0, 0},         /* (#49) */
-    {22, "CC OUT", "CC SEND", 5, UI_PENDING, 1, 1, OFF_ON, 0, 0},            /* (#49) */
+    {21, "CC IN", "CC RECEIVE", 4, UI_LIVE, 1, 1, OFF_ON, 0, 0},
+    {22, "CC OUT", "CC SEND", 5, UI_PENDING, 1, 1, OFF_ON, 0, 0},            /* (#49, CC send) */
     {23, "PROG", "PROGRAM CHANGE", 6, UI_PENDING, 1, 1, PROG, 0, 0},       /* (not built yet) */
-    {24, "EXT CC", "EXTERNAL CC", 7, UI_PENDING, 1, 1, EXT_CC, 0, 0},         /* (#49) */
+    {24, "EXT CC", "EXTERNAL CC", 7, UI_LIVE, 1, 1, EXT_CC, 0, 0},
     {31, "CURVE", "VELOCITY CURVE", 8, UI_LIVE, 5, 25, 0, 0, 0},
     {32, "FIXED", "FIXED VELOCITY", 9, UI_LIVE, 1, 10, 0, 0, 0},
     {33, "LEDS", "KEY LEDS", 10, UI_LIVE, 1, 1, OFF_ON, 0, 0},

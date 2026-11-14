@@ -77,6 +77,10 @@ typedef struct {
     uint32_t set_dirty;                 /* 1: a GLO knob changed one since the store last wrote */
     uint32_t set_changed_ms;            /* when */
     uint32_t shown_theme;               /* the theme the screen is in: set.theme, UI_THEME_MS after it changed */
+    uint32_t cc_picked[(UI_PAGES * 4u + 31u) / 32u];   /* G24 PICKUP: bit per UI_SLOTS slot, taken over */
+    uint8_t cc_last[UI_PAGES * 4u];     /* each slot's last ignored CC value (0xFF: none yet) */
+    uint32_t cc_loads;                  /* play's loads when the pickup last started over */
+    char cc_msg[24];                    /* "CC 52: 20 (PICKUP)", the banner */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
@@ -183,6 +187,14 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms);
 uint32_t ui_keypad_led(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
+#define UI_CC_NONE 0xFFu
+/* the CC map: PG-800 number num's CC, and CC cc's PG-800 number (UI_CC_NONE: none) */
+uint32_t ui_cc_of(uint32_t num);
+uint32_t ui_pg800_of(uint32_t cc);
+/* a MIDI control change, cc 0..127 at value 0..127 (#49, interaction.md 8): the parameter on cc (the
+ * CC map) takes the value across its knob's range, as a knob would set it. 1: taken (G21 ON and cc on
+ * the map), so the engine needn't have it; 0: the module passes it on (sustain, all notes off ...). */
+int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms);
 /* the banner's message ("": none) */
 const char *ui_banner(const ui *u);
 /* the UI_D_* bits to redraw now (0: nothing, or the last redraw was under UI_FRAME_MS ago), taken */

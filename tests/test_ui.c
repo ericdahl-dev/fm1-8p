@@ -1189,8 +1189,9 @@ TT_TEST(ui_mode_column_is_short)
 
 /* Whatever the buttons, keys and knobs do, an edit page is a real one, and the focus row shows no
  * slot (focus 4) or a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT,
- * HOME, GLO and SAVE taps, holds and every knob, many times over, in a fixed pseudo-random order, on the
- * unit as set up (with a patch store or without). GLO's page and focus stay real too, SAVE's
+ * HOME, GLO and SAVE taps, holds, every knob and MIDI CCs (PICKUP on and off), many times over, in a
+ * fixed pseudo-random order, on the unit as set up (with a patch store or without). GLO's page and
+ * focus stay real too, SAVE's
  * destination, name and cursor stay in range, and every banner fits the footer: 28 characters at
  * most. The bad states it found. */
 static uint32_t ui_hammer(void)
@@ -1213,10 +1214,15 @@ static uint32_t ui_hammer(void)
         uint32_t ev = EV[(r >> 16) % (sizeof EV / sizeof EV[0])];
         if ((r >> 12) % 4u == 0)                /* a key now and then (the number jump's keypad) */
             (void)ui_key(&ui_u, (r >> 20) % PLAY_KEYS, (int)((r >> 6) & 1u), ms);
-        else
+        else if ((r >> 12) % 8u == 1u) {        /* a MIDI CC (#49), now and then with PICKUP turned over */
+            if ((r >> 25) % 16u == 0)
+                ui_u.set.ext_cc ^= 1u;
+            (void)ui_cc(&ui_u, (r >> 18) % 128u, (r >> 3) % 128u, ms);
+        } else
             ui_event(&ui_u, ev, (int32_t)((r >> 4) % 7u) - 3, ms);
         (void)ui_take(&ui_u, ms);               /* (the jump screen's 400 ms timer) */
-        if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && (r >> 12) % 4u != 0 && ui_screen(&ui_u) == UI_SCREEN_JUMP)
+        if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && (r >> 12) % 4u != 0 && (r >> 12) % 8u != 1u &&
+            ui_screen(&ui_u) == UI_SCREEN_JUMP)   /* (sent: neither a key nor a CC instead) */
             bad++;                              /* its screen never outlives SEL */
         if (strlen(ui_banner(&ui_u)) > 28u) {   /* the footer: 28 characters */
             printf("    banner \"%s\" is over 28 characters\n", ui_banner(&ui_u));
@@ -1841,7 +1847,7 @@ TT_TEST(ui_glo_table_is_well_formed)
         TT_CHECK_EQ(g->num, num);
         TT_CHECK(g->label && strlen(g->label) <= 6u && g->full && strlen(g->full) <= 20u);   /* (7 touch) */
         TT_CHECK(g->setting < UI_SETTINGS_COUNT);
-        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || (num >= 21 && num <= 24) ? UI_PENDING : UI_LIVE));
+        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || num == 22 || num == 23 ? UI_PENDING : UI_LIVE));
     }
     TT_CHECK_EQ(UI_GLO_SLOTS[11].setting, 11u);                /* G34 THEME */
 }
@@ -1879,9 +1885,14 @@ TT_TEST(ui_glo_knobs_and_pages)
     TT_CHECK_EQ(ui_u.set.clock_src, 0u);
     TT_CHECK_EQ(ui_u.focus, 0u);
     TT_CHECK(ui_glo_reads(2, "--"));
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);       /* G2x: all wait */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);       /* G2x: G21 and G24 live (#49) */
     TT_CHECK_EQ(ui_u.glo_page, 1u);
-    TT_CHECK_EQ(ui_u.focus, 4u);
+    TT_CHECK_EQ(ui_u.focus, 0u);                                /* (G22 waits: the first live, G21) */
+    TT_CHECK(ui_glo_reads(0, "ON"));
+    TT_CHECK(ui_glo_reads(1, "--"));
+    TT_CHECK(ui_glo_reads(3, "JUMP"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1450);        /* G24 to PICKUP */
+    TT_CHECK_EQ(ui_u.set.ext_cc, 1u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1500);       /* G3x */
     TT_CHECK_EQ(ui_u.glo_page, 2u);
     TT_CHECK(ui_glo_reads(0, "100"));
@@ -2000,8 +2011,345 @@ TT_TEST(ui_fill_only_meters_have_a_dark_track)
     TT_CHECK(UI_MEMBRANE.fill_only != 0u);              /* (the loop has something to check) */
 }
 
+/* #49: an incoming CC sets its parameter, 0..127 across the knob's range (interaction.md 8): CC 52 is
+ * VCF CUTOFF, 0 its bottom, 127 its top, 64 in between. */
+TT_TEST(ui_cc_sets_its_parameter)
+{
+    const fm_param_info *in = fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS);
+    int32_t mid;
+    ui_setup();
+    ui_cc(&ui_u, 52, 127, 1000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), in->max);
+    ui_cc(&ui_u, 52, 0, 1100);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), in->min);
+    ui_cc(&ui_u, 52, 64, 1200);
+    mid = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    TT_CHECK(mid > in->min + (in->max - in->min) * 2 / 5 && mid < in->min + (in->max - in->min) * 3 / 5);
+}
+
+/* A CC to a parameter on the page shown redraws its column (and the curve, as a knob does); the focus
+ * stays where it was (interaction.md 8, case 13). A CC to a parameter off the page redraws nothing.
+ * With G21 CC receive OFF, a CC changes nothing. */
+TT_TEST(ui_cc_redraws_its_column_and_keeps_the_focus)
+{
+    int32_t before;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);       /* 5A: 51 HPF, 52 CUTOFF, 53 RES, 54 LFO */
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_ENV, 0, 50);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 100);        /* the focus on 53 RES */
+    (void)ui_take(&ui_u, 1000);
+    ui_cc(&ui_u, 52, 20, 1100);
+    TT_CHECK_EQ(ui_u.focus, 2u);
+    TT_CHECK(ui_take(&ui_u, 1200) & UI_D_COL(1));
+    ui_cc(&ui_u, 81, 20, 1300);                               /* ENV-1 ATTACK: not on 5A */
+    TT_CHECK_EQ(ui_take(&ui_u, 1400) & (UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3)), 0u);
+    TT_CHECK_EQ(ui_u.focus, 2u);
+    ui_u.set.cc_recv = 0;                                     /* G21 OFF */
+    before = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_cc(&ui_u, 52, 127, 1500);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), before);
+}
+
+/* A choice (WAVE, X-MOD) splits 0..127 into equal bands, one per knob position; a time goes along its
+ * table, 0 its first entry and 127 its last (interaction.md 8). */
+TT_TEST(ui_cc_choices_take_bands_and_times_their_table)
+{
+    const ui_slot *wave = &UI_SLOTS[1], *xmod = &UI_SLOTS[4u * 2u + 2u];   /* 12 WAVE, 23 X-MOD */
+    uint32_t n, v;
+    ui_setup();
+    TT_CHECK_EQ(wave->num, 12u);
+    TT_CHECK_EQ(xmod->num, 23u);
+    (void)ui_choice_pos(wave, 0, &n);
+    for (v = 0; v < 128u; v += 9u) {                          /* 12 WAVE: n bands */
+        ui_cc(&ui_u, 12, v, 1000 + v);
+        TT_CHECK_EQ(ui_choice_pos(wave, ui_slot_value(&ui_u, wave), &n), v * n / 128u);
+    }
+    ui_cc(&ui_u, 12, 127, 2000);
+    TT_CHECK_EQ(ui_choice_pos(wave, ui_slot_value(&ui_u, wave), &n), n - 1u);
+    ui_cc(&ui_u, 23, 127, 2100);                              /* 23 X-MOD: sync and ring, its last */
+    TT_CHECK_EQ(ui_choice_pos(xmod, ui_slot_value(&ui_u, xmod), &n), n - 1u);
+    ui_cc(&ui_u, 23, 0, 2200);
+    TT_CHECK_EQ(ui_choice_pos(xmod, ui_slot_value(&ui_u, xmod), &n), 0u);
+    ui_cc(&ui_u, 81, 0, 2300);                                /* 81 ATTACK along the time table */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS), ui_time_at(0));
+    ui_cc(&ui_u, 81, 127, 2400);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS), ui_time_at(ui_time_count() - 1u));
+    ui_cc(&ui_u, 81, 64, 2500);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS),
+                ui_time_at((64u * (ui_time_count() - 1u) + 63u) / 127u));
+}
+
+/* G24 PICKUP (interaction.md 8, cases 63 and 64): with cutoff at 64 on the CC scale, CC 20 is ignored
+ * and says so in the banner; 63, 64 or 65 takes over, as does a move across 64; after that it
+ * follows. A patch load starts every parameter over. JUMP sets at once. A choice is never picked up. */
+static int32_t ui_cc_jump(uint32_t v)          /* cutoff as JUMP sets it from v */
+{
+    ui_u.set.ext_cc = 0;
+    ui_cc(&ui_u, 52, v, 50);
+    return play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+}
+
+static void ui_cc_pickup_setup(int32_t cutoff)
+{
+    play_load_patch(&ui_p, 0);                                /* a load: nothing picked up */
+    play_set_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS, cutoff);
+    ui_u.set.ext_cc = 1;                                      /* G24 PICKUP */
+}
+
+TT_TEST(ui_cc_pickup_waits_for_the_value)
+{
+    static const uint32_t TAKE[3] = {63, 64, 65};
+    int32_t j20, j64, j100, jt[3];
+    uint32_t i, n;
+    ui_setup();
+    j20 = ui_cc_jump(20), j100 = ui_cc_jump(100);
+    for (i = 0; i < 3u; i++)
+        jt[i] = ui_cc_jump(TAKE[i]);
+    j64 = jt[1];
+    TT_CHECK(j20 < j64 && j64 < j100);
+    for (i = 0; i < 3u; i++) {
+        ui_cc_pickup_setup(j64);
+        ui_cc(&ui_u, 52, 20, 200);                            /* ignored, and shown */
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j64);
+        TT_CHECK(strcmp(ui_banner(&ui_u), "CC 52: 20 (PICKUP)") == 0);
+        ui_cc(&ui_u, 52, TAKE[i], 300);                       /* within a step: taken over */
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), jt[i]);
+        ui_cc(&ui_u, 52, 20, 400);                            /* then it follows */
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j20);
+    }
+    ui_cc_pickup_setup(j64);                                  /* across 64: 20, then 100 */
+    ui_cc(&ui_u, 52, 20, 500);
+    ui_cc(&ui_u, 52, 100, 600);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j100);
+    ui_cc(&ui_u, 52, 20, 650);                                /* picked up: a load starts it over */
+    ui_cc_pickup_setup(j64);
+    ui_cc(&ui_u, 52, 20, 700);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j64);
+    ui_cc(&ui_u, 12, 127, 800);                               /* a choice: at once */
+    TT_CHECK_EQ(ui_choice_pos(&UI_SLOTS[1], ui_slot_value(&ui_u, &UI_SLOTS[1]), &n), n - 1u);
+    ui_u.set.ext_cc = 0;                                      /* JUMP: at once */
+    ui_cc(&ui_u, 52, 20, 900);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), j20);
+}
+
+/* A CC during compare goes to the edit buffer, not the stored patch: the stored value keeps sounding,
+ * and on EDIT's release the engine has the CC's (interaction.md 8, case 59). A CC lands where a knob
+ * would: the same value through the same path. */
+TT_TEST(ui_cc_during_compare_reaches_the_edit_buffer)
+{
+    uint32_t enc;
+    int32_t stored, want;
+    ui_setup();
+    ui_cc(&ui_u, 53, 127, 0);                                 /* (53 RES: the CC's top) */
+    want = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    TT_CHECK_EQ(want, fm_param_info_get(FM_PARAM_FILTER_RESONANCE)->max);
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    stored = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);                   /* an edit, so compare has something */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK(ui_p.comparing);
+    ui_cc(&ui_u, 53, 127, 1500);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), stored);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), stored);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), want);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), want);
+}
+
+/* ui_cc says whether it took the CC, so the module passes the rest on to the engine: sustain (64), all
+ * sound off (120), all notes off (123) and any CC off the map; with G21 OFF, every one. */
+TT_TEST(ui_cc_leaves_the_engines_ccs_to_it)
+{
+    ui_setup();
+    TT_CHECK(ui_cc(&ui_u, 52, 10, 0));
+    TT_CHECK(!ui_cc(&ui_u, 64, 127, 0));
+    TT_CHECK(!ui_cc(&ui_u, 120, 0, 0));
+    TT_CHECK(!ui_cc(&ui_u, 123, 0, 0));
+    TT_CHECK(!ui_cc(&ui_u, 13, 10, 0));                       /* 13 TUNE: pending */
+    ui_u.set.cc_recv = 0;
+    TT_CHECK(!ui_cc(&ui_u, 52, 10, 0));
+}
+
+/* With #49, G21 CC RECEIVE and G24 EXTERNAL CC are live in GLO; G22 CC SEND still waits */
+TT_TEST(ui_glo_cc_settings_are_live)
+{
+    uint32_t i, seen = 0;
+    for (i = 0; i < UI_GLO_SLOTS_COUNT; i++) {
+        if (UI_GLO_SLOTS[i].num == 21u || UI_GLO_SLOTS[i].num == 24u) {
+            TT_CHECK_EQ(UI_GLO_SLOTS[i].kind, (uint8_t)UI_LIVE);
+            seen++;
+        }
+        if (UI_GLO_SLOTS[i].num == 22u)
+            TT_CHECK_EQ(UI_GLO_SLOTS[i].kind, (uint8_t)UI_PENDING);
+    }
+    TT_CHECK_EQ(seen, 2u);
+}
+
+/* The CC map (#49, Eric's choice A): a parameter's CC is its PG-800 number, the one on screen, except
+ * the 0x section and 11, 32, 38 and 64, which would land on standard CCs (mod wheel, data entry,
+ * volume, expression, bank select LSB, sustain): they move to 102-113, in that order. Every live
+ * parameter has one CC, no two share one, and none is 0, 1, 6, 7, 11, 32, 38, 64 or 120-127. The
+ * table is keyed by PG-800 number, for #195's IPR receive too. */
+TT_TEST(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs)
+{
+    static const uint8_t MOVED[12][2] = {{1, 102}, {2, 103}, {3, 104}, {4, 105}, {5, 106}, {6, 107},
+                                         {7, 108}, {8, 109}, {11, 110}, {32, 111}, {38, 112}, {64, 113}};
+    uint32_t i, used[4] = {0, 0, 0, 0};
+    for (i = 0; i < 12u; i++) {
+        TT_CHECK_EQ(ui_cc_of(MOVED[i][0]), (uint32_t)MOVED[i][1]);
+        TT_CHECK_EQ(ui_pg800_of(MOVED[i][1]), (uint32_t)MOVED[i][0]);
+        TT_CHECK_EQ(ui_pg800_of(MOVED[i][0]), UI_CC_NONE);  /* (nothing left on the standard CC) */
+    }
+    TT_CHECK_EQ(ui_cc_of(52), 52u);
+    TT_CHECK_EQ(ui_pg800_of(52), 52u);
+    TT_CHECK_EQ(ui_pg800_of(0), UI_CC_NONE);
+    for (i = 120; i < 128u; i++)
+        TT_CHECK_EQ(ui_pg800_of(i), UI_CC_NONE);
+    for (i = 0; i < UI_PAGES * 4u; i++) {
+        uint32_t cc;
+        if (UI_SLOTS[i].kind != UI_LIVE)
+            continue;
+        cc = ui_cc_of(UI_SLOTS[i].num);
+        TT_CHECK(cc >= 2u && cc <= 119u && cc != 6u && cc != 7u && cc != 11u && cc != 32u && cc != 38u &&
+                 cc != 64u);
+        TT_CHECK(!(used[cc / 32u] >> (cc % 32u) & 1u));
+        used[cc / 32u] |= 1u << (cc % 32u);
+        TT_CHECK_EQ(ui_pg800_of(cc), (uint32_t)UI_SLOTS[i].num);
+    }
+    ui_setup();                                               /* 07 VOICE on CC 108; CC 7 is volume's */
+    TT_CHECK(ui_cc(&ui_u, 108, 127, 0));
+    TT_CHECK(!ui_cc(&ui_u, 7, 127, 0));
+}
+
+/* A CC and a knob land on the same value (#49: the knobs' path, no smoothing of its own): cutoff turned
+ * all the way up on the knob and CC 52 at 127 reach the same engine value, and so do the bottom. */
+TT_TEST(ui_cc_lands_where_a_knob_does)
+{
+    static const int32_t WAY[2] = {1, -1};
+    uint32_t enc, i;
+    int32_t knob;
+    for (i = 0; i < 2u; i++) {
+        ui_setup();
+        enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
+        ui_event(&ui_u, UI_EV_ENC | enc, 200 * WAY[i], 0);
+        ui_settle();
+        knob = fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS);
+        ui_setup();
+        ui_cc(&ui_u, 52, i ? 0u : 127u, 0);
+        ui_settle();
+        TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS), knob);
+    }
+    ui_setup();                                               /* inside the range: the same path */
+    ui_cc(&ui_u, 52, 64, 0);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS),
+                play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS));
+}
+
+/* docs/ui/interaction.md's CC map table is the code's: a row per slot (live or waiting), each with its
+ * PG-800 number's CC */
+TT_TEST(ui_cc_map_doc_matches_the_code)
+{
+    char line[256];
+    uint32_t rows = 0, slots = 0, i, in_map = 0, seen[4] = {0, 0, 0, 0};
+    FILE *f = fopen("docs/ui/interaction.md", "r");
+    TT_CHECK(f != 0);
+    if (!f)
+        return;
+    while (fgets(line, sizeof line, f)) {
+        char *bar;
+        uint32_t num, cc;
+        if (strncmp(line, "### ", 4) == 0)
+            in_map = strcmp(line, "### The CC map\n") == 0;
+        if (!in_map || line[0] != '|' || line[2] < '0' || line[2] > '9')
+            continue;
+        num = (uint32_t)atoi(line + 2);
+        bar = strrchr(line, '|');
+        *bar = 0;
+        cc = (uint32_t)atoi(strrchr(line, '|') + 1);
+        if (ui_cc_of(num) != cc)
+            printf("    the doc has PG-800 %u on CC %u, the code %u\n", (unsigned)num, (unsigned)cc,
+                   (unsigned)ui_cc_of(num));
+        TT_CHECK_EQ(ui_cc_of(num), cc);
+        seen[num / 32u] |= 1u << (num % 32u);
+        rows++;
+    }
+    fclose(f);
+    for (i = 0; i < UI_PAGES * 4u; i++)
+        if (UI_SLOTS[i].kind != UI_RESERVED) {
+            slots++;
+            TT_CHECK(seen[UI_SLOTS[i].num / 32u] >> (UI_SLOTS[i].num % 32u) & 1u);
+        }
+    TT_CHECK_EQ(rows, slots);
+}
+
+/* The slot picture is the section's, on both its pages: CC 52 CUTOFF while 5B is up redraws the curve
+ * (no column of 5B has it); a CC to another section's parameter doesn't. CC 108 (07 VOICE MODE) on 0B
+ * redraws all four columns, as a turn of it does (08 DETUNE's activity follows it). Off the page, a
+ * CC still edits the patch: the footer redraws with EDITED. */
+TT_TEST(ui_cc_redraws_the_sections_picture_and_followers)
+{
+    ui_setup();
+    ui_tap(UI_BTN_ENV, 0);                                    /* 5A */
+    ui_tap(UI_BTN_ENV, 200);                                  /* 5B */
+    TT_CHECK_EQ(ui_u.page, 8u);
+    (void)ui_take(&ui_u, 1000);
+    ui_cc(&ui_u, 52, 20, 1100);
+    TT_CHECK(ui_take(&ui_u, 1200) & UI_D_SLOT);
+    ui_cc(&ui_u, 81, 20, 1300);                               /* ENV-1 ATTACK: not this picture */
+    TT_CHECK_EQ(ui_take(&ui_u, 1400) & UI_D_SLOT, 0u);
+    TT_CHECK(play_edited(&ui_p));
+    ui_setup();
+    ui_tap(UI_BTN_LFO, 0);                                    /* 7A, 0A, 0B */
+    ui_tap(UI_BTN_LFO, 200);
+    ui_tap(UI_BTN_LFO, 400);
+    TT_CHECK_EQ(ui_u.page, 17u);
+    (void)ui_take(&ui_u, 1000);
+    ui_cc(&ui_u, 108, 127, 1100);
+    TT_CHECK_EQ(ui_take(&ui_u, 1200) & (UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3)),
+                UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3));
+    ui_setup();                                               /* PLAY: an off-page CC, the footer */
+    (void)ui_take(&ui_u, 1000);
+    ui_cc(&ui_u, 81, 20, 1100);
+    TT_CHECK(play_edited(&ui_p));
+    TT_CHECK(ui_take(&ui_u, 1200) & UI_D_FOOT);
+}
+
+/* A PICKUP banner never hides a banner that asks something: PRESETS' discard warning (a second turn
+ * discards, so it must stay on screen) and SAVE's screens. The CC is still ignored. */
+TT_TEST(ui_cc_pickup_banner_leaves_the_warnings_up)
+{
+    const char *warn;
+    int32_t mid;
+    ui_setup();
+    mid = ui_cc_jump(64);                                     /* an edit: cutoff to 64 on the CC scale */
+    ui_u.set.ext_cc = 1;                                      /* PICKUP */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1000);     /* the discard warning */
+    warn = ui_banner(&ui_u);
+    TT_CHECK(*warn);
+    ui_cc(&ui_u, 52, 0, 1100);                                /* far from 64: ignored */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), mid);
+    TT_CHECK(ui_banner(&ui_u) == warn);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_cc_sets_its_parameter);
+    TT_RUN(ui_cc_redraws_its_column_and_keeps_the_focus);
+    TT_RUN(ui_cc_choices_take_bands_and_times_their_table);
+    TT_RUN(ui_cc_pickup_waits_for_the_value);
+    TT_RUN(ui_cc_during_compare_reaches_the_edit_buffer);
+    TT_RUN(ui_cc_leaves_the_engines_ccs_to_it);
+    TT_RUN(ui_glo_cc_settings_are_live);
+    TT_RUN(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs);
+    TT_RUN(ui_cc_lands_where_a_knob_does);
+    TT_RUN(ui_cc_map_doc_matches_the_code);
+    TT_RUN(ui_cc_redraws_the_sections_picture_and_followers);
+    TT_RUN(ui_cc_pickup_banner_leaves_the_warnings_up);
     TT_RUN(ui_theme_applies_after_its_debounce);
     TT_RUN(ui_glo_knobs_and_pages);
     TT_RUN(ui_glo_table_is_well_formed);

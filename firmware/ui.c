@@ -359,6 +359,7 @@ void ui_init(ui *u, play *p)
     uint32_t i;
     u->p = p;
     u->state = UI_PLAY;
+    u->cc_loads = p->loads + 1u;              /* (the first CC starts the pickup over) */
     u->focus = 1;
     u->dirty = UI_D_FULL;
     u->drawn_ms = 0;
@@ -658,6 +659,28 @@ static void jump_to(ui *u, int32_t n, int typed, uint32_t ms)
     }
 }
 
+/* What redraws once slot s's value changed (a knob or a CC): its column where the screen shows it, and
+ * in EDIT the slot picture when it is s's section's (on either of its pages) and draws s (the curve,
+ * the waveform, an ENV page's ADSR). VOICE MODE redraws its page's columns (08 DETUNE's activity
+ * follows it). */
+static uint32_t slot_redraw(const ui *u, const ui_slot *s)
+{
+    uint32_t k, d = 0, sp = (uint32_t)(s - UI_SLOTS) / 4u;
+    if (u->state != UI_PLAY && u->state != UI_EDIT)
+        return 0;                               /* (GLO, SAVE: they redraw it all when they close) */
+    for (k = 0; k < 4u; k++)
+        if (ui_page_slot(u, k) == s)
+            d |= s->id == FM_PARAM_VOICE_MODE ? UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3)
+                                             : UI_D_COL(k);
+    if (u->state == UI_EDIT && UI_PAGE_INFO[sp].name[0] == UI_PAGE_INFO[u->page].name[0] &&
+        (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
+         s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
+         s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
+         (sp >= 12u && sp <= 15u)))             /* (an ENV page: any of its ADSR) */
+        d |= UI_D_SLOT;
+    return d;
+}
+
 static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
 {
     const ui_slot *s = ui_page_slot(u, k);
@@ -693,13 +716,8 @@ static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
     if (u->state == UI_PLAY) {                  /* the focus row reads the knob for 3 s; the slot is the badge */
         u->readout = 1;
         u->readout_ms = ms;
-    } else if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
-        s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
-        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
-        (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
-        u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, the waveform, the ADSR */
-    if (s->id == FM_PARAM_VOICE_MODE)           /* 08 DETUNE's activity follows it, on the same page */
-        u->dirty |= UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3);
+    }
+    u->dirty |= slot_redraw(u, s);
     u->focus = k;
 }
 
@@ -844,6 +862,133 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
 uint32_t ui_keypad_led(const ui *u, uint32_t k)
 {
     return u->jump >= 0 && key_digit(k) >= 0 ? UI_LED_GLOW : UI_LED_OFF;
+}
+
+/* the slot a CC sets (the CC map): its number is the slot's, NULL for none */
+uint32_t ui_cc_of(uint32_t num)
+{
+    uint32_t i;
+    for (i = 0; i < UI_CC_MOVED_COUNT; i++)
+        if (UI_CC_MOVED[i].pg800 == num)
+            return UI_CC_MOVED[i].cc;
+    return num < 120u ? num : UI_CC_NONE;
+}
+
+uint32_t ui_pg800_of(uint32_t cc)
+{
+    uint32_t i;
+    if (cc == 0u || cc >= 120u)                 /* bank select; the channel mode messages */
+        return UI_CC_NONE;
+    for (i = 0; i < UI_CC_MOVED_COUNT; i++) {
+        if (UI_CC_MOVED[i].cc == cc)
+            return UI_CC_MOVED[i].pg800;
+        if (UI_CC_MOVED[i].pg800 == cc)         /* (moved away: its standard CC is the standard's) */
+            return UI_CC_NONE;
+    }
+    return cc;
+}
+
+/* the live slot CC cc sets (the CC map), NULL for none */
+static const ui_slot *cc_slot(uint32_t cc)
+{
+    uint32_t i, num = ui_pg800_of(cc);
+    if (num == UI_CC_NONE)
+        return 0;
+    for (i = 0; i < UI_PAGES * 4u; i++)
+        if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == num)
+            return &UI_SLOTS[i];
+    return 0;
+}
+
+/* the value CC value v gives slot s (not a choice): along its table, or across its range (a SIZE:
+ * its size, 0 up) */
+static int32_t cc_value(const ui_slot *s, uint32_t v)
+{
+    const fm_param_info *in = fm_param_info_get(s->id);
+    int32_t lo = s->how == UI_HOW_SIZE ? 0 : in->min;
+    if (s->how == UI_HOW_TIME)
+        return UI_TIMES[(v * (UI_TIME_COUNT - 1u) + 63u) / 127u];
+    if (s->how == UI_HOW_RATE)
+        return UI_RATES[(v * (UI_RATE_COUNT - 1u) + 63u) / 127u];
+    return lo + (int32_t)(((int64_t)(in->max - lo) * (int32_t)v + 63) / 127);
+}
+
+/* G24 PICKUP: 1 when CC value v may set slot s, its i in UI_SLOTS: once taken over, or when v lands
+ * within a CC step of the value, or moves across it from the last ignored value. A patch load
+ * starts every slot over. */
+static int cc_pick(ui *u, const ui_slot *s, uint32_t i, uint32_t v)
+{
+    uint32_t a = v, b = v, j;
+    int32_t cur = ui_slot_value(u, s);
+    if (u->cc_loads != u->p->loads) {
+        for (j = 0; j < sizeof u->cc_picked / sizeof u->cc_picked[0]; j++)
+            u->cc_picked[j] = 0;
+        for (j = 0; j < UI_PAGES * 4u; j++)
+            u->cc_last[j] = 0xFFu;
+        u->cc_loads = u->p->loads;
+    }
+    if (u->cc_picked[i / 32u] >> (i % 32u) & 1u)
+        return 1;
+    if (u->cc_last[i] != 0xFFu)
+        a = u->cc_last[i] < a ? u->cc_last[i] : a, b = u->cc_last[i] > b ? u->cc_last[i] : b;
+    a = a ? a - 1u : 0u;
+    b = b < 127u ? b + 1u : 127u;
+    if (cc_value(s, a) <= cur && cur <= cc_value(s, b)) {
+        u->cc_picked[i / 32u] |= 1u << (i % 32u);
+        return 1;
+    }
+    u->cc_last[i] = (uint8_t)v;
+    return 0;
+}
+
+/* "CC 52: 20 (PICKUP)" into u->cc_msg, as the banner */
+static void cc_ignored(ui *u, uint32_t cc, uint32_t v, uint32_t ms)
+{
+    static const char TAIL[] = " (PICKUP)";
+    char *s = u->cc_msg;
+    uint32_t i;
+    if (u->state == UI_SAVE || (u->warned && ms - u->warned_ms < UI_DISCARD_MS))
+        return;                                 /* (a banner that asks something stays up) */
+    *s++ = 'C', *s++ = 'C', *s++ = ' ';
+    if (cc >= 100u)
+        *s++ = (char)('0' + cc / 100u);
+    if (cc >= 10u)
+        *s++ = (char)('0' + cc / 10u % 10u);
+    *s++ = (char)('0' + cc % 10u), *s++ = ':', *s++ = ' ';
+    if (v >= 100u)
+        *s++ = (char)('0' + v / 100u);
+    if (v >= 10u)
+        *s++ = (char)('0' + v / 10u % 10u);
+    *s++ = (char)('0' + v % 10u);
+    for (i = 0; TAIL[i]; i++)
+        *s++ = TAIL[i];
+    *s = 0;
+    show_banner(u, u->cc_msg, ms);
+}
+
+int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
+{
+    const ui_slot *s = cc_slot(cc);
+    if (!s || !u->set.cc_recv || value > 127u)
+        return 0;
+    if (s->order) {                             /* a choice: equal bands, one per knob position; no pickup */
+        int32_t max = s->how == UI_HOW_PLAIN ? fm_param_info_get(s->id)->max : 3, at[16];
+        uint32_t i, n = 0;
+        for (i = 0; i < s->n_order && n < 16u; i++)
+            if (s->stops >> i & 1u && s->order[i] <= max)
+                at[n++] = s->order[i];
+        if (n)
+            set_slot(u, s, at[value * n / 128u]);
+    } else if (u->set.ext_cc && !cc_pick(u, s, (uint32_t)(s - UI_SLOTS), value)) {
+        cc_ignored(u, cc, value, ms);
+        return 1;
+    } else {
+        set_slot(u, s, cc_value(s, value));
+    }
+    u->dirty |= slot_redraw(u, s);              /* what shows it redraws; the focus stays */
+    if (u->focus < 4u && ui_page_slot(u, u->focus) == s && (u->state == UI_PLAY || u->state == UI_EDIT))
+        u->dirty |= UI_D_FOCUS;
+    return 1;
 }
 
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
