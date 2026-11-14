@@ -323,7 +323,7 @@ In PLAY or EDIT:
   can compare a section across patches.
 - **Unsaved edits:** when the edit buffer is modified, the first PRESETS
   **event** does not load anything, whatever its click count (a fast +4 warns
-  just like +1). It shows `EDITED: TURN AGAIN TO DISCARD`.
+  just like +1). It shows `EDITED - TURN TO DISCARD`.
   - A **later** event in the same direction while the warning shows (1.5 s)
     discards the edits and loads, moving by that event's clicks.
   - Anything else cancels the warning (decision Q4).
@@ -708,7 +708,7 @@ Everywhere, unless the state says otherwise:
   WAITING FOR CLOCK. Also the clock source in use, INT or MIDI, and the tempo.
 - **Must:** a banner line for short messages, shown 1.5 s:
   - `SAVED 23`, `SAVED PATTERN 23`
-  - `EDITED: TURN AGAIN TO DISCARD`
+  - `EDITED - TURN TO DISCARD`
   - `PATTERN EDITED: TURN AGAIN TO DISCARD`
   - `MAX n NOTES` (n = the build's voice count)
   - `SAVE CANCELED`
