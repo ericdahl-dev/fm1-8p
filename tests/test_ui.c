@@ -1025,6 +1025,34 @@ TT_TEST(ui_mode_column_is_short)
     TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_SOURCE, 3, "ENV2 INV"));
 }
 
+/* Whatever the buttons and knobs do, an edit page is a real one with a live slot, and the focus row
+ * shows a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT and
+ * HOME taps, holds and every knob, many times over, in a fixed pseudo-random order. */
+TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
+{
+    static const uint32_t EV[] = {UI_EV_BTN_DOWN | UI_BTN_SEL, UI_EV_BTN_UP | UI_BTN_SEL,
+                                  UI_EV_BTN_DOWN | UI_BTN_ENV, UI_EV_BTN_UP | UI_BTN_ENV,
+                                  UI_EV_BTN_DOWN | UI_BTN_EDIT, UI_EV_BTN_UP | UI_BTN_EDIT,
+                                  UI_EV_BTN_DOWN | UI_BTN_HOME, UI_EV_BTN_UP | UI_BTN_HOME,
+                                  UI_EV_ENC | UI_ENC_KNOB1, UI_EV_ENC | UI_ENC_KNOB2,
+                                  UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4};
+    uint32_t i, r = 12345u, ms = 0, bad = 0;
+    ui_setup();
+    for (i = 0; i < 20000u; i++) {
+        const ui_slot *f;
+        r = r * 1103515245u + 12345u;
+        ms += (r >> 8) % 600u;                  /* taps and holds */
+        ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
+        if (ui_u.state != UI_EDIT)
+            continue;
+        f = ui_page_slot(&ui_u, ui_u.focus);
+        if (ui_u.page >= UI_PAGES || ui_u.focus > 3u || f->kind == UI_RESERVED || !f->label || !f->full)
+            bad++;
+    }
+    printf("    %u bad states in 20000 events\n", (unsigned)bad);
+    TT_CHECK_EQ(bad, 0u);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1076,6 +1104,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_mode_memory_goes_with_a_load);
     TT_RUN(ui_dco_env_mode_sets_source_and_sign);
     TT_RUN(ui_sel_reaches_dco_env);
+    TT_RUN(ui_hammered_buttons_keep_a_live_page_and_focus);
     TT_RUN(ui_lfo_depth_steps_finer_below_100);
     TT_RUN(ui_width_is_inactive_off_pulse);
     TT_RUN(ui_wave_turn_redraws_the_picture);
