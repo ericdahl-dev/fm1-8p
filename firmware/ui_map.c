@@ -91,8 +91,23 @@ const ui_cc_move UI_CC_MOVED[UI_CC_MOVED_COUNT] = {
     {11, 110}, {32, 111}, {38, 112}, {64, 113},
 };
 
+/* the Kiwi-8P's CC map (KiwiTechnics, JX-8P Upgrade User Manual v1.51, "Continuous Controllers",
+ * pp. 54-57) on our parameters, each pair a PG-800 number and its CC; then the common four as second,
+ * receive-only CCs (Eric, #49): 74 cutoff, 71 resonance, 73 ENV-2 attack, 72 ENV-2 release, over
+ * Kiwi's 74 VCF LFO source, 71 DCO2 LFO source, 73 HPF and 72 DCO2 ENV source. The HPF has none. */
 const ui_cc_move UI_CC_STANDARD[] = {
-    {52, 23},                           /* (the layout waits on Eric) */
+    {11, 65}, {12, 66}, {13, 8}, {14, 9}, {15, 10},                     /* DCO-1 */
+    {21, 69}, {22, 70}, {23, 84}, {24, 12}, {25, 13}, {26, 14}, {27, 15},   /* DCO-2 */
+    {31, 11}, {32, 68},                                                 /* DCO ENV: Kiwi's DCO1 DYN, ENV source */
+    {41, 18}, {42, 19}, {43, 61}, {44, 20}, {45, 107},                  /* MIXER */
+    {52, 23}, {53, 24}, {54, 25}, {55, 26}, {56, 27}, {57, 28}, {58, 75},   /* VCF */
+    {61, 21}, {62, 76}, {63, 22}, {64, 81},                             /* VCA */
+    {71, 78}, {72, 40}, {73, 39},                                       /* LFO: Kiwi's LFO 1 */
+    {81, 29}, {82, 30}, {83, 31}, {84, 33},                             /* ENV-1 */
+    {91, 34}, {92, 35}, {93, 36}, {94, 37},                             /* ENV-2 */
+    {5, 91}, {6, 5}, {7, 85}, {8, 17},                                  /* BEND, PORTA, VOICE (KEY MODE), DETUNE */
+    {31, 16},                                                           /* (receive only: Kiwi's DCO2 DYN) */
+    {52, 74}, {53, 71}, {91, 73}, {94, 72},                             /* (receive only: the common four) */
 };
 const uint32_t UI_CC_STANDARD_COUNT = sizeof UI_CC_STANDARD / sizeof UI_CC_STANDARD[0];
 
@@ -197,10 +212,12 @@ const char *const UI_SECTION_NAME[10] = {"AFTERTOUCH", "DCO-1", "DCO-2", "DCO EN
 const uint8_t UI_SECTION_PAGE[10] = {16, 0, 2, 4, 5, 7, 9, 11, 12, 14};     /* 0A, 1A, ... 9A */
 const uint8_t UI_PLAY_SLOT[4] = {4 * 7 + 1, 4 * 7 + 2, 4 * 8 + 0, 4 * 14 + 3};   /* 52, 53, 55, 94 */
 
-/* interaction.md 4, GLO: the settings, G11..G34 (UI_SETTINGS_INFO's order) */
+/* interaction.md 4, GLO: the settings, G11..G34 (UI_SETTINGS_INFO's order, but G23 CC MAP, the 13th;
+ * G23's program change, the 7th, waits for a 4th page) */
 static const char *const OFF_ON[] = {"OFF", "ON"};
 static const char *const CLOCK[] = {"AUTO", "INT", "MIDI"};
-static const char *const PROG[] = {"OFF", "RECV", "SEND", "BOTH"};
+static const char *const CC_MAP[] = {"JX", "STANDARD"};
+static const char *const CC_MAP_COL[] = {"JX", "STD"};
 static const char *const EXT_CC[] = {"JUMP", "PICKUP"};
 static const char *const THEME[] = {"MEMBRANE", "NIGHT PANEL"};
 static const char *const THEME_COL[] = {"MEMB", "NIGHT"};
@@ -211,7 +228,7 @@ const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT] = {
     {14, "CLKOUT", "CLOCK OUT", 3, UI_PENDING, 1, 1, OFF_ON, 0, 0},          /* (#38) */
     {21, "CC IN", "CC RECEIVE", 4, UI_LIVE, 1, 1, OFF_ON, 0, 0},
     {22, "CC OUT", "CC SEND", 5, UI_LIVE, 1, 1, OFF_ON, 0, 0},
-    {23, "PROG", "PROGRAM CHANGE", 6, UI_PENDING, 1, 1, PROG, 0, 0},       /* (not built yet) */
+    {23, "CC MAP", "CC MAP", 12, UI_LIVE, 1, 1, CC_MAP, CC_MAP_COL, 0},    /* (program change: G41, once built) */
     {24, "EXT CC", "EXTERNAL CC", 7, UI_LIVE, 1, 1, EXT_CC, 0, 0},
     {31, "CURVE", "VELOCITY CURVE", 8, UI_LIVE, 5, 25, 0, 0, 0},
     {32, "FIXED", "FIXED VELOCITY", 9, UI_LIVE, 1, 10, 0, 0, 0},

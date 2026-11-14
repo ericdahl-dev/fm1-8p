@@ -1847,9 +1847,10 @@ TT_TEST(ui_glo_table_is_well_formed)
         TT_CHECK_EQ(g->num, num);
         TT_CHECK(g->label && strlen(g->label) <= 6u && g->full && strlen(g->full) <= 20u);   /* (7 touch) */
         TT_CHECK(g->setting < UI_SETTINGS_COUNT);
-        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || num == 23 ? UI_PENDING : UI_LIVE));
+        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 ? UI_PENDING : UI_LIVE));
     }
     TT_CHECK_EQ(UI_GLO_SLOTS[11].setting, 11u);                /* G34 THEME */
+    TT_CHECK_EQ(UI_GLO_SLOTS[6].setting, 12u);                 /* G23 CC MAP */
 }
 
 /* GLO's knobs (interaction.md 4): each its setting, clamped to its range; a waiting one does nothing.
@@ -1890,7 +1891,7 @@ TT_TEST(ui_glo_knobs_and_pages)
     TT_CHECK_EQ(ui_u.focus, 1u);                                /* (knob 2: G22) */
     TT_CHECK(ui_glo_reads(0, "ON"));
     TT_CHECK(ui_glo_reads(1, "OFF"));
-    TT_CHECK(ui_glo_reads(2, "--"));
+    TT_CHECK(ui_glo_reads(2, "STANDARD"));
     TT_CHECK(ui_glo_reads(3, "JUMP"));
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1450);        /* G24 to PICKUP */
     TT_CHECK_EQ(ui_u.set.ext_cc, 1u);
@@ -2259,8 +2260,16 @@ TT_TEST(ui_cc_lands_where_a_knob_does)
                 play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS));
 }
 
-/* docs/ui/interaction.md's CC map table is the code's: a row per slot (live or waiting), each with its
- * PG-800 number's CC */
+/* docs/ui/interaction.md's CC map table is the code's: a row per slot (live or waiting), its JX CC, and
+ * its STANDARD CCs (the sending one first; "-" none) */
+static uint32_t ui_doc_std_count(uint32_t num)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < UI_CC_STANDARD_COUNT; i++)
+        n += UI_CC_STANDARD[i].pg800 == num;
+    return n;
+}
+
 TT_TEST(ui_cc_map_doc_matches_the_code)
 {
     char line[256];
@@ -2270,20 +2279,33 @@ TT_TEST(ui_cc_map_doc_matches_the_code)
     if (!f)
         return;
     while (fgets(line, sizeof line, f)) {
-        char *bar;
-        uint32_t num, cc;
+        char *std, *jx, *p;
+        uint32_t num, n = 0, k;
         if (strncmp(line, "### ", 4) == 0)
             in_map = strcmp(line, "### The CC map\n") == 0;
         if (!in_map || line[0] != '|' || line[2] < '0' || line[2] > '9')
             continue;
         num = (uint32_t)atoi(line + 2);
-        bar = strrchr(line, '|');
-        *bar = 0;
-        cc = (uint32_t)atoi(strrchr(line, '|') + 1);
-        if (ui_cc_of(UI_CC_MAP_JX, num) != cc)
-            printf("    the doc has PG-800 %u on CC %u, the code %u\n", (unsigned)num, (unsigned)cc,
+        *strrchr(line, '|') = 0;                /* | 52 | VCF | CUTOFF | 52 | 23, 74 | */
+        std = strrchr(line, '|') + 1;
+        *strrchr(line, '|') = 0;
+        jx = strrchr(line, '|') + 1;
+        if (ui_cc_of(UI_CC_MAP_JX, num) != (uint32_t)atoi(jx))
+            printf("    the doc has PG-800 %u on JX CC %s, the code %u\n", (unsigned)num, jx,
                    (unsigned)ui_cc_of(UI_CC_MAP_JX, num));
-        TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_JX, num), cc);
+        TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_JX, num), (uint32_t)atoi(jx));
+        for (p = std; *p; p++)                  /* each STANDARD CC: on num, the first the sending one */
+            if (*p >= '0' && *p <= '9') {
+                k = (uint32_t)strtoul(p, &p, 10);
+                if (ui_pg800_of(UI_CC_MAP_STANDARD, k) != num || (!n && ui_cc_of(UI_CC_MAP_STANDARD, num) != k))
+                    printf("    the doc has PG-800 %u on STANDARD CC %u\n", (unsigned)num, (unsigned)k);
+                TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_STANDARD, k), num);
+                if (!n)
+                    TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_STANDARD, num), k);
+                n++;
+                p--;
+            }
+        TT_CHECK_EQ(n, ui_doc_std_count(num));
         seen[num / 32u] |= 1u << (num % 32u);
         rows++;
     }
@@ -2451,9 +2473,67 @@ TT_TEST(ui_cc_map_setting_picks_the_map)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->max);
 }
 
+/* CC MAP STANDARD (Eric's choice A): the Kiwi-8P's map (its manual v1.51, pp. 54-57), plus the common
+ * 74 cutoff, 71 resonance, 73 ENV-2 attack and 72 ENV-2 release as second CCs that only receive; the
+ * HPF has none. Send uses Kiwi's numbers. No CC sets two parameters, and none is 0, 1, 7, 64 or
+ * 120-127. */
+TT_TEST(ui_cc_map_standard_is_kiwis_with_the_common_four)
+{
+    static const uint8_t KIWI[][2] = {     /* PG-800 number, Kiwi CC (what it sends) */
+        {52, 23}, {53, 24}, {91, 34}, {94, 37}, {81, 29}, {84, 33}, {11, 65}, {12, 66}, {21, 69},
+        {22, 70}, {23, 84}, {24, 12}, {25, 13}, {41, 18}, {42, 19}, {61, 21}, {62, 76}, {64, 81},
+        {71, 78}, {72, 40}, {73, 39}, {7, 85},
+    };
+    static const uint8_t SECOND[4][2] = {{52, 74}, {53, 71}, {91, 73}, {94, 72}};
+    uint32_t i, used[4] = {0, 0, 0, 0}, cc, v;
+    for (i = 0; i < sizeof KIWI / sizeof KIWI[0]; i++) {
+        TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_STANDARD, KIWI[i][0]), (uint32_t)KIWI[i][1]);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_STANDARD, KIWI[i][1]), (uint32_t)KIWI[i][0]);
+    }
+    for (i = 0; i < 4u; i++)
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_STANDARD, SECOND[i][1]), (uint32_t)SECOND[i][0]);
+    TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_STANDARD, 51), UI_CC_NONE);          /* the HPF: none */
+    for (i = 0; i < UI_CC_STANDARD_COUNT; i++) {
+        cc = UI_CC_STANDARD[i].cc;
+        TT_CHECK(cc != 0u && cc != 1u && cc != 7u && cc != 64u && cc < 120u);
+        TT_CHECK(!(used[cc / 32u] >> (cc % 32u) & 1u));                  /* one parameter a CC */
+        used[cc / 32u] |= 1u << (cc % 32u);
+    }
+    ui_setup();                                                          /* (the default map) */
+    ui_cc(&ui_u, 74, 127, 0);                                            /* a generic cutoff knob */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->max);
+    ui_cc(&ui_u, 23, 0, 100);                                            /* Kiwi's */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->min);
+    TT_CHECK(!ui_cc(&ui_u, 52, 127, 200));                               /* JX's number: nothing here */
+    ui_u.set.cc_send = 1;                                                /* out on Kiwi's number */
+    ui_event(&ui_u, UI_EV_ENC | ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS), 3, 300);
+    TT_CHECK(ui_cc_out(&ui_u, 300, &cc, &v));
+    TT_CHECK_EQ(cc, 23u);
+}
+
+/* CC MAP is G23 (Eric; program change moves to a 4th page when it's built): it reads STANDARD on a
+ * fresh FM-1, STD in its column, and a turn down makes it JX. */
+TT_TEST(ui_glo_g23_is_cc_map)
+{
+    char n[UI_VALUE_LEN], c[UI_VALUE_LEN];
+    ui_setup();
+    ui_tap(UI_BTN_GLO, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1100);       /* G2x */
+    TT_CHECK_EQ(ui_glo_slot_at(&ui_u, 2)->num, 23u);
+    TT_CHECK(ui_glo_reads(2, "STANDARD"));
+    ui_glo_column(&ui_u, 2, n, c);
+    TT_CHECK(strcmp(n, "STD") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, -1, 1200);
+    TT_CHECK_EQ(ui_u.set.cc_map, (uint8_t)UI_CC_MAP_JX);
+    TT_CHECK(ui_glo_reads(2, "JX"));
+    TT_CHECK_EQ(ui_u.set_dirty, 1u);
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_cc_map_setting_picks_the_map);
+    TT_RUN(ui_cc_map_standard_is_kiwis_with_the_common_four);
+    TT_RUN(ui_glo_g23_is_cc_map);
     TT_RUN(ui_cc_send_sends_knob_turns);
     TT_RUN(ui_cc_send_is_rate_bounded);
     TT_RUN(ui_cc_sets_its_parameter);
