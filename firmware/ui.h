@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "play.h"
 #include "ui_map.h"
+#include "ui_settings.h"
 
 /* ui_event's events: the same values as fm1-dock's hb_module.h (the glue passes them on as they are) */
 #define UI_EV_BTN_DOWN 0x01000000u
@@ -16,6 +17,7 @@
 #define UI_BTN_ENV     4u
 #define UI_BTN_LFO     5u
 #define UI_BTN_EDIT    6u
+#define UI_BTN_GLO     7u
 #define UI_BTN_HOME    8u
 #define UI_BTN_SAVE    9u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
@@ -27,7 +29,7 @@
 #define UI_ENC_KNOB4   5u
 #define UI_ENC_PRESETS 6u
 
-typedef enum { UI_PLAY, UI_EDIT, UI_SAVE } ui_state;
+typedef enum { UI_PLAY, UI_EDIT, UI_SAVE, UI_GLO } ui_state;
 
 
 typedef struct {
@@ -57,12 +59,26 @@ typedef struct {
     uint32_t save_step;                 /* UI_SAVE_EDITING, UI_SAVE_CONFIRM */
     uint32_t save_cursor;               /* the name's character being edited, 0..11 */
     uint32_t save_waiting;              /* 1: a snapshot waits for silence to be written */
+    uint32_t save_wait_ms;              /* when it began to wait (the banner's turns) */
+    char save_wait_msg[24];             /* SAVING 23 WHEN SILENT */
+    uint32_t save_home_ms;              /* a HOME tap that asked to cancel the waiting write, when */
+    uint32_t save_home_armed;           /* 1: that tap is on screen; a second cancels */
+    char save_draft[STORE_NAME_LEN + 1u];   /* a canceled SAVE's name, offered again */
+    uint32_t save_draft_prog;           /* for this program; UI_SAVE_NO_DRAFT: none */
     int32_t jump;                       /* the number jump: -1 SEL up; 0 held, no digit; 1..10 a first digit + 1 */
     uint32_t jump_keys;                 /* keys taken by it while SEL is held (bit k: key k), so their ups go too */
     uint32_t jump_screen;               /* UI_JS_*: the number jump's screen up, and a jump done in this hold */
     uint32_t readout;                   /* PLAY: a knob's readout in the focus row (UI_READOUT_MS from readout_ms) */
     uint32_t readout_ms;
+    /* GLO (interaction.md 4): the instrument's settings */
+    ui_state glo_from;                  /* the state GLO goes back to */
+    uint32_t glo_page;                  /* 0..2: G1x, G2x, G3x */
+    ui_settings set;                    /* the settings (agent2's store loads them, and saves them) */
+    uint32_t set_dirty;                 /* 1: a GLO knob changed one since the store last wrote */
+    uint32_t set_changed_ms;            /* when */
+    uint32_t shown_theme;               /* the theme the screen is in: set.theme, UI_THEME_MS after it changed */
 } ui;
+#define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
 #define UI_JS_UP   1u
 #define UI_JS_DONE 2u
@@ -70,6 +86,7 @@ typedef struct {
 /* ui_take's bits: what changed since the last redraw */
 enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
 enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
+#define UI_SAVE_NO_DRAFT 0xFFFFFFFFu
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
@@ -102,6 +119,8 @@ typedef struct { uint32_t q2, n1; int32_t cut; } ui_curve;
 /* set up for a cutoff and resonance across n columns; then column i's level */
 void ui_curve_begin(ui_curve *c, int32_t cutoff_cents, int32_t reso_permille, uint32_t n);
 int32_t ui_curve_db(const ui_curve *c, uint32_t i);
+/* the floor of v's square root (the PLAY sun's rows) */
+uint32_t ui_isqrt(uint32_t v);
 /* the header's page strip: segment i (interaction.md's page order, 1A .. 8B) at x, w px wide */
 void ui_strip(uint32_t i, int32_t *x, int32_t *w);
 /* a 7-segment digit's lit segments, bits a..g = 0..6 (0 for one it can't show) */
@@ -143,8 +162,16 @@ int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* which screen shows (draw.c branches on it for every band): PLAY, an edit page, or the number jump's
  * (up from 400 ms into a SEL hold, or a first digit, until a jump is done or SEL comes up) */
-enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE };
+enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO };
 uint32_t ui_screen(const ui *u);
+/* GLO: the slot on knob k (0..3) of the GLO page shown; its value as the focus row reads it (the
+ * number or name into num, the unit into unit, UI_VALUE_LEN each; "--" while it waits), and as a
+ * column reads it (a shorter name where one is too wide) */
+const ui_glo_slot *ui_glo_slot_at(const ui *u, uint32_t k);
+/* the theme to draw in (UI_THEME_MEMBRANE, UI_THEME_NIGHT) */
+uint32_t ui_theme_shown(const ui *u);
+void ui_glo_value(const ui *u, uint32_t k, char *num, char *unit);
+void ui_glo_column(const ui *u, uint32_t k, char *num, char *unit);
 /* PLAY: the focus row shows the last turned knob (3 s after its turn), not the patch's name */
 int ui_play_readout(const ui *u, uint32_t ms);
 /* the jump screen's number: the digits typed, then _ ("4_", "__"); s: 3 chars */

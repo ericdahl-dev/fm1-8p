@@ -32,7 +32,10 @@ static int trail_ok(const char *s, uint32_t line)
 #endif
 
 /* the theme (visual.md's style table, firmware/ui_map.c), RGB565 */
-static const ui_theme *T = &UI_MEMBRANE;
+static const ui_theme *T = &UI_MEMBRANE;  /* (Membrane until GLO's THEME, G34: Eric, 2026-11-14) */
+
+/* the LED digits' color: the theme's, or (Night Panel) the accent given */
+static uint16_t led_of(uint16_t accent) { return T->led_section ? accent : T->led; }
 #define C_BG     (T->bg)
 #define C_SURF   (T->surface)
 #define C_SURFHI (T->surface_hi)
@@ -152,15 +155,16 @@ static void blit(int32_t x, int32_t y, int32_t w, int32_t h)
 
 /* rows 0..27: the header and the gap under it: the section name on a chip of its color, or under a
  * 3 px band in it (the theme's), then lead and tail dim around lit ("A/" "B" "": page B) */
+#define GLO_STRIP 0x100                         /* header()'s page: GLO's page + this, its own strip */
 static void header(const char *chip, uint16_t col, const char *lead, const char *lit, const char *tail,
-                   int32_t page)
+                   int32_t page, int32_t gap)
 {
     char o[UI_VALUE_LEN];
     int32_t x, w;
     uint32_t i;
     if (U->comparing == UI_COMPARE_ON) {        /* EDIT held: the stored patch's values (interaction.md 6) */
         chip = "COMPARE";
-        col = T->led;
+        col = led_of(C_PLAY);                   /* (Night Panel: no LED color of its own) */
         lead = "";
         lit = "STORED PATCH";
         tail = "";
@@ -174,7 +178,7 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
     } else {
         H->cv_rect(0, 0, 240, 3, col);
         CV_TEXT(M, 4, 0, chip, col);
-        x = M + TEXT_W(0, chip) + 8;
+        x = M + TEXT_W(0, chip) + gap;   /* (no chip box: the gap alone sets the name apart) */
     }
     CV_TEXT(x, 4, 0, lead, C_DIM);
     x += TEXT_W(0, lead);
@@ -183,7 +187,10 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
     ui_octave_label(P->oct, o);                  /* (HB_F_SCREEN hides the host's line, which had it) */
     CV_TEXT(240 - M - TEXT_W(0, o), 4, 0, o, P->oct ? C_TEXT : C_DIM);
     H->cv_rect(0, 23, 240, 1, C_LINE);
-    if (page >= 0)
+    if (page >= GLO_STRIP)                      /* GLO: a 3-segment strip (visual.md) */
+        for (i = 0; i < UI_GLO_PAGES; i++)
+            H->cv_rect(M + (int32_t)i * 78, 22, 74, 2, i == (uint32_t)(page - GLO_STRIP) ? col : C_LINE);
+    else if (page >= 0)
         for (i = 0; i < UI_PAGES; i++) {
             ui_strip(i, &x, &w);
             H->cv_rect(x, 22, w, 2, i == (uint32_t)page ? col : C_LINE);
@@ -208,7 +215,7 @@ static void footer(void)
         CV_TEXT(M, 2, 0, n, C_DIM);
         CV_TEXT(M + TEXT_W(0, n) + 6, 2, 0, P->name, C_TEXT);
         if (U->shown_edited)                    /* edited (visual.md) */
-            CV_TEXT(M + TEXT_W(0, n) + 6 + TEXT_W(0, P->name) + 2, 2, 0, "*", T->led);
+            CV_TEXT(M + TEXT_W(0, n) + 6 + TEXT_W(0, P->name) + 2, 2, 0, "*", led_of(C_PLAY));
         CV_TEXT(240 - M - TEXT_W(0, v), 2, 0, v, C_DIM);
     }
     blit(0, 222, 240, 18);
@@ -234,7 +241,7 @@ static void focus_row(void)
     H->cv_begin(240, 50, C_BG);
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
     frame(M, 0, 64, 46, C_LINE);
-    seg7(M + (64 - 38) / 2, 5, num, T->led, mix(C_WINDOW, T->led, T->ghost));
+    seg7(M + (64 - 38) / 2, 5, num, led_of(slot_color(s)), mix(C_WINDOW, led_of(slot_color(s)), T->ghost));
     CV_TEXT(M + 72, 0, 0, UI_PAGE_INFO[slot_page(s)].section, slot_color(s));
     CV_TEXT(M + 72 + TEXT_W(0, UI_PAGE_INFO[slot_page(s)].section) + 8, 0, 0, s->full, C_TEXT);
     x = d24(M + 72, 20, val, C_TEXT);
@@ -295,6 +302,8 @@ static void slot(uint32_t part)
         for (; i < i1; i++) {
             int32_t xi = M + 2 + i - x0;
             y = h - 6 - ui_adsr_level(adsr[0], adsr[1], adsr[2], adsr[3], (uint32_t)i, (uint32_t)n) * (h - 12) / 1000;
+            if (T->hatch && !(i & 1))           /* (Night Panel: hatched under, as the curve) */
+                H->cv_rect(xi, y + 2, 1, h - 4 - y, hatch);
             if (i > i0) {
                 int32_t lo = y < y0 ? y : y0, hi = y < y0 ? y0 : y;
                 H->cv_rect(xi - 1, lo, 2, hi - lo + 2, C_VCF);
@@ -416,6 +425,52 @@ static void column(uint32_t k)
 }
 
 /* ---------------------------------------------------------------- the screens, a part per call */
+/* PLAY's art in the slot (render.py's PLAY: 230 x 56 from M): Membrane's badge, six sunset bands */
+static void badge_art(void)
+{
+    static const int32_t BAND_H[6] = {11, 11, 11, 9, 7, 4};
+    int32_t y = 0, k;
+    for (k = 0; k < 6; k++) {
+        H->cv_rect(M, y, 240 - 2 * M, BAND_H[k], T->sun[k]);
+        y += BAND_H[k] + (y < 22 ? 0 : 1);      /* (a 1 px gap under the lower bands) */
+    }
+    text_c(M, 240 - 2 * M, 9, 0, "FM1-8P  POLY SYNTH", T->ink);
+}
+
+/* Night Panel's: a striped sun on the horizon over a perspective grid, in integers (render.py: hz 34,
+ * the sun r 30 centered 4 below it, its cuts; 17 grid lines from x 120 + 9k to 120 + 40k, clipped to
+ * the slot; rows 2, 5, 10, 18 below the horizon) */
+static void sun_art(void)
+{
+    static const uint8_t CUT[9] = {33, 32, 31, 27, 26, 22, 21, 16, 10};
+    static const uint8_t ROW[4] = {2, 5, 10, 18};
+    const int32_t hz = 34, cy = 38, r = 30, top = cy - r, w = 240 - 2 * M, yb = 55;
+    int32_t yy, k;
+    for (yy = top; yy < hz; yy++) {
+        uint32_t c, skip = 0;
+        int32_t dx;
+        for (c = 0; c < sizeof CUT; c++)
+            skip |= CUT[c] == (uint32_t)yy;
+        dx = (int32_t)ui_isqrt((uint32_t)(r * r - (yy - cy) * (yy - cy)));
+        if (skip || dx < 3)                     /* (the cuts; no 1 px nub on top) */
+            continue;
+        k = (yy - top) * 6 / (hz - top);
+        H->cv_rect(120 - dx, yy, 2 * dx + 1, 1, T->sun[k > 5 ? 5 : k]);
+    }
+    H->cv_rect(M, hz, w, 1, T->horizon);
+    for (k = -8; k <= 8; k++) {
+        int32_t x0 = 120 + 9 * k, x1 = 120 + 40 * k, y1 = yb;
+        if (x1 < M || x1 > M + w - 1) {         /* clipped: it ends where it leaves the slot */
+            int32_t xe = x1 < M ? M : M + w - 1;
+            y1 = hz + (yb - hz) * (xe - x0) / (x1 - x0);
+            x1 = xe;
+        }
+        H->cv_line(x0, hz, x1, y1, T->grid);
+    }
+    for (k = 0; k < 4; k++)
+        H->cv_rect(M, hz + ROW[k], w, 1, T->grid);
+}
+
 /* PLAY: the header and footer, then three strips (as the VCF page's bands, so the same bits) */
 static void play_part(uint32_t b, uint32_t part)
 {
@@ -425,7 +480,7 @@ static void play_part(uint32_t b, uint32_t part)
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("PLAY", C_PLAY, "", "FM1-8P", "", -1);
+        header("PLAY", C_PLAY, "", "FM1-8P", "", -1, 8);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: the patch, or 3 s of the knob turned */
         int user;
         if (ui_play_readout(U, H->ms())) {
@@ -437,24 +492,21 @@ static void play_part(uint32_t b, uint32_t part)
         H->cv_begin(240, 50, C_BG);
         H->cv_rect(M, 0, 64, 46, C_WINDOW);
         frame(M, 0, 64, 46, C_LINE);
-        seg7(M + (64 - 38) / 2, 5, !user && n[2] ? n + 1 : n, T->led, mix(C_WINDOW, T->led, T->ghost));
+        seg7(M + (64 - 38) / 2, 5, !user && n[2] ? n + 1 : n, led_of(C_PLAY), mix(C_WINDOW, led_of(C_PLAY), T->ghost));
         if (!user)
             n[0] = ' ';                         /* "PATCH 17" */
         CV_TEXT(M + 72, 0, 0, user ? "USER " : "PATCH", C_DIM);   /* "USER 11": never read as P11 */
         CV_TEXT(M + 72 + TEXT_W(0, user ? "USER " : "PATCH"), 0, 0, n, C_DIM);
         if (play_edited(P))
-            CV_TEXT(240 - M - TEXT_W(0, "EDITED"), 0, 0, "EDITED", C_TEXT);
+            CV_TEXT(240 - M - TEXT_W(0, "EDITED"), 0, 0, "EDITED", C_PLAY);   /* (the PLAY accent) */
         dfont_text(&F20, M + 72, 22, P->name, C_TEXT);   /* the name in D20 (visual.md); a user slot's own */
         blit(0, 28, 240, 50);
-    } else if (b == UI_D_SLOT) {                /* rows 78..137: the badge, six sunset bands */
-        static const int32_t BAND_H[6] = {20, 10, 9, 7, 6, 4};
-        int32_t y = 0;
+    } else if (b == UI_D_SLOT) {                /* rows 78..137: the art, drawn on a full redraw only */
         H->cv_begin(240, 60, C_BG);
-        for (k = 0; k < 6u; k++) {
-            H->cv_rect(M, y, 240 - 2 * M, BAND_H[k], T->sun[k]);
-            y += BAND_H[k];
-        }
-        text_c(0, 240, 2, 0, "FM1-8P  POLY SYNTH", T->ink);
+        if (T->art == UI_ART_SUN)
+            sun_art();
+        else
+            badge_art();
         blit(0, 78, 240, 60);
     } else {
         for (k = 0; k < 4u; k++)                /* rows 138..221: the performance knobs */
@@ -472,39 +524,46 @@ static void save_part(uint32_t b, uint32_t part)
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("SAVE", T->led, "", "PATCH", "", -1);
+        header("SAVE", led_of(C_PLAY), "", "PATCH", "", -1, 8);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: TO 23, and what is there now */
         ui_prog_number(U->save_dest, s);
         H->cv_begin(240, 50, C_BG);
         CV_TEXT(M, 18, 0, "TO", C_DIM);
         CV_TEXT(M + 28, 6, 1, s, HB_RGB(255, 176, 64));
-        CV_TEXT(120, 18, 0, P->lib && store_slot_read(P->lib, U->save_dest, &there) == 0 ? there.name : "EMPTY",
-                C_DIM);
+        if (play_edited(P))                     /* a rename saves the sound's edits too: say so */
+            CV_TEXT(M + 28 + TEXT_W(1, s) + 6, 18, 0, "+ EDITS", C_TEXT);
+        {                                       /* what is there now, at the right (+ EDITS has the middle) */
+            const char *t = P->lib && store_slot_read(P->lib, U->save_dest, &there) == 0 ? there.name : "EMPTY";
+            CV_TEXT(240 - M - TEXT_W(0, t), 18, 0, t, C_DIM);
+        }
         blit(0, 28, 240, 50);
-    } else if (b == UI_D_SLOT) {                /* rows 78..137: the new name, the cursor under its place */
-        char pre[STORE_NAME_LEN + 1u];
-        int32_t x0 = (240 - TEXT_W(1, U->save_name)) / 2, x, w;
+    } else if (b == UI_D_SLOT) {                /* rows 78..137: the name as 12 cells, the cursor under one */
+        char c[2];
+        int32_t cw = TEXT_W(1, "M"), x0 = (240 - (int32_t)STORE_NAME_LEN * cw) / 2, x;
         uint32_t i;
-        for (i = 0; i < U->save_cursor; i++)
-            pre[i] = U->save_name[i];
-        pre[i] = 0;
-        x = x0 + TEXT_W(1, pre);
-        pre[0] = U->save_name[U->save_cursor];
-        pre[1] = 0;
-        w = TEXT_W(1, pre);
+        c[1] = 0;
         H->cv_begin(240, 60, C_BG);
-        CV_TEXT(x0, 8, 1, U->save_name, C_TEXT);
-        H->cv_rect(x, 48, w, 3, T->led);
+        for (i = 0; i < STORE_NAME_LEN; i++) {
+            x = x0 + (int32_t)i * cw;
+            c[0] = U->save_name[i];
+            if (c[0] != ' ')
+                CV_TEXT(x, 8, 1, c, C_TEXT);
+            else                                /* an empty cell: a dim dot, so the 12 places show */
+                H->cv_rect(x + cw / 2 - 1, 30, 3, 3, C_LINE);
+        }
+        H->cv_rect(x0 + (int32_t)U->save_cursor * cw, 48, cw, 3, led_of(C_PLAY));
         blit(0, 78, 240, 60);
     } else if (b == UI_D_NOTE) {                /* rows 138..221: the step */
         H->cv_begin(240, 84, C_BG);
         if (U->save_step == UI_SAVE_CONFIRM) {
-            text_c(0, 240, 12, 0, U->save_msg, C_TEXT);
-            text_c(0, 240, 40, 0, "SAVE AGAIN TO REPLACE", T->led);
+            text_c(0, 240, 4, 0, U->save_msg, C_TEXT);
+            text_c(0, 240, 26, 0, "SAVE AGAIN TO REPLACE", led_of(C_PLAY));
+            text_c(0, 240, 48, 0, "HOME CANCELS", C_DIM);
+            text_c(0, 240, 66, 0, "PRESETS: OTHER SLOT", C_DIM);
         } else {
-            text_c(0, 240, 2, 0, "PRESETS  SLOT", C_DIM);
-            text_c(0, 240, 22, 0, "SELECT  CURSOR", C_DIM);
-            text_c(0, 240, 42, 0, "K1 LETTER  K2 INS/DEL", C_DIM);
+            text_c(0, 240, 2, 0, "PRESETS SLOT  ALGO EMPTY", C_DIM);
+            text_c(0, 240, 22, 0, "K1 LETTER  K2 CURSOR", C_DIM);
+            text_c(0, 240, 42, 0, "K3 INSERT/DELETE", C_DIM);
             text_c(0, 240, 62, 0, "SAVE WRITES  HOME CANCELS", C_DIM);
         }
         blit(0, 138, 240, 84);
@@ -526,7 +585,7 @@ static void page_part(uint32_t b, uint32_t part)
             chip[k + 2u] = in->section[k];
         chip[0] = in->name[0], chip[1] = ' ', chip[k + 2u] = 0;
         header(chip, C_VCF, b_page ? "A/" : "", two ? (b_page ? "B" : "A") : "", two && !b_page ? "/B" : "",
-               (int32_t)U->page);
+               (int32_t)U->page, 8);
     } else if (b == UI_D_FOCUS) {
         focus_row();
     } else if (b == UI_D_SLOT) {
@@ -550,13 +609,13 @@ static void jump_part(uint32_t b, uint32_t part)
         text_c(0, 240, 2, 0, "KEYS F3-A4: 1-9, 0", C_DIM);
         blit(0, 222, 240, 18);
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("NUMBER", T->section[UI_SEC_GLO], "", "SEL + 2 KEYS", "", -1);
+        header("NUMBER", T->section[UI_SEC_GLO], "", "SEL + 2 KEYS", "", -1, 20);  /* Eric: wider */
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: the number so far */
         ui_jump_digits(U, num);
         H->cv_begin(240, 50, C_BG);
         H->cv_rect(M, 0, 64, 46, C_WINDOW);
         frame(M, 0, 64, 46, C_LINE);
-        seg7(M + (64 - 38) / 2, 5, num, T->led, mix(C_WINDOW, T->led, T->ghost));
+        seg7(M + (64 - 38) / 2, 5, num, led_of(T->section[UI_SEC_GLO]), mix(C_WINDOW, led_of(T->section[UI_SEC_GLO]), T->ghost));
         CV_TEXT(M + 72, 0, 0, "GO TO PARAMETER", C_TEXT);
         if (U->jump > 0) {
             CV_TEXT(M + 72, 20, 0, UI_SECTION_NAME[U->jump - 1], T->section[UI_PAGE_INFO[UI_SECTION_PAGE[U->jump - 1]].color]);
@@ -580,6 +639,136 @@ static void jump_part(uint32_t b, uint32_t part)
             }
         blit(0, y0, 240, hh);
     }                                           /* (columns 2-4: within column 1's band) */
+}
+
+/* GLO (interaction.md 4 and 6, visual.md): the settings in the page's bands. The slot holds a card for
+ * each theme, each in its own colors, the chosen one framed; the footer says these aren't the patch. */
+#define C_GLO (T->section[UI_SEC_GLO])
+static void glo_number(const ui_glo_slot *g, char *s)
+{
+    s[0] = 'G', s[1] = (char)('0' + g->num / 10u), s[2] = (char)('0' + g->num % 10u), s[3] = 0;
+}
+
+static void glo_focus(void)
+{
+    const ui_glo_slot *g = U->focus < 4u ? ui_glo_slot_at(U, U->focus) : 0;
+    char num[4], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    int32_t x;
+    H->cv_begin(240, 50, C_BG);
+    if (g) {                                    /* (G2x: no focus, an empty row) */
+        ui_glo_value(U, U->focus, val, unit);
+        glo_number(g, num);
+        H->cv_rect(M, 0, 64, 46, C_WINDOW);
+        frame(M, 0, 64, 46, C_LINE);
+        seg7(M + (64 - 38) / 2, 5, num + 1, led_of(C_GLO), mix(C_WINDOW, led_of(C_GLO), T->ghost));   /* "34" */
+        CV_TEXT(M + 72, 0, 0, num, C_GLO);
+        CV_TEXT(M + 72 + TEXT_W(0, num) + 8, 0, 0, g->full, C_TEXT);
+        if (d24_w(val) <= 240 - M - 72 - M) {
+            x = d24(M + 72, 20, val, g->kind == UI_LIVE ? C_TEXT : C_DIM);
+            if (*unit)
+                CV_TEXT(x + 3, 28, 0, unit, C_DIM);
+        } else {
+            CV_TEXT(M + 72, 26, 0, val, C_TEXT);
+        }
+    }
+    blit(0, 28, 240, 50);
+}
+
+static void glo_card(int32_t x, const ui_theme *t, const char *name, int chosen)
+{
+    static const char D[3] = "42";
+    uint32_t i;
+    H->cv_rect(x, 0, 112, 56, t->bg);
+    H->cv_rect(x + 6, 6, 24, 16, t->window);
+    CV_TEXT(x + 10, 6, 0, D, t->led_section ? t->section[UI_SEC_VCF] : t->led);
+    for (i = 0; i < 4u; i++)                    /* four meters in its section colors */
+        H->cv_rect(x + 36 + (int32_t)i * 18, 14, 14, 4, t->section[i == 3u ? UI_SEC_VCF : i]);
+    text_c(x, 112, 34, 0, name, chosen ? t->text : t->dim);
+    if (chosen) {
+        frame(x, 0, 112, 56, C_GLO);
+        frame(x + 1, 1, 110, 54, C_GLO);
+    } else {
+        frame(x, 0, 112, 56, C_LINE);
+    }
+}
+
+static void glo_column(uint32_t k)
+{
+    const ui_glo_slot *g = ui_glo_slot_at(U, k);
+    const ui_setting_info *in = &UI_SETTINGS_INFO[g->setting];
+    const int32_t cx = k ? M - 2 + (int32_t)k * (COL_W + 2) : 0;
+    const int32_t cw = (k == 3u ? 240 : M - 2 + (int32_t)(k + 1u) * (COL_W + 2)) - cx;
+    const int32_t x = M + (int32_t)k * (COL_W + 2) - cx;
+    uint32_t act = k == U->focus, i, n, at;
+    uint16_t bg = act ? C_SURFHI : C_SURF, on = act ? C_GLO : mix(bg, C_GLO, 154);
+    char num[4], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    int32_t tw, x0, v = ((const uint8_t *)&U->set)[in->offset];
+    H->cv_begin(cw, 84, C_BG);
+    H->cv_rect(x, 0, COL_W, 84, bg);
+    glo_number(g, num);
+    text_c(x, COL_W, 3, 0, num, C_GLO);
+    text_c(x, COL_W, 19, 0, g->label, act ? C_TEXT : C_DIM);
+    if (g->kind != UI_LIVE) {
+        d24(x + (COL_W - d24_w("--")) / 2, 52, "--", C_DIM);
+    } else {
+        if (g->names) {                         /* a choice: a segment per choice */
+            n = (uint32_t)(in->max - in->min) + 1u, at = (uint32_t)(v - in->min);
+            for (i = 0; i < n; i++)
+                H->cv_rect(x + 6 + (int32_t)(i * 46u / n), 40, (int32_t)(46u / n) - 2, 6, i == at ? on : C_LINE);
+        } else {                                /* a range: a bar from the left */
+            int32_t b = (v - in->min) * 44 / (in->max - in->min);
+            H->cv_rect(x + 6, 40, 44, 6, C_LINE);
+            H->cv_rect(x + 6, 40, b, 6, on);
+        }
+        ui_glo_column(U, k, val, unit);
+        tw = d24_w(val) + (*unit ? 3 + TEXT_W(0, unit) : 0);
+        if (tw > COL_W - 4) {
+            *unit = 0;
+            tw = d24_w(val);
+        }
+        if (tw > COL_W - 4) {
+            text_c(x, COL_W, 58, 0, val, act ? C_TEXT : C_DIM);
+        } else {
+            x0 = d24(x + (COL_W - tw) / 2, 52, val, act ? C_TEXT : C_DIM);
+            if (*unit)
+                CV_TEXT(x0 + 1, 60, 0, unit, mix(C_SURF, act ? C_TEXT : C_DIM, 179));
+        }
+    }
+    if (act)
+        for (i = 0; i < 3u && T->focus[i]; i++)
+            frame(x + (int32_t)i, (int32_t)i, COL_W - 2 * (int32_t)i, 84 - 2 * (int32_t)i,
+                  mix(C_BG, C_GLO, T->focus[i]));
+    blit(cx, 138, cw, 84);
+}
+
+static void glo_part(uint32_t b, uint32_t part)
+{
+    uint32_t k;
+    if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
+        const char *ban = ui_banner(U);
+        if (*ban) {
+            footer();                           /* (PRESETS still browses here: its banner) */
+        } else {
+            H->cv_begin(240, 18, C_SURF);
+            H->cv_rect(0, 0, 240, 1, C_BG);
+            H->cv_rect(0, 1, 240, 1, C_LINE);
+            CV_TEXT(M, 2, 0, "GLOBAL: NOT IN PATCH", C_DIM);
+            blit(0, 222, 240, 18);
+        }
+    } else if (b == UI_D_FULL || b == UI_D_HEAD) {
+        header("GLO", C_GLO, "", "GLOBAL", "", GLO_STRIP + (int32_t)U->glo_page, 8);
+    } else if (b == UI_D_FOCUS) {
+        glo_focus();
+    } else if (b == UI_D_SLOT) {
+        H->cv_begin(240, 60, C_BG);
+        glo_card(M, &UI_MEMBRANE, "MEMBRANE", U->set.theme == UI_THEME_MEMBRANE);
+        glo_card(M + 118, &UI_NIGHT_PANEL, "NIGHT PANEL", U->set.theme == UI_THEME_NIGHT);
+        blit(0, 78, 240, 60);
+    } else {
+        for (k = 0; k < 4u; k++)
+            if (b == UI_D_COL(k))
+                glo_column(k);
+    }
 }
 
 static uint32_t parts(uint32_t b)
@@ -615,10 +804,18 @@ void ui_draw_frame(uint32_t full)
     if (H->ticks() - blit_t < blit_wait)
         return;                                 /* the panel is still taking the last part */
     if (!band) {                                /* the next band: a frame's all go first (ui_band) */
+#ifdef FM1_THEME_NIGHT
+        static int seeded;                      /* a preview build (FM1_THEME=night): THEME starts NIGHT */
+        if (!seeded) {
+            seeded = 1;
+            U->set.theme = U->shown_theme = UI_THEME_NIGHT;
+        }
+#endif
         band = ui_band(U, &pending, H->ms());
         part = 0;
         if (!band)
             return;
+        T = ui_theme_shown(U) == UI_THEME_NIGHT ? &UI_NIGHT_PANEL : &UI_MEMBRANE;   /* (a switch: UI_D_FULL) */
     }
     switch (ui_screen(U)) {                     /* every band through the screen that shows */
     case UI_SCREEN_SAVE:
@@ -629,6 +826,9 @@ void ui_draw_frame(uint32_t full)
         break;
     case UI_SCREEN_PAGE:
         page_part(band, part);
+        break;
+    case UI_SCREEN_GLO:
+        glo_part(band, part);
         break;
     default:
         play_part(band, part);

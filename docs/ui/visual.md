@@ -14,7 +14,7 @@ Eric's follow-up answers settled four more:
 
 | decision | what it means |
 | --- | --- |
-| **Night Panel is the default theme** | a fresh device, or a settings record without THEME, starts in Night Panel |
+| **Membrane is the default theme** | a fresh device, or a settings record without THEME, starts in Membrane (Eric, 2026-11-14; this replaces the earlier Night Panel default) |
 | **Names are 12 characters at most** | patch and pattern names always fit the D20 focus row; SAVE's name editor stops at 12 |
 | **SEQ view's footer shows the pattern** | `PTN 41 NIGHT DRIVE*`, and `NEXT 42` while one is queued; the patch shows again on leaving SEQ view |
 | **THEME is live** | a turn applies at once, debounced by 150 ms (see [THEME in GLO](#theme-in-glo-and-what-a-switch-redraws)) |
@@ -114,22 +114,22 @@ the two themes:
 
 | key | Membrane | Night Panel | what it changes |
 | --- | --- | --- | --- |
-| `bg` | `18E4` | `0863` | the screen |
-| `surface` | `2145` | `18C5` | columns, footer, cells |
-| `surface_hi` | `31A7` | `2107` | the focus column, legend chips |
-| `line` | `3A09` | `2969` | rules, frames, unlit meter |
-| `text` | `EF3A` cream | `EF7F` | values, focused labels |
-| `dim` | `A513` | `9CB7` | other labels |
-| `ink` | `1082` | `0863` | text on a chip or on the sunset |
-| `window` | `0861` | `0021` | LED and graph windows |
-| `led` | `F984` red | the section color | the 7-segment digits |
+| `bg` | `2986` the button strip | `0863` | the screen |
+| `surface` | `3A08` | `18C5` | columns, footer, cells |
+| `surface_hi` | `4249` | `2107` | the focus column, legend chips |
+| `line` | `83EF` the body | `2969` | rules, frames, unlit meter |
+| `text` | `F7BE` the lettering | `EF7F` | values, focused labels |
+| `dim` | `C659` | `9CB7` | other labels |
+| `ink` | `1904` | `0863` | text on a chip or on the sunset |
+| `window` | `0020` | `0021` | LED and graph windows |
+| `led` | `AF9E` pale cyan | the section color | the 7-segment digits |
 | `ghost` | 10 % | 8 % | unlit segments, as this much of the LED color |
 | `header` | `chip` | `band` | the section name on a chip of its color, or in its color under a 3 px band |
 | `meter_segments`, `meter_gap` | 0, 0 (one bar) | 8, 2 (an LED ladder) | the knob meter |
 | `focus` | `(1.0, 1.0)` | `(1.0, 0.45, 0.2)` | frames inward from the focused element's edge, as mixes from `bg` to the accent: a 2 px frame, or a glow |
 | `hatch` | 0 | 16 % | the fill under graph curves |
 | `art` | `badge` | `sun` | the PLAY slot: six sunset bands with the device name, or the striped sun over a perspective grid |
-| `playhead`, `cursor` | `EF3A`, `F984` | `2EDF`, `EF7F` | the SEQ playhead and step cursor |
+| `playhead`, `cursor` | `F7BE`, `DCF3` | `2EDF`, `EF7F` | the SEQ playhead and step cursor |
 | `sun` | `FE88 FD87 FC67 FB49 F24E D1D2` | `FEC9 FD88 FC48 FAEC F1F2 C198` | the sunset bands (PLAY only) |
 | `grid`, `horizon` | none | `5953`, `F9FB` | the perspective grid (PLAY only) |
 
@@ -137,26 +137,33 @@ All values are RGB565, which is what `HB_RGB()` produces.
 
 ### Section colors
 
+Membrane takes the JX-8P's own colors (Eric, 2026-11-14, from a render of its panel). The screen
+is the button strip's dark gray. The body's mid gray is too light to put text on, so it draws the
+rules, frames and unlit meters. Text is the lettering, the LED window the display's pale cyan, and
+the sections the panel buttons' colors, named below by the button each comes from. The panel has
+five button colors for eight sections, so some repeat on sections far apart, and each is lightened
+only as far as the contrast rules below need (the red most, to a soft red).
+
 | section | Membrane | Night Panel |
 | --- | --- | --- |
-| 1x DCO-1 | `EC07` orange | `FAF4` pink |
-| 2x DCO-2 | `EDC7` amber | `FC47` orange |
-| 3x MIX | `CE15` stone | `DEBE` lilac white |
-| 4x VCF | `4D9A` steel blue | `2EDF` cyan |
-| 5x VCF ENV | `DB53` rose | `FE07` amber |
-| 6x VCA | `8E4C` green | `7F8F` green |
-| 7x LFO | `9C5C` lavender | `B3FF` violet |
-| 8x CTRL | `5657` teal | `3D1F` blue |
-| SEQ | `FB4D` red | `F9FB` magenta |
-| GLO | `CE15` stone | `DEBE` lilac white |
-| PLAY | `EF3A` cream | `F9FB` magenta |
+| 1x DCO-1 | `DCF3` red (COPY/WRITE) | `FAF4` pink |
+| 2x DCO-2 | `DD6B` amber (KEY MODE) | `FC47` orange |
+| 3x MIX | `CE58` cream-gray (TONE) | `DEBE` lilac white |
+| 4x VCF | `8D9A` blue (PATCH CHAIN) | `2EDF` cyan |
+| 5x VCF ENV | `E5B6` pale red | `FE07` amber |
+| 6x VCA | `C5F5` light gray (EDIT) | `7F8F` green |
+| 7x LFO | `B65C` pale blue | `B3FF` violet |
+| 8x CTRL | `CD4D` amber (AFTER TOUCH) | `3D1F` blue |
+| SEQ | `DCF3` red (WRITE) | `F9FB` magenta |
+| GLO | `AD95` gray | `DEBE` lilac white |
+| PLAY | `D6B9` the lettering | `F9FB` magenta |
 
 ### Contrast
 
 All ratios are WCAG ratios, computed on the quantized RGB565 values.
 
-- **Text:** at least 10.2:1 on every surface in Membrane, and 13.9:1 in Night Panel.
-- **Dim labels:** at least 4.9:1 in Membrane and 5.6:1 in Night Panel.
+- **Text:** at least 8.5:1 on every surface in Membrane, and 13.9:1 in Night Panel.
+- **Dim labels:** at least 5.6:1 in Membrane and 5.6:1 in Night Panel.
 - **Section colors:** at least 4.7:1 on `surface` and 4.9:1 on `bg`.
 
 ### Where the layouts differ, and why it stays minimal
@@ -178,12 +185,12 @@ the key strip are identical.
 
 ### THEME in GLO, and what a switch redraws
 
-THEME takes the reserved slot G34 (GLO page 3, K4): `MEMBRANE`, `NIGHT`. The default is Night
-Panel, and the setting is one byte in the settings record.
+THEME takes the reserved slot G34 (GLO page 3, K4): `MEMBRANE`, `NIGHT`. The default is
+Membrane, and the setting is one byte in the settings record.
 
 | No. | Knob | Setting | Shown as | Default |
 | --- | --- | --- | --- | --- |
-| G34 | K4 | THEME | MEMBRANE, NIGHT (the column shows `MEMB` or `NIGHT`, and the focus row the full name) | NIGHT |
+| G34 | K4 | THEME | MEMBRANE, NIGHT (the column shows `MEMB` or `NIGHT`, and the focus row the full name) | MEMBRANE |
 
 - **The GLO slot shows a card for each theme,** each drawn in its own colors, with the chosen
   card framed. You see both before you turn.

@@ -319,11 +319,12 @@ In PLAY or EDIT:
 ### PRESETS: patch browsing
 
 - **In PLAY and EDIT:** each click loads the next or previous patch at once
-  (a fast turn moves 4). Patch numbers wrap. The page you are on stays, so you
+  (a fast turn moves 8: with every slot full, a row, 11 to 21). Numbers wrap, and
+  empty user slots are skipped. The page you are on stays, so you
   can compare a section across patches.
 - **Unsaved edits:** when the edit buffer is modified, the first PRESETS
-  **event** does not load anything, whatever its click count (a fast +4 warns
-  just like +1). It shows `EDITED: TURN AGAIN TO DISCARD`.
+  **event** does not load anything, whatever its click count (a fast +8 warns
+  just like +1). It shows `EDITED - TURN TO DISCARD`.
   - A **later** event in the same direction while the warning shows (1.5 s)
     discards the edits and loads, moving by that event's clicks.
   - Anything else cancels the warning (decision Q4).
@@ -371,36 +372,50 @@ view. The flow is the same for both; only the slots differ.
    - The name is the current one.
 2. **In SAVE:**
    - PRESETS: the destination slot (patch 11..88, or pattern 11..88). It
-     shows the name of what is there now, or `EMPTY`.
-   - SELECT: moves the name cursor.
+     shows the name of what is there now, or `EMPTY`. A fast turn moves 8, a
+     row of slots (11 to 21).
+   - ALGORITHM: the next empty slot (counterclockwise: the previous), one
+     empty slot a click, wrapping. With every slot used it stays.
+   - KNOB2: moves the name cursor. SELECT moves it too.
    - KNOB1: the character at the cursor (A-Z, 0-9, space, `-`).
-   - KNOB2: inserts or deletes at the cursor. Clockwise inserts a space, and
-     counterclockwise deletes.
+   - KNOB3: inserts or deletes at the cursor, one character a click (a fast
+     turn too). Clockwise inserts a space, and counterclockwise deletes.
    - PLAY, OCT-, OCT+ and the keys work as usual, so the sound can be played
      while naming it. Their LEDs follow their usual rules.
    - Every other button does nothing in SAVE, and its LED is off.
 3. **SAVE tap again** writes the patch. If the destination holds another
-   patch, the first tap shows `REPLACE 23 <NAME>? SAVE AGAIN`, and the second
-   tap writes.
+   patch, the first tap shows `REPLACE 23 <NAME>?`, `SAVE AGAIN TO REPLACE`,
+   `HOME CANCELS` and `PRESETS: OTHER SLOT`, and the second tap writes.
+   - **The screen:** `TO 23` with what is there now (or `EMPTY`) at the right,
+     and `+ EDITS` after the number when the edit buffer is edited, so a
+     rename shows it also saves the sound's edits. The name shows as 12 fixed
+     cells, an empty one as a dim dot, with the cursor under its cell (a blank
+     one too).
 4. **After the write:** it shows `SAVED 23` (or `SAVED PATTERN 23`) for 1.5 s,
    that edit buffer becomes clean, and the state goes back to where SAVE was
    pressed.
-5. **Cancel:** HOME tap or EDIT tap. Nothing is written.
+5. **Cancel:** HOME tap (EDIT does nothing in SAVE). Nothing is written, and
+   it shows `SAVE CANCELED`.
+   - The name as edited is kept as a draft, in RAM only. The next SAVE of the
+     same patch starts with it instead of the patch's name. There is one
+     draft: the last canceled one. A write clears it.
 6. **A write erases a flash bank,** which stalls the sound for about 100 ms.
    - **Waiting:** if any voice is sounding or the sequencer is playing, the
      write waits.
      - A **snapshot** of the patch (or pattern), its name and its destination
        is taken at the confirming tap.
      - The state goes back to where SAVE was pressed, and every screen shows
-       `SAVING WHEN SILENT` until the write happens.
+       `SAVING 23 WHEN SILENT` until the write happens, every other 1.5 s
+       `HOLD SAVE: NOW` (how to force it).
      - The snapshot is written on the first silent moment. Edits, a program
        change or a patch or pattern change while waiting do not change what is
        written.
-   - **Force:** holding SAVE for 1 s or more while `SAVING WHEN SILENT` shows
+   - **Force:** holding SAVE for 1 s or more while `SAVING 23 WHEN SILENT` shows
      writes the snapshot at once, accepting the dropout (decision Q5). A SAVE
      tap then does nothing; it does not open a second SAVE.
-   - **Cancel:** the first HOME tap while a write is waiting cancels it. It
-     shows `SAVE CANCELED` and does nothing else.
+   - **Cancel:** the first HOME tap while a write is waiting asks:
+     `HOME AGAIN TO CANCEL SAVE`. A second HOME tap within 1.5 s cancels it,
+     showing `SAVE CANCELED`. Neither tap does anything else (no going home).
    - **After the write:** the edit buffer is clean only if it still equals the
      snapshot. Otherwise EDITED stays.
    - A failed write shows `SAVE FAILED` and keeps the edit buffer dirty.
@@ -432,7 +447,10 @@ is sounding, as fm1-dock's rules ask.
 | G31 | K1 | Velocity curve (the host's `sense_set` curve) | 50..200 % | the host's |
 | G32 | K2 | Fixed velocity, for keys with no force sensing | 1..127 | 100 |
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
-| G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | NIGHT PANEL |
+| G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | MEMBRANE |
+
+Until their features land, G13 and G14 (clock, #38), G21, G22 and G24 (CC, #49) and G23
+(program change) show `--` and their knobs do nothing. Page G2x then has no focus.
 
 **Theme (G34):** the screen's look for the whole instrument, not per patch.
 It takes effect at once, redrawing the whole screen, and is saved with the
@@ -458,8 +476,8 @@ step entry, where the octave sets the pitch that is written.
 | Encoder | PLAY | EDIT | SEQ | SAVE | GLO |
 | --- | --- | --- | --- | --- | --- |
 | SELECT | page (goes to EDIT) | page | step cursor | name cursor | GLO page |
-| ALGORITHM | section (goes to EDIT) | section | SEQ page | - | GLO page |
-| KNOB1-4 | performance knobs | page's parameters | SEQ page's values | K1 char, K2 insert/delete | settings |
+| ALGORITHM | section (goes to EDIT) | section | SEQ page | next empty slot | GLO page |
+| KNOB1-4 | performance knobs | page's parameters | SEQ page's values | K1 char, K2 cursor, K3 insert/delete | settings |
 | PRESETS | patch | patch | pattern | destination slot | patch |
 
 ## 5. Sequencer
@@ -621,8 +639,9 @@ Patterns have their own slots, separate from patches (decision Q2).
   - It survives power-off the same way (decision Q4).
 - **Browsing:** PRESETS in SEQ view.
   - **Stopped:** each click loads the next or previous pattern at once. With
-    PATTERN EDITED, the first event warns `PATTERN EDITED: TURN AGAIN TO
-    DISCARD`, per event as for patches.
+    PATTERN EDITED, the first event warns that the pattern is edited (wording
+    pending: decided when SEQ is built, to fit the footer's 28 characters), per
+    event as for patches.
   - **Playing:** the pattern doesn't change mid-pass. Clicks pick the **next
     pattern**, shown as `NEXT PATTERN 23`. It takes over when the running
     pattern ends its pass (after its last step).
@@ -708,14 +727,15 @@ Everywhere, unless the state says otherwise:
   WAITING FOR CLOCK. Also the clock source in use, INT or MIDI, and the tempo.
 - **Must:** a banner line for short messages, shown 1.5 s:
   - `SAVED 23`, `SAVED PATTERN 23`
-  - `EDITED: TURN AGAIN TO DISCARD`
-  - `PATTERN EDITED: TURN AGAIN TO DISCARD`
+  - `EDITED - TURN TO DISCARD`
+  - the pattern-edited warning (wording pending, decided when SEQ is built)
   - `MAX n NOTES` (n = the build's voice count)
   - `SAVE CANCELED`
   - `STOP TO RECORD`
   - `NO EDITS`
   - `NO PARAMETER`
-  - `SAVING WHEN SILENT`
+  - `SAVING 23 WHEN SILENT`, `HOLD SAVE: NOW` (by turns, while a write waits)
+  - `HOME AGAIN TO CANCEL SAVE`
   - `SAVE FAILED`
   - `TEMPO FOLLOWS MIDI CLOCK`
   - `COMPARE: RELEASE EDIT`
@@ -826,7 +846,7 @@ stateDiagram-v2
     PLAY --> SAVE: SAVE tap
     EDIT --> SAVE: SAVE tap
     SEQ --> SAVE: SAVE tap
-    SAVE --> Previous: written / HOME / EDIT tap
+    SAVE --> Previous: written / HOME tap
     PLAY --> GLO: GLO tap
     EDIT --> GLO: GLO tap
     SEQ --> GLO: GLO tap
@@ -862,14 +882,14 @@ stateDiagram-v2
 | ENV | VCF/VCA ring | same | TIE | - | - |
 | LFO | LFO ring | same | JUMP or GLIDE | - | - |
 | FX | CTRL page | same | BACK (in REC) | - | - |
-| EDIT | tap: last edit page; hold: compare | tap: PLAY; hold: compare | tap: last edit page | cancel | - |
+| EDIT | tap: last edit page; hold: compare | tap: PLAY; hold: compare | tap: last edit page | - | - |
 | GLO | GLO | GLO | GLO | - | back |
 | SAVE | tap: save patch; hold 1 s: force a waiting save | same | tap: save pattern; hold 1 s: force | write, or confirm | hold 1 s: force a waiting save |
 | ARP | - | - | - | - | - |
 | SEQ | SEQ view | SEQ view | back | - | - |
 | PLAY | start/stop | start/stop | start/stop | start/stop | start/stop |
 | REC | stopped: arm, go to SEQ; playing: `STOP TO RECORD` | same as PLAY | stopped: arm or disarm; playing: `STOP TO RECORD` | - | - |
-| HOME tap | - (cancels a waiting save) | PLAY (or cancels a waiting save) | PLAY (or cancels a waiting save) | cancel | back (or cancels a waiting save) |
+| HOME tap | - (a waiting save: asks, then cancels) | PLAY (or a waiting save: asks, then cancels) | PLAY (or a waiting save: asks, then cancels) | cancel | back (or a waiting save: asks, then cancels) |
 | OCT-/+ | octave | octave | octave (chord keys) | octave | octave |
 | PRESETS | patch | patch | pattern (queued while playing) | slot | patch |
 | Keys F3..G#4 | notes | notes | step keys | notes | notes |
@@ -1017,7 +1037,7 @@ test.
     warns. A later event of +1 within 2 s loads the next patch.
 23. SAVE, then SAVE onto an occupied slot, asks to confirm, and a third SAVE
     tap writes. Onto the current or an empty slot, the second SAVE writes.
-    While `SAVING WHEN SILENT` shows, a SAVE tap does nothing, and holding
+    While `SAVING 23 WHEN SILENT` shows, a SAVE tap does nothing, and holding
     SAVE 1 s writes at once.
 24. A SAVE confirmed while a voice is sounding writes nothing until the voices
     are silent, then writes once.
@@ -1113,10 +1133,10 @@ test.
 63. With G24 = PICKUP and cutoff at 64 (CC scale), CC74 = 20 is ignored, and
     CC74 = 63, 64 or 65 takes over. After that, CC74 = 20 sets the value.
 64. With G24 = JUMP, CC74 = 20 sets cutoff at once.
-65. Setting G34 THEME to MEMBRANE redraws the screen at once and saves the
+65. Setting G34 THEME to NIGHT PANEL redraws the screen at once and saves the
     settings once nothing sounds. After `init()` with that settings record
-    (a power cycle), THEME is MEMBRANE. With no settings record, it is
-    NIGHT PANEL.
+    (a power cycle), THEME is NIGHT PANEL. With no settings record, it is
+    MEMBRANE.
 
 **After the engine catches up**
 
@@ -1169,5 +1189,5 @@ until then test 12 (pending slots send nothing) covers those slots.
 - **Key transpose reference:** C5 in SEQ view (the only C among the chord
   keys), and C4 outside it.
 - **Themes:** two screen themes, MEMBRANE and NIGHT PANEL, set in GLO (G34),
-  instrument-wide, default NIGHT PANEL. The SEQ view is a piano roll (visuals
+  instrument-wide, default MEMBRANE. The SEQ view is a piano roll (visuals
   in PR #53).
