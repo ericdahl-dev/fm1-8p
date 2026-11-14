@@ -1,0 +1,173 @@
+/* Patch storage (firmware/patch_store.c): the flash record a saved patch becomes (#3, #48). */
+#include "../firmware/patch_store.h"
+#include "../firmware/patches.h"
+
+static uint8_t store_rec[STORE_SLOT_BYTES];
+
+/* A factory patch as a store_patch: its name and every engine value. */
+static void store_from_factory(uint32_t n, store_patch *p)
+{
+    memset(p, 0, sizeof *p);
+    memcpy(p->name, PATCHES[n].name, strlen(PATCHES[n].name) < STORE_NAME_LEN ? strlen(PATCHES[n].name) : STORE_NAME_LEN);
+    patch_values(&PATCHES[n], p->v);
+}
+
+/* Every factory patch comes back from its record bit for bit: each value and the name. */
+TT_TEST(store_record_round_trips_every_factory_patch)
+{
+    static store_patch in, out;
+    uint32_t n, id;
+    int same = 1;
+    for (n = 0; n < PATCH_COUNT; n++) {
+        store_from_factory(n, &in);
+        memset(&out, 0x55, sizeof out);
+        same &= store_decode(store_rec, store_encode(&in, store_rec), &out) == 0;
+        same &= strcmp(in.name, out.name) == 0;
+        for (id = 0; id < FM_PARAM_COUNT; id++)
+            same &= in.v[id] == out.v[id];
+    }
+    TT_CHECK(same);
+}
+
+/* A record from older firmware has fewer tags: the params added since load at their engine default,
+ * and the rest as saved. (The record's last 4 entries cut off, as if those params were newer.) */
+TT_TEST(store_record_from_older_firmware_loads_new_params_at_their_default)
+{
+    static store_patch in, out;
+    uint32_t id, used, cut = 4, newer[4], k;
+    int same = 1;
+    store_from_factory(0, &in);
+    for (id = 0; id < FM_PARAM_COUNT; id++)     /* nothing at its default, so a miss shows */
+        in.v[id] = fm_param_info_get((uint16_t)id)->def == fm_param_info_get((uint16_t)id)->min
+                       ? fm_param_info_get((uint16_t)id)->max : fm_param_info_get((uint16_t)id)->min;
+    used = store_encode(&in, store_rec);
+    for (k = 0; k < cut; k++)                   /* the params the cut entries carry */
+        newer[k] = store_tag_param(store_rec[used - 3u * (k + 1u)]);
+    store_rec[0] = (uint8_t)(used - 3u * cut);
+    store_rec[14] = (uint8_t)(store_rec[14] - cut);
+    memset(&out, 0x55, sizeof out);
+    same &= store_decode(store_rec, used, &out) == 0;
+    for (id = 0; id < FM_PARAM_COUNT; id++) {
+        int is_new = 0;
+        for (k = 0; k < cut; k++) is_new |= newer[k] == id;
+        same &= out.v[id] == (is_new ? fm_param_info_get((uint16_t)id)->def : in.v[id]);
+    }
+    TT_CHECK(same);
+}
+
+/* A record from newer firmware has tags this one doesn't know: those entries are skipped and the
+ * rest load as saved. (An entry with tag 254 added at the end.) */
+TT_TEST(store_record_from_newer_firmware_skips_unknown_params)
+{
+    static store_patch in, out;
+    uint32_t id, used;
+    int same = 1;
+    store_from_factory(5, &in);
+    used = store_encode(&in, store_rec);
+    TT_CHECK(store_tag_param(254) == FM_PARAM_COUNT);
+    store_rec[used] = 254;
+    store_rec[used + 1u] = 0x34;
+    store_rec[used + 2u] = 0x12;
+    store_rec[0] = (uint8_t)(used + 3u);
+    store_rec[14] = (uint8_t)(store_rec[14] + 1u);
+    memset(&out, 0x55, sizeof out);
+    same &= store_decode(store_rec, used + 3u, &out) == 0;
+    for (id = 0; id < FM_PARAM_COUNT; id++)
+        same &= out.v[id] == in.v[id];
+    TT_CHECK(same);
+}
+
+/* An empty or damaged slot is not a patch: erased flash (0xFF), zeros, another version, a length that
+ * disagrees with the entry count, or a record longer than the bytes read. */
+TT_TEST(store_empty_or_damaged_slot_reads_empty)
+{
+    static store_patch in, out;
+    uint32_t used;
+    store_from_factory(3, &in);
+    memset(store_rec, 0xFF, sizeof store_rec);
+    TT_CHECK_EQ(store_decode(store_rec, sizeof store_rec, &out), -1);
+    memset(store_rec, 0, sizeof store_rec);
+    TT_CHECK_EQ(store_decode(store_rec, sizeof store_rec, &out), -1);
+    used = store_encode(&in, store_rec);
+    store_rec[1] = 2;
+    TT_CHECK_EQ(store_decode(store_rec, used, &out), -1);
+    store_encode(&in, store_rec);
+    store_rec[14] = (uint8_t)(store_rec[14] - 1u);
+    TT_CHECK_EQ(store_decode(store_rec, used, &out), -1);
+    store_encode(&in, store_rec);
+    TT_CHECK_EQ(store_decode(store_rec, used - 1u, &out), -1);
+    TT_CHECK_EQ(store_decode(store_rec, 10, &out), -1);
+    TT_CHECK_EQ(store_decode(store_rec, used, &out), 0);
+}
+
+/* A value outside its param's range (a later firmware narrowed it) loads clamped into the range,
+ * as the engine would take it: each entry set to 32767, then to -32768. */
+TT_TEST(store_value_out_of_range_loads_clamped)
+{
+    static store_patch in, out;
+    uint32_t id, used, e;
+    int hi = 1, lo = 1;
+    store_from_factory(7, &in);
+    used = store_encode(&in, store_rec);
+    for (e = 15; e < used; e += 3) { store_rec[e + 1u] = 0xFF; store_rec[e + 2u] = 0x7F; }
+    TT_CHECK_EQ(store_decode(store_rec, used, &out), 0);
+    for (id = 0; id < FM_PARAM_COUNT; id++) hi &= out.v[id] == fm_param_info_get((uint16_t)id)->max;
+    for (e = 15; e < used; e += 3) { store_rec[e + 1u] = 0x00; store_rec[e + 2u] = 0x80; }
+    TT_CHECK_EQ(store_decode(store_rec, used, &out), 0);
+    for (id = 0; id < FM_PARAM_COUNT; id++) lo &= out.v[id] == fm_param_info_get((uint16_t)id)->min;
+    TT_CHECK(hi);
+    TT_CHECK(lo);
+}
+
+/* The tags never move: a record saved today must load into the same params on every later firmware.
+ * Tag n's param, by its engine name, as first released (append new tags at the end only). */
+static const char *const STORE_TAG_NAMES[] = {
+    "amp_attack_ms", "amp_decay_ms", "amp_sustain_permille", "amp_release_ms",
+    "bend_range_semitones", "voice_mode", "unison_detune_cents", "osc1_wave",
+    "osc1_pulse_width_pct", "osc1_octave", "osc1_fine_cents", "osc2_wave", "osc2_pulse_width_pct",
+    "osc2_octave", "osc2_fine_cents", "osc2_level_permille", "chorus_mode", "lfo_wave",
+    "lfo_rate_centihz", "lfo_delay_ms", "lfo_pitch_cents", "amp_velocity_pct", "lfo_pw_pct",
+    "osc_sync", "osc_xmod_permille", "filter_cutoff_cents", "filter_resonance_permille",
+    "filter_key_track_permille", "filter_env_attack_ms", "filter_env_decay_ms",
+    "filter_env_sustain_permille", "filter_env_release_ms", "filter_env_amount_cents",
+    "highpass_step", "osc2_coarse_semis", "osc_mix_env_permille", "osc_mix_env_source",
+    "filter_env_source", "lfo_pitch_osc2_cents", "pitch_env_osc1_cents", "pitch_env_osc2_cents",
+    "pitch_env_source", "pitch_env_dyna", "osc1_level_permille", "osc_ring", "filter_env_dyna",
+    "amp_key_follow_permille", "filter_env_key_follow_permille", "amp_dyna", "osc_mix_env_dyna",
+    "amp_level_permille", "setting_glide", "amp_gate",
+};
+
+TT_TEST(store_tags_keep_their_params)
+{
+    uint32_t t, n = sizeof STORE_TAG_NAMES / sizeof STORE_TAG_NAMES[0];
+    int same = 1;
+    for (t = 0; t < n; t++)
+        same &= store_tag_param(t) < FM_PARAM_COUNT &&
+                strcmp(fm_param_info_get(store_tag_param(t))->name, STORE_TAG_NAMES[t]) == 0;
+    TT_CHECK(same);
+}
+
+/* Every param has exactly one tag (a new param needs one, or it is never saved), and every range fits
+ * the record's int16, so a value saves exactly. */
+TT_TEST(store_every_param_has_one_tag_and_fits_int16)
+{
+    uint32_t id, t, hits;
+    int ok = 1;
+    for (id = 0; id < FM_PARAM_COUNT; id++) {
+        const fm_param_info *in = fm_param_info_get((uint16_t)id);
+        for (hits = 0, t = 0; t < 256u; t++) hits += store_tag_param(t) == id;
+        ok &= hits == 1 && in->min >= -32768 && in->max <= 32767;
+    }
+    TT_CHECK(ok);
+}
+
+static void run_patch_store_tests(void)
+{
+    TT_RUN(store_record_round_trips_every_factory_patch);
+    TT_RUN(store_record_from_older_firmware_loads_new_params_at_their_default);
+    TT_RUN(store_record_from_newer_firmware_skips_unknown_params);
+    TT_RUN(store_empty_or_damaged_slot_reads_empty);
+    TT_RUN(store_value_out_of_range_loads_clamped);
+    TT_RUN(store_tags_keep_their_params);
+    TT_RUN(store_every_param_has_one_tag_and_fits_int16);
+}
