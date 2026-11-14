@@ -121,6 +121,13 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_u(num, k > 3u ? 3u : k);
         else
             num = put_str(num, "OFF");
+    } else if (id == FM_PARAM_AMP_GATE) {
+        num = put_str(num, value ? "GATE" : "ENV2");
+    } else if (id == FM_PARAM_CHORUS_MODE) {
+        static const char *const CH[4] = {"OFF", "I", "II", "FAST"};
+        num = put_str(num, CH[value < 0 ? 0 : value > 3 ? 3 : value]);
+    } else if (id == FM_PARAM_AMP_VELOCITY) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
     } else if (id == FM_PARAM_OSC_XMOD) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
     } else if (id == FM_PARAM_PITCH_ENV_SOURCE || id == FM_PARAM_OSC_MIX_ENV_SOURCE ||
@@ -503,6 +510,9 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
                 clicks -= way;
             }
         set_slot(u, s, s->order[i]);
+    } else if (s->how == UI_HOW_TIME) {         /* the time table: an entry a click, four a fast one */
+        play_set_param(u->p, s->id, ui_time_step(play_get_param(u->p, s->id),
+                                                 clicks >= 3 || clicks <= -3 ? 4 * clicks : clicks));
     } else if (s->id == FM_PARAM_LFO_PITCH_CENTS || s->id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
         int32_t v = play_get_param(u->p, s->id), way = clicks > 0 ? 1 : -1, fast = clicks >= 3 || clicks <= -3;
         for (; clicks; clicks -= way) {         /* 1 to 99 ct by 1 (fast 10), from 100 by 10 (fast 50) */
@@ -563,6 +573,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         ring_step(u, UI_RING_ENV);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && tap)      /* (a hold: the number jump) */
         ring_step(u, UI_RING_SEL);
+    else if (ev == (UI_EV_BTN_DOWN | UI_BTN_FX))
+        ring_step(u, UI_RING_FX);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)

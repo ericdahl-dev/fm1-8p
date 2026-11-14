@@ -15,7 +15,7 @@ typedef struct {
     uint16_t id;                        /* fm_param_id, when live */
     uint8_t kind;                       /* ui_slot_kind */
     int32_t step, fast;                 /* engine units a click moves it; a fast turn's click */
-    const int8_t *order;                /* a choice: every engine value in panel order (0: steps) */
+    const int16_t *order;               /* a choice: every engine value in panel order (0: steps) */
     uint8_t n_order;
     uint8_t stops;                      /* bit i: order[i] is a knob position (the rest only show) */
     uint16_t id2;                       /* UI_HOW_PAIR's second param; UI_HOW_MODE's (first) depth */
@@ -26,8 +26,9 @@ typedef struct {
 /* How a slot's value is made (ui_slot_value):
  * PAIR  one JX switch on two params: id | id2 << 1 (CROSS MOD: sync, ring)
  * MODE  a JX ENV MODE: the source param id | the depth's sign << 1 (inverted), the depths id2, id3
- * SIZE  a depth's size, its sign being its ENV MODE's */
-typedef enum { UI_HOW_PLAIN, UI_HOW_PAIR, UI_HOW_MODE, UI_HOW_SIZE } ui_how;
+ * SIZE  a depth's size, its sign being its ENV MODE's
+ * TIME  a time: a click is an entry of the time table (UI_TIMES), a fast one four */
+typedef enum { UI_HOW_PLAIN, UI_HOW_PAIR, UI_HOW_MODE, UI_HOW_SIZE, UI_HOW_TIME } ui_how;
 
 /* interaction.md's page order: 1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B */
 #define UI_PAGES 18u

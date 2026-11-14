@@ -26,7 +26,7 @@ static void ui_settle(void)
 static uint32_t ui_goto(uint16_t id)
 {
     uint32_t n, k;
-    for (n = 0; n < 4u; n++) {
+    for (n = 0; n < 8u; n++) {                  /* (ENV's ring has 6 pages) */
         ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
         for (k = 0; k < 4u; k++)
             if (ui_page_slot(&ui_u, k)->kind == UI_LIVE && ui_page_slot(&ui_u, k)->id == id)
@@ -348,7 +348,7 @@ TT_TEST(ui_home_hold_keeps_the_page)
 }
 
 /* ENV again while 5A shows steps to 5B (its ring), a new page to draw; there KNOB1 is 55 ENV. ENV on
- * 5B goes back to 5A while the rest of its ring isn't built. */
+ * 5B goes on to 8A. */
 TT_TEST(ui_env_on_5a_steps_to_5b)
 {
     int32_t cut;
@@ -364,7 +364,7 @@ TT_TEST(ui_env_on_5a_steps_to_5b)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 100);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 1200);
-    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 81);    /* then on round its ring: 8A ENV-1 */
 }
 
 /* On PLAY a new last note marks the note's strip, coalesced like the other redraws, and only once. */
@@ -1090,6 +1090,31 @@ TT_TEST(ui_envelope_values_read_as_the_map)
     TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_KEY_FOLLOW, 520, "2"));
 }
 
+/* ENV's ring (interaction.md 4): 5A, 5B, 8A ENV-1, 8B, 9A ENV-2, 9B, around. FX's: 6A VCA, 6B. A time
+ * knob walks the time table: 81 ATTACK from 13 ms clicks to 15, a fast turn moves 4 entries a click. */
+TT_TEST(ui_env_and_fx_rings_and_time_knobs)
+{
+    static const uint8_t ENVR[7] = {51, 55, 81, 85, 91, 95, 51};
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 7u; i++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 100 * i);
+        TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, ENVR[i]);
+    }
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 1000);     /* 5B */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 1100);     /* 8A */
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS, 13);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1200);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS), 15);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 3, 1300);        /* fast: 12 entries */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS), ui_time_at(10 + 12));
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_FX, 0, 1400);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 61);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_FX), UI_LED_LIT);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_FX, 0, 1500);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 65);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1132,6 +1157,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_env_and_fx_rings_and_time_knobs);
     TT_RUN(ui_envelope_values_read_as_the_map);
     TT_RUN(ui_time_table_steps_about_7_percent);
     TT_RUN(ui_mode_column_is_short);
