@@ -141,7 +141,7 @@ static int init(const hb_host_t *h)
 _Static_assert(UI_EV_BTN_DOWN == HB_EV_BTN_DOWN && UI_EV_BTN_UP == HB_EV_BTN_UP && UI_EV_ENC == HB_EV_ENC,
                "ui.h's events are hb_module.h's");
 _Static_assert(UI_BTN_FX == HB_BTN_FX && UI_BTN_SEL == HB_BTN_SEL && UI_BTN_ENV == HB_BTN_ENV &&
-               UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_HOME == HB_BTN_HOME,
+               UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_HOME == HB_BTN_HOME && UI_BTN_SAVE == HB_BTN_SAVE,
                "ui.h's buttons are hb_module.h's");
 _Static_assert(UI_ENC_KNOB1 == HB_ENC_KNOB1 && UI_ENC_KNOB2 == HB_ENC_KNOB2 &&
                UI_ENC_KNOB3 == HB_ENC_KNOB3 && UI_ENC_KNOB4 == HB_ENC_KNOB4 &&

@@ -429,6 +429,54 @@ static void play_part(uint32_t b, uint32_t part)
     }
 }
 
+/* SAVE (interaction.md 6): the destination slot and what is there, the new name with its cursor, and
+ * the step: the controls while editing, the question when it would replace another patch */
+static void save_part(uint32_t b, uint32_t part)
+{
+    static store_patch there;                   /* (main loop) */
+    char s[UI_VALUE_LEN];
+    if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
+        footer();
+    } else if (b == UI_D_FULL || b == UI_D_HEAD) {
+        header("SAVE", T->led, "", "PATCH", "", -1);
+    } else if (b == UI_D_FOCUS) {               /* rows 28..77: TO 23, and what is there now */
+        ui_prog_number(U->save_dest, s);
+        H->cv_begin(240, 50, C_BG);
+        CV_TEXT(M, 18, 0, "TO", C_DIM);
+        CV_TEXT(M + 28, 6, 1, s, HB_RGB(255, 176, 64));
+        CV_TEXT(120, 18, 0, P->lib && store_slot_read(P->lib, U->save_dest, &there) == 0 ? there.name : "EMPTY",
+                C_DIM);
+        blit(0, 28, 240, 50);
+    } else if (b == UI_D_SLOT) {                /* rows 78..137: the new name, the cursor under its place */
+        char pre[STORE_NAME_LEN + 1u];
+        int32_t x0 = (240 - TEXT_W(1, U->save_name)) / 2, x, w;
+        uint32_t i;
+        for (i = 0; i < U->save_cursor; i++)
+            pre[i] = U->save_name[i];
+        pre[i] = 0;
+        x = x0 + TEXT_W(1, pre);
+        pre[0] = U->save_name[U->save_cursor];
+        pre[1] = 0;
+        w = TEXT_W(1, pre);
+        H->cv_begin(240, 60, C_BG);
+        CV_TEXT(x0, 8, 1, U->save_name, C_TEXT);
+        H->cv_rect(x, 48, w, 3, T->led);
+        blit(0, 78, 240, 60);
+    } else if (b == UI_D_NOTE) {                /* rows 138..221: the step */
+        H->cv_begin(240, 84, C_BG);
+        if (U->save_step == UI_SAVE_CONFIRM) {
+            text_c(0, 240, 12, 0, U->save_msg, C_TEXT);
+            text_c(0, 240, 40, 0, "SAVE AGAIN TO REPLACE", T->led);
+        } else {
+            text_c(0, 240, 2, 0, "PRESETS  SLOT", C_DIM);
+            text_c(0, 240, 22, 0, "SELECT  CURSOR", C_DIM);
+            text_c(0, 240, 42, 0, "K1 LETTER  K2 INS/DEL", C_DIM);
+            text_c(0, 240, 62, 0, "SAVE WRITES  HOME CANCELS", C_DIM);
+        }
+        blit(0, 138, 240, 84);
+    }
+}
+
 /* an edit page (UI_PAGE_INFO): "5 VCF" on the chip, then A/B when the section has two pages */
 static void page_part(uint32_t b, uint32_t part)
 {
@@ -494,7 +542,9 @@ void ui_draw_frame(uint32_t full)
         if (!band)
             return;
     }
-    if (U->state == UI_EDIT)
+    if (U->state == UI_SAVE)                    /* SAVE has the screen while it is open */
+        save_part(band, part);
+    else if (U->state == UI_EDIT)
         page_part(band, part);
     else
         play_part(band, part);

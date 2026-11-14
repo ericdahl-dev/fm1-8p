@@ -17,14 +17,16 @@
 #define UI_BTN_LFO     5u
 #define UI_BTN_EDIT    6u
 #define UI_BTN_HOME    8u
+#define UI_BTN_SAVE    9u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
+#define UI_ENC_SELECT  0u
 #define UI_ENC_KNOB1   2u
 #define UI_ENC_KNOB2   3u
 #define UI_ENC_KNOB3   4u
 #define UI_ENC_KNOB4   5u
 #define UI_ENC_PRESETS 6u
 
-typedef enum { UI_PLAY, UI_EDIT } ui_state;
+typedef enum { UI_PLAY, UI_EDIT, UI_SAVE } ui_state;
 
 
 typedef struct {
@@ -46,10 +48,19 @@ typedef struct {
     uint32_t comparing;                 /* EDIT held: UI_COMPARE_ON, or UI_COMPARE_NONE (no edits); 0 not */
     uint32_t now_ms;                    /* ui_take's last ms (the EDIT LED's blink) */
     uint32_t shown_edited;              /* the footer's `*` as drawn: play_edited then */
+    /* SAVE (ui_save.c) */
+    ui_state save_from;                 /* the state SAVE goes back to */
+    uint32_t save_dest;                 /* the destination user slot, 0..63 (11..88) */
+    char save_name[STORE_NAME_LEN + 1u];
+    char save_msg[32];                  /* the banner SAVE leaves (SAVED 23, ...), or its prompt */
+    uint32_t save_step;                 /* UI_SAVE_EDITING, UI_SAVE_CONFIRM */
+    uint32_t save_cursor;               /* the name's character being edited, 0..11 */
+    uint32_t save_waiting;              /* 1: a snapshot waits for silence to be written */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
 enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
+enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
@@ -60,6 +71,7 @@ enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
 #define UI_BLINK_MS 250u                /* the EDIT LED's blink during compare: on, then off */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
+#define UI_FORCE_MS 1000u               /* SAVE held this long writes a waiting save at once */
 #define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
 /* PRESETS again within this, the same way: discard and load. The warning's time on screen, so a turn
  * never discards with nothing showing (the spec had 2 s against a 1.5 s banner: PR #83 review). */

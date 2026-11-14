@@ -39,9 +39,10 @@ typedef struct {
     volatile uint32_t loading;          /* main loop: 1 part way through a load (the ISR waits) */
     volatile uint32_t loads;            /* main loop: +1 per load done */
     uint32_t loads_seen;                /* ISR only: the last `loads` it applied */
-    const store_lib *lib;               /* main loop: the user slots (NULL: none, or not loaded yet) */
+    store_lib *lib;                     /* main loop: the user slots (NULL: none, or not loaded yet) */
     store_lib *lib_attached;            /* main loop: attached at init, loaded on the first tick */
     const store_io *io;                 /* main loop: its flash */
+    volatile uint32_t sounding;         /* ISR writes after each block: the voices sounding */
     uint32_t prog;                      /* main loop: the program playing (PLAY_PROG_P + n: P n+1) */
     char name[STORE_NAME_LEN + 1u];     /* main loop: its name */
     /* compare (EDIT held): the edit buffer, kept while the stored patch sounds */
@@ -68,6 +69,13 @@ void play_prog_name(const play *p, char *name);
 void play_attach_store(play *p, store_lib *lib, const store_io *io);
 /* main loop: the first call loads the attached store's banks; after that, nothing. */
 void play_store_tick(play *p);
+/* main loop: 1 when nothing sounds and no note waits to (a flash write may stall the sound then) */
+uint32_t play_silent(const play *p);
+/* main loop: the edit buffer as a patch named `name` (during compare: the buffer kept) */
+void play_snapshot(const play *p, const char *name, store_patch *s);
+/* main loop: s into user slot `dest` and its bank to flash: 0, or -1 when the write failed. When the
+ * edit buffer still equals s, that slot becomes the stored patch playing (no longer edited). */
+int play_save(play *p, uint32_t dest, const store_patch *s);
 /* The patch playing. */
 const patch *play_patch(const play *p);
 /* main loop: load PATCHES[i] (PRESETS): the next render lets the sounding notes go and applies every
