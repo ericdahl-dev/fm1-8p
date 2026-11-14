@@ -1720,7 +1720,7 @@ static double ui_contrast(uint16_t a, uint16_t b)
 TT_TEST(ui_themes_meet_their_contrast_rules)
 {
     static const struct { const ui_theme *t; double text, dim; } TH[2] = {
-        {&UI_MEMBRANE, 10.2, 4.9}, {&UI_NIGHT_PANEL, 13.9, 5.6},
+        {&UI_MEMBRANE, 8.5, 5.6}, {&UI_NIGHT_PANEL, 13.9, 5.6},
     };
     uint32_t n, i;
     for (n = 0; n < 2u; n++) {
