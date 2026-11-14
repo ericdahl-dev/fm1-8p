@@ -55,20 +55,28 @@ typedef struct {
     uint8_t note;
     uint8_t vel;                        /* 0: note off */
 } seq_event;
-#define SEQ_EVENTS (2u * SEQ_NOTES * 2u)    /* the most one block can hold (a step's offs and ons, twice) */
+/* the most one block holds: a step is over SEQ_BLOCK frames even at 300 BPM and 8 kHz, so at most a
+ * gate's offs, a step's offs and ons, and its gate's offs */
+#define SEQ_EVENTS (4u * SEQ_NOTES)
 
 typedef struct {
-    /* main loop: the pattern being edited, and its version (+1 per edit published) */
+    /* main loop: the pattern being edited, and its version (+1 per edit published). While `editing`
+     * is set the interrupt doesn't take it (play's `loading`), so a step never plays half an edit. */
     seq_pattern edit;
+    volatile uint32_t editing;
     volatile uint32_t edits;
     /* main loop: asks; the interrupt acts at its next block */
     volatile uint32_t ask_play;         /* +1 per play asked */
     volatile uint32_t ask_stop;         /* +1 per stop asked */
+    uint32_t want;                      /* main loop: 1 from seq_play to seq_stop */
     /* interrupt only */
     seq_pattern run;                    /* the pattern playing, taken from edit at a step's start */
     uint32_t edits_seen, play_seen, stop_seen;
-    uint32_t frac;                      /* the clock: position in the step, in samples << 16 */
-    uint8_t sounding[SEQ_NOTES];        /* the notes the sequencer has on (0xFF: none) */
+    uint32_t pos;                       /* the step playing */
+    uint32_t acc;                       /* the clock: tempo x SEQ_PPQ a sample, a step at fs x 600 */
+    uint32_t gated;                     /* 1 once this step's notes are let go (its gate passed) */
+    uint8_t sounding[SEQ_NOTES];        /* the notes the sequencer has on */
+    uint8_t n_sounding;
     /* interrupt writes, main loop reads */
     volatile uint32_t playing;          /* 1 while the transport runs */
     volatile int32_t step_now;          /* the step playing, 0 .. length-1; -1 stopped */
@@ -94,11 +102,14 @@ void seq_set_swing(seq *s, uint32_t pct);              /* (S3; stored, not yet u
 /* main loop: the transport. play starts at step 1; stop lets go of every note the sequencer started. */
 void seq_play(seq *s);
 void seq_stop(seq *s);
-uint32_t seq_playing(const seq *s);                    /* 1 while it runs (also play_silent's: #201) */
+/* 1 from seq_play until the stop has let every note go: play_silent's too (#201), so a SAVE waits */
+uint32_t seq_playing(const seq *s);
 int32_t seq_step_now(const seq *s);                    /* the playhead, -1 stopped */
 uint32_t seq_steps(const seq *s);                      /* changes once per step: redraw when it does */
 
-/* audio interrupt (play_render): the next n frames (n <= 256) at fs Hz. Writes their note events, in
- * time order, into ev (room for SEQ_EVENTS) and returns how many. */
-uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, seq_event *ev);
+/* audio interrupt (play_render): the next n frames (1..SEQ_BLOCK) at fs Hz (8000..192000), a step's
+ * chord cut to its first `voices` notes. Writes their note events, in time order and a note's off
+ * before an on at the same frame, into ev (room for SEQ_EVENTS), and returns how many. */
+#define SEQ_BLOCK 256u
+uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event *ev);
 #endif
