@@ -434,6 +434,9 @@ is sounding, as fm1-dock's rules ask.
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
 | G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | MEMBRANE |
 
+Until their features land, G13 and G14 (clock, #38), G21, G22 and G24 (CC, #49) and G23
+(program change) show `--` and their knobs do nothing. Page G2x then has no focus.
+
 **Theme (G34):** the screen's look for the whole instrument, not per patch.
 It takes effect at once, redrawing the whole screen, and is saved with the
 other GLO settings. The UI Designer owns what each theme looks like. The
