@@ -14,7 +14,7 @@ Eric's follow-up answers settled four more:
 
 | decision | what it means |
 | --- | --- |
-| **Night Panel is the default theme** | a fresh device, or a settings record without THEME, starts in Night Panel |
+| **Membrane is the default theme** | a fresh device, or a settings record without THEME, starts in Membrane (Eric, 2026-11-14; this replaces the earlier Night Panel default) |
 | **Names are 12 characters at most** | patch and pattern names always fit the D20 focus row; SAVE's name editor stops at 12 |
 | **SEQ view's footer shows the pattern** | `PTN 41 NIGHT DRIVE*`, and `NEXT 42` while one is queued; the patch shows again on leaving SEQ view |
 | **THEME is live** | a turn applies at once, debounced by 150 ms (see [THEME in GLO](#theme-in-glo-and-what-a-switch-redraws)) |
@@ -178,12 +178,12 @@ the key strip are identical.
 
 ### THEME in GLO, and what a switch redraws
 
-THEME takes the reserved slot G34 (GLO page 3, K4): `MEMBRANE`, `NIGHT`. The default is Night
-Panel, and the setting is one byte in the settings record.
+THEME takes the reserved slot G34 (GLO page 3, K4): `MEMBRANE`, `NIGHT`. The default is
+Membrane, and the setting is one byte in the settings record.
 
 | No. | Knob | Setting | Shown as | Default |
 | --- | --- | --- | --- | --- |
-| G34 | K4 | THEME | MEMBRANE, NIGHT (the column shows `MEMB` or `NIGHT`, and the focus row the full name) | NIGHT |
+| G34 | K4 | THEME | MEMBRANE, NIGHT (the column shows `MEMB` or `NIGHT`, and the focus row the full name) | MEMBRANE |
 
 - **The GLO slot shows a card for each theme,** each drawn in its own colors, with the chosen
   card framed. You see both before you turn.
