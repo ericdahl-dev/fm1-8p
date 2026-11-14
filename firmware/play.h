@@ -6,6 +6,7 @@
 #include "../engine/fm1_8p.h"
 #include "patches.h"
 #include "patch_store.h"
+#include "seq.h"
 
 #define PLAY_FS 44100u
 #define PLAY_BLOCK 256u                 /* frames per fm1-dock render call */
@@ -48,6 +49,8 @@ typedef struct {
     /* compare (EDIT held): the edit buffer, kept while the stored patch sounds */
     int32_t edit[FM_PARAM_COUNT];
     uint32_t comparing;                 /* main loop: 1 while the stored patch sounds for compare */
+    seq seq;                            /* the sequencer (seq.h: its own main loop / ISR split) */
+    seq_event seq_ev[SEQ_EVENTS];       /* ISR only: a block's sequencer notes, static (not on its stack) */
 } play;
 
 /* Sets up the engine on PLAY_VOICES voices with the default patch, SOUNDTRACK
@@ -69,8 +72,11 @@ void play_prog_name(const play *p, char *name);
 void play_attach_store(play *p, store_lib *lib, const store_io *io);
 /* main loop: the first call loads the attached store's banks; after that, nothing. */
 void play_store_tick(play *p);
-/* main loop: 1 when nothing sounds and no note waits to (a flash write may stall the sound then) */
+/* main loop: 1 when nothing sounds, no note waits to, and the sequencer is stopped (a flash write may
+ * stall the sound then; #201) */
 uint32_t play_silent(const play *p);
+/* The sequencer: play_render plays its notes at their frames, on PLAY_VOICES voices. */
+seq *play_seq(play *p);
 /* main loop: the edit buffer as a patch named `name` (during compare: the buffer kept) */
 void play_snapshot(const play *p, const char *name, store_patch *s);
 /* main loop: s into user slot `dest` and its bank to flash: 0, or -1 when the write failed. When the
