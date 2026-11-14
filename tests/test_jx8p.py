@@ -521,9 +521,9 @@ class TableTest(unittest.TestCase):
             self.assertEqual(name, t.name)
             self.assertEqual(values, jx8p.to_engine(t))
 
-    # firmware/patches.h's patch_field enum lists the converter's fields, in order
+    # firmware/patch_fields.h's patch_field enum (generated) lists the converter's fields, in order
     def test_the_header_lists_every_field(self):
-        with open(os.path.join(ROOT, "firmware", "patches.h")) as f:
+        with open(os.path.join(ROOT, "firmware", "patch_fields.h")) as f:
             text = f.read()
         body = text[text.index("typedef enum {"):text.index("} patch_field;")]
         names = re.findall(r"^\s*PATCH_(\w+),", body, re.M)
