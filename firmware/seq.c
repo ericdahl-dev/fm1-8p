@@ -118,7 +118,7 @@ void seq_set_tempo(seq *s, uint32_t tenths_bpm)
 void seq_set_gate(seq *s, uint32_t pct)
 {
     edit_begin(s);
-    s->edit.gate_pct = (uint8_t)(pct < 1u ? 1u : pct > 100u ? 100u : pct);
+    s->edit.gate_pct = (uint8_t)(pct < SEQ_GATE_MIN ? SEQ_GATE_MIN : pct > 100u ? 100u : pct);
     edit_end(s);
 }
 

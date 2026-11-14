@@ -23,7 +23,8 @@
 #define SEQ_TEMPO_MIN 300u              /* tempo, tenths of a BPM: 30.0 .. 300.0 */
 #define SEQ_TEMPO_MAX 3000u
 #define SEQ_TEMPO_DEF 1200u             /* 120.0 BPM */
-#define SEQ_GATE_DEF 50u                /* gate, % of a step (S3: 1..100) */
+#define SEQ_GATE_MIN 5u                 /* gate, % of a step: 5..100 (interaction.md, S1 PATTERN) */
+#define SEQ_GATE_DEF 50u
 #define SEQ_SWING_DEF 50u               /* swing, % (S3: 50 none .. 75) */
 #define SEQ_VEL_DEF 100u
 
@@ -96,7 +97,7 @@ void seq_clear_step(seq *s, uint32_t i);               /* a rest */
 void seq_toggle_tie(seq *s, uint32_t i);               /* a tie, or back to a rest */
 uint32_t seq_tempo(const seq *s);
 void seq_set_tempo(seq *s, uint32_t tenths_bpm);       /* clamped to SEQ_TEMPO_MIN..MAX */
-void seq_set_gate(seq *s, uint32_t pct);               /* (S3; stored, not yet used) */
+void seq_set_gate(seq *s, uint32_t pct);               /* clamped to SEQ_GATE_MIN..100 */
 void seq_set_swing(seq *s, uint32_t pct);              /* (S3; stored, not yet used) */
 
 /* main loop: the transport. play starts at step 1; stop lets go of every note the sequencer started. */
