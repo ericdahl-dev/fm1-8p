@@ -150,3 +150,8 @@ const uint16_t UI_RATES[UI_RATE_COUNT] = {
     765, 810, 860, 910, 965, 1020, 1080, 1140, 1210, 1280, 1360, 1440, 1530, 1620,
     1720, 1820, 1930, 2050, 2170, 2300, 2440, 2590, 2750, 2920, 3000,
 };
+
+/* interaction.md 6: the number jump's list of sections, by digit */
+const char *const UI_SECTION_NAME[10] = {"AFTERTOUCH", "DCO-1", "DCO-2", "DCO ENV", "MIXER", "VCF", "VCA",
+                                         "LFO", "ENV-1", "ENV-2"};
+const uint8_t UI_SECTION_PAGE[10] = {16, 0, 2, 4, 5, 7, 9, 11, 12, 14};     /* 0A, 1A, ... 9A */

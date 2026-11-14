@@ -50,7 +50,10 @@ typedef struct {
     uint32_t shown_edited;              /* the footer's `*` as drawn: play_edited then */
     int32_t jump;                       /* the number jump: -1 SEL up; 0 held, no digit; 1..10 a first digit + 1 */
     uint32_t jump_keys;                 /* keys taken by it while SEL is held (bit k: key k), so their ups go too */
+    uint32_t jump_screen;               /* UI_JS_*: the number jump's screen up, and a jump done in this hold */
 } ui;
+#define UI_JS_UP   1u
+#define UI_JS_DONE 2u
 
 /* ui_take's bits: what changed since the last redraw */
 enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
@@ -124,6 +127,12 @@ int32_t ui_time_step(int32_t ms, int32_t clicks);
 int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
+/* which screen shows (draw.c branches on it for every band): PLAY, an edit page, or the number jump's
+ * (up from 400 ms into a SEL hold, or a first digit, until a jump is done or SEL comes up) */
+enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP };
+uint32_t ui_screen(const ui *u);
+/* the jump screen's number: the digits typed, then _ ("4_", "__"); s: 3 chars */
+void ui_jump_digits(const ui *u, char *s);
 /* a key (0..PLAY_KEYS-1) going down or up: 1 when the UI takes it (SEL held: the number jump's keypad,
  * and the key makes no sound), 0 when it plays */
 int ui_key(ui *u, uint32_t k, int down, uint32_t ms);
