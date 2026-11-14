@@ -81,6 +81,10 @@ typedef struct {
     uint8_t cc_last[UI_PAGES * 4u];     /* each slot's last ignored CC value (0xFF: none yet) */
     uint32_t cc_loads;                  /* play's loads when the pickup last started over */
     char cc_msg[24];                    /* "CC 52: 20 (PICKUP)", the banner */
+    uint32_t cc_out[(UI_PAGES * 4u + 31u) / 32u];   /* G22: bit per UI_SLOTS slot a knob turned, to go out */
+    uint32_t cc_out_ms;                 /* when the last CC went out */
+    uint8_t cc_out_at;                  /* the slot it was (the next goes round from it) */
+    uint8_t cc_sent_cc, cc_sent_v;      /* what it was, so the same isn't sent twice (0xFF: none) */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
@@ -191,6 +195,14 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 /* the CC map: PG-800 number num's CC, and CC cc's PG-800 number (UI_CC_NONE: none) */
 uint32_t ui_cc_of(uint32_t num);
 uint32_t ui_pg800_of(uint32_t cc);
+/* G22 CC SEND: a CC a knob turn made, taken (1), on the scale a CC in reads; 0: none now. Only knob
+ * turns, never a CC that came in. At most one every UI_CC_OUT_MS, each slot's latest value when it
+ * goes, round the slots turned; the same CC and value as the last sent isn't sent again. The module
+ * asks after each event and each draw. */
+#define UI_CC_OUT_MS 10u
+int ui_cc_out(ui *u, uint32_t ms, uint32_t *cc, uint32_t *value);
+/* slot s's value on the CC scale, 0..127 (what G22 sends) */
+uint32_t ui_cc_scale(const ui *u, const ui_slot *s);
 /* a MIDI control change, cc 0..127 at value 0..127 (#49, interaction.md 8): the parameter on cc (the
  * CC map) takes the value across its knob's range, as a knob would set it. 1: taken (G21 ON and cc on
  * the map), so the engine needn't have it; 0: the module passes it on (sustain, all notes off ...). */
