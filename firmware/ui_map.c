@@ -178,3 +178,25 @@ const char *const UI_SECTION_NAME[10] = {"AFTERTOUCH", "DCO-1", "DCO-2", "DCO EN
                                          "LFO", "ENV-1", "ENV-2"};
 const uint8_t UI_SECTION_PAGE[10] = {16, 0, 2, 4, 5, 7, 9, 11, 12, 14};     /* 0A, 1A, ... 9A */
 const uint8_t UI_PLAY_SLOT[4] = {4 * 7 + 1, 4 * 7 + 2, 4 * 8 + 0, 4 * 14 + 3};   /* 52, 53, 55, 94 */
+
+/* interaction.md 4, GLO: the settings, G11..G34 (UI_SETTINGS_INFO's order) */
+static const char *const OFF_ON[] = {"OFF", "ON"};
+static const char *const CLOCK[] = {"AUTO", "INT", "MIDI"};
+static const char *const PROG[] = {"OFF", "RECV", "SEND", "BOTH"};
+static const char *const EXT_CC[] = {"JUMP", "PICKUP"};
+static const char *const THEME[] = {"MEMBRANE", "NIGHT PANEL"};
+static const char *const THEME_COL[] = {"MEMB", "NIGHT"};
+const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT] = {
+    {11, "CH IN", "MIDI CHANNEL IN", 0, UI_LIVE, 1, 4, 0, 0, "ALL"},
+    {12, "CH OUT", "MIDI CHANNEL OUT", 1, UI_LIVE, 1, 4, 0, 0, 0},
+    {13, "CLOCK", "CLOCK SOURCE", 2, UI_PENDING, 1, 1, CLOCK, 0, 0},          /* (#38) */
+    {14, "CLKOUT", "CLOCK OUT", 3, UI_PENDING, 1, 1, OFF_ON, 0, 0},          /* (#38) */
+    {21, "CC IN", "CC RECEIVE", 4, UI_PENDING, 1, 1, OFF_ON, 0, 0},         /* (#49) */
+    {22, "CC OUT", "CC SEND", 5, UI_PENDING, 1, 1, OFF_ON, 0, 0},            /* (#49) */
+    {23, "PROG", "PROGRAM CHANGE", 6, UI_PENDING, 1, 1, PROG, 0, 0},       /* (not built yet) */
+    {24, "EXT CC", "EXTERNAL CC", 7, UI_PENDING, 1, 1, EXT_CC, 0, 0},         /* (#49) */
+    {31, "CURVE", "VELOCITY CURVE", 8, UI_LIVE, 5, 25, 0, 0, 0},
+    {32, "FIXED", "FIXED VELOCITY", 9, UI_LIVE, 1, 10, 0, 0, 0},
+    {33, "LEDS", "KEY LEDS", 10, UI_LIVE, 1, 1, OFF_ON, 0, 0},
+    {34, "THEME", "THEME", 11, UI_LIVE, 1, 1, THEME, THEME_COL, 0},
+};

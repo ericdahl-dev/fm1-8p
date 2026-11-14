@@ -155,6 +155,7 @@ static void blit(int32_t x, int32_t y, int32_t w, int32_t h)
 
 /* rows 0..27: the header and the gap under it: the section name on a chip of its color, or under a
  * 3 px band in it (the theme's), then lead and tail dim around lit ("A/" "B" "": page B) */
+#define GLO_STRIP 0x100                         /* header()'s page: GLO's page + this, its own strip */
 static void header(const char *chip, uint16_t col, const char *lead, const char *lit, const char *tail,
                    int32_t page, int32_t gap)
 {
@@ -186,7 +187,10 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
     ui_octave_label(P->oct, o);                  /* (HB_F_SCREEN hides the host's line, which had it) */
     CV_TEXT(240 - M - TEXT_W(0, o), 4, 0, o, P->oct ? C_TEXT : C_DIM);
     H->cv_rect(0, 23, 240, 1, C_LINE);
-    if (page >= 0)
+    if (page >= GLO_STRIP)                      /* GLO: a 3-segment strip (visual.md) */
+        for (i = 0; i < UI_GLO_PAGES; i++)
+            H->cv_rect(M + (int32_t)i * 78, 22, 74, 2, i == (uint32_t)(page - GLO_STRIP) ? col : C_LINE);
+    else if (page >= 0)
         for (i = 0; i < UI_PAGES; i++) {
             ui_strip(i, &x, &w);
             H->cv_rect(x, 22, w, 2, i == (uint32_t)page ? col : C_LINE);
@@ -630,6 +634,136 @@ static void jump_part(uint32_t b, uint32_t part)
     }                                           /* (columns 2-4: within column 1's band) */
 }
 
+/* GLO (interaction.md 4 and 6, visual.md): the settings in the page's bands. The slot holds a card for
+ * each theme, each in its own colors, the chosen one framed; the footer says these aren't the patch. */
+#define C_GLO (T->section[UI_SEC_GLO])
+static void glo_number(const ui_glo_slot *g, char *s)
+{
+    s[0] = 'G', s[1] = (char)('0' + g->num / 10u), s[2] = (char)('0' + g->num % 10u), s[3] = 0;
+}
+
+static void glo_focus(void)
+{
+    const ui_glo_slot *g = U->focus < 4u ? ui_glo_slot_at(U, U->focus) : 0;
+    char num[4], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    int32_t x;
+    H->cv_begin(240, 50, C_BG);
+    if (g) {                                    /* (G2x: no focus, an empty row) */
+        ui_glo_value(U, U->focus, val, unit);
+        glo_number(g, num);
+        H->cv_rect(M, 0, 64, 46, C_WINDOW);
+        frame(M, 0, 64, 46, C_LINE);
+        seg7(M + (64 - 38) / 2, 5, num + 1, led_of(C_GLO), mix(C_WINDOW, led_of(C_GLO), T->ghost));   /* "34" */
+        CV_TEXT(M + 72, 0, 0, num, C_GLO);
+        CV_TEXT(M + 72 + TEXT_W(0, num) + 8, 0, 0, g->full, C_TEXT);
+        if (d24_w(val) <= 240 - M - 72 - M) {
+            x = d24(M + 72, 20, val, g->kind == UI_LIVE ? C_TEXT : C_DIM);
+            if (*unit)
+                CV_TEXT(x + 3, 28, 0, unit, C_DIM);
+        } else {
+            CV_TEXT(M + 72, 26, 0, val, C_TEXT);
+        }
+    }
+    blit(0, 28, 240, 50);
+}
+
+static void glo_card(int32_t x, const ui_theme *t, const char *name, int chosen)
+{
+    static const char D[3] = "42";
+    uint32_t i;
+    H->cv_rect(x, 0, 112, 56, t->bg);
+    H->cv_rect(x + 6, 6, 24, 16, t->window);
+    CV_TEXT(x + 10, 6, 0, D, t->led_section ? t->section[UI_SEC_VCF] : t->led);
+    for (i = 0; i < 4u; i++)                    /* four meters in its section colors */
+        H->cv_rect(x + 36 + (int32_t)i * 18, 14, 14, 4, t->section[i == 3u ? UI_SEC_VCF : i]);
+    text_c(x, 112, 34, 0, name, chosen ? t->text : t->dim);
+    if (chosen) {
+        frame(x, 0, 112, 56, C_GLO);
+        frame(x + 1, 1, 110, 54, C_GLO);
+    } else {
+        frame(x, 0, 112, 56, C_LINE);
+    }
+}
+
+static void glo_column(uint32_t k)
+{
+    const ui_glo_slot *g = ui_glo_slot_at(U, k);
+    const ui_setting_info *in = &UI_SETTINGS_INFO[g->setting];
+    const int32_t cx = k ? M - 2 + (int32_t)k * (COL_W + 2) : 0;
+    const int32_t cw = (k == 3u ? 240 : M - 2 + (int32_t)(k + 1u) * (COL_W + 2)) - cx;
+    const int32_t x = M + (int32_t)k * (COL_W + 2) - cx;
+    uint32_t act = k == U->focus, i, n, at;
+    uint16_t bg = act ? C_SURFHI : C_SURF, on = act ? C_GLO : mix(bg, C_GLO, 154);
+    char num[4], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    int32_t tw, x0, v = ((const uint8_t *)&U->set)[in->offset];
+    H->cv_begin(cw, 84, C_BG);
+    H->cv_rect(x, 0, COL_W, 84, bg);
+    glo_number(g, num);
+    text_c(x, COL_W, 3, 0, num, C_GLO);
+    text_c(x, COL_W, 19, 0, g->label, act ? C_TEXT : C_DIM);
+    if (g->kind != UI_LIVE) {
+        d24(x + (COL_W - d24_w("--")) / 2, 52, "--", C_DIM);
+    } else {
+        if (g->names) {                         /* a choice: a segment per choice */
+            n = (uint32_t)(in->max - in->min) + 1u, at = (uint32_t)(v - in->min);
+            for (i = 0; i < n; i++)
+                H->cv_rect(x + 6 + (int32_t)(i * 46u / n), 40, (int32_t)(46u / n) - 2, 6, i == at ? on : C_LINE);
+        } else {                                /* a range: a bar from the left */
+            int32_t b = (v - in->min) * 44 / (in->max - in->min);
+            H->cv_rect(x + 6, 40, 44, 6, C_LINE);
+            H->cv_rect(x + 6, 40, b, 6, on);
+        }
+        ui_glo_column(U, k, val, unit);
+        tw = d24_w(val) + (*unit ? 3 + TEXT_W(0, unit) : 0);
+        if (tw > COL_W - 4) {
+            *unit = 0;
+            tw = d24_w(val);
+        }
+        if (tw > COL_W - 4) {
+            text_c(x, COL_W, 58, 0, val, act ? C_TEXT : C_DIM);
+        } else {
+            x0 = d24(x + (COL_W - tw) / 2, 52, val, act ? C_TEXT : C_DIM);
+            if (*unit)
+                CV_TEXT(x0 + 1, 60, 0, unit, mix(C_SURF, act ? C_TEXT : C_DIM, 179));
+        }
+    }
+    if (act)
+        for (i = 0; i < 3u && T->focus[i]; i++)
+            frame(x + (int32_t)i, (int32_t)i, COL_W - 2 * (int32_t)i, 84 - 2 * (int32_t)i,
+                  mix(C_BG, C_GLO, T->focus[i]));
+    blit(cx, 138, cw, 84);
+}
+
+static void glo_part(uint32_t b, uint32_t part)
+{
+    uint32_t k;
+    if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
+        const char *ban = ui_banner(U);
+        if (*ban) {
+            footer();                           /* (PRESETS still browses here: its banner) */
+        } else {
+            H->cv_begin(240, 18, C_SURF);
+            H->cv_rect(0, 0, 240, 1, C_BG);
+            H->cv_rect(0, 1, 240, 1, C_LINE);
+            CV_TEXT(M, 2, 0, "GLOBAL: NOT IN PATCH", C_DIM);
+            blit(0, 222, 240, 18);
+        }
+    } else if (b == UI_D_FULL || b == UI_D_HEAD) {
+        header("GLO", C_GLO, "", "GLOBAL", "", GLO_STRIP + (int32_t)U->glo_page, 8);
+    } else if (b == UI_D_FOCUS) {
+        glo_focus();
+    } else if (b == UI_D_SLOT) {
+        H->cv_begin(240, 60, C_BG);
+        glo_card(M, &UI_MEMBRANE, "MEMBRANE", U->set.theme == UI_THEME_MEMBRANE);
+        glo_card(M + 118, &UI_NIGHT_PANEL, "NIGHT PANEL", U->set.theme == UI_THEME_NIGHT);
+        blit(0, 78, 240, 60);
+    } else {
+        for (k = 0; k < 4u; k++)
+            if (b == UI_D_COL(k))
+                glo_column(k);
+    }
+}
+
 static uint32_t parts(uint32_t b)
 {
     return b == UI_D_FULL ? 2u : b == UI_D_SLOT && ui_screen(U) == UI_SCREEN_PAGE ? SLOT_PARTS : 1u;
@@ -663,10 +797,18 @@ void ui_draw_frame(uint32_t full)
     if (H->ticks() - blit_t < blit_wait)
         return;                                 /* the panel is still taking the last part */
     if (!band) {                                /* the next band: a frame's all go first (ui_band) */
+#ifdef FM1_THEME_NIGHT
+        static int seeded;                      /* a preview build (FM1_THEME=night): THEME starts NIGHT */
+        if (!seeded) {
+            seeded = 1;
+            U->set.theme = U->shown_theme = UI_THEME_NIGHT;
+        }
+#endif
         band = ui_band(U, &pending, H->ms());
         part = 0;
         if (!band)
             return;
+        T = ui_theme_shown(U) == UI_THEME_NIGHT ? &UI_NIGHT_PANEL : &UI_MEMBRANE;   /* (a switch: UI_D_FULL) */
     }
     switch (ui_screen(U)) {                     /* every band through the screen that shows */
     case UI_SCREEN_SAVE:
@@ -677,6 +819,9 @@ void ui_draw_frame(uint32_t full)
         break;
     case UI_SCREEN_PAGE:
         page_part(band, part);
+        break;
+    case UI_SCREEN_GLO:
+        glo_part(band, part);
         break;
     default:
         play_part(band, part);
@@ -691,13 +836,6 @@ void ui_draw_frame(uint32_t full)
 #endif
 }
 
-void ui_draw_theme(const ui_theme *t)
-{
-    T = t;
-    pending = UI_D_ALL;                         /* all of it, in the new look */
-    band = 0;
-}
-
 void ui_draw_init(const hb_host_t *h, play *p, ui *u)
 {
     H = h;
@@ -705,7 +843,4 @@ void ui_draw_init(const hb_host_t *h, play *p, ui *u)
     U = u;
     pending = band = part = 0;
     blit_t = blit_wait = 0;
-#ifdef FM1_THEME_NIGHT
-    ui_draw_theme(&UI_NIGHT_PANEL);             /* (a preview build, FM1_THEME=night: every module that draws) */
-#endif
 }
