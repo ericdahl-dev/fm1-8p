@@ -351,7 +351,7 @@ In PLAY or EDIT:
   the P group, then wraps.
 - A starter patch can be edited and saved to a user slot. SAVE never offers a P
   slot as the destination.
-- **Program change mapping**, the same for receive and send (G23):
+- **Program change mapping**, the same for receive and send (G41):
   - PC 0..63 map to slots 11..88 in order: PC 0 = 11, PC 1 = 12 ... PC 7 = 18,
     PC 8 = 21 ... PC 63 = 88. In other words, slot = 11 + 10 x (PC / 8) +
     (PC mod 8).
@@ -442,15 +442,18 @@ is sounding, as fm1-dock's rules ask.
 | G14 | K4 | Clock out | OFF, ON | OFF |
 | G21 | K1 | CC receive | OFF, ON | ON |
 | G22 | K2 | CC send (knob moves go out as CC) | OFF, ON | OFF |
-| G23 | K3 | Program change | OFF, RECV, SEND, BOTH | RECV |
+| G23 | K3 | CC map (see [the CC map](#the-cc-map)) | JX, STANDARD | STANDARD |
 | G24 | K4 | External CC response | JUMP, PICKUP | JUMP (decision Q6) |
 | G31 | K1 | Velocity curve (the host's `sense_set` curve) | 50..200 % | the host's |
 | G32 | K2 | Fixed velocity, for keys with no force sensing | 1..127 | 100 |
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
 | G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | MEMBRANE |
 
-Until their features land, G13 and G14 (clock, #38) and G23 (program change) show `--` and their
-knobs do nothing. G21, G22 and G24 are live (#49).
+Program change, G23 before CC MAP took its place (Eric), moves to G41 on a fourth page when it is
+built: OFF, RECV, SEND, BOTH, default RECV.
+
+Until their features land, G13 and G14 (clock, #38) and G41 (program change) show `--` and their
+knobs do nothing. G21-G24 are live (#49).
 
 **CC send (G22):** with it ON, a panel knob turn goes out as its parameter's CC (the CC map below),
 on G12's channel, on the scale a CC in reads, so a DAW that records it and plays it back lands on
@@ -925,11 +928,42 @@ that does something glows, unless it is lit for its own reason.
 ### The CC map
 
 Every parameter has its own MIDI CC, so a DAW or a hardware controller can play the PG-800's part
-(#49). A parameter's CC is its PG-800 number, the one on the screen. The exceptions are the numbers
+(#49). GLO's G23 CC MAP picks which map receive and send use. A fresh FM-1 starts on STANDARD
+(Eric).
+
+**JX:** a parameter's CC is its PG-800 number, the one on the screen. The exceptions are the numbers
 that would land on a standard CC: the 0x section (1 mod wheel, 6 data entry, 7 volume), 11
 (expression), 32 (bank select LSB), 38 (data entry LSB) and 64 (sustain). These move, in that order,
-to 102-113, part of the undefined 102-119 block (Eric). CC 0 (bank select), 1, 7, 64 and 120-127
-keep their standard meanings, and the engine takes them as before.
+to 102-113, part of the undefined 102-119 block (Eric).
+
+**STANDARD:** the Kiwi-8P's map, from KiwiTechnics' *JX-8P Upgrade User Manual* v1.51,
+"Continuous Controllers", pp. 54-57
+(<https://www.kiwitechnics.com/downloads/Kiwi-8P/KiwiTechnics_Kiwi8P_Manual_v151.pdf>). Kiwi does not
+follow the common convention for 74, 71, 73 and 72, which most generic controllers send for
+cutoff, resonance, attack and release. So STANDARD adds those four as second CCs that only receive
+(Eric): 74 cutoff, 71 resonance, 73 ENV-2 attack, 72 ENV-2 release. They take the place of Kiwi's
+74 VCF LFO source, 71 DCO2 LFO source, 73 HPF and 72 DCO2 ENV source. The HPF has no CC in
+STANDARD. Send uses Kiwi's numbers (cutoff goes out as 23). The table lists a parameter's sending
+CC first.
+
+- **Values in STANDARD:** a CC goes straight across the knob's range, as in JX (Eric), not on
+  Kiwi's own value scales. A Kiwi editor's coarse tune (0-48), fine tune (0-100) and choice values
+  (ranges, waves, ENV sources, KEY MODE, chorus, bend range) land approximately, not exactly.
+- **Kiwi CCs with no parameter here:** 2 breath, 6 and 38 NRPN, 32 bank select LSB (0 and 32 are
+  bank select), 41-44 LFO 2 and 3 rate and delay, 45 internal clock, 46 patch tempo, 47-54 matrix
+  CC sources, 55 mod wheel tone level, 56-59 ENV 3, 60 analog feel, 67 DCO1 LFO source, 77 VCA LFO
+  source, 79 and 80 LFO 2 and 3 wave, 82 load sequence, 83 MIDI control, 86-90 arpeggiator,
+  sequencer and clock, 92 and 93 mod wheel and aftertouch destinations, 96-101 NRPN and RPN, 102-106
+  voice and arpeggiator options. Kiwi's 1 mod wheel, 7 volume, 64 hold, 120 and 123 keep their
+  standard meanings, as in JX; 119 program change waits on G41.
+- **Parameters with no Kiwi CC:** 16 DCO-1 FINE TUNE, 17 and 28 PULSE WIDTH, 33 X-MOD AMOUNT, 51
+  HIGHPASS (Kiwi's 73 went to attack), 65 VELOCITY, 74 PW DEPTH, 85 and 95 KEY FOLLOW, 04 GLIDE,
+  and aftertouch 01-03.
+- **Approximate pairings:** 31 DCO ENV DYNAMICS is one control here and two on Kiwi (11 DCO1 DYN,
+  16 DCO2 DYN), and both set it. 32 DCO ENV MODE takes Kiwi's DCO1 ENV source (68). 08 DETUNE
+  takes Kiwi's DCO detune (17), and 07 VOICE MODE takes Kiwi's KEY MODE (85).
+
+**Both maps:**
 
 - **G21 CC RECEIVE** OFF ignores the map. The standard CCs still work.
 - **Scaling:** a CC goes straight across its knob's range. Times and rates follow their tables (0
@@ -940,69 +974,69 @@ keep their standard meanings, and the engine takes them as before.
 - **Any channel,** as notes do, until G11 is wired.
 - A parameter marked "when it lands" has its CC already, and it does nothing until the parameter
   is built.
-- The table is keyed by PG-800 number (`UI_CC_MOVED`), so the PG-800 IPR receive (#195) can share it.
-  `tests/test_ui.c` checks this table against the code.
+- The tables are keyed by PG-800 number (`UI_CC_MOVED`, `UI_CC_STANDARD`), so the PG-800 IPR
+  receive (#195) can share them. `tests/test_ui.c` checks this table against the code.
 
-| PG-800 | Section | Parameter | CC |
-| --- | --- | --- | --- |
-| 11 | DCO-1 | RANGE | 110 |
-| 12 | DCO-1 | WAVEFORM | 12 |
-| 13 | DCO-1 | TUNE (when it lands) | 13 |
-| 14 | DCO-1 | LFO DEPTH | 14 |
-| 15 | DCO-1 | ENV DEPTH | 15 |
-| 16 | DCO-1 | FINE TUNE | 16 |
-| 17 | DCO-1 | PULSE WIDTH | 17 |
-| 21 | DCO-2 | RANGE | 21 |
-| 22 | DCO-2 | WAVEFORM | 22 |
-| 23 | DCO-2 | CROSS MOD | 23 |
-| 24 | DCO-2 | TUNE | 24 |
-| 25 | DCO-2 | FINE TUNE | 25 |
-| 26 | DCO-2 | LFO DEPTH | 26 |
-| 27 | DCO-2 | ENV DEPTH | 27 |
-| 28 | DCO-2 | PULSE WIDTH | 28 |
-| 31 | DCO ENV | DYNAMICS | 31 |
-| 32 | DCO ENV | ENV MODE | 111 |
-| 33 | DCO ENV | X-MOD AMOUNT | 33 |
-| 41 | MIXER | DCO-1 LEVEL | 41 |
-| 42 | MIXER | DCO-2 LEVEL | 42 |
-| 43 | MIXER | ENV DEPTH | 43 |
-| 44 | MIXER | DYNAMICS | 44 |
-| 45 | MIXER | ENV MODE | 45 |
-| 51 | VCF | HIGHPASS | 51 |
-| 52 | VCF | CUTOFF | 52 |
-| 53 | VCF | RESONANCE | 53 |
-| 54 | VCF | LFO DEPTH (when it lands) | 54 |
-| 55 | VCF | ENV DEPTH | 55 |
-| 56 | VCF | KEY FOLLOW | 56 |
-| 57 | VCF | DYNAMICS | 57 |
-| 58 | VCF | ENV MODE | 58 |
-| 61 | VCA | VCA LEVEL | 61 |
-| 62 | VCA | VCA MODE | 62 |
-| 63 | VCA | DYNAMICS | 63 |
-| 64 | VCA | CHORUS | 113 |
-| 65 | VCA | VELOCITY | 65 |
-| 71 | LFO | WAVEFORM | 71 |
-| 72 | LFO | DELAY TIME | 72 |
-| 73 | LFO | RATE | 73 |
-| 74 | LFO | PW DEPTH | 74 |
-| 81 | ENV-1 | ATTACK | 81 |
-| 82 | ENV-1 | DECAY | 82 |
-| 83 | ENV-1 | SUSTAIN | 83 |
-| 84 | ENV-1 | RELEASE | 84 |
-| 85 | ENV-1 | KEY FOLLOW | 85 |
-| 91 | ENV-2 | ATTACK | 91 |
-| 92 | ENV-2 | DECAY | 92 |
-| 93 | ENV-2 | SUSTAIN | 93 |
-| 94 | ENV-2 | RELEASE | 94 |
-| 95 | ENV-2 | KEY FOLLOW | 95 |
-| 01 | AFTERTOUCH | VIBRATO (when it lands) | 102 |
-| 02 | AFTERTOUCH | TO CUTOFF (when it lands) | 103 |
-| 03 | AFTERTOUCH | VOLUME (when it lands) | 104 |
-| 04 | AFTERTOUCH | GLIDE | 105 |
-| 05 | CONTROL | BEND RANGE | 106 |
-| 06 | CONTROL | PORTAMENTO (when it lands) | 107 |
-| 07 | CONTROL | VOICE MODE | 108 |
-| 08 | CONTROL | DETUNE | 109 |
+| PG-800 | Section | Parameter | JX | STANDARD |
+| --- | --- | --- | --- | --- |
+| 11 | DCO-1 | RANGE | 110 | 65 |
+| 12 | DCO-1 | WAVEFORM | 12 | 66 |
+| 13 | DCO-1 | TUNE (when it lands) | 13 | 8 |
+| 14 | DCO-1 | LFO DEPTH | 14 | 9 |
+| 15 | DCO-1 | ENV DEPTH | 15 | 10 |
+| 16 | DCO-1 | FINE TUNE | 16 | - |
+| 17 | DCO-1 | PULSE WIDTH | 17 | - |
+| 21 | DCO-2 | RANGE | 21 | 69 |
+| 22 | DCO-2 | WAVEFORM | 22 | 70 |
+| 23 | DCO-2 | CROSS MOD | 23 | 84 |
+| 24 | DCO-2 | TUNE | 24 | 12 |
+| 25 | DCO-2 | FINE TUNE | 25 | 13 |
+| 26 | DCO-2 | LFO DEPTH | 26 | 14 |
+| 27 | DCO-2 | ENV DEPTH | 27 | 15 |
+| 28 | DCO-2 | PULSE WIDTH | 28 | - |
+| 31 | DCO ENV | DYNAMICS | 31 | 11, 16 |
+| 32 | DCO ENV | ENV MODE | 111 | 68 |
+| 33 | DCO ENV | X-MOD AMOUNT | 33 | - |
+| 41 | MIXER | DCO-1 LEVEL | 41 | 18 |
+| 42 | MIXER | DCO-2 LEVEL | 42 | 19 |
+| 43 | MIXER | ENV DEPTH | 43 | 61 |
+| 44 | MIXER | DYNAMICS | 44 | 20 |
+| 45 | MIXER | ENV MODE | 45 | 107 |
+| 51 | VCF | HIGHPASS | 51 | - |
+| 52 | VCF | CUTOFF | 52 | 23, 74 |
+| 53 | VCF | RESONANCE | 53 | 24, 71 |
+| 54 | VCF | LFO DEPTH (when it lands) | 54 | 25 |
+| 55 | VCF | ENV DEPTH | 55 | 26 |
+| 56 | VCF | KEY FOLLOW | 56 | 27 |
+| 57 | VCF | DYNAMICS | 57 | 28 |
+| 58 | VCF | ENV MODE | 58 | 75 |
+| 61 | VCA | VCA LEVEL | 61 | 21 |
+| 62 | VCA | VCA MODE | 62 | 76 |
+| 63 | VCA | DYNAMICS | 63 | 22 |
+| 64 | VCA | CHORUS | 113 | 81 |
+| 65 | VCA | VELOCITY | 65 | - |
+| 71 | LFO | WAVEFORM | 71 | 78 |
+| 72 | LFO | DELAY TIME | 72 | 40 |
+| 73 | LFO | RATE | 73 | 39 |
+| 74 | LFO | PW DEPTH | 74 | - |
+| 81 | ENV-1 | ATTACK | 81 | 29 |
+| 82 | ENV-1 | DECAY | 82 | 30 |
+| 83 | ENV-1 | SUSTAIN | 83 | 31 |
+| 84 | ENV-1 | RELEASE | 84 | 33 |
+| 85 | ENV-1 | KEY FOLLOW | 85 | - |
+| 91 | ENV-2 | ATTACK | 91 | 34, 73 |
+| 92 | ENV-2 | DECAY | 92 | 35 |
+| 93 | ENV-2 | SUSTAIN | 93 | 36 |
+| 94 | ENV-2 | RELEASE | 94 | 37, 72 |
+| 95 | ENV-2 | KEY FOLLOW | 95 | - |
+| 01 | AFTERTOUCH | VIBRATO (when it lands) | 102 | - |
+| 02 | AFTERTOUCH | TO CUTOFF (when it lands) | 103 | - |
+| 03 | AFTERTOUCH | VOLUME (when it lands) | 104 | - |
+| 04 | AFTERTOUCH | GLIDE | 105 | - |
+| 05 | CONTROL | BEND RANGE | 106 | 91 |
+| 06 | CONTROL | PORTAMENTO (when it lands) | 107 | 5 |
+| 07 | CONTROL | VOICE MODE | 108 | 85 |
+| 08 | CONTROL | DETUNE | 109 | 17 |
 
 ### MIDI CC arriving while a page is shown
 
@@ -1017,7 +1051,7 @@ keep their standard meanings, and the engine takes them as before.
   the edit buffer with the CC changes.
 - **During SAVE,** CCs still change the sound. The patch is saved with the
   values at the moment of the write.
-- **Program change** (with G23 RECV or BOTH) loads the patch at once,
+- **Program change** (with G41 RECV or BOTH) loads the patch at once,
   discarding edits without the PRESETS warning. A remote device asked for it.
   It never changes the pattern.
 
@@ -1212,10 +1246,10 @@ test.
     its note-off.
 59. A CC during compare reaches the edit buffer. On EDIT release, the engine
     has the CC's value.
-60. With G23 RECV or BOTH, program change 5 loads slot 16 even with an
+60. With G41 RECV or BOTH, program change 5 loads slot 16 even with an
     edited buffer. PC 8 loads slot 21, PC 63 loads slot 88, and PC 64 loads P1.
     A PC past the last P patch changes nothing.
-61. With G23 SEND or BOTH, loading slot 21 on the panel sends PC 8.
+61. With G41 SEND or BOTH, loading slot 21 on the panel sends PC 8.
 62. After `release()`, then `draw(full)`, every LED is sent again and the
     transport is STOPPED.
 63. With G24 = PICKUP and cutoff at 64 (CC scale), CC 52 = 20 is ignored, and

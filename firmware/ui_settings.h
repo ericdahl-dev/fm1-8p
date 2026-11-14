@@ -19,15 +19,17 @@ typedef struct {
     uint8_t fixed_vel;                  /* G32: 1..127, keys with no force sensing */
     uint8_t key_leds;                   /* G33: OFF, ON */
     uint8_t theme;                      /* G34: UI_THEME_MEMBRANE, UI_THEME_NIGHT */
+    uint8_t cc_map;                     /* CC MAP: UI_CC_MAP_JX, UI_CC_MAP_STANDARD (#49, Eric) */
 } ui_settings;
 enum { UI_THEME_MEMBRANE, UI_THEME_NIGHT };
+enum { UI_CC_MAP_JX, UI_CC_MAP_STANDARD };
 
 /* each setting's range and default, and where it sits in ui_settings */
 typedef struct {
     uint8_t offset;                     /* offsetof(ui_settings, field) */
     uint8_t min, max, def;
 } ui_setting_info;
-#define UI_SETTINGS_COUNT 12u
+#define UI_SETTINGS_COUNT 13u
 extern const ui_setting_info UI_SETTINGS_INFO[UI_SETTINGS_COUNT];
 
 void ui_settings_default(ui_settings *s);

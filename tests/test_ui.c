@@ -1847,9 +1847,10 @@ TT_TEST(ui_glo_table_is_well_formed)
         TT_CHECK_EQ(g->num, num);
         TT_CHECK(g->label && strlen(g->label) <= 6u && g->full && strlen(g->full) <= 20u);   /* (7 touch) */
         TT_CHECK(g->setting < UI_SETTINGS_COUNT);
-        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || num == 23 ? UI_PENDING : UI_LIVE));
+        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 ? UI_PENDING : UI_LIVE));
     }
     TT_CHECK_EQ(UI_GLO_SLOTS[11].setting, 11u);                /* G34 THEME */
+    TT_CHECK_EQ(UI_GLO_SLOTS[6].setting, 12u);                 /* G23 CC MAP */
 }
 
 /* GLO's knobs (interaction.md 4): each its setting, clamped to its range; a waiting one does nothing.
@@ -1890,7 +1891,7 @@ TT_TEST(ui_glo_knobs_and_pages)
     TT_CHECK_EQ(ui_u.focus, 1u);                                /* (knob 2: G22) */
     TT_CHECK(ui_glo_reads(0, "ON"));
     TT_CHECK(ui_glo_reads(1, "OFF"));
-    TT_CHECK(ui_glo_reads(2, "--"));
+    TT_CHECK(ui_glo_reads(2, "STANDARD"));
     TT_CHECK(ui_glo_reads(3, "JUMP"));
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1450);        /* G24 to PICKUP */
     TT_CHECK_EQ(ui_u.set.ext_cc, 1u);
@@ -2019,6 +2020,7 @@ TT_TEST(ui_cc_sets_its_parameter)
     const fm_param_info *in = fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS);
     int32_t mid;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_cc(&ui_u, 52, 127, 1000);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), in->max);
     ui_cc(&ui_u, 52, 0, 1100);
@@ -2035,6 +2037,7 @@ TT_TEST(ui_cc_redraws_its_column_and_keeps_the_focus)
 {
     int32_t before;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);       /* 5A: 51 HPF, 52 CUTOFF, 53 RES, 54 LFO */
     ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_ENV, 0, 50);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 100);        /* the focus on 53 RES */
@@ -2058,6 +2061,7 @@ TT_TEST(ui_cc_choices_take_bands_and_times_their_table)
     const ui_slot *wave = &UI_SLOTS[1], *xmod = &UI_SLOTS[4u * 2u + 2u];   /* 12 WAVE, 23 X-MOD */
     uint32_t n, v;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     TT_CHECK_EQ(wave->num, 12u);
     TT_CHECK_EQ(xmod->num, 23u);
     (void)ui_choice_pos(wave, 0, &n);
@@ -2103,6 +2107,7 @@ TT_TEST(ui_cc_pickup_waits_for_the_value)
     int32_t j20, j64, j100, jt[3];
     uint32_t i, n;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     j20 = ui_cc_jump(20), j100 = ui_cc_jump(100);
     for (i = 0; i < 3u; i++)
         jt[i] = ui_cc_jump(TAKE[i]);
@@ -2141,10 +2146,12 @@ TT_TEST(ui_cc_during_compare_reaches_the_edit_buffer)
     uint32_t enc;
     int32_t stored, want;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_cc(&ui_u, 53, 127, 0);                                 /* (53 RES: the CC's top) */
     want = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
     TT_CHECK_EQ(want, fm_param_info_get(FM_PARAM_FILTER_RESONANCE)->max);
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
     stored = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
     ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);                   /* an edit, so compare has something */
@@ -2166,6 +2173,7 @@ TT_TEST(ui_cc_during_compare_reaches_the_edit_buffer)
 TT_TEST(ui_cc_leaves_the_engines_ccs_to_it)
 {
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     TT_CHECK(ui_cc(&ui_u, 52, 10, 0));
     TT_CHECK(!ui_cc(&ui_u, 64, 127, 0));
     TT_CHECK(!ui_cc(&ui_u, 120, 0, 0));
@@ -2198,27 +2206,28 @@ TT_TEST(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs)
                                          {7, 108}, {8, 109}, {11, 110}, {32, 111}, {38, 112}, {64, 113}};
     uint32_t i, used[4] = {0, 0, 0, 0};
     for (i = 0; i < 12u; i++) {
-        TT_CHECK_EQ(ui_cc_of(MOVED[i][0]), (uint32_t)MOVED[i][1]);
-        TT_CHECK_EQ(ui_pg800_of(MOVED[i][1]), (uint32_t)MOVED[i][0]);
-        TT_CHECK_EQ(ui_pg800_of(MOVED[i][0]), UI_CC_NONE);  /* (nothing left on the standard CC) */
+        TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_JX, MOVED[i][0]), (uint32_t)MOVED[i][1]);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, MOVED[i][1]), (uint32_t)MOVED[i][0]);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, MOVED[i][0]), UI_CC_NONE);  /* (nothing left on the standard CC) */
     }
-    TT_CHECK_EQ(ui_cc_of(52), 52u);
-    TT_CHECK_EQ(ui_pg800_of(52), 52u);
-    TT_CHECK_EQ(ui_pg800_of(0), UI_CC_NONE);
+    TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_JX, 52), 52u);
+    TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, 52), 52u);
+    TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, 0), UI_CC_NONE);
     for (i = 120; i < 128u; i++)
-        TT_CHECK_EQ(ui_pg800_of(i), UI_CC_NONE);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, i), UI_CC_NONE);
     for (i = 0; i < UI_PAGES * 4u; i++) {
         uint32_t cc;
         if (UI_SLOTS[i].kind != UI_LIVE)
             continue;
-        cc = ui_cc_of(UI_SLOTS[i].num);
+        cc = ui_cc_of(UI_CC_MAP_JX, UI_SLOTS[i].num);
         TT_CHECK(cc >= 2u && cc <= 119u && cc != 6u && cc != 7u && cc != 11u && cc != 32u && cc != 38u &&
                  cc != 64u);
         TT_CHECK(!(used[cc / 32u] >> (cc % 32u) & 1u));
         used[cc / 32u] |= 1u << (cc % 32u);
-        TT_CHECK_EQ(ui_pg800_of(cc), (uint32_t)UI_SLOTS[i].num);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, cc), (uint32_t)UI_SLOTS[i].num);
     }
     ui_setup();                                               /* 07 VOICE on CC 108; CC 7 is volume's */
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     TT_CHECK(ui_cc(&ui_u, 108, 127, 0));
     TT_CHECK(!ui_cc(&ui_u, 7, 127, 0));
 }
@@ -2232,24 +2241,35 @@ TT_TEST(ui_cc_lands_where_a_knob_does)
     int32_t knob;
     for (i = 0; i < 2u; i++) {
         ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
         enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
         ui_event(&ui_u, UI_EV_ENC | enc, 200 * WAY[i], 0);
         ui_settle();
         knob = fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS);
         ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
         ui_cc(&ui_u, 52, i ? 0u : 127u, 0);
         ui_settle();
         TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS), knob);
     }
     ui_setup();                                               /* inside the range: the same path */
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_cc(&ui_u, 52, 64, 0);
     ui_settle();
     TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS),
                 play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS));
 }
 
-/* docs/ui/interaction.md's CC map table is the code's: a row per slot (live or waiting), each with its
- * PG-800 number's CC */
+/* docs/ui/interaction.md's CC map table is the code's: a row per slot (live or waiting), its JX CC, and
+ * its STANDARD CCs (the sending one first; "-" none) */
+static uint32_t ui_doc_std_count(uint32_t num)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < UI_CC_STANDARD_COUNT; i++)
+        n += UI_CC_STANDARD[i].pg800 == num;
+    return n;
+}
+
 TT_TEST(ui_cc_map_doc_matches_the_code)
 {
     char line[256];
@@ -2259,20 +2279,33 @@ TT_TEST(ui_cc_map_doc_matches_the_code)
     if (!f)
         return;
     while (fgets(line, sizeof line, f)) {
-        char *bar;
-        uint32_t num, cc;
+        char *std, *jx, *p;
+        uint32_t num, n = 0, k;
         if (strncmp(line, "### ", 4) == 0)
             in_map = strcmp(line, "### The CC map\n") == 0;
         if (!in_map || line[0] != '|' || line[2] < '0' || line[2] > '9')
             continue;
         num = (uint32_t)atoi(line + 2);
-        bar = strrchr(line, '|');
-        *bar = 0;
-        cc = (uint32_t)atoi(strrchr(line, '|') + 1);
-        if (ui_cc_of(num) != cc)
-            printf("    the doc has PG-800 %u on CC %u, the code %u\n", (unsigned)num, (unsigned)cc,
-                   (unsigned)ui_cc_of(num));
-        TT_CHECK_EQ(ui_cc_of(num), cc);
+        *strrchr(line, '|') = 0;                /* | 52 | VCF | CUTOFF | 52 | 23, 74 | */
+        std = strrchr(line, '|') + 1;
+        *strrchr(line, '|') = 0;
+        jx = strrchr(line, '|') + 1;
+        if (ui_cc_of(UI_CC_MAP_JX, num) != (uint32_t)atoi(jx))
+            printf("    the doc has PG-800 %u on JX CC %s, the code %u\n", (unsigned)num, jx,
+                   (unsigned)ui_cc_of(UI_CC_MAP_JX, num));
+        TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_JX, num), (uint32_t)atoi(jx));
+        for (p = std; *p; p++)                  /* each STANDARD CC: on num, the first the sending one */
+            if (*p >= '0' && *p <= '9') {
+                k = (uint32_t)strtoul(p, &p, 10);
+                if (ui_pg800_of(UI_CC_MAP_STANDARD, k) != num || (!n && ui_cc_of(UI_CC_MAP_STANDARD, num) != k))
+                    printf("    the doc has PG-800 %u on STANDARD CC %u\n", (unsigned)num, (unsigned)k);
+                TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_STANDARD, k), num);
+                if (!n)
+                    TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_STANDARD, num), k);
+                n++;
+                p--;
+            }
+        TT_CHECK_EQ(n, ui_doc_std_count(num));
         seen[num / 32u] |= 1u << (num % 32u);
         rows++;
     }
@@ -2292,6 +2325,7 @@ TT_TEST(ui_cc_map_doc_matches_the_code)
 TT_TEST(ui_cc_redraws_the_sections_picture_and_followers)
 {
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_tap(UI_BTN_ENV, 0);                                    /* 5A */
     ui_tap(UI_BTN_ENV, 200);                                  /* 5B */
     TT_CHECK_EQ(ui_u.page, 8u);
@@ -2302,6 +2336,7 @@ TT_TEST(ui_cc_redraws_the_sections_picture_and_followers)
     TT_CHECK_EQ(ui_take(&ui_u, 1400) & UI_D_SLOT, 0u);
     TT_CHECK(play_edited(&ui_p));
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_tap(UI_BTN_LFO, 0);                                    /* 7A, 0A, 0B */
     ui_tap(UI_BTN_LFO, 200);
     ui_tap(UI_BTN_LFO, 400);
@@ -2311,6 +2346,7 @@ TT_TEST(ui_cc_redraws_the_sections_picture_and_followers)
     TT_CHECK_EQ(ui_take(&ui_u, 1200) & (UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3)),
                 UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3));
     ui_setup();                                               /* PLAY: an off-page CC, the footer */
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     (void)ui_take(&ui_u, 1000);
     ui_cc(&ui_u, 81, 20, 1100);
     TT_CHECK(play_edited(&ui_p));
@@ -2324,6 +2360,7 @@ TT_TEST(ui_cc_pickup_banner_leaves_the_warnings_up)
     const char *warn;
     int32_t mid;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     mid = ui_cc_jump(64);                                     /* an edit: cutoff to 64 on the CC scale */
     ui_u.set.ext_cc = 1;                                      /* PICKUP */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1000);     /* the discard warning */
@@ -2343,6 +2380,7 @@ TT_TEST(ui_cc_send_sends_knob_turns)
     uint32_t enc, cc = 0, v = 0, n;
     int32_t at;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
     ui_event(&ui_u, UI_EV_ENC | enc, 1, 0);
     TT_CHECK(!ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));   /* G22 OFF (its default) */
@@ -2383,6 +2421,7 @@ TT_TEST(ui_cc_send_sends_knob_turns)
     TT_CHECK_EQ(ui_choice_pos(&UI_SLOTS[1], ui_slot_value(&ui_u, &UI_SLOTS[1]), &n),
                 ui_choice_pos(&UI_SLOTS[1], at, &n));
     ui_setup();                                               /* 07 VOICE MODE: out on CC 108 */
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_u.set.cc_send = 1;
     ui_tap(UI_BTN_LFO, 0);
     ui_tap(UI_BTN_LFO, 200);
@@ -2399,6 +2438,7 @@ TT_TEST(ui_cc_send_is_rate_bounded)
 {
     uint32_t enc, cc = 0, v = 0, first;
     ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
     ui_u.set.cc_send = 1;
     enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
     ui_event(&ui_u, UI_EV_ENC | enc, 1, 1000);
@@ -2422,8 +2462,78 @@ TT_TEST(ui_cc_send_is_rate_bounded)
     TT_CHECK(!ui_cc_out(&ui_u, 1400 + 2u * UI_CC_OUT_MS, &cc, &v));
 }
 
+/* CC MAP (Eric): which CC map receive and send use, JX (the number on screen) or STANDARD (Kiwi-8P's,
+ * docs/ui/interaction.md); a fresh FM-1 starts on STANDARD. On JX, CC 52 is cutoff. */
+TT_TEST(ui_cc_map_setting_picks_the_map)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_u.set.cc_map, (uint8_t)UI_CC_MAP_STANDARD);
+    ui_u.set.cc_map = UI_CC_MAP_JX;
+    ui_cc(&ui_u, 52, 127, 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->max);
+}
+
+/* CC MAP STANDARD (Eric's choice A): the Kiwi-8P's map (its manual v1.51, pp. 54-57), plus the common
+ * 74 cutoff, 71 resonance, 73 ENV-2 attack and 72 ENV-2 release as second CCs that only receive; the
+ * HPF has none. Send uses Kiwi's numbers. No CC sets two parameters, and none is 0, 1, 7, 64 or
+ * 120-127. */
+TT_TEST(ui_cc_map_standard_is_kiwis_with_the_common_four)
+{
+    static const uint8_t KIWI[][2] = {     /* PG-800 number, Kiwi CC (what it sends) */
+        {52, 23}, {53, 24}, {91, 34}, {94, 37}, {81, 29}, {84, 33}, {11, 65}, {12, 66}, {21, 69},
+        {22, 70}, {23, 84}, {24, 12}, {25, 13}, {41, 18}, {42, 19}, {61, 21}, {62, 76}, {64, 81},
+        {71, 78}, {72, 40}, {73, 39}, {7, 85},
+    };
+    static const uint8_t SECOND[4][2] = {{52, 74}, {53, 71}, {91, 73}, {94, 72}};
+    uint32_t i, used[4] = {0, 0, 0, 0}, cc, v;
+    for (i = 0; i < sizeof KIWI / sizeof KIWI[0]; i++) {
+        TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_STANDARD, KIWI[i][0]), (uint32_t)KIWI[i][1]);
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_STANDARD, KIWI[i][1]), (uint32_t)KIWI[i][0]);
+    }
+    for (i = 0; i < 4u; i++)
+        TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_STANDARD, SECOND[i][1]), (uint32_t)SECOND[i][0]);
+    TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_STANDARD, 51), UI_CC_NONE);          /* the HPF: none */
+    for (i = 0; i < UI_CC_STANDARD_COUNT; i++) {
+        cc = UI_CC_STANDARD[i].cc;
+        TT_CHECK(cc != 0u && cc != 1u && cc != 7u && cc != 64u && cc < 120u);
+        TT_CHECK(!(used[cc / 32u] >> (cc % 32u) & 1u));                  /* one parameter a CC */
+        used[cc / 32u] |= 1u << (cc % 32u);
+    }
+    ui_setup();                                                          /* (the default map) */
+    ui_cc(&ui_u, 74, 127, 0);                                            /* a generic cutoff knob */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->max);
+    ui_cc(&ui_u, 23, 0, 100);                                            /* Kiwi's */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->min);
+    TT_CHECK(!ui_cc(&ui_u, 52, 127, 200));                               /* JX's number: nothing here */
+    ui_u.set.cc_send = 1;                                                /* out on Kiwi's number */
+    ui_event(&ui_u, UI_EV_ENC | ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS), 3, 300);
+    TT_CHECK(ui_cc_out(&ui_u, 300, &cc, &v));
+    TT_CHECK_EQ(cc, 23u);
+}
+
+/* CC MAP is G23 (Eric; program change moves to a 4th page when it's built): it reads STANDARD on a
+ * fresh FM-1, STD in its column, and a turn down makes it JX. */
+TT_TEST(ui_glo_g23_is_cc_map)
+{
+    char n[UI_VALUE_LEN], c[UI_VALUE_LEN];
+    ui_setup();
+    ui_tap(UI_BTN_GLO, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1100);       /* G2x */
+    TT_CHECK_EQ(ui_glo_slot_at(&ui_u, 2)->num, 23u);
+    TT_CHECK(ui_glo_reads(2, "STANDARD"));
+    ui_glo_column(&ui_u, 2, n, c);
+    TT_CHECK(strcmp(n, "STD") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, -1, 1200);
+    TT_CHECK_EQ(ui_u.set.cc_map, (uint8_t)UI_CC_MAP_JX);
+    TT_CHECK(ui_glo_reads(2, "JX"));
+    TT_CHECK_EQ(ui_u.set_dirty, 1u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_cc_map_setting_picks_the_map);
+    TT_RUN(ui_cc_map_standard_is_kiwis_with_the_common_four);
+    TT_RUN(ui_glo_g23_is_cc_map);
     TT_RUN(ui_cc_send_sends_knob_turns);
     TT_RUN(ui_cc_send_is_rate_bounded);
     TT_RUN(ui_cc_sets_its_parameter);
