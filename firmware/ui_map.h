@@ -90,6 +90,10 @@ typedef struct {
     uint8_t led_section;                /* 1: the LED digits in the section's color (the led key: none) */
     uint8_t art;                        /* the PLAY art: UI_ART_BADGE or UI_ART_SUN (a sun over a grid) */
     uint16_t grid, horizon;             /* the sun's perspective grid and horizon (UI_ART_SUN) */
+    uint16_t fill_only;                 /* bit per section: its color fills (chips, meters, frames) but is
+                                         * too dark for text, which takes the lettering (sec_text) */
+    uint16_t fill_track;                /* the meter track under a fill_only section's bar: dark enough that
+                                         * the bar stands out by lightness */
 } ui_theme;
 enum { UI_ART_BADGE, UI_ART_SUN };
 
