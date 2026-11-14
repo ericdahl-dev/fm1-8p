@@ -377,6 +377,8 @@ void ui_init(ui *u, play *p)
     u->now_ms = 0;
     u->shown_edited = 0;
     u->save_waiting = 0;
+    u->save_home_armed = 0;
+    u->save_draft_prog = UI_SAVE_NO_DRAFT;
     u->jump = -1;
     u->jump_keys = 0;
     u->jump_screen = 0;
@@ -801,8 +803,8 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     }
     u->warned = 0;
     u->banner = "";                             /* the warning goes with the edits */
-    if (clicks >= 3 || clicks <= -3)          /* a fast turn: 4 */
-        clicks = clicks > 0 ? 4 : -4;
+    if (clicks >= 3 || clicks <= -3)          /* a fast turn: 8, a row of slots (11 to 21) */
+        clicks = clicks > 0 ? 8 : -8;
     (void)play_load_prog(u->p, play_prog_step(u->p, play_prog(u->p), clicks));
     u->inv = 0;                                 /* the ENV MODEs are the new patch's signs */
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
@@ -860,7 +862,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->save_waiting) {
-        ui_save_cancel(u, ms);                  /* the waiting write, and nothing else */
+        ui_save_home(u, ms);                    /* asks, then cancels the waiting write; nothing else */
         return;
     }
     if (u->state == UI_GLO) {                   /* GLO takes the controls but PRESETS (interaction.md 7) */
