@@ -324,7 +324,7 @@ In PLAY or EDIT:
   can compare a section across patches.
 - **Unsaved edits:** when the edit buffer is modified, the first PRESETS
   **event** does not load anything, whatever its click count (a fast +8 warns
-  just like +1). It shows `EDITED: TURN AGAIN TO DISCARD`.
+  just like +1). It shows `EDITED - TURN TO DISCARD`.
   - A **later** event in the same direction while the warning shows (1.5 s)
     discards the edits and loads, moving by that event's clicks.
   - Anything else cancels the warning (decision Q4).
@@ -636,8 +636,9 @@ Patterns have their own slots, separate from patches (decision Q2).
   - It survives power-off the same way (decision Q4).
 - **Browsing:** PRESETS in SEQ view.
   - **Stopped:** each click loads the next or previous pattern at once. With
-    PATTERN EDITED, the first event warns `PATTERN EDITED: TURN AGAIN TO
-    DISCARD`, per event as for patches.
+    PATTERN EDITED, the first event warns that the pattern is edited (wording
+    pending: decided when SEQ is built, to fit the footer's 28 characters), per
+    event as for patches.
   - **Playing:** the pattern doesn't change mid-pass. Clicks pick the **next
     pattern**, shown as `NEXT PATTERN 23`. It takes over when the running
     pattern ends its pass (after its last step).
@@ -723,8 +724,8 @@ Everywhere, unless the state says otherwise:
   WAITING FOR CLOCK. Also the clock source in use, INT or MIDI, and the tempo.
 - **Must:** a banner line for short messages, shown 1.5 s:
   - `SAVED 23`, `SAVED PATTERN 23`
-  - `EDITED: TURN AGAIN TO DISCARD`
-  - `PATTERN EDITED: TURN AGAIN TO DISCARD`
+  - `EDITED - TURN TO DISCARD`
+  - the pattern-edited warning (wording pending, decided when SEQ is built)
   - `MAX n NOTES` (n = the build's voice count)
   - `SAVE CANCELED`
   - `STOP TO RECORD`

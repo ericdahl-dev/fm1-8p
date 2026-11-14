@@ -156,7 +156,7 @@ static void blit(int32_t x, int32_t y, int32_t w, int32_t h)
 /* rows 0..27: the header and the gap under it: the section name on a chip of its color, or under a
  * 3 px band in it (the theme's), then lead and tail dim around lit ("A/" "B" "": page B) */
 static void header(const char *chip, uint16_t col, const char *lead, const char *lit, const char *tail,
-                   int32_t page)
+                   int32_t page, int32_t gap)
 {
     char o[UI_VALUE_LEN];
     int32_t x, w;
@@ -177,7 +177,7 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
     } else {
         H->cv_rect(0, 0, 240, 3, col);
         CV_TEXT(M, 4, 0, chip, col);
-        x = M + TEXT_W(0, chip) + 8;
+        x = M + TEXT_W(0, chip) + gap;   /* (no chip box: the gap alone sets the name apart) */
     }
     CV_TEXT(x, 4, 0, lead, C_DIM);
     x += TEXT_W(0, lead);
@@ -476,7 +476,7 @@ static void play_part(uint32_t b, uint32_t part)
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("PLAY", C_PLAY, "", "FM1-8P", "", -1);
+        header("PLAY", C_PLAY, "", "FM1-8P", "", -1, 8);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: the patch, or 3 s of the knob turned */
         int user;
         if (ui_play_readout(U, H->ms())) {
@@ -520,7 +520,7 @@ static void save_part(uint32_t b, uint32_t part)
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("SAVE", led_of(C_PLAY), "", "PATCH", "", -1);
+        header("SAVE", led_of(C_PLAY), "", "PATCH", "", -1, 8);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: TO 23, and what is there now */
         ui_prog_number(U->save_dest, s);
         H->cv_begin(240, 50, C_BG);
@@ -581,7 +581,7 @@ static void page_part(uint32_t b, uint32_t part)
             chip[k + 2u] = in->section[k];
         chip[0] = in->name[0], chip[1] = ' ', chip[k + 2u] = 0;
         header(chip, C_VCF, b_page ? "A/" : "", two ? (b_page ? "B" : "A") : "", two && !b_page ? "/B" : "",
-               (int32_t)U->page);
+               (int32_t)U->page, 8);
     } else if (b == UI_D_FOCUS) {
         focus_row();
     } else if (b == UI_D_SLOT) {
@@ -605,7 +605,7 @@ static void jump_part(uint32_t b, uint32_t part)
         text_c(0, 240, 2, 0, "KEYS F3-A4: 1-9, 0", C_DIM);
         blit(0, 222, 240, 18);
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("NUMBER", T->section[UI_SEC_GLO], "", "SEL + 2 KEYS", "", -1);
+        header("NUMBER", T->section[UI_SEC_GLO], "", "SEL + 2 KEYS", "", -1, 20);  /* Eric: wider */
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: the number so far */
         ui_jump_digits(U, num);
         H->cv_begin(240, 50, C_BG);
