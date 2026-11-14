@@ -447,7 +447,7 @@ is sounding, as fm1-dock's rules ask.
 | G31 | K1 | Velocity curve (the host's `sense_set` curve) | 50..200 % | the host's |
 | G32 | K2 | Fixed velocity, for keys with no force sensing | 1..127 | 100 |
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
-| G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | NIGHT PANEL |
+| G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | MEMBRANE |
 
 **Theme (G34):** the screen's look for the whole instrument, not per patch.
 It takes effect at once, redrawing the whole screen, and is saved with the
@@ -1129,10 +1129,10 @@ test.
 63. With G24 = PICKUP and cutoff at 64 (CC scale), CC74 = 20 is ignored, and
     CC74 = 63, 64 or 65 takes over. After that, CC74 = 20 sets the value.
 64. With G24 = JUMP, CC74 = 20 sets cutoff at once.
-65. Setting G34 THEME to MEMBRANE redraws the screen at once and saves the
+65. Setting G34 THEME to NIGHT PANEL redraws the screen at once and saves the
     settings once nothing sounds. After `init()` with that settings record
-    (a power cycle), THEME is MEMBRANE. With no settings record, it is
-    NIGHT PANEL.
+    (a power cycle), THEME is NIGHT PANEL. With no settings record, it is
+    MEMBRANE.
 
 **After the engine catches up**
 
@@ -1185,5 +1185,5 @@ until then test 12 (pending slots send nothing) covers those slots.
 - **Key transpose reference:** C5 in SEQ view (the only C among the chord
   keys), and C4 outside it.
 - **Themes:** two screen themes, MEMBRANE and NIGHT PANEL, set in GLO (G34),
-  instrument-wide, default NIGHT PANEL. The SEQ view is a piano roll (visuals
+  instrument-wide, default MEMBRANE. The SEQ view is a piano roll (visuals
   in PR #53).
