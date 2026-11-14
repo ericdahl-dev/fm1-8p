@@ -41,6 +41,7 @@ typedef struct {
     int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
     uint32_t warned_ms;                 /* when */
     uint32_t page;                      /* the edit page, in the page order (UI_PAGE_INFO) */
+    uint32_t inv;                       /* an ENV MODE's INV while its depth is 0 (bit: ui.c inv_bit) */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
@@ -85,6 +86,9 @@ uint32_t ui_meter(uint16_t id, int32_t value);
 /* a one-bar meter (Membrane) in a w px track: the bar from *a to *b px, a range from the left in
  * proportion, a bipolar param (min = -max) out from the middle */
 void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b);
+/* a slot's bar (its value from ui_slot_value): an ENV size from the left over 0..its top, the rest as
+ * ui_meter_bar */
+void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b);
 /* a choice slot's (order set) meter: value's knob position (a value between positions: the one
  * before it), of *n positions */
 uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);

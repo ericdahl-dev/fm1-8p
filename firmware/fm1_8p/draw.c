@@ -245,7 +245,7 @@ static void slot(uint32_t part)
     H->cv_begin(pw, 60, C_BG);
     H->cv_rect(M - x0, 0, w, h, C_WINDOW);      /* (the canvas clips what isn't this part's) */
     frame(M - x0, 0, w, h, C_LINE);
-    if (col == UI_SEC_DCO1 || col == UI_SEC_DCO2) {     /* the waveform, two cycles, centered */
+    if (U->page < 4u) {                         /* 1A-2B: the waveform, two cycles, centered */
         H->cv_rect(M + 2 - x0, h / 2, w - 4, 1, C_LINE);
         i = x0 - M - 3;
         i0 = i = i < 0 ? 0 : i;
@@ -319,11 +319,16 @@ static void column(uint32_t k)
                     H->cv_rect(x + 6 + (int32_t)(i * 46u / n), 40, (int32_t)(46u / n) - 2, 6,
                                i == at ? on : C_LINE);
             } else if (T->meter_segments) {
+                if (s->how == UI_HOW_SIZE) {    /* (an ENV size: from the left) */
+                    int32_t a, b;
+                    ui_slot_bar(s, value, (int32_t)UI_METER_SEGS, &a, &b);
+                    lit = (1u << b) - 1u;
+                }
                 for (i = 0; i < UI_METER_SEGS; i++)  /* 44 px: 8 segments of about 4, 2 px gaps */
                     H->cv_rect(x + 6 + ((int32_t)i * 23 + 2) / 4, 40, 4, 6, lit >> i & 1u ? on : C_LINE);
             } else {                            /* one bar in a 44 px track */
                 int32_t a, b;
-                ui_meter_bar(s->id, value, 44, &a, &b);
+                ui_slot_bar(s, value, 44, &a, &b);
                 H->cv_rect(x + 6, 40, 44, 6, C_LINE);
                 H->cv_rect(x + 6 + a, 40, b - a, 6, on);
             }

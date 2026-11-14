@@ -99,7 +99,7 @@ fast step applies when one event carries 3 or more clicks.
 | 12 | K2 | `osc1_wave` | WAVE | SAW, PULSE, SQUARE, NOISE (panel order) | 1 / 1 |
 | 13 | K3 | `osc1_coarse_semis` (pending, #158) | TUNE | -12..+12 st | 1 / 1 |
 | 14 | K4 | `lfo_pitch_cents` | LFO | 0..1200 ct | 1 to 99 ct: 1 / 10; then 10 / 50 |
-| 15 | K1 | `pitch_env_osc1_cents` | ENV | -32..+32 st | 10 ct / 100 ct |
+| 15 | K1 | `pitch_env_osc1_cents` (its size) | ENV | 0..32 st, to 0.1 (32 MODE has the sign) | 10 ct / 100 ct |
 | 16 | K2 | `osc1_fine_cents` (*ours*) | FINE | -100..+100 ct | 1 / 10 |
 | 17 | K3 | `osc1_pulse_width_pct` (*ours*) | WIDTH | 1..99 % (inactive unless WAVE is PULSE) | 1 / 5 |
 | 18 | K4 | reserved | | | |
@@ -113,7 +113,7 @@ fast step applies when one event carries 3 or more clicks.
 | 23 | K3 | `osc_sync` + `osc_ring` | X-MOD | OFF, SYNC 1, SYNC 2, X-MOD (the JX's CROSS MOD) | 1 / 1 |
 | 24 | K4 | `osc2_coarse_semis` | TUNE | -12..+12 st | 1 / 1 |
 | 25 | K1 | `osc2_fine_cents` | FINE | -100..+100 ct | 1 / 10 |
-| 26 | K2 | `lfo_pitch_osc2_cents` | LFO | `=D1` (follows 14), 0..1200 ct | as 14 |
+| 26 | K2 | `lfo_pitch_osc2_cents` | LFO | `D1` (follows 14), 0..1200 ct | as 14 |
 | 27 | K3 | `pitch_env_osc2_cents` | ENV | as 15 | as 15 |
 | 28 | K4 | `osc2_pulse_width_pct` (*ours*) | WIDTH | as 17 | 1 / 5 |
 
@@ -126,7 +126,7 @@ both 15 and 27.
 | --- | --- | --- | --- | --- | --- |
 | 31 | K1 | `pitch_env_dyna` | DYNA | OFF, 1, 2, 3 | 1 / 1 |
 | 32 | K2 | `pitch_env_source` + the sign of 15 and 27 | MODE | ENV2 INV, ENV2, ENV1 INV, ENV1 | 1 / 1 |
-| 33 | K3 | `osc_xmod_permille` (*ours*) | XMOD AMT | 0..100 % | 1 / 5 |
+| 33 | K3 | `osc_xmod_permille` (*ours*) | XM AMT | 0..100 % | 1 / 5 |
 | 34 | K4 | reserved | | | |
 
 ### 4x MIXER (pages 4A, 4B)
