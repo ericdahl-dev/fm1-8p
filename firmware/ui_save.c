@@ -14,7 +14,11 @@ void ui_save_open(ui *u, uint32_t ms)
             ;
         u->save_dest = s < STORE_USER_SLOTS ? s : 0u;
     }
-    play_prog_name(u->p, u->save_name);
+    if (u->save_draft_prog == q)                /* a canceled SAVE of this patch: its name again */
+        for (s = 0; s <= STORE_NAME_LEN; s++)
+            u->save_name[s] = u->save_draft[s];
+    else
+        play_prog_name(u->p, u->save_name);
     for (s = 0; s < STORE_NAME_LEN; s++)        /* all 12 places editable: spaces past the end */
         if (!u->save_name[s])
             u->save_name[s] = ' ';
@@ -85,32 +89,50 @@ static void take_snapshot(ui *u)
 static void write(ui *u, uint32_t ms)
 {
     u->save_waiting = 0;
-    if (play_save(u->p, u->save_dest, &snap) == 0)
+    u->save_home_armed = 0;
+    if (play_save(u->p, u->save_dest, &snap) == 0) {
+        u->save_draft_prog = UI_SAVE_NO_DRAFT;  /* written: no draft to offer */
         say(u, "SAVED", u->save_dest, ms);
-    else
+    } else
         say(u, "SAVE FAILED", STORE_USER_SLOTS, ms);
 }
 
-static const char WAITING[] = "SAVING WHEN SILENT";
+static const char HOLD[] = "HOLD SAVE: NOW";
+static const char HOME_AGAIN[] = "HOME AGAIN TO CANCEL SAVE";
 
-void ui_save_cancel(ui *u, uint32_t ms)
+void ui_save_home(ui *u, uint32_t ms)
 {
-    u->save_waiting = 0;
-    say(u, "SAVE CANCELED", STORE_USER_SLOTS, ms);
+    if (u->save_home_armed && ms - u->save_home_ms < UI_BANNER_MS) {
+        u->save_waiting = 0;
+        u->save_home_armed = 0;
+        say(u, "SAVE CANCELED", STORE_USER_SLOTS, ms);
+        return;
+    }
+    u->save_home_armed = 1;                     /* the first tap only asks */
+    u->save_home_ms = ms;
+    u->banner = HOME_AGAIN;
+    u->banner_ms = ms;
+    u->dirty |= UI_D_FOOT;
 }
 
 void ui_save_tick(ui *u, uint32_t ms)
 {
+    const char *b;
     if (!u->save_waiting)
         return;
     if (play_silent(u->p) ||
         (u->held >> UI_BTN_SAVE & 1u && ms - u->down_ms[UI_BTN_SAVE] >= UI_FORCE_MS)) {
         write(u, ms);                           /* silent, or forced: SAVE held (the sound stalls) */
-    } else if (!*u->banner || u->banner == WAITING) {   /* (another banner shows first) */
-        u->banner = WAITING;
-        u->banner_ms = ms;
-        u->dirty |= UI_D_FOOT;
+        return;
     }
+    if (!(!*u->banner || u->banner == u->save_wait_msg || u->banner == HOLD ||
+          ms - u->banner_ms >= UI_BANNER_MS))
+        return;                                 /* another banner shows first */
+    b = (ms - u->save_wait_ms) / UI_BANNER_MS & 1u ? HOLD : u->save_wait_msg;   /* by turns */
+    if (b != u->banner)
+        u->dirty |= UI_D_FOOT;
+    u->banner = b;
+    u->banner_ms = ms;
 }
 
 void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
@@ -155,9 +177,14 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         }
         u->dirty |= UI_D_ALL & ~UI_D_FULL;
     }
-    if ((ev == (UI_EV_BTN_UP | UI_BTN_HOME) || ev == (UI_EV_BTN_UP | UI_BTN_EDIT)) && tap) {
-        u->state = u->save_from;                /* canceled: nothing written */
+    if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap) {   /* canceled: nothing written, the name kept */
+        uint32_t i;
+        for (i = 0; i <= STORE_NAME_LEN; i++)
+            u->save_draft[i] = u->save_name[i];
+        u->save_draft_prog = play_prog(u->p);
+        u->state = u->save_from;
         u->dirty |= UI_D_FULL;
+        say(u, "SAVE CANCELED", STORE_USER_SLOTS, ms);
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap) {
@@ -170,6 +197,19 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->state = u->save_from;
         u->dirty |= UI_D_FULL;
         u->save_waiting = 1;
+        u->save_wait_ms = ms;
+        u->save_home_armed = 0;
+        {
+            char *w = u->save_wait_msg;         /* SAVING 23 WHEN SILENT */
+            const char *t = "SAVING ";
+            while (*t)
+                *w++ = *t++;
+            ui_prog_number(u->save_dest, w);
+            w += 2;                             /* a user slot: two digits (a scan is strlen to clang) */
+            for (t = " WHEN SILENT"; *t; )
+                *w++ = *t++;
+            *w = 0;
+        }
         ui_save_tick(u, ms);                    /* silent now: written now */
     }
 }
