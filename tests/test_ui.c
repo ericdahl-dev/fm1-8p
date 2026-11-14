@@ -1736,8 +1736,70 @@ TT_TEST(ui_themes_meet_their_contrast_rules)
     }
 }
 
+/* GLO (interaction.md 4, 7): a GLO tap opens it from PLAY or EDIT, and a GLO or HOME tap goes back
+ * to the state it came from, on the same page. */
+static void ui_tap(uint32_t b, uint32_t ms)
+{
+    ui_event(&ui_u, UI_EV_BTN_DOWN | b, 0, ms);
+    ui_event(&ui_u, UI_EV_BTN_UP | b, 0, ms + 50u);
+}
+
+TT_TEST(ui_glo_opens_and_goes_back)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);        /* 5A */
+    ui_tap(UI_BTN_GLO, 1000);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_GLO);
+    ui_tap(UI_BTN_GLO, 2000);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);             /* 5A again */
+    ui_tap(UI_BTN_EDIT, 3000);                                 /* PLAY */
+    ui_tap(UI_BTN_GLO, 4000);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_GLO);
+    ui_tap(UI_BTN_HOME, 5000);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PLAY);
+}
+
+/* In GLO the patch's controls rest (interaction.md 7's table): the section buttons, EDIT (tap or hold),
+ * SAVE and SEL's keypad change nothing and leave GLO up; their LEDs are off. */
+TT_TEST(ui_glo_holds_the_patch_controls)
+{
+    static const uint32_t B[] = {UI_BTN_ENV, UI_BTN_FX, UI_BTN_LFO, UI_BTN_SEL, UI_BTN_EDIT, UI_BTN_SAVE};
+    const patch *was;
+    int32_t cut;
+    uint32_t i;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);        /* 5A */
+    play_set_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS, 5000); /* edited: EDIT's hold would compare */
+    was = play_patch(&ui_p);
+    cut = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_tap(UI_BTN_GLO, 1000);
+    for (i = 0; i < sizeof B / sizeof B[0]; i++) {
+        ui_tap(B[i], 2000 + 100 * i);
+        TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_GLO);
+    }
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 3000);   /* held past a tap */
+    (void)ui_take(&ui_u, 3600);
+    TT_CHECK_EQ(ui_u.comparing, 0u);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 3700);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 4000);    /* held: no keypad, no jump screen */
+    TT_CHECK(ui_key(&ui_u, 1, 1, 4100) == 0);
+    (void)ui_take(&ui_u, 4600);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_GLO);
+    for (i = 0; i < 4u; i++)
+        TT_CHECK_EQ(ui_led(&ui_u, B[i]), (uint32_t)UI_LED_OFF);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_GLO);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
+    TT_CHECK(play_patch(&ui_p) == was);
+    ui_tap(UI_BTN_GLO, 5000);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);             /* 5A again */
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_glo_holds_the_patch_controls);
+    TT_RUN(ui_glo_opens_and_goes_back);
     TT_RUN(ui_themes_meet_their_contrast_rules);
     TT_RUN(ui_isqrt_is_the_floor);
     TT_RUN(ui_settings_default_and_ranges);

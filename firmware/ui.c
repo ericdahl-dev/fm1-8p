@@ -382,6 +382,11 @@ void ui_init(ui *u, play *p)
     u->jump_screen = 0;
     u->readout = 0;
     u->readout_ms = 0;
+    u->glo_from = UI_PLAY;
+    u->glo_page = 0;
+    ui_settings_default(&u->set);
+    u->set_dirty = 0;
+    u->set_changed_ms = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -778,6 +783,24 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         ui_save_cancel(u, ms);                  /* the waiting write, and nothing else */
         return;
     }
+    if (u->state == UI_GLO) {                   /* GLO takes the controls but PRESETS (interaction.md 7) */
+        if ((ev == (UI_EV_BTN_UP | UI_BTN_GLO) || ev == (UI_EV_BTN_UP | UI_BTN_HOME)) && tap) {
+            u->state = u->glo_from;             /* back, on the page it left */
+            u->dirty |= UI_D_FULL;
+        } else if (ev == (UI_EV_ENC | UI_ENC_PRESETS)) {
+            browse(u, arg, ms);
+        }
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
+        !u->comparing && !(u->jump_screen & UI_JS_UP)) {
+        u->glo_from = u->state;
+        u->state = UI_GLO;
+        u->readout = 0;
+        u->warned = 0;
+        u->dirty |= UI_D_FULL;
+        return;
+    }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && !u->comparing && !u->save_waiting) {
         u->jump = -1;                           /* SEL held: the keypad ends (keys down still get their ups) */
         u->jump_keys &= ~JUMP_USED;
@@ -845,6 +868,8 @@ uint32_t ui_screen(const ui *u)
 {
     if (u->state == UI_SAVE)
         return UI_SCREEN_SAVE;
+    if (u->state == UI_GLO)
+        return UI_SCREEN_GLO;
     return u->jump_screen & UI_JS_UP ? UI_SCREEN_JUMP : u->state == UI_EDIT ? UI_SCREEN_PAGE : UI_SCREEN_PLAY;
 }
 
@@ -868,7 +893,8 @@ uint32_t ui_take(ui *u, uint32_t ms)
         u->shown_edited = play_edited(u->p);
         u->dirty |= UI_D_FOOT;
     }
-    if (u->held >> UI_BTN_EDIT & 1u && !u->comparing && ms - u->down_ms[UI_BTN_EDIT] >= UI_TAP_MS) {
+    if (u->held >> UI_BTN_EDIT & 1u && !u->comparing && u->state != UI_GLO &&
+        ms - u->down_ms[UI_BTN_EDIT] >= UI_TAP_MS) {
         if (play_edited(u->p)) {                /* an EDIT hold: compare */
             u->comparing = UI_COMPARE_ON;
             play_compare_begin(u->p);
@@ -907,10 +933,12 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_ENV:
     case UI_BTN_FX:
     case UI_BTN_LFO:                            /* lit while a page of its ring shows */
-        if (u->state == UI_SAVE)                /* they do nothing in SAVE: off (interaction.md) */
+        if (u->state == UI_SAVE || u->state == UI_GLO)   /* they do nothing there: off (interaction.md) */
             return UI_LED_OFF;
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
     case UI_BTN_EDIT:                           /* lit while the edit buffer differs from the stored patch */
+        if (u->state == UI_GLO)
+            return UI_LED_OFF;
         if (u->comparing == UI_COMPARE_ON)      /* blinking during compare */
             return u->now_ms / UI_BLINK_MS & 1u ? UI_LED_OFF : UI_LED_LIT;
         return play_edited(u->p) ? UI_LED_LIT : UI_LED_GLOW;

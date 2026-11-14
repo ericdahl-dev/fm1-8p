@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "play.h"
 #include "ui_map.h"
+#include "ui_settings.h"
 
 /* ui_event's events: the same values as fm1-dock's hb_module.h (the glue passes them on as they are) */
 #define UI_EV_BTN_DOWN 0x01000000u
@@ -16,6 +17,7 @@
 #define UI_BTN_ENV     4u
 #define UI_BTN_LFO     5u
 #define UI_BTN_EDIT    6u
+#define UI_BTN_GLO     7u
 #define UI_BTN_HOME    8u
 #define UI_BTN_SAVE    9u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
@@ -27,7 +29,7 @@
 #define UI_ENC_KNOB4   5u
 #define UI_ENC_PRESETS 6u
 
-typedef enum { UI_PLAY, UI_EDIT, UI_SAVE } ui_state;
+typedef enum { UI_PLAY, UI_EDIT, UI_SAVE, UI_GLO } ui_state;
 
 
 typedef struct {
@@ -62,6 +64,12 @@ typedef struct {
     uint32_t jump_screen;               /* UI_JS_*: the number jump's screen up, and a jump done in this hold */
     uint32_t readout;                   /* PLAY: a knob's readout in the focus row (UI_READOUT_MS from readout_ms) */
     uint32_t readout_ms;
+    /* GLO (interaction.md 4): the instrument's settings */
+    ui_state glo_from;                  /* the state GLO goes back to */
+    uint32_t glo_page;                  /* 0..2: G1x, G2x, G3x */
+    ui_settings set;                    /* the settings (agent2's store loads them, and saves them) */
+    uint32_t set_dirty;                 /* 1: a GLO knob changed one since the store last wrote */
+    uint32_t set_changed_ms;            /* when */
 } ui;
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
 #define UI_JS_UP   1u
@@ -145,7 +153,7 @@ int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* which screen shows (draw.c branches on it for every band): PLAY, an edit page, or the number jump's
  * (up from 400 ms into a SEL hold, or a first digit, until a jump is done or SEL comes up) */
-enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE };
+enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO };
 uint32_t ui_screen(const ui *u);
 /* PLAY: the focus row shows the last turned knob (3 s after its turn), not the patch's name */
 int ui_play_readout(const ui *u, uint32_t ms);
