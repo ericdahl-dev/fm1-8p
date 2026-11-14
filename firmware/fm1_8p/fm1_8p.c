@@ -86,6 +86,9 @@ static void ui_ev(uint32_t ev, int32_t arg)
     default:                                    /* a key's pressure, ...: nothing for the pages */
         return;
     }
+#ifdef FM1_DEBUG
+    H->log_u32("fm1-8p TRAIL ev kind/arg/id", (ev & 0xFF0000FFu) | ((uint32_t)arg & 0xFFFFu) << 8);
+#endif
     ui_event(&U, ev, arg, H->ms());             /* pages and knobs */
     page_leds(0);
 }
