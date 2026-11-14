@@ -51,8 +51,9 @@ static int reach_shown(const ui_slot *s, char *num, char *unit)
 }
 
 /* SELECT walks every page with something live; on each, every live knob is turned hard down and hard
- * up, and must land on its ends, shown as different values. Every engine param must be one a live
- * slot sets (a PAIR slot sets two), or on the exception list. */
+ * up, and must land on its ends, shown as different values; a choice is then stepped through every
+ * stop in order (so X-MOD's SYNC 1 and SYNC 2 count too, not only its ends). Every engine param must
+ * be one a live slot sets (a PAIR slot sets two), or on the exception list. */
 TT_TEST(ui_every_param_is_reached_edited_and_shown)
 {
     static uint8_t seen[UI_PAGES], covered[FM_PARAM_COUNT];
@@ -92,6 +93,22 @@ TT_TEST(ui_every_param_is_reached_edited_and_shown)
                        UI_PAGE_INFO[ui_u.page].name, (unsigned)(k + 1u), fm_param_info_get(s->id)->name,
                        (long)lo, (long)hi, (long)got_lo, num_lo, unit_lo, (long)got_hi, num_hi, unit_hi);
                 wrong++;
+            }
+            if (s->order) {                     /* a choice: one click at a time, every stop in order */
+                int32_t max = s->how == UI_HOW_PLAIN ? fm_param_info_get(s->id)->max : 3, j;
+                ui_event(&ui_u, UI_EV_ENC | (UI_ENC_KNOB1 + k), -1000, 100);
+                for (j = 0; j < (int32_t)s->n_order; j++) {
+                    if (!(s->stops >> j & 1u) || s->order[j] > max)
+                        continue;
+                    if (ui_slot_value(&ui_u, s) != s->order[j]) {
+                        printf("  page %s knob %u (%s): stop %ld is %ld, got %ld\n", UI_PAGE_INFO[ui_u.page].name,
+                               (unsigned)(k + 1u), fm_param_info_get(s->id)->name, (long)j, (long)s->order[j],
+                               (long)ui_slot_value(&ui_u, s));
+                        wrong++;
+                        break;
+                    }
+                    ui_event(&ui_u, UI_EV_ENC | (UI_ENC_KNOB1 + k), 1, 100);
+                }
             }
         }
         ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 100);
