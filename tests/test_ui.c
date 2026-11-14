@@ -97,15 +97,23 @@ TT_TEST(ui_knob_clamps_at_the_ends_of_the_range)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 16400);
 }
 
-/* This slice's PLAY screen has no knobs: a turn there changes nothing. */
-TT_TEST(ui_knobs_do_nothing_in_play)
+/* PLAY's knobs are the performance four (interaction.md 6, PLAY): K1 52 CUTOFF, K2 53 RES, K3 55 ENV,
+ * K4 94 RELEASE, as their pages turn them; the screen stays PLAY. */
+TT_TEST(ui_play_knobs_are_the_performance_four)
 {
-    int32_t before;
+    static const uint8_t NUM[4] = {52, 53, 55, 94};
+    uint32_t k;
     ui_setup();
     TT_CHECK_EQ(ui_u.state, UI_PLAY);
-    before = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 0);
-    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), before);
+    for (k = 0; k < 4u; k++)
+        TT_CHECK_EQ(ui_page_slot(&ui_u, k)->num, NUM[k]);
+    play_set_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), 6100);
+    play_set_param(&ui_p, FM_PARAM_AMP_RELEASE_MS, 13);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 10);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_AMP_RELEASE_MS), 15);
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
 }
 
 static int ui_shows(uint16_t id, int32_t value, const char *want)
@@ -504,15 +512,25 @@ TT_TEST(ui_env_on_5a_steps_to_5b)
     TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 81);    /* then on round its ring: 8A ENV-1 */
 }
 
-/* On PLAY a new last note marks the note's strip, coalesced like the other redraws, and only once. */
-TT_TEST(ui_new_last_note_marks_the_note_strip)
+/* PLAY shows no last note any more (visual.md: its columns are the performance knobs): a note redraws
+ * nothing. A knob turn there shows that knob in the focus row for 3 s (interaction.md 6, PLAY), then
+ * the name again; a CUTOFF turn doesn't redraw the slot (PLAY's is the badge, not the curve). */
+TT_TEST(ui_play_turn_shows_its_readout_for_3_s)
 {
+    uint32_t d;
     ui_setup();
     (void)ui_take_full(&ui_u, 0);
     play_key_down(&ui_p, 3, 100);
-    TT_CHECK_EQ(ui_take(&ui_u, 10), 0u);       /* within the frame */
-    TT_CHECK_EQ(ui_take(&ui_u, 100), UI_D_NOTE);
-    TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
+    TT_CHECK_EQ(ui_take(&ui_u, 100), 0u);
+    TT_CHECK(!ui_play_readout(&ui_u, 100));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1000);
+    d = ui_take(&ui_u, 1000);
+    TT_CHECK(d & UI_D_FOCUS);
+    TT_CHECK(!(d & UI_D_SLOT));
+    TT_CHECK(ui_play_readout(&ui_u, 3999));
+    TT_CHECK_EQ(ui_take(&ui_u, 3999), 0u);
+    TT_CHECK(!ui_play_readout(&ui_u, 4000));
+    TT_CHECK_EQ(ui_take(&ui_u, 4000), UI_D_FOCUS | UI_D_COL(0));  /* the name again, and the frame off */
 }
 
 /* HB_F_SCREEN hides the host's line, so the header shows the octave: a change redraws it, once. */
@@ -542,6 +560,7 @@ TT_TEST(ui_slot_number_is_two_digits)
 {
     char s[3];
     ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);       /* 5A */
     ui_slot_number(ui_page_slot(&ui_u, 0), s);
     TT_CHECK(strcmp(s, "51") == 0);
 }
@@ -1186,10 +1205,14 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
         const ui_slot *f;
         r = r * 1103515245u + 12345u;
         ms += (r >> 8) % 600u;                  /* taps and holds */
+        uint32_t ev = EV[(r >> 16) % (sizeof EV / sizeof EV[0])];
         if ((r >> 12) % 4u == 0)                /* a key now and then (the number jump's keypad) */
             (void)ui_key(&ui_u, (r >> 20) % PLAY_KEYS, (int)((r >> 6) & 1u), ms);
         else
-            ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
+            ui_event(&ui_u, ev, (int32_t)((r >> 4) % 7u) - 3, ms);
+        (void)ui_take(&ui_u, ms);               /* (the jump screen's 400 ms timer) */
+        if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && (r >> 12) % 4u != 0 && ui_screen(&ui_u) == UI_SCREEN_JUMP)
+            bad++;                              /* its screen never outlives SEL */
         if (ui_u.state != UI_EDIT)
             continue;
         if (ui_u.focus == 4u)                   /* no focus (a number with no parameter): an empty row */
@@ -1527,6 +1550,115 @@ TT_TEST(ui_keypad_glows_while_sel_is_held)
     TT_CHECK_EQ(ui_keypad_led(&ui_u, 1u), UI_LED_OFF);         /* F#3, a black key */
 }
 
+/* The number jump's screen (interaction.md 6): it comes up once SEL has been held 400 ms (a tap never
+ * shows it) or at once with a digit; it goes on a finished jump (the page shows, SEL still down) and
+ * on SEL up. A knob turn under it leaves it up. */
+TT_TEST(ui_jump_screen_comes_and_goes)
+{
+    ui_setup();
+    (void)ui_take_full(&ui_u, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PLAY);
+    (void)ui_take(&ui_u, 1399);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PLAY);
+    TT_CHECK(ui_take(&ui_u, 1400) & UI_D_FULL);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1450);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1500);
+    TT_CHECK(ui_take(&ui_u, 1600) & UI_D_FULL);
+    TT_CHECK(ui_screen(&ui_u) != UI_SCREEN_JUMP);
+    /* a digit at once, then the second: the page while SEL is still held, and no timer after */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3000);
+    (void)ui_key(&ui_u, UI_KEY_G3, 1, 3050);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    (void)ui_key(&ui_u, UI_KEY_A3, 1, 3100);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
+    (void)ui_take(&ui_u, 3600);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, ui_u.focus)->num, 23);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3700);
+    /* a tap: no screen at all */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 5000);
+    (void)ui_take(&ui_u, 5100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 5200);
+    TT_CHECK(ui_screen(&ui_u) != UI_SCREEN_JUMP);
+}
+
+/* The jump screen's number: the digits typed, then _ (interaction.md 6: "4_"); the LED window has _
+ * as segment d. Each section has a name for its list. */
+TT_TEST(ui_jump_digits_and_sections)
+{
+    char s[3];
+    uint32_t i;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_jump_digits(&ui_u, s);
+    TT_CHECK(strcmp(s, "__") == 0);
+    (void)ui_key(&ui_u, UI_KEY_C4, 1, 50);
+    ui_jump_digits(&ui_u, s);
+    TT_CHECK(strcmp(s, "5_") == 0);
+    TT_CHECK_EQ(ui_seg7('_'), 0x08u);
+    for (i = 0; i < 10u; i++)
+        TT_CHECK(UI_SECTION_NAME[i] && strlen(UI_SECTION_NAME[i]) <= 12u);
+    TT_CHECK(strcmp(UI_SECTION_NAME[5], "VCF") == 0);
+}
+
+/* PLAY's readout belongs to that visit: turn KNOB1 in PLAY, go to 5A and back within 3 s, and PLAY shows
+ * the patch again, not a readout of a knob not turned there. */
+TT_TEST(ui_play_readout_ends_with_the_visit)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1000);
+    TT_CHECK(ui_play_readout(&ui_u, 1100));
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 1200);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1500);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 1600);      /* a tap: PLAY again */
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+    TT_CHECK(!ui_play_readout(&ui_u, 1700));
+}
+
+/* The same in PLAY: under the jump screen the performance knobs don't turn (Eric's choice (a)). */
+TT_TEST(ui_jump_screen_holds_the_knobs_in_play)
+{
+    int32_t cut;
+    ui_setup();
+    cut = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 3, 1500);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
+    TT_CHECK(!ui_play_readout(&ui_u, 1600));
+}
+
+/* While the jump screen is up, the other controls do nothing (Eric, 2026-11-14: only the keypad's keys
+ * and SEL's release act): in EDIT a knob, PRESETS, SELECT, ALGORITHM and the section buttons leave the
+ * page, its values and the patch as they were. */
+TT_TEST(ui_jump_screen_holds_the_controls_in_edit)
+{
+    static const uint32_t EV[] = {UI_EV_ENC | UI_ENC_KNOB2, UI_EV_ENC | UI_ENC_PRESETS, UI_EV_ENC | UI_ENC_SELECT,
+                                  UI_EV_ENC | UI_ENC_ALGORITHM, UI_EV_BTN_DOWN | UI_BTN_ENV,
+                                  UI_EV_BTN_DOWN | UI_BTN_FX, UI_EV_BTN_DOWN | UI_BTN_LFO};
+    const patch *was;
+    int32_t cut;
+    uint32_t i;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);        /* 5A */
+    was = play_patch(&ui_p);
+    cut = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    for (i = 0; i < sizeof EV / sizeof EV[0]; i++)
+        ui_event(&ui_u, EV[i], 2, 1500 + 10 * i);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
+    TT_CHECK(play_patch(&ui_p) == was);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 2000);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);             /* still 5A */
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1569,6 +1701,11 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_jump_screen_holds_the_controls_in_edit);
+    TT_RUN(ui_jump_screen_holds_the_knobs_in_play);
+    TT_RUN(ui_play_readout_ends_with_the_visit);
+    TT_RUN(ui_jump_screen_comes_and_goes);
+    TT_RUN(ui_jump_digits_and_sections);
     TT_RUN(ui_keypad_glows_while_sel_is_held);
     TT_RUN(ui_keypad_keeps_held_notes_and_taps_apart);
     TT_RUN(ui_number_jump_without_a_parameter);
@@ -1627,7 +1764,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_slot_number_is_two_digits);
     TT_RUN(ui_octave_label_reads_like_the_hosts);
     TT_RUN(ui_octave_change_marks_the_header);
-    TT_RUN(ui_new_last_note_marks_the_note_strip);
+    TT_RUN(ui_play_turn_shows_its_readout_for_3_s);
     TT_RUN(ui_env_on_5a_steps_to_5b);
     TT_RUN(ui_home_hold_keeps_the_page);
     TT_RUN(ui_redraw_goes_one_band_at_a_time);
@@ -1647,7 +1784,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_reso_env_and_key_read_in_their_units);
     TT_RUN(ui_cutoff_reads_in_hz_three_digits);
     TT_RUN(ui_knob_clamps_at_the_ends_of_the_range);
-    TT_RUN(ui_knobs_do_nothing_in_play);
+    TT_RUN(ui_play_knobs_are_the_performance_four);
     TT_RUN(ui_fast_turn_moves_the_fast_step_per_click);
     TT_RUN(ui_edit_hold_compares_with_the_stored_patch);
     TT_RUN(ui_edit_hold_with_no_edits_says_so);

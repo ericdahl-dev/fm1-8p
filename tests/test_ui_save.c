@@ -295,6 +295,28 @@ TT_TEST(save_opened_with_sel_held_ends_the_keypad)
     TT_CHECK_EQ(ui_key(&ui_u, UI_KEY_A3, 0, 1650), 0);
 }
 
+/* SAVE has its own screen (draw.c draws every band through ui_screen), and opening it takes the number
+ * jump's screen down: after SAVE, the page shows, not the jump. */
+TT_TEST(save_has_the_screen_and_takes_the_jump_down)
+{
+    save_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_SAVE);
+    save_tap(UI_BTN_HOME, 1200);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 2000);
+    (void)ui_take(&ui_u, 2500);                 /* SEL held 400 ms: the jump's screen */
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    save_tap(UI_BTN_SAVE, 2600);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_SAVE);
+    TT_CHECK_EQ(ui_take(&ui_u, 2700) & UI_D_FULL, UI_D_FULL);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 2800);
+    save_tap(UI_BTN_HOME, 2900);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
+    (void)ui_take(&ui_u, 3500);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
@@ -310,4 +332,5 @@ static void run_ui_save_tests(void)
     TT_RUN(save_leds_of_idle_buttons_are_off);
     TT_RUN(save_sel_does_not_take_the_keys);
     TT_RUN(save_opened_with_sel_held_ends_the_keypad);
+    TT_RUN(save_has_the_screen_and_takes_the_jump_down);
 }

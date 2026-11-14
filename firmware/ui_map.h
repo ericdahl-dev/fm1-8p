@@ -44,6 +44,11 @@ extern const ui_slot UI_SLOTS[UI_PAGES * 4u];   /* page p's knob k: UI_SLOTS[4 p
 
 /* the section buttons' rings (interaction.md 4): page indexes, UI_RING_END after the last */
 #define UI_RING_END 0xFFu
+/* each section's name for the number jump's list, by its digit (0 AFTERTOUCH .. 9 ENV-2) */
+extern const char *const UI_SECTION_NAME[10];
+extern const uint8_t UI_SECTION_PAGE[10];
+/* PLAY's performance knobs (interaction.md 6): 52 CUTOFF, 53 RES, 55 ENV, 94 RELEASE, as UI_SLOTS indexes */
+extern const uint8_t UI_PLAY_SLOT[4];       /* each section's page A, by its digit */
 extern const uint8_t UI_RING_SEL[], UI_RING_ENV[], UI_RING_FX[], UI_RING_LFO[];
 
 #define UI_TIME_COUNT 122u
@@ -65,6 +70,7 @@ typedef struct {
     uint8_t meter_segments;             /* 0: one bar */
     uint16_t focus[3];                  /* the focus frames inward, as mixes from bg (0: none) */
     uint16_t hatch;                     /* the fill under graph curves (0: none) */
+    uint16_t sun[6];                    /* the PLAY art's sunset bands, top to bottom */
 } ui_theme;
 
 extern const ui_theme UI_MEMBRANE;

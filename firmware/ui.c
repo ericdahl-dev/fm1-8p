@@ -4,7 +4,9 @@
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
-    return k < 4u ? &UI_SLOTS[4u * u->page + k] : 0;
+    if (k >= 4u)
+        return 0;
+    return u->state == UI_PLAY ? &UI_SLOTS[UI_PLAY_SLOT[k]] : &UI_SLOTS[4u * u->page + k];
 }
 
 /* 8.1758 Hz x 2^(s / 12), s = 0..12, in mHz x 16: CUTOFF's semitones in its lowest octave */
@@ -191,7 +193,7 @@ uint32_t ui_seg7(char c)
     static const uint8_t DIGIT[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};
     if (c >= '0' && c <= '9')
         return DIGIT[c - '0'];
-    return c == '-' ? 0x40u : 0u;
+    return c == '-' ? 0x40u : c == '_' ? 0x08u : 0u;
 }
 
 void ui_column(uint16_t id, int32_t value, char *num, char *unit)
@@ -377,12 +379,16 @@ void ui_init(ui *u, play *p)
     u->save_waiting = 0;
     u->jump = -1;
     u->jump_keys = 0;
+    u->jump_screen = 0;
+    u->readout = 0;
+    u->readout_ms = 0;
 }
 
 static void show_page(ui *u, ui_state st)
 {
     uint32_t k;
     u->state = st;
+    u->readout = 0;                             /* (PLAY's knob readout is that visit's) */
     u->focus = 1;                               /* knob 2, as visual.md's pages open, */
     if (UI_SLOTS[4u * u->page + 1u].kind != UI_LIVE)   /* or the first live one (4B: 45 alone) */
         for (k = 0; k < 4u; k++)
@@ -620,8 +626,7 @@ static int32_t key_digit(uint32_t k)
 /* the page A of section s (0..9: 1x .. 9x, then 0x) */
 static uint32_t section_a(int32_t s)
 {
-    static const uint8_t A[10] = {16, 0, 2, 4, 5, 7, 9, 11, 12, 14};     /* 0x, 1x, ... 9x */
-    return A[s];
+    return UI_SECTION_PAGE[s];
 }
 
 static void show_banner(ui *u, const char *s, uint32_t ms);
@@ -645,7 +650,7 @@ static void jump_to(ui *u, int32_t n, int typed, uint32_t ms)
     }
 }
 
-static void turn(ui *u, uint32_t k, int32_t clicks)
+static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
 {
     const ui_slot *s = ui_page_slot(u, k);
     if (!s || s->kind != UI_LIVE)
@@ -677,7 +682,10 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         set_slot(u, s, ui_slot_value(u, s) + (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
     }
     u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
-    if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
+    if (u->state == UI_PLAY) {                  /* the focus row reads the knob for 3 s; the slot is the badge */
+        u->readout = 1;
+        u->readout_ms = ms;
+    } else if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
         s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
         s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
         (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
@@ -733,7 +741,13 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
         return 1;
     if (u->jump == 0) {
         u->jump = d + 1;
+        if (!(u->jump_screen & UI_JS_UP))       /* a digit: the jump's screen at once */
+            u->dirty |= UI_D_FULL;
+        else
+            u->dirty |= UI_D_FOCUS;             /* (its number) */
+        u->jump_screen = (u->jump_screen | UI_JS_UP) & ~UI_JS_DONE;
     } else {
+        u->jump_screen = UI_JS_DONE;            /* the page now, SEL still down; no timer after */
         jump_to(u, (u->jump - 1) * 10 + d, 1, ms);
         u->jump = 0;
     }
@@ -767,6 +781,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && !u->comparing && !u->save_waiting) {
         u->jump = -1;                           /* SEL held: the keypad ends (keys down still get their ups) */
         u->jump_keys &= ~JUMP_USED;
+        u->jump_screen = 0;                     /* and its screen: SAVE's is drawn in full (ui_save_open) */
         ui_save_open(u, ms);
         return;
     }
@@ -783,6 +798,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             show_banner(u, "COMPARE: RELEASE EDIT", ms);
         return;
     }
+    if (ui_screen(u) == UI_SCREEN_JUMP && ev != (UI_EV_BTN_UP | UI_BTN_SEL))
+        return;                                 /* the jump's screen: only its keys and SEL's release act */
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_SEL) && (u->state == UI_PLAY || u->state == UI_EDIT))
         u->jump = 0;                            /* the keypad, while SEL is held (in PLAY or EDIT only) */
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
@@ -796,6 +813,9 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             ring_step(u, UI_RING_SEL);          /* a tap with no key: SEL's ring */
         u->jump = -1;
         u->jump_keys &= ~JUMP_USED;
+        if (u->jump_screen & UI_JS_UP)
+            u->dirty |= UI_D_FULL;              /* its screen goes: the page or PLAY again */
+        u->jump_screen = 0;
     }
     else if (ev == (UI_EV_BTN_DOWN | UI_BTN_FX))
         ring_step(u, UI_RING_FX);
@@ -806,8 +826,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)
         show_page(u, UI_PLAY);                  /* (a hold: the host's picker, which sends the UP) */
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&
-             u->state == UI_EDIT)
-        turn(u, id - UI_ENC_KNOB1, arg);
+             (u->state == UI_EDIT || u->state == UI_PLAY))     /* (PLAY: the performance four) */
+        turn(u, id - UI_ENC_KNOB1, arg, ms);
     else if (ev == (UI_EV_ENC | UI_ENC_SELECT) && arg)     /* (in PLAY: from the last edit page) */
         walk_pages(u, arg);
     else if (ev == (UI_EV_ENC | UI_ENC_ALGORITHM) && arg)
@@ -816,9 +836,32 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         browse(u, arg, ms);
 }
 
+int ui_play_readout(const ui *u, uint32_t ms)
+{
+    return u->readout && ms - u->readout_ms < UI_READOUT_MS;
+}
+
+uint32_t ui_screen(const ui *u)
+{
+    if (u->state == UI_SAVE)
+        return UI_SCREEN_SAVE;
+    return u->jump_screen & UI_JS_UP ? UI_SCREEN_JUMP : u->state == UI_EDIT ? UI_SCREEN_PAGE : UI_SCREEN_PLAY;
+}
+
+void ui_jump_digits(const ui *u, char *s)
+{
+    s[0] = u->jump > 0 ? (char)('0' + (u->jump - 1)) : '_';
+    s[1] = '_';
+    s[2] = 0;
+}
+
 uint32_t ui_take(ui *u, uint32_t ms)
 {
     uint32_t d;
+    if (u->jump >= 0 && !u->jump_screen && ms - u->down_ms[UI_BTN_SEL] >= UI_TAP_MS) {
+        u->jump_screen = UI_JS_UP;              /* SEL held 400 ms: the jump's screen */
+        u->dirty |= UI_D_FULL;
+    }
     u->now_ms = ms;
     ui_save_tick(u, ms);
     if (play_edited(u->p) != u->shown_edited) {  /* the footer's `*` */
@@ -835,9 +878,9 @@ uint32_t ui_take(ui *u, uint32_t ms)
             show_banner(u, "NO EDITS", ms);
         }
     }
-    if (u->state == UI_PLAY && play_last_note(u->p) != u->shown_note) {
-        u->shown_note = play_last_note(u->p);
-        u->dirty |= UI_D_NOTE;
+    if (u->readout && ms - u->readout_ms >= UI_READOUT_MS) {
+        u->readout = 0;                         /* PLAY's knob readout over: the name again, the frame off */
+        u->dirty |= UI_D_FOCUS | (u->focus < 4u ? UI_D_COL(u->focus) : 0u);
     }
     if (*u->banner && ms - u->banner_ms >= UI_BANNER_MS) {
         u->banner = "";
