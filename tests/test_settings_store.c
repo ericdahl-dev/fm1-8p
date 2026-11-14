@@ -207,6 +207,32 @@ TT_TEST(settings_without_io_keeps_the_defaults)
     TT_CHECK_EQ(dirty, 0u);
 }
 
+/* GLO and the store together, as fm1_8p.c's draw() runs them: THEME turned to NIGHT on its page is
+ * saved once settled and silent, and a fresh unit loads it back. */
+TT_TEST(settings_glo_change_saves_and_loads_back)
+{
+    uint32_t ms = 1000;
+    set_host_blank();
+    (void)play_init(&ui_p);
+    ui_init(&ui_u, &ui_p);
+    settings_load(&ui_u.set, &set_fake_io);     /* the first draw: no record, the defaults */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_GLO, 0, ms);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_GLO, 0, ms + 50u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 2, ms + 100u);   /* G31..G34 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, ms + 200u);    /* G34 THEME: NIGHT PANEL */
+    TT_CHECK_EQ(ui_u.set.theme, (uint32_t)UI_THEME_NIGHT);
+    TT_CHECK_EQ(ui_u.set_dirty, 1u);
+    TT_CHECK_EQ(settings_tick(&ui_u.set, &ui_u.set_dirty, ui_u.set_changed_ms, ms + 1000u,
+                              play_silent(&ui_p), &set_fake_io), 0u);
+    TT_CHECK_EQ(settings_tick(&ui_u.set, &ui_u.set_dirty, ui_u.set_changed_ms, ms + 2200u,
+                              play_silent(&ui_p), &set_fake_io), 1u);
+    (void)play_init(&ui_p);                     /* power off and on */
+    ui_init(&ui_u, &ui_p);
+    TT_CHECK_EQ(ui_u.set.theme, (uint32_t)UI_THEME_MEMBRANE);
+    settings_load(&ui_u.set, &set_fake_io);
+    TT_CHECK_EQ(ui_u.set.theme, (uint32_t)UI_THEME_NIGHT);
+}
+
 static void run_settings_store_tests(void)
 {
     TT_RUN(settings_tags_keep_their_fields);
@@ -218,4 +244,5 @@ static void run_settings_store_tests(void)
     TT_RUN(settings_damaged_record_loads_the_defaults);
     TT_RUN(settings_tick_saves_once_silent_and_settled);
     TT_RUN(settings_without_io_keeps_the_defaults);
+    TT_RUN(settings_glo_change_saves_and_loads_back);
 }

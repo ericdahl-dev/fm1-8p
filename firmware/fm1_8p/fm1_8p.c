@@ -18,6 +18,7 @@
 #include "play.h"
 #include "ui.h"
 #include "draw.h"
+#include "settings_store.h"
 
 static const hb_host_t *H;
 static play P;                                  /* static: the engine's 5 KiB must not sit on a stack */
@@ -108,10 +109,30 @@ static void ui_ev(uint32_t ev, int32_t arg)
         keypad_leds();                          /* the keypad glows while SEL is held */
 }
 
+/* GLO's settings (settings_store.c): the host's settings record for this module, which the host
+ * writes to flash itself (2 s after the last change, no key held, no note in) */
+static uint32_t set_loaded;
+static int set_load(void *ctx, void *p, uint32_t n)
+{
+    (void)ctx;
+    return H->load(p, n);
+}
+static void set_save(void *ctx, const void *p, uint32_t n)
+{
+    (void)ctx;
+    H->save(p, n);
+}
+static const settings_io SETTINGS = { set_load, set_save, 0 };
+
 /* The host calls draw() from its main loop: the LEDs on a full redraw, then the screen (draw.c) */
 static void draw(uint32_t full)
 {
     play_store_tick(&P);                        /* the first: the user slots from flash */
+    if (!set_loaded) {                          /* the first: GLO's settings (a THEME switches itself) */
+        settings_load(&U.set, &SETTINGS);
+        set_loaded = 1;
+    }
+    (void)settings_tick(&U.set, &U.set_dirty, U.set_changed_ms, H->ms(), play_silent(&P), &SETTINGS);
     if (full) {
         octave_shown();                         /* (back from the picker, which had the LEDs) */
         page_leds(1);
@@ -139,6 +160,7 @@ static int init(const hb_host_t *h)
 {
     H = h;
     keys_down = 0;
+    set_loaded = 0;                             /* read on the first draw, as the slots */
     ui_draw_init(h, &P, &U);
     if (play_init(&P) != 0) {
         H->log("fm1-8p: engine init failed");
