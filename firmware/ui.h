@@ -91,6 +91,8 @@ typedef struct { uint32_t q2, n1; int32_t cut; } ui_curve;
 /* set up for a cutoff and resonance across n columns; then column i's level */
 void ui_curve_begin(ui_curve *c, int32_t cutoff_cents, int32_t reso_permille, uint32_t n);
 int32_t ui_curve_db(const ui_curve *c, uint32_t i);
+/* the floor of v's square root (the PLAY sun's rows) */
+uint32_t ui_isqrt(uint32_t v);
 /* the header's page strip: segment i (interaction.md's page order, 1A .. 8B) at x, w px wide */
 void ui_strip(uint32_t i, int32_t *x, int32_t *w);
 /* a 7-segment digit's lit segments, bits a..g = 0..6 (0 for one it can't show) */
