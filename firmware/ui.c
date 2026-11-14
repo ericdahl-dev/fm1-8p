@@ -3,7 +3,9 @@
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
-    return k < 4u ? &UI_SLOTS[4u * u->page + k] : 0;
+    if (k >= 4u)
+        return 0;
+    return u->state == UI_PLAY ? &UI_SLOTS[UI_PLAY_SLOT[k]] : &UI_SLOTS[4u * u->page + k];
 }
 
 /* 8.1758 Hz x 2^(s / 12), s = 0..12, in mHz x 16: CUTOFF's semitones in its lowest octave */
@@ -376,12 +378,15 @@ void ui_init(ui *u, play *p)
     u->jump = -1;
     u->jump_keys = 0;
     u->jump_screen = 0;
+    u->readout = 0;
+    u->readout_ms = 0;
 }
 
 static void show_page(ui *u, ui_state st)
 {
     uint32_t k;
     u->state = st;
+    u->readout = 0;                             /* (PLAY's knob readout is that visit's) */
     u->focus = 1;                               /* knob 2, as visual.md's pages open, */
     if (UI_SLOTS[4u * u->page + 1u].kind != UI_LIVE)   /* or the first live one (4B: 45 alone) */
         for (k = 0; k < 4u; k++)
@@ -643,7 +648,7 @@ static void jump_to(ui *u, int32_t n, int typed, uint32_t ms)
     }
 }
 
-static void turn(ui *u, uint32_t k, int32_t clicks)
+static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
 {
     const ui_slot *s = ui_page_slot(u, k);
     if (!s || s->kind != UI_LIVE)
@@ -675,7 +680,10 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         set_slot(u, s, ui_slot_value(u, s) + (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
     }
     u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
-    if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
+    if (u->state == UI_PLAY) {                  /* the focus row reads the knob for 3 s; the slot is the badge */
+        u->readout = 1;
+        u->readout_ms = ms;
+    } else if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
         s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
         s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
         (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
@@ -802,14 +810,19 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)
         show_page(u, UI_PLAY);                  /* (a hold: the host's picker, which sends the UP) */
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&
-             u->state == UI_EDIT)
-        turn(u, id - UI_ENC_KNOB1, arg);
+             (u->state == UI_EDIT || u->state == UI_PLAY))     /* (PLAY: the performance four) */
+        turn(u, id - UI_ENC_KNOB1, arg, ms);
     else if (ev == (UI_EV_ENC | UI_ENC_SELECT) && arg)     /* (in PLAY: from the last edit page) */
         walk_pages(u, arg);
     else if (ev == (UI_EV_ENC | UI_ENC_ALGORITHM) && arg)
         walk_sections(u, arg);
     else if (ev == (UI_EV_ENC | UI_ENC_PRESETS))
         browse(u, arg, ms);
+}
+
+int ui_play_readout(const ui *u, uint32_t ms)
+{
+    return u->readout && ms - u->readout_ms < UI_READOUT_MS;
 }
 
 uint32_t ui_screen(const ui *u)
@@ -846,9 +859,9 @@ uint32_t ui_take(ui *u, uint32_t ms)
             show_banner(u, "NO EDITS", ms);
         }
     }
-    if (u->state == UI_PLAY && play_last_note(u->p) != u->shown_note) {
-        u->shown_note = play_last_note(u->p);
-        u->dirty |= UI_D_NOTE;
+    if (u->readout && ms - u->readout_ms >= UI_READOUT_MS) {
+        u->readout = 0;                         /* PLAY's knob readout over: the name again, the frame off */
+        u->dirty |= UI_D_FOCUS | (u->focus < 4u ? UI_D_COL(u->focus) : 0u);
     }
     if (*u->banner && ms - u->banner_ms >= UI_BANNER_MS) {
         u->banner = "";

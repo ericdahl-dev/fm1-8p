@@ -12,6 +12,7 @@ const ui_theme UI_MEMBRANE = {
     .meter_segments = 0u,
     .focus = {256u, 256u, 0u},          /* a 2 px frame */
     .hatch = 0u,
+    .sun = {0xFE88u, 0xFD87u, 0xFC67u, 0xFB49u, 0xF24Eu, 0xD1D2u},
 };
 
 /* interaction.md 3: the pages, as the JX-8P's panel has its sections */
@@ -155,3 +156,4 @@ const uint16_t UI_RATES[UI_RATE_COUNT] = {
 const char *const UI_SECTION_NAME[10] = {"AFTERTOUCH", "DCO-1", "DCO-2", "DCO ENV", "MIXER", "VCF", "VCA",
                                          "LFO", "ENV-1", "ENV-2"};
 const uint8_t UI_SECTION_PAGE[10] = {16, 0, 2, 4, 5, 7, 9, 11, 12, 14};     /* 0A, 1A, ... 9A */
+const uint8_t UI_PLAY_SLOT[4] = {4 * 7 + 1, 4 * 7 + 2, 4 * 8 + 0, 4 * 14 + 3};   /* 52, 53, 55, 94 */
