@@ -16,8 +16,9 @@ static const uint8_t TAG_OFFSET[] = {
     T(prog_change), T(ext_cc), T(vel_curve_pct), T(fixed_vel), T(key_leds), T(theme),   /* 7..12 */
 };
 #define TAGS (uint32_t)(sizeof TAG_OFFSET / sizeof TAG_OFFSET[0])
-_Static_assert(TAGS - 1u == UI_SETTINGS_COUNT, "every setting has a tag");
-_Static_assert(HEADER + ENTRY * UI_SETTINGS_COUNT <= SET_REC_BYTES, "the settings fit the record");
+typedef char set_require_a_tag_for_every_setting[(TAGS - 1u == UI_SETTINGS_COUNT) ? 1 : -1];
+typedef char set_require_the_settings_fit_the_record[
+    (HEADER + ENTRY * UI_SETTINGS_COUNT <= SET_REC_BYTES) ? 1 : -1];
 
 uint8_t settings_tag_offset(uint32_t tag)
 {
