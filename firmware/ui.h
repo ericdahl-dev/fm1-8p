@@ -155,6 +155,12 @@ const ui_slot *ui_page_slot(const ui *u, uint32_t k);
  * (up from 400 ms into a SEL hold, or a first digit, until a jump is done or SEL comes up) */
 enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO };
 uint32_t ui_screen(const ui *u);
+/* GLO: the slot on knob k (0..3) of the GLO page shown; its value as the focus row reads it (the
+ * number or name into num, the unit into unit, UI_VALUE_LEN each; "--" while it waits), and as a
+ * column reads it (a shorter name where one is too wide) */
+const ui_glo_slot *ui_glo_slot_at(const ui *u, uint32_t k);
+void ui_glo_value(const ui *u, uint32_t k, char *num, char *unit);
+void ui_glo_column(const ui *u, uint32_t k, char *num, char *unit);
 /* PLAY: the focus row shows the last turned knob (3 s after its turn), not the patch's name */
 int ui_play_readout(const ui *u, uint32_t ms);
 /* the jump screen's number: the digits typed, then _ ("4_", "__"); s: 3 chars */

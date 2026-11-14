@@ -1796,8 +1796,85 @@ TT_TEST(ui_glo_holds_the_patch_controls)
     TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);             /* 5A again */
 }
 
+/* GLO's table (interaction.md 4): three pages of four, G11..G34, each on its setting; clock, CC and
+ * program change wait on their features (#38, #49), so G13, G14 and G21..G24 show -- */
+TT_TEST(ui_glo_table_is_well_formed)
+{
+    uint32_t i;
+    for (i = 0; i < UI_GLO_SLOTS_COUNT; i++) {
+        const ui_glo_slot *g = &UI_GLO_SLOTS[i];
+        uint32_t num = (i / 4u + 1u) * 10u + i % 4u + 1u;
+        TT_CHECK_EQ(g->num, num);
+        TT_CHECK(g->label && strlen(g->label) <= 7u && g->full && strlen(g->full) <= 20u);
+        TT_CHECK(g->setting < UI_SETTINGS_COUNT);
+        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || (num >= 21 && num <= 24) ? UI_PENDING : UI_LIVE));
+    }
+    TT_CHECK_EQ(UI_GLO_SLOTS[11].setting, 11u);                /* G34 THEME */
+}
+
+/* GLO's knobs (interaction.md 4): each its setting, clamped to its range; a waiting one does nothing.
+ * SELECT and ALGORITHM walk the three pages, around; a page opens on knob 2 or its first live knob,
+ * and on none (4) when all four wait. Values read as the map has them. */
+static int ui_glo_reads(uint32_t k, const char *num)
+{
+    char n[UI_VALUE_LEN], c[UI_VALUE_LEN];
+    ui_glo_value(&ui_u, k, n, c);
+    if (strcmp(n, num) != 0)
+        printf("    G%u reads \"%s\", not \"%s\"\n", ui_glo_slot_at(&ui_u, k)->num, n, num);
+    return strcmp(n, num) == 0;
+}
+
+TT_TEST(ui_glo_knobs_and_pages)
+{
+    char n[UI_VALUE_LEN], c[UI_VALUE_LEN];
+    ui_setup();
+    ui_tap(UI_BTN_GLO, 1000);
+    TT_CHECK_EQ(ui_u.glo_page, 0u);
+    TT_CHECK_EQ(ui_u.focus, 1u);                                /* G12 */
+    TT_CHECK(ui_glo_reads(0, "ALL"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -2, 1100);       /* below ALL: stays */
+    TT_CHECK(ui_glo_reads(0, "ALL"));
+    TT_CHECK_EQ(ui_u.set_dirty, 0u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1200);       /* (3 clicks or more: fast, 4 each) */
+    TT_CHECK(ui_glo_reads(0, "2"));
+    TT_CHECK_EQ(ui_u.set.midi_in, 2u);
+    TT_CHECK_EQ(ui_u.focus, 0u);
+    TT_CHECK_EQ(ui_u.set_dirty, 1u);
+    TT_CHECK_EQ(ui_u.set_changed_ms, 1200u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 1300);        /* G13 waits on #38 */
+    TT_CHECK_EQ(ui_u.set.clock_src, 0u);
+    TT_CHECK_EQ(ui_u.focus, 0u);
+    TT_CHECK(ui_glo_reads(2, "--"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);       /* G2x: all wait */
+    TT_CHECK_EQ(ui_u.glo_page, 1u);
+    TT_CHECK_EQ(ui_u.focus, 4u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1500);       /* G3x */
+    TT_CHECK_EQ(ui_u.glo_page, 2u);
+    TT_CHECK(ui_glo_reads(0, "100"));
+    TT_CHECK(ui_glo_reads(1, "100"));
+    TT_CHECK(ui_glo_reads(2, "ON"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 9, 1600);        /* fast: 10 a click, to 127 at most */
+    TT_CHECK_EQ(ui_u.set.fixed_vel, 127u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -40, 1700);      /* 50 % at least */
+    TT_CHECK_EQ(ui_u.set.vel_curve_pct, 50u);
+    TT_CHECK(ui_glo_reads(0, "50"));
+    ui_glo_value(&ui_u, 0, n, c);
+    TT_CHECK(strcmp(c, "%") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1800);
+    TT_CHECK_EQ(ui_u.set.theme, (uint8_t)UI_THEME_NIGHT);
+    TT_CHECK(ui_glo_reads(3, "NIGHT PANEL"));
+    ui_glo_column(&ui_u, 3, n, c);
+    TT_CHECK(strcmp(n, "NIGHT") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1900);       /* around */
+    TT_CHECK_EQ(ui_u.glo_page, 0u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, -1, 2000);
+    TT_CHECK_EQ(ui_u.glo_page, 2u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_glo_knobs_and_pages);
+    TT_RUN(ui_glo_table_is_well_formed);
     TT_RUN(ui_glo_holds_the_patch_controls);
     TT_RUN(ui_glo_opens_and_goes_back);
     TT_RUN(ui_themes_meet_their_contrast_rules);

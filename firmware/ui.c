@@ -700,6 +700,81 @@ static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
     u->focus = k;
 }
 
+/* GLO (interaction.md 4) */
+const ui_glo_slot *ui_glo_slot_at(const ui *u, uint32_t k)
+{
+    return &UI_GLO_SLOTS[4u * u->glo_page + (k & 3u)];
+}
+
+static uint8_t *glo_byte(ui *u, const ui_glo_slot *g)
+{
+    return (uint8_t *)&u->set + UI_SETTINGS_INFO[g->setting].offset;
+}
+
+static void glo_read(const ui *u, uint32_t k, char *num, char *unit, int col)
+{
+    const ui_glo_slot *g = ui_glo_slot_at(u, k);
+    const ui_setting_info *in = &UI_SETTINGS_INFO[g->setting];
+    uint32_t v = ((const uint8_t *)&u->set)[in->offset];
+    *unit = 0;
+    if (g->kind != UI_LIVE)
+        *put_str(num, "--") = 0;
+    else if (g->names)
+        *put_str(num, (col && g->cols ? g->cols : g->names)[v - in->min]) = 0;
+    else if (g->zero && v == in->min)
+        *put_str(num, g->zero) = 0;
+    else {
+        *put_u(num, v) = 0;
+        if (g->setting == 8u)                   /* G31: the velocity curve, in % */
+            *put_str(unit, "%") = 0;
+    }
+}
+
+void ui_glo_value(const ui *u, uint32_t k, char *num, char *unit) { glo_read(u, k, num, unit, 0); }
+void ui_glo_column(const ui *u, uint32_t k, char *num, char *unit) { glo_read(u, k, num, unit, 1); }
+
+/* a GLO page opens on knob 2, or its first live knob, or none (4) when all four wait */
+static void glo_show(ui *u)
+{
+    uint32_t k;
+    u->focus = 4u;
+    if (ui_glo_slot_at(u, 1)->kind == UI_LIVE)
+        u->focus = 1u;
+    else
+        for (k = 0; k < 4u; k++)
+            if (ui_glo_slot_at(u, k)->kind == UI_LIVE) {
+                u->focus = k;
+                break;
+            }
+    u->dirty |= UI_D_FULL;
+}
+
+static void glo_turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
+{
+    const ui_glo_slot *g = ui_glo_slot_at(u, k);
+    const ui_setting_info *in = &UI_SETTINGS_INFO[g->setting];
+    uint8_t *b = glo_byte(u, g);
+    int32_t v;
+    if (g->kind != UI_LIVE)
+        return;
+    v = (int32_t)*b + clicks * (clicks >= 3 || clicks <= -3 ? g->fast : g->step);
+    v = v < in->min ? in->min : v > in->max ? in->max : v;
+    if ((uint8_t)v != *b) {
+        *b = (uint8_t)v;
+        u->set_dirty = 1;
+        u->set_changed_ms = ms;
+    }
+    u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
+    u->focus = k;
+}
+
+static void glo_walk(ui *u, int32_t clicks)
+{
+    u->glo_page = (uint32_t)(((int32_t)u->glo_page + clicks) % (int32_t)UI_GLO_PAGES + (int32_t)UI_GLO_PAGES) %
+                  UI_GLO_PAGES;
+    glo_show(u);
+}
+
 static void show_banner(ui *u, const char *s, uint32_t ms)
 {
     u->banner = s;
@@ -789,6 +864,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             u->dirty |= UI_D_FULL;
         } else if (ev == (UI_EV_ENC | UI_ENC_PRESETS)) {
             browse(u, arg, ms);
+        } else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4) {
+            glo_turn(u, id - UI_ENC_KNOB1, arg, ms);
+        } else if ((ev == (UI_EV_ENC | UI_ENC_SELECT) || ev == (UI_EV_ENC | UI_ENC_ALGORITHM)) && arg) {
+            glo_walk(u, arg);
         }
         return;
     }
@@ -798,7 +877,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->state = UI_GLO;
         u->readout = 0;
         u->warned = 0;
-        u->dirty |= UI_D_FULL;
+        glo_show(u);
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && !u->comparing && !u->save_waiting) {
