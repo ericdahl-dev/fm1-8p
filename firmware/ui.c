@@ -3,7 +3,9 @@
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
-    return k < 4u ? &UI_SLOTS[4u * u->page + k] : 0;
+    if (k >= 4u)
+        return 0;
+    return u->state == UI_PLAY ? &UI_SLOTS[UI_PLAY_SLOT[k]] : &UI_SLOTS[4u * u->page + k];
 }
 
 /* 8.1758 Hz x 2^(s / 12), s = 0..12, in mHz x 16: CUTOFF's semitones in its lowest octave */
@@ -800,7 +802,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)
         show_page(u, UI_PLAY);                  /* (a hold: the host's picker, which sends the UP) */
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&
-             u->state == UI_EDIT)
+             (u->state == UI_EDIT || u->state == UI_PLAY))     /* (PLAY: the performance four) */
         turn(u, id - UI_ENC_KNOB1, arg);
     else if (ev == (UI_EV_ENC | UI_ENC_SELECT) && arg)     /* (in PLAY: from the last edit page) */
         walk_pages(u, arg);

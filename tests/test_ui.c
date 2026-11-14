@@ -97,15 +97,23 @@ TT_TEST(ui_knob_clamps_at_the_ends_of_the_range)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 16400);
 }
 
-/* This slice's PLAY screen has no knobs: a turn there changes nothing. */
-TT_TEST(ui_knobs_do_nothing_in_play)
+/* PLAY's knobs are the performance four (interaction.md 6, PLAY): K1 52 CUTOFF, K2 53 RES, K3 55 ENV,
+ * K4 94 RELEASE, as their pages turn them; the screen stays PLAY. */
+TT_TEST(ui_play_knobs_are_the_performance_four)
 {
-    int32_t before;
+    static const uint8_t NUM[4] = {52, 53, 55, 94};
+    uint32_t k;
     ui_setup();
     TT_CHECK_EQ(ui_u.state, UI_PLAY);
-    before = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 0);
-    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), before);
+    for (k = 0; k < 4u; k++)
+        TT_CHECK_EQ(ui_page_slot(&ui_u, k)->num, NUM[k]);
+    play_set_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), 6100);
+    play_set_param(&ui_p, FM_PARAM_AMP_RELEASE_MS, 13);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 10);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_AMP_RELEASE_MS), 15);
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
 }
 
 static int ui_shows(uint16_t id, int32_t value, const char *want)
@@ -542,6 +550,7 @@ TT_TEST(ui_slot_number_is_two_digits)
 {
     char s[3];
     ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);       /* 5A */
     ui_slot_number(ui_page_slot(&ui_u, 0), s);
     TT_CHECK(strcmp(s, "51") == 0);
 }
@@ -1707,7 +1716,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_reso_env_and_key_read_in_their_units);
     TT_RUN(ui_cutoff_reads_in_hz_three_digits);
     TT_RUN(ui_knob_clamps_at_the_ends_of_the_range);
-    TT_RUN(ui_knobs_do_nothing_in_play);
+    TT_RUN(ui_play_knobs_are_the_performance_four);
     TT_RUN(ui_fast_turn_moves_the_fast_step_per_click);
     TT_RUN(ui_edit_hold_compares_with_the_stored_patch);
     TT_RUN(ui_edit_hold_with_no_edits_says_so);
