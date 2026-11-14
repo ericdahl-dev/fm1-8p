@@ -35,6 +35,7 @@
 #include "test_dyna.c"
 #include "test_glide.c"
 #include "test_patch_store.c"
+#include "test_ui_save.c"
 
 int main(void)
 {
@@ -59,5 +60,6 @@ int main(void)
     run_dyna_tests();
     run_glide_tests();
     run_patch_store_tests();
+    run_ui_save_tests();
     return tt_report();
 }

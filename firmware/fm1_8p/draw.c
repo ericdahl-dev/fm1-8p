@@ -207,11 +207,11 @@ static void footer(void)
     if (*b) {
         text_c(0, 240, 2, 0, b, C_PLAY);
     } else {
-        ui_patch_number(play_patch(P), n);
+        ui_prog_number(play_prog(P), n);
         CV_TEXT(M, 2, 0, n, C_DIM);
-        CV_TEXT(M + TEXT_W(0, n) + 6, 2, 0, play_patch(P)->name, C_TEXT);
+        CV_TEXT(M + TEXT_W(0, n) + 6, 2, 0, P->name, C_TEXT);
         if (U->shown_edited)                    /* edited (visual.md) */
-            CV_TEXT(M + TEXT_W(0, n) + 6 + TEXT_W(0, play_patch(P)->name) + 2, 2, 0, "*", led_of(C_PLAY));
+            CV_TEXT(M + TEXT_W(0, n) + 6 + TEXT_W(0, P->name) + 2, 2, 0, "*", led_of(C_PLAY));
         CV_TEXT(240 - M - TEXT_W(0, v), 2, 0, v, C_DIM);
     }
     blit(0, 222, 240, 18);
@@ -478,21 +478,24 @@ static void play_part(uint32_t b, uint32_t part)
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
         header("PLAY", C_PLAY, "", "FM1-8P", "", -1);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: the patch, or 3 s of the knob turned */
+        int user;
         if (ui_play_readout(U, H->ms())) {
             focus_row();
             return;
         }
-        ui_patch_number(play_patch(P), n);      /* "P17": the LED window has its digits */
+        ui_prog_number(play_prog(P), n);        /* "P17", or a user slot's "11" */
+        user = n[0] != 'P';
         H->cv_begin(240, 50, C_BG);
         H->cv_rect(M, 0, 64, 46, C_WINDOW);
         frame(M, 0, 64, 46, C_LINE);
-        seg7(M + (64 - 38) / 2, 5, n[2] ? n + 1 : n, led_of(C_PLAY), mix(C_WINDOW, led_of(C_PLAY), T->ghost));
-        n[0] = ' ';                             /* "PATCH 17" */
-        CV_TEXT(M + 72, 0, 0, "PATCH", C_DIM);
-        CV_TEXT(M + 72 + TEXT_W(0, "PATCH"), 0, 0, n, C_DIM);
+        seg7(M + (64 - 38) / 2, 5, !user && n[2] ? n + 1 : n, led_of(C_PLAY), mix(C_WINDOW, led_of(C_PLAY), T->ghost));
+        if (!user)
+            n[0] = ' ';                         /* "PATCH 17" */
+        CV_TEXT(M + 72, 0, 0, user ? "USER " : "PATCH", C_DIM);   /* "USER 11": never read as P11 */
+        CV_TEXT(M + 72 + TEXT_W(0, user ? "USER " : "PATCH"), 0, 0, n, C_DIM);
         if (play_edited(P))
             CV_TEXT(240 - M - TEXT_W(0, "EDITED"), 0, 0, "EDITED", C_PLAY);   /* (the PLAY accent) */
-        dfont_text(&F20, M + 72, 22, play_patch(P)->name, C_TEXT);   /* the name in D20 (visual.md) */
+        dfont_text(&F20, M + 72, 22, P->name, C_TEXT);   /* the name in D20 (visual.md); a user slot's own */
         blit(0, 28, 240, 50);
     } else if (b == UI_D_SLOT) {                /* rows 78..137: the art, drawn on a full redraw only */
         H->cv_begin(240, 60, C_BG);
@@ -505,6 +508,54 @@ static void play_part(uint32_t b, uint32_t part)
         for (k = 0; k < 4u; k++)                /* rows 138..221: the performance knobs */
             if (b == UI_D_COL(k))
                 column(k);
+    }
+}
+
+/* SAVE (interaction.md 6): the destination slot and what is there, the new name with its cursor, and
+ * the step: the controls while editing, the question when it would replace another patch */
+static void save_part(uint32_t b, uint32_t part)
+{
+    static store_patch there;                   /* (main loop) */
+    char s[UI_VALUE_LEN];
+    if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
+        footer();
+    } else if (b == UI_D_FULL || b == UI_D_HEAD) {
+        header("SAVE", led_of(C_PLAY), "", "PATCH", "", -1);
+    } else if (b == UI_D_FOCUS) {               /* rows 28..77: TO 23, and what is there now */
+        ui_prog_number(U->save_dest, s);
+        H->cv_begin(240, 50, C_BG);
+        CV_TEXT(M, 18, 0, "TO", C_DIM);
+        CV_TEXT(M + 28, 6, 1, s, HB_RGB(255, 176, 64));
+        CV_TEXT(120, 18, 0, P->lib && store_slot_read(P->lib, U->save_dest, &there) == 0 ? there.name : "EMPTY",
+                C_DIM);
+        blit(0, 28, 240, 50);
+    } else if (b == UI_D_SLOT) {                /* rows 78..137: the new name, the cursor under its place */
+        char pre[STORE_NAME_LEN + 1u];
+        int32_t x0 = (240 - TEXT_W(1, U->save_name)) / 2, x, w;
+        uint32_t i;
+        for (i = 0; i < U->save_cursor; i++)
+            pre[i] = U->save_name[i];
+        pre[i] = 0;
+        x = x0 + TEXT_W(1, pre);
+        pre[0] = U->save_name[U->save_cursor];
+        pre[1] = 0;
+        w = TEXT_W(1, pre);
+        H->cv_begin(240, 60, C_BG);
+        CV_TEXT(x0, 8, 1, U->save_name, C_TEXT);
+        H->cv_rect(x, 48, w, 3, led_of(C_PLAY));
+        blit(0, 78, 240, 60);
+    } else if (b == UI_D_NOTE) {                /* rows 138..221: the step */
+        H->cv_begin(240, 84, C_BG);
+        if (U->save_step == UI_SAVE_CONFIRM) {
+            text_c(0, 240, 12, 0, U->save_msg, C_TEXT);
+            text_c(0, 240, 40, 0, "SAVE AGAIN TO REPLACE", led_of(C_PLAY));
+        } else {
+            text_c(0, 240, 2, 0, "PRESETS  SLOT", C_DIM);
+            text_c(0, 240, 22, 0, "SELECT  CURSOR", C_DIM);
+            text_c(0, 240, 42, 0, "K1 LETTER  K2 INS/DEL", C_DIM);
+            text_c(0, 240, 62, 0, "SAVE WRITES  HOME CANCELS", C_DIM);
+        }
+        blit(0, 138, 240, 84);
     }
 }
 
@@ -618,6 +669,9 @@ void ui_draw_frame(uint32_t full)
             return;
     }
     switch (ui_screen(U)) {                     /* every band through the screen that shows */
+    case UI_SCREEN_SAVE:
+        save_part(band, part);
+        break;
     case UI_SCREEN_JUMP:
         jump_part(band, part);
         break;

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui.h"
+#include "ui_save.h"
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
@@ -375,6 +376,7 @@ void ui_init(ui *u, play *p)
     u->comparing = 0;
     u->now_ms = 0;
     u->shown_edited = 0;
+    u->save_waiting = 0;
     u->jump = -1;
     u->jump_keys = 0;
     u->jump_screen = 0;
@@ -703,7 +705,7 @@ static void show_banner(ui *u, const char *s, uint32_t ms)
 /* PRESETS: the patch clicks away, wrapping */
 static void browse(ui *u, int32_t clicks, uint32_t ms)
 {
-    int32_t i, way = clicks > 0 ? 1 : -1;
+    int32_t way = clicks > 0 ? 1 : -1;
     if (!clicks)                                /* no turn: no load (and no notes let go) */
         return;
     if (play_edited(u->p) && !(u->warned == way && ms - u->warned_ms < UI_DISCARD_MS)) {
@@ -716,8 +718,7 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     u->banner = "";                             /* the warning goes with the edits */
     if (clicks >= 3 || clicks <= -3)          /* a fast turn: 4 */
         clicks = clicks > 0 ? 4 : -4;
-    i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
-    play_load_patch(u->p, (uint32_t)(i + (int32_t)PATCH_COUNT) % PATCH_COUNT);
+    (void)play_load_prog(u->p, play_prog_step(u->p, play_prog(u->p), clicks));
     u->inv = 0;                                 /* the ENV MODEs are the new patch's signs */
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
 }
@@ -769,6 +770,21 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     }
     if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS)
         u->held &= ~(1u << id);
+    if (u->state == UI_SAVE) {                  /* SAVE takes the controls while it is open */
+        ui_save_event(u, ev, arg, ms);
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->save_waiting) {
+        ui_save_cancel(u, ms);                  /* the waiting write, and nothing else */
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && !u->comparing && !u->save_waiting) {
+        u->jump = -1;                           /* SEL held: the keypad ends (keys down still get their ups) */
+        u->jump_keys &= ~JUMP_USED;
+        u->jump_screen = 0;                     /* and its screen: SAVE's is drawn in full (ui_save_open) */
+        ui_save_open(u, ms);
+        return;
+    }
     if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && u->comparing) {   /* the edit buffer back, exactly */
         if (u->comparing == UI_COMPARE_ON) {
             play_compare_end(u->p);
@@ -827,6 +843,8 @@ int ui_play_readout(const ui *u, uint32_t ms)
 
 uint32_t ui_screen(const ui *u)
 {
+    if (u->state == UI_SAVE)
+        return UI_SCREEN_SAVE;
     return u->jump_screen & UI_JS_UP ? UI_SCREEN_JUMP : u->state == UI_EDIT ? UI_SCREEN_PAGE : UI_SCREEN_PLAY;
 }
 
@@ -845,6 +863,7 @@ uint32_t ui_take(ui *u, uint32_t ms)
         u->dirty |= UI_D_FULL;
     }
     u->now_ms = ms;
+    ui_save_tick(u, ms);
     if (play_edited(u->p) != u->shown_edited) {  /* the footer's `*` */
         u->shown_edited = play_edited(u->p);
         u->dirty |= UI_D_FOOT;
@@ -888,6 +907,8 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_ENV:
     case UI_BTN_FX:
     case UI_BTN_LFO:                            /* lit while a page of its ring shows */
+        if (u->state == UI_SAVE)                /* they do nothing in SAVE: off (interaction.md) */
+            return UI_LED_OFF;
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
     case UI_BTN_EDIT:                           /* lit while the edit buffer differs from the stored patch */
         if (u->comparing == UI_COMPARE_ON)      /* blinking during compare */
@@ -947,6 +968,18 @@ void ui_slot_number(const ui_slot *sl, char *s)
 }
 
 const char *ui_banner(const ui *u) { return u->banner; }
+
+void ui_prog_number(uint32_t q, char *s)
+{
+    if (q >= PLAY_PROG_P) {
+        *s++ = 'P';
+        *put_u(s, q - PLAY_PROG_P + 1u) = 0;
+    } else {                                    /* two digits 1..8: 11..18, 21..28, ... 81..88 */
+        s[0] = (char)('1' + q / 8u);
+        s[1] = (char)('1' + q % 8u);
+        s[2] = 0;
+    }
+}
 
 void ui_patch_number(const patch *t, char *s)
 {

@@ -161,6 +161,192 @@ TT_TEST(store_every_param_has_one_tag_and_fits_int16)
     TT_CHECK(ok);
 }
 
+/* A RAM stand-in for fm1-dock's banks: up to 4, each as saved (len -1: not there); `fail` makes a save
+ * fail. */
+typedef struct {
+    uint8_t data[4][8176];
+    int32_t len[4];
+    int fail;
+    uint32_t saves;
+    uint32_t loads;
+} store_fake;
+
+static int store_fake_load(void *ctx, uint32_t idx, void *p, uint32_t n)
+{
+    store_fake *f = ctx;
+    f->loads++;
+    if (idx >= 4 || f->len[idx] < 0) return -1;
+    memcpy(p, f->data[idx], n < (uint32_t)f->len[idx] ? n : (uint32_t)f->len[idx]);
+    return f->len[idx];
+}
+
+static int store_fake_save(void *ctx, uint32_t idx, const void *p, uint32_t n)
+{
+    store_fake *f = ctx;
+    if (idx >= 4 || f->fail || n > 8176) return -1;
+    memcpy(f->data[idx], p, n);
+    f->len[idx] = (int32_t)n;
+    f->saves++;
+    return 0;
+}
+
+static store_fake store_flash;
+static store_lib store_lib_a, store_lib_b;
+static const store_io store_fake_io = { store_fake_load, store_fake_save, &store_flash };
+
+static void store_flash_blank(void)
+{
+    uint32_t i;
+    memset(&store_flash, 0xFF, sizeof store_flash);
+    for (i = 0; i < 4; i++) store_flash.len[i] = -1;
+    store_flash.fail = 0;
+    store_flash.saves = 0;
+    store_flash.loads = 0;
+}
+
+/* A patch saved to a user slot is there after a power cycle: a fresh library loads it from flash. */
+TT_TEST(store_slot_survives_a_power_cycle)
+{
+    static store_patch in, out;
+    uint32_t s, id;
+    int same = 1;
+    store_flash_blank();
+    store_lib_load(&store_lib_a, &store_fake_io);
+    for (s = 0; s < STORE_USER_SLOTS; s += 21) {   /* 0, 21, 42, 63: both banks */
+        store_from_factory(s % PATCH_COUNT, &in);
+        same &= store_slot_write(&store_lib_a, &store_fake_io, s, &in) == 0;
+    }
+    store_lib_load(&store_lib_b, &store_fake_io);
+    for (s = 0; s < STORE_USER_SLOTS; s += 21) {
+        store_from_factory(s % PATCH_COUNT, &in);
+        same &= store_slot_read(&store_lib_b, s, &out) == 0 && strcmp(out.name, in.name) == 0;
+        for (id = 0; id < FM_PARAM_COUNT; id++) same &= out.v[id] == in.v[id];
+    }
+    TT_CHECK(same);
+}
+
+/* A unit that never saved has no banks: every slot reads empty, whatever was in RAM before. */
+TT_TEST(store_slots_start_empty)
+{
+    static store_patch in, out;
+    uint32_t s;
+    int empty = 1;
+    store_flash_blank();
+    store_from_factory(1, &in);
+    memset(&store_lib_b, 0, sizeof store_lib_b);
+    for (s = 0; s < STORE_USER_SLOTS; s++)     /* stale records in RAM */
+        (void)store_encode(&in, store_lib_b.img[s / STORE_BANK_SLOTS] + STORE_SLOT_BYTES * (s % STORE_BANK_SLOTS));
+    store_lib_load(&store_lib_b, &store_fake_io);
+    for (s = 0; s < STORE_USER_SLOTS; s++) empty &= store_slot_read(&store_lib_b, s, &out) == -1;
+    TT_CHECK(empty);
+}
+
+/* A save that fails (no free bank, a flash error) says so, and the slot stays as it was: what RAM
+ * shows is what flash holds. */
+TT_TEST(store_failed_write_leaves_the_slot_as_it_was)
+{
+    static store_patch a, b, out;
+    store_flash_blank();
+    store_lib_load(&store_lib_a, &store_fake_io);
+    store_from_factory(2, &a);
+    store_from_factory(9, &b);
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 40, &a), 0);
+    store_flash.fail = 1;
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 40, &b), -1);
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 41, &b), -1);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 40, &out), 0);
+    TT_CHECK(strcmp(out.name, a.name) == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 41, &out), -1);
+}
+
+/* PRESETS goes through the user slots that hold a patch, in slot order, then P1..P32, then wraps;
+ * empty slots are skipped (Eric, 2026-11-13), so a fresh unit browses P1..P32 alone. */
+TT_TEST(store_presets_ring_skips_empty_slots)
+{
+    static store_patch in;
+    store_flash_blank();
+    store_lib_load(&store_lib_a, &store_fake_io);
+    (void)play_init(&ui_p);
+    ui_p.lib = &store_lib_a;
+    ui_init(&ui_u, &ui_p);
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), PLAY_PROG_P);    /* P32 -> P1 */
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P, -1), PLAY_PROG_P + PATCH_COUNT - 1u);    /* P1 -> P32 */
+    store_from_factory(4, &in);
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 9, &in), 0);               /* slot 22 */
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), 9u);             /* P32 -> 22 */
+    TT_CHECK_EQ(play_prog_step(&ui_p, 9, 1), PLAY_PROG_P);                                 /* 22 -> P1 */
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P, -1), 9u);                               /* P1 -> 22 */
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + 2u, 4), PLAY_PROG_P + 6u);             /* +4: P3 -> P7 */
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + 30u, 4), PLAY_PROG_P + 1u);            /* P31 -> P32, 22, P1, P2 */
+}
+
+/* A PRESETS click onto a saved slot loads it: the engine gets the slot's values, the program and
+ * name follow, and it is not edited. Back to P1 the factory patch loads as before. */
+TT_TEST(store_presets_loads_a_user_slot)
+{
+    static store_patch in;
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t id, k;
+    int same = 1;
+    store_flash_blank();
+    store_lib_load(&store_lib_a, &store_fake_io);
+    (void)play_init(&ui_p);
+    ui_p.lib = &store_lib_a;
+    ui_init(&ui_u, &ui_p);
+    store_from_factory(4, &in);
+    memcpy(in.name, "MY PAD", 7);
+    in.v[FM_PARAM_FILTER_RESONANCE] = 612;
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 9, &in), 0);
+    TT_CHECK_EQ(play_load_prog(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u), 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 100);
+    TT_CHECK_EQ(play_prog(&ui_p), 9u);
+    play_prog_name(&ui_p, name);
+    TT_CHECK(strcmp(name, "MY PAD") == 0);
+    TT_CHECK(!play_edited(&ui_p));
+    for (k = 0; k < 64; k++) { memset(ui_out, 0, sizeof ui_out); play_render(&ui_p, ui_out, PLAY_BLOCK); }
+    for (id = 0; id < FM_PARAM_COUNT; id++) same &= fm_engine_get_param(&ui_p.engine, (uint16_t)id) == in.v[id];
+    TT_CHECK(same);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 200);
+    TT_CHECK_EQ(play_prog(&ui_p), PLAY_PROG_P);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[0]);
+    play_prog_name(&ui_p, name);
+    TT_CHECK(strcmp(name, PATCHES[0].name) == 0);
+}
+
+/* A program's number as the screen shows it: user slots 11..88 (two digits 1..8), P1.. after. */
+TT_TEST(store_program_numbers_read_like_the_panel)
+{
+    char s[8];
+    ui_prog_number(0, s);   TT_CHECK(strcmp(s, "11") == 0);
+    ui_prog_number(7, s);   TT_CHECK(strcmp(s, "18") == 0);
+    ui_prog_number(9, s);   TT_CHECK(strcmp(s, "22") == 0);
+    ui_prog_number(10, s);  TT_CHECK(strcmp(s, "23") == 0);
+    ui_prog_number(63, s);  TT_CHECK(strcmp(s, "88") == 0);
+    ui_prog_number(PLAY_PROG_P, s);       TT_CHECK(strcmp(s, "P1") == 0);
+    ui_prog_number(PLAY_PROG_P + 31u, s); TT_CHECK(strcmp(s, "P32") == 0);
+}
+
+/* The module's init stays fixed work: attaching the store reads no flash. The first main-loop tick
+ * loads banks 1 and 2, once; until then there are no user slots (PRESETS browses the P group). */
+TT_TEST(store_loads_on_the_first_tick_not_at_init)
+{
+    static store_patch in;
+    store_flash_blank();
+    store_from_factory(4, &in);
+    store_lib_load(&store_lib_b, &store_fake_io);
+    TT_CHECK_EQ(store_slot_write(&store_lib_b, &store_fake_io, 9, &in), 0);   /* a slot saved before */
+    store_flash.loads = 0;
+    (void)play_init(&ui_p);
+    play_attach_store(&ui_p, &store_lib_a, &store_fake_io);
+    TT_CHECK_EQ(store_flash.loads, 0u);
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), PLAY_PROG_P);
+    play_store_tick(&ui_p);
+    TT_CHECK_EQ(store_flash.loads, 2u);
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), 9u);
+    play_store_tick(&ui_p);
+    TT_CHECK_EQ(store_flash.loads, 2u);
+}
+
 static void run_patch_store_tests(void)
 {
     TT_RUN(store_record_round_trips_every_factory_patch);
@@ -170,4 +356,11 @@ static void run_patch_store_tests(void)
     TT_RUN(store_value_out_of_range_loads_clamped);
     TT_RUN(store_tags_keep_their_params);
     TT_RUN(store_every_param_has_one_tag_and_fits_int16);
+    TT_RUN(store_slot_survives_a_power_cycle);
+    TT_RUN(store_slots_start_empty);
+    TT_RUN(store_failed_write_leaves_the_slot_as_it_was);
+    TT_RUN(store_presets_ring_skips_empty_slots);
+    TT_RUN(store_presets_loads_a_user_slot);
+    TT_RUN(store_program_numbers_read_like_the_panel);
+    TT_RUN(store_loads_on_the_first_tick_not_at_init);
 }
