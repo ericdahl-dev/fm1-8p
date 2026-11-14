@@ -4,8 +4,9 @@
  *          octave (OCT- / OCT+, their LEDs lit off center as fm1-dock's own modules do), lights each
  *          key while it is held and sends the keys' notes out on MIDI channel 1
  *   MIDI   whatever the host takes in (USB, Bluetooth or the jack) comes through midi(), all alike:
- *          note on and off, sustain (CC 64), all sound / notes off (CC 120 / 123), pitch bend; any
- *          channel. With LOCAL OFF the host plays the keys through note(), on its own octave.
+ *          note on and off, sustain (CC 64), all sound / notes off (CC 120 / 123), pitch bend, and
+ *          every parameter on its CC (the CC map, docs/ui/interaction.md); any channel. With LOCAL OFF
+ *          the host plays the keys through note(), on its own octave.
  *   pages  ENV opens page 5A VCF (docs/ui/interaction.md), HPF, CUTOFF, RES and LFO on KNOB1-4, and
  *          again 5B, ENV, KEY, DYNAMICS and MODE; a tap of EDIT or HOME goes back to PLAY. The keys
  *          play on every page.
@@ -31,7 +32,13 @@ static void note(uint32_t ch, uint32_t key, uint32_t vel)
     play_note(&P, key, vel);
 }
 
-static void midi(uint32_t st, uint32_t d1, uint32_t d2) { play_midi(&P, st, d1, d2); }
+/* a CC on the map sets its parameter as a knob would (firmware/ui.c, #49); the rest reaches the engine */
+static void midi(uint32_t st, uint32_t d1, uint32_t d2)
+{
+    if ((st & 0xF0u) == 0xB0u && ui_cc(&U, d1, d2, H->ms()))
+        return;
+    play_midi(&P, st, d1, d2);
+}
 
 /* ---------------------------------------------------------------- panel */
 /* OCT- / OCT+: lit off center; an SMK-37's outer keys go on from key 0's note */
