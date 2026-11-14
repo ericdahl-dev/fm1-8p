@@ -19,6 +19,8 @@
 #   emu-play   play a scripted note sequence (keys and MIDI) into build/fm1/fm1-8p.fwsc (built if
 #              missing) in fm1-emu's strict timing
 #              mode; fails on an overrun (build/fm1/emu-play-report.md)
+#   emu-save   #48: a chord held, SAVE tapped twice, released; fails unless the one flash write lands
+#              after the release in silence, with no gap while held (build/fm1/emu-save-report.md)
 #   all        fetch, build, canaries
 #
 # Already have the inputs? Point at them; they are checked all the same:
@@ -430,6 +432,40 @@ run_emu_play() {
     [ "$emu_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
 }
 
+# emu-save (#48): a chord from PRESS, SAVE opened and tapped again while it sounds (SAVE waits), let go
+# at RELEASE; the run goes on long enough for SOUNDTRACK's tail to end and the write to happen.
+EMU_SAVE_MS=16000 EMU_SAVE_PRESS=1500 EMU_SAVE_RELEASE=4000
+EMU_SAVE_KEYS="1500:14,1500:18,1500:21,2000:9,2100:9^,2500:9,2600:9^,4000:14^,4000:18^,4000:21^"
+
+# run_emu_save: plays $OUT/fm1-8p.fwsc (built when missing) on a fresh flash image, so the write is
+# the first to slot 11, and checks it with tools/emu_save.py.
+run_emu_save() {
+    check_inputs || return 1
+    fetch_emu || return 1
+    ulimit -n 8192 2>/dev/null || true
+    mkdir -p "$OUT" || return 1
+    if [ ! -f "$OUT/fm1-8p.fwsc" ]; then
+        build_module fm1_8p fm1-8p "FM1-8P" || return 1
+    fi
+    rm -f "$OUT/emu-save.flash"
+    emu_rc=0
+    (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
+        --fwsc "$OUT/fm1-8p.fwsc" --ms "$EMU_SAVE_MS" --keys "$EMU_SAVE_KEYS" --flash "$OUT/emu-save.flash" \
+        --out "$OUT/emu-save") >"$OUT/emu-save.log" 2>&1 || emu_rc=$?
+    cat "$OUT/emu-save.log"
+    report_rc=0
+    "$PYTHON" "$ROOT/tools/emu_save.py" "$OUT/emu-save/log.txt" "$OUT/emu-save/audio.wav" \
+        "$EMU_SAVE_PRESS" "$EMU_SAVE_RELEASE" >"$OUT/emu-save-report.md" 2>&1 || report_rc=1
+    if ! verify_sha256 "$FM1_LIVE" "$FM1_LIVE_SHA256" 2>/dev/null; then
+        printf '\nNote: run with an unpinned fm1-live (%s).\n' "$FM1_LIVE" >>"$OUT/emu-save-report.md"
+    fi
+    if [ "$emu_rc" -ne 0 ]; then
+        printf '\n**The emulator run failed (exit %s).**\n' "$emu_rc" >>"$OUT/emu-save-report.md"
+    fi
+    cat "$OUT/emu-save-report.md"
+    [ "$emu_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
+}
+
 [ -n "${FM1_BUILD_LIB:-}" ] && return 0       # sourced by tests/test_fm1_build.sh
 
 set -eu
@@ -452,6 +488,7 @@ case "${1:-}" in
     emu)      run_emu fm1_8p_cpu_quick emu ;;
     emu-ui)   run_emu fm1_8p_cpu_ui emu-ui ;;
     emu-play) run_emu_play ;;
+    emu-save) run_emu_save ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
-    *)        sed -n '2,27s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *)        sed -n '2,29s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac
