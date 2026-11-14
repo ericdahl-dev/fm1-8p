@@ -386,6 +386,7 @@ static void show_page(ui *u, ui_state st)
 {
     uint32_t k;
     u->state = st;
+    u->readout = 0;                             /* (PLAY's knob readout is that visit's) */
     u->focus = 1;                               /* knob 2, as visual.md's pages open, */
     if (UI_SLOTS[4u * u->page + 1u].kind != UI_LIVE)   /* or the first live one (4B: 45 alone) */
         for (k = 0; k < 4u; k++)

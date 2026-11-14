@@ -1604,6 +1604,20 @@ TT_TEST(ui_jump_digits_and_sections)
     TT_CHECK(strcmp(UI_SECTION_NAME[5], "VCF") == 0);
 }
 
+/* PLAY's readout belongs to that visit: turn KNOB1 in PLAY, go to 5A and back within 3 s, and PLAY shows
+ * the patch again, not a readout of a knob not turned there. */
+TT_TEST(ui_play_readout_ends_with_the_visit)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1000);
+    TT_CHECK(ui_play_readout(&ui_u, 1100));
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 1200);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1500);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 1600);      /* a tap: PLAY again */
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+    TT_CHECK(!ui_play_readout(&ui_u, 1700));
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1646,6 +1660,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_play_readout_ends_with_the_visit);
     TT_RUN(ui_jump_screen_comes_and_goes);
     TT_RUN(ui_jump_digits_and_sections);
     TT_RUN(ui_keypad_glows_while_sel_is_held);
