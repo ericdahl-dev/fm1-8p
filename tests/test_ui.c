@@ -391,6 +391,20 @@ TT_TEST(ui_param_set_during_compare_reaches_the_edit_buffer)
     TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), 777);
 }
 
+/* Compare redraws the header (its COMPARE marker) and the values, when it begins and when it ends. */
+TT_TEST(ui_compare_redraws_the_header_and_values)
+{
+    uint32_t enc, want = UI_D_HEAD | UI_D_FOCUS | UI_D_COL(0) | UI_D_COL(3);
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);
+    (void)ui_take(&ui_u, 500);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    TT_CHECK_EQ(ui_take(&ui_u, 1400) & want, want);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2000);
+    TT_CHECK_EQ(ui_take(&ui_u, 2100) & want, want);
+}
+
 /* The EDIT LED glows while the sound is the stored patch and is lit once it is edited; turning
  * back to the stored value glows again. */
 TT_TEST(ui_edit_led_shows_an_edited_patch)
@@ -856,6 +870,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_compare_ignores_knobs_and_presets);
     TT_RUN(ui_edit_led_blinks_during_compare);
     TT_RUN(ui_param_set_during_compare_reaches_the_edit_buffer);
+    TT_RUN(ui_compare_redraws_the_header_and_values);
     TT_RUN(ui_vcf_page_knobs_move_their_params_one_step);
     TT_RUN(ui_vcf_knob3_click_moves_resonance);
 }

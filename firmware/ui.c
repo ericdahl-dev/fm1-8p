@@ -363,7 +363,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && u->comparing) {   /* the edit buffer back, exactly */
         if (u->comparing == UI_COMPARE_ON) {
             play_compare_end(u->p);
-            u->dirty |= UI_D_ALL & ~UI_D_FULL;
+            u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_HEAD;
         }
         u->comparing = 0;
         return;
@@ -398,7 +398,7 @@ uint32_t ui_take(ui *u, uint32_t ms)
         if (play_edited(u->p)) {                /* an EDIT hold: compare */
             u->comparing = UI_COMPARE_ON;
             play_compare_begin(u->p);
-            u->dirty |= UI_D_ALL & ~UI_D_FULL;  /* the page stays; it shows the stored values */
+            u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_HEAD;   /* the page stays: the stored values */
         } else {
             u->comparing = UI_COMPARE_NONE;     /* nothing to compare */
             show_banner(u, "NO EDITS", ms);
