@@ -114,22 +114,22 @@ the two themes:
 
 | key | Membrane | Night Panel | what it changes |
 | --- | --- | --- | --- |
-| `bg` | `2124` charcoal | `0863` | the screen |
-| `surface` | `2965` | `18C5` | columns, footer, cells |
-| `surface_hi` | `39C7` | `2107` | the focus column, legend chips |
-| `line` | `528A` | `2969` | rules, frames, unlit meter |
-| `text` | `F79D` off-white | `EF7F` | values, focused labels |
-| `dim` | `BDD6` | `9CB7` | other labels |
-| `ink` | `10A2` | `0863` | text on a chip or on the sunset |
-| `window` | `0841` | `0021` | LED and graph windows |
-| `led` | `FB47` red | the section color | the 7-segment digits |
+| `bg` | `2986` the button strip | `0863` | the screen |
+| `surface` | `3A08` | `18C5` | columns, footer, cells |
+| `surface_hi` | `4249` | `2107` | the focus column, legend chips |
+| `line` | `83EF` the body | `2969` | rules, frames, unlit meter |
+| `text` | `F7BE` the lettering | `EF7F` | values, focused labels |
+| `dim` | `C659` | `9CB7` | other labels |
+| `ink` | `1904` | `0863` | text on a chip or on the sunset |
+| `window` | `0020` | `0021` | LED and graph windows |
+| `led` | `AF9E` pale cyan | the section color | the 7-segment digits |
 | `ghost` | 10 % | 8 % | unlit segments, as this much of the LED color |
 | `header` | `chip` | `band` | the section name on a chip of its color, or in its color under a 3 px band |
 | `meter_segments`, `meter_gap` | 0, 0 (one bar) | 8, 2 (an LED ladder) | the knob meter |
 | `focus` | `(1.0, 1.0)` | `(1.0, 0.45, 0.2)` | frames inward from the focused element's edge, as mixes from `bg` to the accent: a 2 px frame, or a glow |
 | `hatch` | 0 | 16 % | the fill under graph curves |
 | `art` | `badge` | `sun` | the PLAY slot: six sunset bands with the device name, or the striped sun over a perspective grid |
-| `playhead`, `cursor` | `F79D`, `FB47` | `2EDF`, `EF7F` | the SEQ playhead and step cursor |
+| `playhead`, `cursor` | `F7BE`, `DCF3` | `2EDF`, `EF7F` | the SEQ playhead and step cursor |
 | `sun` | `FE88 FD87 FC67 FB49 F24E D1D2` | `FEC9 FD88 FC48 FAEC F1F2 C198` | the sunset bands (PLAY only) |
 | `grid`, `horizon` | none | `5953`, `F9FB` | the perspective grid (PLAY only) |
 
@@ -137,31 +137,33 @@ All values are RGB565, which is what `HB_RGB()` produces.
 
 ### Section colors
 
-Membrane takes the JX-8P's and PG-800's own colors (Eric, 2026-11-14): the body's neutral
-charcoal gray for the screen, off-white lettering, and the panel buttons' colors for the sections,
-named below by the button each comes from. They were white-balanced from a photo, whose room
-light made the body look brown, and lightened only as far as the contrast rules below need.
+Membrane takes the JX-8P's own colors (Eric, 2026-11-14, from a render of its panel). The screen
+is the button strip's dark gray. The body's mid gray is too light to put text on, so it draws the
+rules, frames and unlit meters. Text is the lettering, the LED window the display's pale cyan, and
+the sections the panel buttons' colors, named below by the button each comes from. The panel has
+five button colors for eight sections, so some repeat on sections far apart, and each is lightened
+only as far as the contrast rules below need (the red most, to a soft red).
 
 | section | Membrane | Night Panel |
 | --- | --- | --- |
-| 1x DCO-1 | `FB47` red (COPY/WRITE) | `FAF4` pink |
-| 2x DCO-2 | `FE2C` amber (KEY MODE) | `FC47` orange |
-| 3x MIX | `EF19` cream (TONE) | `DEBE` lilac white |
-| 4x VCF | `6D3F` sky blue (PATCH CHAIN) | `2EDF` cyan |
-| 5x VCF ENV | `FDD1` orange (the script) | `FE07` amber |
-| 6x VCA | `B5B6` gray (EDIT) | `7F8F` green |
-| 7x LFO | `AE7F` pale sky blue | `B3FF` violet |
-| 8x CTRL | `FE8D` amber (AFTER TOUCH) | `3D1F` blue |
-| SEQ | `FB47` red (WRITE) | `F9FB` magenta |
-| GLO | `6D3F` sky blue (MIDI) | `DEBE` lilac white |
-| PLAY | `F79D` off-white | `F9FB` magenta |
+| 1x DCO-1 | `DCF3` red (COPY/WRITE) | `FAF4` pink |
+| 2x DCO-2 | `DD6B` amber (KEY MODE) | `FC47` orange |
+| 3x MIX | `CE58` cream-gray (TONE) | `DEBE` lilac white |
+| 4x VCF | `8D9A` blue (PATCH CHAIN) | `2EDF` cyan |
+| 5x VCF ENV | `E5B6` pale red | `FE07` amber |
+| 6x VCA | `C5F5` light gray (EDIT) | `7F8F` green |
+| 7x LFO | `B65C` pale blue | `B3FF` violet |
+| 8x CTRL | `CD4D` amber (AFTER TOUCH) | `3D1F` blue |
+| SEQ | `DCF3` red (WRITE) | `F9FB` magenta |
+| GLO | `AD95` gray | `DEBE` lilac white |
+| PLAY | `D6B9` the lettering | `F9FB` magenta |
 
 ### Contrast
 
 All ratios are WCAG ratios, computed on the quantized RGB565 values.
 
-- **Text:** at least 10.5:1 on every surface in Membrane, and 13.9:1 in Night Panel.
-- **Dim labels:** at least 6.0:1 in Membrane and 5.6:1 in Night Panel.
+- **Text:** at least 8.5:1 on every surface in Membrane, and 13.9:1 in Night Panel.
+- **Dim labels:** at least 5.6:1 in Membrane and 5.6:1 in Night Panel.
 - **Section colors:** at least 4.7:1 on `surface` and 4.9:1 on `bg`.
 
 ### Where the layouts differ, and why it stays minimal

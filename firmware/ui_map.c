@@ -4,12 +4,13 @@
 
 /* visual.md: Membrane */
 const ui_theme UI_MEMBRANE = {
-    /* the JX-8P's and PG-800's own colors (Eric, 2026-11-14): the body's neutral charcoal gray, off-white
-     * lettering, and the buttons' red, amber, cream, gray and sky blue as the sections, white-balanced
-     * from a photo (its room light made the body look brown) */
-    .bg = 0x2124u, .surface = 0x2965u, .surface_hi = 0x39C7u, .line = 0x528Au, .text = 0xF79Du,
-    .dim = 0xBDD6u, .ink = 0x10A2u, .window = 0x0841u, .led = 0xFB47u,
-    .section = {0xFB47u, 0xFE2Cu, 0xEF19u, 0x6D3Fu, 0xFDD1u, 0xB5B6u, 0xAE7Fu, 0xFE8Du, 0xFB47u, 0x6D3Fu, 0xF79Du},
+    /* the JX-8P's own colors (Eric, 2026-11-14, from a render of its panel): the button strip's dark
+     * gray for the screen, the body's mid gray for rules and frames, the lettering for text, the LED
+     * display's pale cyan, and the buttons' red, amber, cream, gray and blue as the sections, lightened
+     * only as far as the contrast rules need (the body gray is too light to put text on) */
+    .bg = 0x2986u, .surface = 0x3A08u, .surface_hi = 0x4249u, .line = 0x83EFu, .text = 0xF7BEu,
+    .dim = 0xC659u, .ink = 0x1904u, .window = 0x0020u, .led = 0xAF9Eu,
+    .section = {0xDCF3u, 0xDD6Bu, 0xCE58u, 0x8D9Au, 0xE5B6u, 0xC5F5u, 0xB65Cu, 0xCD4Du, 0xDCF3u, 0xAD95u, 0xD6B9u},
     .ghost = 26u,                       /* 10 % */
     .chip = 1u,
     .meter_segments = 0u,
