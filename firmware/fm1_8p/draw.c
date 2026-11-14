@@ -793,6 +793,7 @@ static uint32_t pending;                        /* UI_D_* bands still to draw */
 static uint32_t band, part;                     /* the band being drawn (0: none) and its next part */
 #ifdef FM1_DEBUG
 static uint32_t worst_call;                     /* the longest draw() call, in 24 MHz ticks */
+static uint32_t screen_key = ~0u, screen_worst; /* the screen showing (jump, state, page) and its worst call */
 #endif
 void ui_draw_frame(uint32_t full)
 {
@@ -851,6 +852,16 @@ void ui_draw_frame(uint32_t full)
         worst_call = H->ticks() - t0;
         H->log_u32("fm1-8p: worst draw call, ticks", worst_call);
     }
+    if ((now >> 8) != screen_key) {             /* a new screen: the last one's worst call (tools/emu_pages.py) */
+        if (screen_key != ~0u) {
+            H->log_u32("fm1-8p PAGES screen", screen_key);
+            H->log_u32("fm1-8p PAGES worst draw call, ticks", screen_worst);
+        }
+        screen_key = now >> 8;
+        screen_worst = 0;
+    }
+    if (H->ticks() - t0 > screen_worst)
+        screen_worst = H->ticks() - t0;
 #endif
 }
 
