@@ -225,8 +225,8 @@ TT_TEST(ui_column_value_is_short)
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50", "%"));
 }
 
-/* The header's page strip: 14 segments with 2 px gaps share 230 px from x 5 (the leftover px one
- * each to the first); 4A is the 5th. */
+/* The header's page strip: 18 segments with 2 px gaps share 230 px from x 5 (the leftover px one
+ * each to the first); 5A is the 8th (interaction.md's page order). */
 TT_TEST(ui_page_strip_fills_the_rule)
 {
     int32_t x, w, end = 5;
@@ -237,7 +237,8 @@ TT_TEST(ui_page_strip_fills_the_rule)
         end = x + w + 2;
     }
     TT_CHECK_EQ(end - 2, 235);
-    TT_CHECK_EQ(UI_PAGE_4A, 4u);
+    TT_CHECK_EQ(UI_PAGES, 18u);
+    TT_CHECK(strcmp(UI_PAGE_INFO[UI_PAGE_5A].name, "5A") == 0);
 }
 
 /* The LED window's 7-segment digits (bits a..g = 0..6). */
@@ -684,6 +685,190 @@ TT_TEST(ui_steady_turns_still_reach_the_columns)
     TT_CHECK(cols >= 10u);
 }
 
+/* SEL from PLAY opens 1A, DCO-1 (interaction.md 3, 4): 11 RANGE and 12 WAVE on KNOB1 and KNOB2. */
+TT_TEST(ui_sel_opens_dco1)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 11);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->id, FM_PARAM_OSC1_OCTAVE);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 1)->num, 12);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 1)->id, FM_PARAM_OSC1_WAVE);
+}
+
+/* A section button is lit while a page of its ring shows (interaction.md 4): on 1A SEL is lit and
+ * ENV glows; on 5A, the other way round. */
+TT_TEST(ui_section_led_follows_the_ring)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_LIT);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_GLOW);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 200);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_LIT);
+}
+
+/* DCO values (interaction.md 3, 1x/2x): RANGE in feet, WAVE by name, LFO depth in cents. */
+TT_TEST(ui_dco_values_read_as_the_panel)
+{
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_OCTAVE, 0, "8'"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_OCTAVE, -2, "32'"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_OCTAVE, 2, "2'"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_WAVE, 0, "SAW"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_WAVE, 3, "NOISE"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_CENTS, 450, "450 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_OSC2_CENTS, -1, "D1"));    /* follows DCO-1's depth */
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PITCH_OSC2_CENTS, 90, "90 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, 1240, "+12.4 st"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC2_CENTS, -3200, "-32.0 st"));
+    TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_OSC1_CENTS, 0, "0.0 st"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_FINE_CENTS, 5, "+5 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_FINE_CENTS, -100, "-100 ct"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_COARSE_SEMIS, 7, "+7 st"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_PULSE_WIDTH_PCT, 50, "50 %"));
+}
+
+/* SEL steps its ring (interaction.md 4): 1A, 1B, 2A, 2B, then pages not built yet are skipped
+ * (3A, 4A, 4B) and it comes back to 1A. */
+TT_TEST(ui_sel_walks_the_dco_pages)
+{
+    static const uint8_t WANT[5] = {11, 15, 21, 25, 11};
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 5u; i++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
+        ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
+        TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, WANT[i]);
+    }
+}
+
+/* 23 X-MOD is the JX-8P's CROSS MOD on one knob (interaction.md 17a): OFF, SYNC 1, SYNC 2, X-MOD,
+ * setting osc_sync and osc_ring as tools/jx8p.py maps it, and staying at either end. */
+TT_TEST(ui_xmod_steps_the_cross_mod_positions)
+{
+    static const struct { int32_t sync, ring; const char *shown; } WANT[5] = {
+        {0, 0, "OFF"}, {1, 0, "SYNC 1"}, {1, 1, "SYNC 2"}, {0, 1, "X-MOD"}, {0, 1, "X-MOD"},
+    };
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 3u; i++) {                  /* SEL: 1A, 1B, 2A */
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
+        ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
+    }
+    play_set_param(&ui_p, FM_PARAM_OSC_SYNC, 0);
+    play_set_param(&ui_p, FM_PARAM_OSC_RING, 0);
+    for (i = 0; i < 5u; i++) {
+        char s[UI_VALUE_LEN];
+        if (i)
+            ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 5000);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_SYNC), WANT[i].sync);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_RING), WANT[i].ring);
+        ui_format(ui_page_slot(&ui_u, 2)->id, ui_slot_value(&ui_u, ui_page_slot(&ui_u, 2)), s);
+        TT_CHECK(strcmp(s, WANT[i].shown) == 0);
+    }
+}
+
+/* The DCO pages' slot draws the waveform, two cycles across n columns (levels -1000..+1000): a saw
+ * rises through each cycle, a pulse is high for its width, a square half the cycle, noise anywhere
+ * in range. */
+TT_TEST(ui_wave_picture_follows_the_wave)
+{
+    uint32_t i, high = 0;
+    TT_CHECK(ui_wave_level(FM_WAVE_SAW, 50, 0, 200) < ui_wave_level(FM_WAVE_SAW, 50, 90, 200));
+    TT_CHECK(ui_wave_level(FM_WAVE_SAW, 50, 99, 200) > ui_wave_level(FM_WAVE_SAW, 50, 100, 200));
+    for (i = 0; i < 200u; i++)
+        high += ui_wave_level(FM_WAVE_PULSE, 25, i, 200) > 0;
+    TT_CHECK(high >= 48u && high <= 52u);
+    for (high = 0, i = 0; i < 200u; i++)
+        high += ui_wave_level(FM_WAVE_SQUARE, 25, i, 200) > 0;
+    TT_CHECK(high >= 98u && high <= 102u);
+    for (i = 0; i < 200u; i++) {
+        int32_t v = ui_wave_level(FM_WAVE_NOISE, 50, i, 200);
+        TT_CHECK(v >= -1000 && v <= 1000);
+    }
+}
+
+/* On a DCO page the slot is the waveform: a WAVE turn redraws it, a RANGE turn doesn't. */
+TT_TEST(ui_wave_turn_redraws_the_picture)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    (void)ui_take_full(&ui_u, 100);
+    play_set_param(&ui_p, FM_PARAM_OSC1_WAVE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 200);
+    TT_CHECK(ui_take(&ui_u, 300) & UI_D_SLOT);
+    play_set_param(&ui_p, FM_PARAM_OSC1_OCTAVE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 400);
+    TT_CHECK(!(ui_take(&ui_u, 500) & UI_D_SLOT));
+}
+
+/* 17 WIDTH is inactive unless DCO-1's WAVE is PULSE (interaction.md 3, 1x), and 28 likewise for
+ * DCO-2; other slots are active. */
+TT_TEST(ui_width_is_inactive_off_pulse)
+{
+    const ui_slot *w1 = &UI_SLOTS[4 * 1 + 2], *w2 = &UI_SLOTS[4 * 3 + 3];
+    ui_setup();
+    TT_CHECK_EQ(w1->num, 17);
+    TT_CHECK_EQ(w2->num, 28);
+    play_set_param(&ui_p, FM_PARAM_OSC1_WAVE, FM_WAVE_SAW);
+    play_set_param(&ui_p, FM_PARAM_OSC2_WAVE, FM_WAVE_PULSE);
+    TT_CHECK(!ui_slot_active(&ui_u, w1));
+    TT_CHECK(ui_slot_active(&ui_u, w2));
+    play_set_param(&ui_p, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
+    TT_CHECK(ui_slot_active(&ui_u, w1));
+    TT_CHECK(ui_slot_active(&ui_u, &UI_SLOTS[0]));
+}
+
+/* 14 LFO (interaction.md 3): 1 to 99 ct a click of 1 (fast 10), from 100 a click of 10 (fast 50). */
+TT_TEST(ui_lfo_depth_steps_finer_below_100)
+{
+    static const struct { int32_t from, clicks, to; } C[] = {
+        {98, 1, 99}, {99, 1, 100}, {100, 1, 110}, {110, -1, 100}, {100, -1, 99}, {50, 3, 80}, {100, 3, 250},
+    };
+    uint32_t i;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    for (i = 0; i < sizeof C / sizeof C[0]; i++) {
+        play_set_param(&ui_p, FM_PARAM_LFO_PITCH_CENTS, C[i].from);
+        ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, C[i].clicks, 200);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_PITCH_CENTS), C[i].to);
+    }
+}
+
+/* Whatever the buttons and knobs do, an edit page is a real one with a live slot, and the focus row
+ * shows a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT and
+ * HOME taps, holds and every knob, many times over, in a fixed pseudo-random order. */
+TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
+{
+    static const uint32_t EV[] = {UI_EV_BTN_DOWN | UI_BTN_SEL, UI_EV_BTN_UP | UI_BTN_SEL,
+                                  UI_EV_BTN_DOWN | UI_BTN_ENV, UI_EV_BTN_UP | UI_BTN_ENV,
+                                  UI_EV_BTN_DOWN | UI_BTN_EDIT, UI_EV_BTN_UP | UI_BTN_EDIT,
+                                  UI_EV_BTN_DOWN | UI_BTN_HOME, UI_EV_BTN_UP | UI_BTN_HOME,
+                                  UI_EV_ENC | UI_ENC_KNOB1, UI_EV_ENC | UI_ENC_KNOB2,
+                                  UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4};
+    uint32_t i, r = 12345u, ms = 0, bad = 0;
+    ui_setup();
+    for (i = 0; i < 20000u; i++) {
+        const ui_slot *f;
+        r = r * 1103515245u + 12345u;
+        ms += (r >> 8) % 600u;                  /* taps and holds */
+        ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
+        if (ui_u.state != UI_EDIT)
+            continue;
+        f = ui_page_slot(&ui_u, ui_u.focus);
+        if (ui_u.page >= UI_PAGES || ui_u.focus > 3u || f->kind == UI_RESERVED || !f->label || !f->full)
+            bad++;
+    }
+    printf("    %u bad states in 20000 events\n", (unsigned)bad);
+    TT_CHECK_EQ(bad, 0u);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -726,6 +911,16 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_hammered_buttons_keep_a_live_page_and_focus);
+    TT_RUN(ui_lfo_depth_steps_finer_below_100);
+    TT_RUN(ui_width_is_inactive_off_pulse);
+    TT_RUN(ui_wave_turn_redraws_the_picture);
+    TT_RUN(ui_wave_picture_follows_the_wave);
+    TT_RUN(ui_xmod_steps_the_cross_mod_positions);
+    TT_RUN(ui_sel_walks_the_dco_pages);
+    TT_RUN(ui_dco_values_read_as_the_panel);
+    TT_RUN(ui_section_led_follows_the_ring);
+    TT_RUN(ui_sel_opens_dco1);
     TT_RUN(ui_steady_turns_still_reach_the_columns);
     TT_RUN(ui_choice_meter_lights_its_position);
     TT_RUN(ui_hpf_off_the_panel_snaps_the_way_it_turns);
