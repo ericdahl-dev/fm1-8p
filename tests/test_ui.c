@@ -1204,6 +1204,34 @@ TT_TEST(ui_lfo_ring_and_page)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_WAVE), FM_LFO_SQUARE);
 }
 
+/* The LFO rate table (interaction.md, units): 0.01 Hz to 30.0 Hz, every 0.01 Hz to 0.17 Hz, then
+ * about 6 % apart (none above 8 %); 73 RATE walks it a click an entry, a fast turn four. */
+TT_TEST(ui_rate_table_steps_about_6_percent)
+{
+    uint32_t i, n = ui_rate_count();
+    TT_CHECK(n >= 100u && n <= 120u);
+    for (i = 0; i < 17u; i++)
+        TT_CHECK_EQ(ui_rate_at(i), (int32_t)i + 1);
+    TT_CHECK_EQ(ui_rate_at(n - 1u), 3000);
+    for (i = 17; i < n; i++)
+        TT_CHECK(ui_rate_at(i) > ui_rate_at(i - 1u) && ui_rate_at(i) * 100 <= ui_rate_at(i - 1u) * 108);
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 0);
+    play_set_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ, 3);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 100);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ), 4);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 3, 200);         /* fast: 12 entries */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ), 16);
+    play_set_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ, 3000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 300);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_RATE_CENTIHZ), 3000);
+    {                                           /* its bar: the place in the table */
+        int32_t a, b;
+        ui_slot_bar(ui_page_slot(&ui_u, 2), ui_rate_at((n - 1u) / 2u), 44, &a, &b);
+        TT_CHECK(a == 0 && b >= 21 && b <= 23);
+    }
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1246,6 +1274,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_rate_table_steps_about_6_percent);
     TT_RUN(ui_lfo_ring_and_page);
     TT_RUN(ui_env_turn_redraws_the_adsr);
     TT_RUN(ui_time_bar_follows_the_table);

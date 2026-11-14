@@ -27,8 +27,9 @@ typedef struct {
  * PAIR  one JX switch on two params: id | id2 << 1 (CROSS MOD: sync, ring)
  * MODE  a JX ENV MODE: the source param id | the depth's sign << 1 (inverted), the depths id2, id3
  * SIZE  a depth's size, its sign being its ENV MODE's
- * TIME  a time: a click is an entry of the time table (UI_TIMES), a fast one four */
-typedef enum { UI_HOW_PLAIN, UI_HOW_PAIR, UI_HOW_MODE, UI_HOW_SIZE, UI_HOW_TIME } ui_how;
+ * TIME  a time: a click is an entry of the time table (UI_TIMES), a fast one four
+ * RATE  the LFO rate, the same on the rate table (UI_RATES) */
+typedef enum { UI_HOW_PLAIN, UI_HOW_PAIR, UI_HOW_MODE, UI_HOW_SIZE, UI_HOW_TIME, UI_HOW_RATE } ui_how;
 
 /* interaction.md's page order: 1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B */
 #define UI_PAGES 18u
@@ -47,6 +48,8 @@ extern const uint8_t UI_RING_SEL[], UI_RING_ENV[], UI_RING_FX[], UI_RING_LFO[];
 
 #define UI_TIME_COUNT 122u
 extern const uint16_t UI_TIMES[UI_TIME_COUNT];   /* ms, rising (interaction.md, units) */
+#define UI_RATE_COUNT 109u
+extern const uint16_t UI_RATES[UI_RATE_COUNT];   /* centihertz, rising (the LFO rate table) */
 
 /* the section colors' order (visual.md's table): 1x DCO-1 .. 8x CTRL, then SEQ, GLO and PLAY */
 enum { UI_SEC_DCO1, UI_SEC_DCO2, UI_SEC_MIX, UI_SEC_VCF, UI_SEC_VCF_ENV, UI_SEC_VCA, UI_SEC_LFO, UI_SEC_CTRL,

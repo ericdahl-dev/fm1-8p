@@ -321,9 +321,10 @@ void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
 void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b)
 {
     int32_t max;
-    if (sl->how == UI_HOW_TIME) {               /* its place in the time table */
-        int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
-        while (i < n - 1 && UI_TIMES[i + 1] <= value)
+    if (sl->how == UI_HOW_TIME || sl->how == UI_HOW_RATE) {    /* its place in its table */
+        const uint16_t *t = sl->how == UI_HOW_TIME ? UI_TIMES : UI_RATES;
+        int32_t i = 0, n = (int32_t)(sl->how == UI_HOW_TIME ? UI_TIME_COUNT : UI_RATE_COUNT);
+        while (i < n - 1 && t[i + 1] <= value)
             i++;
         *a = 0;
         *b = (2 * w * i + (n - 1)) / (2 * (n - 1));
@@ -491,16 +492,26 @@ uint32_t ui_time_count(void) { return UI_TIME_COUNT; }
 
 int32_t ui_time_at(uint32_t i) { return UI_TIMES[i < UI_TIME_COUNT ? i : UI_TIME_COUNT - 1u]; }
 
-int32_t ui_time_step(int32_t ms, int32_t clicks)
+/* v clicks entries on in a rising table t of n (between entries: snapped the way of the turn) */
+static int32_t table_step(const uint16_t *t, int32_t n, int32_t v, int32_t clicks)
 {
-    int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
-    while (i < n - 1 && UI_TIMES[i + 1] <= ms)  /* the last entry at or below ms */
+    int32_t i = 0;
+    while (i < n - 1 && t[i + 1] <= v)          /* the last entry at or below v */
         i++;
-    if (clicks < 0 && UI_TIMES[i] < ms)         /* between entries: that one is already a click down */
+    if (clicks < 0 && t[i] < v)                 /* between entries: that one is already a click down */
         clicks++;
     i += clicks;
-    return UI_TIMES[i < 0 ? 0 : i >= n ? n - 1 : i];
+    return t[i < 0 ? 0 : i >= n ? n - 1 : i];
 }
+
+int32_t ui_time_step(int32_t ms, int32_t clicks)
+{
+    return table_step(UI_TIMES, (int32_t)UI_TIME_COUNT, ms, clicks);
+}
+
+uint32_t ui_rate_count(void) { return UI_RATE_COUNT; }
+
+int32_t ui_rate_at(uint32_t i) { return UI_RATES[i < UI_RATE_COUNT ? i : UI_RATE_COUNT - 1u]; }
 
 int32_t ui_slot_value(const ui *u, const ui_slot *sl)
 {
@@ -562,9 +573,11 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
                 clicks -= way;
             }
         set_slot(u, s, s->order[i]);
-    } else if (s->how == UI_HOW_TIME) {         /* the time table: an entry a click, four a fast one */
-        play_set_param(u->p, s->id, ui_time_step(play_get_param(u->p, s->id),
-                                                 clicks >= 3 || clicks <= -3 ? 4 * clicks : clicks));
+    } else if (s->how == UI_HOW_TIME || s->how == UI_HOW_RATE) {   /* its table: an entry a click, four fast */
+        play_set_param(u->p, s->id, table_step(s->how == UI_HOW_TIME ? UI_TIMES : UI_RATES,
+                                               (int32_t)(s->how == UI_HOW_TIME ? UI_TIME_COUNT : UI_RATE_COUNT),
+                                               play_get_param(u->p, s->id),
+                                               clicks >= 3 || clicks <= -3 ? 4 * clicks : clicks));
     } else if (s->id == FM_PARAM_LFO_PITCH_CENTS || s->id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
         int32_t v = play_get_param(u->p, s->id), way = clicks > 0 ? 1 : -1, fast = clicks >= 3 || clicks <= -3;
         for (; clicks; clicks -= way) {         /* 1 to 99 ct by 1 (fast 10), from 100 by 10 (fast 50) */

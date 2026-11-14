@@ -103,6 +103,8 @@ int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i
 /* the time table (interaction.md, units): its size, entry i, and a time clicks entries on (a time
  * not in it snaps to the next entry the way of the turn first), clamped at both ends */
 uint32_t ui_time_count(void);
+uint32_t ui_rate_count(void);           /* the same for the LFO rate table, centihertz */
+int32_t ui_rate_at(uint32_t i);
 int32_t ui_time_at(uint32_t i);
 int32_t ui_time_step(int32_t ms, int32_t clicks);
 /* a slot's value: its param's, or a paired slot's two as id | id2 << 1 */

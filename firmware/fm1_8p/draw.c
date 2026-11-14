@@ -357,7 +357,7 @@ static void column(uint32_t k)
                     H->cv_rect(x + 6 + (int32_t)(i * 46u / n), 40, (int32_t)(46u / n) - 2, 6,
                                i == at ? on : C_LINE);
             } else if (T->meter_segments) {
-                if (s->how == UI_HOW_SIZE || s->how == UI_HOW_TIME) {   /* (from the left, as the bar) */
+                if (s->how == UI_HOW_SIZE || s->how == UI_HOW_TIME || s->how == UI_HOW_RATE) {   /* (from the left, as the bar) */
                     int32_t a, b;
                     ui_slot_bar(s, value, (int32_t)UI_METER_SEGS, &a, &b);
                     lit = (1u << b) - 1u;
