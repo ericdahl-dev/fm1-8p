@@ -401,10 +401,11 @@ THEMES = {
         # the buttons: red (top left, COPY/WRITE), amber (KEY MODE, AFTER TOUCH), cream-gray (TONE),
         # light gray (EDIT), blue (PATCH CHAIN), lightened to meet the contrast rules; the red stays the
         # panel's red, a fill only (its text takes the lettering)
-        sec={"DCO-1": "#DE615A", "DCO-2": "#D8AC5F", "MIX": "#CDCAC4", "VCF": "#8DB0D6", "VCF ENV": "#DE615A",
+        sec={"DCO-1": "#DE615A", "DCO-2": "#D8AC5F", "MIX": "#CDCAC4", "VCF": "#8DB0D6", "VCF ENV": "#FF4518",
              "VCA": "#C2BCAE", "LFO": "#B0C8E2", "CTRL": "#CCA869", "SEQ": "#DE615A", "GLO": "#AAB0AC",
              "PLAY": "#D6D5CE"},
         fill_only=("DCO-1", "VCF ENV", "SEQ"),     # the red: too dark for text, its text the lettering
+        fill_track="#050506",       # the meter track under a fill-only bar: the LED window
         sun=["#FFD040", "#FFB038", "#FF8C38", "#FF6848", "#F04870", "#D03890"], grid=None, horizon=None,
     ),
     "night-panel": dict(
@@ -426,6 +427,7 @@ THEMES = {
              "VCA": "#7CF07C", "LFO": "#B07CFF", "CTRL": "#3DA0FF", "SEQ": "#FF3DD8", "GLO": "#D8D4F0",
              "PLAY": "#FF3DD8"},
         fill_only=(),
+        fill_track="#2E2E4C",
         sun=["#FFD84A", "#FFB040", "#FF8840", "#FF5C60", "#F03C90", "#C030C0"], grid="#5A2A9A", horizon="#FF3DD8",
     ),
 }
@@ -610,11 +612,11 @@ def focus_frames(sc, t, x, y, w, h, col, bg):
         sc.frame(x + i, y + i, w - 2 * i, h - 2 * i, mix(bg, col, m))
 
 
-def meter(sc, t, x, y, w, h, val, col, active, bg):
+def meter(sc, t, x, y, w, h, val, col, active, bg, sec=None):
     """A knob's position. ('range', f), ('bipolar', f -1..1) or ('choice', i, n). A theme with
     meter_segments 0 draws a continuous bar; a choice always draws one segment per choice."""
     on_c = col if active else mix(bg, col, 0.6)
-    off_c = t["line"]
+    off_c = t["fill_track"] if sec in t["fill_only"] else t["line"]   # dark under a fill-only bar
     kind = val[0]
     if kind == "choice":
         _, i, n = val
@@ -666,7 +668,7 @@ def knob_columns(sc, t, rows, focus, sec_of=None):
         sc.fill(x, y, COL_W, h, bg)
         sc.text(x, y + 3, n, text_accent(t, sec), align="c", w=COL_W)
         sc.text(x, y + 19, label, t["text"] if act else t["dim"], align="c", w=COL_W)
-        meter(sc, t, x + 6, y + 40, COL_W - 12, 6, mval, col, act, bg)
+        meter(sc, t, x + 6, y + 40, COL_W - 12, 6, mval, col, act, bg, sec)
         if sc.dtext_w("D24", val) <= COL_W - 4 or not val.isalpha():
             value_text(sc, t, x, COL_W, y + 52, val, unit, t["text"] if act else t["dim"])
         else:                             # a long choice falls back to Terminus

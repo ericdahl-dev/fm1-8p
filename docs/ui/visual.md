@@ -147,6 +147,9 @@ read as pink (Eric, 2026-11-14), so it stays the panel's red and is a fill only.
 chip, the page strip, meters, focus frames and graph lines, the number jump puts each digit on a
 chip of its section's color, and where a red section would color text (the focus row's section name,
 the knob numbers) the text takes the lettering instead. The theme's `fill_only` lists these sections.
+Their meter bars sit on a near-black track (`fill_track`, the LED window's `0020`), so a bar stands
+out by lightness and not by hue alone. VCF ENV takes a more orange red of its own, `FA23`, so ENV-1
+stays apart from DCO-1 (Eric, 2026-11-14).
 
 | section | Membrane | Night Panel |
 | --- | --- | --- |
@@ -154,7 +157,7 @@ the knob numbers) the text takes the lettering instead. The theme's `fill_only` 
 | 2x DCO-2 | `DD6B` amber (KEY MODE) | `FC47` orange |
 | 3x MIX | `CE58` cream-gray (TONE) | `DEBE` lilac white |
 | 4x VCF | `8D9A` blue (PATCH CHAIN) | `2EDF` cyan |
-| 5x VCF ENV | `DB0B` red, fill only | `FE07` amber |
+| 5x VCF ENV | `FA23` orange red, fill only | `FE07` amber |
 | 6x VCA | `C5F5` light gray (EDIT) | `7F8F` green |
 | 7x LFO | `B65C` pale blue | `B3FF` violet |
 | 8x CTRL | `CD4D` amber (AFTER TOUCH) | `3D1F` blue |
@@ -171,6 +174,8 @@ All ratios are WCAG ratios, computed on the quantized RGB565 values.
 - **Section colors:** at least 4.7:1 on `surface` and 4.9:1 on `bg`, except a fill-only color.
 - **Fills:** every section color at least 3.0:1 on `surface`, and with a chip header, `ink` on it at
   least 4.5:1.
+- **Fill-only meters:** the bar at least 3.0:1 on `fill_track`, lit or dimmed, and the track at least
+  1.8:1 on `surface` and `surface_hi`.
 
 ### Where the layouts differ, and why it stays minimal
 
