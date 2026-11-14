@@ -17,6 +17,7 @@
 #define UI_BTN_LFO     5u
 #define UI_BTN_EDIT    6u
 #define UI_BTN_HOME    8u
+#define UI_BTN_SAVE    9u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
 #define UI_ENC_SELECT  0u
 #define UI_ENC_ALGORITHM 1u
@@ -26,7 +27,7 @@
 #define UI_ENC_KNOB4   5u
 #define UI_ENC_PRESETS 6u
 
-typedef enum { UI_PLAY, UI_EDIT } ui_state;
+typedef enum { UI_PLAY, UI_EDIT, UI_SAVE } ui_state;
 
 
 typedef struct {
@@ -48,6 +49,14 @@ typedef struct {
     uint32_t comparing;                 /* EDIT held: UI_COMPARE_ON, or UI_COMPARE_NONE (no edits); 0 not */
     uint32_t now_ms;                    /* ui_take's last ms (the EDIT LED's blink) */
     uint32_t shown_edited;              /* the footer's `*` as drawn: play_edited then */
+    /* SAVE (ui_save.c) */
+    ui_state save_from;                 /* the state SAVE goes back to */
+    uint32_t save_dest;                 /* the destination user slot, 0..63 (11..88) */
+    char save_name[STORE_NAME_LEN + 1u];
+    char save_msg[32];                  /* the banner SAVE leaves (SAVED 23, ...), or its prompt */
+    uint32_t save_step;                 /* UI_SAVE_EDITING, UI_SAVE_CONFIRM */
+    uint32_t save_cursor;               /* the name's character being edited, 0..11 */
+    uint32_t save_waiting;              /* 1: a snapshot waits for silence to be written */
     int32_t jump;                       /* the number jump: -1 SEL up; 0 held, no digit; 1..10 a first digit + 1 */
     uint32_t jump_keys;                 /* keys taken by it while SEL is held (bit k: key k), so their ups go too */
     uint32_t jump_screen;               /* UI_JS_*: the number jump's screen up, and a jump done in this hold */
@@ -60,6 +69,7 @@ typedef struct {
 
 /* ui_take's bits: what changed since the last redraw */
 enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
+enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
@@ -70,6 +80,7 @@ enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
 #define UI_BLINK_MS 250u                /* the EDIT LED's blink during compare: on, then off */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
+#define UI_FORCE_MS 1000u               /* SAVE held this long writes a waiting save at once */
 #define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
 /* PRESETS again within this, the same way: discard and load. The warning's time on screen, so a turn
  * never discards with nothing showing (the spec had 2 s against a 1.5 s banner: PR #83 review). */
@@ -132,7 +143,7 @@ int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* which screen shows (draw.c branches on it for every band): PLAY, an edit page, or the number jump's
  * (up from 400 ms into a SEL hold, or a first digit, until a jump is done or SEL comes up) */
-enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP };
+enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE };
 uint32_t ui_screen(const ui *u);
 /* PLAY: the focus row shows the last turned knob (3 s after its turn), not the patch's name */
 int ui_play_readout(const ui *u, uint32_t ms);

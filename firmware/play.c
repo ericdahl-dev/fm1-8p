@@ -67,6 +67,39 @@ void play_store_tick(play *p)
     p->lib_attached = 0;
 }
 
+uint32_t play_silent(const play *p)
+{
+    return p->sounding == 0 && p->head == p->tail;
+}
+
+void play_snapshot(const play *p, const char *name, store_patch *s)
+{
+    uint32_t i;
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        s->v[i] = p->comparing ? p->edit[i] : p->target[i];
+    for (i = 0; i < STORE_NAME_LEN && name[i]; i++)
+        s->name[i] = name[i];
+    for (; i <= STORE_NAME_LEN; i++)
+        s->name[i] = 0;
+}
+
+int play_save(play *p, uint32_t dest, const store_patch *s)
+{
+    uint32_t i;
+    int same = 1;
+    if (!p->lib || !p->io || dest >= STORE_USER_SLOTS || store_slot_write(p->lib, p->io, dest, s) != 0)
+        return -1;
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        same &= (p->comparing ? p->edit[i] : p->target[i]) == s->v[i];
+    if (same) {                                 /* what plays is what was saved: the slot's patch */
+        for (i = 0; i < FM_PARAM_COUNT; i++)
+            p->stored[i] = s->v[i];
+        p->prog = dest;
+        set_name(p, s->name);
+    }
+    return 0;
+}
+
 uint32_t play_prog_step(const play *p, uint32_t from, int32_t clicks)
 {
     int32_t way = clicks > 0 ? 1 : -1;
@@ -91,6 +124,7 @@ int play_init(play *p)
     p->lib = 0;
     p->lib_attached = 0;
     p->io = 0;
+    p->sounding = 0;
     p->comparing = 0;
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
@@ -306,6 +340,7 @@ void play_render(play *p, int32_t *out, uint32_t n)
         fm_engine_pitch_bend(&p->engine, 8192);         /* a lost center would leave it out of tune */
     }
     fm_engine_render(&p->engine, p->buf, n);
+    p->sounding = fm_engine_active_voices(&p->engine);   /* (for play_silent) */
     for (i = 0; i < 2u * n; i++) {
         int32_t v = (int32_t)p->buf[i] * (1 << PLAY_GAIN_SHIFT);
         out[i] += v > 32767 ? 32767 : v < -32767 ? -32767 : v;     /* saturate, never wrap */
