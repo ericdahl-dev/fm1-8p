@@ -1,22 +1,27 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui.h"
 
-/* interaction.md section 3, the VCF section: page 4A (41-44) and 4B (45-48) */
+/* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3), with
+ * the engine's own 100 Hz (1) in its place between, shown but not a knob position */
+static const uint8_t HPF_ORDER[5] = {4, 0, 1, 2, 3};
+#define HPF_STOPS 0x1Bu                     /* BOOST, FLAT, 240, 560 */
+
+/* The VCF section as the JX-8P's panel has it, with its PG-800 numbers (docs/patches.md): page
+ * 5A 51-54, 5B 55-58 */
 static const ui_slot VCF_SLOTS[8] = {
-    {41, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400},
-    {42, "RESO", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50},
-    {43, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600},
-    {44, "KEY", "KEY TRACK", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100},
-    {45, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1},
-    {46, "VEL", "VELOCITY", 0, UI_PENDING, 0, 0},
-    {47, "D2 ENV", "DCO-2 ENV", 0, UI_PENDING, 0, 0},
-    {48, "ENV SRC", "ENV SOURCE", 0, UI_PENDING, 0, 0},
+    {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS},
+    {52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, UI_LIVE, 100, 400, 0, 0, 0},
+    {53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, UI_LIVE, 10, 50, 0, 0, 0},
+    {54, "LFO", "LFO DEPTH", 0, UI_PENDING, 0, 0, 0, 0, 0},          /* #172 */
+    {55, "ENV", "ENV AMOUNT", FM_PARAM_FILTER_ENV_AMOUNT_CENTS, UI_LIVE, 100, 600, 0, 0, 0},
+    {56, "KEY", "KEY FOLLOW", FM_PARAM_FILTER_KEY_TRACK, UI_LIVE, 10, 100, 0, 0, 0},
+    {57, "DYNA", "DYNAMICS", 0, UI_PENDING, 0, 0, 0, 0, 0},
+    {58, "MODE", "ENV MODE", 0, UI_PENDING, 0, 0, 0, 0, 0},
 };
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
-    (void)u;
-    return k < 4u ? &VCF_SLOTS[k] : 0;
+    return k < 4u ? &VCF_SLOTS[4u * u->page + k] : 0;
 }
 
 /* 8.1758 Hz x 2^(s / 12), s = 0..12, in mHz x 16: CUTOFF's semitones in its lowest octave */
@@ -89,6 +94,10 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         num = put_u(num, st / 100u), u = "st";
     } else if (id == FM_PARAM_FILTER_KEY_TRACK) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
+    } else if (id == FM_PARAM_HIGHPASS_STEP) {  /* the JX positions; step 1 is the engine's own */
+        static const char *const HPF[5] = {"FLAT", "100", "240", "560", "BOOST"};
+        num = put_str(num, HPF[value < 0 ? 0 : value > 4 ? 4 : value]);
+        u = value == 0 || value >= 4 ? "" : "Hz";
     }
     *num = 0;
     *put_str(unit, u) = 0;
@@ -227,6 +236,36 @@ uint32_t ui_meter(uint16_t id, int32_t value)
     return (1u << ((2u * UI_METER_SEGS * at + span) / (2u * span))) - 1u;   /* rounded */
 }
 
+void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
+{
+    const fm_param_info *in = fm_param_info_get(id);
+    int32_t span, at, x;
+    *a = *b = 0;
+    if (!in || in->max <= in->min)
+        return;
+    span = in->max - in->min;
+    at = value < in->min ? 0 : value > in->max ? span : value - in->min;
+    x = (2 * w * at + span) / (2 * span);       /* rounded (w x span stays well inside 32 bits) */
+    if (in->min == -in->max) {                  /* bipolar: from the middle */
+        *a = x < w / 2 ? x : w / 2;
+        *b = x < w / 2 ? w / 2 : x;
+    } else {
+        *b = x;
+    }
+}
+
+uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n)
+{
+    uint32_t i, pos = 0, seen = 0;
+    for (i = 0; i < sl->n_order; i++) {
+        seen += sl->stops >> i & 1u;
+        if (sl->order[i] == value && seen)
+            pos = seen - 1u;                    /* the last stop at or before the value */
+    }
+    *n = seen;
+    return pos;
+}
+
 void ui_init(ui *u, play *p)
 {
     uint32_t i;
@@ -243,6 +282,7 @@ void ui_init(ui *u, play *p)
     u->banner_ms = 0;
     u->warned = 0;
     u->warned_ms = 0;
+    u->page = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -257,8 +297,21 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     const ui_slot *s = ui_page_slot(u, k);
     if (!s || s->kind != UI_LIVE)
         return;
-    play_set_param(u->p, s->id, play_get_param(u->p, s->id) +
-                   (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
+    if (s->order) {                             /* a choice: each click to the next stop, clamped */
+        int32_t v = play_get_param(u->p, s->id), max = fm_param_info_get(s->id)->max;
+        int32_t way = clicks > 0 ? 1 : -1, i = 0, j;
+        while (i < (int32_t)s->n_order - 1 && s->order[i] != v)
+            i++;
+        for (j = i + way; clicks && j >= 0 && j < (int32_t)s->n_order; j += way)
+            if (s->stops >> j & 1u && s->order[j] <= max) {    /* (a value the engine lacks: none) */
+                i = j;
+                clicks -= way;
+            }
+        play_set_param(u->p, s->id, s->order[i]);
+    } else {
+        play_set_param(u->p, s->id, play_get_param(u->p, s->id) +
+                       (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
+    }
     u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
     if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE)
         u->dirty |= UI_D_SLOT;                  /* the curve shows only those two */
@@ -302,8 +355,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->down_ms[id] = ms;
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
         u->warned = 0;                          /* anything else cancels the warning (decision Q4) */
-    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV) && u->state != UI_EDIT)   /* (on 4A: 4B, with #47) */
+    if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV)) {  /* its ring: 4A, then 4B, and around */
+        u->page = u->state == UI_EDIT ? u->page ^ 1u : 0u;
         show_page(u, UI_EDIT);
+    }
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)

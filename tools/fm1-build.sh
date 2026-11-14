@@ -5,7 +5,9 @@
 #
 # usage: tools/fm1-build.sh COMMAND
 #   fetch      download fm1-dock, the JieLi toolchain and the AC79 SDK files into $FM1_DEPS
-#              (default build/fm1-deps) and check each against firmware/pins.env
+#              (default build/fm1-deps) and check each against firmware/pins.env; each download
+#              is tried up to 5 times, the waits doubling from 2 s (FM1_FETCH_TRIES, FM1_FETCH_BACKOFF)
+#   fetch-emu  the same for fm1-emu (emu and emu-play fetch it themselves when missing)
 #   build      the synth (FM1-8P) and the CPU test, each as a .dock (USB deploy) and a solo .fwsc,
 #              (FM1_DEBUG=1: the debug variant, with timing in the log)
 #              into build/fm1/
@@ -191,18 +193,36 @@ canary_caught() {
     grep -qF "$(cat "$2")" "$1"
 }
 
+# retry CMD...: run CMD until it succeeds, FM1_FETCH_TRIES times at most (default 5), waiting
+# FM1_FETCH_BACKOFF seconds (default 2) after the first failure and twice as long after each next.
+# For downloads: CI's runners see "curl: (35) Connection reset", which curl's own --retry doesn't
+# count as transient.
+retry() {
+    try=1
+    while :; do
+        "$@" && return 0
+        [ "$try" -ge "${FM1_FETCH_TRIES:-5}" ] && { echo "fm1-build: gave up after $try tries: $*" >&2; return 1; }
+        wait=$(( ${FM1_FETCH_BACKOFF:-2} << (try - 1) ))
+        echo "fm1-build: try $try failed, again in ${wait} s: $*" >&2
+        sleep "$wait"
+        try=$((try + 1))
+    done
+}
+
 fetch_fm1_dock() {
     if [ -n "${FM1_DOCK_USER:-}" ]; then        # the user's clone: check it, never change it
         [ "$(git -C "$FM1_DOCK" rev-parse HEAD 2>/dev/null)" = "$FM1_DOCK_SHA" ] && return 0
         echo "fm1-build: FM1_DOCK=$FM1_DOCK is not at fm1-dock $FM1_DOCK_SHA (left as it is)" >&2
         return 1
     fi
+    # already at the pin (a cached clone): nothing to fetch
+    [ "$(git -C "$FM1_DOCK" rev-parse HEAD 2>/dev/null)" = "$FM1_DOCK_SHA" ] && return 0
     if [ ! -d "$FM1_DOCK/.git" ]; then
         mkdir -p "$FM1_DOCK"
         git -C "$FM1_DOCK" init -q
         git -C "$FM1_DOCK" remote add origin "$FM1_DOCK_REPO"
     fi
-    git -C "$FM1_DOCK" fetch -q --depth 1 origin "$FM1_DOCK_SHA"
+    retry git -C "$FM1_DOCK" fetch -q --depth 1 origin "$FM1_DOCK_SHA" || return 1
     git -C "$FM1_DOCK" checkout -q --detach FETCH_HEAD
 }
 
@@ -215,7 +235,7 @@ fetch_toolchain() {
     verify_toolchain_dir "$JIELI_TOOLCHAIN" "$JIELI_TOOLCHAIN_DIR" 2>/dev/null && return 0
     d=$FM1_DEPS/jieli
     mkdir -p "$d" || return 1
-    curl -fL --retry 3 -o "$d/toolchain.tar.xz" "$JIELI_TOOLCHAIN_URL" || return 1
+    retry curl -fL -o "$d/toolchain.tar.xz" "$JIELI_TOOLCHAIN_URL" || return 1
     got=$(sha256 "$d/toolchain.tar.xz")
     if [ "$got" != "$JIELI_TOOLCHAIN_SHA256" ]; then     # the URL serves JieLi's latest, unversioned
         echo "fm1-build: JieLi published a new toolchain (got sha256 $got, pinned $JIELI_TOOLCHAIN_SHA256)." >&2
@@ -239,7 +259,7 @@ fetch_sdk() {
             continue
         fi
         mkdir -p "$(dirname "$f")" || return 1
-        curl -fsSL --retry 3 -o "$f.part" "$AC79_SDK_RAW/$AC79_SDK_COMMIT/cpu/wl82/tools/$rel" || return 1
+        retry curl -fsSL -o "$f.part" "$AC79_SDK_RAW/$AC79_SDK_COMMIT/cpu/wl82/tools/$rel" || return 1
         verify_sha256 "$f.part" "${pin#*:}" || { rm -f "$f.part"; return 1; }
         mv "$f.part" "$f"
     done
@@ -261,7 +281,7 @@ fetch_emu() {
     d=$FM1_DEPS/fm1-emu
     if [ ! -f "$d/$FM1_EMU_DIR/fm1-live" ]; then
         mkdir -p "$d" || return 1
-        curl -fL --retry 3 -o "$d/fm1-emu.tar.gz" "$FM1_EMU_URL" || return 1
+        retry curl -fL -o "$d/fm1-emu.tar.gz" "$FM1_EMU_URL" || return 1
         verify_sha256 "$d/fm1-emu.tar.gz" "$FM1_EMU_SHA256" || return 1
         tar -xzf "$d/fm1-emu.tar.gz" -C "$d" || return 1
         rm "$d/fm1-emu.tar.gz"
@@ -416,10 +436,11 @@ mkdir -p "$OUT"
 
 case "${1:-}" in
     fetch)    fetch_fm1_dock; fetch_toolchain; fetch_sdk; check_inputs ;;
+    fetch-emu) fetch_emu ;;
     build)    build_firmware ;;
     canaries) run_canaries ;;
     emu)      run_emu ;;
     emu-play) run_emu_play ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
-    *)        sed -n '2,24s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *)        sed -n '2,27s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac

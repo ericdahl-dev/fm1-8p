@@ -44,7 +44,7 @@ HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
 BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
-FW_SRC     = firmware/cpu_test.c firmware/play.c firmware/ui.c firmware/patches.c firmware/patch.c firmware/patch_store.c
+FW_SRC     = firmware/cpu_test.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/patches.c firmware/patch.c firmware/patch_store.c
 FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/patches.h firmware/patch_store.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
@@ -91,7 +91,7 @@ test: $(BUILD)/run-tests
 # engine sources) must make the same check fail.
 check-float-free:
 	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-engine $(ENGINE_SRC)
-	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c firmware/ui.c firmware/patches.c firmware/patch.c
+	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c firmware/ui.c firmware/ui_map.c firmware/patches.c firmware/patch.c
 	@for c in $(CANARIES); do \
 		if CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-canary \
 			$(ENGINE_SRC) $$c >/dev/null 2>&1; then \

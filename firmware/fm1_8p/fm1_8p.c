@@ -6,11 +6,13 @@
  *   MIDI   whatever the host takes in (USB, Bluetooth or the jack) comes through midi(), all alike:
  *          note on and off, sustain (CC 64), all sound / notes off (CC 120 / 123), pitch bend; any
  *          channel. With LOCAL OFF the host plays the keys through note(), on its own octave.
- *   pages  ENV opens page 4A VCF (docs/ui/interaction.md): KNOB1-4 set CUTOFF, RESO, ENV and KEY;
- *          a tap of EDIT or HOME goes back to PLAY. The keys play on every page.
+ *   pages  ENV opens page 5A VCF (docs/ui/interaction.md), HPF, CUTOFF, RES and LFO on KNOB1-4, and
+ *          again 5B, ENV, KEY, DYNAMICS and MODE; a tap of EDIT or HOME goes back to PLAY. The keys
+ *          play on every page.
  *   PRESETS steps through the 32 factory patches, P1 .. P32, on any page; with edits the first turn
  *          warns and the next one the same way within 2 s discards them (firmware/ui.c).
- * The screen is the module's (HB_F_SCREEN), drawn in docs/ui/visual.md's Night Panel theme, and
+ * The screen is the module's (HB_F_SCREEN), drawn in a docs/ui/visual.md theme (its style table,
+ * firmware/ui_map.c: Membrane until Night Panel's table is added), and
  * only what changed is redrawn (firmware/ui.c says what), never once per audio block. */
 #include "hb_module.h"
 #include "play.h"
@@ -22,16 +24,17 @@ static const hb_host_t *H;
 static play P;                                  /* static: the engine's 5 KiB must not sit on a stack */
 static ui U;
 
-/* Night Panel (visual.md's style table), RGB565 */
-#define C_BG     0x0863u
-#define C_SURF   0x18C5u
-#define C_SURFHI 0x2107u
-#define C_LINE   0x2969u
-#define C_TEXT   0xEF7Fu
-#define C_DIM    0x9CB7u
-#define C_WINDOW 0x0021u
-#define C_VCF    0x2EDFu
-#define C_PLAY   0xF9FBu
+/* the theme (visual.md's style table, firmware/ui_map.c), RGB565 */
+static const ui_theme *T = &UI_MEMBRANE;
+#define C_BG     (T->bg)
+#define C_SURF   (T->surface)
+#define C_SURFHI (T->surface_hi)
+#define C_LINE   (T->line)
+#define C_TEXT   (T->text)
+#define C_DIM    (T->dim)
+#define C_WINDOW (T->window)
+#define C_VCF    (T->section[UI_SEC_VCF])
+#define C_PLAY   (T->section[UI_SEC_PLAY])
 #define M 5                                     /* the margin */
 #define COL_W 56
 
@@ -142,18 +145,29 @@ static void blit(int32_t x, int32_t y, int32_t w, int32_t h)
     blit_wait = (uint32_t)(w * h) * TICKS_PER_PX;
 }
 
-/* rows 0..27: the header and the gap under it */
-static void header(const char *chip, uint16_t col, const char *a, const char *b, int32_t page)
+/* rows 0..27: the header and the gap under it: the section name on a chip of its color, or under a
+ * 3 px band in it (the theme's), then lead and tail dim around lit ("A/" "B" "": page B) */
+static void header(const char *chip, uint16_t col, const char *lead, const char *lit, const char *tail,
+                   int32_t page)
 {
     char o[UI_VALUE_LEN];
     int32_t x, w;
     uint32_t i;
     H->cv_begin(240, 28, C_BG);
-    H->cv_rect(0, 0, 240, 3, col);
-    H->cv_text(M, 4, 0, chip, col);
-    x = M + H->text_w(0, chip) + 8;
-    H->cv_text(x, 4, 0, a, C_TEXT);
-    H->cv_text(x + H->text_w(0, a), 4, 0, b, C_DIM);
+    if (T->chip) {
+        x = M + H->text_w(0, chip) + M;
+        H->cv_rect(0, 0, x, 23, col);
+        H->cv_text(M, 4, 0, chip, T->ink);
+        x += 6;
+    } else {
+        H->cv_rect(0, 0, 240, 3, col);
+        H->cv_text(M, 4, 0, chip, col);
+        x = M + H->text_w(0, chip) + 8;
+    }
+    H->cv_text(x, 4, 0, lead, C_DIM);
+    x += H->text_w(0, lead);
+    H->cv_text(x, 4, 0, lit, C_TEXT);
+    H->cv_text(x + H->text_w(0, lit), 4, 0, tail, C_DIM);
     ui_octave_label(P.oct, o);                  /* (HB_F_SCREEN hides the host's line, which had it) */
     H->cv_text(240 - M - H->text_w(0, o), 4, 0, o, P.oct ? C_TEXT : C_DIM);
     H->cv_rect(0, 23, 240, 1, C_LINE);
@@ -197,7 +211,7 @@ static void focus_row(void)
     H->cv_begin(240, 50, C_BG);
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
     frame(M, 0, 64, 46, C_LINE);
-    seg7(M + (64 - 38) / 2, 5, num, C_VCF, mix(C_WINDOW, C_VCF, 20));
+    seg7(M + (64 - 38) / 2, 5, num, T->led, mix(C_WINDOW, T->led, T->ghost));
     H->cv_text(M + 72, 0, 0, "VCF", C_VCF);
     H->cv_text(M + 72 + H->text_w(0, "VCF") + 8, 0, 0, s->full, C_TEXT);
     x = d24(M + 72, 20, val, C_TEXT);
@@ -215,7 +229,7 @@ static void slot(uint32_t part)
     const int32_t w = 240 - 2 * M, h = 56, n = w - 4, pw = 240 / (int32_t)SLOT_PARTS;
     const int32_t x0 = (int32_t)part * pw;      /* the part's screen x */
     int32_t i, i0, i1, y, y0 = 0;
-    uint16_t hatch = mix(C_WINDOW, C_VCF, 41);
+    uint16_t hatch = mix(C_WINDOW, C_VCF, T->hatch);
     if (part == 0u)                             /* the values as they are now, for all three parts */
         ui_curve_begin(&curve, play_get_param(&P, FM_PARAM_FILTER_CUTOFF_CENTS),
                        play_get_param(&P, FM_PARAM_FILTER_RESONANCE), (uint32_t)n);
@@ -231,7 +245,7 @@ static void slot(uint32_t part)
         int32_t d = ui_curve_db(&curve, (uint32_t)i), xi = M + 2 + i - x0;
         d = d > 120 ? 120 : d < -360 ? -360 : d;
         y = 5 + (120 - d) * (h - 8) / 480;
-        if (!(i & 1))
+        if (T->hatch && !(i & 1))
             H->cv_rect(xi, y + 2, 1, h - 4 - y, hatch);
         if (i > i0) {
             int32_t lo = y < y0 ? y : y0, hi = y < y0 ? y0 : y;
@@ -265,19 +279,38 @@ static void column(uint32_t k)
             value = play_get_param(&P, s->id);
             lit = ui_meter(s->id, value);
             on = act ? C_VCF : mix(bg, C_VCF, 154);
-            for (i = 0; i < UI_METER_SEGS; i++) /* 44 px: 8 segments of about 4, 2 px gaps */
-                H->cv_rect(x + 6 + ((int32_t)i * 23 + 2) / 4, 40, 4, 6, lit >> i & 1u ? on : C_LINE);
+            if (s->order) {                     /* a choice: a segment per position, both themes */
+                uint32_t n, at = ui_choice_pos(s, value, &n);
+                for (i = 0; i < n; i++)
+                    H->cv_rect(x + 6 + (int32_t)(i * 46u / n), 40, (int32_t)(46u / n) - 2, 6,
+                               i == at ? on : C_LINE);
+            } else if (T->meter_segments) {
+                for (i = 0; i < UI_METER_SEGS; i++)  /* 44 px: 8 segments of about 4, 2 px gaps */
+                    H->cv_rect(x + 6 + ((int32_t)i * 23 + 2) / 4, 40, 4, 6, lit >> i & 1u ? on : C_LINE);
+            } else {                            /* one bar in a 44 px track */
+                int32_t a, b;
+                ui_meter_bar(s->id, value, 44, &a, &b);
+                H->cv_rect(x + 6, 40, 44, 6, C_LINE);
+                H->cv_rect(x + 6 + a, 40, b - a, 6, on);
+            }
             ui_column(s->id, value, val, unit);
             tw = d24_w(val) + (*unit ? 3 + H->text_w(0, unit) : 0);
-            x0 = d24(x + (COL_W - tw) / 2, 52, val, act ? C_TEXT : C_DIM);
-            if (*unit)
-                H->cv_text(x0 + 1, 60, 0, unit, mix(C_SURF, act ? C_TEXT : C_DIM, 179));
+            if (tw > COL_W - 4) {               /* too wide: the unit goes first (the focus row has it) */
+                *unit = 0;
+                tw = d24_w(val);
+            }
+            if (tw > COL_W - 4) {               /* a word too wide for D24 (BOOST): Terminus */
+                text_c(x, COL_W, 58, 0, val, act ? C_TEXT : C_DIM);
+            } else {
+                x0 = d24(x + (COL_W - tw) / 2, 52, val, act ? C_TEXT : C_DIM);
+                if (*unit)
+                    H->cv_text(x0 + 1, 60, 0, unit, mix(C_SURF, act ? C_TEXT : C_DIM, 179));
+            }
         }
-        if (act) {                              /* the glow: three frames inward */
-            frame(x, 0, COL_W, 84, C_VCF);
-            frame(x + 1, 1, COL_W - 2, 82, mix(C_BG, C_VCF, 115));
-            frame(x + 2, 2, COL_W - 4, 80, mix(C_BG, C_VCF, 51));
-        }
+        if (act)                                /* the focus: the theme's frames inward */
+            for (i = 0; i < 3u && T->focus[i]; i++)
+                frame(x + (int32_t)i, (int32_t)i, COL_W - 2 * (int32_t)i, 84 - 2 * (int32_t)i,
+                      mix(C_BG, C_VCF, T->focus[i]));
     }
     blit(cx, 138, cw, 84);
 }
@@ -290,7 +323,7 @@ static void play_part(uint32_t b, uint32_t part)
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("PLAY", C_PLAY, "FM1-8P", "", -1);
+        header("PLAY", C_PLAY, "", "FM1-8P", "", -1);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: the patch's number, large */
         ui_patch_number(play_patch(&P), s);
         H->cv_begin(240, 50, C_BG);
@@ -310,14 +343,15 @@ static void play_part(uint32_t b, uint32_t part)
     }
 }
 
-/* VCF 4A */
+/* VCF 5A and 5B */
 static void vcf_part(uint32_t b, uint32_t part)
 {
     uint32_t k;
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("4 VCF", C_VCF, "A", "/B", (int32_t)UI_PAGE_4A);
+        header("5 VCF", C_VCF, U.page ? "A/" : "", U.page ? "B" : "A", U.page ? "" : "/B",
+               (int32_t)(UI_PAGE_4A + U.page));
     } else if (b == UI_D_FOCUS) {
         focus_row();
     } else if (b == UI_D_SLOT) {

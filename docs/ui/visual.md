@@ -66,7 +66,7 @@ The mockups show one moment in both themes:
 
 - **Patch:** 23 CHROME DUSK, edited.
 - **Pattern:** 41 NIGHT DRIVE, edited, playing at step 7, 112 BPM on the internal clock.
-- **Focus:** on the edit pages, knob 2 is the focus (42 RESO, 52 DECAY). On GLO the focus is
+- **Focus:** on the edit pages, knob 2 is the focus (52 CUTOFF, 82 DECAY). On GLO the focus is
   G34 THEME.
 - **SEQ view:**
   - page S2;
@@ -81,7 +81,7 @@ reads its bands from. Every position below is the same in both themes.
 
 | band | rows | contents |
 | --- | --- | --- |
-| header | 0-23 | the state or section chip, its context, and the transport on the right: a play or stop mark, step, tempo and clock source (`07 112 INT`). On EDIT pages a 14-segment strip on the header's bottom rule shows where the page sits in interaction.md's page order (`PAGE_ORDER` in `render.py`: 1A, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 7B, 8A, 8B, so 4A VCF lights the 5th segment and 5A VCF ENV the 7th), and on GLO a 3-segment strip does the same. |
+| header | 0-23 | the state or section chip, its context, and the transport on the right: a play or stop mark, step, tempo and clock source (`07 112 INT`). On EDIT pages an 18-segment strip on the header's bottom rule shows where the page sits in interaction.md's page order (1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B, so 5A VCF lights the 8th segment; the mockups still draw the earlier 14-page order), and on GLO a 3-segment strip does the same. |
 | focus | 28-73 | a 64 x 46 LED window with the parameter number, then the section name, the full label, and the value in D24 with its unit |
 | slot | 78-133 | a single 230 x 56 canvas. It holds the filter response (VCF), the ADSR (VCF ENV and VCA), the art (PLAY) or the theme cards (GLO). |
 | knob columns | 138-221 | four 56 x 84 columns with 2 px gaps, left to right for KNOB1-4. Each column holds the number, the label, a meter, and the value in D24 with its unit. |
@@ -95,7 +95,7 @@ The SEQ view keeps the header and footer, and uses its own body (see the piano r
   - the LED window shows the patch number;
   - the focus row shows the name in D20;
   - the slot holds the art;
-  - the columns are the four performance knobs: 41 CUTOFF, 42 RESO, 43 ENV and 64 RELEASE, each
+  - the columns are the four performance knobs: 52 CUTOFF, 53 RES, 55 ENV and 94 RELEASE, each
     in its own section's color.
 
   After a turn, the focus readout takes the name row for 3 s.
@@ -103,7 +103,7 @@ The SEQ view keeps the header and footer, and uses its own body (see the piano r
   - a column shows the value in D24 with its unit in Terminus (`1.25k`, `480ms`, `+24st`);
   - the focus row shows the unit in full (`1.25 kHz`);
   - a choice too long for D24 in 56 px, such as `MEMB` or `NIGHT`, falls back to Terminus.
-- **Inactive and pending values:** an inactive value, such as 14 WIDTH when WAVE isn't PULSE,
+- **Inactive and pending values:** an inactive value, such as 17 WIDTH when WAVE isn't PULSE,
   is drawn in `dim` and has no meter. A pending parameter shows `--`. A reserved slot leaves
   its column empty.
 
