@@ -182,3 +182,37 @@ A patch the user saves is a record of at most 248 bytes (`STORE_SLOT_BYTES`), so
 - **Damaged:** a wrong version, a length that disagrees with the count, or a record longer than the
   bytes read is an empty slot.
 - **Room:** 53 params take 174 bytes; a slot has room for 77.
+
+### Settings (`firmware/settings_store.c`, GLO)
+
+GLO's settings (`firmware/ui_settings.h`) are kept in the FM-1's settings record for this module:
+fm1-dock's `load` and `save`, up to 240 bytes. The host keeps the record in RAM and writes it to
+flash itself, once 2 s have passed since the last change with no panel key held and no MIDI note
+in for 2 s. The module hands it a new record only once nothing sounds (`play_silent`) and 2 s have
+passed since the last change (`SET_WAIT_MS`). Version 1:
+
+| Bytes | What |
+| --- | --- |
+| 0 | the length used, header and entries |
+| 1 | version, 1 |
+| 2 | the entry count |
+| 3.. | 2 bytes per setting: its tag, then the value |
+| ..63 | 0 |
+
+- **Always 64 bytes** (`SET_REC_BYTES`): the host loads a record only at the length it was saved,
+  so a longer record would load as none. A new setting takes a pair from the room left: 12 settings
+  take 27 bytes, and there is room for 30.
+- **Tags** name settings for good: the table in `settings_store.c` is append only, and
+  `settings_tags_keep_their_fields` holds every tag to its field.
+- **No record, or a damaged one** (another version, a length that disagrees with the count): the
+  defaults (`UI_SETTINGS_INFO`).
+- **Older and newer records:** a setting the record lacks loads at its default; a tag this firmware
+  doesn't know is skipped; a value outside its range loads clamped into it.
+- **Limits:**
+  - The host's flush doesn't see the synth's voices, so a MIDI chord held past 2 s, or a long
+    release, can still be sounding when it erases: a short dropout. The host's own settings (OCT and
+    the rest) flush the same way.
+  - `save` returns nothing: if the host's record table is full, the settings are not kept, and the
+    FM-1 can't say so.
+  - The record is GLO's alone. The edit buffer (decision Q4) needs a flash bank: 174 bytes for its
+    params would leave no room to grow.
