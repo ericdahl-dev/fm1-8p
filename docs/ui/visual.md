@@ -326,6 +326,10 @@ The meaning stays the same in both themes:
   Scintilla and Prophet do.
 - **Coalesced knob turns.** A turn marks its column dirty. Dirty items redraw at most every
   33 ms (30 Hz), and fast turns coalesce into one redraw.
+- **A draw() call takes at most 5 ms** on any screen (Eric, 2026-11-14). The host calls `draw()`
+  between its key scans and MIDI reads, so a longer call holds them up. A screen draws in parts,
+  one a call, to stay under it. `tools/emu_pages.py` measures each screen's worst call in fm1-emu
+  (a debug build), and anything new (the sequencer's piano roll) must fit too.
 - **A value change** costs:
   - a 56 x 24 blit for the value;
   - at most 8 meter fills;
