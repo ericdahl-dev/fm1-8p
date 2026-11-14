@@ -339,6 +339,32 @@ static void ring_step(ui *u, const uint8_t *r)
     }
 }
 
+int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n)
+{
+    uint32_t ph = n ? (2000u * i / n) % 1000u : 0;  /* the place in its cycle, per mille */
+    uint32_t r;
+    switch (wave) {
+    case FM_WAVE_SAW:
+        return 2 * (int32_t)ph - 1000;
+    case FM_WAVE_PULSE:
+        return ph < 10u * width_pct ? 1000 : -1000;
+    case FM_WAVE_SQUARE:
+        return ph < 500u ? 1000 : -1000;
+    default:                                    /* noise: a fixed scatter, the same every draw */
+        r = (i + 1u) * 2654435761u;
+        return (int32_t)(r >> 16 & 2047u) * 2000 / 2047 - 1000;
+    }
+}
+
+int ui_slot_active(const ui *u, const ui_slot *sl)
+{
+    if (sl->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT)
+        return play_get_param(u->p, FM_PARAM_OSC1_WAVE) == FM_WAVE_PULSE;
+    if (sl->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT)
+        return play_get_param(u->p, FM_PARAM_OSC2_WAVE) == FM_WAVE_PULSE;
+    return 1;
+}
+
 int32_t ui_slot_value(const ui *u, const ui_slot *sl)
 {
     int32_t v = play_get_param(u->p, sl->id);
@@ -371,13 +397,22 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
                 clicks -= way;
             }
         set_slot(u, s, s->order[i]);
+    } else if (s->id == FM_PARAM_LFO_PITCH_CENTS || s->id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
+        int32_t v = play_get_param(u->p, s->id), way = clicks > 0 ? 1 : -1, fast = clicks >= 3 || clicks <= -3;
+        for (; clicks; clicks -= way) {         /* 1 to 99 ct by 1 (fast 10), from 100 by 10 (fast 50) */
+            int32_t big = way > 0 ? v >= 100 : v > 100;
+            v += way * (big ? (fast ? 50 : 10) : (fast ? 10 : 1));
+        }
+        play_set_param(u->p, s->id, v);
     } else {
         play_set_param(u->p, s->id, play_get_param(u->p, s->id) +
                        (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
     }
     u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
-    if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE)
-        u->dirty |= UI_D_SLOT;                  /* the curve shows only those two */
+    if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
+        s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
+        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT)
+        u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, or the waveform */
     u->focus = k;
 }
 

@@ -772,6 +772,75 @@ TT_TEST(ui_xmod_steps_the_cross_mod_positions)
     }
 }
 
+/* The DCO pages' slot draws the waveform, two cycles across n columns (levels -1000..+1000): a saw
+ * rises through each cycle, a pulse is high for its width, a square half the cycle, noise anywhere
+ * in range. */
+TT_TEST(ui_wave_picture_follows_the_wave)
+{
+    uint32_t i, high = 0;
+    TT_CHECK(ui_wave_level(FM_WAVE_SAW, 50, 0, 200) < ui_wave_level(FM_WAVE_SAW, 50, 90, 200));
+    TT_CHECK(ui_wave_level(FM_WAVE_SAW, 50, 99, 200) > ui_wave_level(FM_WAVE_SAW, 50, 100, 200));
+    for (i = 0; i < 200u; i++)
+        high += ui_wave_level(FM_WAVE_PULSE, 25, i, 200) > 0;
+    TT_CHECK(high >= 48u && high <= 52u);
+    for (high = 0, i = 0; i < 200u; i++)
+        high += ui_wave_level(FM_WAVE_SQUARE, 25, i, 200) > 0;
+    TT_CHECK(high >= 98u && high <= 102u);
+    for (i = 0; i < 200u; i++) {
+        int32_t v = ui_wave_level(FM_WAVE_NOISE, 50, i, 200);
+        TT_CHECK(v >= -1000 && v <= 1000);
+    }
+}
+
+/* On a DCO page the slot is the waveform: a WAVE turn redraws it, a RANGE turn doesn't. */
+TT_TEST(ui_wave_turn_redraws_the_picture)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    (void)ui_take_full(&ui_u, 100);
+    play_set_param(&ui_p, FM_PARAM_OSC1_WAVE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 200);
+    TT_CHECK(ui_take(&ui_u, 300) & UI_D_SLOT);
+    play_set_param(&ui_p, FM_PARAM_OSC1_OCTAVE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 400);
+    TT_CHECK(!(ui_take(&ui_u, 500) & UI_D_SLOT));
+}
+
+/* 17 WIDTH is inactive unless DCO-1's WAVE is PULSE (interaction.md 3, 1x), and 28 likewise for
+ * DCO-2; other slots are active. */
+TT_TEST(ui_width_is_inactive_off_pulse)
+{
+    const ui_slot *w1 = &UI_SLOTS[4 * 1 + 2], *w2 = &UI_SLOTS[4 * 3 + 3];
+    ui_setup();
+    TT_CHECK_EQ(w1->num, 17);
+    TT_CHECK_EQ(w2->num, 28);
+    play_set_param(&ui_p, FM_PARAM_OSC1_WAVE, FM_WAVE_SAW);
+    play_set_param(&ui_p, FM_PARAM_OSC2_WAVE, FM_WAVE_PULSE);
+    TT_CHECK(!ui_slot_active(&ui_u, w1));
+    TT_CHECK(ui_slot_active(&ui_u, w2));
+    play_set_param(&ui_p, FM_PARAM_OSC1_WAVE, FM_WAVE_PULSE);
+    TT_CHECK(ui_slot_active(&ui_u, w1));
+    TT_CHECK(ui_slot_active(&ui_u, &UI_SLOTS[0]));
+}
+
+/* 14 LFO (interaction.md 3): 1 to 99 ct a click of 1 (fast 10), from 100 a click of 10 (fast 50). */
+TT_TEST(ui_lfo_depth_steps_finer_below_100)
+{
+    static const struct { int32_t from, clicks, to; } C[] = {
+        {98, 1, 99}, {99, 1, 100}, {100, 1, 110}, {110, -1, 100}, {100, -1, 99}, {50, 3, 80}, {100, 3, 250},
+    };
+    uint32_t i;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 100);
+    for (i = 0; i < sizeof C / sizeof C[0]; i++) {
+        play_set_param(&ui_p, FM_PARAM_LFO_PITCH_CENTS, C[i].from);
+        ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, C[i].clicks, 200);
+        TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_PITCH_CENTS), C[i].to);
+    }
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -814,6 +883,10 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_lfo_depth_steps_finer_below_100);
+    TT_RUN(ui_width_is_inactive_off_pulse);
+    TT_RUN(ui_wave_turn_redraws_the_picture);
+    TT_RUN(ui_wave_picture_follows_the_wave);
     TT_RUN(ui_xmod_steps_the_cross_mod_positions);
     TT_RUN(ui_sel_walks_the_dco_pages);
     TT_RUN(ui_dco_values_read_as_the_panel);

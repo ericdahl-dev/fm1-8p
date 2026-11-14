@@ -88,6 +88,11 @@ void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
 /* a choice slot's (order set) meter: value's knob position (a value between positions: the one
  * before it), of *n positions */
 uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
+/* the DCO pages' waveform picture: wave's (fm_wave) level, -1000..+1000, at column i of n, two cycles
+ * across (a pulse high for width_pct of each) */
+int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n);
+/* 0 while a slot does nothing to the sound (shown dim, no meter): WIDTH off a pulse wave */
+int ui_slot_active(const ui *u, const ui_slot *sl);
 /* a slot's value: its param's, or a paired slot's two as id | id2 << 1 */
 int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */

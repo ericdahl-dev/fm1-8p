@@ -19,7 +19,7 @@ static const ui_theme *T = &UI_MEMBRANE;
 #define C_TEXT   (T->text)
 #define C_DIM    (T->dim)
 #define C_WINDOW (T->window)
-#define C_VCF    (T->section[UI_SEC_VCF])
+#define C_VCF    (T->section[UI_PAGE_INFO[U->page].color])    /* the page's section color */
 #define C_PLAY   (T->section[UI_SEC_PLAY])
 #define M 5                                     /* the margin */
 #define COL_W 56
@@ -183,13 +183,13 @@ static void focus_row(void)
     char num[3], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
     int32_t x;
     ui_slot_number(s, num);
-    ui_value(s->id, play_get_param(P, s->id), val, unit);
+    ui_value(s->id, ui_slot_value(U, s), val, unit);
     H->cv_begin(240, 50, C_BG);
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
     frame(M, 0, 64, 46, C_LINE);
     seg7(M + (64 - 38) / 2, 5, num, T->led, mix(C_WINDOW, T->led, T->ghost));
-    H->cv_text(M + 72, 0, 0, "VCF", C_VCF);
-    H->cv_text(M + 72 + H->text_w(0, "VCF") + 8, 0, 0, s->full, C_TEXT);
+    H->cv_text(M + 72, 0, 0, UI_PAGE_INFO[U->page].section, C_VCF);
+    H->cv_text(M + 72 + H->text_w(0, UI_PAGE_INFO[U->page].section) + 8, 0, 0, s->full, C_TEXT);
     x = d24(M + 72, 20, val, C_TEXT);
     if (*unit)
         H->cv_text(x + 3, 28, 0, unit, C_DIM);
@@ -200,18 +200,46 @@ static void focus_row(void)
  * bottom, hatched under */
 #define SLOT_PARTS 3u
 static ui_curve curve;                          /* the curve being drawn: one cutoff and resonance */
+static uint32_t wave, width;                    /* or the waveform: its wave and pulse width */
 static void slot(uint32_t part)
 {
     const int32_t w = 240 - 2 * M, h = 56, n = w - 4, pw = 240 / (int32_t)SLOT_PARTS;
     const int32_t x0 = (int32_t)part * pw;      /* the part's screen x */
     int32_t i, i0, i1, y, y0 = 0;
+    const uint8_t col = UI_PAGE_INFO[U->page].color;
     uint16_t hatch = mix(C_WINDOW, C_VCF, T->hatch);
-    if (part == 0u)                             /* the values as they are now, for all three parts */
+    if (part == 0u) {                           /* the values as they are now, for all three parts */
         ui_curve_begin(&curve, play_get_param(P, FM_PARAM_FILTER_CUTOFF_CENTS),
                        play_get_param(P, FM_PARAM_FILTER_RESONANCE), (uint32_t)n);
+        wave = (uint32_t)play_get_param(P, col == UI_SEC_DCO2 ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE);
+        width = (uint32_t)play_get_param(P, col == UI_SEC_DCO2 ? FM_PARAM_OSC2_PULSE_WIDTH_PCT
+                                                               : FM_PARAM_OSC1_PULSE_WIDTH_PCT);
+    }
     H->cv_begin(pw, 60, C_BG);
     H->cv_rect(M - x0, 0, w, h, C_WINDOW);      /* (the canvas clips what isn't this part's) */
     frame(M - x0, 0, w, h, C_LINE);
+    if (col == UI_SEC_DCO1 || col == UI_SEC_DCO2) {     /* the waveform, two cycles, centered */
+        H->cv_rect(M + 2 - x0, h / 2, w - 4, 1, C_LINE);
+        i = x0 - M - 3;
+        i0 = i = i < 0 ? 0 : i;
+        i1 = x0 + pw - M - 2;
+        i1 = i1 > n ? n : i1;
+        for (; i < i1; i++) {
+            int32_t xi = M + 2 + i - x0;
+            y = h / 2 - ui_wave_level(wave, width, (uint32_t)i, (uint32_t)n) * (h / 2 - 8) / 1000;
+            if (i > i0) {
+                int32_t lo = y < y0 ? y : y0, hi = y < y0 ? y0 : y;
+                H->cv_rect(xi - 1, lo, 2, hi - lo + 2, C_VCF);
+            }
+            y0 = y;
+        }
+        blit(x0, 78, pw, 60);
+        return;
+    }
+    if (col != UI_SEC_VCF) {                    /* (a page without a picture yet: the window) */
+        blit(x0, 78, pw, 60);
+        return;
+    }
     H->cv_rect(M + 2 - x0, 5 + 120 * (h - 8) / 480, w - 4, 1, C_LINE);
     i = x0 - M - 3;                             /* from the column before the part: the line joins */
     i0 = i = i < 0 ? 0 : i;
@@ -252,10 +280,13 @@ static void column(uint32_t k)
         if (s->kind == UI_PENDING) {            /* (interaction.md: a pending parameter shows --) */
             d24(x + (COL_W - d24_w("--")) / 2, 52, "--", C_DIM);
         } else {
-            value = play_get_param(P, s->id);
+            uint32_t live = ui_slot_active(U, s);   /* inactive: dim, no meter (visual.md) */
+            value = ui_slot_value(U, s);
             lit = ui_meter(s->id, value);
             on = act ? C_VCF : mix(bg, C_VCF, 154);
-            if (s->order) {                     /* a choice: a segment per position, both themes */
+            if (!live) {
+                /* no meter */
+            } else if (s->order) {                     /* a choice: a segment per position, both themes */
                 uint32_t n, at = ui_choice_pos(s, value, &n);
                 for (i = 0; i < n; i++)
                     H->cv_rect(x + 6 + (int32_t)(i * 46u / n), 40, (int32_t)(46u / n) - 2, 6,
@@ -276,11 +307,11 @@ static void column(uint32_t k)
                 tw = d24_w(val);
             }
             if (tw > COL_W - 4) {               /* a word too wide for D24 (BOOST): Terminus */
-                text_c(x, COL_W, 58, 0, val, act ? C_TEXT : C_DIM);
+                text_c(x, COL_W, 58, 0, val, act && live ? C_TEXT : C_DIM);
             } else {
-                x0 = d24(x + (COL_W - tw) / 2, 52, val, act ? C_TEXT : C_DIM);
+                x0 = d24(x + (COL_W - tw) / 2, 52, val, act && live ? C_TEXT : C_DIM);
                 if (*unit)
-                    H->cv_text(x0 + 1, 60, 0, unit, mix(C_SURF, act ? C_TEXT : C_DIM, 179));
+                    H->cv_text(x0 + 1, 60, 0, unit, mix(C_SURF, act && live ? C_TEXT : C_DIM, 179));
             }
         }
         if (act)                                /* the focus: the theme's frames inward */
@@ -319,15 +350,22 @@ static void play_part(uint32_t b, uint32_t part)
     }
 }
 
-/* VCF 5A and 5B */
-static void vcf_part(uint32_t b, uint32_t part)
+/* an edit page (UI_PAGE_INFO): "5 VCF" on the chip, then A/B when the section has two pages */
+static void page_part(uint32_t b, uint32_t part)
 {
+    const ui_page_info *in = &UI_PAGE_INFO[U->page];
     uint32_t k;
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("5 VCF", C_VCF, U->page ? "A/" : "", U->page ? "B" : "A", U->page ? "" : "/B",
-               (int32_t)(UI_PAGE_4A + U->page));
+        char chip[16];
+        int b_page = in->name[1] == 'B';
+        int two = b_page || (U->page + 1u < UI_PAGES && UI_PAGE_INFO[U->page + 1u].name[0] == in->name[0]);
+        for (k = 0; in->section[k] && k < sizeof chip - 3u; k++)
+            chip[k + 2u] = in->section[k];
+        chip[0] = in->name[0], chip[1] = ' ', chip[k + 2u] = 0;
+        header(chip, C_VCF, b_page ? "A/" : "", two ? (b_page ? "B" : "A") : "", two && !b_page ? "/B" : "",
+               (int32_t)U->page);
     } else if (b == UI_D_FOCUS) {
         focus_row();
     } else if (b == UI_D_SLOT) {
@@ -369,7 +407,7 @@ void ui_draw_frame(uint32_t full)
             return;
     }
     if (U->state == UI_EDIT)
-        vcf_part(band, part);
+        page_part(band, part);
     else
         play_part(band, part);
     if (++part >= parts(band))
