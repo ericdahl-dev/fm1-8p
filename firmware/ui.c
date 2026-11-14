@@ -576,6 +576,32 @@ static void set_slot(ui *u, const ui_slot *sl, int32_t v)
     }
 }
 
+/* SELECT: clicks pages on in the page order, around, skipping pages with nothing live */
+static void walk_pages(ui *u, int32_t clicks)
+{
+    int32_t p = (int32_t)u->page, way = clicks > 0 ? 1 : -1, guard;
+    for (; clicks; clicks -= way)
+        for (guard = 0; guard < (int32_t)UI_PAGES; guard++) {
+            p = (p + way + (int32_t)UI_PAGES) % (int32_t)UI_PAGES;
+            if (page_live((uint32_t)p))
+                break;
+        }
+    u->page = (uint32_t)p;
+    show_page(u, UI_EDIT);
+}
+
+/* ALGORITHM: clicks sections on (1..9, 0, around), to the section's page A */
+static void walk_sections(ui *u, int32_t clicks)
+{
+    static const uint8_t A[10] = {0, 2, 4, 5, 7, 9, 11, 12, 14, 16};   /* 1A, 2A, ... 9A, 0A */
+    int32_t s = 0;
+    while (s < 9 && A[s + 1] <= u->page)
+        s++;
+    s = ((s + clicks) % 10 + 10) % 10;
+    u->page = A[s];
+    show_page(u, UI_EDIT);
+}
+
 static void turn(ui *u, uint32_t k, int32_t clicks)
 {
     const ui_slot *s = ui_page_slot(u, k);
@@ -671,6 +697,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&
              u->state == UI_EDIT)
         turn(u, id - UI_ENC_KNOB1, arg);
+    else if (ev == (UI_EV_ENC | UI_ENC_SELECT) && arg)     /* (in PLAY: from the last edit page) */
+        walk_pages(u, arg);
+    else if (ev == (UI_EV_ENC | UI_ENC_ALGORITHM) && arg)
+        walk_sections(u, arg);
     else if (ev == (UI_EV_ENC | UI_ENC_PRESETS))
         browse(u, arg, ms);
 }

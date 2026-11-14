@@ -1035,7 +1035,10 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
                                   UI_EV_BTN_DOWN | UI_BTN_EDIT, UI_EV_BTN_UP | UI_BTN_EDIT,
                                   UI_EV_BTN_DOWN | UI_BTN_HOME, UI_EV_BTN_UP | UI_BTN_HOME,
                                   UI_EV_ENC | UI_ENC_KNOB1, UI_EV_ENC | UI_ENC_KNOB2,
-                                  UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4};
+                                  UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4,
+                                  UI_EV_BTN_DOWN | UI_BTN_LFO, UI_EV_BTN_DOWN | UI_BTN_FX,
+                                  UI_EV_ENC | UI_ENC_SELECT, UI_EV_ENC | UI_ENC_ALGORITHM,
+                                  UI_EV_ENC | UI_ENC_PRESETS};
     uint32_t i, r = 12345u, ms = 0, bad = 0;
     ui_setup();
     for (i = 0; i < 20000u; i++) {
@@ -1273,6 +1276,38 @@ TT_TEST(ui_lfo_picture_follows_the_wave)
     TT_CHECK(ui_lfo_level(FM_LFO_RANDOM, 90, 200) != ui_lfo_level(FM_LFO_RANDOM, 110, 200));
 }
 
+/* SELECT walks the pages in number order and wraps (interaction.md, page order): 5A +1 is 5B, 0B +1
+ * is 1A, 1A -1 is 0B. ALGORITHM jumps by section to its page A: 4B +1 is 5A, 9A +1 is 0A, 0B +1 is 1A,
+ * 1B -1 is 0A. In PLAY both go to EDIT, from the last edit page. */
+static uint32_t ui_num0(void) { return ui_page_slot(&ui_u, 0)->num; }
+
+TT_TEST(ui_select_and_algorithm_walk_pages_and_sections)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 0);           /* PLAY: on from 5A */
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_num0(), 55);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, -1, 100);
+    TT_CHECK_EQ(ui_num0(), 51);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 10, 200);        /* 5A + 10: 0B */
+    TT_CHECK_EQ(ui_num0(), 5);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 300);
+    TT_CHECK_EQ(ui_num0(), 11);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, -1, 400);
+    TT_CHECK_EQ(ui_num0(), 5);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 500);      /* 0B: on to 1A */
+    TT_CHECK_EQ(ui_num0(), 11);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 600);         /* 1B */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, -1, 700);     /* 1B: back to 0A */
+    TT_CHECK_EQ(ui_num0(), 1);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, -1, 800);     /* 0A: back to 9A */
+    TT_CHECK_EQ(ui_num0(), 91);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 900);
+    TT_CHECK_EQ(ui_num0(), 1);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 5, 1000);     /* 0 + 5 sections: 5A */
+    TT_CHECK_EQ(ui_num0(), 51);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1315,6 +1350,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_select_and_algorithm_walk_pages_and_sections);
     TT_RUN(ui_lfo_picture_follows_the_wave);
     TT_RUN(ui_voice_turn_redraws_detune);
     TT_RUN(ui_detune_is_inactive_in_poly);

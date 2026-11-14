@@ -18,6 +18,8 @@
 #define UI_BTN_EDIT    6u
 #define UI_BTN_HOME    8u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
+#define UI_ENC_SELECT  0u
+#define UI_ENC_ALGORITHM 1u
 #define UI_ENC_KNOB1   2u
 #define UI_ENC_KNOB2   3u
 #define UI_ENC_KNOB3   4u
