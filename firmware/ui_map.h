@@ -51,6 +51,22 @@ extern const uint8_t UI_SECTION_PAGE[10];
 extern const uint8_t UI_PLAY_SLOT[4];       /* each section's page A, by its digit */
 extern const uint8_t UI_RING_SEL[], UI_RING_ENV[], UI_RING_FX[], UI_RING_LFO[];
 
+/* GLO's slots (interaction.md 4): G11..G34, each a setting (UI_SETTINGS_INFO's index), 3 pages of 4 */
+typedef struct {
+    uint8_t num;                        /* 34: page 3, knob 4 */
+    const char *label;                  /* the column's, at most 7 characters */
+    const char *full;                   /* the focus row's */
+    uint8_t setting;                    /* UI_SETTINGS_INFO's index */
+    uint8_t kind;                       /* UI_LIVE, or UI_PENDING: waits on its feature, shows -- */
+    uint8_t step, fast;                 /* a click; a fast turn's click */
+    const char *const *names;           /* a choice's names from its min (0: a number) */
+    const char *const *cols;            /* shorter names for a column (0: names) */
+    const char *zero;                   /* the min's name when it is a number otherwise ("ALL"), or 0 */
+} ui_glo_slot;
+#define UI_GLO_PAGES 3u
+#define UI_GLO_SLOTS_COUNT (4u * UI_GLO_PAGES)
+extern const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT];
+
 #define UI_TIME_COUNT 122u
 extern const uint16_t UI_TIMES[UI_TIME_COUNT];   /* ms, rising (interaction.md, units) */
 #define UI_RATE_COUNT 109u
