@@ -1189,8 +1189,9 @@ TT_TEST(ui_mode_column_is_short)
 
 /* Whatever the buttons, keys and knobs do, an edit page is a real one, and the focus row shows no
  * slot (focus 4) or a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT,
- * HOME, GLO and SAVE taps, holds and every knob, many times over, in a fixed pseudo-random order, on the
- * unit as set up (with a patch store or without). GLO's page and focus stay real too, SAVE's
+ * HOME, GLO and SAVE taps, holds, every knob and MIDI CCs (PICKUP on and off), many times over, in a
+ * fixed pseudo-random order, on the unit as set up (with a patch store or without). GLO's page and
+ * focus stay real too, SAVE's
  * destination, name and cursor stay in range, and every banner fits the footer: 28 characters at
  * most. The bad states it found. */
 static uint32_t ui_hammer(void)
@@ -1213,10 +1214,15 @@ static uint32_t ui_hammer(void)
         uint32_t ev = EV[(r >> 16) % (sizeof EV / sizeof EV[0])];
         if ((r >> 12) % 4u == 0)                /* a key now and then (the number jump's keypad) */
             (void)ui_key(&ui_u, (r >> 20) % PLAY_KEYS, (int)((r >> 6) & 1u), ms);
-        else
+        else if ((r >> 12) % 8u == 1u) {        /* a MIDI CC (#49), now and then with PICKUP turned over */
+            if ((r >> 25) % 16u == 0)
+                ui_u.set.ext_cc ^= 1u;
+            (void)ui_cc(&ui_u, (r >> 18) % 128u, (r >> 3) % 128u, ms);
+        } else
             ui_event(&ui_u, ev, (int32_t)((r >> 4) % 7u) - 3, ms);
         (void)ui_take(&ui_u, ms);               /* (the jump screen's 400 ms timer) */
-        if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && (r >> 12) % 4u != 0 && ui_screen(&ui_u) == UI_SCREEN_JUMP)
+        if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && (r >> 12) % 4u != 0 && (r >> 12) % 8u != 1u &&
+            ui_screen(&ui_u) == UI_SCREEN_JUMP)   /* (sent: neither a key nor a CC instead) */
             bad++;                              /* its screen never outlives SEL */
         if (strlen(ui_banner(&ui_u)) > 28u) {   /* the footer: 28 characters */
             printf("    banner \"%s\" is over 28 characters\n", ui_banner(&ui_u));
