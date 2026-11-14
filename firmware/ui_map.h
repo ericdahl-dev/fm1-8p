@@ -71,7 +71,11 @@ typedef struct {
     uint16_t focus[3];                  /* the focus frames inward, as mixes from bg (0: none) */
     uint16_t hatch;                     /* the fill under graph curves (0: none) */
     uint16_t sun[6];                    /* the PLAY art's sunset bands, top to bottom */
+    uint8_t led_section;                /* 1: the LED digits in the section's color (the led key: none) */
+    uint8_t art;                        /* the PLAY art: UI_ART_BADGE or UI_ART_SUN (a sun over a grid) */
+    uint16_t grid, horizon;             /* the sun's perspective grid and horizon (UI_ART_SUN) */
 } ui_theme;
+enum { UI_ART_BADGE, UI_ART_SUN };
 
-extern const ui_theme UI_MEMBRANE;
+extern const ui_theme UI_MEMBRANE, UI_NIGHT_PANEL;
 #endif
