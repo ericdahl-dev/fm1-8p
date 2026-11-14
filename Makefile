@@ -42,7 +42,7 @@ PYTHON  = python3 -B -X pycache_prefix=$(CURDIR)/$(BUILD)/no-pycache
 
 ENGINE_SRC = $(wildcard engine/*.c)
 ENGINE_HDR = $(wildcard engine/*.h)
-HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
+HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c host/pattern.c
 BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
@@ -68,8 +68,8 @@ $(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR) $(FW_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@.tmp && mv $@.tmp $@
 
-$(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -lm -o $@.tmp && mv $@.tmp $@
+$(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BUILD)/firmware/seq.o
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BUILD)/firmware/seq.o -lm -o $@.tmp && mv $@.tmp $@
 
 $(BENCH): host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
 	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@.tmp && mv $@.tmp $@
