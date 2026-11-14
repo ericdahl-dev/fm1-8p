@@ -576,12 +576,13 @@ TT_TEST(ui_presets_click_loads_the_next_patch)
     TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK - 1u]);
 }
 
-/* A fast turn (3 or more clicks in one event) moves 4 patches, as interaction.md says. */
-TT_TEST(ui_presets_fast_turn_moves_four)
+/* A fast turn (3 or more clicks in one event) moves 8 patches, one row of slots (11 to 21), as
+ * interaction.md says. */
+TT_TEST(ui_presets_fast_turn_moves_eight)
 {
     ui_setup();
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 0);
-    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK + 4u]);
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK + 8u]);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -5, 100);
     TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
 }
@@ -593,8 +594,8 @@ TT_TEST(ui_presets_wrap)
     play_load_patch(&ui_p, 0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -1, 0);
     TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_COUNT - 1u]);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 4, 100);
-    TT_CHECK(play_patch(&ui_p) == &PATCHES[3]);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 4, 100);     /* a fast turn: 8 */
+    TT_CHECK(play_patch(&ui_p) == &PATCHES[7]);
 }
 
 /* With edits, the first PRESETS event loads nothing, whatever its clicks, and warns. */
@@ -1975,7 +1976,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_presets_again_discards_and_loads);
     TT_RUN(ui_presets_with_edits_warns_first);
     TT_RUN(ui_presets_wrap);
-    TT_RUN(ui_presets_fast_turn_moves_four);
+    TT_RUN(ui_presets_fast_turn_moves_eight);
     TT_RUN(ui_presets_click_loads_the_next_patch);
     TT_RUN(ui_slot_number_is_two_digits);
     TT_RUN(ui_octave_label_reads_like_the_hosts);

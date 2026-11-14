@@ -141,9 +141,25 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     uint32_t tap = (ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS &&
                    ms - u->down_ms[id] < UI_TAP_MS;
     if (ev == (UI_EV_ENC | UI_ENC_PRESETS) && arg) {   /* the destination: a user slot, wrapping */
-        int32_t clicks = arg >= 3 || arg <= -3 ? (arg > 0 ? 4 : -4) : arg;
+        int32_t clicks = arg >= 3 || arg <= -3 ? (arg > 0 ? 8 : -8) : arg;   /* fast: a row, 11 to 21 */
         u->save_dest = (uint32_t)((int32_t)u->save_dest + clicks + (int32_t)STORE_USER_SLOTS) %
                        STORE_USER_SLOTS;
+        u->save_step = UI_SAVE_EDITING;
+        u->dirty |= UI_D_ALL & ~UI_D_FULL;
+    }
+    if (ev == (UI_EV_ENC | UI_ENC_ALGORITHM) && arg) {   /* the next (previous) empty slot, a click */
+        int32_t way = arg > 0 ? 1 : -1, clicks = arg;
+        uint32_t q = u->save_dest, n;
+        for (; clicks; clicks -= way) {
+            for (n = 0; n < STORE_USER_SLOTS; n++) {
+                q = (q + (way > 0 ? 1u : STORE_USER_SLOTS - 1u)) % STORE_USER_SLOTS;
+                if (!u->p->lib || !store_slot_used(u->p->lib, q))
+                    break;
+            }
+            if (n == STORE_USER_SLOTS)          /* every slot used: stay */
+                return;
+            u->save_dest = q;
+        }
         u->save_step = UI_SAVE_EDITING;
         u->dirty |= UI_D_ALL & ~UI_D_FULL;
     }

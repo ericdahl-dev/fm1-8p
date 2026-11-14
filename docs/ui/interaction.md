@@ -319,10 +319,11 @@ In PLAY or EDIT:
 ### PRESETS: patch browsing
 
 - **In PLAY and EDIT:** each click loads the next or previous patch at once
-  (a fast turn moves 4). Patch numbers wrap. The page you are on stays, so you
+  (a fast turn moves 8: with every slot full, a row, 11 to 21). Numbers wrap, and
+  empty user slots are skipped. The page you are on stays, so you
   can compare a section across patches.
 - **Unsaved edits:** when the edit buffer is modified, the first PRESETS
-  **event** does not load anything, whatever its click count (a fast +4 warns
+  **event** does not load anything, whatever its click count (a fast +8 warns
   just like +1). It shows `EDITED - TURN TO DISCARD`.
   - A **later** event in the same direction while the warning shows (1.5 s)
     discards the edits and loads, moving by that event's clicks.
@@ -371,7 +372,10 @@ view. The flow is the same for both; only the slots differ.
    - The name is the current one.
 2. **In SAVE:**
    - PRESETS: the destination slot (patch 11..88, or pattern 11..88). It
-     shows the name of what is there now, or `EMPTY`.
+     shows the name of what is there now, or `EMPTY`. A fast turn moves 8, a
+     row of slots (11 to 21).
+   - ALGORITHM: the next empty slot (counterclockwise: the previous), one
+     empty slot a click, wrapping. With every slot used it stays.
    - KNOB2: moves the name cursor. SELECT moves it too.
    - KNOB1: the character at the cursor (A-Z, 0-9, space, `-`).
    - KNOB3: inserts or deletes at the cursor, one character a click (a fast
@@ -467,7 +471,7 @@ step entry, where the octave sets the pitch that is written.
 | Encoder | PLAY | EDIT | SEQ | SAVE | GLO |
 | --- | --- | --- | --- | --- | --- |
 | SELECT | page (goes to EDIT) | page | step cursor | name cursor | GLO page |
-| ALGORITHM | section (goes to EDIT) | section | SEQ page | - | GLO page |
+| ALGORITHM | section (goes to EDIT) | section | SEQ page | next empty slot | GLO page |
 | KNOB1-4 | performance knobs | page's parameters | SEQ page's values | K1 char, K2 cursor, K3 insert/delete | settings |
 | PRESETS | patch | patch | pattern | destination slot | patch |
 

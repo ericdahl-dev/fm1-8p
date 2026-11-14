@@ -51,7 +51,7 @@ TT_TEST(save_writes_the_edit_buffer_when_silent)
 }
 
 /* In SAVE, PRESETS picks the destination: every user slot, empty ones too, wrapping within 11..88 (never
- * a P slot), 4 on a fast turn; nothing loads. */
+ * a P slot), 8 (a row: 11 to 21) on a fast turn; nothing loads. */
 TT_TEST(save_presets_picks_the_destination)
 {
     const patch *t;
@@ -63,9 +63,37 @@ TT_TEST(save_presets_picks_the_destination)
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 1200);
     TT_CHECK_EQ(ui_u.save_dest, 63u);           /* 88: wrapped */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 1300);
-    TT_CHECK_EQ(ui_u.save_dest, 3u);            /* +4 */
+    TT_CHECK_EQ(ui_u.save_dest, 7u);            /* +8: 88 to 18 */
     TT_CHECK(play_patch(&ui_p) == t);
     TT_CHECK_EQ(play_prog(&ui_p), PLAY_PROG_P + PATCH_SOUNDTRACK);
+}
+
+/* In SAVE, ALGORITHM steps the destination to the next (or previous) empty slot, one empty slot a
+ * click, wrapping; with every slot used it stays. */
+TT_TEST(save_algorithm_finds_empty_slots)
+{
+    static store_patch other;
+    static const uint32_t used[] = {0, 1, 2, 5};
+    uint32_t i;
+    save_setup();
+    store_from_factory(9, &other);
+    for (i = 0; i < 4u; i++)
+        TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, used[i], &other), 0);
+    save_tap(UI_BTN_SAVE, 1000);
+    TT_CHECK_EQ(ui_u.save_dest, 3u);            /* 14: the first empty */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1100);
+    TT_CHECK_EQ(ui_u.save_dest, 4u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1200);
+    TT_CHECK_EQ(ui_u.save_dest, 6u);            /* 5 (16) is used */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, -2, 1300);
+    TT_CHECK_EQ(ui_u.save_dest, 3u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, -1, 1400);
+    TT_CHECK_EQ(ui_u.save_dest, 63u);           /* wraps past the used 11..13 */
+    for (i = 0; i < STORE_USER_SLOTS; i++)
+        if (!store_slot_used(&store_lib_a, i))
+            TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, i, &other), 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1500);
+    TT_CHECK_EQ(ui_u.save_dest, 63u);           /* all used: stays */
 }
 
 /* Onto a slot holding another patch, the first SAVE tap asks (REPLACE 12 OTHER?, then SAVE AGAIN on
@@ -394,6 +422,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);
     TT_RUN(save_presets_picks_the_destination);
+    TT_RUN(save_algorithm_finds_empty_slots);
     TT_RUN(save_asks_before_replacing_another_patch);
     TT_RUN(save_edits_the_name);
     TT_RUN(save_insert_delete_counts_every_click);
