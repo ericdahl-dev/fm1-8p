@@ -1232,6 +1232,32 @@ TT_TEST(ui_rate_table_steps_about_6_percent)
     }
 }
 
+/* 08 DETUNE is the unison spread: inactive in POLY (interaction.md 3, 0x). */
+TT_TEST(ui_detune_is_inactive_in_poly)
+{
+    const ui_slot *det = &UI_SLOTS[4 * 17 + 3];
+    ui_setup();
+    TT_CHECK_EQ(det->num, 8);
+    play_set_param(&ui_p, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY);
+    TT_CHECK(!ui_slot_active(&ui_u, det));
+    play_set_param(&ui_p, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    TT_CHECK(ui_slot_active(&ui_u, det));
+}
+
+/* A VOICE turn redraws 08 DETUNE's column too: DETUNE's activity follows it, on the same page. */
+TT_TEST(ui_voice_turn_redraws_detune)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 100);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 200);      /* 0B */
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->num, 7);
+    (void)ui_take_full(&ui_u, 300);
+    play_set_param(&ui_p, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 400);
+    TT_CHECK(ui_take(&ui_u, 500) & UI_D_COL(3));
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1274,6 +1300,8 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_voice_turn_redraws_detune);
+    TT_RUN(ui_detune_is_inactive_in_poly);
     TT_RUN(ui_rate_table_steps_about_6_percent);
     TT_RUN(ui_lfo_ring_and_page);
     TT_RUN(ui_env_turn_redraws_the_adsr);

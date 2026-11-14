@@ -445,6 +445,8 @@ int ui_slot_active(const ui *u, const ui_slot *sl)
         return play_get_param(u->p, FM_PARAM_OSC2_WAVE) == FM_WAVE_PULSE;
     if (sl->id == FM_PARAM_AMP_VELOCITY)        /* the curve DYNAMICS OFF uses */
         return play_get_param(u->p, FM_PARAM_AMP_DYNA) == 0;
+    if (sl->id == FM_PARAM_UNISON_DETUNE_CENTS) /* the unison spread */
+        return play_get_param(u->p, FM_PARAM_VOICE_MODE) == FM_VOICE_MODE_UNISON;
     return 1;
 }
 
@@ -594,6 +596,8 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT ||
         (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
         u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, the waveform, the ADSR */
+    if (s->id == FM_PARAM_VOICE_MODE)           /* 08 DETUNE's activity follows it, on the same page */
+        u->dirty |= UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3);
     u->focus = k;
 }
 
