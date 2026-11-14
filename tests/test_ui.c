@@ -607,7 +607,7 @@ TT_TEST(ui_presets_with_edits_warns_first)
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 100);
     TT_CHECK(play_patch(&ui_p) == &PATCHES[PATCH_SOUNDTRACK]);
     TT_CHECK(play_edited(&ui_p));
-    TT_CHECK(strcmp(ui_banner(&ui_u), "EDITED: TURN AGAIN TO DISCARD") == 0);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "EDITED - TURN TO DISCARD") == 0);
 }
 
 /* After the warning, a later event the same way within 2 s discards the edits and loads, moving
@@ -623,7 +623,7 @@ TT_TEST(ui_presets_again_discards_and_loads)
     TT_CHECK(!play_edited(&ui_p));
 }
 
-/* The discard loads at once and takes the warning down with it: no "TURN AGAIN" over the new patch. */
+/* The discard loads at once and takes the warning down with it: no warning over the new patch. */
 TT_TEST(ui_presets_discard_takes_the_warning_down)
 {
     ui_setup();

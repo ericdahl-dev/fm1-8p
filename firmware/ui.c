@@ -711,7 +711,7 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     if (!clicks)                                /* no turn: no load (and no notes let go) */
         return;
     if (play_edited(u->p) && !(u->warned == way && ms - u->warned_ms < UI_DISCARD_MS)) {
-        show_banner(u, "EDITED: TURN AGAIN TO DISCARD", ms);   /* the first event loads nothing */
+        show_banner(u, "EDITED - TURN TO DISCARD", ms);   /* the first event loads nothing */
         u->warned = way;
         u->warned_ms = ms;
         return;
