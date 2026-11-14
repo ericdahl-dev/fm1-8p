@@ -7,9 +7,18 @@
  * one line "fm1-8p voices/worst permille" = count << 16 | permille for each count a sweep held in
  * full. The block that starts a count (engine init, note on) is not timed.
  *   KNOB1     pick a step by hand, 1..8, U, F (stops the sweep; a hand-picked U keeps bursting)
- *   PLAY      sweep again from 1 (after a sweep's F, the chord rings and F's row is final) */
+ *   PLAY      sweep again from 1 (after a sweep's F, the chord rings and F's row is final)
+ * With CPU_UI (firmware/fm1_8p_cpu_ui), the screen is FM1-8P's VCF page instead of the table, its
+ * CUTOFF turning a click each way every frame, so the counts are timed with the UI drawing (#47). */
 #include "hb_module.h"
 #include "cpu_test.h"
+#ifdef CPU_UI
+#include "draw.h"
+static play UP;                                 /* the page's values: never rendered */
+static ui UU;
+static uint32_t turned_ms;
+static int32_t way = 1;
+#endif
 
 #ifndef CPU_HOLD_BLOCKS
 #define CPU_HOLD_BLOCKS 861u                    /* 5 s: 861 * 256 / 44100 */
@@ -30,7 +39,7 @@ static void render(int32_t *out, uint32_t n)
     cpu_test_record(&T, H->ticks() - t0);
 }
 
-static void ui(uint32_t ev, int32_t arg)
+static void panel(uint32_t ev, int32_t arg)
 {
     if (HB_EV_KIND(ev) == HB_EV_ENC && HB_EV_ID(ev) == HB_ENC_KNOB1) {
         cpu_test_sweep(&T, 0);
@@ -62,6 +71,21 @@ static void line(uint32_t v, uint32_t pm)
 static void draw(uint32_t full)
 {
     uint32_t v, pm, cur = cpu_test_voices(&T);
+#ifdef CPU_UI
+    while (cpu_test_take_completed(&T, &v, &pm))   /* (the log as below; the screen is the page) */
+        if (cpu_test_failed(&T, v))
+            H->log_u32("fm1-8p ERROR: step failed to start, not timed; count", v);
+        else
+            H->log_u32("fm1-8p voices/worst permille", v << 16 | pm);
+    if (H->ms() - turned_ms >= UI_FRAME_MS) {   /* a turn a frame: CUTOFF up, then down */
+        turned_ms = H->ms();
+        ui_event(&UU, UI_EV_ENC | UI_ENC_KNOB2, way, turned_ms);
+        way = -way;
+    }
+    ui_draw_frame(full);
+    (void)cur;
+    return;
+#endif
     if (full) {
         H->fill(0, HB_TOP, 240, 240 - HB_TOP, 0);
         for (v = 0; v <= CT_LAST; v++)
@@ -96,8 +120,21 @@ static int init(const hb_host_t *h)
         return 1;                               /* the host falls back to the sine */
     }
     cpu_test_sweep(&T, CPU_HOLD_BLOCKS);
+#ifdef CPU_UI
+    if (play_init(&UP) != 0)
+        return 1;
+    ui_init(&UU, &UP);
+    ui_draw_init(h, &UP, &UU);
+    ui_event(&UU, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, H->ms());   /* page 5A */
+    turned_ms = H->ms();
+    H->log("fm1-8p cpu: with VCF page 5A redrawing every frame");
+#endif
     H->log("fm1-8p cpu: sweeping 1..8 voices, then the unison burst, then the full patch");
     return 0;
 }
 
-HB_DESC = {HB_ABI, "FM1-8P CPU", init, release, note, cc, render, ui, draw, 0, 0, 0, 0};
+#ifdef CPU_UI
+HB_DESC = {HB_ABI, "FM1-8P CPU", init, release, note, cc, render, panel, draw, 0, 0, HB_F_SCREEN, 0};
+#else
+HB_DESC = {HB_ABI, "FM1-8P CPU", init, release, note, cc, render, panel, draw, 0, 0, 0, 0};
+#endif

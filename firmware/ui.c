@@ -418,6 +418,19 @@ uint32_t ui_take_full(ui *u, uint32_t ms)
     return UI_D_ALL;
 }
 
+uint32_t ui_band(ui *u, uint32_t *pending, uint32_t ms)
+{
+    uint32_t d;
+    if (!*pending || u->dirty & UI_D_FULL) {    /* a frame's bands all go before the next frame's */
+        d = ui_take(u, ms);
+        if (d & UI_D_FULL)
+            *pending = UI_D_ALL;                /* a new page: all of it, none of the old one's */
+        else
+            *pending |= d;
+    }
+    return ui_next_band(pending);
+}
+
 uint32_t ui_next_band(uint32_t *pending)
 {
     uint32_t b = *pending & (0u - *pending);    /* the lowest bit: FULL, FOCUS, SLOT, then the columns */
