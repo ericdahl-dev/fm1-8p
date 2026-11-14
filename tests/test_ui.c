@@ -1740,8 +1740,13 @@ TT_TEST(ui_themes_meet_their_contrast_rules)
             TT_CHECK(ui_contrast(t->dim, surf[i]) >= TH[n].dim);
         }
         for (i = 0; i < UI_SECTIONS; i++) {
-            TT_CHECK(ui_contrast(t->section[i], t->surface) >= 4.7);
-            TT_CHECK(ui_contrast(t->section[i], t->bg) >= 4.9);
+            if (!(t->fill_only >> i & 1u)) {    /* a color that is also text */
+                TT_CHECK(ui_contrast(t->section[i], t->surface) >= 4.7);
+                TT_CHECK(ui_contrast(t->section[i], t->bg) >= 4.9);
+            }
+            TT_CHECK(ui_contrast(t->section[i], t->surface) >= 3.0);   /* a fill, a meter, a frame */
+            if (t->chip)
+                TT_CHECK(ui_contrast(t->ink, t->section[i]) >= 4.5);   /* the chip's name */
         }
     }
 }
@@ -1908,6 +1913,76 @@ TT_TEST(ui_theme_applies_after_its_debounce)
     TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_NIGHT);
 }
 
+/* an RGB565 color's hue (degrees, -180 .. 180), saturation and lightness (0 .. 1), as the panel shows it */
+static void ui_hsl(uint16_t c, double *hue, double *sat, double *l)
+{
+    uint32_t r5 = c >> 11, g6 = c >> 5 & 63u, b5 = c & 31u;
+    double r = (double)(r5 << 3 | r5 >> 2) / 255.0, g = (double)(g6 << 2 | g6 >> 4) / 255.0;
+    double b = (double)(b5 << 3 | b5 >> 2) / 255.0;
+    double hi = r > g ? (r > b ? r : b) : (g > b ? g : b), lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    double d = hi - lo;
+    *l = (hi + lo) / 2.0;
+    *sat = d > 0.0 ? d / (1.0 - fabs(2.0 * *l - 1.0)) : 0.0;
+    if (d <= 0.0)
+        *hue = 0.0;
+    else if (hi == r)
+        *hue = 60.0 * (g - b) / d;
+    else if (hi == g)
+        *hue = 60.0 * ((b - r) / d + 2.0);
+    else
+        *hue = 60.0 * ((r - g) / d + 4.0);
+    if (*hue > 180.0)
+        *hue -= 360.0;
+}
+
+/* Membrane's red sections read as the JX-8P's red buttons, not pink (Eric, 2026-11-14): saturated,
+ * no lighter than the panel's own, DCO-1 and SEQ true red to a little orange. ENV-1 (VCF ENV) is a
+ * shade of its own, a more orange red, told apart from DCO-1's at a glance. */
+TT_TEST(ui_membrane_red_is_the_panels_red)
+{
+    static const uint32_t RED[3] = {UI_SEC_DCO1, UI_SEC_VCF_ENV, UI_SEC_SEQ};
+    double hue[3], sat[3], l[3];
+    uint32_t i;
+    for (i = 0; i < 3u; i++) {
+        ui_hsl(UI_MEMBRANE.section[RED[i]], &hue[i], &sat[i], &l[i]);
+        TT_CHECK(sat[i] >= 0.6);
+        TT_CHECK(l[i] <= 0.62);
+        TT_CHECK(UI_MEMBRANE.fill_only >> RED[i] & 1u);  /* too dark for text: drawn as a fill */
+    }
+    TT_CHECK(hue[0] >= -2.0 && hue[0] <= 10.0);
+    TT_CHECK(hue[2] >= -2.0 && hue[2] <= 10.0);
+    TT_CHECK(hue[1] >= 8.0 && hue[1] <= 18.0);          /* still red, toward orange */
+    TT_CHECK(hue[1] - hue[0] >= 6.0);                   /* ENV-1 apart from DCO-1 */
+    TT_CHECK(fabs(sat[1] - sat[0]) >= 0.15);
+}
+
+/* A fill-only section's meter bar stands out from its track by lightness, not hue alone (Eric,
+ * 2026-11-14): its track is the theme's fill_track, and the bar, lit or dimmed as an unfocused
+ * column has it, is at least 3:1 on it. The track still shows on the column. */
+TT_TEST(ui_fill_only_meters_have_a_dark_track)
+{
+    static const ui_theme *const TH[2] = {&UI_MEMBRANE, &UI_NIGHT_PANEL};
+    uint32_t n, i;
+    for (n = 0; n < 2u; n++) {
+        const ui_theme *t = TH[n];
+        for (i = 0; i < UI_SECTIONS; i++) {
+            uint16_t c = t->section[i], dimmed;
+            uint32_t r, g, b;
+            if (!(t->fill_only >> i & 1u))
+                continue;
+            r = ((uint32_t)(t->surface >> 11) * 102u + (uint32_t)(c >> 11) * 154u) >> 8;   /* draw.c's mix, 154 */
+            g = ((uint32_t)(t->surface >> 5 & 63u) * 102u + (uint32_t)(c >> 5 & 63u) * 154u) >> 8;
+            b = ((uint32_t)(t->surface & 31u) * 102u + (uint32_t)(c & 31u) * 154u) >> 8;
+            dimmed = (uint16_t)(r << 11 | g << 5 | b);
+            TT_CHECK(ui_contrast(c, t->fill_track) >= 3.0);
+            TT_CHECK(ui_contrast(dimmed, t->fill_track) >= 3.0);
+            TT_CHECK(ui_contrast(t->fill_track, t->surface) >= 1.8);
+            TT_CHECK(ui_contrast(t->fill_track, t->surface_hi) >= 1.8);
+        }
+    }
+    TT_CHECK(UI_MEMBRANE.fill_only != 0u);              /* (the loop has something to check) */
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_theme_applies_after_its_debounce);
@@ -1916,6 +1991,8 @@ static void run_ui_tests(void)
     TT_RUN(ui_glo_holds_the_patch_controls);
     TT_RUN(ui_glo_opens_and_goes_back);
     TT_RUN(ui_themes_meet_their_contrast_rules);
+    TT_RUN(ui_membrane_red_is_the_panels_red);
+    TT_RUN(ui_fill_only_meters_have_a_dark_track);
     TT_RUN(ui_isqrt_is_the_floor);
     TT_RUN(ui_settings_default_and_ranges);
     TT_RUN(ui_jump_screen_holds_the_controls_in_edit);
