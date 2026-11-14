@@ -106,6 +106,8 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_str(num, "OFF");
         else
             num = put_u(num, (uint32_t)value);
+    } else if (id == FM_PARAM_OSC1_LEVEL || id == FM_PARAM_OSC2_LEVEL || id == FM_PARAM_OSC_MIX_ENV) {
+        num = put_u(num, ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u);    /* 0..100 */
     } else if (id == FM_PARAM_OSC_XMOD) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
     } else if (id == FM_PARAM_PITCH_ENV_SOURCE || id == FM_PARAM_OSC_MIX_ENV_SOURCE ||

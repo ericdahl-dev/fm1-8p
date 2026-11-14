@@ -732,14 +732,13 @@ TT_TEST(ui_dco_values_read_as_the_panel)
     TT_CHECK(ui_shows(FM_PARAM_OSC1_PULSE_WIDTH_PCT, 50, "50 %"));
 }
 
-/* SEL steps its ring (interaction.md 4): 1A, 1B, 2A, 2B, 3A, then pages not built yet are skipped
- * (4A, 4B) and it comes back to 1A. */
+/* SEL steps its ring (interaction.md 4): 1A, 1B, 2A, 2B, 3A, 4A, 4B, and back to 1A. */
 TT_TEST(ui_sel_walks_the_dco_pages)
 {
-    static const uint8_t WANT[6] = {11, 15, 21, 25, 31, 11};
+    static const uint8_t WANT[8] = {11, 15, 21, 25, 31, 41, 45, 11};
     uint32_t i;
     ui_setup();
-    for (i = 0; i < 6u; i++) {
+    for (i = 0; i < 8u; i++) {
         ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000 * i);
         ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1000 * i + 100);
         TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, WANT[i]);
@@ -895,7 +894,7 @@ TT_TEST(ui_dco_env_mode_sets_source_and_sign)
     play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC2_CENTS, 0);
     ui_format(mode->id, ui_slot_value(&ui_u, mode), s);
     TT_CHECK(strcmp(s, "ENV2 INV") == 0);       /* held with the depths at 0 */
-    ui_sel_to(2);                               /* (on to 1A, then 1B: 15 ENV on KNOB1) */
+    ui_sel_to(4);                               /* (on through 4A, 4B and 1A to 1B: 15 ENV on KNOB1) */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 9000);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS), -10);
 }
@@ -917,6 +916,31 @@ TT_TEST(ui_mode_memory_goes_with_a_load)
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 9200);       /* loads */
     play_set_param(&ui_p, FM_PARAM_PITCH_ENV_OSC1_CENTS, 0);
     TT_CHECK_EQ(ui_slot_value(&ui_u, mode) >> 1, 0);
+}
+
+/* MIXER (interaction.md 3, 4x): 4A 41 DCO-1, 42 DCO-2 (levels 0..100), 43 ENV (its size), 44 DYNA;
+ * 4B 45 MODE, the mix envelope's source and sign. SEL's ring: ... 3A, 4A, 4B, then 1A. */
+TT_TEST(ui_mixer_pages)
+{
+    const ui_slot *mode;
+    ui_setup();
+    ui_sel_to(6);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 41);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->id, FM_PARAM_OSC1_LEVEL);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->id, FM_PARAM_OSC_MIX_ENV);
+    TT_CHECK(ui_shows(FM_PARAM_OSC2_LEVEL, 670, "67"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC_MIX_ENV, -500, "50"));
+    play_set_param(&ui_p, FM_PARAM_OSC_MIX_ENV, 400);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 9000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_MIX_ENV), 410);
+    ui_sel_to(1);
+    mode = ui_page_slot(&ui_u, 0);
+    TT_CHECK_EQ(mode->num, 45);
+    play_set_param(&ui_p, FM_PARAM_OSC_MIX_ENV_SOURCE, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -1, 9000);       /* ENV1 INV */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC_MIX_ENV), -410);
+    ui_sel_to(1);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 11);
 }
 
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
@@ -961,6 +985,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_mixer_pages);
     TT_RUN(ui_mode_memory_goes_with_a_load);
     TT_RUN(ui_dco_env_mode_sets_source_and_sign);
     TT_RUN(ui_sel_reaches_dco_env);
