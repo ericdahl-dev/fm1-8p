@@ -183,6 +183,9 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms);
 uint32_t ui_keypad_led(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
+/* a MIDI control change, cc 0..127 at value 0..127 (#49, interaction.md 8): the parameter on cc (the
+ * CC map) takes the value across its knob's range, as a knob would set it */
+void ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms);
 /* the banner's message ("": none) */
 const char *ui_banner(const ui *u);
 /* the UI_D_* bits to redraw now (0: nothing, or the last redraw was under UI_FRAME_MS ago), taken */

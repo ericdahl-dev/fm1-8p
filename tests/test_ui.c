@@ -1983,8 +1983,49 @@ TT_TEST(ui_fill_only_meters_have_a_dark_track)
     TT_CHECK(UI_MEMBRANE.fill_only != 0u);              /* (the loop has something to check) */
 }
 
+/* #49: an incoming CC sets its parameter, 0..127 across the knob's range (interaction.md 8): CC 52 is
+ * VCF CUTOFF, 0 its bottom, 127 its top, 64 in between. */
+TT_TEST(ui_cc_sets_its_parameter)
+{
+    const fm_param_info *in = fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS);
+    int32_t mid;
+    ui_setup();
+    ui_cc(&ui_u, 52, 127, 1000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), in->max);
+    ui_cc(&ui_u, 52, 0, 1100);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), in->min);
+    ui_cc(&ui_u, 52, 64, 1200);
+    mid = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    TT_CHECK(mid > in->min + (in->max - in->min) * 2 / 5 && mid < in->min + (in->max - in->min) * 3 / 5);
+}
+
+/* A CC to a parameter on the page shown redraws its column (and the curve, as a knob does); the focus
+ * stays where it was (interaction.md 8, case 13). A CC to a parameter off the page redraws nothing.
+ * With G21 CC receive OFF, a CC changes nothing. */
+TT_TEST(ui_cc_redraws_its_column_and_keeps_the_focus)
+{
+    int32_t before;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);       /* 5A: 51 HPF, 52 CUTOFF, 53 RES, 54 LFO */
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_ENV, 0, 50);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 100);        /* the focus on 53 RES */
+    (void)ui_take(&ui_u, 1000);
+    ui_cc(&ui_u, 52, 20, 1100);
+    TT_CHECK_EQ(ui_u.focus, 2u);
+    TT_CHECK(ui_take(&ui_u, 1200) & UI_D_COL(1));
+    ui_cc(&ui_u, 81, 20, 1300);                               /* ENV-1 ATTACK: not on 5A */
+    TT_CHECK_EQ(ui_take(&ui_u, 1400) & (UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3)), 0u);
+    TT_CHECK_EQ(ui_u.focus, 2u);
+    ui_u.set.cc_recv = 0;                                     /* G21 OFF */
+    before = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_cc(&ui_u, 52, 127, 1500);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), before);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_cc_sets_its_parameter);
+    TT_RUN(ui_cc_redraws_its_column_and_keeps_the_focus);
     TT_RUN(ui_theme_applies_after_its_debounce);
     TT_RUN(ui_glo_knobs_and_pages);
     TT_RUN(ui_glo_table_is_well_formed);

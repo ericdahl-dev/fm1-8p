@@ -658,6 +658,15 @@ static void jump_to(ui *u, int32_t n, int typed, uint32_t ms)
     }
 }
 
+/* 1: the edit page's slot picture draws s's value (the curve, the waveform, an ENV page's ADSR) */
+static int slot_draws(const ui *u, const ui_slot *s)
+{
+    return s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
+           s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
+           s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
+           (u->page >= 12u && u->page <= 15u);  /* (an ENV page: any of its ADSR) */
+}
+
 static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
 {
     const ui_slot *s = ui_page_slot(u, k);
@@ -693,11 +702,9 @@ static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
     if (u->state == UI_PLAY) {                  /* the focus row reads the knob for 3 s; the slot is the badge */
         u->readout = 1;
         u->readout_ms = ms;
-    } else if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
-        s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
-        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
-        (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
+    } else if (slot_draws(u, s)) {
         u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, the waveform, the ADSR */
+    }
     if (s->id == FM_PARAM_VOICE_MODE)           /* 08 DETUNE's activity follows it, on the same page */
         u->dirty |= UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3);
     u->focus = k;
@@ -844,6 +851,34 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
 uint32_t ui_keypad_led(const ui *u, uint32_t k)
 {
     return u->jump >= 0 && key_digit(k) >= 0 ? UI_LED_GLOW : UI_LED_OFF;
+}
+
+/* the slot a CC sets (the CC map): its number is the slot's, NULL for none */
+static const ui_slot *cc_slot(uint32_t cc)
+{
+    uint32_t i;
+    for (i = 0; i < UI_PAGES * 4u; i++)
+        if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == cc)
+            return &UI_SLOTS[i];
+    return 0;
+}
+
+void ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
+{
+    const ui_slot *s = cc_slot(cc);
+    const fm_param_info *in;
+    uint32_t k;
+    (void)ms;
+    if (!s || !u->set.cc_recv)
+        return;
+    in = fm_param_info_get(s->id);
+    set_slot(u, s, in->min + (int32_t)(((int64_t)(in->max - in->min) * (int32_t)value + 63) / 127));
+    for (k = 0; k < 4u; k++)                    /* on the page shown: its column redraws, the focus stays */
+        if (ui_page_slot(u, k) == s) {
+            u->dirty |= UI_D_COL(k) | (k == u->focus ? UI_D_FOCUS : 0u);
+            if (u->state == UI_EDIT && slot_draws(u, s))
+                u->dirty |= UI_D_SLOT;
+        }
 }
 
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
