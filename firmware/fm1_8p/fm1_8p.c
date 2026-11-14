@@ -47,7 +47,7 @@ static void octave_shown(void)
 static uint8_t led_sent[16];
 static void page_leds(uint32_t all)
 {
-    static const uint8_t BTN[] = {HB_BTN_SEL, HB_BTN_ENV, HB_BTN_LFO, HB_BTN_FX, HB_BTN_EDIT};
+    static const uint8_t BTN[] = {HB_BTN_SEL, HB_BTN_ENV, HB_BTN_LFO, HB_BTN_FX, HB_BTN_EDIT, HB_BTN_GLO};
     uint32_t i;
     for (i = 0; i < sizeof BTN; i++) {
         uint32_t v = ui_led(&U, BTN[i]);
@@ -157,7 +157,7 @@ static int init(const hb_host_t *h)
 _Static_assert(UI_EV_BTN_DOWN == HB_EV_BTN_DOWN && UI_EV_BTN_UP == HB_EV_BTN_UP && UI_EV_ENC == HB_EV_ENC,
                "ui.h's events are hb_module.h's");
 _Static_assert(UI_BTN_FX == HB_BTN_FX && UI_BTN_SEL == HB_BTN_SEL && UI_BTN_ENV == HB_BTN_ENV &&
-               UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_HOME == HB_BTN_HOME && UI_BTN_SAVE == HB_BTN_SAVE,
+               UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_GLO == HB_BTN_GLO && UI_BTN_HOME == HB_BTN_HOME && UI_BTN_SAVE == HB_BTN_SAVE,
                "ui.h's buttons are hb_module.h's");
 _Static_assert(UI_ENC_SELECT == HB_ENC_SELECT && UI_ENC_ALGORITHM == HB_ENC_ALGORITHM &&
                UI_ENC_KNOB1 == HB_ENC_KNOB1 && UI_ENC_KNOB2 == HB_ENC_KNOB2 &&

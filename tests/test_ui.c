@@ -1187,8 +1187,9 @@ TT_TEST(ui_mode_column_is_short)
 }
 
 /* Whatever the buttons, keys and knobs do, an edit page is a real one, and the focus row shows no
- * slot (focus 4) or a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT and
- * HOME taps, holds and every knob, many times over, in a fixed pseudo-random order. */
+ * slot (focus 4) or a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT,
+ * HOME and GLO taps, holds and every knob, many times over, in a fixed pseudo-random order. GLO's
+ * page and focus stay real too, and every banner fits the footer: 28 characters at most. */
 TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
 {
     static const uint32_t EV[] = {UI_EV_BTN_DOWN | UI_BTN_SEL, UI_EV_BTN_UP | UI_BTN_SEL,
@@ -1199,7 +1200,7 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
                                   UI_EV_ENC | UI_ENC_KNOB3, UI_EV_ENC | UI_ENC_KNOB4,
                                   UI_EV_BTN_DOWN | UI_BTN_LFO, UI_EV_BTN_DOWN | UI_BTN_FX,
                                   UI_EV_ENC | UI_ENC_SELECT, UI_EV_ENC | UI_ENC_ALGORITHM,
-                                  UI_EV_ENC | UI_ENC_PRESETS};
+                                  UI_EV_ENC | UI_ENC_PRESETS, UI_EV_BTN_DOWN | UI_BTN_GLO, UI_EV_BTN_UP | UI_BTN_GLO};
     uint32_t i, r = 12345u, ms = 0, bad = 0;
     ui_setup();
     for (i = 0; i < 20000u; i++) {
@@ -1214,6 +1215,14 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
         (void)ui_take(&ui_u, ms);               /* (the jump screen's 400 ms timer) */
         if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && (r >> 12) % 4u != 0 && ui_screen(&ui_u) == UI_SCREEN_JUMP)
             bad++;                              /* its screen never outlives SEL */
+        if (strlen(ui_banner(&ui_u)) > 28u) {   /* the footer: 28 characters */
+            printf("    banner \"%s\" is over 28 characters\n", ui_banner(&ui_u));
+            bad++;
+        }
+        if (ui_u.state == UI_GLO && (ui_u.glo_page >= UI_GLO_PAGES ||
+                                     (ui_u.focus < 4u ? ui_glo_slot_at(&ui_u, ui_u.focus)->kind != UI_LIVE
+                                                      : ui_u.focus != 4u)))
+            bad++;
         if (ui_u.state != UI_EDIT)
             continue;
         if (ui_u.focus == 4u)                   /* no focus (a number with no parameter): an empty row */
@@ -1792,8 +1801,10 @@ TT_TEST(ui_glo_holds_the_patch_controls)
     TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_GLO);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
     TT_CHECK(play_patch(&ui_p) == was);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_GLO), (uint32_t)UI_LED_LIT);   /* GLO lit while it shows */
     ui_tap(UI_BTN_GLO, 5000);
     TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);             /* 5A again */
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_GLO), (uint32_t)UI_LED_GLOW);  /* and glowing where it would open */
 }
 
 /* GLO's table (interaction.md 4): three pages of four, G11..G34, each on its setting; clock, CC and
@@ -1805,7 +1816,7 @@ TT_TEST(ui_glo_table_is_well_formed)
         const ui_glo_slot *g = &UI_GLO_SLOTS[i];
         uint32_t num = (i / 4u + 1u) * 10u + i % 4u + 1u;
         TT_CHECK_EQ(g->num, num);
-        TT_CHECK(g->label && strlen(g->label) <= 7u && g->full && strlen(g->full) <= 20u);
+        TT_CHECK(g->label && strlen(g->label) <= 6u && g->full && strlen(g->full) <= 20u);   /* (7 touch) */
         TT_CHECK(g->setting < UI_SETTINGS_COUNT);
         TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || (num >= 21 && num <= 24) ? UI_PENDING : UI_LIVE));
     }
@@ -1881,8 +1892,8 @@ TT_TEST(ui_theme_applies_after_its_debounce)
     (void)ui_take(&ui_u, 1200);
     TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_MEMBRANE);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 2000);
-    (void)ui_take(&ui_u, 2100);
-    TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_MEMBRANE);   /* not yet */
+    TT_CHECK(ui_take(&ui_u, 2100) & UI_D_SLOT);                /* the cards' frame moves at once */
+    TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_MEMBRANE);   /* the look not yet */
     TT_CHECK(ui_take(&ui_u, 2150) & UI_D_FULL);
     TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_NIGHT);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, -1, 3000);       /* there and back */

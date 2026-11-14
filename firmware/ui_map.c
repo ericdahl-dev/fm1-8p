@@ -187,16 +187,16 @@ static const char *const EXT_CC[] = {"JUMP", "PICKUP"};
 static const char *const THEME[] = {"MEMBRANE", "NIGHT PANEL"};
 static const char *const THEME_COL[] = {"MEMB", "NIGHT"};
 const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT] = {
-    {11, "MIDI IN", "MIDI CHANNEL IN", 0, UI_LIVE, 1, 4, 0, 0, "ALL"},
-    {12, "MIDIOUT", "MIDI CHANNEL OUT", 1, UI_LIVE, 1, 4, 0, 0, 0},
+    {11, "CH IN", "MIDI CHANNEL IN", 0, UI_LIVE, 1, 4, 0, 0, "ALL"},
+    {12, "CH OUT", "MIDI CHANNEL OUT", 1, UI_LIVE, 1, 4, 0, 0, 0},
     {13, "CLOCK", "CLOCK SOURCE", 2, UI_PENDING, 1, 1, CLOCK, 0, 0},          /* (#38) */
-    {14, "CLK OUT", "CLOCK OUT", 3, UI_PENDING, 1, 1, OFF_ON, 0, 0},          /* (#38) */
-    {21, "CC RECV", "CC RECEIVE", 4, UI_PENDING, 1, 1, OFF_ON, 0, 0},         /* (#49) */
-    {22, "CC SEND", "CC SEND", 5, UI_PENDING, 1, 1, OFF_ON, 0, 0},            /* (#49) */
-    {23, "PROG CH", "PROGRAM CHANGE", 6, UI_PENDING, 1, 1, PROG, 0, 0},       /* (not built yet) */
+    {14, "CLKOUT", "CLOCK OUT", 3, UI_PENDING, 1, 1, OFF_ON, 0, 0},          /* (#38) */
+    {21, "CC IN", "CC RECEIVE", 4, UI_PENDING, 1, 1, OFF_ON, 0, 0},         /* (#49) */
+    {22, "CC OUT", "CC SEND", 5, UI_PENDING, 1, 1, OFF_ON, 0, 0},            /* (#49) */
+    {23, "PROG", "PROGRAM CHANGE", 6, UI_PENDING, 1, 1, PROG, 0, 0},       /* (not built yet) */
     {24, "EXT CC", "EXTERNAL CC", 7, UI_PENDING, 1, 1, EXT_CC, 0, 0},         /* (#49) */
     {31, "CURVE", "VELOCITY CURVE", 8, UI_LIVE, 5, 25, 0, 0, 0},
-    {32, "FIX VEL", "FIXED VELOCITY", 9, UI_LIVE, 1, 10, 0, 0, 0},
-    {33, "KEY LED", "KEY LEDS", 10, UI_LIVE, 1, 1, OFF_ON, 0, 0},
+    {32, "FIXED", "FIXED VELOCITY", 9, UI_LIVE, 1, 10, 0, 0, 0},
+    {33, "LEDS", "KEY LEDS", 10, UI_LIVE, 1, 1, OFF_ON, 0, 0},
     {34, "THEME", "THEME", 11, UI_LIVE, 1, 1, THEME, THEME_COL, 0},
 };

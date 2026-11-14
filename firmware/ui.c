@@ -766,6 +766,8 @@ static void glo_turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
         *b = (uint8_t)v;
         u->set_dirty = 1;
         u->set_changed_ms = ms;
+        if (g->setting == 11u)                  /* G34: the theme cards' frame */
+            u->dirty |= UI_D_SLOT;
     }
     u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
     u->focus = k;
@@ -1022,6 +1024,8 @@ uint32_t ui_led(const ui *u, uint32_t button)
         if (u->state == UI_SAVE || u->state == UI_GLO)   /* they do nothing there: off (interaction.md) */
             return UI_LED_OFF;
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
+    case UI_BTN_GLO:                            /* lit in GLO; it glows where a tap opens it */
+        return u->state == UI_GLO ? UI_LED_LIT : u->state == UI_SAVE ? UI_LED_OFF : UI_LED_GLOW;
     case UI_BTN_EDIT:                           /* lit while the edit buffer differs from the stored patch */
         if (u->state == UI_GLO)
             return UI_LED_OFF;
