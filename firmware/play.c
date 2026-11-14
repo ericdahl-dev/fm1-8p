@@ -52,6 +52,21 @@ int play_load_prog(play *p, uint32_t q)
     return 0;
 }
 
+void play_attach_store(play *p, store_lib *lib, const store_io *io)
+{
+    p->lib_attached = lib;
+    p->io = io;
+}
+
+void play_store_tick(play *p)
+{
+    if (!p->lib_attached)
+        return;
+    store_lib_load(p->lib_attached, p->io);     /* the banks' reads: here, not in init */
+    p->lib = p->lib_attached;
+    p->lib_attached = 0;
+}
+
 uint32_t play_prog_step(const play *p, uint32_t from, int32_t clicks)
 {
     int32_t way = clicks > 0 ? 1 : -1;
@@ -74,6 +89,8 @@ int play_init(play *p)
     p->oct = 0;
     p->loading = p->loads = p->loads_seen = 0;
     p->lib = 0;
+    p->lib_attached = 0;
+    p->io = 0;
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
     p->patch = &PATCHES[PATCH_SOUNDTRACK];

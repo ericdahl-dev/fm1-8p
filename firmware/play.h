@@ -39,7 +39,9 @@ typedef struct {
     volatile uint32_t loading;          /* main loop: 1 part way through a load (the ISR waits) */
     volatile uint32_t loads;            /* main loop: +1 per load done */
     uint32_t loads_seen;                /* ISR only: the last `loads` it applied */
-    const store_lib *lib;               /* main loop: the user slots (NULL: none) */
+    const store_lib *lib;               /* main loop: the user slots (NULL: none, or not loaded yet) */
+    store_lib *lib_attached;            /* main loop: attached at init, loaded on the first tick */
+    const store_io *io;                 /* main loop: its flash */
     uint32_t prog;                      /* main loop: the program playing (PLAY_PROG_P + n: P n+1) */
     char name[STORE_NAME_LEN + 1u];     /* main loop: its name */
 } play;
@@ -59,6 +61,10 @@ int play_load_prog(play *p, uint32_t q);
 /* The program playing, and its name (STORE_NAME_LEN + 1 chars). */
 uint32_t play_prog(const play *p);
 void play_prog_name(const play *p, char *name);
+/* At init: the user slots and their flash, not read yet (init stays fixed work). */
+void play_attach_store(play *p, store_lib *lib, const store_io *io);
+/* main loop: the first call loads the attached store's banks; after that, nothing. */
+void play_store_tick(play *p);
 /* The patch playing. */
 const patch *play_patch(const play *p);
 /* main loop: load PATCHES[i] (PRESETS): the next render lets the sounding notes go and applies every

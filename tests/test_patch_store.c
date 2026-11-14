@@ -168,11 +168,13 @@ typedef struct {
     int32_t len[4];
     int fail;
     uint32_t saves;
+    uint32_t loads;
 } store_fake;
 
 static int store_fake_load(void *ctx, uint32_t idx, void *p, uint32_t n)
 {
     store_fake *f = ctx;
+    f->loads++;
     if (idx >= 4 || f->len[idx] < 0) return -1;
     memcpy(p, f->data[idx], n < (uint32_t)f->len[idx] ? n : (uint32_t)f->len[idx]);
     return f->len[idx];
@@ -199,6 +201,7 @@ static void store_flash_blank(void)
     for (i = 0; i < 4; i++) store_flash.len[i] = -1;
     store_flash.fail = 0;
     store_flash.saves = 0;
+    store_flash.loads = 0;
 }
 
 /* A patch saved to a user slot is there after a power cycle: a fresh library loads it from flash. */
@@ -323,6 +326,27 @@ TT_TEST(store_program_numbers_read_like_the_panel)
     ui_prog_number(PLAY_PROG_P + 31u, s); TT_CHECK(strcmp(s, "P32") == 0);
 }
 
+/* The module's init stays fixed work: attaching the store reads no flash. The first main-loop tick
+ * loads banks 1 and 2, once; until then there are no user slots (PRESETS browses the P group). */
+TT_TEST(store_loads_on_the_first_tick_not_at_init)
+{
+    static store_patch in;
+    store_flash_blank();
+    store_from_factory(4, &in);
+    store_lib_load(&store_lib_b, &store_fake_io);
+    TT_CHECK_EQ(store_slot_write(&store_lib_b, &store_fake_io, 9, &in), 0);   /* a slot saved before */
+    store_flash.loads = 0;
+    (void)play_init(&ui_p);
+    play_attach_store(&ui_p, &store_lib_a, &store_fake_io);
+    TT_CHECK_EQ(store_flash.loads, 0u);
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), PLAY_PROG_P);
+    play_store_tick(&ui_p);
+    TT_CHECK_EQ(store_flash.loads, 2u);
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), 9u);
+    play_store_tick(&ui_p);
+    TT_CHECK_EQ(store_flash.loads, 2u);
+}
+
 static void run_patch_store_tests(void)
 {
     TT_RUN(store_record_round_trips_every_factory_patch);
@@ -338,4 +362,5 @@ static void run_patch_store_tests(void)
     TT_RUN(store_presets_ring_skips_empty_slots);
     TT_RUN(store_presets_loads_a_user_slot);
     TT_RUN(store_program_numbers_read_like_the_panel);
+    TT_RUN(store_loads_on_the_first_tick_not_at_init);
 }

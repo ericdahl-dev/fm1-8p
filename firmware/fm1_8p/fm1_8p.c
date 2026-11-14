@@ -96,6 +96,7 @@ static void ui_ev(uint32_t ev, int32_t arg)
 /* The host calls draw() from its main loop: the LEDs on a full redraw, then the screen (draw.c) */
 static void draw(uint32_t full)
 {
+    play_store_tick(&P);                        /* the first: the user slots from flash */
     if (full) {
         octave_shown();                         /* (back from the picker, which had the LEDs) */
         page_leds(1);
@@ -125,10 +126,8 @@ static int init(const hb_host_t *h)
         H->log("fm1-8p: engine init failed");
         return 1;                               /* the host falls back to the sine */
     }
-    if (HB_HOST_HAS(H, bank_free)) {            /* (a host before the banks: no user slots) */
-        store_lib_load(&LIB, &FLASH);
-        P.lib = &LIB;
-    }
+    if (HB_HOST_HAS(H, bank_free))              /* (a host before the banks: no user slots) */
+        play_attach_store(&P, &LIB, &FLASH);    /* read on the first draw: init stays fixed work */
     ui_init(&U, &P);
     octave_shown();
     page_leds(1);
