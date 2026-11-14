@@ -100,14 +100,14 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     TIME(72, "DELAY", "DELAY TIME", FM_PARAM_LFO_DELAY_MS),
     {73, "RATE", "RATE", FM_PARAM_LFO_RATE_CENTIHZ, UI_LIVE, 1, 4, 0, 0, 0, 0, UI_HOW_RATE, 0},
     LIVE(74, "PW", "PW DEPTH", FM_PARAM_LFO_PW_PCT, 1, 5),                 /* ours */
-    PAGE(16) PEND(1, "AT VIB", "AT VIBRATO"),                              /* #61 */
-    PEND(2, "AT BRI", "AT BRILLIANCE"),
-    PEND(3, "AT VOL", "AT VOLUME"),
-    CHOICE(4, "GLIDE", "SETTING GLIDE", FM_PARAM_SETTING_GLIDE, TWO_ORDER), /* ours (Q4) */
+    PAGE(16) PEND(1, "AT VIB", "VIBRATO"),                              /* #61 */
+    PEND(2, "AT BRI", "TO CUTOFF"),
+    PEND(3, "AT VOL", "VOLUME"),
+    CHOICE(4, "GLIDE", "GLIDE", FM_PARAM_SETTING_GLIDE, TWO_ORDER), /* ours (Q4) */
     PAGE(17) LIVE(5, "BEND", "BEND RANGE", FM_PARAM_BEND_RANGE, 1, 2),
     PEND(6, "PORTA", "PORTAMENTO"),                                        /* #62 */
     CHOICE(7, "VOICE", "VOICE MODE", FM_PARAM_VOICE_MODE, TWO_ORDER),       /* ours */
-    LIVE(8, "DETUNE", "UNISON DETUNE", FM_PARAM_UNISON_DETUNE_CENTS, 1, 10),   /* ours */
+    LIVE(8, "DETUNE", "DETUNE", FM_PARAM_UNISON_DETUNE_CENTS, 1, 10),   /* ours */
     PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS, 0, 0, 0},
     LIVE(52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, 100, 400),
     LIVE(53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, 10, 50),

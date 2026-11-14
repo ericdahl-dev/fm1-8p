@@ -993,7 +993,8 @@ TT_TEST(ui_focus_opens_on_a_live_slot)
 }
 
 /* Every slot in the table (interaction.md 3): an empty one has no label; the rest have a label of
- * at most 7 characters (a column's width) and a full one, and their number is the page's section
+ * at most 7 characters (a column's width) and a full one that fits the focus row after the section's
+ * name (20 characters of Terminus, 163 px), and their number is the page's section
  * and the knob (page 5A's KNOB3 is 53); a live one names an engine param. */
 TT_TEST(ui_map_table_is_well_formed)
 {
@@ -1010,6 +1011,9 @@ TT_TEST(ui_map_table_is_well_formed)
             if (strlen(sl->label) > 7u || sl->num != sec * 10u + knob)
                 printf("    slot %u: \"%s\" on page %s knob %u\n", sl->num, sl->label, UI_PAGE_INFO[p].name, k + 1u);
             TT_CHECK(strlen(sl->label) <= 7u && sl->full != 0);
+            if (strlen(UI_PAGE_INFO[p].section) + 1u + strlen(sl->full) > 20u)  /* the focus row: 163 px */
+                printf("    slot %u: \"%s %s\" is over 20 characters\n", sl->num, UI_PAGE_INFO[p].section, sl->full);
+            TT_CHECK(strlen(UI_PAGE_INFO[p].section) + 1u + strlen(sl->full) <= 20u);
             TT_CHECK_EQ(sl->num, sec * 10u + knob);
             TT_CHECK(sl->kind != UI_LIVE || fm_param_info_get(sl->id) != 0);
         }
