@@ -718,8 +718,8 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     }
     u->warned = 0;
     u->banner = "";                             /* the warning goes with the edits */
-    if (clicks >= 3 || clicks <= -3)          /* a fast turn: 4 */
-        clicks = clicks > 0 ? 4 : -4;
+    if (clicks >= 3 || clicks <= -3)          /* a fast turn: 8, a row of slots (11 to 21) */
+        clicks = clicks > 0 ? 8 : -8;
     (void)play_load_prog(u->p, play_prog_step(u->p, play_prog(u->p), clicks));
     u->inv = 0;                                 /* the ENV MODEs are the new patch's signs */
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
