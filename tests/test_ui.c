@@ -1871,8 +1871,34 @@ TT_TEST(ui_glo_knobs_and_pages)
     TT_CHECK_EQ(ui_u.glo_page, 2u);
 }
 
+/* THEME (visual.md): a turn applies 150 ms after the last change, as one full redraw; a fast turn
+ * there and back redraws nothing; settings loaded with another theme apply it too. */
+TT_TEST(ui_theme_applies_after_its_debounce)
+{
+    ui_setup();
+    ui_tap(UI_BTN_GLO, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 2, 1100);       /* G3x */
+    (void)ui_take(&ui_u, 1200);
+    TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_MEMBRANE);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 2000);
+    (void)ui_take(&ui_u, 2100);
+    TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_MEMBRANE);   /* not yet */
+    TT_CHECK(ui_take(&ui_u, 2150) & UI_D_FULL);
+    TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_NIGHT);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, -1, 3000);       /* there and back */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 3050);
+    (void)ui_take(&ui_u, 3060);
+    TT_CHECK_EQ(ui_take(&ui_u, 3300) & UI_D_FULL, 0u);
+    TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_NIGHT);
+    ui_setup();                                                /* a store's load: no turn */
+    ui_u.set.theme = UI_THEME_NIGHT;
+    TT_CHECK(ui_take(&ui_u, 5000) & UI_D_FULL);
+    TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_NIGHT);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_theme_applies_after_its_debounce);
     TT_RUN(ui_glo_knobs_and_pages);
     TT_RUN(ui_glo_table_is_well_formed);
     TT_RUN(ui_glo_holds_the_patch_controls);

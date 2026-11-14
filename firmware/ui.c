@@ -387,6 +387,7 @@ void ui_init(ui *u, play *p)
     ui_settings_default(&u->set);
     u->set_dirty = 0;
     u->set_changed_ms = 0;
+    u->shown_theme = u->set.theme;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -730,6 +731,8 @@ static void glo_read(const ui *u, uint32_t k, char *num, char *unit, int col)
     }
 }
 
+uint32_t ui_theme_shown(const ui *u) { return u->shown_theme; }
+
 void ui_glo_value(const ui *u, uint32_t k, char *num, char *unit) { glo_read(u, k, num, unit, 0); }
 void ui_glo_column(const ui *u, uint32_t k, char *num, char *unit) { glo_read(u, k, num, unit, 1); }
 
@@ -990,6 +993,10 @@ uint32_t ui_take(ui *u, uint32_t ms)
     if (*u->banner && ms - u->banner_ms >= UI_BANNER_MS) {
         u->banner = "";
         u->dirty |= UI_D_FOOT;
+    }
+    if (u->set.theme != u->shown_theme && ms - u->set_changed_ms >= UI_THEME_MS) {
+        u->shown_theme = u->set.theme;          /* THEME, settled: all of it in the new look */
+        u->dirty |= UI_D_FULL;
     }
     if (u->p->oct != u->shown_oct) {
         u->shown_oct = u->p->oct;

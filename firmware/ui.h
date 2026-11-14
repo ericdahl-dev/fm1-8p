@@ -70,7 +70,9 @@ typedef struct {
     ui_settings set;                    /* the settings (agent2's store loads them, and saves them) */
     uint32_t set_dirty;                 /* 1: a GLO knob changed one since the store last wrote */
     uint32_t set_changed_ms;            /* when */
+    uint32_t shown_theme;               /* the theme the screen is in: set.theme, UI_THEME_MS after it changed */
 } ui;
+#define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
 #define UI_JS_UP   1u
 #define UI_JS_DONE 2u
@@ -159,6 +161,8 @@ uint32_t ui_screen(const ui *u);
  * number or name into num, the unit into unit, UI_VALUE_LEN each; "--" while it waits), and as a
  * column reads it (a shorter name where one is too wide) */
 const ui_glo_slot *ui_glo_slot_at(const ui *u, uint32_t k);
+/* the theme to draw in (UI_THEME_MEMBRANE, UI_THEME_NIGHT) */
+uint32_t ui_theme_shown(const ui *u);
 void ui_glo_value(const ui *u, uint32_t k, char *num, char *unit);
 void ui_glo_column(const ui *u, uint32_t k, char *num, char *unit);
 /* PLAY: the focus row shows the last turned knob (3 s after its turn), not the patch's name */
