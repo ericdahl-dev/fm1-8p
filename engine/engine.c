@@ -29,11 +29,10 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
 
 /*
  * fm_engine's budget on 32-bit targets (the FM-1, Cortex-M), where it
- * lives: the size fm1_8p.h documents. Growing it must update that comment
- * and this number. The FM-1 build fails past it; 64-bit desktops only
- * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
+ * lives: FM_ENGINE_BUDGET_32 in fm1_8p.h, a base plus 4 bytes a param. The
+ * FM-1 build fails past it; 64-bit desktops check theirs in
+ * tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 6260u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
