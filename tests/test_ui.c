@@ -1186,10 +1186,14 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
         const ui_slot *f;
         r = r * 1103515245u + 12345u;
         ms += (r >> 8) % 600u;                  /* taps and holds */
+        uint32_t ev = EV[(r >> 16) % (sizeof EV / sizeof EV[0])];
         if ((r >> 12) % 4u == 0)                /* a key now and then (the number jump's keypad) */
             (void)ui_key(&ui_u, (r >> 20) % PLAY_KEYS, (int)((r >> 6) & 1u), ms);
         else
-            ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
+            ui_event(&ui_u, ev, (int32_t)((r >> 4) % 7u) - 3, ms);
+        (void)ui_take(&ui_u, ms);               /* (the jump screen's 400 ms timer) */
+        if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && (r >> 12) % 4u != 0 && ui_screen(&ui_u) == UI_SCREEN_JUMP)
+            bad++;                              /* its screen never outlives SEL */
         if (ui_u.state != UI_EDIT)
             continue;
         if (ui_u.focus == 4u)                   /* no focus (a number with no parameter): an empty row */
@@ -1527,6 +1531,87 @@ TT_TEST(ui_keypad_glows_while_sel_is_held)
     TT_CHECK_EQ(ui_keypad_led(&ui_u, 1u), UI_LED_OFF);         /* F#3, a black key */
 }
 
+/* The number jump's screen (interaction.md 6): it comes up once SEL has been held 400 ms (a tap never
+ * shows it) or at once with a digit; it goes on a finished jump (the page shows, SEL still down) and
+ * on SEL up. A knob turn under it leaves it up. */
+TT_TEST(ui_jump_screen_comes_and_goes)
+{
+    ui_setup();
+    (void)ui_take_full(&ui_u, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PLAY);
+    (void)ui_take(&ui_u, 1399);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PLAY);
+    TT_CHECK(ui_take(&ui_u, 1400) & UI_D_FULL);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1450);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1500);
+    TT_CHECK(ui_take(&ui_u, 1600) & UI_D_FULL);
+    TT_CHECK(ui_screen(&ui_u) != UI_SCREEN_JUMP);
+    /* a digit at once, then the second: the page while SEL is still held, and no timer after */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3000);
+    (void)ui_key(&ui_u, UI_KEY_G3, 1, 3050);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    (void)ui_key(&ui_u, UI_KEY_A3, 1, 3100);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
+    (void)ui_take(&ui_u, 3600);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, ui_u.focus)->num, 23);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3700);
+    /* a tap: no screen at all */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 5000);
+    (void)ui_take(&ui_u, 5100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 5200);
+    TT_CHECK(ui_screen(&ui_u) != UI_SCREEN_JUMP);
+}
+
+/* The jump screen's number: the digits typed, then _ (interaction.md 6: "4_"); the LED window has _
+ * as segment d. Each section has a name for its list. */
+TT_TEST(ui_jump_digits_and_sections)
+{
+    char s[3];
+    uint32_t i;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    ui_jump_digits(&ui_u, s);
+    TT_CHECK(strcmp(s, "__") == 0);
+    (void)ui_key(&ui_u, UI_KEY_C4, 1, 50);
+    ui_jump_digits(&ui_u, s);
+    TT_CHECK(strcmp(s, "5_") == 0);
+    TT_CHECK_EQ(ui_seg7('_'), 0x08u);
+    for (i = 0; i < 10u; i++)
+        TT_CHECK(UI_SECTION_NAME[i] && strlen(UI_SECTION_NAME[i]) <= 12u);
+    TT_CHECK(strcmp(UI_SECTION_NAME[5], "VCF") == 0);
+}
+
+/* While the jump screen is up, the other controls do nothing (Eric, 2026-11-14: only the keypad's keys
+ * and SEL's release act): in EDIT a knob, PRESETS, SELECT, ALGORITHM and the section buttons leave the
+ * page, its values and the patch as they were. */
+TT_TEST(ui_jump_screen_holds_the_controls_in_edit)
+{
+    static const uint32_t EV[] = {UI_EV_ENC | UI_ENC_KNOB2, UI_EV_ENC | UI_ENC_PRESETS, UI_EV_ENC | UI_ENC_SELECT,
+                                  UI_EV_ENC | UI_ENC_ALGORITHM, UI_EV_BTN_DOWN | UI_BTN_ENV,
+                                  UI_EV_BTN_DOWN | UI_BTN_FX, UI_EV_BTN_DOWN | UI_BTN_LFO};
+    const patch *was;
+    int32_t cut;
+    uint32_t i;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);        /* 5A */
+    was = play_patch(&ui_p);
+    cut = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    for (i = 0; i < sizeof EV / sizeof EV[0]; i++)
+        ui_event(&ui_u, EV[i], 2, 1500 + 10 * i);
+    TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_JUMP);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), cut);
+    TT_CHECK(play_patch(&ui_p) == was);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 2000);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);             /* still 5A */
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1569,6 +1654,9 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_jump_screen_holds_the_controls_in_edit);
+    TT_RUN(ui_jump_screen_comes_and_goes);
+    TT_RUN(ui_jump_digits_and_sections);
     TT_RUN(ui_keypad_glows_while_sel_is_held);
     TT_RUN(ui_keypad_keeps_held_notes_and_taps_apart);
     TT_RUN(ui_number_jump_without_a_parameter);

@@ -190,7 +190,7 @@ uint32_t ui_seg7(char c)
     static const uint8_t DIGIT[10] = {0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F};
     if (c >= '0' && c <= '9')
         return DIGIT[c - '0'];
-    return c == '-' ? 0x40u : 0u;
+    return c == '-' ? 0x40u : c == '_' ? 0x08u : 0u;
 }
 
 void ui_column(uint16_t id, int32_t value, char *num, char *unit)
@@ -375,6 +375,7 @@ void ui_init(ui *u, play *p)
     u->shown_edited = 0;
     u->jump = -1;
     u->jump_keys = 0;
+    u->jump_screen = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -618,8 +619,7 @@ static int32_t key_digit(uint32_t k)
 /* the page A of section s (0..9: 1x .. 9x, then 0x) */
 static uint32_t section_a(int32_t s)
 {
-    static const uint8_t A[10] = {16, 0, 2, 4, 5, 7, 9, 11, 12, 14};     /* 0x, 1x, ... 9x */
-    return A[s];
+    return UI_SECTION_PAGE[s];
 }
 
 static void show_banner(ui *u, const char *s, uint32_t ms);
@@ -732,7 +732,13 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
         return 1;
     if (u->jump == 0) {
         u->jump = d + 1;
+        if (!(u->jump_screen & UI_JS_UP))       /* a digit: the jump's screen at once */
+            u->dirty |= UI_D_FULL;
+        else
+            u->dirty |= UI_D_FOCUS;             /* (its number) */
+        u->jump_screen = (u->jump_screen | UI_JS_UP) & ~UI_JS_DONE;
     } else {
+        u->jump_screen = UI_JS_DONE;            /* the page now, SEL still down; no timer after */
         jump_to(u, (u->jump - 1) * 10 + d, 1, ms);
         u->jump = 0;
     }
@@ -768,6 +774,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             show_banner(u, "COMPARE: RELEASE EDIT", ms);
         return;
     }
+    if (ui_screen(u) == UI_SCREEN_JUMP && ev != (UI_EV_BTN_UP | UI_BTN_SEL))
+        return;                                 /* the jump's screen: only its keys and SEL's release act */
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_SEL) && (u->state == UI_PLAY || u->state == UI_EDIT))
         u->jump = 0;                            /* the keypad, while SEL is held (in PLAY or EDIT only) */
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
@@ -781,6 +789,9 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             ring_step(u, UI_RING_SEL);          /* a tap with no key: SEL's ring */
         u->jump = -1;
         u->jump_keys &= ~JUMP_USED;
+        if (u->jump_screen & UI_JS_UP)
+            u->dirty |= UI_D_FULL;              /* its screen goes: the page or PLAY again */
+        u->jump_screen = 0;
     }
     else if (ev == (UI_EV_BTN_DOWN | UI_BTN_FX))
         ring_step(u, UI_RING_FX);
@@ -801,9 +812,25 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         browse(u, arg, ms);
 }
 
+uint32_t ui_screen(const ui *u)
+{
+    return u->jump_screen & UI_JS_UP ? UI_SCREEN_JUMP : u->state == UI_EDIT ? UI_SCREEN_PAGE : UI_SCREEN_PLAY;
+}
+
+void ui_jump_digits(const ui *u, char *s)
+{
+    s[0] = u->jump > 0 ? (char)('0' + (u->jump - 1)) : '_';
+    s[1] = '_';
+    s[2] = 0;
+}
+
 uint32_t ui_take(ui *u, uint32_t ms)
 {
     uint32_t d;
+    if (u->jump >= 0 && !u->jump_screen && ms - u->down_ms[UI_BTN_SEL] >= UI_TAP_MS) {
+        u->jump_screen = UI_JS_UP;              /* SEL held 400 ms: the jump's screen */
+        u->dirty |= UI_D_FULL;
+    }
     u->now_ms = ms;
     if (play_edited(u->p) != u->shown_edited) {  /* the footer's `*` */
         u->shown_edited = play_edited(u->p);

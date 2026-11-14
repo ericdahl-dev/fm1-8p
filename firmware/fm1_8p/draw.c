@@ -458,9 +458,53 @@ static void page_part(uint32_t b, uint32_t part)
     }
 }
 
+/* the number jump's screen (interaction.md 6): the digits typed, the ten sections, the keypad's keys */
+static void jump_part(uint32_t b, uint32_t part)
+{
+    char num[3];
+    uint32_t r, r0, r1, i;
+    if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {     /* rows 222..239: the keypad */
+        H->cv_begin(240, 18, C_SURF);
+        H->cv_rect(0, 0, 240, 1, C_BG);
+        H->cv_rect(0, 1, 240, 1, C_LINE);
+        text_c(0, 240, 2, 0, "KEYS F3-A4: 1-9, 0", C_DIM);
+        blit(0, 222, 240, 18);
+    } else if (b == UI_D_FULL || b == UI_D_HEAD) {
+        header("NUMBER", T->section[UI_SEC_GLO], "", "SEL + 2 KEYS", "", -1);
+    } else if (b == UI_D_FOCUS) {               /* rows 28..77: the number so far */
+        ui_jump_digits(U, num);
+        H->cv_begin(240, 50, C_BG);
+        H->cv_rect(M, 0, 64, 46, C_WINDOW);
+        frame(M, 0, 64, 46, C_LINE);
+        seg7(M + (64 - 38) / 2, 5, num, T->led, mix(C_WINDOW, T->led, T->ghost));
+        CV_TEXT(M + 72, 0, 0, "GO TO PARAMETER", C_TEXT);
+        if (U->jump > 0) {
+            CV_TEXT(M + 72, 20, 0, UI_SECTION_NAME[U->jump - 1], T->section[UI_PAGE_INFO[UI_SECTION_PAGE[U->jump - 1]].color]);
+        } else {
+            CV_TEXT(M + 72, 20, 0, "SECTION, THEN KNOB", C_DIM);
+        }
+        blit(0, 28, 240, 50);
+    } else if (b == UI_D_SLOT || b == UI_D_COL(0)) {    /* the sections: rows 0-1 here, 2-4 below */
+        const int32_t y0 = b == UI_D_SLOT ? 78 : 138, hh = b == UI_D_SLOT ? 60 : 84;
+        r0 = b == UI_D_SLOT ? 0u : 2u;
+        r1 = b == UI_D_SLOT ? 2u : 5u;
+        H->cv_begin(240, hh, C_BG);
+        for (r = r0; r < r1; r++)
+            for (i = 0; i < 2u; i++) {          /* left 1-5, right 6-9 and 0 */
+                uint32_t d = (5u * i + r + 1u) % 10u;
+                char dig[2];
+                int32_t x = M + (int32_t)i * 118, y = 4 + (int32_t)r * 28 + 4 - (y0 - 78);
+                dig[0] = (char)('0' + d), dig[1] = 0;
+                CV_TEXT(x, y, 0, dig, T->section[UI_PAGE_INFO[UI_SECTION_PAGE[d]].color]);
+                CV_TEXT(x + 14, y, 0, UI_SECTION_NAME[d], C_TEXT);
+            }
+        blit(0, y0, 240, hh);
+    }                                           /* (columns 2-4: within column 1's band) */
+}
+
 static uint32_t parts(uint32_t b)
 {
-    return b == UI_D_FULL ? 2u : b == UI_D_SLOT && U->state == UI_EDIT ? SLOT_PARTS : 1u;
+    return b == UI_D_FULL ? 2u : b == UI_D_SLOT && ui_screen(U) == UI_SCREEN_PAGE ? SLOT_PARTS : 1u;
 }
 
 /* The host calls draw() from its main loop, between its key scans: one part a call, so a key never
@@ -475,12 +519,12 @@ void ui_draw_frame(uint32_t full)
 #ifdef FM1_DEBUG
     uint32_t t0 = H->ticks();
     static uint32_t shown = ~0u;
-    uint32_t now = (uint32_t)U->state << 16 | U->page << 8 | U->focus;
+    uint32_t now = (U->jump_screen & UI_JS_UP) << 24 | (uint32_t)U->state << 16 | U->page << 8 | U->focus;
     if (trail_dead)
         return;                                 /* (a bad pointer was logged: drawing stops) */
     if (now != shown) {                         /* each change of state, page or focus, with the focus's label */
         shown = now;
-        H->log_u32("fm1-8p TRAIL state/page/focus", now);
+        H->log_u32("fm1-8p TRAIL jump/state/page/focus", now);
         H->log_u32("fm1-8p TRAIL focus label", U->focus < 4u ? (uint32_t)(uintptr_t)ui_page_slot(U, U->focus)->full : 0u);
     }
 #endif
@@ -496,10 +540,16 @@ void ui_draw_frame(uint32_t full)
         if (!band)
             return;
     }
-    if (U->state == UI_EDIT)
+    switch (ui_screen(U)) {                     /* every band through the screen that shows */
+    case UI_SCREEN_JUMP:
+        jump_part(band, part);
+        break;
+    case UI_SCREEN_PAGE:
         page_part(band, part);
-    else
+        break;
+    default:
         play_part(band, part);
+    }
     if (++part >= parts(band))
         band = 0;
 #ifdef FM1_DEBUG

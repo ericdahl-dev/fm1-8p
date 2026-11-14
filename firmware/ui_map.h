@@ -44,6 +44,9 @@ extern const ui_slot UI_SLOTS[UI_PAGES * 4u];   /* page p's knob k: UI_SLOTS[4 p
 
 /* the section buttons' rings (interaction.md 4): page indexes, UI_RING_END after the last */
 #define UI_RING_END 0xFFu
+/* each section's name for the number jump's list, by its digit (0 AFTERTOUCH .. 9 ENV-2) */
+extern const char *const UI_SECTION_NAME[10];
+extern const uint8_t UI_SECTION_PAGE[10];       /* each section's page A, by its digit */
 extern const uint8_t UI_RING_SEL[], UI_RING_ENV[], UI_RING_FX[], UI_RING_LFO[];
 
 #define UI_TIME_COUNT 122u
