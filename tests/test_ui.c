@@ -1847,7 +1847,7 @@ TT_TEST(ui_glo_table_is_well_formed)
         TT_CHECK_EQ(g->num, num);
         TT_CHECK(g->label && strlen(g->label) <= 6u && g->full && strlen(g->full) <= 20u);   /* (7 touch) */
         TT_CHECK(g->setting < UI_SETTINGS_COUNT);
-        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || num == 22 || num == 23 ? UI_PENDING : UI_LIVE));
+        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 || num == 23 ? UI_PENDING : UI_LIVE));
     }
     TT_CHECK_EQ(UI_GLO_SLOTS[11].setting, 11u);                /* G34 THEME */
 }
@@ -1885,11 +1885,12 @@ TT_TEST(ui_glo_knobs_and_pages)
     TT_CHECK_EQ(ui_u.set.clock_src, 0u);
     TT_CHECK_EQ(ui_u.focus, 0u);
     TT_CHECK(ui_glo_reads(2, "--"));
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);       /* G2x: G21 and G24 live (#49) */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);       /* G2x: G21, G22 and G24 live (#49) */
     TT_CHECK_EQ(ui_u.glo_page, 1u);
-    TT_CHECK_EQ(ui_u.focus, 0u);                                /* (G22 waits: the first live, G21) */
+    TT_CHECK_EQ(ui_u.focus, 1u);                                /* (knob 2: G22) */
     TT_CHECK(ui_glo_reads(0, "ON"));
-    TT_CHECK(ui_glo_reads(1, "--"));
+    TT_CHECK(ui_glo_reads(1, "OFF"));
+    TT_CHECK(ui_glo_reads(2, "--"));
     TT_CHECK(ui_glo_reads(3, "JUMP"));
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1450);        /* G24 to PICKUP */
     TT_CHECK_EQ(ui_u.set.ext_cc, 1u);
@@ -2174,19 +2175,16 @@ TT_TEST(ui_cc_leaves_the_engines_ccs_to_it)
     TT_CHECK(!ui_cc(&ui_u, 52, 10, 0));
 }
 
-/* With #49, G21 CC RECEIVE and G24 EXTERNAL CC are live in GLO; G22 CC SEND still waits */
+/* With #49, G21 CC RECEIVE, G22 CC SEND and G24 EXTERNAL CC are live in GLO */
 TT_TEST(ui_glo_cc_settings_are_live)
 {
     uint32_t i, seen = 0;
-    for (i = 0; i < UI_GLO_SLOTS_COUNT; i++) {
-        if (UI_GLO_SLOTS[i].num == 21u || UI_GLO_SLOTS[i].num == 24u) {
+    for (i = 0; i < UI_GLO_SLOTS_COUNT; i++)
+        if (UI_GLO_SLOTS[i].num == 21u || UI_GLO_SLOTS[i].num == 22u || UI_GLO_SLOTS[i].num == 24u) {
             TT_CHECK_EQ(UI_GLO_SLOTS[i].kind, (uint8_t)UI_LIVE);
             seen++;
         }
-        if (UI_GLO_SLOTS[i].num == 22u)
-            TT_CHECK_EQ(UI_GLO_SLOTS[i].kind, (uint8_t)UI_PENDING);
-    }
-    TT_CHECK_EQ(seen, 2u);
+    TT_CHECK_EQ(seen, 3u);
 }
 
 /* The CC map (#49, Eric's choice A): a parameter's CC is its PG-800 number, the one on screen, except
@@ -2336,8 +2334,98 @@ TT_TEST(ui_cc_pickup_banner_leaves_the_warnings_up)
     TT_CHECK(ui_banner(&ui_u) == warn);
 }
 
+/* G22 CC SEND (#49): with it ON, a knob turn goes out as its parameter's CC (the CC map), the value on
+ * the scale a CC in reads, so sending it back lands on the same knob position; OFF, nothing goes out.
+ * A CC that came in never goes back out. */
+TT_TEST(ui_cc_send_sends_knob_turns)
+{
+    uint32_t ui_out_ms = 100000u;               /* (each ask after the last: never too soon) */
+    uint32_t enc, cc = 0, v = 0, n;
+    int32_t at;
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_event(&ui_u, UI_EV_ENC | enc, 1, 0);
+    TT_CHECK(!ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));   /* G22 OFF (its default) */
+    ui_u.set.cc_send = 1;
+    ui_event(&ui_u, UI_EV_ENC | enc, 200, 100);               /* to the top */
+    TT_CHECK(ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));
+    TT_CHECK_EQ(cc, 52u);
+    TT_CHECK_EQ(v, 127u);
+    TT_CHECK(!ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));                     /* (taken: one a turn) */
+    ui_event(&ui_u, UI_EV_ENC | enc, -200, 200);
+    TT_CHECK(ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));
+    TT_CHECK_EQ(v, 0u);
+    ui_event(&ui_u, UI_EV_ENC | enc, 30, 300);                /* inside: back in, the same value */
+    at = play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS);
+    TT_CHECK(ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));
+    ui_cc(&ui_u, cc, v, 400);
+    TT_CHECK(abs(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS) - at) <=
+             (fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->max -
+              fm_param_info_get(FM_PARAM_FILTER_CUTOFF_CENTS)->min) / 127 + 1);
+    TT_CHECK(!ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));   /* the CC that came in: not back out */
+    enc = ui_goto(FM_PARAM_FILTER_ENV_ATTACK_MS);             /* a time: its table entry */
+    ui_event(&ui_u, UI_EV_ENC | enc, 7, 500);
+    at = play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS);
+    TT_CHECK(ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));
+    TT_CHECK_EQ(cc, 81u);
+    ui_cc(&ui_u, cc, v, 600);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_ATTACK_MS), at);
+    ui_tap(UI_BTN_SEL, 1000);                                 /* 1A: 12 WAVE, a choice */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1100);
+    at = ui_slot_value(&ui_u, &UI_SLOTS[1]);
+    TT_CHECK(ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));
+    TT_CHECK_EQ(cc, 12u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1200);       /* elsewhere, then the sent value back */
+    (void)ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -1, 1300);
+    TT_CHECK(ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));
+    ui_cc(&ui_u, cc, v, 1400);
+    TT_CHECK_EQ(ui_choice_pos(&UI_SLOTS[1], ui_slot_value(&ui_u, &UI_SLOTS[1]), &n),
+                ui_choice_pos(&UI_SLOTS[1], at, &n));
+    ui_setup();                                               /* 07 VOICE MODE: out on CC 108 */
+    ui_u.set.cc_send = 1;
+    ui_tap(UI_BTN_LFO, 0);
+    ui_tap(UI_BTN_LFO, 200);
+    ui_tap(UI_BTN_LFO, 400);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 600);
+    TT_CHECK(ui_cc_out(&ui_u, ui_out_ms += 20u, &cc, &v));
+    TT_CHECK_EQ(cc, 108u);
+}
+
+/* G22's rate is bounded (a fast turn can't flood MIDI out): one CC every UI_CC_OUT_MS at most, the
+ * latest value when it goes; a value the same as the last sent isn't sent again; two knobs turned
+ * together both go out. */
+TT_TEST(ui_cc_send_is_rate_bounded)
+{
+    uint32_t enc, cc = 0, v = 0, first;
+    ui_setup();
+    ui_u.set.cc_send = 1;
+    enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
+    ui_event(&ui_u, UI_EV_ENC | enc, 1, 1000);
+    TT_CHECK(ui_cc_out(&ui_u, 1000, &cc, &v));
+    first = v;
+    ui_event(&ui_u, UI_EV_ENC | enc, 20, 1001);
+    ui_event(&ui_u, UI_EV_ENC | enc, 20, 1002);
+    TT_CHECK(!ui_cc_out(&ui_u, 1002, &cc, &v));               /* too soon */
+    TT_CHECK(ui_cc_out(&ui_u, 1000 + UI_CC_OUT_MS, &cc, &v)); /* then the latest */
+    TT_CHECK(v > first);
+    TT_CHECK_EQ(v, ui_cc_scale(&ui_u, &UI_SLOTS[4u * UI_PAGE_5A + 1u]));
+    ui_event(&ui_u, UI_EV_ENC | enc, 0, 1100);                /* (a turn that left it where it was) */
+    TT_CHECK(!ui_cc_out(&ui_u, 1200, &cc, &v));               /* the same value: not again */
+    ui_event(&ui_u, UI_EV_ENC | enc, -5, 1300);               /* two knobs at once: both go out */
+    ui_event(&ui_u, UI_EV_ENC | (enc + 1u), 5, 1301);
+    TT_CHECK(ui_cc_out(&ui_u, 1400, &cc, &v));
+    first = cc;
+    TT_CHECK(ui_cc_out(&ui_u, 1400 + UI_CC_OUT_MS, &cc, &v));
+    TT_CHECK(cc != first);
+    TT_CHECK((first == 52u && cc == 53u) || (first == 53u && cc == 52u));
+    TT_CHECK(!ui_cc_out(&ui_u, 1400 + 2u * UI_CC_OUT_MS, &cc, &v));
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_cc_send_sends_knob_turns);
+    TT_RUN(ui_cc_send_is_rate_bounded);
     TT_RUN(ui_cc_sets_its_parameter);
     TT_RUN(ui_cc_redraws_its_column_and_keeps_the_focus);
     TT_RUN(ui_cc_choices_take_bands_and_times_their_table);

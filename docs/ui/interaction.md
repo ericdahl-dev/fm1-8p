@@ -449,8 +449,14 @@ is sounding, as fm1-dock's rules ask.
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
 | G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | MEMBRANE |
 
-Until their features land, G13 and G14 (clock, #38), G22 (CC send) and G23 (program change)
-show `--` and their knobs do nothing. G21 and G24 are live (#49), so page G2x opens on G21.
+Until their features land, G13 and G14 (clock, #38) and G23 (program change) show `--` and their
+knobs do nothing. G21, G22 and G24 are live (#49).
+
+**CC send (G22):** with it ON, a panel knob turn goes out as its parameter's CC (the CC map below),
+on G12's channel, on the scale a CC in reads, so a DAW that records it and plays it back lands on
+the same knob position. A CC that came in never goes back out. At most one CC goes out every 10 ms,
+each parameter's latest value when it goes, and the same CC and value isn't sent twice in a row, so
+a fast turn can't flood MIDI out.
 
 **Theme (G34):** the screen's look for the whole instrument, not per patch.
 It takes effect at once, redrawing the whole screen, and is saved with the
