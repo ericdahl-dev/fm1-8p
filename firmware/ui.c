@@ -723,7 +723,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
         u->readout_ms = ms;
     }
     u->dirty |= slot_redraw(u, s);
-    if (u->set.cc_send && ui_cc_of(s->num) != UI_CC_NONE)
+    if (u->set.cc_send && ui_cc_of(u->set.cc_map, s->num) != UI_CC_NONE)
         u->cc_out[(uint32_t)(s - UI_SLOTS) / 32u] |= 1u << ((uint32_t)(s - UI_SLOTS) % 32u);   /* G22 */
     u->focus = k;
 }
@@ -872,18 +872,30 @@ uint32_t ui_keypad_led(const ui *u, uint32_t k)
 }
 
 /* the slot a CC sets (the CC map): its number is the slot's, NULL for none */
-uint32_t ui_cc_of(uint32_t num)
+uint32_t ui_cc_of(uint32_t map, uint32_t num)
 {
     uint32_t i;
+    if (map == UI_CC_MAP_STANDARD) {
+        for (i = 0; i < UI_CC_STANDARD_COUNT; i++)
+            if (UI_CC_STANDARD[i].pg800 == num)
+                return UI_CC_STANDARD[i].cc;
+        return UI_CC_NONE;
+    }
     for (i = 0; i < UI_CC_MOVED_COUNT; i++)
         if (UI_CC_MOVED[i].pg800 == num)
             return UI_CC_MOVED[i].cc;
     return num < 120u ? num : UI_CC_NONE;
 }
 
-uint32_t ui_pg800_of(uint32_t cc)
+uint32_t ui_pg800_of(uint32_t map, uint32_t cc)
 {
     uint32_t i;
+    if (map == UI_CC_MAP_STANDARD) {
+        for (i = 0; i < UI_CC_STANDARD_COUNT; i++)
+            if (UI_CC_STANDARD[i].cc == cc)
+                return UI_CC_STANDARD[i].pg800;
+        return UI_CC_NONE;
+    }
     if (cc == 0u || cc >= 120u)                 /* bank select; the channel mode messages */
         return UI_CC_NONE;
     for (i = 0; i < UI_CC_MOVED_COUNT; i++) {
@@ -896,9 +908,9 @@ uint32_t ui_pg800_of(uint32_t cc)
 }
 
 /* the live slot CC cc sets (the CC map), NULL for none */
-static const ui_slot *cc_slot(uint32_t cc)
+static const ui_slot *cc_slot(uint32_t map, uint32_t cc)
 {
-    uint32_t i, num = ui_pg800_of(cc);
+    uint32_t i, num = ui_pg800_of(map, cc);
     if (num == UI_CC_NONE)
         return 0;
     for (i = 0; i < UI_PAGES * 4u; i++)
@@ -1020,7 +1032,7 @@ int ui_cc_out(ui *u, uint32_t ms, uint32_t *cc, uint32_t *value)
         if (!(u->cc_out[i / 32u] >> (i % 32u) & 1u))
             continue;
         u->cc_out[i / 32u] &= ~(1u << (i % 32u));
-        c = ui_cc_of(UI_SLOTS[i].num);
+        c = ui_cc_of(u->set.cc_map, UI_SLOTS[i].num);
         v = ui_cc_scale(u, &UI_SLOTS[i]);
         if (c == u->cc_sent_cc && v == u->cc_sent_v)
             continue;                           /* (no change on the CC scale) */
@@ -1035,7 +1047,7 @@ int ui_cc_out(ui *u, uint32_t ms, uint32_t *cc, uint32_t *value)
 
 int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
 {
-    const ui_slot *s = cc_slot(cc);
+    const ui_slot *s = cc_slot(u->set.cc_map, cc);
     if (!s || !u->set.cc_recv || value > 127u)
         return 0;
     if (s->order) {                             /* a choice: equal bands, one per knob position; no pickup */
