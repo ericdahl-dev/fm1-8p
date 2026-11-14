@@ -37,6 +37,9 @@ static const int16_t RANGE_ORDER[5] = {-2, -1, 0, 1, 2};
 static const int16_t WAVE_ORDER[4] = {0, 1, 2, 3};
 /* DYNAMICS: OFF, 1, 2, 3 */
 static const int16_t DYNA_ORDER[4] = {0, 1, 2, 3};
+/* LFO WAVE: RANDOM, SQUARE, TRI (the panel's), and our SAW; GLIDE and VOICE: two positions */
+static const int16_t LFO_ORDER[4] = {FM_LFO_RANDOM, FM_LFO_SQUARE, FM_LFO_TRIANGLE, FM_LFO_SAW};
+static const int16_t TWO_ORDER[2] = {0, 1};
 /* VCA MODE: ENV2, GATE (#63); CHORUS: OFF, I, II, and our FAST; ENV KEY: OFF, 1, 2, 3 (260 per mille) */
 static const int16_t GATE_ORDER[2] = {0, 1};
 static const int16_t CHORUS_ORDER[4] = {0, 1, 2, 3};
@@ -93,6 +96,18 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     LIVE(93, "SUSTAIN", "SUSTAIN", FM_PARAM_AMP_SUSTAIN, 10, 50),
     TIME(94, "RELEASE", "RELEASE", FM_PARAM_AMP_RELEASE_MS),
     PAGE(15) CHOICE(95, "KEY", "KEY FOLLOW", FM_PARAM_AMP_KEY_FOLLOW, KEY_ORDER),
+    PAGE(11) CHOICE(71, "WAVE", "WAVEFORM", FM_PARAM_LFO_WAVE, LFO_ORDER),
+    TIME(72, "DELAY", "DELAY TIME", FM_PARAM_LFO_DELAY_MS),
+    LIVE(73, "RATE", "RATE", FM_PARAM_LFO_RATE_CENTIHZ, 1, 10),
+    LIVE(74, "PW", "PW DEPTH", FM_PARAM_LFO_PW_PCT, 1, 5),                 /* ours */
+    PAGE(16) PEND(1, "AT VIB", "AT VIBRATO"),                              /* #61 */
+    PEND(2, "AT BRI", "AT BRILLIANCE"),
+    PEND(3, "AT VOL", "AT VOLUME"),
+    CHOICE(4, "GLIDE", "SETTING GLIDE", FM_PARAM_SETTING_GLIDE, TWO_ORDER), /* ours (Q4) */
+    PAGE(17) LIVE(5, "BEND", "BEND RANGE", FM_PARAM_BEND_RANGE, 1, 2),
+    PEND(6, "PORTA", "PORTAMENTO"),                                        /* #62 */
+    CHOICE(7, "VOICE", "VOICE MODE", FM_PARAM_VOICE_MODE, TWO_ORDER),       /* ours */
+    LIVE(8, "DETUNE", "UNISON DETUNE", FM_PARAM_UNISON_DETUNE_CENTS, 1, 10),   /* ours */
     PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS, 0, 0, 0},
     LIVE(52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, 100, 400),
     LIVE(53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, 10, 50),

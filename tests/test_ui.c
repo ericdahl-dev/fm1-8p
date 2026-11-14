@@ -1180,6 +1180,30 @@ TT_TEST(ui_env_turn_redraws_the_adsr)
     TT_CHECK(ui_take(&ui_u, 500) & UI_D_SLOT);
 }
 
+/* LFO's ring (interaction.md 4): 7A LFO, 0A AFTERTOUCH (04 GLIDE live), 0B CONTROL. 7A: 71 WAVE in
+ * panel order (RANDOM, SQUARE, TRI, and our SAW), 72 DELAY a time, 73 RATE in Hz, 74 PW in %. */
+TT_TEST(ui_lfo_ring_and_page)
+{
+    static const uint8_t WANT[4] = {71, 1, 5, 71};
+    uint32_t i;
+    ui_setup();
+    for (i = 0; i < 4u; i++) {
+        ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 100 * i);
+        TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, WANT[i]);
+    }
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_LFO), UI_LED_LIT);
+    TT_CHECK(ui_shows(FM_PARAM_LFO_WAVE, FM_LFO_RANDOM, "RANDOM"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_WAVE, FM_LFO_TRIANGLE, "TRI"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_DELAY_MS, 1500, "1.50 s"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_RATE_CENTIHZ, 585, "5.85 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_RATE_CENTIHZ, 3000, "30.0 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_RATE_CENTIHZ, 1, "0.01 Hz"));
+    TT_CHECK(ui_shows(FM_PARAM_LFO_PW_PCT, 20, "20 %"));
+    play_set_param(&ui_p, FM_PARAM_LFO_WAVE, FM_LFO_RANDOM);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 900);         /* RANDOM -> SQUARE */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_LFO_WAVE), FM_LFO_SQUARE);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1222,6 +1246,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_lfo_ring_and_page);
     TT_RUN(ui_env_turn_redraws_the_adsr);
     TT_RUN(ui_time_bar_follows_the_table);
     TT_RUN(ui_adsr_picture_follows_the_envelope);

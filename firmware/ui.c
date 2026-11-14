@@ -121,6 +121,21 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_u(num, k > 3u ? 3u : k);
         else
             num = put_str(num, "OFF");
+    } else if (id == FM_PARAM_LFO_WAVE) {
+        static const char *const LW[4] = {"TRI", "SAW", "SQUARE", "RANDOM"};
+        num = put_str(num, LW[value < 0 ? 0 : value > 3 ? 3 : value]);
+    } else if (id == FM_PARAM_LFO_RATE_CENTIHZ) {                       /* 0.01 .. 30.0 Hz */
+        num = put_3(num, 10u * (uint32_t)(value < 1 ? 1 : value)), u = "Hz";
+    } else if (id == FM_PARAM_LFO_PW_PCT) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
+    } else if (id == FM_PARAM_SETTING_GLIDE) {
+        num = put_str(num, value ? "ON" : "OFF");
+    } else if (id == FM_PARAM_VOICE_MODE) {
+        num = put_str(num, value ? "UNISON" : "POLY");
+    } else if (id == FM_PARAM_BEND_RANGE) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "st";
+    } else if (id == FM_PARAM_UNISON_DETUNE_CENTS) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "ct";
     } else if (id == FM_PARAM_AMP_GATE) {
         num = put_str(num, value ? "GATE" : "ENV2");
     } else if (id == FM_PARAM_CHORUS_MODE) {
@@ -613,6 +628,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         ring_step(u, UI_RING_SEL);
     else if (ev == (UI_EV_BTN_DOWN | UI_BTN_FX))
         ring_step(u, UI_RING_FX);
+    else if (ev == (UI_EV_BTN_DOWN | UI_BTN_LFO))
+        ring_step(u, UI_RING_LFO);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)
