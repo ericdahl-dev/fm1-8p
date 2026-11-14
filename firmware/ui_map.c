@@ -84,6 +84,13 @@ static const int16_t MODE_ORDER[4] = {3, 1, 2, 0};
 #define PEND(n, l, f) {n, l, f, 0, UI_PENDING, 0, 0, 0, 0, 0, 0, 0, 0}
 #define PAGE(p) [4 * (p)] =
 
+/* the 0x section, 11, 32, 38 and 64 would be mod wheel, data entry and volume, expression, bank
+ * select LSB, data entry LSB and sustain (Eric, #49) */
+const ui_cc_move UI_CC_MOVED[UI_CC_MOVED_COUNT] = {
+    {1, 102}, {2, 103}, {3, 104}, {4, 105}, {5, 106}, {6, 107}, {7, 108}, {8, 109},
+    {11, 110}, {32, 111}, {38, 112}, {64, 113},
+};
+
 /* interaction.md 3, page by page (a page left out is empty, and the rings skip it) */
 const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     PAGE(0) CHOICE(11, "RANGE", "RANGE", FM_PARAM_OSC1_OCTAVE, RANGE_ORDER),

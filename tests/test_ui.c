@@ -2166,6 +2166,99 @@ TT_TEST(ui_glo_cc_settings_are_live)
     TT_CHECK_EQ(seen, 2u);
 }
 
+/* The CC map (#49, Eric's choice A): a parameter's CC is its PG-800 number, the one on screen, except
+ * the 0x section and 11, 32, 38 and 64, which would land on standard CCs (mod wheel, data entry,
+ * volume, expression, bank select LSB, sustain): they move to 102-113, in that order. Every live
+ * parameter has one CC, no two share one, and none is 0, 1, 6, 7, 11, 32, 38, 64 or 120-127. The
+ * table is keyed by PG-800 number, for #195's IPR receive too. */
+TT_TEST(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs)
+{
+    static const uint8_t MOVED[12][2] = {{1, 102}, {2, 103}, {3, 104}, {4, 105}, {5, 106}, {6, 107},
+                                         {7, 108}, {8, 109}, {11, 110}, {32, 111}, {38, 112}, {64, 113}};
+    uint32_t i, used[4] = {0, 0, 0, 0};
+    for (i = 0; i < 12u; i++) {
+        TT_CHECK_EQ(ui_cc_of(MOVED[i][0]), (uint32_t)MOVED[i][1]);
+        TT_CHECK_EQ(ui_pg800_of(MOVED[i][1]), (uint32_t)MOVED[i][0]);
+        TT_CHECK_EQ(ui_pg800_of(MOVED[i][0]), UI_CC_NONE);  /* (nothing left on the standard CC) */
+    }
+    TT_CHECK_EQ(ui_cc_of(52), 52u);
+    TT_CHECK_EQ(ui_pg800_of(52), 52u);
+    TT_CHECK_EQ(ui_pg800_of(0), UI_CC_NONE);
+    for (i = 120; i < 128u; i++)
+        TT_CHECK_EQ(ui_pg800_of(i), UI_CC_NONE);
+    for (i = 0; i < UI_PAGES * 4u; i++) {
+        uint32_t cc;
+        if (UI_SLOTS[i].kind != UI_LIVE)
+            continue;
+        cc = ui_cc_of(UI_SLOTS[i].num);
+        TT_CHECK(cc >= 2u && cc <= 119u && cc != 6u && cc != 7u && cc != 11u && cc != 32u && cc != 38u &&
+                 cc != 64u);
+        TT_CHECK(!(used[cc / 32u] >> (cc % 32u) & 1u));
+        used[cc / 32u] |= 1u << (cc % 32u);
+        TT_CHECK_EQ(ui_pg800_of(cc), (uint32_t)UI_SLOTS[i].num);
+    }
+    ui_setup();                                               /* 07 VOICE on CC 108; CC 7 is volume's */
+    TT_CHECK(ui_cc(&ui_u, 108, 127, 0));
+    TT_CHECK(!ui_cc(&ui_u, 7, 127, 0));
+}
+
+/* A CC and a knob land on the same value (#49: the knobs' path, no smoothing of its own): cutoff turned
+ * all the way up on the knob and CC 52 at 127 reach the same engine value, and so do the bottom. */
+TT_TEST(ui_cc_lands_where_a_knob_does)
+{
+    static const int32_t WAY[2] = {1, -1};
+    uint32_t enc, i;
+    int32_t knob;
+    for (i = 0; i < 2u; i++) {
+        ui_setup();
+        enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
+        ui_event(&ui_u, UI_EV_ENC | enc, 200 * WAY[i], 0);
+        ui_settle();
+        knob = fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS);
+        ui_setup();
+        ui_cc(&ui_u, 52, i ? 0u : 127u, 0);
+        ui_settle();
+        TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS), knob);
+    }
+}
+
+/* docs/ui/interaction.md's CC map table is the code's: a row per slot (live or waiting), each with its
+ * PG-800 number's CC */
+TT_TEST(ui_cc_map_doc_matches_the_code)
+{
+    char line[256];
+    uint32_t rows = 0, slots = 0, i, in_map = 0, seen[4] = {0, 0, 0, 0};
+    FILE *f = fopen("docs/ui/interaction.md", "r");
+    TT_CHECK(f != 0);
+    if (!f)
+        return;
+    while (fgets(line, sizeof line, f)) {
+        char *bar;
+        uint32_t num, cc;
+        if (strncmp(line, "### ", 4) == 0)
+            in_map = strcmp(line, "### The CC map\n") == 0;
+        if (!in_map || line[0] != '|' || line[2] < '0' || line[2] > '9')
+            continue;
+        num = (uint32_t)atoi(line + 2);
+        bar = strrchr(line, '|');
+        *bar = 0;
+        cc = (uint32_t)atoi(strrchr(line, '|') + 1);
+        if (ui_cc_of(num) != cc)
+            printf("    the doc has PG-800 %u on CC %u, the code %u\n", (unsigned)num, (unsigned)cc,
+                   (unsigned)ui_cc_of(num));
+        TT_CHECK_EQ(ui_cc_of(num), cc);
+        seen[num / 32u] |= 1u << (num % 32u);
+        rows++;
+    }
+    fclose(f);
+    for (i = 0; i < UI_PAGES * 4u; i++)
+        if (UI_SLOTS[i].kind != UI_RESERVED) {
+            slots++;
+            TT_CHECK(seen[UI_SLOTS[i].num / 32u] >> (UI_SLOTS[i].num % 32u) & 1u);
+        }
+    TT_CHECK_EQ(rows, slots);
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_cc_sets_its_parameter);
@@ -2175,6 +2268,9 @@ static void run_ui_tests(void)
     TT_RUN(ui_cc_during_compare_reaches_the_edit_buffer);
     TT_RUN(ui_cc_leaves_the_engines_ccs_to_it);
     TT_RUN(ui_glo_cc_settings_are_live);
+    TT_RUN(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs);
+    TT_RUN(ui_cc_lands_where_a_knob_does);
+    TT_RUN(ui_cc_map_doc_matches_the_code);
     TT_RUN(ui_theme_applies_after_its_debounce);
     TT_RUN(ui_glo_knobs_and_pages);
     TT_RUN(ui_glo_table_is_well_formed);

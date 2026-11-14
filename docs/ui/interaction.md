@@ -911,10 +911,92 @@ that does something glows, unless it is lit for its own reason.
   - With G24 = PICKUP, an incoming CC is ignored until it crosses or lands on
     the current value, within one CC step. After that it follows. The pickup
     state resets for every parameter when a patch loads.
-  - A value that is ignored still shows on the screen as `CC 74: 52 (PICKUP)`
+  - A value that is ignored still shows on the screen as `CC 52: 20 (PICKUP)`
     in the banner.
 - **Choice parameters** (WAVE, MODE, CHORUS, HPF) split 0..127 into equal
   bands, and are never picked up.
+
+### The CC map
+
+Every parameter has its own MIDI CC, so a DAW or a hardware controller can play the PG-800's part
+(#49). A parameter's CC is its PG-800 number, the one on the screen. The exceptions are the numbers
+that would land on a standard CC: the 0x section (1 mod wheel, 6 data entry, 7 volume), 11
+(expression), 32 (bank select LSB), 38 (data entry LSB) and 64 (sustain). These move, in that order,
+to 102-113, part of the undefined 102-119 block (Eric). CC 0 (bank select), 1, 7, 64 and 120-127
+keep their standard meanings, and the engine takes them as before.
+
+- **G21 CC RECEIVE** OFF ignores the map. The standard CCs still work.
+- **Scaling:** a CC goes straight across its knob's range. Times and rates follow their tables (0
+  the first entry, 127 the last). A choice splits 0..127 into equal bands, one per knob position. A
+  depth set by size (ENV DEPTH) takes its size, and its ENV MODE keeps the sign.
+- **Smoothing:** a CC takes the knobs' path, so it lands on the same value a knob would, with the
+  same (for now, no) smoothing.
+- **Any channel,** as notes do, until G11 is wired.
+- A parameter marked "when it lands" has its CC already, and it does nothing until the parameter
+  is built.
+- The table is keyed by PG-800 number (`UI_CC_MOVED`), so the PG-800 IPR receive (#195) can share it.
+  `tests/test_ui.c` checks this table against the code.
+
+| PG-800 | Section | Parameter | CC |
+| --- | --- | --- | --- |
+| 11 | DCO-1 | RANGE | 110 |
+| 12 | DCO-1 | WAVEFORM | 12 |
+| 13 | DCO-1 | TUNE (when it lands) | 13 |
+| 14 | DCO-1 | LFO DEPTH | 14 |
+| 15 | DCO-1 | ENV DEPTH | 15 |
+| 16 | DCO-1 | FINE TUNE | 16 |
+| 17 | DCO-1 | PULSE WIDTH | 17 |
+| 21 | DCO-2 | RANGE | 21 |
+| 22 | DCO-2 | WAVEFORM | 22 |
+| 23 | DCO-2 | CROSS MOD | 23 |
+| 24 | DCO-2 | TUNE | 24 |
+| 25 | DCO-2 | FINE TUNE | 25 |
+| 26 | DCO-2 | LFO DEPTH | 26 |
+| 27 | DCO-2 | ENV DEPTH | 27 |
+| 28 | DCO-2 | PULSE WIDTH | 28 |
+| 31 | DCO ENV | DYNAMICS | 31 |
+| 32 | DCO ENV | ENV MODE | 111 |
+| 33 | DCO ENV | X-MOD AMOUNT | 33 |
+| 41 | MIXER | DCO-1 LEVEL | 41 |
+| 42 | MIXER | DCO-2 LEVEL | 42 |
+| 43 | MIXER | ENV DEPTH | 43 |
+| 44 | MIXER | DYNAMICS | 44 |
+| 45 | MIXER | ENV MODE | 45 |
+| 51 | VCF | HIGHPASS | 51 |
+| 52 | VCF | CUTOFF | 52 |
+| 53 | VCF | RESONANCE | 53 |
+| 54 | VCF | LFO DEPTH (when it lands) | 54 |
+| 55 | VCF | ENV DEPTH | 55 |
+| 56 | VCF | KEY FOLLOW | 56 |
+| 57 | VCF | DYNAMICS | 57 |
+| 58 | VCF | ENV MODE | 58 |
+| 61 | VCA | VCA LEVEL | 61 |
+| 62 | VCA | VCA MODE | 62 |
+| 63 | VCA | DYNAMICS | 63 |
+| 64 | VCA | CHORUS | 113 |
+| 65 | VCA | VELOCITY | 65 |
+| 71 | LFO | WAVEFORM | 71 |
+| 72 | LFO | DELAY TIME | 72 |
+| 73 | LFO | RATE | 73 |
+| 74 | LFO | PW DEPTH | 74 |
+| 81 | ENV-1 | ATTACK | 81 |
+| 82 | ENV-1 | DECAY | 82 |
+| 83 | ENV-1 | SUSTAIN | 83 |
+| 84 | ENV-1 | RELEASE | 84 |
+| 85 | ENV-1 | KEY FOLLOW | 85 |
+| 91 | ENV-2 | ATTACK | 91 |
+| 92 | ENV-2 | DECAY | 92 |
+| 93 | ENV-2 | SUSTAIN | 93 |
+| 94 | ENV-2 | RELEASE | 94 |
+| 95 | ENV-2 | KEY FOLLOW | 95 |
+| 01 | AFTERTOUCH | VIBRATO (when it lands) | 102 |
+| 02 | AFTERTOUCH | TO CUTOFF (when it lands) | 103 |
+| 03 | AFTERTOUCH | VOLUME (when it lands) | 104 |
+| 04 | AFTERTOUCH | GLIDE | 105 |
+| 05 | CONTROL | BEND RANGE | 106 |
+| 06 | CONTROL | PORTAMENTO (when it lands) | 107 |
+| 07 | CONTROL | VOICE MODE | 108 |
+| 08 | CONTROL | DETUNE | 109 |
 
 ### MIDI CC arriving while a page is shown
 
@@ -1130,9 +1212,9 @@ test.
 61. With G23 SEND or BOTH, loading slot 21 on the panel sends PC 8.
 62. After `release()`, then `draw(full)`, every LED is sent again and the
     transport is STOPPED.
-63. With G24 = PICKUP and cutoff at 64 (CC scale), CC74 = 20 is ignored, and
-    CC74 = 63, 64 or 65 takes over. After that, CC74 = 20 sets the value.
-64. With G24 = JUMP, CC74 = 20 sets cutoff at once.
+63. With G24 = PICKUP and cutoff at 64 (CC scale), CC 52 = 20 is ignored, and
+    CC 52 = 63, 64 or 65 takes over. After that, CC 52 = 20 sets the value.
+64. With G24 = JUMP, CC 52 = 20 sets cutoff at once.
 65. Setting G34 THEME to NIGHT PANEL redraws the screen at once and saves the
     settings once nothing sounds. After `init()` with that settings record
     (a power cycle), THEME is NIGHT PANEL. With no settings record, it is

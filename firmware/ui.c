@@ -855,13 +855,37 @@ uint32_t ui_keypad_led(const ui *u, uint32_t k)
 }
 
 /* the slot a CC sets (the CC map): its number is the slot's, NULL for none */
-static const ui_slot *cc_slot(uint32_t cc)
+uint32_t ui_cc_of(uint32_t num)
 {
     uint32_t i;
-    if (cc == 1u || cc == 7u || cc == 64u || cc >= 120u)  /* the standard CCs: mod wheel, volume, sustain, modes */
+    for (i = 0; i < UI_CC_MOVED_COUNT; i++)
+        if (UI_CC_MOVED[i].pg800 == num)
+            return UI_CC_MOVED[i].cc;
+    return num < 120u ? num : UI_CC_NONE;
+}
+
+uint32_t ui_pg800_of(uint32_t cc)
+{
+    uint32_t i;
+    if (cc == 0u || cc >= 120u)                 /* bank select; the channel mode messages */
+        return UI_CC_NONE;
+    for (i = 0; i < UI_CC_MOVED_COUNT; i++) {
+        if (UI_CC_MOVED[i].cc == cc)
+            return UI_CC_MOVED[i].pg800;
+        if (UI_CC_MOVED[i].pg800 == cc)         /* (moved away: its standard CC is the standard's) */
+            return UI_CC_NONE;
+    }
+    return cc;
+}
+
+/* the live slot CC cc sets (the CC map), NULL for none */
+static const ui_slot *cc_slot(uint32_t cc)
+{
+    uint32_t i, num = ui_pg800_of(cc);
+    if (num == UI_CC_NONE)
         return 0;
     for (i = 0; i < UI_PAGES * 4u; i++)
-        if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == cc)
+        if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == num)
             return &UI_SLOTS[i];
     return 0;
 }
@@ -907,7 +931,7 @@ static int cc_pick(ui *u, const ui_slot *s, uint32_t i, uint32_t v)
     return 0;
 }
 
-/* "CC 74: 52 (PICKUP)" into u->cc_msg, as the banner */
+/* "CC 52: 20 (PICKUP)" into u->cc_msg, as the banner */
 static void cc_ignored(ui *u, uint32_t cc, uint32_t v, uint32_t ms)
 {
     static const char TAIL[] = " (PICKUP)";
