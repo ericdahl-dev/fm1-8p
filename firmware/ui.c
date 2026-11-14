@@ -373,6 +373,8 @@ void ui_init(ui *u, play *p)
     u->comparing = 0;
     u->now_ms = 0;
     u->shown_edited = 0;
+    u->jump = -1;
+    u->jump_keys = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -606,6 +608,41 @@ static void walk_sections(ui *u, int32_t clicks)
     show_page(u, UI_EDIT);
 }
 
+/* the number jump's keypad: the white keys F3..A4 (key 0 = F3) are the digits 1..9 and 0; -1 not one */
+static int32_t key_digit(uint32_t k)
+{
+    static const int8_t D[17] = {1, -1, 2, -1, 3, -1, 4, 5, -1, 6, -1, 7, 8, -1, 9, -1, 0};
+    return k < 17u ? D[k] : -1;
+}
+
+/* the page A of section s (0..9: 1x .. 9x, then 0x) */
+static uint32_t section_a(int32_t s)
+{
+    static const uint8_t A[10] = {16, 0, 2, 4, 5, 7, 9, 11, 12, 14};     /* 0x, 1x, ... 9x */
+    return A[s];
+}
+
+static void show_banner(ui *u, const char *s, uint32_t ms);
+
+/* number n's page and focus (interaction.md 4: a number with no parameter shows its page with no focus,
+ * and with two digits typed the banner NO PARAMETER) */
+static void jump_to(ui *u, int32_t n, int typed, uint32_t ms)
+{
+    uint32_t p = section_a(n / 10), x = (uint32_t)(n % 10), k;
+    if (x >= 5u && x <= 8u && p + 1u < UI_PAGES && UI_PAGE_INFO[p + 1u].name[0] == UI_PAGE_INFO[p].name[0])
+        p++;                                    /* x5..x8 on the section's page B */
+    u->page = p;
+    show_page(u, UI_EDIT);
+    k = x >= 1u && x <= 8u ? (x - 1u) % 4u : 4u;
+    if (k < 4u && (x <= 4u || UI_PAGE_INFO[p].name[1] == 'B') && UI_SLOTS[4u * p + k].kind != UI_RESERVED) {
+        u->focus = k;
+    } else {
+        u->focus = 4u;                          /* none: the focus row is empty */
+        if (typed)
+            show_banner(u, "NO PARAMETER", ms);
+    }
+}
+
 static void turn(ui *u, uint32_t k, int32_t clicks)
 {
     const ui_slot *s = ui_page_slot(u, k);
@@ -637,7 +674,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     } else {
         set_slot(u, s, ui_slot_value(u, s) + (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
     }
-    u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
+    u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
     if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
         s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
         s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
@@ -677,6 +714,36 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
 }
 
+#define JUMP_USED 0x80000000u                  /* ui.jump_keys: a key went down while SEL was held */
+
+int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
+{
+    int32_t d = key_digit(k);
+    if (!down) {                                /* an up goes where its down went */
+        if (!(u->jump_keys >> k & 1u))
+            return 0;
+        u->jump_keys &= ~(1u << k);
+        return 1;
+    }
+    if (u->jump < 0)
+        return 0;
+    u->jump_keys |= 1u << k | JUMP_USED;
+    if (d < 0)                                  /* (a black key: nothing, and no sound) */
+        return 1;
+    if (u->jump == 0) {
+        u->jump = d + 1;
+    } else {
+        jump_to(u, (u->jump - 1) * 10 + d, 1, ms);
+        u->jump = 0;
+    }
+    return 1;
+}
+
+uint32_t ui_keypad_led(const ui *u, uint32_t k)
+{
+    return u->jump >= 0 && key_digit(k) >= 0 ? UI_LED_GLOW : UI_LED_OFF;
+}
+
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 {
     uint32_t id = ev & 0xFFu;
@@ -701,12 +768,20 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             show_banner(u, "COMPARE: RELEASE EDIT", ms);
         return;
     }
+    if (ev == (UI_EV_BTN_DOWN | UI_BTN_SEL) && (u->state == UI_PLAY || u->state == UI_EDIT))
+        u->jump = 0;                            /* the keypad, while SEL is held (in PLAY or EDIT only) */
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
         u->warned = 0;                          /* anything else cancels the warning (decision Q4) */
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV))
         ring_step(u, UI_RING_ENV);
-    else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && tap)      /* (a hold: the number jump) */
-        ring_step(u, UI_RING_SEL);
+    else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL)) {
+        if (u->jump > 0)                        /* one digit: that section's page A, no focus */
+            jump_to(u, (u->jump - 1) * 10, 0, ms);
+        else if (tap && !(u->jump_keys & JUMP_USED))
+            ring_step(u, UI_RING_SEL);          /* a tap with no key: SEL's ring */
+        u->jump = -1;
+        u->jump_keys &= ~JUMP_USED;
+    }
     else if (ev == (UI_EV_BTN_DOWN | UI_BTN_FX))
         ring_step(u, UI_RING_FX);
     else if (ev == (UI_EV_BTN_DOWN | UI_BTN_LFO))

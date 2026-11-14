@@ -1166,8 +1166,8 @@ TT_TEST(ui_mode_column_is_short)
     TT_CHECK(ui_shows(FM_PARAM_PITCH_ENV_SOURCE, 3, "ENV2 INV"));
 }
 
-/* Whatever the buttons and knobs do, an edit page is a real one with a live slot, and the focus row
- * shows a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT and
+/* Whatever the buttons, keys and knobs do, an edit page is a real one, and the focus row shows no
+ * slot (focus 4) or a slot with a label (#177 faulted on the FM-1 while SEL changed pages): SEL, ENV, EDIT and
  * HOME taps, holds and every knob, many times over, in a fixed pseudo-random order. */
 TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
 {
@@ -1186,8 +1186,13 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
         const ui_slot *f;
         r = r * 1103515245u + 12345u;
         ms += (r >> 8) % 600u;                  /* taps and holds */
-        ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
+        if ((r >> 12) % 4u == 0)                /* a key now and then (the number jump's keypad) */
+            (void)ui_key(&ui_u, (r >> 20) % PLAY_KEYS, (int)((r >> 6) & 1u), ms);
+        else
+            ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
         if (ui_u.state != UI_EDIT)
+            continue;
+        if (ui_u.focus == 4u)                   /* no focus (a number with no parameter): an empty row */
             continue;
         f = ui_page_slot(&ui_u, ui_u.focus);
         if (ui_u.page >= UI_PAGES || ui_u.focus > 3u || f->kind == UI_RESERVED || !f->label || !f->full)
@@ -1449,6 +1454,79 @@ TT_TEST(ui_select_and_algorithm_walk_pages_and_sections)
     TT_CHECK_EQ(ui_num0(), 51);
 }
 
+/* The number jump (interaction.md 4, test 5): hold SEL and tap two white keys, F3..A4 being the
+ * digits 1..9 and 0: G3 then A3 (2, 3) opens 2A with 23 X-MOD the focus. The keys don't sound. */
+#define UI_KEY_G3 2u
+#define UI_KEY_A3 4u
+TT_TEST(ui_number_jump_goes_to_the_parameter)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    TT_CHECK(ui_key(&ui_u, UI_KEY_G3, 1, 100));
+    TT_CHECK(ui_key(&ui_u, UI_KEY_G3, 0, 150));
+    TT_CHECK(ui_key(&ui_u, UI_KEY_A3, 1, 200));
+    TT_CHECK(ui_key(&ui_u, UI_KEY_A3, 0, 250));
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 900);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, ui_u.focus)->num, 23);
+    TT_CHECK(!ui_key(&ui_u, UI_KEY_G3, 1, 1000));             /* SEL let go: keys play again */
+}
+
+/* Releasing SEL after one digit (C4, 5) opens 5A with no focus; number 18 (reserved) opens 1B with no
+ * focus and the banner NO PARAMETER (interaction.md tests 6, 7). A turn then focuses its knob. */
+#define UI_KEY_F3 0u
+#define UI_KEY_C4 7u
+#define UI_KEY_F4 12u
+TT_TEST(ui_number_jump_without_a_parameter)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    (void)ui_key(&ui_u, UI_KEY_C4, 1, 100);
+    (void)ui_key(&ui_u, UI_KEY_C4, 0, 150);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 900);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);
+    TT_CHECK(ui_page_slot(&ui_u, ui_u.focus) == 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 2000);
+    (void)ui_key(&ui_u, UI_KEY_F3, 1, 2100);
+    (void)ui_key(&ui_u, UI_KEY_F4, 1, 2200);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 15);              /* 1B */
+    TT_CHECK(ui_page_slot(&ui_u, ui_u.focus) == 0);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "NO PARAMETER") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 2300);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, ui_u.focus)->num, 16);
+}
+
+/* A key held before SEL went down still gets its note-off (its up isn't the keypad's), and a SEL tap
+ * with a key pressed in it is a jump, not SEL's ring step. */
+TT_TEST(ui_keypad_keeps_held_notes_and_taps_apart)
+{
+    ui_setup();
+    TT_CHECK(!ui_key(&ui_u, UI_KEY_C4, 1, 0));                /* plays */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 100);
+    TT_CHECK(!ui_key(&ui_u, UI_KEY_C4, 0, 150));              /* its up plays too: the note ends */
+    TT_CHECK(ui_key(&ui_u, UI_KEY_G3, 1, 200));
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 300);        /* under 400 ms, but a key came */
+    TT_CHECK(ui_key(&ui_u, UI_KEY_G3, 0, 350));               /* its up is still the keypad's */
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 21);             /* digit 2: 2A, not SEL's 1A */
+}
+
+/* While SEL is held the ten digit keys glow as a keypad (interaction.md 4); otherwise the keypad
+ * lights none (the keys' own LEDs are the module's). */
+TT_TEST(ui_keypad_glows_while_sel_is_held)
+{
+    uint32_t k, glow = 0;
+    ui_setup();
+    for (k = 0; k < PLAY_KEYS; k++)
+        glow += ui_keypad_led(&ui_u, k) == UI_LED_GLOW;
+    TT_CHECK_EQ(glow, 0u);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 0);
+    for (glow = 0, k = 0; k < PLAY_KEYS; k++)
+        glow += ui_keypad_led(&ui_u, k) == UI_LED_GLOW;
+    TT_CHECK_EQ(glow, 10u);
+    TT_CHECK_EQ(ui_keypad_led(&ui_u, UI_KEY_F3), UI_LED_GLOW);
+    TT_CHECK_EQ(ui_keypad_led(&ui_u, 1u), UI_LED_OFF);         /* F#3, a black key */
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1491,6 +1569,10 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_keypad_glows_while_sel_is_held);
+    TT_RUN(ui_keypad_keeps_held_notes_and_taps_apart);
+    TT_RUN(ui_number_jump_without_a_parameter);
+    TT_RUN(ui_number_jump_goes_to_the_parameter);
     TT_RUN(ui_select_and_algorithm_walk_pages_and_sections);
     TT_RUN(ui_lfo_picture_follows_the_wave);
     TT_RUN(ui_voice_turn_redraws_detune);
