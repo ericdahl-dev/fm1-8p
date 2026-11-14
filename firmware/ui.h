@@ -97,6 +97,9 @@ uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
 int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n);
 /* 0 while a slot does nothing to the sound (shown dim, no meter): WIDTH off a pulse wave */
 int ui_slot_active(const ui *u, const ui_slot *sl);
+/* 7A's picture: the LFO wave's (fm_lfo_wave) level, -1000..+1000, at column i of n, two cycles across
+ * (random: a fixed level each cycle) */
+int32_t ui_lfo_level(uint32_t wave, uint32_t i, uint32_t n);
 /* the ENV pages' ADSR picture (render.py's env_points): the level, per mille, at column i of n, for knob
  * positions a, d, r and sustain s (per mille): a linear attack, exponential decay and release */
 int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n);

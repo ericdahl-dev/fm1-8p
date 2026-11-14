@@ -469,6 +469,23 @@ static int32_t decay4(uint32_t t)
     return (int32_t)(exp2_q8(-(int32_t)(t * 23638u / 1000u)) * 1000u / 256u);
 }
 
+int32_t ui_lfo_level(uint32_t wave, uint32_t i, uint32_t n)
+{
+    uint32_t ph = n ? (2000u * i / n) % 1000u : 0, cyc = n ? 2u * i / n : 0;
+    switch (wave) {
+    case FM_LFO_TRIANGLE:                       /* low at the cycle's start, high in its middle */
+        return ph < 500u ? 4 * (int32_t)ph - 1000 : 3000 - 4 * (int32_t)ph;
+    case FM_LFO_SAW:
+        return 2 * (int32_t)ph - 1000;
+    case FM_LFO_SQUARE:
+        return ph < 500u ? 1000 : -1000;
+    default: {                                  /* random: a level held through each cycle */
+        static const int16_t R[2] = {600, -450};
+        return R[cyc & 1u];
+    }
+    }
+}
+
 int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n)
 {
     /* stage widths in tenths: attack 6 + 60 a, decay 8 + 70 d, hold 34, release 8 + 70 r */
@@ -593,7 +610,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
     if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
         s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
-        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT ||
+        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
         (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
         u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, the waveform, the ADSR */
     if (s->id == FM_PARAM_VOICE_MODE)           /* 08 DETUNE's activity follows it, on the same page */

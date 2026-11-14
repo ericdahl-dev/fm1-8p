@@ -1258,6 +1258,21 @@ TT_TEST(ui_voice_turn_redraws_detune)
     TT_CHECK(ui_take(&ui_u, 500) & UI_D_COL(3));
 }
 
+/* 7A's slot draws the LFO's wave, two cycles (levels -1000..+1000): a triangle peaks mid-cycle, a saw
+ * rises, a square is high half the cycle, random holds a level through each cycle. */
+TT_TEST(ui_lfo_picture_follows_the_wave)
+{
+    uint32_t i, high = 0;
+    TT_CHECK(ui_lfo_level(FM_LFO_TRIANGLE, 50, 200) > 900);
+    TT_CHECK(ui_lfo_level(FM_LFO_TRIANGLE, 0, 200) < -900);
+    TT_CHECK(ui_lfo_level(FM_LFO_SAW, 10, 200) < ui_lfo_level(FM_LFO_SAW, 90, 200));
+    for (i = 0; i < 200u; i++)
+        high += ui_lfo_level(FM_LFO_SQUARE, i, 200) > 0;
+    TT_CHECK(high >= 98u && high <= 102u);
+    TT_CHECK_EQ(ui_lfo_level(FM_LFO_RANDOM, 5, 200), ui_lfo_level(FM_LFO_RANDOM, 90, 200));
+    TT_CHECK(ui_lfo_level(FM_LFO_RANDOM, 90, 200) != ui_lfo_level(FM_LFO_RANDOM, 110, 200));
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1300,6 +1315,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_lfo_picture_follows_the_wave);
     TT_RUN(ui_voice_turn_redraws_detune);
     TT_RUN(ui_detune_is_inactive_in_poly);
     TT_RUN(ui_rate_table_steps_about_6_percent);
