@@ -68,8 +68,13 @@ static int start(cpu_test *t, uint8_t voices, patch_kind patch)
     uint8_t notes[FM_MAX_VOICES];
     uint32_t i, k;
     fm_status rc = FM_OK;
+#ifdef CPU_SEQ
+    uint8_t engine_voices = voices == CT_FULL ? CT_SEQ_VOICES
+                            : voices > FM_MAX_VOICES ? FM_MAX_VOICES : voices;
+#else
     uint8_t engine_voices = voices == CT_FULL ? CT_FULL_VOICES
                             : voices > FM_MAX_VOICES ? FM_MAX_VOICES : voices;
+#endif
     t->held = 0;
     t->worst[voices] = 0;                       /* a count started again measures afresh */
     t->voices = voices;
@@ -85,6 +90,19 @@ static int start(cpu_test *t, uint8_t voices, patch_kind patch)
         return -1;
     }
     t->failed = t->failed & ~(1u << voices);
+#ifdef CPU_SEQ
+    seq_stop(&t->seq);                          /* (a step after F: nothing more from it) */
+    if (patch == PATCH_FULL) {                  /* the sequencer plays F: a 6-note chord every step */
+        k = cpu_test_chord(SEQ_NOTES, notes);
+        seq_init(&t->seq);
+        seq_set_tempo(&t->seq, SEQ_TEMPO_MAX);
+        seq_set_gate(&t->seq, 100);
+        for (i = 0; i < SEQ_STEPS; i++)
+            seq_set_step(&t->seq, i, notes, k, FULL_VEL[i % FM_MAX_VOICES]);
+        seq_play(&t->seq);
+        return 0;
+    }
+#endif
     k = cpu_test_chord(patch == PATCH_UNISON ? 1u : engine_voices, notes);
     for (i = 0; i < k; i++)
         fm_engine_note_on(&t->engine, notes[i], patch == PATCH_FULL ? FULL_VEL[i] : 100);
@@ -115,6 +133,9 @@ int cpu_test_init(cpu_test *t)
     t->chord_full = 0;
     t->failed = 0;
     cpu_test_set_full_patch(t, NULL, 0);
+#ifdef CPU_SEQ
+    seq_init(&t->seq);
+#endif
     return start(t, 1, PATCH_DEFAULT);                         /* here, outside the ISR: the first block is clean */
 }
 
@@ -151,7 +172,24 @@ void cpu_test_render(cpu_test *t, int32_t *out, uint32_t n)
     t->held++;
     if (t->voices == CT_BURST && !t->fresh)
         burst(t);                               /* U is never the last step: no hold to stop it */
+#ifdef CPU_SEQ
+    {                                           /* F: the sequencer's notes at their frames (play_render's way) */
+        uint32_t e, cnt = t->voices == CT_FULL ? seq_render(&t->seq, n, CT_FS, CT_SEQ_VOICES, t->seq_ev) : 0, at = 0;
+        for (e = 0; e < cnt; e++) {
+            if (t->seq_ev[e].at > at) {
+                fm_engine_render(&t->engine, t->buf + 2u * at, t->seq_ev[e].at - at);
+                at = t->seq_ev[e].at;
+            }
+            if (t->seq_ev[e].vel)
+                fm_engine_note_on(&t->engine, t->seq_ev[e].note, t->seq_ev[e].vel);
+            else
+                fm_engine_note_off(&t->engine, t->seq_ev[e].note);
+        }
+        fm_engine_render(&t->engine, t->buf + 2u * at, n - at);
+    }
+#else
     fm_engine_render(&t->engine, t->buf, n);
+#endif
     for (i = 0; i < 2u * n; i++)
         out[i] += t->buf[i];                    /* int16 is already Q15 */
 }
