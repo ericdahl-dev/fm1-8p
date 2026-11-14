@@ -13,6 +13,9 @@ import re
 import sys
 from collections import namedtuple
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import params  # noqa: E402  (tools/params.py: the param list)
+
 Tone = namedtuple("Tone", "name params")   # params: the 59 data bytes, PG-800 / SysEx numbering
 
 APR_HEADER = bytes([0xF0, 0x41, 0x35])
@@ -104,14 +107,81 @@ def c_int(expr, names):
 
 
 def engine_ranges(root=ROOT):
-    """Each engine param's (min, max) from engine/params.c's table, by FM_PARAM_ suffix."""
-    with open(os.path.join(root, "engine", "params.c")) as f:
-        text = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
-    names = c_constants(root)
-    ranges = {}
-    for param, lo, hi in re.findall(r"\{\s*FM_PARAM_(\w+)\s*,\s*\"[^\"]*\"\s*,([^,]+),([^,]+),[^}]*\}", text):
-        ranges[param] = (c_int(lo, names), c_int(hi, names))
-    return ranges
+    """Each engine param's (min, max) from the param list (tools/params.py), by FM_PARAM_ suffix."""
+    return {p.enum: params.values(p, root)[:2] for p in params.PARAMS}
+
+
+# Every param's name (fm1-8p-render -s name=value), by FM_PARAM_ suffix. gate_cases.py and
+# scorecard.py read it from the tree they render (older trees lack it and parse params.c).
+PARAM_NAMES = {p.enum: p.name for p in params.PARAMS}
+
+
+def _wrap(text, width, first, rest):
+    """text as comment lines: first line's prefix, then rest's, at most width columns."""
+    words, lines, line = text.split(), [], first
+    for w in words:
+        if len(line) + len(w) + 1 > width and line.strip() not in ("/*", "*"):
+            lines.append(line.rstrip())
+            line = rest
+        line += w + " "
+    lines.append(line.rstrip())
+    return lines
+
+
+def emit_params_h():
+    """engine/fm1_8p_params.h: the fm_param_id enum."""
+    out = ["/*",
+           " * fm1_8p_params.h - the parameter ids. GENERATED from tools/params.py by",
+           " * tools/jx8p.py (make generate): edit the list, not this file.",
+           " *",
+           " * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.",
+           " */",
+           "#ifndef FM1_8P_PARAMS_H",
+           "#define FM1_8P_PARAMS_H",
+           "",
+           "/* Parameter IDs. Stable: the patch format stores them. */",
+           "typedef enum {"]
+    for p in params.PARAMS:
+        if p.doc:
+            lines = _wrap(p.doc, 96, "    /* ", "     * ")
+            lines[-1] += " */"
+            out += lines
+        out.append("    FM_PARAM_%s%s," % (p.enum, " = 0" if p.id == 0 else ""))
+    out += ["    FM_PARAM_COUNT", "} fm_param_id;", "", "#endif", ""]
+    return "\n".join(out)
+
+
+def emit_params_c():
+    """engine/params.c: the range and default table."""
+    out = ["/*",
+           " * params.c - the parameter table. GENERATED from tools/params.py by",
+           " * tools/jx8p.py (make generate): edit the list, not this file.",
+           " *",
+           " * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.",
+           " *",
+           " * One row per parameter: the host, tests, the FM-1 UI and the patch format",
+           " * all read ranges and defaults from here. Values are plain integers in the",
+           " * units the name gives.",
+           " */",
+           "#include \"fm1_8p.h\"",
+           "",
+           "static const fm_param_info table[FM_PARAM_COUNT] = {",
+           "    /* id, name, min, max, default */"]
+    for p in params.PARAMS:
+        out.append("    { FM_PARAM_%s, \"%s\", %s, %s, %s }," % (p.enum, p.name, p.min, p.max, p.default))
+    out += ["};",
+            "",
+            "const fm_param_info *fm_param_info_get(uint16_t id)",
+            "{",
+            "    return id < FM_PARAM_COUNT ? &table[id] : 0;",
+            "}",
+            ""]
+    return "\n".join(out)
+
+
+def generated_params():
+    """The files the param list makes, by path from the repository root."""
+    return {"engine/fm1_8p_params.h": emit_params_h(), "engine/params.c": emit_params_c()}
 
 
 # The patch table's fields, in firmware/patches.h's order (PATCH_<name>). param: the engine's
@@ -469,6 +539,12 @@ def generate(syx_path):
 
 def main(argv):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if len(argv) > 1 and argv[1] == "gen":      # make generate: every file the param list makes
+        for rel, text in generated_params().items():
+            with open(os.path.join(root, rel), "w") as f:
+                f.write(text)
+            print("wrote", rel)
+        argv = argv[:1]                         # and patches.c, as below
     syx = argv[1] if len(argv) > 1 else os.path.join(root, "data", "jx8p-factory-1-32.syx")
     out = argv[2] if len(argv) > 2 else os.path.join(root, "firmware", "patches.c")
     text = generate(syx)                    # first: a refused dump leaves the old table
