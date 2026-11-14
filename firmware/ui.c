@@ -69,11 +69,8 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_3(num, mhz), u = "Hz";
     } else if (id == FM_PARAM_FILTER_RESONANCE) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);
-    } else if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) {
-        uint32_t st = (uint32_t)(value < 0 ? -value : value) + 50u;
-        if (st >= 100u)                         /* (0 has no sign) */
-            *num++ = value < 0 ? '-' : '+';
-        num = put_u(num, st / 100u), u = "st";
+    } else if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) {     /* its size (58 MODE: the sign) */
+        num = put_u(num, ((uint32_t)(value < 0 ? -value : value) + 50u) / 100u), u = "st";
     } else if (id == FM_PARAM_FILTER_KEY_TRACK) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
     } else if (id == FM_PARAM_OSC1_OCTAVE || id == FM_PARAM_OSC2_OCTAVE) {    /* RANGE in feet */
@@ -276,6 +273,18 @@ void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
     } else {
         *b = x;
     }
+}
+
+void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b)
+{
+    int32_t max;
+    if (sl->how != UI_HOW_SIZE) {
+        ui_meter_bar(sl->id, value, w, a, b);
+        return;
+    }
+    max = fm_param_info_get(sl->id)->max;
+    *a = 0;
+    *b = value <= 0 || max <= 0 ? 0 : value >= max ? w : (2 * w * value + max) / (2 * max);
 }
 
 uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n)

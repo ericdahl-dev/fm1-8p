@@ -86,6 +86,9 @@ uint32_t ui_meter(uint16_t id, int32_t value);
 /* a one-bar meter (Membrane) in a w px track: the bar from *a to *b px, a range from the left in
  * proportion, a bipolar param (min = -max) out from the middle */
 void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b);
+/* a slot's bar (its value from ui_slot_value): an ENV size from the left over 0..its top, the rest as
+ * ui_meter_bar */
+void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b);
 /* a choice slot's (order set) meter: value's knob position (a value between positions: the one
  * before it), of *n positions */
 uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);

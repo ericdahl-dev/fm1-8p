@@ -63,8 +63,8 @@ TT_TEST(ui_vcf_page_knobs_move_their_params_one_step)
         uint32_t enc;
         ui_setup();
         enc = ui_goto(K[k].id);
-        before = (fm_param_info_get(K[k].id)->min + fm_param_info_get(K[k].id)->max) / 2;
-        play_set_param(&ui_p, K[k].id, before);         /* away from the ends: the patch may sit at one */
+        before = fm_param_info_get(K[k].id)->max / 2;   /* away from the ends (an ENV size's is 0) */
+        play_set_param(&ui_p, K[k].id, before);
         ui_event(&ui_u, UI_EV_ENC | enc, -1, 0);
         ui_settle();
         TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, K[k].id), before - K[k].step);
@@ -84,14 +84,17 @@ TT_TEST(ui_fast_turn_moves_the_fast_step_per_click)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS), before + 1000);
 }
 
-/* At the end of its range a value stays put (no wrap). */
+/* At the end of its range a value stays put (no wrap); an ENV size stops at 0 and at its top. */
 TT_TEST(ui_knob_clamps_at_the_ends_of_the_range)
 {
     ui_setup();
     ui_event(&ui_u, UI_EV_ENC | ui_goto(FM_PARAM_FILTER_RESONANCE), 120, 0);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), 1000);
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 500);
     ui_event(&ui_u, UI_EV_ENC | ui_goto(FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -200, 0);
-    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -16400);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 0);
+    ui_event(&ui_u, UI_EV_ENC | ui_goto(FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 200, 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), 16400);
 }
 
 /* This slice's PLAY screen has no knobs: a turn there changes nothing. */
@@ -128,14 +131,15 @@ TT_TEST(ui_cutoff_reads_in_hz_three_digits)
     TT_CHECK(ui_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 7800, "740 Hz"));
 }
 
-/* RESO 0..100 (10 per mille a step), ENV signed semitones, KEY a percentage. */
+/* RES 0..100 (10 per mille a step), ENV its size in semitones (58 MODE has the sign), KEY a
+ * percentage. */
 TT_TEST(ui_reso_env_and_key_read_in_their_units)
 {
     TT_CHECK(ui_shows(FM_PARAM_FILTER_RESONANCE, 340, "34"));
     TT_CHECK(ui_shows(FM_PARAM_FILTER_RESONANCE, 1000, "100"));
-    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "+24 st"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "24 st"));
     TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 0, "0 st"));
-    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -9600, "-96 st"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -9600, "96 st"));
     TT_CHECK(ui_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50 %"));
 }
 
@@ -221,7 +225,7 @@ TT_TEST(ui_column_value_is_short)
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 6900, "440", ""));
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_CUTOFF_CENTS, 14400, "OPEN", ""));
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_RESONANCE, 340, "34", ""));
-    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "+24", "st"));
+    TT_CHECK(ui_column_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400, "24", "st"));
     TT_CHECK(ui_column_shows(FM_PARAM_FILTER_KEY_TRACK, 500, "50", "%"));
 }
 
@@ -561,7 +565,8 @@ TT_TEST(ui_vcf_slots_are_the_jx_panels)
     static const struct { uint8_t num; uint16_t id; } WANT[8] = {
         {51, FM_PARAM_HIGHPASS_STEP}, {52, FM_PARAM_FILTER_CUTOFF_CENTS},
         {53, FM_PARAM_FILTER_RESONANCE}, {54, 0},
-        {55, FM_PARAM_FILTER_ENV_AMOUNT_CENTS}, {56, FM_PARAM_FILTER_KEY_TRACK}, {57, 0}, {58, 0},
+        {55, FM_PARAM_FILTER_ENV_AMOUNT_CENTS}, {56, FM_PARAM_FILTER_KEY_TRACK},
+        {57, FM_PARAM_FILTER_ENV_DYNA}, {58, FM_PARAM_FILTER_ENV_SOURCE},
     };
     uint32_t i;
     ui_setup();
@@ -943,6 +948,40 @@ TT_TEST(ui_mixer_pages)
     TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 11);
 }
 
+/* 5B (interaction.md 3, 5x): 55 ENV is the cutoff envelope's size, 57 DYNA the VCF DYNAMICS,
+ * 58 MODE its source and sign. */
+TT_TEST(ui_vcf_env_mode_and_dynamics)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 100);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->kind, UI_LIVE);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->id, FM_PARAM_FILTER_ENV_DYNA);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 3)->kind, UI_LIVE);
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_AMOUNT_CENTS, -2400, "24 st"));
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_SOURCE, 1);
+    play_set_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 2400);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 200);         /* ENV2 -> ENV1 INV */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_SOURCE), 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -2400);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 300);         /* 55: the size grows, still inverted */
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_ENV_AMOUNT_CENTS), -2500);
+}
+
+/* An ENV size's bar fills from the left over 0..its top (the sign is MODE's): 55 ENV at 82 of 164 st
+ * is half the track, whichever way the envelope goes. */
+TT_TEST(ui_size_bar_fills_from_the_left)
+{
+    const ui_slot *env;
+    int32_t a, b;
+    ui_setup();
+    env = ui_page_slot(&ui_u, ui_goto(FM_PARAM_FILTER_ENV_AMOUNT_CENTS) - UI_ENC_KNOB1);
+    ui_slot_bar(env, 8200, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 22);
+    ui_slot_bar(env, 16400, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 44);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -985,6 +1024,8 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_size_bar_fills_from_the_left);
+    TT_RUN(ui_vcf_env_mode_and_dynamics);
     TT_RUN(ui_mixer_pages);
     TT_RUN(ui_mode_memory_goes_with_a_load);
     TT_RUN(ui_dco_env_mode_sets_source_and_sign);
