@@ -449,6 +449,13 @@ is sounding, as fm1-dock's rules ask.
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
 | G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | MEMBRANE |
 
+**MIDI channels (G11, G12):** G11 takes the channel messages of one channel (notes, CCs, bend,
+pressure), or every channel with ALL. System messages (clock, start, stop) always come in. G12 is
+the channel the panel sends on: its keys' notes, and CCs with G22. A key's note-off goes on the
+channel its note-on went on, even if G12 changed while it was held. The host has its own MIDI CH
+option, which passes only that channel on, as channel 1 (fm1-dock `dock.c`, "MIDI CH"). With it
+set, leave G11 at ALL (or 1).
+
 Until their features land, G13 and G14 (clock, #38), G22 (CC send) and G23 (program change)
 show `--` and their knobs do nothing. G21 and G24 are live (#49), so page G2x opens on G21.
 
@@ -931,7 +938,7 @@ keep their standard meanings, and the engine takes them as before.
   depth set by size (ENV DEPTH) takes its size, and its ENV MODE keeps the sign.
 - **Smoothing:** a CC takes the knobs' path, so it lands on the same value a knob would, with the
   same (for now, no) smoothing.
-- **Any channel,** as notes do, until G11 is wired.
+- **G11's channel** (or any, with G11 ALL), as for notes.
 - A parameter marked "when it lands" has its CC already, and it does nothing until the parameter
   is built.
 - The table is keyed by PG-800 number (`UI_CC_MOVED`), so the PG-800 IPR receive (#195) can share it.

@@ -2336,8 +2336,39 @@ TT_TEST(ui_cc_pickup_banner_leaves_the_warnings_up)
     TT_CHECK(ui_banner(&ui_u) == warn);
 }
 
+/* G11 MIDI CHANNEL IN: ALL takes every channel; 1..16 takes only that one's channel messages (notes,
+ * CCs, bend, pressure). System messages (clock, start, stop) always come in. */
+TT_TEST(ui_midi_in_takes_its_channel)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_u.set.midi_in, 0u);                        /* ALL */
+    TT_CHECK(ui_midi_in(&ui_u, 0x90u) && ui_midi_in(&ui_u, 0x9Fu) && ui_midi_in(&ui_u, 0xB5u));
+    ui_u.set.midi_in = 3;                                     /* channel 3: status low nibble 2 */
+    TT_CHECK(ui_midi_in(&ui_u, 0x92u));
+    TT_CHECK(ui_midi_in(&ui_u, 0xB2u));
+    TT_CHECK(ui_midi_in(&ui_u, 0xE2u));
+    TT_CHECK(!ui_midi_in(&ui_u, 0x90u));
+    TT_CHECK(!ui_midi_in(&ui_u, 0x83u));
+    TT_CHECK(!ui_midi_in(&ui_u, 0xB0u));
+    TT_CHECK(ui_midi_in(&ui_u, 0xF8u) && ui_midi_in(&ui_u, 0xFAu) && ui_midi_in(&ui_u, 0xFCu));
+}
+
+/* G12 MIDI CHANNEL OUT: what the panel sends (its notes, and CCs with G22) goes on that channel */
+TT_TEST(ui_midi_out_is_on_its_channel)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_u.set.midi_out, 1u);
+    TT_CHECK_EQ(ui_midi_out(&ui_u, 0x90u), 0x90u);
+    ui_u.set.midi_out = 16;
+    TT_CHECK_EQ(ui_midi_out(&ui_u, 0x90u), 0x9Fu);
+    TT_CHECK_EQ(ui_midi_out(&ui_u, 0x80u), 0x8Fu);
+    TT_CHECK_EQ(ui_midi_out(&ui_u, 0xB0u), 0xBFu);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_midi_in_takes_its_channel);
+    TT_RUN(ui_midi_out_is_on_its_channel);
     TT_RUN(ui_cc_sets_its_parameter);
     TT_RUN(ui_cc_redraws_its_column_and_keeps_the_focus);
     TT_RUN(ui_cc_choices_take_bands_and_times_their_table);

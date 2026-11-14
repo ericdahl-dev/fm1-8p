@@ -191,6 +191,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 /* the CC map: PG-800 number num's CC, and CC cc's PG-800 number (UI_CC_NONE: none) */
 uint32_t ui_cc_of(uint32_t num);
 uint32_t ui_pg800_of(uint32_t cc);
+/* G11 MIDI CHANNEL IN: 1 when a message with status st comes in (ALL, or its channel; system messages
+ * always); G12 MIDI CHANNEL OUT: status st (0x80, 0x90, 0xB0 ...) on G12's channel */
+int ui_midi_in(const ui *u, uint32_t st);
+uint32_t ui_midi_out(const ui *u, uint32_t st);
 /* a MIDI control change, cc 0..127 at value 0..127 (#49, interaction.md 8): the parameter on cc (the
  * CC map) takes the value across its knob's range, as a knob would set it. 1: taken (G21 ON and cc on
  * the map), so the engine needn't have it; 0: the module passes it on (sustain, all notes off ...). */

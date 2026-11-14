@@ -966,6 +966,16 @@ static void cc_ignored(ui *u, uint32_t cc, uint32_t v, uint32_t ms)
     show_banner(u, u->cc_msg, ms);
 }
 
+int ui_midi_in(const ui *u, uint32_t st)
+{
+    return st >= 0xF0u || !u->set.midi_in || (st & 15u) == u->set.midi_in - 1u;
+}
+
+uint32_t ui_midi_out(const ui *u, uint32_t st)
+{
+    return (st & 0xF0u) | ((u->set.midi_out - 1u) & 15u);
+}
+
 int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
 {
     const ui_slot *s = cc_slot(cc);
