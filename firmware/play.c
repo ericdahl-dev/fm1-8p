@@ -6,7 +6,79 @@
  * the head that publishes it, and read after the head that says it is there. */
 #define BARRIER() __asm__ volatile("" ::: "memory")
 
+static void load_stored(play *p);
+
+/* the program's name, at most STORE_NAME_LEN chars */
+static void set_name(play *p, const char *s)
+{
+    uint32_t i;
+    for (i = 0; i < STORE_NAME_LEN && s[i]; i++)
+        p->name[i] = s[i];
+    for (; i <= STORE_NAME_LEN; i++)
+        p->name[i] = 0;
+}
+
 const patch *play_patch(const play *p) { return p->patch; }
+
+uint32_t play_prog(const play *p) { return p->prog; }
+
+void play_prog_name(const play *p, char *name)
+{
+    uint32_t i;
+    for (i = 0; i <= STORE_NAME_LEN; i++)
+        name[i] = p->name[i];
+}
+
+int play_load_prog(play *p, uint32_t q)
+{
+    static store_patch s;                       /* main loop only */
+    uint32_t f;
+    if (q >= PLAY_PROGS)
+        return -1;
+    if (q >= PLAY_PROG_P) {
+        play_load_patch(p, q - PLAY_PROG_P);
+        return 0;
+    }
+    if (!p->lib || store_slot_read(p->lib, q, &s) != 0)
+        return -1;
+    p->loading = 1;
+    BARRIER();
+    for (f = 0; f < FM_PARAM_COUNT; f++)
+        p->stored[f] = s.v[f];
+    load_stored(p);
+    p->prog = q;
+    set_name(p, s.name);
+    play_load_end(p);
+    return 0;
+}
+
+void play_attach_store(play *p, store_lib *lib, const store_io *io)
+{
+    p->lib_attached = lib;
+    p->io = io;
+}
+
+void play_store_tick(play *p)
+{
+    if (!p->lib_attached)
+        return;
+    store_lib_load(p->lib_attached, p->io);     /* the banks' reads: here, not in init */
+    p->lib = p->lib_attached;
+    p->lib_attached = 0;
+}
+
+uint32_t play_prog_step(const play *p, uint32_t from, int32_t clicks)
+{
+    int32_t way = clicks > 0 ? 1 : -1;
+    uint32_t q = from, n;
+    for (; clicks; clicks -= way)
+        for (n = 0; n < PLAY_PROGS; n++) {      /* the next program that holds a patch */
+            q = (q + (way > 0 ? 1u : PLAY_PROGS - 1u)) % PLAY_PROGS;
+            if (q >= PLAY_PROG_P || (p->lib && store_slot_used(p->lib, q)))
+                break;
+        }
+    return q;
+}
 
 int play_init(play *p)
 {
@@ -16,10 +88,15 @@ int play_init(play *p)
     p->last_note = -1;
     p->oct = 0;
     p->loading = p->loads = p->loads_seen = 0;
+    p->lib = 0;
+    p->lib_attached = 0;
+    p->io = 0;
     p->comparing = 0;
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
     p->patch = &PATCHES[PATCH_SOUNDTRACK];
+    p->prog = PLAY_PROG_P + PATCH_SOUNDTRACK;
+    set_name(p, p->patch->name);
     patch_values(p->patch, p->stored);
     for (i = 0; i < FM_PARAM_COUNT; i++) {
         if (fm_engine_set_param(&p->engine, (uint16_t)i, p->stored[i]) != FM_OK)
@@ -140,19 +217,27 @@ static void apply_params(play *p)
 /* A load in two steps, so a render between them applies none of it: begin writes the values while
  * `loading` keeps the ISR off the params; end publishes them, and the ISR's next block applies them
  * all, with the all notes off, before that block's note events. */
-void play_load_begin(play *p, uint32_t i)
+/* begin: p->stored holds the new patch; its changes into target, with `loading` keeping the ISR off */
+static void load_stored(play *p)
 {
-    const patch *t = &PATCHES[i % PATCH_COUNT];
     uint32_t f;
-    p->loading = 1;
-    BARRIER();                                  /* before any value: the ISR leaves the params alone */
-    patch_values(t, p->stored);                 /* the stored patch is now this one */
     for (f = 0; f < FM_PARAM_COUNT; f++)
         if (p->stored[f] != p->target[f]) {     /* only what changes: each set can retime an envelope */
             p->target[f] = p->stored[f];
             p->asked[f >> 5] = p->asked[f >> 5] | 1u << (f & 31u);
         }
+}
+
+void play_load_begin(play *p, uint32_t i)
+{
+    const patch *t = &PATCHES[i % PATCH_COUNT];
+    p->loading = 1;
+    BARRIER();                                  /* before any value: the ISR leaves the params alone */
+    patch_values(t, p->stored);                 /* the stored patch is now this one */
+    load_stored(p);
     p->patch = t;
+    p->prog = PLAY_PROG_P + i % PATCH_COUNT;
+    set_name(p, t->name);
 }
 
 void play_load_end(play *p)

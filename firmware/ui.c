@@ -703,7 +703,7 @@ static void show_banner(ui *u, const char *s, uint32_t ms)
 /* PRESETS: the patch clicks away, wrapping */
 static void browse(ui *u, int32_t clicks, uint32_t ms)
 {
-    int32_t i, way = clicks > 0 ? 1 : -1;
+    int32_t way = clicks > 0 ? 1 : -1;
     if (!clicks)                                /* no turn: no load (and no notes let go) */
         return;
     if (play_edited(u->p) && !(u->warned == way && ms - u->warned_ms < UI_DISCARD_MS)) {
@@ -716,8 +716,7 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     u->banner = "";                             /* the warning goes with the edits */
     if (clicks >= 3 || clicks <= -3)          /* a fast turn: 4 */
         clicks = clicks > 0 ? 4 : -4;
-    i = (int32_t)(play_patch(u->p) - PATCHES) + clicks % (int32_t)PATCH_COUNT;
-    play_load_patch(u->p, (uint32_t)(i + (int32_t)PATCH_COUNT) % PATCH_COUNT);
+    (void)play_load_prog(u->p, play_prog_step(u->p, play_prog(u->p), clicks));
     u->inv = 0;                                 /* the ENV MODEs are the new patch's signs */
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
 }
@@ -947,6 +946,18 @@ void ui_slot_number(const ui_slot *sl, char *s)
 }
 
 const char *ui_banner(const ui *u) { return u->banner; }
+
+void ui_prog_number(uint32_t q, char *s)
+{
+    if (q >= PLAY_PROG_P) {
+        *s++ = 'P';
+        *put_u(s, q - PLAY_PROG_P + 1u) = 0;
+    } else {                                    /* two digits 1..8: 11..18, 21..28, ... 81..88 */
+        s[0] = (char)('1' + q / 8u);
+        s[1] = (char)('1' + q % 8u);
+        s[2] = 0;
+    }
+}
 
 void ui_patch_number(const patch *t, char *s)
 {

@@ -153,6 +153,8 @@ uint32_t ui_take(ui *u, uint32_t ms);
 void ui_octave_label(int32_t oct, char *s);
 /* a patch's number as the screen shows it: the factory tones are the starter group, "P1" .. "P32" */
 void ui_patch_number(const patch *t, char *s);
+/* program q's number as shown: 11..88 for the user slots, P1.. for the factory patches */
+void ui_prog_number(uint32_t q, char *s);
 /* a slot's number as the screen shows it, two digits ("41"); s: 3 chars */
 void ui_slot_number(const ui_slot *sl, char *s);
 /* the host asked for all of it (draw(full)): UI_D_ALL, and nothing stays pending */

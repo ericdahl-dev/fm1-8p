@@ -204,11 +204,11 @@ static void footer(void)
     if (*b) {
         text_c(0, 240, 2, 0, b, C_PLAY);
     } else {
-        ui_patch_number(play_patch(P), n);
+        ui_prog_number(play_prog(P), n);
         CV_TEXT(M, 2, 0, n, C_DIM);
-        CV_TEXT(M + TEXT_W(0, n) + 6, 2, 0, play_patch(P)->name, C_TEXT);
+        CV_TEXT(M + TEXT_W(0, n) + 6, 2, 0, P->name, C_TEXT);
         if (U->shown_edited)                    /* edited (visual.md) */
-            CV_TEXT(M + TEXT_W(0, n) + 6 + TEXT_W(0, play_patch(P)->name) + 2, 2, 0, "*", T->led);
+            CV_TEXT(M + TEXT_W(0, n) + 6 + TEXT_W(0, P->name) + 2, 2, 0, "*", T->led);
         CV_TEXT(240 - M - TEXT_W(0, v), 2, 0, v, C_DIM);
     }
     blit(0, 222, 240, 18);
@@ -427,21 +427,24 @@ static void play_part(uint32_t b, uint32_t part)
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
         header("PLAY", C_PLAY, "", "FM1-8P", "", -1);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: the patch, or 3 s of the knob turned */
+        int user;
         if (ui_play_readout(U, H->ms())) {
             focus_row();
             return;
         }
-        ui_patch_number(play_patch(P), n);      /* "P17": the LED window has its digits */
+        ui_prog_number(play_prog(P), n);        /* "P17", or a user slot's "11" */
+        user = n[0] != 'P';
         H->cv_begin(240, 50, C_BG);
         H->cv_rect(M, 0, 64, 46, C_WINDOW);
         frame(M, 0, 64, 46, C_LINE);
-        seg7(M + (64 - 38) / 2, 5, n[2] ? n + 1 : n, T->led, mix(C_WINDOW, T->led, T->ghost));
-        n[0] = ' ';                             /* "PATCH 17" */
-        CV_TEXT(M + 72, 0, 0, "PATCH", C_DIM);
-        CV_TEXT(M + 72 + TEXT_W(0, "PATCH"), 0, 0, n, C_DIM);
+        seg7(M + (64 - 38) / 2, 5, !user && n[2] ? n + 1 : n, T->led, mix(C_WINDOW, T->led, T->ghost));
+        if (!user)
+            n[0] = ' ';                         /* "PATCH 17" */
+        CV_TEXT(M + 72, 0, 0, user ? "USER " : "PATCH", C_DIM);   /* "USER 11": never read as P11 */
+        CV_TEXT(M + 72 + TEXT_W(0, user ? "USER " : "PATCH"), 0, 0, n, C_DIM);
         if (play_edited(P))
             CV_TEXT(240 - M - TEXT_W(0, "EDITED"), 0, 0, "EDITED", C_TEXT);
-        dfont_text(&F20, M + 72, 22, play_patch(P)->name, C_TEXT);   /* the name in D20 (visual.md) */
+        dfont_text(&F20, M + 72, 22, P->name, C_TEXT);   /* the name in D20 (visual.md); a user slot's own */
         blit(0, 28, 240, 50);
     } else if (b == UI_D_SLOT) {                /* rows 78..137: the badge, six sunset bands */
         static const int32_t BAND_H[6] = {20, 10, 9, 7, 6, 4};

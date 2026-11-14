@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "../engine/fm1_8p.h"
 #include "patches.h"
+#include "patch_store.h"
 
 #define PLAY_FS 44100u
 #define PLAY_BLOCK 256u                 /* frames per fm1-dock render call */
@@ -38,6 +39,11 @@ typedef struct {
     volatile uint32_t loading;          /* main loop: 1 part way through a load (the ISR waits) */
     volatile uint32_t loads;            /* main loop: +1 per load done */
     uint32_t loads_seen;                /* ISR only: the last `loads` it applied */
+    const store_lib *lib;               /* main loop: the user slots (NULL: none, or not loaded yet) */
+    store_lib *lib_attached;            /* main loop: attached at init, loaded on the first tick */
+    const store_io *io;                 /* main loop: its flash */
+    uint32_t prog;                      /* main loop: the program playing (PLAY_PROG_P + n: P n+1) */
+    char name[STORE_NAME_LEN + 1u];     /* main loop: its name */
     /* compare (EDIT held): the edit buffer, kept while the stored patch sounds */
     int32_t edit[FM_PARAM_COUNT];
     uint32_t comparing;                 /* main loop: 1 while the stored patch sounds for compare */
@@ -46,6 +52,22 @@ typedef struct {
 /* Sets up the engine on PLAY_VOICES voices with the default patch, SOUNDTRACK
  * (PATCHES[PATCH_SOUNDTRACK]); 0: ready. */
 int play_init(play *p);
+/* Programs, as PRESETS goes through them: the user slots 0..63 (11..88), then P1.. (the factory
+ * patches) from PLAY_PROG_P. */
+#define PLAY_PROG_P STORE_USER_SLOTS
+#define PLAY_PROGS (PLAY_PROG_P + PATCH_COUNT)
+/* The program `clicks` steps from `from`, over the user slots that hold a patch, wrapping. */
+uint32_t play_prog_step(const play *p, uint32_t from, int32_t clicks);
+/* Loads program q (play_load_patch's way: one block, all notes off): 0, or -1 for an empty user slot
+ * (nothing changes). */
+int play_load_prog(play *p, uint32_t q);
+/* The program playing, and its name (STORE_NAME_LEN + 1 chars). */
+uint32_t play_prog(const play *p);
+void play_prog_name(const play *p, char *name);
+/* At init: the user slots and their flash, not read yet (init stays fixed work). */
+void play_attach_store(play *p, store_lib *lib, const store_io *io);
+/* main loop: the first call loads the attached store's banks; after that, nothing. */
+void play_store_tick(play *p);
 /* The patch playing. */
 const patch *play_patch(const play *p);
 /* main loop: load PATCHES[i] (PRESETS): the next render lets the sounding notes go and applies every
