@@ -765,6 +765,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && !u->comparing && !u->save_waiting) {
+        u->jump = -1;                           /* SEL held: the keypad ends (keys down still get their ups) */
+        u->jump_keys &= ~JUMP_USED;
         ui_save_open(u, ms);
         return;
     }

@@ -264,8 +264,36 @@ TT_TEST(save_leds_of_idle_buttons_are_off)
     TT_CHECK(back);
 }
 
-/* TODO when #187 (ui_key, the number jump) is merged in: SEL down in SAVE, then a key down, gives
- * ui_key == 0 and the key sounds (agent1, 2026-11-13). */
+/* The number jump is PLAY's and EDIT's: SEL down in SAVE leaves the keys to the notes (ui_key 0: the
+ * key sounds) and the keypad LEDs off. */
+TT_TEST(save_sel_does_not_take_the_keys)
+{
+    save_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1100);
+    TT_CHECK_EQ(ui_keypad_led(&ui_u, UI_KEY_G3), UI_LED_OFF);
+    TT_CHECK_EQ(ui_key(&ui_u, UI_KEY_G3, 1, 1200), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, UI_KEY_G3, 0, 1300), 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1400);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+}
+
+/* SEL held as SAVE opens ends the keypad: in SAVE, and after it, the keys are notes again. */
+TT_TEST(save_opened_with_sel_held_ends_the_keypad)
+{
+    save_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 900);
+    save_tap(UI_BTN_SAVE, 1000);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK_EQ(ui_keypad_led(&ui_u, UI_KEY_G3), UI_LED_OFF);
+    TT_CHECK_EQ(ui_key(&ui_u, UI_KEY_G3, 1, 1200), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, UI_KEY_G3, 0, 1250), 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1300);
+    save_tap(UI_BTN_HOME, 1400);                /* cancel: back to EDIT */
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK_EQ(ui_key(&ui_u, UI_KEY_A3, 1, 1600), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, UI_KEY_A3, 0, 1650), 0);
+}
 
 static void run_ui_save_tests(void)
 {
@@ -280,4 +308,6 @@ static void run_ui_save_tests(void)
     TT_RUN(save_home_cancels_a_waiting_write);
     TT_RUN(save_failed_write_says_so);
     TT_RUN(save_leds_of_idle_buttons_are_off);
+    TT_RUN(save_sel_does_not_take_the_keys);
+    TT_RUN(save_opened_with_sel_held_ends_the_keypad);
 }
