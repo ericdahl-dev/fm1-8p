@@ -1115,6 +1115,20 @@ TT_TEST(ui_env_and_fx_rings_and_time_knobs)
     TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 65);
 }
 
+/* 65 VEL (ours) does something only while 63 DYNA is OFF (amp_dyna 0: the amp_velocity curve), so it
+ * is inactive otherwise. Its value reads in %. */
+TT_TEST(ui_vel_is_inactive_with_dynamics)
+{
+    const ui_slot *vel = &UI_SLOTS[4 * 10];
+    ui_setup();
+    TT_CHECK_EQ(vel->num, 65);
+    play_set_param(&ui_p, FM_PARAM_AMP_DYNA, 2);
+    TT_CHECK(!ui_slot_active(&ui_u, vel));
+    play_set_param(&ui_p, FM_PARAM_AMP_DYNA, 0);
+    TT_CHECK(ui_slot_active(&ui_u, vel));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_VELOCITY, 40, "40 %"));
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1157,6 +1171,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_vel_is_inactive_with_dynamics);
     TT_RUN(ui_env_and_fx_rings_and_time_knobs);
     TT_RUN(ui_envelope_values_read_as_the_map);
     TT_RUN(ui_time_table_steps_about_7_percent);

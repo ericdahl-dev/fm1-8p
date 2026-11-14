@@ -419,6 +419,8 @@ int ui_slot_active(const ui *u, const ui_slot *sl)
         return play_get_param(u->p, FM_PARAM_OSC1_WAVE) == FM_WAVE_PULSE;
     if (sl->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT)
         return play_get_param(u->p, FM_PARAM_OSC2_WAVE) == FM_WAVE_PULSE;
+    if (sl->id == FM_PARAM_AMP_VELOCITY)        /* the curve DYNAMICS OFF uses */
+        return play_get_param(u->p, FM_PARAM_AMP_DYNA) == 0;
     return 1;
 }
 
