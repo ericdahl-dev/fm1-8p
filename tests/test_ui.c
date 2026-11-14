@@ -1075,6 +1075,21 @@ TT_TEST(ui_time_table_steps_about_7_percent)
     TT_CHECK_EQ(ui_time_step(0, -1), 0);
 }
 
+/* Times read as interaction.md has them: 0 ms .. 999 ms, 1.00 s .. 9.99 s, 10.0 s .. 32.0 s; sustain
+ * 0..100; ENV KEY OFF, 1, 2, 3 (260 per mille a position). */
+TT_TEST(ui_envelope_values_read_as_the_map)
+{
+    TT_CHECK(ui_shows(FM_PARAM_AMP_ATTACK_MS, 0, "0 ms"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_DECAY_MS, 480, "480 ms"));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_RELEASE_MS, 1250, "1.25 s"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_ATTACK_MS, 12500, "12.5 s"));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_DECAY_MS, 32000, "32.0 s"));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_SUSTAIN, 700, "70"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_SUSTAIN, 0, "0"));
+    TT_CHECK(ui_shows(FM_PARAM_AMP_KEY_FOLLOW, 0, "OFF"));
+    TT_CHECK(ui_shows(FM_PARAM_FILTER_ENV_KEY_FOLLOW, 520, "2"));
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1117,6 +1132,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_envelope_values_read_as_the_map);
     TT_RUN(ui_time_table_steps_about_7_percent);
     TT_RUN(ui_mode_column_is_short);
     TT_RUN(ui_map_table_is_well_formed);

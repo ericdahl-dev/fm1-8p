@@ -105,6 +105,22 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_u(num, (uint32_t)value);
     } else if (id == FM_PARAM_OSC1_LEVEL || id == FM_PARAM_OSC2_LEVEL || id == FM_PARAM_OSC_MIX_ENV) {
         num = put_u(num, ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u);    /* 0..100 */
+    } else if (id == FM_PARAM_AMP_ATTACK_MS || id == FM_PARAM_AMP_DECAY_MS || id == FM_PARAM_AMP_RELEASE_MS ||
+               id == FM_PARAM_FILTER_ENV_ATTACK_MS || id == FM_PARAM_FILTER_ENV_DECAY_MS ||
+               id == FM_PARAM_FILTER_ENV_RELEASE_MS || id == FM_PARAM_LFO_DELAY_MS) {
+        uint32_t ms = (uint32_t)(value < 0 ? 0 : value);   /* 999 ms, 1.25 s, 12.5 s */
+        if (ms < 1000u)
+            num = put_u(num, ms), u = "ms";
+        else
+            num = put_3(num, ms), u = "s";
+    } else if (id == FM_PARAM_AMP_SUSTAIN || id == FM_PARAM_FILTER_ENV_SUSTAIN || id == FM_PARAM_AMP_LEVEL) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);     /* 0..100 */
+    } else if (id == FM_PARAM_AMP_KEY_FOLLOW || id == FM_PARAM_FILTER_ENV_KEY_FOLLOW) {
+        uint32_t k = (uint32_t)(value < 0 ? 0 : value + 130) / 260u;      /* the JX's positions */
+        if (k)
+            num = put_u(num, k > 3u ? 3u : k);
+        else
+            num = put_str(num, "OFF");
     } else if (id == FM_PARAM_OSC_XMOD) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
     } else if (id == FM_PARAM_PITCH_ENV_SOURCE || id == FM_PARAM_OSC_MIX_ENV_SOURCE ||
