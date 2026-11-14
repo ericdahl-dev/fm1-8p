@@ -966,6 +966,11 @@ static void cc_ignored(ui *u, uint32_t cc, uint32_t v, uint32_t ms)
     show_banner(u, u->cc_msg, ms);
 }
 
+uint32_t ui_key_velocity(const ui *u, int32_t host_vel)
+{
+    return host_vel > 0 ? (uint32_t)(host_vel > 127 ? 127 : host_vel) : u->set.fixed_vel;
+}
+
 int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
 {
     const ui_slot *s = cc_slot(cc);

@@ -2336,8 +2336,21 @@ TT_TEST(ui_cc_pickup_banner_leaves_the_warnings_up)
     TT_CHECK(ui_banner(&ui_u) == warn);
 }
 
+/* G32 FIXED VELOCITY: a key with no force sensing (the host's velocity 0) plays at it, 100 by default;
+ * a sensed key's own velocity stands */
+TT_TEST(ui_unsensed_keys_play_at_the_fixed_velocity)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_key_velocity(&ui_u, 0), 100u);
+    TT_CHECK_EQ(ui_key_velocity(&ui_u, 37), 37u);
+    ui_u.set.fixed_vel = 64;
+    TT_CHECK_EQ(ui_key_velocity(&ui_u, 0), 64u);
+    TT_CHECK_EQ(ui_key_velocity(&ui_u, 127), 127u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_unsensed_keys_play_at_the_fixed_velocity);
     TT_RUN(ui_cc_sets_its_parameter);
     TT_RUN(ui_cc_redraws_its_column_and_keeps_the_focus);
     TT_RUN(ui_cc_choices_take_bands_and_times_their_table);
