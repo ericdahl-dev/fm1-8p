@@ -51,6 +51,13 @@ extern const uint8_t UI_SECTION_PAGE[10];
 extern const uint8_t UI_PLAY_SLOT[4];       /* each section's page A, by its digit */
 extern const uint8_t UI_RING_SEL[], UI_RING_ENV[], UI_RING_FX[], UI_RING_LFO[];
 
+/* The CC map (#49, docs/ui/interaction.md): a parameter's CC is its PG-800 number, the slot number on
+ * screen, except these, moved off the standard CCs into 102-119. Keyed by PG-800 number, so #195's
+ * IPR receive (the same numbers) can share it. */
+typedef struct { uint8_t pg800, cc; } ui_cc_move;
+#define UI_CC_MOVED_COUNT 12u
+extern const ui_cc_move UI_CC_MOVED[UI_CC_MOVED_COUNT];
+
 /* GLO's slots (interaction.md 4): G11..G34, each a setting (UI_SETTINGS_INFO's index), 3 pages of 4 */
 typedef struct {
     uint8_t num;                        /* 34: page 3, knob 4 */
