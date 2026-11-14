@@ -651,4 +651,7 @@ void ui_draw_init(const hb_host_t *h, play *p, ui *u)
     U = u;
     pending = band = part = 0;
     blit_t = blit_wait = 0;
+#ifdef FM1_THEME_NIGHT
+    ui_draw_theme(&UI_NIGHT_PANEL);             /* (a preview build, FM1_THEME=night: every module that draws) */
+#endif
 }

@@ -125,9 +125,6 @@ static int init(const hb_host_t *h)
     H = h;
     keys_down = 0;
     ui_draw_init(h, &P, &U);
-#ifdef FM1_THEME_NIGHT
-    ui_draw_theme(&UI_NIGHT_PANEL);             /* (a preview build: FM1_THEME=night) */
-#endif
     if (play_init(&P) != 0) {
         H->log("fm1-8p: engine init failed");
         return 1;                               /* the host falls back to the sine */
