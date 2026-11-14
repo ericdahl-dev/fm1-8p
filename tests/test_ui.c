@@ -1186,10 +1186,14 @@ TT_TEST(ui_hammered_buttons_keep_a_live_page_and_focus)
         const ui_slot *f;
         r = r * 1103515245u + 12345u;
         ms += (r >> 8) % 600u;                  /* taps and holds */
+        uint32_t ev = EV[(r >> 16) % (sizeof EV / sizeof EV[0])];
         if ((r >> 12) % 4u == 0)                /* a key now and then (the number jump's keypad) */
             (void)ui_key(&ui_u, (r >> 20) % PLAY_KEYS, (int)((r >> 6) & 1u), ms);
         else
-            ui_event(&ui_u, EV[(r >> 16) % (sizeof EV / sizeof EV[0])], (int32_t)((r >> 4) % 7u) - 3, ms);
+            ui_event(&ui_u, ev, (int32_t)((r >> 4) % 7u) - 3, ms);
+        (void)ui_take(&ui_u, ms);               /* (the jump screen's 400 ms timer) */
+        if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && (r >> 12) % 4u != 0 && ui_screen(&ui_u) == UI_SCREEN_JUMP)
+            bad++;                              /* its screen never outlives SEL */
         if (ui_u.state != UI_EDIT)
             continue;
         if (ui_u.focus == 4u)                   /* no focus (a number with no parameter): an empty row */

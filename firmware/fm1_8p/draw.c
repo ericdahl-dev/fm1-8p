@@ -519,12 +519,12 @@ void ui_draw_frame(uint32_t full)
 #ifdef FM1_DEBUG
     uint32_t t0 = H->ticks();
     static uint32_t shown = ~0u;
-    uint32_t now = (uint32_t)U->state << 16 | U->page << 8 | U->focus;
+    uint32_t now = (U->jump_screen & UI_JS_UP) << 24 | (uint32_t)U->state << 16 | U->page << 8 | U->focus;
     if (trail_dead)
         return;                                 /* (a bad pointer was logged: drawing stops) */
     if (now != shown) {                         /* each change of state, page or focus, with the focus's label */
         shown = now;
-        H->log_u32("fm1-8p TRAIL state/page/focus", now);
+        H->log_u32("fm1-8p TRAIL jump/state/page/focus", now);
         H->log_u32("fm1-8p TRAIL focus label", U->focus < 4u ? (uint32_t)(uintptr_t)ui_page_slot(U, U->focus)->full : 0u);
     }
 #endif
