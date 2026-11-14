@@ -385,22 +385,28 @@ view. The flow is the same for both; only the slots differ.
 4. **After the write:** it shows `SAVED 23` (or `SAVED PATTERN 23`) for 1.5 s,
    that edit buffer becomes clean, and the state goes back to where SAVE was
    pressed.
-5. **Cancel:** HOME tap or EDIT tap. Nothing is written.
+5. **Cancel:** HOME tap (EDIT does nothing in SAVE). Nothing is written, and
+   it shows `SAVE CANCELED`.
+   - The name as edited is kept as a draft, in RAM only. The next SAVE of the
+     same patch starts with it instead of the patch's name. There is one
+     draft: the last canceled one. A write clears it.
 6. **A write erases a flash bank,** which stalls the sound for about 100 ms.
    - **Waiting:** if any voice is sounding or the sequencer is playing, the
      write waits.
      - A **snapshot** of the patch (or pattern), its name and its destination
        is taken at the confirming tap.
      - The state goes back to where SAVE was pressed, and every screen shows
-       `SAVING WHEN SILENT` until the write happens.
+       `SAVING 23 WHEN SILENT` until the write happens, every other 1.5 s
+       `HOLD SAVE: NOW` (how to force it).
      - The snapshot is written on the first silent moment. Edits, a program
        change or a patch or pattern change while waiting do not change what is
        written.
-   - **Force:** holding SAVE for 1 s or more while `SAVING WHEN SILENT` shows
+   - **Force:** holding SAVE for 1 s or more while `SAVING 23 WHEN SILENT` shows
      writes the snapshot at once, accepting the dropout (decision Q5). A SAVE
      tap then does nothing; it does not open a second SAVE.
-   - **Cancel:** the first HOME tap while a write is waiting cancels it. It
-     shows `SAVE CANCELED` and does nothing else.
+   - **Cancel:** the first HOME tap while a write is waiting asks:
+     `HOME AGAIN TO CANCEL SAVE`. A second HOME tap within 1.5 s cancels it,
+     showing `SAVE CANCELED`. Neither tap does anything else (no going home).
    - **After the write:** the edit buffer is clean only if it still equals the
      snapshot. Otherwise EDITED stays.
    - A failed write shows `SAVE FAILED` and keeps the edit buffer dirty.
@@ -715,7 +721,8 @@ Everywhere, unless the state says otherwise:
   - `STOP TO RECORD`
   - `NO EDITS`
   - `NO PARAMETER`
-  - `SAVING WHEN SILENT`
+  - `SAVING 23 WHEN SILENT`, `HOLD SAVE: NOW` (by turns, while a write waits)
+  - `HOME AGAIN TO CANCEL SAVE`
   - `SAVE FAILED`
   - `TEMPO FOLLOWS MIDI CLOCK`
   - `COMPARE: RELEASE EDIT`
@@ -826,7 +833,7 @@ stateDiagram-v2
     PLAY --> SAVE: SAVE tap
     EDIT --> SAVE: SAVE tap
     SEQ --> SAVE: SAVE tap
-    SAVE --> Previous: written / HOME / EDIT tap
+    SAVE --> Previous: written / HOME tap
     PLAY --> GLO: GLO tap
     EDIT --> GLO: GLO tap
     SEQ --> GLO: GLO tap
@@ -862,14 +869,14 @@ stateDiagram-v2
 | ENV | VCF/VCA ring | same | TIE | - | - |
 | LFO | LFO ring | same | JUMP or GLIDE | - | - |
 | FX | CTRL page | same | BACK (in REC) | - | - |
-| EDIT | tap: last edit page; hold: compare | tap: PLAY; hold: compare | tap: last edit page | cancel | - |
+| EDIT | tap: last edit page; hold: compare | tap: PLAY; hold: compare | tap: last edit page | - | - |
 | GLO | GLO | GLO | GLO | - | back |
 | SAVE | tap: save patch; hold 1 s: force a waiting save | same | tap: save pattern; hold 1 s: force | write, or confirm | hold 1 s: force a waiting save |
 | ARP | - | - | - | - | - |
 | SEQ | SEQ view | SEQ view | back | - | - |
 | PLAY | start/stop | start/stop | start/stop | start/stop | start/stop |
 | REC | stopped: arm, go to SEQ; playing: `STOP TO RECORD` | same as PLAY | stopped: arm or disarm; playing: `STOP TO RECORD` | - | - |
-| HOME tap | - (cancels a waiting save) | PLAY (or cancels a waiting save) | PLAY (or cancels a waiting save) | cancel | back (or cancels a waiting save) |
+| HOME tap | - (a waiting save: asks, then cancels) | PLAY (or a waiting save: asks, then cancels) | PLAY (or a waiting save: asks, then cancels) | cancel | back (or a waiting save: asks, then cancels) |
 | OCT-/+ | octave | octave | octave (chord keys) | octave | octave |
 | PRESETS | patch | patch | pattern (queued while playing) | slot | patch |
 | Keys F3..G#4 | notes | notes | step keys | notes | notes |
@@ -1017,7 +1024,7 @@ test.
     warns. A later event of +1 within 2 s loads the next patch.
 23. SAVE, then SAVE onto an occupied slot, asks to confirm, and a third SAVE
     tap writes. Onto the current or an empty slot, the second SAVE writes.
-    While `SAVING WHEN SILENT` shows, a SAVE tap does nothing, and holding
+    While `SAVING 23 WHEN SILENT` shows, a SAVE tap does nothing, and holding
     SAVE 1 s writes at once.
 24. A SAVE confirmed while a voice is sounding writes nothing until the voices
     are silent, then writes once.

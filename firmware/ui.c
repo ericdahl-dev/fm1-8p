@@ -377,6 +377,8 @@ void ui_init(ui *u, play *p)
     u->now_ms = 0;
     u->shown_edited = 0;
     u->save_waiting = 0;
+    u->save_home_armed = 0;
+    u->save_draft_prog = UI_SAVE_NO_DRAFT;
     u->jump = -1;
     u->jump_keys = 0;
     u->jump_screen = 0;
@@ -775,7 +777,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->save_waiting) {
-        ui_save_cancel(u, ms);                  /* the waiting write, and nothing else */
+        ui_save_home(u, ms);                    /* asks, then cancels the waiting write; nothing else */
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && !u->comparing && !u->save_waiting) {

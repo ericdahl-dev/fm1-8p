@@ -57,6 +57,12 @@ typedef struct {
     uint32_t save_step;                 /* UI_SAVE_EDITING, UI_SAVE_CONFIRM */
     uint32_t save_cursor;               /* the name's character being edited, 0..11 */
     uint32_t save_waiting;              /* 1: a snapshot waits for silence to be written */
+    uint32_t save_wait_ms;              /* when it began to wait (the banner's turns) */
+    char save_wait_msg[24];             /* SAVING 23 WHEN SILENT */
+    uint32_t save_home_ms;              /* a HOME tap that asked to cancel the waiting write, when */
+    uint32_t save_home_armed;           /* 1: that tap is on screen; a second cancels */
+    char save_draft[STORE_NAME_LEN + 1u];   /* a canceled SAVE's name, offered again */
+    uint32_t save_draft_prog;           /* for this program; UI_SAVE_NO_DRAFT: none */
     int32_t jump;                       /* the number jump: -1 SEL up; 0 held, no digit; 1..10 a first digit + 1 */
     uint32_t jump_keys;                 /* keys taken by it while SEL is held (bit k: key k), so their ups go too */
     uint32_t jump_screen;               /* UI_JS_*: the number jump's screen up, and a jump done in this hold */
@@ -70,6 +76,7 @@ typedef struct {
 /* ui_take's bits: what changed since the last redraw */
 enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
 enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
+#define UI_SAVE_NO_DRAFT 0xFFFFFFFFu
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */

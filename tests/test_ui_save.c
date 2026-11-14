@@ -143,9 +143,9 @@ TT_TEST(save_insert_delete_counts_every_click)
     TT_CHECK_EQ(ui_u.save_cursor, 1u);
 }
 
-/* HOME tap or EDIT tap cancels: nothing is written and the state goes back. Every other button, and
- * KNOB4, do nothing in SAVE. */
-TT_TEST(save_cancels_on_home_or_edit_and_ignores_the_rest)
+/* A HOME tap cancels: SAVE CANCELED, nothing is written and the state goes back. Every other button
+ * (EDIT too), and KNOB4, do nothing in SAVE. */
+TT_TEST(save_cancels_on_home_only_and_ignores_the_rest)
 {
     static store_patch out;
     int32_t res;
@@ -157,17 +157,42 @@ TT_TEST(save_cancels_on_home_or_edit_and_ignores_the_rest)
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 4, 1300);
     TT_CHECK_EQ(ui_u.state, UI_SAVE);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), res);
+    save_tap(UI_BTN_EDIT, 1350);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
     save_tap(UI_BTN_HOME, 1400);
     TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVE CANCELED") == 0);
     TT_CHECK_EQ(store_slot_read(&store_lib_a, 0, &out), -1);
-    save_tap(UI_BTN_SAVE, 2000);
-    save_tap(UI_BTN_EDIT, 2100);
-    TT_CHECK_EQ(ui_u.state, UI_EDIT);
     TT_CHECK_EQ(store_slot_read(&store_lib_a, 0, &out), -1);
     TT_CHECK_EQ(store_flash.saves, 0u);
 }
 
-/* audio blocks: n of them */
+/* A canceled SAVE keeps its name as a draft (one: the last canceled): the next SAVE of the same patch
+ * offers it again, and another patch gets its own name. Once written, the draft is gone. */
+TT_TEST(save_keeps_a_canceled_name_as_a_draft)
+{
+    save_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1100);         /* S -> T */
+    save_tap(UI_BTN_HOME, 1200);
+    save_tap(UI_BTN_SAVE, 2000);
+    TT_CHECK(strcmp(ui_u.save_name, "TOUNDTRACK  ") == 0);      /* the draft */
+    TT_CHECK_EQ(ui_u.save_cursor, 0u);
+    save_tap(UI_BTN_HOME, 2200);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2300);       /* the next patch, and back */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -1, 2400);
+    save_tap(UI_BTN_SAVE, 3000);
+    TT_CHECK(strcmp(ui_u.save_name, "TOUNDTRACK  ") == 0);
+    save_tap(UI_BTN_HOME, 3100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 3200);       /* another patch: its own name */
+    save_tap(UI_BTN_SAVE, 3300);
+    TT_CHECK(strncmp(ui_u.save_name, "TOUNDTRACK", 10) != 0);
+    save_tap(UI_BTN_SAVE, 3500);                                /* written */
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED 11") == 0);
+    TT_CHECK_EQ(ui_u.save_draft_prog, UI_SAVE_NO_DRAFT);
+}
+
+
 static void save_render(uint32_t n)
 {
     while (n--) { memset(ui_out, 0, sizeof ui_out); play_render(&ui_p, ui_out, PLAY_BLOCK); }
@@ -191,10 +216,14 @@ TT_TEST(save_waits_for_silence)
     save_tap(UI_BTN_SAVE, 1000);
     save_tap(UI_BTN_SAVE, 1200);
     TT_CHECK_EQ(ui_u.state, UI_EDIT);
-    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVING WHEN SILENT") == 0);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVING 11 WHEN SILENT") == 0);
     ui_event(&ui_u, UI_EV_ENC | enc, 3, 1300);  /* an edit while waiting */
-    (void)ui_take(&ui_u, 4000);
-    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVING WHEN SILENT") == 0);   /* still, past 1.5 s */
+    (void)ui_take(&ui_u, 2000);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVING 11 WHEN SILENT") == 0);
+    (void)ui_take(&ui_u, 2800);                 /* every 1.5 s: how to force it */
+    TT_CHECK(strcmp(ui_banner(&ui_u), "HOLD SAVE: NOW") == 0);
+    (void)ui_take(&ui_u, 4300);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVING 11 WHEN SILENT") == 0);   /* still, past 1.5 s */
     TT_CHECK_EQ(store_flash.saves, 0u);
     play_note(&ui_p, 60, 0);
     for (k = 0; k < 2000 && !play_silent(&ui_p); k++) save_render(1);
@@ -230,8 +259,9 @@ TT_TEST(save_held_forces_a_waiting_write)
     TT_CHECK_EQ(ui_u.state, UI_EDIT);           /* the release opens nothing */
 }
 
-/* The first HOME tap while a write waits cancels it: SAVE CANCELED, nothing written, and nothing else
- * (EDIT stays: that tap doesn't go home). */
+/* While a write waits, the first HOME tap asks (HOME AGAIN TO CANCEL SAVE), and a second within the
+ * banner's 1.5 s cancels it: SAVE CANCELED, nothing written, and nothing else (EDIT stays: those taps
+ * don't go home). A second tap later only asks again. */
 TT_TEST(save_home_cancels_a_waiting_write)
 {
     uint32_t k;
@@ -242,7 +272,15 @@ TT_TEST(save_home_cancels_a_waiting_write)
     save_tap(UI_BTN_SAVE, 1200);
     save_tap(UI_BTN_HOME, 1400);
     TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "HOME AGAIN TO CANCEL SAVE") == 0);
+    TT_CHECK(ui_u.save_waiting);
+    save_tap(UI_BTN_HOME, 3400);                /* too late: asks again */
+    TT_CHECK(strcmp(ui_banner(&ui_u), "HOME AGAIN TO CANCEL SAVE") == 0);
+    TT_CHECK(ui_u.save_waiting);
+    save_tap(UI_BTN_HOME, 3900);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
     TT_CHECK(strcmp(ui_banner(&ui_u), "SAVE CANCELED") == 0);
+    TT_CHECK(!ui_u.save_waiting);
     play_note(&ui_p, 60, 0);
     for (k = 0; k < 2000 && !play_silent(&ui_p); k++) save_render(1);
     (void)ui_take(&ui_u, 5000);
@@ -344,7 +382,8 @@ static void run_ui_save_tests(void)
     TT_RUN(save_asks_before_replacing_another_patch);
     TT_RUN(save_edits_the_name);
     TT_RUN(save_insert_delete_counts_every_click);
-    TT_RUN(save_cancels_on_home_or_edit_and_ignores_the_rest);
+    TT_RUN(save_keeps_a_canceled_name_as_a_draft);
+    TT_RUN(save_cancels_on_home_only_and_ignores_the_rest);
     TT_RUN(save_waits_for_silence);
     TT_RUN(save_held_forces_a_waiting_write);
     TT_RUN(save_home_cancels_a_waiting_write);
