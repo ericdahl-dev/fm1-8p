@@ -1674,6 +1674,7 @@ TT_TEST(ui_settings_default_and_ranges)
     TT_CHECK_EQ(s.fixed_vel, 100u);
     TT_CHECK_EQ(s.key_leds, 1u);
     TT_CHECK_EQ(s.vel_curve_pct, 100u);
+    TT_CHECK_EQ(s.theme, (uint8_t)UI_THEME_MEMBRANE);  /* Eric: a fresh device is Membrane */
     for (i = 0; i < UI_SETTINGS_COUNT; i++) {
         const ui_setting_info *in = &UI_SETTINGS_INFO[i];
         uint8_t v = ((const uint8_t *)&s)[in->offset];
