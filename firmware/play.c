@@ -91,6 +91,7 @@ int play_init(play *p)
     p->lib = 0;
     p->lib_attached = 0;
     p->io = 0;
+    p->comparing = 0;
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
     p->patch = &PATCHES[PATCH_SOUNDTRACK];
@@ -173,14 +174,24 @@ void play_note_name(int32_t note, char *s)
     *s = 0;
 }
 
+/* the engine's next value for id, which the ISR applies */
+static void set_target(play *p, uint16_t id, int32_t value)
+{
+    p->target[id] = value;
+    BARRIER();                                  /* the value before its bit: the ISR never sees an old one */
+    p->asked[id >> 5] = p->asked[id >> 5] | 1u << (id & 31u);
+}
+
 void play_set_param(play *p, uint16_t id, int32_t value)
 {
     const fm_param_info *in = fm_param_info_get(id);
     if (!in)
         return;
-    p->target[id] = value < in->min ? in->min : value > in->max ? in->max : value;
-    BARRIER();                                  /* the value before its bit: the ISR never sees an old one */
-    p->asked[id >> 5] = p->asked[id >> 5] | 1u << (id & 31u);
+    value = value < in->min ? in->min : value > in->max ? in->max : value;
+    if (p->comparing)                           /* into the edit buffer: it sounds after compare */
+        p->edit[id] = value;
+    else
+        set_target(p, id, value);
 }
 
 int32_t play_get_param(const play *p, uint16_t id)
@@ -301,11 +312,36 @@ void play_render(play *p, int32_t *out, uint32_t n)
     }
 }
 
+void play_compare_begin(play *p)
+{
+    uint32_t i;
+    if (p->comparing)
+        return;
+    for (i = 0; i < FM_PARAM_COUNT; i++) {
+        p->edit[i] = p->target[i];
+        if (p->target[i] != p->stored[i])
+            set_target(p, (uint16_t)i, p->stored[i]);
+    }
+    p->comparing = 1;
+}
+
+void play_compare_end(play *p)
+{
+    uint32_t i;
+    if (!p->comparing)
+        return;
+    p->comparing = 0;
+    for (i = 0; i < FM_PARAM_COUNT; i++)
+        if (p->target[i] != p->edit[i])
+            set_target(p, (uint16_t)i, p->edit[i]);
+}
+
 uint32_t play_edited(const play *p)
 {
     uint32_t i;
+    const volatile int32_t *buf = p->comparing ? p->edit : p->target;   /* compare: the buffer kept */
     for (i = 0; i < FM_PARAM_COUNT; i++)
-        if (p->target[i] != p->stored[i])
+        if (buf[i] != p->stored[i])
             return 1;
     return 0;
 }

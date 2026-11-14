@@ -44,6 +44,9 @@ typedef struct {
     const store_io *io;                 /* main loop: its flash */
     uint32_t prog;                      /* main loop: the program playing (PLAY_PROG_P + n: P n+1) */
     char name[STORE_NAME_LEN + 1u];     /* main loop: its name */
+    /* compare (EDIT held): the edit buffer, kept while the stored patch sounds */
+    int32_t edit[FM_PARAM_COUNT];
+    uint32_t comparing;                 /* main loop: 1 while the stored patch sounds for compare */
 } play;
 
 /* Sets up the engine on PLAY_VOICES voices with the default patch, SOUNDTRACK
@@ -97,8 +100,12 @@ void play_note_name(int32_t note, char *s);
 void play_set_param(play *p, uint16_t id, int32_t value);
 /* main loop: a param's value as last set (the engine follows it), 0 for an unknown id */
 int32_t play_get_param(const play *p, uint16_t id);
-/* main loop: 1 while some param differs from the stored patch */
+/* main loop: 1 while some param of the edit buffer differs from the stored patch (during compare too) */
 uint32_t play_edited(const play *p);
+/* main loop: compare. begin keeps the edit buffer and sounds the stored patch (notes held go on);
+ * end puts the buffer back exactly. */
+void play_compare_begin(play *p);
+void play_compare_end(play *p);
 /* audio interrupt: add n (<= PLAY_BLOCK) stereo frames, Q15 in int32, into out */
 void play_render(play *p, int32_t *out, uint32_t n);
 #endif

@@ -102,6 +102,8 @@ static void draw(uint32_t full)
         page_leds(1);
     }
     ui_draw_frame(full);
+    if (!full)
+        page_leds(0);                           /* a change ui_take made: compare, the EDIT blink */
 }
 
 /* The user slots (patch_store.c): fm1-dock's banks 1 and 2, found by this module's name. */
