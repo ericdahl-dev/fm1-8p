@@ -3,8 +3,54 @@
 #define UI_MAP_H
 #include <stdint.h>
 
+/* What a slot holds (interaction.md section 3): a live param, one whose issue hasn't landed (shown
+ * as `--`, its knob does nothing), or nothing. */
+typedef enum { UI_RESERVED, UI_LIVE, UI_PENDING } ui_slot_kind;   /* (0: a slot left out is empty) */
+
+/* One numbered parameter slot. */
+typedef struct {
+    uint8_t num;                        /* 41: section 4, parameter 1 */
+    const char *label;                  /* the knob column's, at most 7 characters */
+    const char *full;                   /* the focus row's full label */
+    uint16_t id;                        /* fm_param_id, when live */
+    uint8_t kind;                       /* ui_slot_kind */
+    int32_t step, fast;                 /* engine units a click moves it; a fast turn's click */
+    const int16_t *order;               /* a choice: every engine value in panel order (0: steps) */
+    uint8_t n_order;
+    uint8_t stops;                      /* bit i: order[i] is a knob position (the rest only show) */
+    uint16_t id2;                       /* UI_HOW_PAIR's second param; UI_HOW_MODE's (first) depth */
+    uint8_t how;                        /* ui_how: what the knob's value is */
+    uint16_t id3;                       /* UI_HOW_MODE's second depth (id2 again when one) */
+} ui_slot;
+
+/* How a slot's value is made (ui_slot_value):
+ * PAIR  one JX switch on two params: id | id2 << 1 (CROSS MOD: sync, ring)
+ * MODE  a JX ENV MODE: the source param id | the depth's sign << 1 (inverted), the depths id2, id3
+ * SIZE  a depth's size, its sign being its ENV MODE's
+ * TIME  a time: a click is an entry of the time table (UI_TIMES), a fast one four */
+typedef enum { UI_HOW_PLAIN, UI_HOW_PAIR, UI_HOW_MODE, UI_HOW_SIZE, UI_HOW_TIME } ui_how;
+
+/* interaction.md's page order: 1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B */
+#define UI_PAGES 18u
+#define UI_PAGE_5A 7u
+typedef struct {
+    char name[3];                       /* "5A" */
+    uint8_t color;                      /* its section color (UI_SEC_*, the theme's) */
+    const char *section;                /* "VCF" */
+} ui_page_info;
+extern const ui_page_info UI_PAGE_INFO[UI_PAGES];
+extern const ui_slot UI_SLOTS[UI_PAGES * 4u];   /* page p's knob k: UI_SLOTS[4 p + k] */
+
+/* the section buttons' rings (interaction.md 4): page indexes, UI_RING_END after the last */
+#define UI_RING_END 0xFFu
+extern const uint8_t UI_RING_SEL[], UI_RING_ENV[], UI_RING_FX[], UI_RING_LFO[];
+
+#define UI_TIME_COUNT 122u
+extern const uint16_t UI_TIMES[UI_TIME_COUNT];   /* ms, rising (interaction.md, units) */
+
 /* the section colors' order (visual.md's table): 1x DCO-1 .. 8x CTRL, then SEQ, GLO and PLAY */
-enum { UI_SEC_VCF = 3, UI_SEC_SEQ = 8, UI_SEC_GLO, UI_SEC_PLAY, UI_SECTIONS };
+enum { UI_SEC_DCO1, UI_SEC_DCO2, UI_SEC_MIX, UI_SEC_VCF, UI_SEC_VCF_ENV, UI_SEC_VCA, UI_SEC_LFO, UI_SEC_CTRL,
+       UI_SEC_SEQ, UI_SEC_GLO, UI_SEC_PLAY, UI_SECTIONS };
 
 /* A theme: visual.md's style table. Colors RGB565; a mix is n / 256 of the way from one color to
  * another. */
