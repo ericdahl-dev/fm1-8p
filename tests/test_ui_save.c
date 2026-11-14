@@ -417,8 +417,22 @@ TT_TEST(save_without_a_store_says_save_failed)
     TT_CHECK(strcmp(ui_banner(&ui_u), "SAVE FAILED") == 0);
 }
 
+/* The stress test (test_ui.c's ui_hammer) with the user slots on the RAM flash, so SAVE names, writes,
+ * asks before replacing and waits for silence among everything else */
+TT_TEST(save_hammered_with_a_store_keeps_its_states)
+{
+    uint32_t i, used = 0;
+    save_setup();
+    TT_CHECK_EQ(ui_hammer(), 0u);
+    for (i = 0; i < 64u; i++)
+        used += store_slot_used(&store_lib_a, i) != 0;
+    printf("    %u user slots written\n", (unsigned)used);
+    TT_CHECK(used > 0u);                        /* (the writes happened: SAVE was really hammered) */
+}
+
 static void run_ui_save_tests(void)
 {
+    TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);
     TT_RUN(save_presets_picks_the_destination);
