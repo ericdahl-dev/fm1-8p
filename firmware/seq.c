@@ -5,13 +5,19 @@
  * and only 32-bit sums and divides. */
 #include "seq.h"
 
+/* the main loop's stores land in this order for the interrupt (play.c's BARRIER): a compiler barrier,
+ * enough on the FM-1's one core, where the interrupt only ever runs between two instructions */
+#define BARRIER() __asm__ volatile("" ::: "memory")
+
 static void edit_begin(seq *s)
 {
     s->editing = 1;                             /* the interrupt leaves `edit` alone until edit_end */
+    BARRIER();                                  /* set before any store to `edit` */
 }
 
 static void edit_end(seq *s)
 {
+    BARRIER();                                  /* every store to `edit` before it's published */
     s->edits++;
     s->editing = 0;
 }
@@ -126,12 +132,14 @@ void seq_set_swing(seq *s, uint32_t pct)
 void seq_play(seq *s)
 {
     s->want = 1;
+    BARRIER();                                  /* the wish before the ask: never an ask with an old one */
     s->ask_play++;
 }
 
 void seq_stop(seq *s)
 {
     s->want = 0;
+    BARRIER();
     s->ask_stop++;
 }
 

@@ -68,7 +68,7 @@ typedef struct {
     /* main loop: asks; the interrupt acts at its next block */
     volatile uint32_t ask_play;         /* +1 per play asked */
     volatile uint32_t ask_stop;         /* +1 per stop asked */
-    uint32_t want;                      /* main loop: 1 from seq_play to seq_stop */
+    volatile uint32_t want;             /* main loop writes (1 from seq_play to seq_stop), ISR reads */
     /* interrupt only */
     seq_pattern run;                    /* the pattern playing, taken from edit at a step's start */
     uint32_t edits_seen, play_seen, stop_seen;
