@@ -44,6 +44,8 @@ typedef struct {
     uint32_t warned_ms;                 /* when */
     uint32_t page;                      /* the edit page, in the page order (UI_PAGE_INFO) */
     uint32_t inv;                       /* an ENV MODE's INV while its depth is 0 (bit: ui.c inv_bit) */
+    int32_t jump;                       /* the number jump: -1 SEL up; 0 held, no digit; 1..10 a first digit + 1 */
+    uint32_t jump_keys;                 /* keys taken by it while SEL is held (bit k: key k), so their ups go too */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
@@ -116,6 +118,11 @@ int32_t ui_time_step(int32_t ms, int32_t clicks);
 int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
+/* a key (0..PLAY_KEYS-1) going down or up: 1 when the UI takes it (SEL held: the number jump's keypad,
+ * and the key makes no sound), 0 when it plays */
+int ui_key(ui *u, uint32_t k, int down, uint32_t ms);
+/* key k's LED as the keypad has it: UI_LED_GLOW for a digit key while SEL is held, else UI_LED_OFF */
+uint32_t ui_keypad_led(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 /* the banner's message ("": none) */
