@@ -747,8 +747,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
                    ms - u->down_ms[id] < UI_TAP_MS;   /* a release: was it a tap? */
     if ((ev & 0xFF000000u) == UI_EV_BTN_DOWN && id < UI_BUTTONS)
         u->down_ms[id] = ms;
-    if (ev == (UI_EV_BTN_DOWN | UI_BTN_SEL))
-        u->jump = 0;                            /* the keypad, while SEL is held */
+    if (ev == (UI_EV_BTN_DOWN | UI_BTN_SEL) && (u->state == UI_PLAY || u->state == UI_EDIT))
+        u->jump = 0;                            /* the keypad, while SEL is held (in PLAY or EDIT only) */
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
         u->warned = 0;                          /* anything else cancels the warning (decision Q4) */
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV))
