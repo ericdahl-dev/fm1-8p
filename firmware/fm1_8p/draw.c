@@ -200,6 +200,8 @@ static void footer(void)
         ui_patch_number(play_patch(P), n);
         CV_TEXT(M, 2, 0, n, C_DIM);
         CV_TEXT(M + TEXT_W(0, n) + 6, 2, 0, play_patch(P)->name, C_TEXT);
+        if (U->shown_edited)                    /* edited (visual.md) */
+            CV_TEXT(M + TEXT_W(0, n) + 6 + TEXT_W(0, play_patch(P)->name) + 2, 2, 0, "*", T->led);
         CV_TEXT(240 - M - TEXT_W(0, v), 2, 0, v, C_DIM);
     }
     blit(0, 222, 240, 18);

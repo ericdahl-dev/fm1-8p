@@ -356,6 +356,7 @@ void ui_init(ui *u, play *p)
     u->held = 0;
     u->comparing = 0;
     u->now_ms = 0;
+    u->shown_edited = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -648,6 +649,10 @@ uint32_t ui_take(ui *u, uint32_t ms)
 {
     uint32_t d;
     u->now_ms = ms;
+    if (play_edited(u->p) != u->shown_edited) {  /* the footer's `*` */
+        u->shown_edited = play_edited(u->p);
+        u->dirty |= UI_D_FOOT;
+    }
     if (u->held >> UI_BTN_EDIT & 1u && !u->comparing && ms - u->down_ms[UI_BTN_EDIT] >= UI_TAP_MS) {
         if (play_edited(u->p)) {                /* an EDIT hold: compare */
             u->comparing = UI_COMPARE_ON;
@@ -701,6 +706,7 @@ uint32_t ui_take_full(ui *u, uint32_t ms)
 {
     u->shown_note = play_last_note(u->p);
     u->shown_oct = u->p->oct;
+    u->shown_edited = play_edited(u->p);        /* the footer is drawn with it */
     u->dirty = 0;
     u->drawn_ms = ms;
     return UI_D_ALL;

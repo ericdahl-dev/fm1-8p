@@ -167,7 +167,8 @@ TT_TEST(ui_redraws_only_what_a_turn_changed)
     TT_CHECK_EQ(ui_take(&ui_u, 100), 0u);       /* nothing changed */
     TT_CHECK_EQ(ui_u.focus, 1u);                /* CUTOFF, as the page opens */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 200);
-    TT_CHECK_EQ(ui_take(&ui_u, 200), UI_D_COL(1) | UI_D_FOCUS | UI_D_SLOT);
+    TT_CHECK_EQ(ui_take(&ui_u, 200), UI_D_COL(1) | UI_D_FOCUS | UI_D_SLOT | UI_D_FOOT);  /* (the first
+                                                 * edit: the footer's `*`) */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 210);
     TT_CHECK_EQ(ui_take(&ui_u, 210), 0u);       /* within a frame of the last redraw */
     TT_CHECK_EQ(ui_take(&ui_u, 200 + UI_FRAME_MS), UI_D_COL(1) | UI_D_COL(0) | UI_D_FOCUS);
@@ -408,6 +409,22 @@ TT_TEST(ui_compare_redraws_the_header_and_values)
     TT_CHECK_EQ(ui_take(&ui_u, 1400) & want, want);
     ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2000);
     TT_CHECK_EQ(ui_take(&ui_u, 2100) & want, want);
+}
+
+/* The footer shows `*` while the patch is edited (visual.md): the first edit marks the footer for a
+ * redraw, and so does turning back to the stored value. */
+TT_TEST(ui_edited_state_change_redraws_the_footer)
+{
+    uint32_t enc;
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    (void)ui_take(&ui_u, 100);
+    ui_event(&ui_u, UI_EV_ENC | enc, 1, 200);
+    TT_CHECK(ui_take(&ui_u, 300) & UI_D_FOOT);
+    ui_event(&ui_u, UI_EV_ENC | enc, 1, 400);
+    TT_CHECK(!(ui_take(&ui_u, 500) & UI_D_FOOT));   /* still edited: no change */
+    ui_event(&ui_u, UI_EV_ENC | enc, -2, 600);
+    TT_CHECK(ui_take(&ui_u, 700) & UI_D_FOOT);
 }
 
 /* The EDIT LED glows while the sound is the stored patch and is lit once it is edited; turning
@@ -1418,6 +1435,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_edit_led_blinks_during_compare);
     TT_RUN(ui_param_set_during_compare_reaches_the_edit_buffer);
     TT_RUN(ui_compare_redraws_the_header_and_values);
+    TT_RUN(ui_edited_state_change_redraws_the_footer);
     TT_RUN(ui_vcf_page_knobs_move_their_params_one_step);
     TT_RUN(ui_vcf_knob3_click_moves_resonance);
 }

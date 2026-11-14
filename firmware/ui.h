@@ -45,6 +45,7 @@ typedef struct {
     uint32_t held;                      /* bit b: button b is down */
     uint32_t comparing;                 /* EDIT held: UI_COMPARE_ON, or UI_COMPARE_NONE (no edits); 0 not */
     uint32_t now_ms;                    /* ui_take's last ms (the EDIT LED's blink) */
+    uint32_t shown_edited;              /* the footer's `*` as drawn: play_edited then */
 } ui;
 
 /* ui_take's bits: what changed since the last redraw */
