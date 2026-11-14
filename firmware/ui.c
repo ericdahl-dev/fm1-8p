@@ -369,6 +369,10 @@ void ui_init(ui *u, play *p)
     u->warned_ms = 0;
     u->page = UI_PAGE_5A;                       /* (EDIT's first page) */
     u->inv = 0;
+    u->held = 0;
+    u->comparing = 0;
+    u->now_ms = 0;
+    u->shown_edited = 0;
 }
 
 static void show_page(ui *u, ui_state st)
@@ -678,8 +682,25 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     uint32_t id = ev & 0xFFu;
     uint32_t tap = (ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS &&
                    ms - u->down_ms[id] < UI_TAP_MS;   /* a release: was it a tap? */
-    if ((ev & 0xFF000000u) == UI_EV_BTN_DOWN && id < UI_BUTTONS)
+    if ((ev & 0xFF000000u) == UI_EV_BTN_DOWN && id < UI_BUTTONS) {
         u->down_ms[id] = ms;
+        u->held |= 1u << id;
+    }
+    if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS)
+        u->held &= ~(1u << id);
+    if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && u->comparing) {   /* the edit buffer back, exactly */
+        if (u->comparing == UI_COMPARE_ON) {
+            play_compare_end(u->p);
+            u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_HEAD;
+        }
+        u->comparing = 0;
+        return;
+    }
+    if (u->comparing == UI_COMPARE_ON && (ev & 0xFF000000u) == UI_EV_ENC) {   /* nothing changes */
+        if (id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4)
+            show_banner(u, "COMPARE: RELEASE EDIT", ms);
+        return;
+    }
     if (ev != (UI_EV_ENC | UI_ENC_PRESETS))
         u->warned = 0;                          /* anything else cancels the warning (decision Q4) */
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_ENV))
@@ -708,6 +729,21 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 uint32_t ui_take(ui *u, uint32_t ms)
 {
     uint32_t d;
+    u->now_ms = ms;
+    if (play_edited(u->p) != u->shown_edited) {  /* the footer's `*` */
+        u->shown_edited = play_edited(u->p);
+        u->dirty |= UI_D_FOOT;
+    }
+    if (u->held >> UI_BTN_EDIT & 1u && !u->comparing && ms - u->down_ms[UI_BTN_EDIT] >= UI_TAP_MS) {
+        if (play_edited(u->p)) {                /* an EDIT hold: compare */
+            u->comparing = UI_COMPARE_ON;
+            play_compare_begin(u->p);
+            u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_HEAD;   /* the page stays: the stored values */
+        } else {
+            u->comparing = UI_COMPARE_NONE;     /* nothing to compare */
+            show_banner(u, "NO EDITS", ms);
+        }
+    }
     if (u->state == UI_PLAY && play_last_note(u->p) != u->shown_note) {
         u->shown_note = play_last_note(u->p);
         u->dirty |= UI_D_NOTE;
@@ -738,7 +774,9 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_FX:
     case UI_BTN_LFO:                            /* lit while a page of its ring shows */
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
-    case UI_BTN_EDIT:                           /* lit while the sound differs from the stored patch */
+    case UI_BTN_EDIT:                           /* lit while the edit buffer differs from the stored patch */
+        if (u->comparing == UI_COMPARE_ON)      /* blinking during compare */
+            return u->now_ms / UI_BLINK_MS & 1u ? UI_LED_OFF : UI_LED_LIT;
         return play_edited(u->p) ? UI_LED_LIT : UI_LED_GLOW;
     default:
         return UI_LED_OFF;
@@ -749,6 +787,7 @@ uint32_t ui_take_full(ui *u, uint32_t ms)
 {
     u->shown_note = play_last_note(u->p);
     u->shown_oct = u->p->oct;
+    u->shown_edited = play_edited(u->p);        /* the footer is drawn with it */
     u->dirty = 0;
     u->drawn_ms = ms;
     return UI_D_ALL;

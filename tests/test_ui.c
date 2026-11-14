@@ -167,7 +167,8 @@ TT_TEST(ui_redraws_only_what_a_turn_changed)
     TT_CHECK_EQ(ui_take(&ui_u, 100), 0u);       /* nothing changed */
     TT_CHECK_EQ(ui_u.focus, 1u);                /* CUTOFF, as the page opens */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 200);
-    TT_CHECK_EQ(ui_take(&ui_u, 200), UI_D_COL(1) | UI_D_FOCUS | UI_D_SLOT);
+    TT_CHECK_EQ(ui_take(&ui_u, 200), UI_D_COL(1) | UI_D_FOCUS | UI_D_SLOT | UI_D_FOOT);  /* (the first
+                                                 * edit: the footer's `*`) */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 210);
     TT_CHECK_EQ(ui_take(&ui_u, 210), 0u);       /* within a frame of the last redraw */
     TT_CHECK_EQ(ui_take(&ui_u, 200 + UI_FRAME_MS), UI_D_COL(1) | UI_D_COL(0) | UI_D_FOCUS);
@@ -265,7 +266,7 @@ TT_TEST(ui_home_tap_returns_to_play)
     TT_CHECK_EQ(ui_u.state, UI_PLAY);
 }
 
-/* EDIT held 400 ms or more is compare (not built yet): it doesn't change the page. */
+/* EDIT held 400 ms or more is compare, never a page change; under 400 ms it is a tap. */
 TT_TEST(ui_edit_hold_does_not_toggle)
 {
     ui_setup();
@@ -288,6 +289,142 @@ TT_TEST(ui_section_leds_light_their_page)
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), UI_LED_LIT);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), UI_LED_GLOW);
+}
+
+/* EDIT held 400 ms or more is compare: while it is held the stored patch sounds and the page shows its
+ * values; the release puts the edit buffer back exactly, and the page stays (interaction.md). */
+TT_TEST(ui_edit_hold_compares_with_the_stored_patch)
+{
+    uint32_t enc;
+    int32_t stored, edited;
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    stored = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);
+    edited = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    TT_CHECK(edited != stored);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    (void)ui_take(&ui_u, 1399);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), edited);   /* not yet a hold */
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), stored);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), stored);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), edited);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), edited);
+}
+
+/* With no edits, an EDIT hold shows NO EDITS and changes nothing; its release doesn't toggle the page. */
+TT_TEST(ui_edit_hold_with_no_edits_says_so)
+{
+    ui_setup();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "NO EDITS") == 0);
+    TT_CHECK(!ui_p.comparing);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 1600);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK(!play_edited(&ui_p));
+}
+
+/* During compare the knobs are ignored and a turn shows the compare message; PRESETS loads nothing
+ * either, so the edit buffer comes back whole. */
+TT_TEST(ui_compare_ignores_knobs_and_presets)
+{
+    uint32_t enc;
+    int32_t edited;
+    const patch *t;
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);
+    edited = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    t = play_patch(&ui_p);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    ui_event(&ui_u, UI_EV_ENC | enc, 3, 1500);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "COMPARE: RELEASE EDIT") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1600);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1700);
+    TT_CHECK(play_patch(&ui_p) == t);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2000);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), edited);
+}
+
+/* The EDIT LED blinks during compare (on and off, 250 ms each), and is lit again after it: the edit
+ * buffer is still edited. */
+TT_TEST(ui_edit_led_blinks_during_compare)
+{
+    uint32_t enc, a, b;
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    a = ui_led(&ui_u, UI_BTN_EDIT);
+    (void)ui_take(&ui_u, 1650);
+    b = ui_led(&ui_u, UI_BTN_EDIT);
+    TT_CHECK((a == UI_LED_LIT && b == UI_LED_OFF) || (a == UI_LED_OFF && b == UI_LED_LIT));
+    (void)ui_take(&ui_u, 1900);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_EDIT), a);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2000);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_EDIT), UI_LED_LIT);
+}
+
+/* A param set during compare (a MIDI CC, later) goes to the edit buffer, not the stored patch: the
+ * stored value keeps sounding and showing until EDIT is released, and then the engine has the new value
+ * (interaction.md acceptance 59). */
+TT_TEST(ui_param_set_during_compare_reaches_the_edit_buffer)
+{
+    uint32_t enc;
+    int32_t stored;
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    stored = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK(play_edited(&ui_p));               /* the edit buffer is still edited */
+    play_set_param(&ui_p, FM_PARAM_FILTER_RESONANCE, 777);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), stored);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), stored);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2000);
+    ui_settle();
+    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_RESONANCE), 777);
+}
+
+/* Compare redraws the header (its COMPARE marker) and the values, when it begins and when it ends. */
+TT_TEST(ui_compare_redraws_the_header_and_values)
+{
+    uint32_t enc, want = UI_D_HEAD | UI_D_FOCUS | UI_D_COL(0) | UI_D_COL(3);
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 0);
+    (void)ui_take(&ui_u, 500);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1000);
+    TT_CHECK_EQ(ui_take(&ui_u, 1400) & want, want);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2000);
+    TT_CHECK_EQ(ui_take(&ui_u, 2100) & want, want);
+}
+
+/* The footer shows `*` while the patch is edited (visual.md): the first edit marks the footer for a
+ * redraw, and so does turning back to the stored value. */
+TT_TEST(ui_edited_state_change_redraws_the_footer)
+{
+    uint32_t enc;
+    ui_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    (void)ui_take(&ui_u, 100);
+    ui_event(&ui_u, UI_EV_ENC | enc, 1, 200);
+    TT_CHECK(ui_take(&ui_u, 300) & UI_D_FOOT);
+    ui_event(&ui_u, UI_EV_ENC | enc, 1, 400);
+    TT_CHECK(!(ui_take(&ui_u, 500) & UI_D_FOOT));   /* still edited: no change */
+    ui_event(&ui_u, UI_EV_ENC | enc, -2, 600);
+    TT_CHECK(ui_take(&ui_u, 700) & UI_D_FOOT);
 }
 
 /* The EDIT LED glows while the sound is the stored patch and is lit once it is edited; turning
@@ -1430,6 +1567,13 @@ static void run_ui_tests(void)
     TT_RUN(ui_knob_clamps_at_the_ends_of_the_range);
     TT_RUN(ui_knobs_do_nothing_in_play);
     TT_RUN(ui_fast_turn_moves_the_fast_step_per_click);
+    TT_RUN(ui_edit_hold_compares_with_the_stored_patch);
+    TT_RUN(ui_edit_hold_with_no_edits_says_so);
+    TT_RUN(ui_compare_ignores_knobs_and_presets);
+    TT_RUN(ui_edit_led_blinks_during_compare);
+    TT_RUN(ui_param_set_during_compare_reaches_the_edit_buffer);
+    TT_RUN(ui_compare_redraws_the_header_and_values);
+    TT_RUN(ui_edited_state_change_redraws_the_footer);
     TT_RUN(ui_vcf_page_knobs_move_their_params_one_step);
     TT_RUN(ui_vcf_knob3_click_moves_resonance);
 }

@@ -151,6 +151,13 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
     char o[UI_VALUE_LEN];
     int32_t x, w;
     uint32_t i;
+    if (U->comparing == UI_COMPARE_ON) {        /* EDIT held: the stored patch's values (interaction.md 6) */
+        chip = "COMPARE";
+        col = T->led;
+        lead = "";
+        lit = "STORED PATCH";
+        tail = "";
+    }
     H->cv_begin(240, 28, C_BG);
     if (T->chip) {
         x = M + TEXT_W(0, chip) + M;
@@ -193,6 +200,8 @@ static void footer(void)
         ui_patch_number(play_patch(P), n);
         CV_TEXT(M, 2, 0, n, C_DIM);
         CV_TEXT(M + TEXT_W(0, n) + 6, 2, 0, play_patch(P)->name, C_TEXT);
+        if (U->shown_edited)                    /* edited (visual.md) */
+            CV_TEXT(M + TEXT_W(0, n) + 6 + TEXT_W(0, play_patch(P)->name) + 2, 2, 0, "*", T->led);
         CV_TEXT(240 - M - TEXT_W(0, v), 2, 0, v, C_DIM);
     }
     blit(0, 222, 240, 18);

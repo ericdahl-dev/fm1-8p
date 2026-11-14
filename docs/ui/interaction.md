@@ -310,7 +310,7 @@ In PLAY or EDIT:
   - in SEQ: goes to the last edit page while the sequencer keeps running.
 - **EDIT hold** (400 ms or more), in PLAY or EDIT: **compare**.
   - While it is held, the stored patch sounds and the screen shows its values.
-  - Knobs are ignored, and a turn shows `COMPARE: RELEASE EDIT TO CHANGE`.
+  - Knobs are ignored, and a turn shows `COMPARE: RELEASE EDIT` (it fits the 240 px footer).
   - Releasing EDIT puts the edit buffer back, exactly as it was.
   - With no edits, a hold shows `NO EDITS` and changes nothing.
 - **EDIT LED:** lit while the edit buffer differs from the stored patch. It
@@ -718,7 +718,7 @@ Everywhere, unless the state says otherwise:
   - `SAVING WHEN SILENT`
   - `SAVE FAILED`
   - `TEMPO FOLLOWS MIDI CLOCK`
-  - `COMPARE: RELEASE EDIT TO CHANGE`
+  - `COMPARE: RELEASE EDIT`
   - `NEXT PATTERN 23`
 - **Should:** the number of sounding voices, out of the voice count.
 - **Should:** a MIDI-in activity mark that flashes for 100 ms on any message.
