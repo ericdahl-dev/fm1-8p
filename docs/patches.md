@@ -140,12 +140,12 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 ## What waits for the engine
 
 These fields are in every patch now and do nothing until their feature lands. `patch_param()`
-returns `PATCH_NONE` for them; when a feature lands, its field gets the new `fm_param_id` in
-`FIELDS` (`tools/jx8p.py`) and the table is regenerated.
+returns `PATCH_NONE` for them; when a feature lands, its field gets the new param in
+`PATCH_FIELDS` (`tools/params.py`) and `make generate` writes the tables again.
 
 | Field | From | Waits for |
 | --- | --- | --- |
-| `FILTER_LFO_PERMILLE`, `FILTER_VELOCITY_PCT` | VCF LFO, VCF DYNAMICS | #8 (LFO to cutoff, filter velocity) |
+| `FILTER_LFO_PERMILLE` | VCF LFO | #8 (LFO to cutoff) |
 | `OSC1_COARSE_SEMIS` | DCO-1 TUNE | DCO-1 coarse tune (no issue yet) |
 
 Aftertouch (#61) and portamento (#62) are not tone data on the JX-8P: they are panel settings
@@ -154,8 +154,11 @@ the table has no fields for them.
 
 ## Storage
 
-Each patch is its name (12 characters and the end) and one `uint16_t` per field, 46 fields:
-106 bytes, 3392 bytes for the 32. A value is stored with a bias of 32768 (`patch_value()` takes
+<!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
+Each patch is its name (12 characters and the end) and one `uint16_t` per field, 48 fields:
+110 bytes, 3520 bytes for the 32.
+<!-- end generated -->
+A value is stored with a bias of 32768 (`patch_value()` takes
 it off): stored as plain `int16_t`, a value of -64..-49 next to another can make a 32-bit word
 in 0xFFC00000..0xFFCFFFFF, which fm1-dock rejects as a ROM address (`make check-float-free`
 catches it on the desktop).
@@ -181,7 +184,9 @@ A patch the user saves is a record of at most 248 bytes (`STORE_SLOT_BYTES`), so
 - **Out of range:** a value outside the param's range loads clamped into it.
 - **Damaged:** a wrong version, a length that disagrees with the count, or a record longer than the
   bytes read is an empty slot.
+<!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
 - **Room:** 53 params take 174 bytes; a slot has room for 77.
+<!-- end generated -->
 
 ### Settings (`firmware/settings_store.c`, GLO)
 

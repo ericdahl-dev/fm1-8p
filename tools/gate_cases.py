@@ -107,8 +107,10 @@ def factory(tree):
     chord, a velocity phrase and a low note (ab.mid), 6 voices at 48 kHz."""
     sys.path.insert(0, os.path.join(tree, "tools"))
     import jx8p
-    with open(os.path.join(tree, "engine", "params.c")) as fh:
-        names = dict(re.findall(r'\{\s*FM_PARAM_(\w+)\s*,\s*"([^"]+)"', fh.read()))
+    names = getattr(jx8p, "PARAM_NAMES", None)   # the param list (#196)
+    if names is None:                       # a tree older than the list: its params.c's table
+        with open(os.path.join(tree, "engine", "params.c")) as fh:
+            names = dict(re.findall(r'\{\s*FM_PARAM_(\w+)\s*,\s*"([^"]+)"', fh.read()))
     with open(os.path.join(tree, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
         tones = jx8p.parse_syx(fh.read())
     for i, t in enumerate(tones, 1):

@@ -13,6 +13,9 @@ import re
 import sys
 from collections import namedtuple
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import params  # noqa: E402  (tools/params.py: the param list)
+
 Tone = namedtuple("Tone", "name params")   # params: the 59 data bytes, PG-800 / SysEx numbering
 
 APR_HEADER = bytes([0xF0, 0x41, 0x35])
@@ -104,71 +107,153 @@ def c_int(expr, names):
 
 
 def engine_ranges(root=ROOT):
-    """Each engine param's (min, max) from engine/params.c's table, by FM_PARAM_ suffix."""
-    with open(os.path.join(root, "engine", "params.c")) as f:
-        text = re.sub(r"/\*.*?\*/", "", f.read(), flags=re.S)
-    names = c_constants(root)
-    ranges = {}
-    for param, lo, hi in re.findall(r"\{\s*FM_PARAM_(\w+)\s*,\s*\"[^\"]*\"\s*,([^,]+),([^,]+),[^}]*\}", text):
-        ranges[param] = (c_int(lo, names), c_int(hi, names))
-    return ranges
+    """Each engine param's (min, max) from the param list (tools/params.py), by FM_PARAM_ suffix."""
+    return {p.enum: params.values(p, root)[:2] for p in params.PARAMS}
 
 
-# The patch table's fields, in firmware/patches.h's order (PATCH_<name>). param: the engine's
-# fm_param_id (FM_PARAM_<param>) the field sets, or None while the engine lacks the feature (the
-# field waits for the issue). lo, hi: the field's own range; for the fields the engine has, its range
-# from engine/params.c (filled in below).
+# Every param's name (fm1-8p-render -s name=value), by FM_PARAM_ suffix. gate_cases.py and
+# scorecard.py read it from the tree they render (older trees lack it and parse params.c).
+PARAM_NAMES = {p.enum: p.name for p in params.PARAMS}
+
+
+def _wrap(text, width, first, rest):
+    """text as comment lines: first line's prefix, then rest's, at most width columns."""
+    words, lines, line = text.split(), [], first
+    for w in words:
+        if len(line) + len(w) + 1 > width and line.strip() not in ("/*", "*"):
+            lines.append(line.rstrip())
+            line = rest
+        line += w + " "
+    lines.append(line.rstrip())
+    return lines
+
+
+def emit_params_h():
+    """engine/fm1_8p_params.h: the fm_param_id enum."""
+    out = ["/*",
+           " * fm1_8p_params.h - the parameter ids. GENERATED from tools/params.py by",
+           " * tools/jx8p.py (make generate): edit the list, not this file.",
+           " *",
+           " * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.",
+           " */",
+           "#ifndef FM1_8P_PARAMS_H",
+           "#define FM1_8P_PARAMS_H",
+           "",
+           "/* Parameter IDs. Stable: the patch format stores them. */",
+           "typedef enum {"]
+    for p in params.PARAMS:
+        if p.doc:
+            lines = _wrap(p.doc, 96, "    /* ", "     * ")
+            lines[-1] += " */"
+            out += lines
+        out.append("    FM_PARAM_%s%s," % (p.enum, " = 0" if p.id == 0 else ""))
+    out += ["    FM_PARAM_COUNT", "} fm_param_id;", "", "#endif", ""]
+    return "\n".join(out)
+
+
+def emit_params_c():
+    """engine/params.c: the range and default table."""
+    out = ["/*",
+           " * params.c - the parameter table. GENERATED from tools/params.py by",
+           " * tools/jx8p.py (make generate): edit the list, not this file.",
+           " *",
+           " * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.",
+           " *",
+           " * One row per parameter: the host, tests, the FM-1 UI and the patch format",
+           " * all read ranges and defaults from here. Values are plain integers in the",
+           " * units the name gives.",
+           " */",
+           "#include \"fm1_8p.h\"",
+           "",
+           "static const fm_param_info table[FM_PARAM_COUNT] = {",
+           "    /* id, name, min, max, default */"]
+    for p in params.PARAMS:
+        out.append("    { FM_PARAM_%s, \"%s\", %s, %s, %s }," % (p.enum, p.name, p.min, p.max, p.default))
+    out += ["};",
+            "",
+            "const fm_param_info *fm_param_info_get(uint16_t id)",
+            "{",
+            "    return id < FM_PARAM_COUNT ? &table[id] : 0;",
+            "}",
+            ""]
+    return "\n".join(out)
+
+
+def emit_patch_fields_h():
+    """firmware/patch_fields.h: the patch_field enum."""
+    out = ["/* fm1-8p patch fields: the patch_field enum. GENERATED from tools/params.py (PATCH_FIELDS) by",
+           " * tools/jx8p.py (make generate): edit the list, not this file. */",
+           "#ifndef PATCH_FIELDS_H",
+           "#define PATCH_FIELDS_H",
+           "",
+           "/* A patch's fields, in engine units. The ones with an fm_param_id set that param (patch_param);",
+           " * the others wait for the feature in the issue named, so a patch sounds closer as each one lands. */",
+           "typedef enum {"]
+    for f in params.PATCH_FIELDS:
+        if f.doc:
+            lines = _wrap(f.doc, 100, "    /* ", "     * ")
+            lines[-1] += " */"
+            out += lines
+        out.append("    PATCH_%s," % f.name)
+    out += ["    PATCH_FIELD_COUNT,", "} patch_field;", "", "#endif", ""]
+    return "\n".join(out)
+
+
+def emit_store_tags_h():
+    """firmware/patch_store_tags.h: each store tag's param, by tag."""
+    by_tag = sorted(params.PARAMS, key=lambda p: p.tag)
+    out = ["/* fm1-8p store tags: tag n is the param TAG_PARAM[n]. GENERATED from tools/params.py by",
+           " * tools/jx8p.py (make generate): edit the list, not this file. Tags are frozen: append only,",
+           " * never reorder, reuse or remove one (docs/patches.md, Storage). Included by patch_store.c. */",
+           "static const uint8_t TAG_PARAM[] = {"]
+    out += ["    FM_PARAM_%s,   /* %d */" % (p.enum, p.tag) for p in by_tag]
+    out += ["};", ""]
+    return "\n".join(out)
+
+
+def _c_define(path, name):
+    with open(os.path.join(ROOT, path)) as f:
+        return int(re.search(r"#define\s+%s\s+(\d+)u?" % name, f.read()).group(1))
+
+
+def emit_patches_md():
+    """docs/patches.md with its generated sentences (between the marker comments) made again."""
+    with open(os.path.join(ROOT, "docs", "patches.md")) as f:
+        text = f.read()
+    n_fields, n_params = len(params.PATCH_FIELDS), len(params.PARAMS)
+    patch_bytes = NAME_MAX + 1 + (NAME_MAX + 1) % 2 + 2 * n_fields   # the name, its pad, the fields
+    header, entry = _c_define("firmware/patch_store.c", "HEADER"), _c_define("firmware/patch_store.c", "ENTRY")
+    slot = _c_define("firmware/patch_store.h", "STORE_SLOT_BYTES")
+    blocks = [
+        "Each patch is its name (12 characters and the end) and one `uint16_t` per field, %d fields:\n"
+        "%d bytes, %d bytes for the 32." % (n_fields, patch_bytes, 32 * patch_bytes),
+        "- **Room:** %d params take %d bytes; a slot has room for %d."
+        % (n_params, header + entry * n_params, (slot - header) // entry),
+    ]
+    start, end = "<!-- generated: tools/jx8p.py from tools/params.py (make generate) -->\n", "\n<!-- end generated -->"
+    parts = text.split(start)
+    if len(parts) != len(blocks) + 1:
+        raise ValueError("docs/patches.md: %d generated blocks, not %d" % (len(parts) - 1, len(blocks)))
+    out = parts[0]
+    for block, part in zip(blocks, parts[1:]):
+        out += start + block + part[part.index(end):]
+    return out
+
+
+def generated_params():
+    """The files the param list makes, by path from the repository root."""
+    return {"engine/fm1_8p_params.h": emit_params_h(), "engine/params.c": emit_params_c(),
+            "firmware/patch_fields.h": emit_patch_fields_h(),
+            "firmware/patch_store_tags.h": emit_store_tags_h(),
+            "docs/patches.md": emit_patches_md()}
+
+
+# The patch table's fields, from the list (tools/params.py PATCH_FIELDS), in firmware/patches.h's
+# order (PATCH_<name>). param: the engine's fm_param_id (FM_PARAM_<param>) the field sets, or None
+# while the engine lacks the feature (the field waits for the issue). lo, hi: the field's own range;
+# for the fields the engine has, its range from the param list (filled in below).
 Field = namedtuple("Field", "name param lo hi waits")
-FIELDS = [
-    Field("OSC1_WAVE", "OSC1_WAVE", None, None, None),
-    Field("OSC1_PULSE_WIDTH_PCT", "OSC1_PULSE_WIDTH_PCT", None, None, None),
-    Field("OSC1_OCTAVE", "OSC1_OCTAVE", None, None, None),
-    Field("OSC1_COARSE_SEMIS", None, -12, 12, "DCO-1 coarse tune, folded into osc2 for now (no issue yet)"),
-    Field("OSC2_WAVE", "OSC2_WAVE", None, None, None),
-    Field("OSC2_PULSE_WIDTH_PCT", "OSC2_PULSE_WIDTH_PCT", None, None, None),
-    Field("OSC2_OCTAVE", "OSC2_OCTAVE", None, None, None),
-    Field("OSC2_COARSE_SEMIS", "OSC2_COARSE_SEMIS", None, None, None),
-    Field("OSC2_FINE_CENTS", "OSC2_FINE_CENTS", None, None, None),
-    Field("OSC1_LEVEL_PERMILLE", "OSC1_LEVEL", None, None, None),
-    Field("AMP_LEVEL_PERMILLE", "AMP_LEVEL", None, None, None),
-    Field("OSC2_LEVEL_PERMILLE", "OSC2_LEVEL", None, None, None),
-    Field("OSC_SYNC", "OSC_SYNC", None, None, None),
-    Field("XMOD_AM", "OSC_RING", None, None, None),
-    Field("HIGHPASS_STEP", "HIGHPASS_STEP", None, None, None),
-    Field("FILTER_CUTOFF_CENTS", "FILTER_CUTOFF_CENTS", None, None, None),
-    Field("FILTER_RESONANCE_PERMILLE", "FILTER_RESONANCE", None, None, None),
-    Field("FILTER_KEY_TRACK_PERMILLE", "FILTER_KEY_TRACK", None, None, None),
-    Field("FILTER_ENV_AMOUNT_CENTS", "FILTER_ENV_AMOUNT_CENTS", None, None, None),
-    Field("FILTER_ENV_ATTACK_MS", "FILTER_ENV_ATTACK_MS", None, None, None),
-    Field("FILTER_ENV_DECAY_MS", "FILTER_ENV_DECAY_MS", None, None, None),
-    Field("FILTER_ENV_SUSTAIN_PERMILLE", "FILTER_ENV_SUSTAIN", None, None, None),
-    Field("FILTER_ENV_RELEASE_MS", "FILTER_ENV_RELEASE_MS", None, None, None),
-    Field("FILTER_ENV_SOURCE", "FILTER_ENV_SOURCE", None, None, None),
-    Field("AMP_ATTACK_MS", "AMP_ATTACK_MS", None, None, None),
-    Field("AMP_DECAY_MS", "AMP_DECAY_MS", None, None, None),
-    Field("AMP_SUSTAIN_PERMILLE", "AMP_SUSTAIN", None, None, None),
-    Field("AMP_RELEASE_MS", "AMP_RELEASE_MS", None, None, None),
-    Field("AMP_DYNA", "AMP_DYNA", None, None, None),
-    Field("AMP_GATE", "AMP_GATE", None, None, None),
-    Field("CHORUS_MODE", "CHORUS_MODE", None, None, None),
-    Field("LFO_WAVE", "LFO_WAVE", None, None, None),
-    Field("LFO_RATE_CENTIHZ", "LFO_RATE_CENTIHZ", None, None, None),
-    Field("LFO_DELAY_MS", "LFO_DELAY_MS", None, None, None),
-    Field("LFO_PITCH_CENTS", "LFO_PITCH_CENTS", None, None, None),
-    Field("LFO_PITCH_OSC2_CENTS", "LFO_PITCH_OSC2_CENTS", None, None, None),
-    Field("PITCH_ENV_OSC1_CENTS", "PITCH_ENV_OSC1_CENTS", None, None, None),
-    Field("PITCH_ENV_OSC2_CENTS", "PITCH_ENV_OSC2_CENTS", None, None, None),
-    Field("PITCH_ENV_SOURCE", "PITCH_ENV_SOURCE", None, None, None),
-    Field("PITCH_ENV_DYNA", "PITCH_ENV_DYNA", None, None, None),
-    Field("OSC_MIX_ENV_PERMILLE", "OSC_MIX_ENV", None, None, None),
-    Field("OSC_MIX_ENV_SOURCE", "OSC_MIX_ENV_SOURCE", None, None, None),
-    Field("OSC_MIX_ENV_DYNA", "OSC_MIX_ENV_DYNA", None, None, None),
-    Field("FILTER_LFO_PERMILLE", None, 0, 1000, "#8"),
-    Field("FILTER_ENV_DYNA", "FILTER_ENV_DYNA", None, None, None),
-    Field("AMP_KEY_FOLLOW_PERMILLE", "AMP_KEY_FOLLOW", None, None, None),
-    Field("FILTER_ENV_KEY_FOLLOW_PERMILLE", "FILTER_ENV_KEY_FOLLOW", None, None, None),
-    Field("SETTING_GLIDE", "SETTING_GLIDE", None, None, None),
-]
+FIELDS = [Field(f.name, f.param, f.lo, f.hi, f.waits) for f in params.PATCH_FIELDS]
 _RANGES = engine_ranges()
 FIELDS = [f._replace(lo=_RANGES[f.param][0], hi=_RANGES[f.param][1]) if f.param else f for f in FIELDS]
 
@@ -469,6 +554,12 @@ def generate(syx_path):
 
 def main(argv):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if len(argv) > 1 and argv[1] == "gen":      # make generate: every file the param list makes
+        for rel, text in generated_params().items():
+            with open(os.path.join(root, rel), "w") as f:
+                f.write(text)
+            print("wrote", rel)
+        argv = argv[:1]                         # and patches.c, as below
     syx = argv[1] if len(argv) > 1 else os.path.join(root, "data", "jx8p-factory-1-32.syx")
     out = argv[2] if len(argv) > 2 else os.path.join(root, "firmware", "patches.c")
     text = generate(syx)                    # first: a refused dump leaves the old table
