@@ -1739,8 +1739,13 @@ TT_TEST(ui_themes_meet_their_contrast_rules)
             TT_CHECK(ui_contrast(t->dim, surf[i]) >= TH[n].dim);
         }
         for (i = 0; i < UI_SECTIONS; i++) {
-            TT_CHECK(ui_contrast(t->section[i], t->surface) >= 4.7);
-            TT_CHECK(ui_contrast(t->section[i], t->bg) >= 4.9);
+            if (!(t->fill_only >> i & 1u)) {    /* a color that is also text */
+                TT_CHECK(ui_contrast(t->section[i], t->surface) >= 4.7);
+                TT_CHECK(ui_contrast(t->section[i], t->bg) >= 4.9);
+            }
+            TT_CHECK(ui_contrast(t->section[i], t->surface) >= 3.0);   /* a fill, a meter, a frame */
+            if (t->chip)
+                TT_CHECK(ui_contrast(t->ink, t->section[i]) >= 4.5);   /* the chip's name */
         }
     }
 }
@@ -1907,6 +1912,28 @@ TT_TEST(ui_theme_applies_after_its_debounce)
     TT_CHECK_EQ(ui_theme_shown(&ui_u), (uint32_t)UI_THEME_NIGHT);
 }
 
+/* Membrane's red sections read as the JX-8P's red buttons, not pink (Eric, 2026-11-14): true red to a
+ * little orange, saturated, no lighter than the panel's own */
+TT_TEST(ui_membrane_red_is_the_panels_red)
+{
+    static const uint32_t RED[3] = {UI_SEC_DCO1, UI_SEC_VCF_ENV, UI_SEC_SEQ};
+    uint32_t i;
+    for (i = 0; i < 3u; i++) {
+        uint16_t c = UI_MEMBRANE.section[RED[i]];
+        uint32_t r5 = c >> 11, g6 = c >> 5 & 63u, b5 = c & 31u;
+        double r = (double)(r5 << 3 | r5 >> 2) / 255.0, g = (double)(g6 << 2 | g6 >> 4) / 255.0;
+        double b = (double)(b5 << 3 | b5 >> 2) / 255.0;
+        double hi = r > g ? (r > b ? r : b) : (g > b ? g : b), lo = r < g ? (r < b ? r : b) : (g < b ? g : b);
+        double l = (hi + lo) / 2.0, sat = (hi - lo) / (1.0 - fabs(2.0 * l - 1.0));
+        double hue = 60.0 * (g - b) / (hi - lo);        /* (red the largest: -60 .. 60 degrees) */
+        TT_CHECK(r == hi);
+        TT_CHECK(hue >= -2.0 && hue <= 10.0);
+        TT_CHECK(sat >= 0.6);
+        TT_CHECK(l <= 0.62);
+        TT_CHECK(UI_MEMBRANE.fill_only >> RED[i] & 1u);  /* too dark for text: drawn as a fill */
+    }
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_theme_applies_after_its_debounce);
@@ -1915,6 +1942,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_glo_holds_the_patch_controls);
     TT_RUN(ui_glo_opens_and_goes_back);
     TT_RUN(ui_themes_meet_their_contrast_rules);
+    TT_RUN(ui_membrane_red_is_the_panels_red);
     TT_RUN(ui_isqrt_is_the_floor);
     TT_RUN(ui_settings_default_and_ranges);
     TT_RUN(ui_jump_screen_holds_the_controls_in_edit);

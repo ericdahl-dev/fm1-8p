@@ -224,6 +224,9 @@ static void footer(void)
 /* the page a slot is on (PLAY's knobs come from three), and its section's color and name */
 static uint32_t slot_page(const ui_slot *sl) { return (uint32_t)(sl - UI_SLOTS) / 4u; }
 static uint16_t slot_color(const ui_slot *sl) { return T->section[UI_PAGE_INFO[slot_page(sl)].color]; }
+/* section sec's color as text: its own, or the lettering where it only fills (the theme's fill_only) */
+static uint16_t sec_text(uint32_t sec) { return T->fill_only >> sec & 1u ? C_TEXT : T->section[sec]; }
+static uint16_t slot_text(const ui_slot *sl) { return sec_text(UI_PAGE_INFO[slot_page(sl)].color); }
 
 /* rows 28..77 */
 static void focus_row(void)
@@ -242,7 +245,7 @@ static void focus_row(void)
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
     frame(M, 0, 64, 46, C_LINE);
     seg7(M + (64 - 38) / 2, 5, num, led_of(slot_color(s)), mix(C_WINDOW, led_of(slot_color(s)), T->ghost));
-    CV_TEXT(M + 72, 0, 0, UI_PAGE_INFO[slot_page(s)].section, slot_color(s));
+    CV_TEXT(M + 72, 0, 0, UI_PAGE_INFO[slot_page(s)].section, slot_text(s));
     CV_TEXT(M + 72 + TEXT_W(0, UI_PAGE_INFO[slot_page(s)].section) + 8, 0, 0, s->full, C_TEXT);
     x = d24(M + 72, 20, val, C_TEXT);
     if (*unit)
@@ -372,7 +375,7 @@ static void column(uint32_t k)
     H->cv_rect(x, 0, COL_W, 84, bg);
     if (s && s->kind != UI_RESERVED) {
         ui_slot_number(s, num);
-        text_c(x, COL_W, 3, 0, num, sc);
+        text_c(x, COL_W, 3, 0, num, slot_text(s));
         text_c(x, COL_W, 19, 0, s->label, act ? C_TEXT : C_DIM);
         if (s->kind == UI_PENDING) {            /* (interaction.md: a pending parameter shows --) */
             d24(x + (COL_W - d24_w("--")) / 2, 52, "--", C_DIM);
@@ -611,7 +614,7 @@ static void jump_part(uint32_t b, uint32_t part)
         seg7(M + (64 - 38) / 2, 5, num, led_of(T->section[UI_SEC_GLO]), mix(C_WINDOW, led_of(T->section[UI_SEC_GLO]), T->ghost));
         CV_TEXT(M + 72, 0, 0, "GO TO PARAMETER", C_TEXT);
         if (U->jump > 0) {
-            CV_TEXT(M + 72, 20, 0, UI_SECTION_NAME[U->jump - 1], T->section[UI_PAGE_INFO[UI_SECTION_PAGE[U->jump - 1]].color]);
+            CV_TEXT(M + 72, 20, 0, UI_SECTION_NAME[U->jump - 1], sec_text(UI_PAGE_INFO[UI_SECTION_PAGE[U->jump - 1]].color));
         } else {
             CV_TEXT(M + 72, 20, 0, "SECTION, THEN KNOB", C_DIM);
         }
@@ -627,8 +630,14 @@ static void jump_part(uint32_t b, uint32_t part)
                 char dig[2];
                 int32_t x = M + (int32_t)i * 118, y = 4 + (int32_t)r * 28 + 4 - (y0 - 78);
                 dig[0] = (char)('0' + d), dig[1] = 0;
-                CV_TEXT(x, y, 0, dig, T->section[UI_PAGE_INFO[UI_SECTION_PAGE[d]].color]);
-                CV_TEXT(x + 14, y, 0, UI_SECTION_NAME[d], C_TEXT);
+                const uint32_t sec = UI_PAGE_INFO[UI_SECTION_PAGE[d]].color;
+                if (T->chip) {                  /* the digit on a chip of its color, as the header's */
+                    H->cv_rect(x - 3, y - 2, TEXT_W(0, dig) + 6, 20, T->section[sec]);
+                    CV_TEXT(x, y, 0, dig, T->ink);
+                } else {
+                    CV_TEXT(x, y, 0, dig, sec_text(sec));
+                }
+                CV_TEXT(x + 16, y, 0, UI_SECTION_NAME[d], C_TEXT);
             }
         blit(0, y0, 240, hh);
     }                                           /* (columns 2-4: within column 1's band) */
