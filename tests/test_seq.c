@@ -96,6 +96,10 @@ TT_TEST(seq_edits_steps_length_and_tempo)
     TT_CHECK_EQ(seq_tempo(&sq), SEQ_TEMPO_MIN);
     seq_set_tempo(&sq, 99999);
     TT_CHECK_EQ(seq_tempo(&sq), SEQ_TEMPO_MAX);
+    seq_set_gate(&sq, 1);                       /* interaction.md: GATE 5..100 % */
+    TT_CHECK_EQ(sq.edit.gate_pct, SEQ_GATE_MIN);
+    seq_set_gate(&sq, 101);
+    TT_CHECK_EQ(sq.edit.gate_pct, 100u);
     TT_CHECK(seq_get_step(&sq, SEQ_STEPS) == 0);   /* past the end: none */
 }
 
@@ -313,7 +317,7 @@ TT_TEST(seq_full_gate_lets_go_before_the_next_on)
     TT_CHECK_EQ(seq_log[2].vel, 100u);
 }
 
-/* The busiest block (6-note chords, a 1 % gate, 300 BPM at 8 kHz, blocks of 256) stays within
+/* The busiest block (6-note chords, the shortest gate, 300 BPM at 8 kHz, blocks of 256) stays within
  * SEQ_EVENTS, and the clock fits 32 bits at 192 kHz. */
 TT_TEST(seq_busiest_block_fits)
 {
@@ -321,7 +325,7 @@ TT_TEST(seq_busiest_block_fits)
     uint32_t i;
     seq_fresh();
     seq_set_tempo(&sq, SEQ_TEMPO_MAX);
-    seq_set_gate(&sq, 1);
+    seq_set_gate(&sq, SEQ_GATE_MIN);
     for (i = 0; i < SEQ_STEPS; i++)
         seq_set_step(&sq, i, chord, 6, 100);
     seq_play(&sq);
