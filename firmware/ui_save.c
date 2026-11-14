@@ -125,7 +125,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->save_step = UI_SAVE_EDITING;
         u->dirty |= UI_D_ALL & ~UI_D_FULL;
     }
-    if (ev == (UI_EV_ENC | UI_ENC_SELECT)) {   /* the cursor, clamped */
+    if (ev == (UI_EV_ENC | UI_ENC_SELECT) || ev == (UI_EV_ENC | UI_ENC_KNOB2)) {   /* the cursor, clamped */
         int32_t c = (int32_t)u->save_cursor + arg;
         u->save_cursor = c < 0 ? 0u : c > (int32_t)STORE_NAME_LEN - 1 ? STORE_NAME_LEN - 1u : (uint32_t)c;
         u->dirty |= UI_D_ALL & ~UI_D_FULL;
@@ -138,16 +138,20 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             i = 0;
         *c = CHARS[(uint32_t)((int32_t)i + arg % (int32_t)N_CHARS + (int32_t)N_CHARS) % N_CHARS];
         u->dirty |= UI_D_ALL & ~UI_D_FULL;
-    } else if (ev == (UI_EV_ENC | UI_ENC_KNOB2) && arg) {   /* insert a space, or delete */
-        uint32_t i;
-        if (arg > 0) {
-            for (i = STORE_NAME_LEN - 1u; i > u->save_cursor; i--)
-                u->save_name[i] = u->save_name[i - 1u];
-            u->save_name[u->save_cursor] = ' ';
-        } else {
-            for (i = u->save_cursor; i < STORE_NAME_LEN - 1u; i++)
-                u->save_name[i] = u->save_name[i + 1u];
-            u->save_name[STORE_NAME_LEN - 1u] = ' ';
+    } else if (ev == (UI_EV_ENC | UI_ENC_KNOB3) && arg) {   /* a space inserted, or one deleted, a click */
+        uint32_t i, n = (uint32_t)(arg < 0 ? -arg : arg);
+        if (n > STORE_NAME_LEN - u->save_cursor)  /* (more is the same: all past the cursor) */
+            n = STORE_NAME_LEN - u->save_cursor;
+        for (; n; n--) {
+            if (arg > 0) {
+                for (i = STORE_NAME_LEN - 1u; i > u->save_cursor; i--)
+                    u->save_name[i] = u->save_name[i - 1u];
+                u->save_name[u->save_cursor] = ' ';
+            } else {
+                for (i = u->save_cursor; i < STORE_NAME_LEN - 1u; i++)
+                    u->save_name[i] = u->save_name[i + 1u];
+                u->save_name[STORE_NAME_LEN - 1u] = ' ';
+            }
         }
         u->dirty |= UI_D_ALL & ~UI_D_FULL;
     }

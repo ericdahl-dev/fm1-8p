@@ -503,8 +503,8 @@ static void save_part(uint32_t b, uint32_t part)
             text_c(0, 240, 40, 0, "SAVE AGAIN TO REPLACE", T->led);
         } else {
             text_c(0, 240, 2, 0, "PRESETS  SLOT", C_DIM);
-            text_c(0, 240, 22, 0, "SELECT  CURSOR", C_DIM);
-            text_c(0, 240, 42, 0, "K1 LETTER  K2 INS/DEL", C_DIM);
+            text_c(0, 240, 22, 0, "K1 LETTER  K2 CURSOR", C_DIM);
+            text_c(0, 240, 42, 0, "K3 INSERT/DELETE", C_DIM);
             text_c(0, 240, 62, 0, "SAVE WRITES  HOME CANCELS", C_DIM);
         }
         blit(0, 138, 240, 84);
