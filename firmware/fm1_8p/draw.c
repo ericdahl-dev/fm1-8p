@@ -10,6 +10,28 @@ static const hb_host_t *H;
 static play *P;
 static ui *U;
 
+#ifdef FM1_DEBUG
+/* The trail (debug builds): every string handed to the host's text calls is checked first. One that
+ * isn't in RAM or the flash window is logged with its line here, and drawing stops for good (no
+ * fault, so the log keeps it). Look for "fm1-8p TRAIL". */
+static uint32_t trail_dead;
+static int trail_ok(const char *s, uint32_t line)
+{
+    uint32_t a = (uint32_t)(uintptr_t)s;
+    if ((a >= 0x01C00000u && a < 0x01C80000u) || (a >= 0x02000000u && a < 0x02400000u))
+        return 1;
+    H->log_u32("fm1-8p TRAIL bad text pointer", a);
+    H->log_u32("fm1-8p TRAIL at draw.c line", line);
+    trail_dead = 1;
+    return 0;
+}
+#define CV_TEXT(x, y, b, s, c) (trail_ok(s, __LINE__) ? (void)H->cv_text(x, y, b, s, c) : (void)0)
+#define TEXT_W(b, s) (trail_ok(s, __LINE__) ? H->text_w(b, s) : 0)
+#else
+#define CV_TEXT(x, y, b, s, c) H->cv_text(x, y, b, s, c)
+#define TEXT_W(b, s) H->text_w(b, s)
+#endif
+
 /* the theme (visual.md's style table, firmware/ui_map.c), RGB565 */
 static const ui_theme *T = &UI_MEMBRANE;
 #define C_BG     (T->bg)
@@ -84,7 +106,7 @@ static int32_t d24(int32_t x, int32_t y, const char *s, uint16_t c)
 /* text in size big (0: 16 px, 1: 32 px), centered in w */
 static void text_c(int32_t x, int32_t w, int32_t y, uint32_t big, const char *s, uint16_t c)
 {
-    H->cv_text(x + (w - H->text_w(big, s)) / 2, y, big, s, c);
+    CV_TEXT(x + (w - TEXT_W(big, s)) / 2, y, big, s, c);
 }
 
 /* two digits on 7-segment LEDs, 16 x 36, 4 px strokes, the unlit ones as a ghost */
@@ -131,21 +153,21 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
     uint32_t i;
     H->cv_begin(240, 28, C_BG);
     if (T->chip) {
-        x = M + H->text_w(0, chip) + M;
+        x = M + TEXT_W(0, chip) + M;
         H->cv_rect(0, 0, x, 23, col);
-        H->cv_text(M, 4, 0, chip, T->ink);
+        CV_TEXT(M, 4, 0, chip, T->ink);
         x += 6;
     } else {
         H->cv_rect(0, 0, 240, 3, col);
-        H->cv_text(M, 4, 0, chip, col);
-        x = M + H->text_w(0, chip) + 8;
+        CV_TEXT(M, 4, 0, chip, col);
+        x = M + TEXT_W(0, chip) + 8;
     }
-    H->cv_text(x, 4, 0, lead, C_DIM);
-    x += H->text_w(0, lead);
-    H->cv_text(x, 4, 0, lit, C_TEXT);
-    H->cv_text(x + H->text_w(0, lit), 4, 0, tail, C_DIM);
+    CV_TEXT(x, 4, 0, lead, C_DIM);
+    x += TEXT_W(0, lead);
+    CV_TEXT(x, 4, 0, lit, C_TEXT);
+    CV_TEXT(x + TEXT_W(0, lit), 4, 0, tail, C_DIM);
     ui_octave_label(P->oct, o);                  /* (HB_F_SCREEN hides the host's line, which had it) */
-    H->cv_text(240 - M - H->text_w(0, o), 4, 0, o, P->oct ? C_TEXT : C_DIM);
+    CV_TEXT(240 - M - TEXT_W(0, o), 4, 0, o, P->oct ? C_TEXT : C_DIM);
     H->cv_rect(0, 23, 240, 1, C_LINE);
     if (page >= 0)
         for (i = 0; i < UI_PAGES; i++) {
@@ -169,9 +191,9 @@ static void footer(void)
         text_c(0, 240, 2, 0, b, C_PLAY);
     } else {
         ui_patch_number(play_patch(P), n);
-        H->cv_text(M, 2, 0, n, C_DIM);
-        H->cv_text(M + H->text_w(0, n) + 6, 2, 0, play_patch(P)->name, C_TEXT);
-        H->cv_text(240 - M - H->text_w(0, v), 2, 0, v, C_DIM);
+        CV_TEXT(M, 2, 0, n, C_DIM);
+        CV_TEXT(M + TEXT_W(0, n) + 6, 2, 0, play_patch(P)->name, C_TEXT);
+        CV_TEXT(240 - M - TEXT_W(0, v), 2, 0, v, C_DIM);
     }
     blit(0, 222, 240, 18);
 }
@@ -193,11 +215,11 @@ static void focus_row(void)
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
     frame(M, 0, 64, 46, C_LINE);
     seg7(M + (64 - 38) / 2, 5, num, T->led, mix(C_WINDOW, T->led, T->ghost));
-    H->cv_text(M + 72, 0, 0, UI_PAGE_INFO[U->page].section, C_VCF);
-    H->cv_text(M + 72 + H->text_w(0, UI_PAGE_INFO[U->page].section) + 8, 0, 0, s->full, C_TEXT);
+    CV_TEXT(M + 72, 0, 0, UI_PAGE_INFO[U->page].section, C_VCF);
+    CV_TEXT(M + 72 + TEXT_W(0, UI_PAGE_INFO[U->page].section) + 8, 0, 0, s->full, C_TEXT);
     x = d24(M + 72, 20, val, C_TEXT);
     if (*unit)
-        H->cv_text(x + 3, 28, 0, unit, C_DIM);
+        CV_TEXT(x + 3, 28, 0, unit, C_DIM);
     blit(0, 28, 240, 50);
 }
 
@@ -306,7 +328,7 @@ static void column(uint32_t k)
                 H->cv_rect(x + 6 + a, 40, b - a, 6, on);
             }
             ui_column(s->id, value, val, unit);
-            tw = d24_w(val) + (*unit ? 3 + H->text_w(0, unit) : 0);
+            tw = d24_w(val) + (*unit ? 3 + TEXT_W(0, unit) : 0);
             if (tw > COL_W - 4) {               /* too wide: the unit goes first (the focus row has it) */
                 *unit = 0;
                 tw = d24_w(val);
@@ -316,7 +338,7 @@ static void column(uint32_t k)
             } else {
                 x0 = d24(x + (COL_W - tw) / 2, 52, val, act && live ? C_TEXT : C_DIM);
                 if (*unit)
-                    H->cv_text(x0 + 1, 60, 0, unit, mix(C_SURF, act && live ? C_TEXT : C_DIM, 179));
+                    CV_TEXT(x0 + 1, 60, 0, unit, mix(C_SURF, act && live ? C_TEXT : C_DIM, 179));
             }
         }
         if (act)                                /* the focus: the theme's frames inward */
@@ -398,6 +420,15 @@ void ui_draw_frame(uint32_t full)
 {
 #ifdef FM1_DEBUG
     uint32_t t0 = H->ticks();
+    static uint32_t shown = ~0u;
+    uint32_t now = (uint32_t)U->state << 16 | U->page << 8 | U->focus;
+    if (trail_dead)
+        return;                                 /* (a bad pointer was logged: drawing stops) */
+    if (now != shown) {                         /* each change of state, page or focus, with the focus's label */
+        shown = now;
+        H->log_u32("fm1-8p TRAIL state/page/focus", now);
+        H->log_u32("fm1-8p TRAIL focus label", (uint32_t)(uintptr_t)ui_page_slot(U, U->focus)->full);
+    }
 #endif
     if (full) {                                 /* the host's: all of it, now */
         pending = ui_take_full(U, H->ms());
