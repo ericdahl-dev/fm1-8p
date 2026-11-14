@@ -706,6 +706,8 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_ENV:
     case UI_BTN_FX:
     case UI_BTN_LFO:                            /* lit while a page of its ring shows */
+        if (u->state == UI_SAVE)                /* they do nothing in SAVE: off (interaction.md) */
+            return UI_LED_OFF;
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
     case UI_BTN_EDIT:                           /* lit while the edit buffer differs from the stored patch */
         if (u->comparing == UI_COMPARE_ON)      /* blinking during compare */

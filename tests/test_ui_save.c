@@ -247,6 +247,23 @@ TT_TEST(save_failed_write_says_so)
     TT_CHECK_EQ(play_prog(&ui_p), PLAY_PROG_P + PATCH_SOUNDTRACK);
 }
 
+/* In SAVE every button that does nothing there has its LED off (interaction.md): SEL, ENV, FX and LFO
+ * go dark while SAVE is open and glow again after it. */
+TT_TEST(save_leds_of_idle_buttons_are_off)
+{
+    static const uint32_t idle[] = { UI_BTN_SEL, UI_BTN_ENV, UI_BTN_FX, UI_BTN_LFO };
+    uint32_t i;
+    int off = 1, back = 1;
+    save_setup();
+    save_tap(UI_BTN_HOME, 500);                 /* PLAY: they glow */
+    save_tap(UI_BTN_SAVE, 1000);
+    for (i = 0; i < 4; i++) off &= ui_led(&ui_u, idle[i]) == UI_LED_OFF;
+    save_tap(UI_BTN_HOME, 1200);
+    for (i = 0; i < 4; i++) back &= ui_led(&ui_u, idle[i]) == UI_LED_GLOW;
+    TT_CHECK(off);
+    TT_CHECK(back);
+}
+
 /* TODO when #187 (ui_key, the number jump) is merged in: SEL down in SAVE, then a key down, gives
  * ui_key == 0 and the key sounds (agent1, 2026-11-13). */
 
@@ -262,4 +279,5 @@ static void run_ui_save_tests(void)
     TT_RUN(save_held_forces_a_waiting_write);
     TT_RUN(save_home_cancels_a_waiting_write);
     TT_RUN(save_failed_write_says_so);
+    TT_RUN(save_leds_of_idle_buttons_are_off);
 }
