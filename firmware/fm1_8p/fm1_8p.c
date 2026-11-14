@@ -116,6 +116,8 @@ static void draw(uint32_t full)
         page_leds(1);
     }
     ui_draw_frame(full);
+    if (!full)
+        page_leds(0);                           /* a change ui_take made: compare, the EDIT blink */
 }
 
 static int init(const hb_host_t *h)
