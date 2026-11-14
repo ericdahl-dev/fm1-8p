@@ -64,7 +64,7 @@ static void replace_prompt(ui *u)
     ui_prog_number(u->save_dest, s);
     s += 2;                                     /* a user slot: two digits (a scan here is strlen to clang) */
     *s++ = ' ';
-    if (store_slot_read(u->p->lib, u->save_dest, &there) == 0)
+    if (u->p->lib && store_slot_read(u->p->lib, u->save_dest, &there) == 0)
         for (i = 0; i < STORE_NAME_LEN && there.name[i]; i++)
             *s++ = there.name[i];
     *s++ = '?';
@@ -204,7 +204,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap) {
-        if (u->save_step == UI_SAVE_EDITING && u->save_dest != play_prog(u->p) &&
+        if (u->save_step == UI_SAVE_EDITING && u->save_dest != play_prog(u->p) && u->p->lib &&
             store_slot_used(u->p->lib, u->save_dest)) {   /* another patch is there: ask first */
             replace_prompt(u);
             return;

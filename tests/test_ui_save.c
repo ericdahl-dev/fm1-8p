@@ -402,6 +402,21 @@ TT_TEST(save_has_the_screen_and_takes_the_jump_down)
     TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
 }
 
+/* With no patch store (a host without one, or a SAVE before the first draw loads it), SAVE still opens,
+ * and a second tap onto a slot other than the patch's own says SAVE FAILED: it never reads the store. */
+TT_TEST(save_without_a_store_says_save_failed)
+{
+    (void)play_init(&ui_p);                     /* no play_attach_store: lib is NULL */
+    ui_init(&ui_u, &ui_p);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    save_tap(UI_BTN_SAVE, 1000);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK(ui_u.save_dest != play_prog(&ui_p));
+    save_tap(UI_BTN_SAVE, 1200);
+    TT_CHECK(ui_u.state != UI_SAVE);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVE FAILED") == 0);
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
@@ -421,4 +436,5 @@ static void run_ui_save_tests(void)
     TT_RUN(save_sel_does_not_take_the_keys);
     TT_RUN(save_opened_with_sel_held_ends_the_keypad);
     TT_RUN(save_has_the_screen_and_takes_the_jump_down);
+    TT_RUN(save_without_a_store_says_save_failed);
 }
