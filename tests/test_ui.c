@@ -1660,6 +1660,15 @@ TT_TEST(ui_jump_screen_holds_the_controls_in_edit)
     TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 51);             /* still 5A */
 }
 
+/* The sun art's rows (render.py's disc_rows, in integers): ui_isqrt is the floor of the square root. */
+TT_TEST(ui_isqrt_is_the_floor)
+{
+    TT_CHECK_EQ(ui_isqrt(0), 0u);
+    TT_CHECK_EQ(ui_isqrt(899), 29u);
+    TT_CHECK_EQ(ui_isqrt(900), 30u);
+    TT_CHECK_EQ(ui_isqrt(900 - 29 * 29), 7u);   /* the sun's top rows: r 30, 29 rows down */
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1682,26 +1691,33 @@ static double ui_contrast(uint16_t a, uint16_t b)
     return floor(10.0 * (la > lb ? (la + 0.05) / (lb + 0.05) : (lb + 0.05) / (la + 0.05)) + 0.5) / 10.0;
 }
 
-/* Membrane (visual.md's style table) meets its contrast rules: text at least 10.2:1 on every
- * surface, dim labels 4.9:1, each section color 4.7:1 on surface and 4.9:1 on bg. */
-TT_TEST(ui_membrane_meets_its_contrast_rules)
+/* Each theme (visual.md's style table) meets its contrast rules: text on every surface, dim labels,
+ * each section color on surface and on bg. Membrane 10.2 / 4.9 / 4.7 / 4.9; Night Panel 13.9 / 5.6 / 4.7
+ * / 4.9. */
+TT_TEST(ui_themes_meet_their_contrast_rules)
 {
-    const ui_theme *t = &UI_MEMBRANE;
-    const uint16_t surf[3] = {t->bg, t->surface, t->surface_hi};
-    uint32_t i;
-    for (i = 0; i < 3; i++) {
-        TT_CHECK(ui_contrast(t->text, surf[i]) >= 10.2);
-        TT_CHECK(ui_contrast(t->dim, surf[i]) >= 4.9);
-    }
-    for (i = 0; i < UI_SECTIONS; i++) {
-        TT_CHECK(ui_contrast(t->section[i], t->surface) >= 4.7);
-        TT_CHECK(ui_contrast(t->section[i], t->bg) >= 4.9);
+    static const struct { const ui_theme *t; double text, dim; } TH[2] = {
+        {&UI_MEMBRANE, 10.2, 4.9}, {&UI_NIGHT_PANEL, 13.9, 5.6},
+    };
+    uint32_t n, i;
+    for (n = 0; n < 2u; n++) {
+        const ui_theme *t = TH[n].t;
+        const uint16_t surf[3] = {t->bg, t->surface, t->surface_hi};
+        for (i = 0; i < 3; i++) {
+            TT_CHECK(ui_contrast(t->text, surf[i]) >= TH[n].text);
+            TT_CHECK(ui_contrast(t->dim, surf[i]) >= TH[n].dim);
+        }
+        for (i = 0; i < UI_SECTIONS; i++) {
+            TT_CHECK(ui_contrast(t->section[i], t->surface) >= 4.7);
+            TT_CHECK(ui_contrast(t->section[i], t->bg) >= 4.9);
+        }
     }
 }
 
 static void run_ui_tests(void)
 {
-    TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_themes_meet_their_contrast_rules);
+    TT_RUN(ui_isqrt_is_the_floor);
     TT_RUN(ui_jump_screen_holds_the_controls_in_edit);
     TT_RUN(ui_jump_screen_holds_the_knobs_in_play);
     TT_RUN(ui_play_readout_ends_with_the_visit);
