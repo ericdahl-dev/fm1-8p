@@ -530,29 +530,36 @@ static void save_part(uint32_t b, uint32_t part)
         H->cv_begin(240, 50, C_BG);
         CV_TEXT(M, 18, 0, "TO", C_DIM);
         CV_TEXT(M + 28, 6, 1, s, HB_RGB(255, 176, 64));
-        CV_TEXT(120, 18, 0, P->lib && store_slot_read(P->lib, U->save_dest, &there) == 0 ? there.name : "EMPTY",
-                C_DIM);
+        if (play_edited(P))                     /* a rename saves the sound's edits too: say so */
+            CV_TEXT(M + 28 + TEXT_W(1, s) + 6, 18, 0, "+ EDITS", C_TEXT);
+        {                                       /* what is there now, at the right (+ EDITS has the middle) */
+            const char *t = P->lib && store_slot_read(P->lib, U->save_dest, &there) == 0 ? there.name : "EMPTY";
+            CV_TEXT(240 - M - TEXT_W(0, t), 18, 0, t, C_DIM);
+        }
         blit(0, 28, 240, 50);
-    } else if (b == UI_D_SLOT) {                /* rows 78..137: the new name, the cursor under its place */
-        char pre[STORE_NAME_LEN + 1u];
-        int32_t x0 = (240 - TEXT_W(1, U->save_name)) / 2, x, w;
+    } else if (b == UI_D_SLOT) {                /* rows 78..137: the name as 12 cells, the cursor under one */
+        char c[2];
+        int32_t cw = TEXT_W(1, "M"), x0 = (240 - (int32_t)STORE_NAME_LEN * cw) / 2, x;
         uint32_t i;
-        for (i = 0; i < U->save_cursor; i++)
-            pre[i] = U->save_name[i];
-        pre[i] = 0;
-        x = x0 + TEXT_W(1, pre);
-        pre[0] = U->save_name[U->save_cursor];
-        pre[1] = 0;
-        w = TEXT_W(1, pre);
+        c[1] = 0;
         H->cv_begin(240, 60, C_BG);
-        CV_TEXT(x0, 8, 1, U->save_name, C_TEXT);
-        H->cv_rect(x, 48, w, 3, led_of(C_PLAY));
+        for (i = 0; i < STORE_NAME_LEN; i++) {
+            x = x0 + (int32_t)i * cw;
+            c[0] = U->save_name[i];
+            if (c[0] != ' ')
+                CV_TEXT(x, 8, 1, c, C_TEXT);
+            else                                /* an empty cell: a dim dot, so the 12 places show */
+                H->cv_rect(x + cw / 2 - 1, 30, 3, 3, C_LINE);
+        }
+        H->cv_rect(x0 + (int32_t)U->save_cursor * cw, 48, cw, 3, led_of(C_PLAY));
         blit(0, 78, 240, 60);
     } else if (b == UI_D_NOTE) {                /* rows 138..221: the step */
         H->cv_begin(240, 84, C_BG);
         if (U->save_step == UI_SAVE_CONFIRM) {
-            text_c(0, 240, 12, 0, U->save_msg, C_TEXT);
-            text_c(0, 240, 40, 0, "SAVE AGAIN TO REPLACE", led_of(C_PLAY));
+            text_c(0, 240, 4, 0, U->save_msg, C_TEXT);
+            text_c(0, 240, 26, 0, "SAVE AGAIN TO REPLACE", led_of(C_PLAY));
+            text_c(0, 240, 48, 0, "HOME CANCELS", C_DIM);
+            text_c(0, 240, 66, 0, "PRESETS: OTHER SLOT", C_DIM);
         } else {
             text_c(0, 240, 2, 0, "PRESETS SLOT  ALGO EMPTY", C_DIM);
             text_c(0, 240, 22, 0, "K1 LETTER  K2 CURSOR", C_DIM);

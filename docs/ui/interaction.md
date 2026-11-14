@@ -384,8 +384,13 @@ view. The flow is the same for both; only the slots differ.
      while naming it. Their LEDs follow their usual rules.
    - Every other button does nothing in SAVE, and its LED is off.
 3. **SAVE tap again** writes the patch. If the destination holds another
-   patch, the first tap shows `REPLACE 23 <NAME>? SAVE AGAIN`, and the second
-   tap writes.
+   patch, the first tap shows `REPLACE 23 <NAME>?`, `SAVE AGAIN TO REPLACE`,
+   `HOME CANCELS` and `PRESETS: OTHER SLOT`, and the second tap writes.
+   - **The screen:** `TO 23` with what is there now (or `EMPTY`) at the right,
+     and `+ EDITS` after the number when the edit buffer is edited, so a
+     rename shows it also saves the sound's edits. The name shows as 12 fixed
+     cells, an empty one as a dim dot, with the cursor under its cell (a blank
+     one too).
 4. **After the write:** it shows `SAVED 23` (or `SAVED PATTERN 23`) for 1.5 s,
    that edit buffer becomes clean, and the state goes back to where SAVE was
    pressed.
