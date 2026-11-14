@@ -372,10 +372,10 @@ view. The flow is the same for both; only the slots differ.
 2. **In SAVE:**
    - PRESETS: the destination slot (patch 11..88, or pattern 11..88). It
      shows the name of what is there now, or `EMPTY`.
-   - SELECT: moves the name cursor.
+   - KNOB2: moves the name cursor. SELECT moves it too.
    - KNOB1: the character at the cursor (A-Z, 0-9, space, `-`).
-   - KNOB2: inserts or deletes at the cursor. Clockwise inserts a space, and
-     counterclockwise deletes.
+   - KNOB3: inserts or deletes at the cursor, one character a click (a fast
+     turn too). Clockwise inserts a space, and counterclockwise deletes.
    - PLAY, OCT-, OCT+ and the keys work as usual, so the sound can be played
      while naming it. Their LEDs follow their usual rules.
    - Every other button does nothing in SAVE, and its LED is off.
@@ -462,7 +462,7 @@ step entry, where the octave sets the pitch that is written.
 | --- | --- | --- | --- | --- | --- |
 | SELECT | page (goes to EDIT) | page | step cursor | name cursor | GLO page |
 | ALGORITHM | section (goes to EDIT) | section | SEQ page | - | GLO page |
-| KNOB1-4 | performance knobs | page's parameters | SEQ page's values | K1 char, K2 insert/delete | settings |
+| KNOB1-4 | performance knobs | page's parameters | SEQ page's values | K1 char, K2 cursor, K3 insert/delete | settings |
 | PRESETS | patch | patch | pattern | destination slot | patch |
 
 ## 5. Sequencer

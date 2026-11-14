@@ -97,9 +97,9 @@ TT_TEST(save_asks_before_replacing_another_patch)
     TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED 12") == 0);
 }
 
-/* The name: SELECT moves the cursor over its 12 places (clamped), KNOB1 steps the character there
- * through space, A-Z, 0-9 and '-', KNOB2 inserts a space (clockwise) or deletes (counterclockwise).
- * The patch is saved with the name as edited, trailing spaces trimmed. */
+/* The name: KNOB2 or SELECT moves the cursor over its 12 places (clamped), KNOB1 steps the character
+ * there through space, A-Z, 0-9 and '-', KNOB3 inserts a space (clockwise) or deletes
+ * (counterclockwise). The patch is saved with the name as edited, trailing spaces trimmed. */
 TT_TEST(save_edits_the_name)
 {
     static store_patch out;
@@ -108,23 +108,43 @@ TT_TEST(save_edits_the_name)
     TT_CHECK_EQ(ui_u.save_cursor, 0u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1100);         /* S -> T */
     TT_CHECK(strncmp(ui_u.save_name, "TOUNDTRACK", 10) == 0);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 10, 1200);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 10, 1200);
     TT_CHECK_EQ(ui_u.save_cursor, 10u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1300);         /* space -> A -> B */
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 5, 1400);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 1400);
     TT_CHECK_EQ(ui_u.save_cursor, 11u);                          /* clamped */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -1, 1450);        /* space -> '-' (wraps) */
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, -20, 1500);
-    TT_CHECK_EQ(ui_u.save_cursor, 0u);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -1, 1600);        /* delete the T */
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1700);         /* a space at 0 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -20, 1500);
+    TT_CHECK_EQ(ui_u.save_cursor, 0u);                           /* clamped */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 3, 1520);         /* SELECT moves it too */
+    TT_CHECK_EQ(ui_u.save_cursor, 3u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, -3, 1540);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, -1, 1600);        /* delete the T */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 1700);         /* a space at 0 */
     save_tap(UI_BTN_SAVE, 2000);
     TT_CHECK_EQ(store_slot_read(&store_lib_a, 0, &out), 0);
     TT_CHECK(strcmp(out.name, " OUNDTRACKB-") == 0);
 }
 
+/* KNOB3 counts every click, fast turns too: 3 counterclockwise deletes 3, 2 clockwise inserts 2. */
+TT_TEST(save_insert_delete_counts_every_click)
+{
+    save_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, -3, 1100);        /* SOU gone */
+    TT_CHECK(strcmp(ui_u.save_name, "NDTRACK     ") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1200);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 2, 1300);         /* two spaces at 1 */
+    TT_CHECK(strcmp(ui_u.save_name, "N  DTRACK   ") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, -40, 1400);       /* more than there is: all from 1 */
+    TT_CHECK(strcmp(ui_u.save_name, "N           ") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 40, 1500);
+    TT_CHECK(strcmp(ui_u.save_name, "N           ") == 0);
+    TT_CHECK_EQ(ui_u.save_cursor, 1u);
+}
+
 /* HOME tap or EDIT tap cancels: nothing is written and the state goes back. Every other button, and
- * KNOB3 and KNOB4, do nothing in SAVE. */
+ * KNOB4, do nothing in SAVE. */
 TT_TEST(save_cancels_on_home_or_edit_and_ignores_the_rest)
 {
     static store_patch out;
@@ -134,7 +154,6 @@ TT_TEST(save_cancels_on_home_or_edit_and_ignores_the_rest)
     save_tap(UI_BTN_SAVE, 1000);
     save_tap(UI_BTN_ENV, 1100);
     save_tap(UI_BTN_SEL, 1200);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 4, 1300);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 4, 1300);
     TT_CHECK_EQ(ui_u.state, UI_SAVE);
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), res);
@@ -317,6 +336,21 @@ TT_TEST(save_has_the_screen_and_takes_the_jump_down)
     TT_CHECK_EQ(ui_screen(&ui_u), UI_SCREEN_PAGE);
 }
 
+/* With no patch store (a host without one, or a SAVE before the first draw loads it), SAVE still opens,
+ * and a second tap onto a slot other than the patch's own says SAVE FAILED: it never reads the store. */
+TT_TEST(save_without_a_store_says_save_failed)
+{
+    (void)play_init(&ui_p);                     /* no play_attach_store: lib is NULL */
+    ui_init(&ui_u, &ui_p);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
+    save_tap(UI_BTN_SAVE, 1000);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK(ui_u.save_dest != play_prog(&ui_p));
+    save_tap(UI_BTN_SAVE, 1200);
+    TT_CHECK(ui_u.state != UI_SAVE);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVE FAILED") == 0);
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
@@ -324,6 +358,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_presets_picks_the_destination);
     TT_RUN(save_asks_before_replacing_another_patch);
     TT_RUN(save_edits_the_name);
+    TT_RUN(save_insert_delete_counts_every_click);
     TT_RUN(save_cancels_on_home_or_edit_and_ignores_the_rest);
     TT_RUN(save_waits_for_silence);
     TT_RUN(save_held_forces_a_waiting_write);
@@ -333,4 +368,5 @@ static void run_ui_save_tests(void)
     TT_RUN(save_sel_does_not_take_the_keys);
     TT_RUN(save_opened_with_sel_held_ends_the_keypad);
     TT_RUN(save_has_the_screen_and_takes_the_jump_down);
+    TT_RUN(save_without_a_store_says_save_failed);
 }
