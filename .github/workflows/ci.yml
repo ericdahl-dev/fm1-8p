@@ -146,6 +146,20 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
 
+      - name: FM1-8P's SAVE writes in silence in fm1-emu (#48, strict timing, report only)
+        continue-on-error: true
+        run: |
+          rc=0
+          tools/fm1-build.sh emu-save || rc=$?
+          {
+            echo "## FM1-8P's SAVE in fm1-emu: the flash write lands in silence (#48, report only)"
+            echo
+            echo "A chord held, SAVE tapped twice while it sounds, released: the one write must come after the release, with silence around it."
+            echo
+            cat build/fm1/emu-save-report.md 2>/dev/null || echo "**No report: the run failed before it (see the log).**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
       - name: Upload the synth
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -177,4 +191,7 @@ jobs:
             build/fm1/emu-play-report.md
             build/fm1/emu-play.log
             build/fm1/emu-play/panel.png
+            build/fm1/emu-save-report.md
+            build/fm1/emu-save.log
+            build/fm1/emu-save/log.txt
           if-no-files-found: warn
