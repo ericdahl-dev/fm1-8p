@@ -512,15 +512,25 @@ TT_TEST(ui_env_on_5a_steps_to_5b)
     TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, 81);    /* then on round its ring: 8A ENV-1 */
 }
 
-/* On PLAY a new last note marks the note's strip, coalesced like the other redraws, and only once. */
-TT_TEST(ui_new_last_note_marks_the_note_strip)
+/* PLAY shows no last note any more (visual.md: its columns are the performance knobs): a note redraws
+ * nothing. A knob turn there shows that knob in the focus row for 3 s (interaction.md 6, PLAY), then
+ * the name again; a CUTOFF turn doesn't redraw the slot (PLAY's is the badge, not the curve). */
+TT_TEST(ui_play_turn_shows_its_readout_for_3_s)
 {
+    uint32_t d;
     ui_setup();
     (void)ui_take_full(&ui_u, 0);
     play_key_down(&ui_p, 3, 100);
-    TT_CHECK_EQ(ui_take(&ui_u, 10), 0u);       /* within the frame */
-    TT_CHECK_EQ(ui_take(&ui_u, 100), UI_D_NOTE);
-    TT_CHECK_EQ(ui_take(&ui_u, 1000), 0u);
+    TT_CHECK_EQ(ui_take(&ui_u, 100), 0u);
+    TT_CHECK(!ui_play_readout(&ui_u, 100));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1000);
+    d = ui_take(&ui_u, 1000);
+    TT_CHECK(d & UI_D_FOCUS);
+    TT_CHECK(!(d & UI_D_SLOT));
+    TT_CHECK(ui_play_readout(&ui_u, 3999));
+    TT_CHECK_EQ(ui_take(&ui_u, 3999), 0u);
+    TT_CHECK(!ui_play_readout(&ui_u, 4000));
+    TT_CHECK_EQ(ui_take(&ui_u, 4000), UI_D_FOCUS | UI_D_COL(0));  /* the name again, and the frame off */
 }
 
 /* HB_F_SCREEN hides the host's line, so the header shows the octave: a change redraws it, once. */
@@ -1696,7 +1706,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_slot_number_is_two_digits);
     TT_RUN(ui_octave_label_reads_like_the_hosts);
     TT_RUN(ui_octave_change_marks_the_header);
-    TT_RUN(ui_new_last_note_marks_the_note_strip);
+    TT_RUN(ui_play_turn_shows_its_readout_for_3_s);
     TT_RUN(ui_env_on_5a_steps_to_5b);
     TT_RUN(ui_home_hold_keeps_the_page);
     TT_RUN(ui_redraw_goes_one_band_at_a_time);

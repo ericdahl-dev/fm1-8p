@@ -70,6 +70,7 @@ typedef struct {
     uint8_t meter_segments;             /* 0: one bar */
     uint16_t focus[3];                  /* the focus frames inward, as mixes from bg (0: none) */
     uint16_t hatch;                     /* the fill under graph curves (0: none) */
+    uint16_t sun[6];                    /* the PLAY art's sunset bands, top to bottom */
 } ui_theme;
 
 extern const ui_theme UI_MEMBRANE;

@@ -207,6 +207,10 @@ static void footer(void)
     blit(0, 222, 240, 18);
 }
 
+/* the page a slot is on (PLAY's knobs come from three), and its section's color and name */
+static uint32_t slot_page(const ui_slot *sl) { return (uint32_t)(sl - UI_SLOTS) / 4u; }
+static uint16_t slot_color(const ui_slot *sl) { return T->section[UI_PAGE_INFO[slot_page(sl)].color]; }
+
 /* rows 28..77 */
 static void focus_row(void)
 {
@@ -224,8 +228,8 @@ static void focus_row(void)
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
     frame(M, 0, 64, 46, C_LINE);
     seg7(M + (64 - 38) / 2, 5, num, T->led, mix(C_WINDOW, T->led, T->ghost));
-    CV_TEXT(M + 72, 0, 0, UI_PAGE_INFO[U->page].section, C_VCF);
-    CV_TEXT(M + 72 + TEXT_W(0, UI_PAGE_INFO[U->page].section) + 8, 0, 0, s->full, C_TEXT);
+    CV_TEXT(M + 72, 0, 0, UI_PAGE_INFO[slot_page(s)].section, slot_color(s));
+    CV_TEXT(M + 72 + TEXT_W(0, UI_PAGE_INFO[slot_page(s)].section) + 8, 0, 0, s->full, C_TEXT);
     x = d24(M + 72, 20, val, C_TEXT);
     if (*unit)
         CV_TEXT(x + 3, 28, 0, unit, C_DIM);
@@ -343,15 +347,16 @@ static void column(uint32_t k)
     const int32_t cx = k ? M - 2 + (int32_t)k * (COL_W + 2) : 0;    /* the canvas's screen x */
     const int32_t cw = (k == 3u ? 240 : M - 2 + (int32_t)(k + 1u) * (COL_W + 2)) - cx;
     const int32_t x = M + (int32_t)k * (COL_W + 2) - cx;            /* the column in the canvas */
-    uint32_t act = k == U->focus, lit, i;
+    uint32_t act = k == U->focus && (U->state != UI_PLAY || ui_play_readout(U, H->ms())), lit, i;
     uint16_t bg = act ? C_SURFHI : C_SURF, on;
     char val[UI_VALUE_LEN], unit[UI_VALUE_LEN], num[3];
+    const uint16_t sc = s ? slot_color(s) : C_VCF;      /* its section's color (PLAY: three sections) */
     int32_t value, tw, x0;
     H->cv_begin(cw, 84, C_BG);
     H->cv_rect(x, 0, COL_W, 84, bg);
     if (s && s->kind != UI_RESERVED) {
         ui_slot_number(s, num);
-        text_c(x, COL_W, 3, 0, num, C_VCF);
+        text_c(x, COL_W, 3, 0, num, sc);
         text_c(x, COL_W, 19, 0, s->label, act ? C_TEXT : C_DIM);
         if (s->kind == UI_PENDING) {            /* (interaction.md: a pending parameter shows --) */
             d24(x + (COL_W - d24_w("--")) / 2, 52, "--", C_DIM);
@@ -359,7 +364,7 @@ static void column(uint32_t k)
             uint32_t live = ui_slot_active(U, s);   /* inactive: dim, no meter (visual.md) */
             value = ui_slot_value(U, s);
             lit = ui_meter(s->id, value);
-            on = act ? C_VCF : mix(bg, C_VCF, 154);
+            on = act ? sc : mix(bg, sc, 154);
             if (!live) {
                 /* no meter */
             } else if (s->order) {                     /* a choice: a segment per position, both themes */
@@ -398,7 +403,7 @@ static void column(uint32_t k)
         if (act)                                /* the focus: the theme's frames inward */
             for (i = 0; i < 3u && T->focus[i]; i++)
                 frame(x + (int32_t)i, (int32_t)i, COL_W - 2 * (int32_t)i, 84 - 2 * (int32_t)i,
-                      mix(C_BG, C_VCF, T->focus[i]));
+                      mix(C_BG, sc, T->focus[i]));
     }
     blit(cx, 138, cw, 84);
 }
@@ -407,27 +412,44 @@ static void column(uint32_t k)
 /* PLAY: the header and footer, then three strips (as the VCF page's bands, so the same bits) */
 static void play_part(uint32_t b, uint32_t part)
 {
-    char s[PLAY_NOTE_NAME > UI_VALUE_LEN ? PLAY_NOTE_NAME : UI_VALUE_LEN];
+    char n[UI_VALUE_LEN];
+    uint32_t k;
+    (void)part;
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
         header("PLAY", C_PLAY, "", "FM1-8P", "", -1);
-    } else if (b == UI_D_FOCUS) {               /* rows 28..77: the patch's number, large */
-        ui_patch_number(play_patch(P), s);
+    } else if (b == UI_D_FOCUS) {               /* rows 28..77: the patch, or 3 s of the knob turned */
+        if (ui_play_readout(U, H->ms())) {
+            focus_row();
+            return;
+        }
+        ui_patch_number(play_patch(P), n);      /* "P17": the LED window has its digits */
         H->cv_begin(240, 50, C_BG);
-        text_c(0, 240, 12, 1, s, HB_RGB(255, 176, 64));
+        H->cv_rect(M, 0, 64, 46, C_WINDOW);
+        frame(M, 0, 64, 46, C_LINE);
+        seg7(M + (64 - 38) / 2, 5, n[2] ? n + 1 : n, T->led, mix(C_WINDOW, T->led, T->ghost));
+        n[0] = ' ';                             /* "PATCH 17" */
+        CV_TEXT(M + 72, 0, 0, "PATCH", C_DIM);
+        CV_TEXT(M + 72 + TEXT_W(0, "PATCH"), 0, 0, n, C_DIM);
+        if (play_edited(P))
+            CV_TEXT(240 - M - TEXT_W(0, "EDITED"), 0, 0, "EDITED", C_TEXT);
+        CV_TEXT(M + 72, 18, 1, play_patch(P)->name, C_TEXT);
         blit(0, 28, 240, 50);
-    } else if (b == UI_D_SLOT) {                /* rows 78..137: its name, large */
+    } else if (b == UI_D_SLOT) {                /* rows 78..137: the badge, six sunset bands */
+        static const int32_t BAND_H[6] = {20, 10, 9, 7, 6, 4};
+        int32_t y = 0;
         H->cv_begin(240, 60, C_BG);
-        text_c(0, 240, 0, 1, play_patch(P)->name, C_TEXT);
-        text_c(0, 240, 40, 0, "ENV: VCF PAGE", C_DIM);
+        for (k = 0; k < 6u; k++) {
+            H->cv_rect(M, y, 240 - 2 * M, BAND_H[k], T->sun[k]);
+            y += BAND_H[k];
+        }
+        text_c(0, 240, 2, 0, "FM1-8P  POLY SYNTH", T->ink);
         blit(0, 78, 240, 60);
-    } else if (b == UI_D_NOTE) {                /* rows 138..221: the last note */
-        play_note_name(play_last_note(P), s);
-        H->cv_begin(240, 84, C_BG);
-        text_c(0, 240, 2, 0, "LAST NOTE", C_DIM);
-        text_c(0, 240, 26, 1, s, 0xFFFFu);
-        blit(0, 138, 240, 84);
+    } else {
+        for (k = 0; k < 4u; k++)                /* rows 138..221: the performance knobs */
+            if (b == UI_D_COL(k))
+                column(k);
     }
 }
 
