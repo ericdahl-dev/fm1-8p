@@ -257,7 +257,8 @@ static void slot(uint32_t part)
     if (part == 0u) {                           /* the values as they are now, for all three parts */
         ui_curve_begin(&curve, play_get_param(P, FM_PARAM_FILTER_CUTOFF_CENTS),
                        play_get_param(P, FM_PARAM_FILTER_RESONANCE), (uint32_t)n);
-        wave = (uint32_t)play_get_param(P, col == UI_SEC_DCO2 ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE);
+        wave = (uint32_t)play_get_param(P, U->page == 11u ? FM_PARAM_LFO_WAVE
+                                           : col == UI_SEC_DCO2 ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE);
         width = (uint32_t)play_get_param(P, col == UI_SEC_DCO2 ? FM_PARAM_OSC2_PULSE_WIDTH_PCT
                                                                : FM_PARAM_OSC1_PULSE_WIDTH_PCT);
     }
@@ -292,7 +293,7 @@ static void slot(uint32_t part)
         blit(x0, 78, pw, 60);
         return;
     }
-    if (U->page < 4u) {                         /* 1A-2B: the waveform, two cycles, centered */
+    if (U->page < 4u || U->page == 11u) {       /* 1A-2B: the oscillator's waveform; 7A: the LFO's */
         H->cv_rect(M + 2 - x0, h / 2, w - 4, 1, C_LINE);
         i = x0 - M - 3;
         i0 = i = i < 0 ? 0 : i;
@@ -300,7 +301,8 @@ static void slot(uint32_t part)
         i1 = i1 > n ? n : i1;
         for (; i < i1; i++) {
             int32_t xi = M + 2 + i - x0;
-            y = h / 2 - ui_wave_level(wave, width, (uint32_t)i, (uint32_t)n) * (h / 2 - 8) / 1000;
+            y = h / 2 - (U->page == 11u ? ui_lfo_level(wave, (uint32_t)i, (uint32_t)n)
+                                         : ui_wave_level(wave, width, (uint32_t)i, (uint32_t)n)) * (h / 2 - 8) / 1000;
             if (i > i0) {
                 int32_t lo = y < y0 ? y : y0, hi = y < y0 ? y0 : y;
                 H->cv_rect(xi - 1, lo, 2, hi - lo + 2, C_VCF);
@@ -366,7 +368,7 @@ static void column(uint32_t k)
                     H->cv_rect(x + 6 + (int32_t)(i * 46u / n), 40, (int32_t)(46u / n) - 2, 6,
                                i == at ? on : C_LINE);
             } else if (T->meter_segments) {
-                if (s->how == UI_HOW_SIZE || s->how == UI_HOW_TIME) {   /* (from the left, as the bar) */
+                if (s->how == UI_HOW_SIZE || s->how == UI_HOW_TIME || s->how == UI_HOW_RATE) {   /* (from the left, as the bar) */
                     int32_t a, b;
                     ui_slot_bar(s, value, (int32_t)UI_METER_SEGS, &a, &b);
                     lit = (1u << b) - 1u;

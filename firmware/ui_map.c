@@ -37,6 +37,9 @@ static const int16_t RANGE_ORDER[5] = {-2, -1, 0, 1, 2};
 static const int16_t WAVE_ORDER[4] = {0, 1, 2, 3};
 /* DYNAMICS: OFF, 1, 2, 3 */
 static const int16_t DYNA_ORDER[4] = {0, 1, 2, 3};
+/* LFO WAVE: RANDOM, SQUARE, TRI (the panel's), and our SAW; GLIDE and VOICE: two positions */
+static const int16_t LFO_ORDER[4] = {FM_LFO_RANDOM, FM_LFO_SQUARE, FM_LFO_TRIANGLE, FM_LFO_SAW};
+static const int16_t TWO_ORDER[2] = {0, 1};
 /* VCA MODE: ENV2, GATE (#63); CHORUS: OFF, I, II, and our FAST; ENV KEY: OFF, 1, 2, 3 (260 per mille) */
 static const int16_t GATE_ORDER[2] = {0, 1};
 static const int16_t CHORUS_ORDER[4] = {0, 1, 2, 3};
@@ -93,6 +96,18 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     LIVE(93, "SUSTAIN", "SUSTAIN", FM_PARAM_AMP_SUSTAIN, 10, 50),
     TIME(94, "RELEASE", "RELEASE", FM_PARAM_AMP_RELEASE_MS),
     PAGE(15) CHOICE(95, "KEY", "KEY FOLLOW", FM_PARAM_AMP_KEY_FOLLOW, KEY_ORDER),
+    PAGE(11) CHOICE(71, "WAVE", "WAVEFORM", FM_PARAM_LFO_WAVE, LFO_ORDER),
+    TIME(72, "DELAY", "DELAY TIME", FM_PARAM_LFO_DELAY_MS),
+    {73, "RATE", "RATE", FM_PARAM_LFO_RATE_CENTIHZ, UI_LIVE, 1, 4, 0, 0, 0, 0, UI_HOW_RATE, 0},
+    LIVE(74, "PW", "PW DEPTH", FM_PARAM_LFO_PW_PCT, 1, 5),                 /* ours */
+    PAGE(16) PEND(1, "AT VIB", "VIBRATO"),                              /* #61 */
+    PEND(2, "AT BRI", "TO CUTOFF"),
+    PEND(3, "AT VOL", "VOLUME"),
+    CHOICE(4, "GLIDE", "GLIDE", FM_PARAM_SETTING_GLIDE, TWO_ORDER), /* ours (Q4) */
+    PAGE(17) LIVE(5, "BEND", "BEND RANGE", FM_PARAM_BEND_RANGE, 1, 2),
+    PEND(6, "PORTA", "PORTAMENTO"),                                        /* #62 */
+    CHOICE(7, "VOICE", "VOICE MODE", FM_PARAM_VOICE_MODE, TWO_ORDER),       /* ours */
+    LIVE(8, "DETUNE", "DETUNE", FM_PARAM_UNISON_DETUNE_CENTS, 1, 10),   /* ours */
     PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS, 0, 0, 0},
     LIVE(52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, 100, 400),
     LIVE(53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, 10, 50),
@@ -121,4 +136,17 @@ const uint16_t UI_TIMES[UI_TIME_COUNT] = {
     2750, 2950, 3150, 3350, 3600, 3850, 4100, 4400, 4700, 5050, 5400, 5800, 6200, 6650,
     7100, 7600, 8150, 8700, 9300, 9950, 10500, 11000, 12000, 13000, 14000, 15000, 16000, 17000,
     18000, 19500, 21000, 22500, 24000, 25500, 27500, 29500, 31500, 32000,
+};
+
+/* interaction.md, units: the LFO rate table, centihertz, 0.01 to 30.0 Hz. Every 0.01 Hz to 0.17, then
+ * the readable value nearest 6 % up (0.01 Hz below 1 Hz, 0.05 below 10 Hz, then 0.1) */
+const uint16_t UI_RATES[UI_RATE_COUNT] = {
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 28, 30,
+    32, 34, 36, 38, 40, 42, 45, 48, 51, 54, 57, 60, 64, 68,
+    72, 76, 81, 86, 91, 96, 100, 105, 110, 115, 120, 125, 130, 140,
+    150, 160, 170, 180, 190, 200, 210, 225, 240, 255, 270, 285, 300, 320,
+    340, 360, 380, 405, 430, 455, 480, 510, 540, 570, 605, 640, 680, 720,
+    765, 810, 860, 910, 965, 1020, 1080, 1140, 1210, 1280, 1360, 1440, 1530, 1620,
+    1720, 1820, 1930, 2050, 2170, 2300, 2440, 2590, 2750, 2920, 3000,
 };

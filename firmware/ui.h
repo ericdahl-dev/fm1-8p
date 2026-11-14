@@ -18,6 +18,8 @@
 #define UI_BTN_EDIT    6u
 #define UI_BTN_HOME    8u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
+#define UI_ENC_SELECT  0u
+#define UI_ENC_ALGORITHM 1u
 #define UI_ENC_KNOB1   2u
 #define UI_ENC_KNOB2   3u
 #define UI_ENC_KNOB3   4u
@@ -103,12 +105,17 @@ uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
 int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n);
 /* 0 while a slot does nothing to the sound (shown dim, no meter): WIDTH off a pulse wave */
 int ui_slot_active(const ui *u, const ui_slot *sl);
+/* 7A's picture: the LFO wave's (fm_lfo_wave) level, -1000..+1000, at column i of n, two cycles across
+ * (random: a fixed level each cycle) */
+int32_t ui_lfo_level(uint32_t wave, uint32_t i, uint32_t n);
 /* the ENV pages' ADSR picture (render.py's env_points): the level, per mille, at column i of n, for knob
  * positions a, d, r and sustain s (per mille): a linear attack, exponential decay and release */
 int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n);
 /* the time table (interaction.md, units): its size, entry i, and a time clicks entries on (a time
  * not in it snaps to the next entry the way of the turn first), clamped at both ends */
 uint32_t ui_time_count(void);
+uint32_t ui_rate_count(void);           /* the same for the LFO rate table, centihertz */
+int32_t ui_rate_at(uint32_t i);
 int32_t ui_time_at(uint32_t i);
 int32_t ui_time_step(int32_t ms, int32_t clicks);
 /* a slot's value: its param's, or a paired slot's two as id | id2 << 1 */

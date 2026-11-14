@@ -121,6 +121,21 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_u(num, k > 3u ? 3u : k);
         else
             num = put_str(num, "OFF");
+    } else if (id == FM_PARAM_LFO_WAVE) {
+        static const char *const LW[4] = {"TRI", "SAW", "SQUARE", "RANDOM"};
+        num = put_str(num, LW[value < 0 ? 0 : value > 3 ? 3 : value]);
+    } else if (id == FM_PARAM_LFO_RATE_CENTIHZ) {                       /* 0.01 .. 30.0 Hz */
+        num = put_3(num, 10u * (uint32_t)(value < 1 ? 1 : value)), u = "Hz";
+    } else if (id == FM_PARAM_LFO_PW_PCT) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
+    } else if (id == FM_PARAM_SETTING_GLIDE) {
+        num = put_str(num, value ? "ON" : "OFF");
+    } else if (id == FM_PARAM_VOICE_MODE) {
+        num = put_str(num, value ? "UNISON" : "POLY");
+    } else if (id == FM_PARAM_BEND_RANGE) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "st";
+    } else if (id == FM_PARAM_UNISON_DETUNE_CENTS) {
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "ct";
     } else if (id == FM_PARAM_AMP_GATE) {
         num = put_str(num, value ? "GATE" : "ENV2");
     } else if (id == FM_PARAM_CHORUS_MODE) {
@@ -306,9 +321,10 @@ void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
 void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b)
 {
     int32_t max;
-    if (sl->how == UI_HOW_TIME) {               /* its place in the time table */
-        int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
-        while (i < n - 1 && UI_TIMES[i + 1] <= value)
+    if (sl->how == UI_HOW_TIME || sl->how == UI_HOW_RATE) {    /* its place in its table */
+        const uint16_t *t = sl->how == UI_HOW_TIME ? UI_TIMES : UI_RATES;
+        int32_t i = 0, n = (int32_t)(sl->how == UI_HOW_TIME ? UI_TIME_COUNT : UI_RATE_COUNT);
+        while (i < n - 1 && t[i + 1] <= value)
             i++;
         *a = 0;
         *b = (2 * w * i + (n - 1)) / (2 * (n - 1));
@@ -433,6 +449,8 @@ int ui_slot_active(const ui *u, const ui_slot *sl)
         return play_get_param(u->p, FM_PARAM_OSC2_WAVE) == FM_WAVE_PULSE;
     if (sl->id == FM_PARAM_AMP_VELOCITY)        /* the curve DYNAMICS OFF uses */
         return play_get_param(u->p, FM_PARAM_AMP_DYNA) == 0;
+    if (sl->id == FM_PARAM_UNISON_DETUNE_CENTS) /* the unison spread */
+        return play_get_param(u->p, FM_PARAM_VOICE_MODE) == FM_VOICE_MODE_UNISON;
     return 1;
 }
 
@@ -453,6 +471,23 @@ static int inverted(const ui *u, uint16_t depth)
 static int32_t decay4(uint32_t t)
 {
     return (int32_t)(exp2_q8(-(int32_t)(t * 23638u / 1000u)) * 1000u / 256u);
+}
+
+int32_t ui_lfo_level(uint32_t wave, uint32_t i, uint32_t n)
+{
+    uint32_t ph = n ? (2000u * i / n) % 1000u : 0, cyc = n ? 2u * i / n : 0;
+    switch (wave) {
+    case FM_LFO_TRIANGLE:                       /* low at the cycle's start, high in its middle */
+        return ph < 500u ? 4 * (int32_t)ph - 1000 : 3000 - 4 * (int32_t)ph;
+    case FM_LFO_SAW:
+        return 2 * (int32_t)ph - 1000;
+    case FM_LFO_SQUARE:
+        return ph < 500u ? 1000 : -1000;
+    default: {                                  /* random: a level held through each cycle */
+        static const int16_t R[2] = {600, -450};
+        return R[cyc & 1u];
+    }
+    }
 }
 
 int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n)
@@ -480,16 +515,26 @@ uint32_t ui_time_count(void) { return UI_TIME_COUNT; }
 
 int32_t ui_time_at(uint32_t i) { return UI_TIMES[i < UI_TIME_COUNT ? i : UI_TIME_COUNT - 1u]; }
 
-int32_t ui_time_step(int32_t ms, int32_t clicks)
+/* v clicks entries on in a rising table t of n (between entries: snapped the way of the turn) */
+static int32_t table_step(const uint16_t *t, int32_t n, int32_t v, int32_t clicks)
 {
-    int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
-    while (i < n - 1 && UI_TIMES[i + 1] <= ms)  /* the last entry at or below ms */
+    int32_t i = 0;
+    while (i < n - 1 && t[i + 1] <= v)          /* the last entry at or below v */
         i++;
-    if (clicks < 0 && UI_TIMES[i] < ms)         /* between entries: that one is already a click down */
+    if (clicks < 0 && t[i] < v)                 /* between entries: that one is already a click down */
         clicks++;
     i += clicks;
-    return UI_TIMES[i < 0 ? 0 : i >= n ? n - 1 : i];
+    return t[i < 0 ? 0 : i >= n ? n - 1 : i];
 }
+
+int32_t ui_time_step(int32_t ms, int32_t clicks)
+{
+    return table_step(UI_TIMES, (int32_t)UI_TIME_COUNT, ms, clicks);
+}
+
+uint32_t ui_rate_count(void) { return UI_RATE_COUNT; }
+
+int32_t ui_rate_at(uint32_t i) { return UI_RATES[i < UI_RATE_COUNT ? i : UI_RATE_COUNT - 1u]; }
 
 int32_t ui_slot_value(const ui *u, const ui_slot *sl)
 {
@@ -535,6 +580,32 @@ static void set_slot(ui *u, const ui_slot *sl, int32_t v)
     }
 }
 
+/* SELECT: clicks pages on in the page order, around, skipping pages with nothing live */
+static void walk_pages(ui *u, int32_t clicks)
+{
+    int32_t p = (int32_t)u->page, way = clicks > 0 ? 1 : -1, guard;
+    for (; clicks; clicks -= way)
+        for (guard = 0; guard < (int32_t)UI_PAGES; guard++) {
+            p = (p + way + (int32_t)UI_PAGES) % (int32_t)UI_PAGES;
+            if (page_live((uint32_t)p))
+                break;
+        }
+    u->page = (uint32_t)p;
+    show_page(u, UI_EDIT);
+}
+
+/* ALGORITHM: clicks sections on (1..9, 0, around), to the section's page A */
+static void walk_sections(ui *u, int32_t clicks)
+{
+    static const uint8_t A[10] = {0, 2, 4, 5, 7, 9, 11, 12, 14, 16};   /* 1A, 2A, ... 9A, 0A */
+    int32_t s = 0;
+    while (s < 9 && A[s + 1] <= u->page)
+        s++;
+    s = ((s + clicks) % 10 + 10) % 10;
+    u->page = A[s];
+    show_page(u, UI_EDIT);
+}
+
 static void turn(ui *u, uint32_t k, int32_t clicks)
 {
     const ui_slot *s = ui_page_slot(u, k);
@@ -551,9 +622,11 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
                 clicks -= way;
             }
         set_slot(u, s, s->order[i]);
-    } else if (s->how == UI_HOW_TIME) {         /* the time table: an entry a click, four a fast one */
-        play_set_param(u->p, s->id, ui_time_step(play_get_param(u->p, s->id),
-                                                 clicks >= 3 || clicks <= -3 ? 4 * clicks : clicks));
+    } else if (s->how == UI_HOW_TIME || s->how == UI_HOW_RATE) {   /* its table: an entry a click, four fast */
+        play_set_param(u->p, s->id, table_step(s->how == UI_HOW_TIME ? UI_TIMES : UI_RATES,
+                                               (int32_t)(s->how == UI_HOW_TIME ? UI_TIME_COUNT : UI_RATE_COUNT),
+                                               play_get_param(u->p, s->id),
+                                               clicks >= 3 || clicks <= -3 ? 4 * clicks : clicks));
     } else if (s->id == FM_PARAM_LFO_PITCH_CENTS || s->id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
         int32_t v = play_get_param(u->p, s->id), way = clicks > 0 ? 1 : -1, fast = clicks >= 3 || clicks <= -3;
         for (; clicks; clicks -= way) {         /* 1 to 99 ct by 1 (fast 10), from 100 by 10 (fast 50) */
@@ -567,9 +640,11 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     u->dirty |= UI_D_COL(u->focus) | UI_D_COL(k) | UI_D_FOCUS;
     if (s->id == FM_PARAM_FILTER_CUTOFF_CENTS || s->id == FM_PARAM_FILTER_RESONANCE ||
         s->id == FM_PARAM_OSC1_WAVE || s->id == FM_PARAM_OSC1_PULSE_WIDTH_PCT ||
-        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT ||
+        s->id == FM_PARAM_OSC2_WAVE || s->id == FM_PARAM_OSC2_PULSE_WIDTH_PCT || s->id == FM_PARAM_LFO_WAVE ||
         (u->page >= 12u && u->page <= 15u))     /* (an ENV page: any of its ADSR) */
         u->dirty |= UI_D_SLOT;                  /* what the slot draws: the curve, the waveform, the ADSR */
+    if (s->id == FM_PARAM_VOICE_MODE)           /* 08 DETUNE's activity follows it, on the same page */
+        u->dirty |= UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3);
     u->focus = k;
 }
 
@@ -634,6 +709,8 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         ring_step(u, UI_RING_SEL);
     else if (ev == (UI_EV_BTN_DOWN | UI_BTN_FX))
         ring_step(u, UI_RING_FX);
+    else if (ev == (UI_EV_BTN_DOWN | UI_BTN_LFO))
+        ring_step(u, UI_RING_LFO);
     else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap)
         show_page(u, u->state == UI_EDIT ? UI_PLAY : UI_EDIT);   /* (a hold: compare, not yet) */
     else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->state != UI_PLAY)
@@ -641,6 +718,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 &&
              u->state == UI_EDIT)
         turn(u, id - UI_ENC_KNOB1, arg);
+    else if (ev == (UI_EV_ENC | UI_ENC_SELECT) && arg)     /* (in PLAY: from the last edit page) */
+        walk_pages(u, arg);
+    else if (ev == (UI_EV_ENC | UI_ENC_ALGORITHM) && arg)
+        walk_sections(u, arg);
     else if (ev == (UI_EV_ENC | UI_ENC_PRESETS))
         browse(u, arg, ms);
 }
