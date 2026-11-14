@@ -4,9 +4,13 @@
 
 /* visual.md: Membrane */
 const ui_theme UI_MEMBRANE = {
-    .bg = 0x18E4u, .surface = 0x2145u, .surface_hi = 0x31A7u, .line = 0x3A09u, .text = 0xEF3Au,
-    .dim = 0xA513u, .ink = 0x1082u, .window = 0x0861u, .led = 0xF984u,
-    .section = {0xEC07u, 0xEDC7u, 0xCE15u, 0x4D9Au, 0xDB53u, 0x8E4Cu, 0x9C5Cu, 0x5657u, 0xFB4Du, 0xCE15u, 0xEF3Au},
+    /* the JX-8P's own colors (Eric, 2026-11-14, from a render of its panel): the button strip's dark
+     * gray for the screen, the body's mid gray for rules and frames, the lettering for text, the LED
+     * display's pale cyan, and the buttons' red, amber, cream, gray and blue as the sections, lightened
+     * only as far as the contrast rules need (the body gray is too light to put text on) */
+    .bg = 0x2986u, .surface = 0x3A08u, .surface_hi = 0x4249u, .line = 0x83EFu, .text = 0xF7BEu,
+    .dim = 0xC659u, .ink = 0x1904u, .window = 0x0020u, .led = 0xAF9Eu,
+    .section = {0xDCF3u, 0xDD6Bu, 0xCE58u, 0x8D9Au, 0xE5B6u, 0xC5F5u, 0xB65Cu, 0xCD4Du, 0xDCF3u, 0xAD95u, 0xD6B9u},
     .ghost = 26u,                       /* 10 % */
     .chip = 1u,
     .meter_segments = 0u,
