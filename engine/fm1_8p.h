@@ -5,9 +5,10 @@
  *
  * Plain C99, fixed-point only, no hardware or OS code, no dynamic
  * allocation: the caller owns the fm_engine storage and fm_engine_init
- * sets up everything inside it. fm_engine is about 6.1 KiB (6260 bytes on
- * 32-bit targets such as the FM-1 and Cortex-M, 6616 on 64-bit desktops,
- * where the envelopes' settings pointers take 8 bytes), about 40 % of it
+ * sets up everything inside it. fm_engine is about 6.1 KiB (at most
+ * FM_ENGINE_BUDGET_32 bytes on 32-bit targets such as the FM-1 and Cortex-M,
+ * FM_ENGINE_BUDGET_64 on 64-bit desktops, where the envelopes' settings
+ * pointers take 8 bytes: see below the param list), about 40 % of it
  * the chorus delay line and about 1 KiB the voices' filters, so static
  * storage is recommended; a task stack must have room for it on top of
  * its other use. See docs/fixed-point.md for the number formats.
@@ -114,6 +115,17 @@ typedef enum {
                         * pitch and mix instead */
     FM_PARAM_COUNT
 } fm_param_id;
+
+/*
+ * fm_engine's size budget: a base plus 4 bytes a param (fm_engine.params),
+ * so a new param needs no edit here. Anything else that grows (voice state,
+ * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
+ * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
+ */
+#define FM_ENGINE_BUDGET_BASE_32 6048u
+#define FM_ENGINE_BUDGET_BASE_64 6404u
+#define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
+#define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
 /* Values of FM_PARAM_VOICE_MODE (see docs/voices.md#unison). */
 #define FM_VOICE_MODE_POLY 0
