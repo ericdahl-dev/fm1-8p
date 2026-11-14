@@ -9,7 +9,7 @@
 #              is tried up to 5 times, the waits doubling from 2 s (FM1_FETCH_TRIES, FM1_FETCH_BACKOFF)
 #   fetch-emu  the same for fm1-emu (emu and emu-play fetch it themselves when missing)
 #   build      the synth (FM1-8P) and the CPU test, each as a .dock (USB deploy) and a solo .fwsc,
-#              (FM1_DEBUG=1: the debug variant, with timing in the log)
+#              (FM1_DEBUG=1: the debug variant, with timing in the log; FM1_THEME=night: Night Panel)
 #              into build/fm1/
 #   canaries   each module in firmware/canary/ breaks an fm1-dock safety rule; its build must fail
 #   emu        run the CPU test in fm1-emu's strict timing mode; worst load per voice count
@@ -65,6 +65,7 @@ abspath() {
 stage_module() {
     src=$(abspath "$1") eng=$(abspath "$3")
     dbg=; [ "${FM1_DEBUG:-}" = 1 ] && dbg=" -DFM1_DEBUG"   # only 1 is the debug build (0 is not)
+    [ "${FM1_THEME:-}" = night ] && dbg="$dbg -DFM1_THEME_NIGHT"   # a Night Panel preview (the default: Membrane)
     mkdir -p "$2" || return 1
     rm -f "$2"/module.cfg
     while IFS= read -r line || [ -n "$line" ]; do

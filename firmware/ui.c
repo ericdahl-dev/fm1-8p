@@ -242,7 +242,7 @@ static int32_t log2_q12(uint32_t v)
     return p * 4096 + (int32_t)(LOG2[k] + (LOG2[k + 1u] - LOG2[k]) * (m & 255u) / 256u);
 }
 
-static uint32_t isqrt(uint32_t v)
+uint32_t ui_isqrt(uint32_t v)
 {
     uint32_t r = 0, b = 1u << 30;
     while (b > v)
@@ -264,7 +264,7 @@ static uint32_t isqrt(uint32_t v)
 void ui_curve_begin(ui_curve *c, int32_t cutoff_cents, int32_t reso_permille, uint32_t n)
 {
     uint32_t r = (uint32_t)(reso_permille < 0 ? 0 : reso_permille) * 4096u / 1000u;
-    uint32_t q = 2867u + 6u * (r * isqrt(r) / 64u);
+    uint32_t q = 2867u + 6u * (r * ui_isqrt(r) / 64u);
     c->q2 = q * q >> 16;                        /* q^2, Q8 */
     c->cut = cutoff_cents * 9830 / 14400;       /* 2.4 cut decades, Q12 */
     c->n1 = n > 1u ? n - 1u : 1u;
