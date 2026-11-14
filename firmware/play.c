@@ -69,7 +69,12 @@ void play_store_tick(play *p)
 
 uint32_t play_silent(const play *p)
 {
-    return p->sounding == 0 && p->head == p->tail;
+    return p->sounding == 0 && p->head == p->tail && !seq_playing(&p->seq);
+}
+
+seq *play_seq(play *p)
+{
+    return &p->seq;
 }
 
 void play_snapshot(const play *p, const char *name, store_patch *s)
@@ -126,6 +131,7 @@ int play_init(play *p)
     p->io = 0;
     p->sounding = 0;
     p->comparing = 0;
+    seq_init(&p->seq);
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
     p->patch = &PATCHES[PATCH_SOUNDTRACK];
@@ -339,7 +345,20 @@ void play_render(play *p, int32_t *out, uint32_t n)
         fm_engine_controller(&p->engine, 123, 0);       /* a lost note off would hang one */
         fm_engine_pitch_bend(&p->engine, 8192);         /* a lost center would leave it out of tune */
     }
-    fm_engine_render(&p->engine, p->buf, n);
+    {                                           /* the sequencer's notes, each at its frame */
+        uint32_t e, cnt = seq_render(&p->seq, n, PLAY_FS, PLAY_VOICES, p->seq_ev), at = 0;
+        for (e = 0; e < cnt; e++) {
+            if (p->seq_ev[e].at > at) {
+                fm_engine_render(&p->engine, p->buf + 2u * at, p->seq_ev[e].at - at);
+                at = p->seq_ev[e].at;
+            }
+            if (p->seq_ev[e].vel)
+                fm_engine_note_on(&p->engine, p->seq_ev[e].note, p->seq_ev[e].vel);
+            else
+                fm_engine_note_off(&p->engine, p->seq_ev[e].note);
+        }
+        fm_engine_render(&p->engine, p->buf + 2u * at, n - at);
+    }
     p->sounding = fm_engine_active_voices(&p->engine);   /* (for play_silent) */
     for (i = 0; i < 2u * n; i++) {
         int32_t v = (int32_t)p->buf[i] * (1 << PLAY_GAIN_SHIFT);
