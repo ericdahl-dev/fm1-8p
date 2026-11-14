@@ -1152,6 +1152,21 @@ TT_TEST(ui_adsr_picture_follows_the_envelope)
     TT_CHECK(i < n);
 }
 
+/* A time's bar is its place in the time table (where the knob is), not a share of 32 s: the middle
+ * entry fills half the track. */
+TT_TEST(ui_time_bar_follows_the_table)
+{
+    const ui_slot *att = &UI_SLOTS[4 * 12];
+    int32_t a, b, mid = ui_time_at((ui_time_count() - 1u) / 2u);
+    TT_CHECK_EQ(att->num, 81);
+    ui_slot_bar(att, mid, 44, &a, &b);
+    TT_CHECK(a == 0 && b >= 21 && b <= 23);
+    ui_slot_bar(att, 32000, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 44);
+    ui_slot_bar(att, 0, 44, &a, &b);
+    TT_CHECK(a == 0 && b == 0);
+}
+
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
  * as docs/ui/mockups/render.py's q()), rounded to one decimal as visual.md gives its rules */
 static double ui_lum(uint16_t c)
@@ -1194,6 +1209,7 @@ TT_TEST(ui_membrane_meets_its_contrast_rules)
 static void run_ui_tests(void)
 {
     TT_RUN(ui_membrane_meets_its_contrast_rules);
+    TT_RUN(ui_time_bar_follows_the_table);
     TT_RUN(ui_adsr_picture_follows_the_envelope);
     TT_RUN(ui_vel_is_inactive_with_dynamics);
     TT_RUN(ui_env_and_fx_rings_and_time_knobs);

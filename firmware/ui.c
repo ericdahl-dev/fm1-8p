@@ -306,6 +306,14 @@ void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b)
 void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b)
 {
     int32_t max;
+    if (sl->how == UI_HOW_TIME) {               /* its place in the time table */
+        int32_t i = 0, n = (int32_t)UI_TIME_COUNT;
+        while (i < n - 1 && UI_TIMES[i + 1] <= value)
+            i++;
+        *a = 0;
+        *b = (2 * w * i + (n - 1)) / (2 * (n - 1));
+        return;
+    }
     if (sl->how != UI_HOW_SIZE) {
         ui_meter_bar(sl->id, value, w, a, b);
         return;
