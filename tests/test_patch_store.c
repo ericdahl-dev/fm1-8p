@@ -134,7 +134,7 @@ static const char *const STORE_TAG_NAMES[] = {
     "filter_env_source", "lfo_pitch_osc2_cents", "pitch_env_osc1_cents", "pitch_env_osc2_cents",
     "pitch_env_source", "pitch_env_dyna", "osc1_level_permille", "osc_ring", "filter_env_dyna",
     "amp_key_follow_permille", "filter_env_key_follow_permille", "amp_dyna", "osc_mix_env_dyna",
-    "amp_level_permille", "setting_glide", "amp_gate",
+    "amp_level_permille", "setting_glide", "amp_gate", "wheel_pitch_cents", "wheel_pw_pct",
 };
 
 TT_TEST(store_tags_keep_their_params)

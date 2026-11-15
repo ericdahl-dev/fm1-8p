@@ -55,4 +55,6 @@ static const uint8_t TAG_PARAM[] = {
     FM_PARAM_AMP_LEVEL,   /* 50 */
     FM_PARAM_SETTING_GLIDE,   /* 51 */
     FM_PARAM_AMP_GATE,   /* 52 */
+    FM_PARAM_WHEEL_PITCH_CENTS,   /* 53 */
+    FM_PARAM_WHEEL_PW_PCT,   /* 54 */
 };

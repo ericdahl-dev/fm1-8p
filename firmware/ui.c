@@ -1045,6 +1045,16 @@ int ui_cc_out(ui *u, uint32_t ms, uint32_t *cc, uint32_t *value)
     return 0;
 }
 
+int ui_midi_in(const ui *u, uint32_t st)
+{
+    return st >= 0xF0u || !u->set.midi_in || (st & 15u) == u->set.midi_in - 1u;
+}
+
+uint32_t ui_midi_out(const ui *u, uint32_t st)
+{
+    return (st & 0xF0u) | ((u->set.midi_out - 1u) & 15u);
+}
+
 uint32_t ui_key_velocity(const ui *u, int32_t host_vel)
 {
     return host_vel > 0 ? (uint32_t)(host_vel > 127 ? 127 : host_vel) : u->set.fixed_vel;

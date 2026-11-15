@@ -2,9 +2,12 @@
  * (interaction.md section 3), checked from the engine's param list, not from the UI's map, so a param
  * left off every page fails here. */
 
-/* Params with no knob by design: an empty list. (05 BEND RANGE and 07 VOICE MODE are on 0B.) A param
- * added here is one the panel can't edit; say why beside it. */
-static const uint16_t REACH_NO_PAGE[] = {FM_PARAM_COUNT};
+/* Params with no knob yet. (05 BEND RANGE and 07 VOICE MODE are on 0B.) A param added here is one the
+ * panel can't edit; say why beside it. */
+static const uint16_t REACH_NO_PAGE[] = {
+    FM_PARAM_WHEEL_PITCH_CENTS,                 /* #41: waits on its slot on 0B CONTROL (agent1) */
+    FM_PARAM_WHEEL_PW_PCT,                      /* #41: likewise */
+};
 
 static int reach_exempt(uint32_t id)
 {
@@ -131,8 +134,6 @@ TT_TEST(ui_reach_exceptions_have_no_slot)
 {
     uint32_t p, i;
     for (i = 0; i < sizeof REACH_NO_PAGE / sizeof REACH_NO_PAGE[0]; i++) {
-        if (REACH_NO_PAGE[i] >= FM_PARAM_COUNT)
-            continue;                           /* (the empty list's end) */
         for (p = 0; p < UI_PAGES * 4u; p++)
             TT_CHECK(!(UI_SLOTS[p].kind == UI_LIVE &&
                        (UI_SLOTS[p].id == REACH_NO_PAGE[i] ||
