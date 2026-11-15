@@ -1884,8 +1884,27 @@ TT_TEST(ui_glo_holds_the_patch_controls)
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_GLO), (uint32_t)UI_LED_GLOW);  /* and glowing where it would open */
 }
 
-/* GLO's table (interaction.md 4): three pages of four, G11..G34, each on its setting; clock, CC and
- * program change wait on their features (#38, #49), so G13, G14 and G21..G24 show -- */
+/* #38: PLAY armed under MIDI clock (G13 MIDI, no start yet) blinks, UI_BLINK_MS on and off, until a
+ * second press disarms it (interaction.md 5, Button LEDs) */
+TT_TEST(ui_play_led_blinks_while_waiting_for_the_clock)
+{
+    uint32_t a, b;
+    ui_setup();
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    ui_tap(UI_BTN_PLAY, 1000);
+    TT_CHECK(seq_waiting(play_seq(&ui_p)));
+    (void)ui_take(&ui_u, 2000);
+    a = ui_led(&ui_u, UI_BTN_PLAY);
+    (void)ui_take(&ui_u, 2000 + UI_BLINK_MS);
+    b = ui_led(&ui_u, UI_BTN_PLAY);
+    TT_CHECK(a != b && (a == UI_LED_LIT || b == UI_LED_LIT));
+    ui_tap(UI_BTN_PLAY, 3000);
+    TT_CHECK(!seq_waiting(play_seq(&ui_p)));
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_PLAY), (uint32_t)UI_LED_GLOW);
+}
+
+/* GLO's table (interaction.md 4): three pages of four, G11..G34, each on its setting; clock out waits on
+ * its feature, so G14 shows -- (G13 CLOCK SOURCE is live: #38) */
 TT_TEST(ui_glo_table_is_well_formed)
 {
     uint32_t i;
@@ -1899,7 +1918,7 @@ TT_TEST(ui_glo_table_is_well_formed)
         }
         TT_CHECK(g->label && strlen(g->label) <= 6u && g->full && strlen(g->full) <= 20u);   /* (7 touch) */
         TT_CHECK(g->setting < UI_SETTINGS_COUNT);
-        TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 ? UI_PENDING : UI_LIVE));
+        TT_CHECK_EQ(g->kind, (uint8_t)(num == 14 ? UI_PENDING : UI_LIVE));
     }
     TT_CHECK_EQ(UI_GLO_SLOTS[11].setting, 11u);                /* G34 THEME */
     TT_CHECK_EQ(UI_GLO_SLOTS[6].setting, 12u);                 /* G23 CC MAP */
@@ -1934,10 +1953,19 @@ TT_TEST(ui_glo_knobs_and_pages)
     TT_CHECK_EQ(ui_u.focus, 0u);
     TT_CHECK_EQ(ui_u.set_dirty, 1u);
     TT_CHECK_EQ(ui_u.set_changed_ms, 1200u);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 1300);        /* G13 waits on #38 */
-    TT_CHECK_EQ(ui_u.set.clock_src, 0u);
-    TT_CHECK_EQ(ui_u.focus, 0u);
-    TT_CHECK(ui_glo_reads(2, "--"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 1300);        /* G13 (#38): AUTO to INT, and the sequencer's */
+    TT_CHECK_EQ(ui_u.set.clock_src, 1u);
+    TT_CHECK_EQ(play_seq(ui_u.p)->clk_src, (uint8_t)SEQ_CLK_INT);
+    TT_CHECK_EQ(ui_u.focus, 2u);
+    TT_CHECK(ui_glo_reads(2, "INT"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 1310);        /* MIDI */
+    TT_CHECK_EQ(play_seq(ui_u.p)->clk_src, (uint8_t)SEQ_CLK_MIDI);
+    TT_CHECK(ui_glo_reads(2, "MIDI"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, -2, 1320);       /* back to AUTO */
+    TT_CHECK_EQ(play_seq(ui_u.p)->clk_src, (uint8_t)SEQ_CLK_AUTO);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1330);        /* G14 waits */
+    TT_CHECK_EQ(ui_u.set.clock_out, 0u);
+    TT_CHECK(ui_glo_reads(3, "--"));
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);       /* G2x: G21, G22 and G24 live (#49) */
     TT_CHECK_EQ(ui_u.glo_page, 1u);
     TT_CHECK_EQ(ui_u.focus, 1u);                                /* (knob 2: G22) */
@@ -2856,6 +2884,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_cc_pickup_banner_leaves_the_warnings_up);
     TT_RUN(ui_theme_applies_after_its_debounce);
     TT_RUN(ui_glo_knobs_and_pages);
+    TT_RUN(ui_play_led_blinks_while_waiting_for_the_clock);
     TT_RUN(ui_glo_table_is_well_formed);
     TT_RUN(ui_glo_holds_the_patch_controls);
     TT_RUN(ui_glo_opens_and_goes_back);
