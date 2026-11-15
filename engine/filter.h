@@ -103,15 +103,19 @@ static inline int fm_filter_is_wire(const fm_filter *f)
     return f->fade == 0 && f->hp_g == 0;
 }
 
+/* The ladder's input, and so every state and the output, is held to
+ * +-FM_FILTER_HOLD (Q8.24 8.0; engine/filter.c, loop_in). */
+#define FM_FILTER_HOLD (8 << 24)
+
 /*
  * fm_filter_process with its wide-open case inline, for the render loop:
  * open (fade 0) with the highpass off, the filter is a wire for any input
- * the soft clip passes untouched (within +-2.0), and keeps only the last
- * sample as its state. Exactly the same output and state as the call.
+ * within its hold (+-8.0), and keeps only the last sample as its state.
+ * Exactly the same output and state as the call.
  */
 static inline int32_t fm_filter_run(fm_filter *f, int32_t in)
 {
-    if (fm_filter_is_wire(f) && in <= (2 << 24) && in >= -(2 << 24)) {
+    if (fm_filter_is_wire(f) && in <= FM_FILTER_HOLD && in >= -FM_FILTER_HOLD) {
         f->s[3] = in;
         return in;
     }

@@ -109,10 +109,15 @@ resonant 4-pole (24 dB/octave) lowpass.
   above Nyquist ring at about fs/4 (11 kHz at 44.1 kHz) until the top-of-range
   fade silences the feedback. At the bottom, the self-oscillation sustains
   from about 15 Hz at 44.1 or 48 kHz and from about 33 Hz at 192 kHz; below
-  that, resonance 1000 rings down instead. The feedback sum goes through a soft clip: a wire up to
-  +-2.0 (a full-scale saw passes untouched), then a quadratic knee that
-  flattens at +-4.0. `m` is a weighted average of `x` and `x1`, and `y` of `m`
-  and the old `y`, so no state can pass the clip's limit. The filter cannot
+  that, resonance 1000 rings down instead. The resonance's feedback goes
+  through a soft clip: a wire up to +-2.0, then a quadratic knee that flattens
+  at +-4.0. Only the feedback does: the ladder's input is the signal less the
+  clipped feedback, held to +-8.0 (`FM_FILTER_HOLD`). So with no resonance the
+  lowpass is linear at any level an oscillator pair reaches. A ring's peaks
+  pass +-2.0, and bending them added DC and sub-audio PG-8X doesn't have
+  (CHURCHBELL, ORGAN 1). With a quiet input, the loop saturates as it did
+  when the clip took the whole sum. `m` is a weighted average of `x` and
+  `x1`, and `y` of `m` and the old `y`, so no state can pass the hold. The filter cannot
   overflow or run away at any resonance, for any Q8.24 input (the whole
   +-128.0), and self-oscillation settles at a fixed level (about 0.83 of
   full scale at mid cutoffs).
@@ -166,12 +171,12 @@ resonant 4-pole (24 dB/octave) lowpass.
   (one 32x32->64 multiply each). The highpass state stays within the input's
   range, so while the input and that state are within +-32.0 (an oscillator
   stays near +-1.0) the highpass output is within +-64.0 and, times the
-  input level (at most 1.7) and less the feedback (within +-4.0 * 4.2), the
-  lowpass input still fits 32 bits. Louder, the highpass runs in 64 bits and
+  input level (at most 1.7) and less the clipped feedback (within +-4.0), the
+  ladder's input still fits 32 bits. Louder, the highpass runs in 64 bits and
   its output is clamped to +-64.0
   (with the highpass off, the input is), which changes nothing: the clamped
-  value at the least input level (0.66) less the largest feedback still drives the soft clip past its
-  saturation (6.0) with the same sign. The output is bit for bit that
+  value at the least input level (0.66) less the largest clipped feedback is
+  still past the hold (8.0) with the same sign. The output is bit for bit that
   of the same filter in 64 bits over the whole +-128.0
   (`tests/test_filter_oracle.c` holds it to a 64-bit reference).
 - **Cutoff.** The voice's cutoff is `C(base + key_track * (note - 60) / 10 +

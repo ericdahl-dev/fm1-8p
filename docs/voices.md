@@ -213,9 +213,9 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | --- | --- | --- |
 | Saw | Q8.24 | 1.0 (polyBLEP keeps it within +-1.0) |
 | Oscillator mix | Q8.24 | 2.0 (every waveform peaks at 1.0; the mix sums the two at their levels) |
-| Filter output | Q8.24 | 1.0 with the filter open or no resonance; with high resonance up to the soft clip's +-4.0 |
+| Filter output | Q8.24 | the input's level with the filter open or no resonance (linear, to the hold's +-8.0); with high resonance about the feedback clip's +-4.0 |
 | Voice: filter output times amp envelope | Q8.24 | as the filter output |
-| Sum of voices (`fm_engine.mix`) | Q8.24 | 2 x `voice_count` with no resonance (both oscillators full); at most 4.0 x 8 = 32.0, which uses 6 of the 7 headroom bits |
+| Sum of voices (`fm_engine.mix`) | Q8.24 | 2 x `voice_count` with no resonance (both oscillators full); at most the filter's hold, 8.0 x 8 = 64.0, which uses all 7 headroom bits (Q8.24's +-128.0) |
 | Mix gain | Q1.30 | `0.36 / voice_count` = `386669466 / voice_count`, rounded down: 0.25 times 3.17 dB, PG-8X's level (#102) |
 | Output before conversion | Q8.24 | 0.72 with no resonance; more with high resonance |
 | Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; 8 voices in phase measure -0.1 dBFS at most |
@@ -239,8 +239,8 @@ knee + h d / (h + d) past the knee by d (h = full scale - knee), read from a
 129-entry table (`tools/gen_softclip_table.py`) with linear interpolation,
 so the render path has no divide. The filter (#7) uses the same
 headroom: at high resonance its peak near the cutoff lifts a voice above the
-saw's level, up to the soft clip's +-4.0 in theory (4x what the mix gain
-budgets). Measured at resonance 1000, cutoff 13700 cents and highpass 3, one
+saw's level, up to the feedback clip's +-4.0 in theory (4x what the mix gain
+budgets; the filter's hold is +-8.0). Measured at resonance 1000, cutoff 13700 cents and highpass 3, one
 note on a 1-voice engine peaks at about 27100 (-1.6 dBFS) before the trim and
 makeup. High resonance, even self-oscillation, now goes through the output
 soft clip, which holds at 0.9 of full scale, so the conversion never

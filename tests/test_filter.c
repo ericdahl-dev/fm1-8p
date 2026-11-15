@@ -220,13 +220,13 @@ TT_TEST(resonance_turns_the_passband_down_as_on_pg8x)
 }
 
 /*
- * Maximum resonance self-oscillates; the soft clip on the feedback and
- * the hold on the ladder's input must keep every output within +-8.0
- * (Q8.24) at any cutoff, for any input, for as long as it runs: 10 s per
- * case, with a loud saw, loud noise and a single huge impulse followed by
- * silence.
+ * Maximum resonance self-oscillates; the soft clip on the feedback holds
+ * its level, so a saw at +-1.0 and noise at +-2.0 stay within +-4.0
+ * (Q8.24), the level of #25's clip, at any cutoff, for as long as it runs
+ * (10 s per case). A single huge impulse followed by silence stays within
+ * the ladder's hold, +-8.0.
  */
-#define FILTER_BOUND (8 << 24)
+#define FILTER_BOUND (4 << 24)
 
 TT_TEST(max_resonance_stays_bounded_over_a_long_render)
 {
@@ -254,10 +254,10 @@ TT_TEST(max_resonance_stays_bounded_over_a_long_render)
                 if (y < 0) y = -y;
                 if (y > peak) peak = y;
             }
-            if (peak > FILTER_BOUND)
+            if (peak > (kind == 2 ? FM_FILTER_HOLD : FILTER_BOUND))
                 printf("    cutoff %d, input %d: peak %.3f\n", (int)cutoffs[c],
                        (int)kind, peak / 16777216.0);
-            TT_CHECK(peak <= FILTER_BOUND);
+            TT_CHECK(peak <= (kind == 2 ? FM_FILTER_HOLD : FILTER_BOUND));
         }
     }
 }

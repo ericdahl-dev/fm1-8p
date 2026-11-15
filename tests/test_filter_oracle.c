@@ -240,7 +240,7 @@ TT_TEST(input_beyond_32_matches_the_reference_exactly)
     TT_CHECK_EQ(differ, 0);
 }
 
-/* Any int32 input, even the extremes, gives a bounded output: no overflow, whatever the setting. */
+/* Any int32 input, even the extremes, gives a bounded output, within the ladder's hold: no overflow, whatever the setting. */
 TT_TEST(extreme_input_stays_bounded)
 {
     static fm_filter f;
@@ -253,7 +253,7 @@ TT_TEST(extreme_input_stays_bounded)
         fm_filter_set_cutoff(&f, (int32_t)c, rate);
         for (i = 0; i < 4096; i++) {
             int32_t y = fm_filter_run(&f, (i / 7) % 2 ? INT32_MAX : INT32_MIN);
-            TT_CHECK(y <= FILTER_BOUND && y >= -FILTER_BOUND);
+            TT_CHECK(y <= FM_FILTER_HOLD && y >= -FM_FILTER_HOLD);
         }
     }
 }
