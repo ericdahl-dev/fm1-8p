@@ -228,12 +228,75 @@ static int32_t coef_for(int32_t cents, int32_t rate_cents)
     return (int32_t)(((uint64_t)x * h) >> 30);
 }
 
-int32_t fm_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
+/*
+ * PG-8X's cutoff curve (#253). PG-8X 2.0.13 adds VCF ENV and VCF KEY to
+ * VCF FREQ in knob steps, then plays the sum through one curve, measured
+ * as cents(K) = 0.0988 K^2 + 115.03 K - 1474 (tools/jx8p.py cutoff_cents).
+ * The engine sums its cutoff sources linearly, in "linear cents": 115.03
+ * of them a knob step, from -1474 at step 0. Then it bends the sum once
+ * onto the curve: C(u) = u + A (u + 1474)^2, A = 0.0988 / 115.03^2. Below step 0
+ * (u < -1474) the curve adds nothing. At or above the open cutoff the sum
+ * is open either way (C(u) >= u), so a voice passes it as it is: no
+ * multiply, and an open filter is untouched.
+ */
+#define CURVE_ZERO (-1474)  /* linear cents at knob step 0 */
+#define CURVE_A_Q32 32070   /* 0.0988 / 115.03^2 in Q32 */
+
+/* The curve itself: rising, for the inverse below. */
+static int32_t curve_of(int32_t u)
+{
+    int64_t d = (int64_t)u - CURVE_ZERO;
+    if (d <= 0) return u;
+    return u + (int32_t)((d * d * CURVE_A_Q32 + (1ll << 31)) >> 32);
+}
+
+/* The curve for a voice: open stays open without the multiply. */
+static int32_t cutoff_curve(int32_t u)
+{
+    return u >= FM_FILTER_OPEN_CENTS ? u : curve_of(u);
+}
+
+/* floor(sqrt(x)), bit by bit: event rate only */
+static uint32_t isqrt64(uint64_t x)
+{
+    uint64_t r = 0, bit = 1ull << 62;
+    while (bit > x) bit >>= 2;
+    while (bit) {
+        if (x >= r + bit) {
+            x -= r + bit;
+            r = (r >> 1) + bit;
+        } else {
+            r >>= 1;
+        }
+        bit >>= 2;
+    }
+    return (uint32_t)r;
+}
+
+int32_t fm_filter_linear_cents(int32_t cents)
+{
+    uint64_t y;
+    uint32_t s;
+    int32_t u;
+    if (cents <= CURVE_ZERO) return cents;
+    if (cents > 2 * FM_FILTER_OPEN_CENTS) cents = 2 * FM_FILTER_OPEN_CENTS;
+    /* C(u) = cents: d = (sqrt(1 + 4 A Y) - 1) / 2A, Y = cents + 1474 */
+    y = (uint64_t)((int64_t)cents - CURVE_ZERO);
+    s = isqrt64((1ull << 32) + 4ull * CURVE_A_Q32 * y); /* Q16 */
+    u = CURVE_ZERO + (int32_t)(((uint64_t)(s - 65536u) * 32768u + 16035u) / 32070u);
+    /* the u whose curve value is nearest `cents` (the lower on a tie) */
+    while (curve_of(u) < cents) u++;
+    while (u > CURVE_ZERO && curve_of(u - 1) >= cents) u--;
+    if (u > CURVE_ZERO && cents - curve_of(u - 1) <= curve_of(u) - cents) u--;
+    return u;
+}
+
+int32_t fm_filter_voice_cents(int32_t cutoff_linear, int32_t track_permille,
                               uint8_t note, int32_t mod_cents)
 {
-    /* 100 cents per semitone, per mille: track * (note - 60) / 10 */
+    /* 100 linear cents per semitone, per mille: track * (note - 60) / 10 */
     int32_t track = track_permille * ((int32_t)note - 60) / 10;
-    return cutoff_cents + track + mod_cents;
+    return cutoff_curve(cutoff_linear + track + mod_cents);
 }
 
 void fm_filter_clear(fm_filter *f)

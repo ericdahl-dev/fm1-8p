@@ -174,9 +174,20 @@ resonant 4-pole (24 dB/octave) lowpass.
   saturation (6.0) with the same sign. The output is bit for bit that
   of the same filter in 64 bits over the whole +-128.0
   (`tests/test_filter_oracle.c` holds it to a 64-bit reference).
-- **Cutoff.** The voice's cutoff is `cutoff + key_track * (note - 60) / 10 +
-  mod`, all in cents, where `mod` is the voice's cutoff modulation summed in
-  `engine/mod.h` (today the filter envelope: `env_amount * env_level`),
+- **Cutoff.** The voice's cutoff is `C(base + key_track * (note - 60) / 10 +
+  mod)`, where `mod` is the voice's cutoff modulation summed in
+  `engine/mod.h` (today the filter envelope: `env_amount * env_level`).
+  The sources add in *linear cents* and are bent once onto PG-8X's cutoff
+  curve (#253): PG-8X 2.0.13 adds VCF ENV and VCF KEY to VCF FREQ in knob
+  steps and plays the sum through `cents(K) = 0.0988 K^2 + 115.03 K -
+  1474`. A linear cent is 1/115.03 of a knob step, from -1474 at step 0, so
+  `C(u) = u + A (u + 1474)^2` with `A = 0.0988 / 115.03^2` (Q32 32070, one
+  64-bit multiply), and `C(u) = u` below step 0. At or above the open
+  cutoff the sum is open either way, and passes without the multiply.
+  `base` is the cutoff setting's linear cents (`fm_filter_linear_cents`: an
+  integer square root and a divide, once a setting change, then the
+  nearest `u`), so a note 60 with no modulation plays the setting within a
+  cent. The sum is
   computed every 16 samples (a
   2.8 kHz control rate at 44.1 kHz), not per sample. Key tracking follows the
   MIDI note number only: pitch bend, each oscillator's octave and fine
@@ -205,7 +216,7 @@ resonant 4-pole (24 dB/octave) lowpass.
   `exponential_release_stays_on_its_curve`). A release goes idle below -80 dB
   (`FM_ENV_FLOOR`), a decay lands on sustain within it.
 - **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
-  amp envelope; its amount is -16400 to +16400 cents (about 13.7 octaves either way: a JX-8P VCF ENV of 127 at 129 cents a step is 16383).
+  amp envelope; its amount is -16400 to +16400 linear cents (a JX-8P VCF ENV of 127 is 127 knob steps, 14609 linear cents; #253).
   It starts where the amp envelope does: from 0 on an idle voice or after a
   steal fade (whatever level the last note left it at), from its level on a
   retrigger. During a steal fade the old note keeps its own key-tracked
