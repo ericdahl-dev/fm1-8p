@@ -29,6 +29,7 @@
 #include <stdint.h>
 
 #include "chorus_state.h"
+#include "dcblock.h"
 #include "voice.h"
 
 #define FM_MAX_VOICES 8
@@ -111,6 +112,7 @@ typedef struct {
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
+    fm_dcblock dc;     /* the output's DC block, as PG-8X's output rolls off (#265 B) */
 } fm_engine;
 
 /*

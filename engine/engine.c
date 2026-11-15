@@ -4,6 +4,7 @@
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  */
 #include "chorus.h"
+#include "dcblock.h"
 #include "dyna.h"
 #include "fm1_8p.h"
 #include "units.h"
@@ -601,6 +602,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         }
     }
     fm_chorus_init(&e->chorus, sample_rate);
+    fm_dcblock_init(&e->dc, sample_rate);
     glide_init(e);
     e->wheel = e->wheel_to = 0;                 /* the mod wheel down (#41) */
     e->wheel_moving = 0;
@@ -879,7 +881,10 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
         e->wheel_moving = (uint8_t)(e->wheel != e->wheel_to);
     }
     if (controller == 120 || controller == 123) unison_reset(e);
-    if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
+    if (controller == 120) { /* no wet tail, and the DC block starts from silence */
+        fm_chorus_silence(&e->chorus);
+        fm_dcblock_clear(&e->dc);
+    }
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         switch (controller) {
@@ -1051,9 +1056,11 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n, e->sample_rate,
                                     e->ticks + 1, e->tick_left);
-        /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
+        /* sum of the voices (Q8.24) times the mix gain (Q1.30), then the
+         * DC block (PG-8X's output rolls off below a few hertz, #265 B) */
         for (i = 0; i < n; i++)
-            e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
+            e->mix[i] = fm_dcblock_process(&e->dc,
+                                           (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30));
         if (fm_chorus_is_on(&e->chorus)) {
             fm_chorus_process_block(&e->chorus, e->mix, e->mix_right, n);
             for (i = 0; i < n; i++) {
