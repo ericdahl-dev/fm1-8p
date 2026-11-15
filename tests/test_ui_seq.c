@@ -166,7 +166,7 @@ TT_TEST(seq_step_and_play_pages)
 
 /* The section buttons in SEQ view (not in REC): SEL clears the cursor step, held 1.5 s the whole
  * pattern; ENV toggles TIE on it. EDIT goes to the last edit page, HOME to PLAY, GLO to GLO and back
- * to SEQ view; PRESETS and SAVE do nothing until pattern slots (S6). */
+ * to SEQ view; PRESETS browses patterns there, never patches, and SAVE does nothing until S6 layer 4. */
 TT_TEST(seq_section_buttons_and_the_way_out)
 {
     static const uint8_t C[1] = {60};
@@ -187,7 +187,7 @@ TT_TEST(seq_section_buttons_and_the_way_out)
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 2000);   /* held 1.5 s: all of it */
     ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3600);
     TT_CHECK_EQ(seq_get_step(s, 0)->kind, (uint8_t)SEQ_REST);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 3700);    /* no patch load from SEQ view */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 3700);    /* a pattern, not a patch (edited: a warning) */
     TT_CHECK_EQ(ui_u.state, UI_SEQ);
     TT_CHECK(!ui_u.warned);
     ui_tap(UI_BTN_SAVE, 3800);
@@ -362,6 +362,51 @@ TT_TEST(seq_footer_says_the_pattern)
     TT_CHECK(strcmp(right, "NEXT 12") == 0);
 }
 
+/* PRESETS in SEQ view browses patterns (interaction.md 5, Pattern slots). Stopped, each click loads the
+ * next one at once, around 64 slots; with PATTERN EDITED the first click only warns, and another the
+ * same way within 1.5 s discards and loads. A fast turn moves a row (8). */
+TT_TEST(seq_presets_loads_patterns_when_stopped)
+{
+    static const uint8_t C[1] = {60};
+    uint32_t patch;
+    ui_setup();
+    patch = play_prog(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);               /* 12 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 1200);   /* around: 88 */
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 63u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 1300);    /* fast: a row */
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 7u);
+    TT_CHECK_EQ(play_prog(&ui_p), patch);                    /* (the patch stays) */
+    seq_set_step(play_seq(&ui_p), 0, C, 1, 100);             /* edited: warned first */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2000);
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 7u);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "PTN EDITED - TURN TO DISCARD") == 0);
+    TT_CHECK(strlen(ui_banner(&ui_u)) <= 28u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2500);
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 8u);
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+}
+
+/* Playing, a click picks the next pattern, NEXT PATTERN nn; it takes over after the running pattern's
+ * pass. Turning back to the running pattern's number cancels it. */
+TT_TEST(seq_presets_queues_the_next_pattern_while_playing)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_tap(UI_BTN_PLAY, 1100);
+    seq_render_to(0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1200);
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 0u);
+    TT_CHECK_EQ(play_pattern_next(&ui_p), 1);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "NEXT PATTERN 12") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1300);    /* on from the queued one */
+    TT_CHECK_EQ(play_pattern_next(&ui_p), 2);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 1400);   /* back to the running one: none */
+    TT_CHECK_EQ(play_pattern_next(&ui_p), -1);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -377,4 +422,6 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_texts);
     TT_RUN(seq_view_redraws_and_edit_hold);
     TT_RUN(seq_footer_says_the_pattern);
+    TT_RUN(seq_presets_loads_patterns_when_stopped);
+    TT_RUN(seq_presets_queues_the_next_pattern_while_playing);
 }
