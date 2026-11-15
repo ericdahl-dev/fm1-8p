@@ -106,6 +106,7 @@ typedef struct {
     char seq_msg[16];                   /* "MAX 4 NOTES", the banner */
     uint32_t shown_steps;               /* seq_steps as SEQ view's strip last drew it */
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
+    uint32_t shown_clock;               /* SEQ view: the clock as drawn (external, waiting, tempo) */
     int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */

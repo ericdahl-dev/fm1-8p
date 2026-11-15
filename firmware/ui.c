@@ -373,6 +373,7 @@ void ui_init(ui *u, play *p)
     u->seq_cursor = 0;
     u->seq_page = 0;
     u->seq_keys = 0;
+    u->shown_clock = 0;
     u->chord_n = 0;
     u->seq_armed = 0;
     u->built_n = 0;
@@ -1312,6 +1313,12 @@ uint32_t ui_take(ui *u, uint32_t ms)
     if (u->state == UI_SEQ) {                   /* its footer: the pattern, the next one, edited */
         uint32_t f = play_pattern_prog(u->p) | (uint32_t)(play_pattern_next(u->p) + 1) << 8 |
                      seq_edited(play_seq(u->p)) << 16;
+        const seq *q = play_seq(u->p);
+        uint32_t c = seq_clock_external(q) | seq_waiting(q) << 1 | seq_clock_tempo(q) << 2;
+        if (c != u->shown_clock) {              /* the clock (#38): TEMPO, the header, the footer */
+            u->shown_clock = c;
+            u->dirty |= UI_D_FOOT | UI_D_HEAD | UI_D_COL(0);
+        }
         if (f != u->shown_ptn) {
             u->shown_ptn = f;
             u->dirty |= UI_D_FOOT;

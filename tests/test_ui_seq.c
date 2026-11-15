@@ -559,11 +559,32 @@ TT_TEST(seq_clock_text_names_the_source)
     TT_CHECK(strcmp(t, "WAITING FOR CLOCK") == 0);
 }
 
+/* The clock changes with no input (it starts, its tempo moves, PLAY waits): SEQ view's TEMPO, footer and
+ * header redraw by themselves; with nothing changed, none of them */
+TT_TEST(seq_clock_changes_redraw_by_themselves)
+{
+    uint32_t d, i;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1100);
+    TT_CHECK_EQ(ui_take(&ui_u, 1200) & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), 0u);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);      /* INT to MIDI */
+    d = ui_take(&ui_u, 1300);
+    TT_CHECK_EQ(d & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), UI_D_FOOT | UI_D_HEAD | UI_D_COL(0));
+    seq_clock_ticks(96);                                      /* a tempo */
+    TT_CHECK(ui_take(&ui_u, 1400) & UI_D_COL(0));
+    TT_CHECK_EQ(ui_take(&ui_u, 1500) & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), 0u);
+    for (i = 96; i < 192; i++)                                /* faster: 140 BPM */
+        seq_clock_in(play_seq(&ui_p), 0xF8u, 96u * (SEQ_CLK_HZ / 48u) + (i - 96u) * (SEQ_CLK_HZ / 56u));
+    TT_CHECK(ui_take(&ui_u, 1600) & UI_D_COL(0));
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tempo_shows_the_midi_clock);
     TT_RUN(seq_tempo_turn_under_the_clock_says_so);
     TT_RUN(seq_clock_text_names_the_source);
+    TT_RUN(seq_clock_changes_redraw_by_themselves);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
