@@ -149,6 +149,7 @@ static const settings_io SETTINGS = { set_load, set_save, 0 };
 static void draw(uint32_t full)
 {
     play_store_tick(&P);                        /* the first: the user slots from flash */
+    play_pattern_tick(&P);                      /* a queued pattern that took over (#40) */
     if (!set_loaded) {                          /* the first: GLO's settings (a THEME switches itself) */
         settings_load(&U.set, &SETTINGS);
         set_loaded = 1;
@@ -166,6 +167,7 @@ static void draw(uint32_t full)
 
 /* The user slots (patch_store.c): fm1-dock's banks 1 and 2, found by this module's name. */
 static store_lib LIB;
+static pat_lib PLIB;                            /* the pattern slots: banks 3 and 4 (#40) */
 static int bank_load(void *ctx, uint32_t idx, void *p, uint32_t n)
 {
     (void)ctx;
@@ -188,8 +190,10 @@ static int init(const hb_host_t *h)
         H->log("fm1-8p: engine init failed");
         return 1;                               /* the host falls back to the sine */
     }
-    if (HB_HOST_HAS(H, bank_free))              /* (a host before the banks: no user slots) */
+    if (HB_HOST_HAS(H, bank_free)) {            /* (a host before the banks: no user or pattern slots) */
         play_attach_store(&P, &LIB, &FLASH);    /* read on the first draw: init stays fixed work */
+        play_attach_patterns(&P, &PLIB);
+    }
     ui_init(&U, &P);
     octave_shown();
     page_leds(1);
