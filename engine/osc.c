@@ -227,7 +227,7 @@ static uint32_t recip_of(uint32_t dt, uint8_t *sh)
 static void update_spike(fm_osc_pair *p, uint8_t i)
 {
     uint32_t dt = p->osc[i].inc, r, q;
-    uint64_t g, tt;
+    uint64_t g, g0, tt;
     int64_t p1, m;
     uint8_t sh;
     if (!dt || !p->sp_kq) {
@@ -241,6 +241,12 @@ static void update_spike(fm_osc_pair *p, uint8_t i)
     r = recip_of(dt, &sh); /* 1 / dt = r x 2^(sh - 62) */
     g = ((uint64_t)p->sp_kq * r) >> (30 - sh);
     if (g > 0xFFFFFFFFu) g = 0xFFFFFFFFu;
+    g0 = g;
+    if (g < (1u << 16))                         /* past about 27 kHz (96 kHz rates and up): its shape at
+                                                 * that pitch, one halving a period (q 0.5), where 1 / (1 - q)
+                                                 * below stays in its reciprocal's range, and the mean
+                                                 * below that period's; bounded, and above hearing */
+        g = 1u << 16;
     p->sp_g[i] = (uint32_t)g;
     q = (uint32_t)exp2_neg(g);                 /* e^(-T / tau), Q30 */
     /* 1 / (1 - q), Q16, by Newton's reciprocal: 1 - q is 0.5..1 for any
@@ -249,18 +255,20 @@ static void update_spike(fm_osc_pair *p, uint8_t i)
     p1 = recip_step(m, recip_step(m, recip_seed(m))) >> 14;
     tt = (g * LN2_Q16) >> 16;                  /* T / tau, Q16 */
     {
-        /* spike_at's two terms, folded: KA ln2 / (1 - q) on u / tau in log2 (Q27), and KA z's constant
-         * (T / tau) q / (1 - q)^2 (Q22) */
+        /* spike_at's two terms, folded: KA ln2 / (1 - q) on u / tau in log2 (Q26: 1 / (1 - q) is at
+         * most 5.5 at the pitch limit, half the rate, so this is under 21.4: 1.44e9), and KA z's
+         * constant (T / tau) q / (1 - q)^2 (Q22) */
         int64_t zc = ((((int64_t)((tt * q) >> 30)) * p1 >> 16) * p1) >> 16;   /* Q16 */
-        p->sp_p1[i] = (int32_t)((((int64_t)SPIKE_KA * LN2_Q16) * p1) >> 29);
+        p->sp_p1[i] = (int32_t)((((int64_t)SPIKE_KA * LN2_Q16) * p1) >> 30);
         p->sp_zc[i] = (int32_t)(((int64_t)SPIKE_KA * zc) >> 18);
     }
-    p->sp_mean[i] = (int32_t)(((uint64_t)p->sp_ar * dt) >> 32); /* A / T */
+    m = (int64_t)(((uint64_t)p->sp_ar * dt) >> 32);  /* A / T */
+    p->sp_mean[i] = (int32_t)(g0 < g ? (m * (int64_t)g0) >> 16 : m);   /* (clamped, g is 2^16: the shape's T) */
 }
 
 /* The spike of oscillator `i` at phase t (the time since its impulse),
  * Q8.24: e^(-u / tau) (spike_exp, no interpolation) times its linear term
- * w = a v + b (sp_p1, Q27, and sp_zc, Q22: w in Q9.22, under 256), less the
+ * w = a v + b (sp_p1, Q26, and sp_zc, Q22: w in Q9.22, under 128), less the
  * mean. Three 32 x 32 -> 64 multiplies: past 30 halvings of the decay (v
  * at 30 << 16) the impulse's tail is 0 and only the mean is left, and
  * under it v is under 2^21, so v a fits 64 bits and w 32. */
@@ -270,7 +278,7 @@ static int32_t spike_at(const fm_osc_pair *p, uint8_t i, uint32_t t)
     int32_t e, w;
     if (v >= (30u << 16)) return -p->sp_mean[i];
     e = (int32_t)(((uint32_t)spike_exp[(v >> 6) & 1023u] << 15) >> (v >> 16));   /* e^(-u / tau), Q30 */
-    w = (int32_t)(((int64_t)v * p->sp_p1[i]) >> 21) + p->sp_zc[i];
+    w = (int32_t)(((int64_t)v * p->sp_p1[i]) >> 20) + p->sp_zc[i];
     return (int32_t)(((int64_t)e * w) >> 28) - p->sp_mean[i];
 }
 
