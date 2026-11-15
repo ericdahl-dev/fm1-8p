@@ -19,10 +19,12 @@
  * zero, so the fully open filter is an exact wire.
  *
  * m is a weighted average of x and x1, and y of m and the old y, so with
- * 0 <= w, g <= 1 no stage can exceed its input. The feedback sum
- * goes through a soft clip that never exceeds CLIP_MAX, so every state
- * stays within +-CLIP_MAX whatever the resonance: no overflow, no
- * runaway. See docs/fixed-point.md for the formats and the measured
+ * 0 <= w, g <= 1 no stage can exceed its input. The feedback goes
+ * through a soft clip that never exceeds CLIP_MAX, and the ladder's
+ * input (the signal less that feedback) is held to +-U_MAX, so every
+ * state stays within +-U_MAX whatever the resonance or level: no
+ * overflow, no runaway. With no resonance the lowpass is linear
+ * (loop_in). See docs/fixed-point.md for the formats and the measured
  * response.
  */
 #include "filter.h"
@@ -431,19 +433,47 @@ static int32_t soft_clip(int32_t u)
 }
 
 /*
+ * The ladder's input: the signal less the resonance's feedback. Only the
+ * feedback saturates (the soft clip, on k s3 in 64 bits): with no
+ * resonance the input passes linearly, at any level an oscillator pair
+ * reaches (a ring's peaks pass +-2.0, and bending them adds DC and
+ * sub-audio PG-8X doesn't have, #136), and with a quiet input the loop
+ * saturates exactly as it did, -soft(k s3) being soft(-k s3). The sum is
+ * held to +-U_MAX, far past any oscillator, so every state stays within
+ * it: each stage is a weighted average of its inputs, so the states, and
+ * every difference a stage takes (at most 2 U_MAX), stay in Q8.24, and
+ * eight voices of it sum within the mix's range.
+ */
+#define U_MAX FM_FILTER_HOLD
+
+static int32_t hold(int32_t u)
+{
+    return u > U_MAX ? U_MAX : u < -U_MAX ? -U_MAX : u;
+}
+
+static int32_t loop_in(int32_t x, int32_t s3, int32_t k)
+{
+    /* s3 within 16.0 and k within 4.2: fb within 67.2 (soft_clip takes any
+     * int32), and x (within 64.0 x LEVEL_MAX, 110.9) less the clipped fb
+     * (within 4.0) within 114.9, so the sum fits 32 bits */
+    int32_t u = x - soft_clip((int32_t)(((int64_t)s3 * k) >> 28));
+    return hold(u);
+}
+
+/*
  * Every Q8.24 input (to +-128.0) gives exactly the output of the 64-bit
  * filter, with 32-bit sums on the usual path:
  * - The highpass state stays within the input's range. While both are
  *   within +-32.0 (an oscillator stays near +-1.0), the highpass output
  *   is within +-64.0; times the input level (at most LEVEL_MAX, 1.70) and
- *   less the feedback (within +-4.0 * 4.2) the lowpass input sum still
- *   fits 32 bits.
+ *   less the clipped feedback (within +-4.0, CLIP_MAX) the ladder's input
+ *   sum still fits 32 bits.
  * - Louder, the highpass runs in 64 bits and its output is clamped to
  *   +-IN_MAX (64.0). That changes nothing: a clamped value times the
- *   least input level (LEVEL_MIN, 0.66) less the largest feedback still
- *   drives the soft clip past its saturation (6.0) with the same sign, as
- *   the unclamped one does. With the highpass off the input is clamped
- *   the same way.
+ *   least input level (LEVEL_MIN, 0.66) less the largest clipped feedback
+ *   is still past the ladder's hold (U_MAX, 16.0) with the same sign, as
+ *   the unclamped one is. With the highpass off the input is clamped the
+ *   same way.
  * - The bass boost (step 4) is at most 2.28 times the larger of the input
  *   and that state, so it takes the 32-bit path only while both are
  *   within +-16.0 (output within +-36.5, inside the +-64.0 above), and
@@ -452,12 +482,13 @@ static int32_t soft_clip(int32_t u)
  * Only the products need 64 bits, and each is one 32x32->64 multiply.
  */
 #define IN_MAX ((1 << 30) - 1)
-/* In units of 1/8192: 64 x the largest level, plus 4.0 x 4.2 of feedback,
- * stays under 128.0; 64 x the least level, less that, is over 6.0. */
+/* In units of 1/8192: 64 x the largest level, plus the clipped feedback
+ * (4.0), stays under 128.0; 64 x the least level, less that, is past the
+ * hold (16.0). */
 typedef char fm_require_level_sum_fits[
-    (int64_t)LEVEL_MAX * 64 + 4 * 42 * 8192 / 10 < 128 * 8192 ? 1 : -1];
-typedef char fm_require_clamp_still_saturates[
-    (int64_t)LEVEL_MIN * 64 - 4 * 42 * 8192 / 10 > 6 * 8192 ? 1 : -1];
+    (int64_t)LEVEL_MAX * 64 + 4 * 8192 < 128 * 8192 ? 1 : -1];
+typedef char fm_require_clamp_still_holds[
+    (int64_t)LEVEL_MIN * 64 - 4 * 8192 > (FM_FILTER_HOLD >> 11) ? 1 : -1];
 #define WITHIN_32(v) ((uint32_t)(v) + (1u << 29) < (1u << 30)) /* -32.0 <= v < 32.0 */
 #define WITHIN_16(v) ((uint32_t)(v) + (1u << 28) < (1u << 29)) /* -16.0 <= v < 16.0 */
 
@@ -518,7 +549,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
     int32_t x, u, p0, p1, p2;
     if (fm_filter_is_wire(f)) { /* the default patch: a wire (see leave_open) */
-        f->s[3] = soft_clip(clamp_in(in));
+        f->s[3] = hold(clamp_in(in));
         return f->s[3];
     }
     /* hp_g < 0: the bass boost; 0: off; > 0: a highpass. Each test here
@@ -550,7 +581,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         }
     }
     if (f->a != ONE_Q30) x = mul_q30(x, f->a);
-    u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
+    u = loop_in(x, f->s[3], f->k);
     /* each stage after the first takes the one before it, now and as it
      * was one sample ago */
     p0 = f->s[0];
