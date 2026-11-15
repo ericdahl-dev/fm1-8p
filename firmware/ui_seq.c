@@ -118,6 +118,12 @@ void ui_seq_transport(ui *u)
         seq_stop(s);
     else
         seq_play(s);
+    if (u->seq_rec) {                           /* PLAY in REC: it plays, and REC disarms (interaction.md 5) */
+        u->seq_rec = 0;
+        u->built_n = 0;
+        u->dirty |= UI_D_FOCUS;
+        roll(u, ROLL_AT(u->seq_cursor));
+    }
     u->dirty |= UI_D_HEAD;
 }
 

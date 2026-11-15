@@ -888,6 +888,17 @@ TT_TEST(seq_rec_disarms_and_drops_the_step_being_built)
     }
 }
 
+/* PLAY in REC starts the sequencer and disarms, so a performance doesn't record over the pattern */
+TT_TEST(seq_rec_play_starts_and_disarms)
+{
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    ui_tap(UI_BTN_PLAY, 1100);
+    TT_CHECK(play_seq(&ui_p)->want);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -900,6 +911,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_sel_and_env_write_and_move_on);
     TT_RUN(seq_rec_fx_steps_back);
     TT_RUN(seq_rec_disarms_and_drops_the_step_being_built);
+    TT_RUN(seq_rec_play_starts_and_disarms);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
