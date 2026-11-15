@@ -1078,7 +1078,10 @@ void ui_draw_frame(uint32_t full)
     if (now != shown) {                         /* each change of state, page or focus, with the focus's label */
         shown = now;
         H->log_u32("fm1-8p TRAIL jump/state/page/focus", now);
-        H->log_u32("fm1-8p TRAIL focus label", U->focus < 4u ? (uint32_t)(uintptr_t)ui_page_slot(U, U->focus)->full : 0u);
+        {
+            const ui_slot *fs = ui_page_slot(U, U->focus);   /* (NULL: no such page or focus) */
+            H->log_u32("fm1-8p TRAIL focus label", fs ? (uint32_t)(uintptr_t)fs->full : 0u);
+        }
     }
 #endif
     if (full) {                                 /* the host's: all of it, now */
