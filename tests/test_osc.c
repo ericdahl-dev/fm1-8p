@@ -185,6 +185,52 @@ static double held_rms(uint8_t wave, uint8_t note)
  * at C3, -10.0 at C4, -7.2 at C5, -4.5 at C6. The spike wave keeps to
  * that within a dB.
  */
+/*
+ * The spike against its closed form in double (#150's model: an impulse of
+ * area A through two one-poles at 3050 Hz, steady state, less its mean),
+ * osc1 alone at full, notes 24..108 at 48 kHz: the largest error is under
+ * -60 dB of the spike's peak, so a cheaper way to the same form stays as
+ * close to the fit (0.81 dB rms) as the closed form itself.
+ */
+static double spike_ref(double u, double T)
+{
+    const double A = 2.9317e-4, tau = 1.0 / (2.0 * M_PI * 3050.0);
+    double q = exp(-T / tau);
+    return A / tau * exp(-u / tau) * (u / tau / (1 - q) + T / tau * q / ((1 - q) * (1 - q))) - A / T;
+}
+
+TT_TEST(spike_matches_its_closed_form)
+{
+    static fm_osc_pair p;
+    static const int32_t notes[] = { 24, 48, 60, 72, 84, 96, 108 };
+    double worst = -1e9;
+    size_t n, k;
+    for (n = 0; n < sizeof notes / sizeof notes[0]; n++) {
+        int32_t pitch = notes[n] << 16;
+        double peak = 0, err0 = 0, err1 = 0, g, T;
+        uint32_t inc, t;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 0, FM_WAVE_SPIKE);
+        fm_osc_pair_set_pitch(&p, pitch, 48000);
+        fm_osc_pair_set_level(&p, 0, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_level(&p, 1, 0);
+        inc = p.osc[0].inc;
+        T = 4294967296.0 / inc / 48000.0;
+        g = (double)p.level[0] / (1 << 30);
+        for (k = 0, t = 0; k < 48000; k++, t += inc) {
+            double v = fm_osc_pair_next(&p) / 16777216.0;
+            double r0 = g * spike_ref((double)t / 4294967296.0 * T, T);
+            double r1 = g * spike_ref((double)(uint32_t)(t + inc) / 4294967296.0 * T, T);
+            peak = fmax(peak, fabs(r0));
+            err0 = fmax(err0, fabs(v - r0));
+            err1 = fmax(err1, fabs(v - r1));
+        }
+        worst = fmax(worst, 20 * log10(fmin(err0, err1) / peak));
+    }
+    printf("    spike against its closed form: worst %.1f dB of its peak\n", worst);
+    TT_CHECK(worst < -60.0);
+}
+
 TT_TEST(spike_level_rises_with_pitch_as_pg8x)
 {
     static const struct { uint8_t note; double db; } want[] = {
@@ -2278,6 +2324,7 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
 
 static void run_osc_tests(void)
 {
+    TT_RUN(spike_matches_its_closed_form);
     TT_RUN(spike_level_rises_with_pitch_as_pg8x);
     TT_RUN(spike_partials_follow_pg8x);
     TT_RUN(dco2_spike_sits_3_6_db_under_dco1s);
