@@ -18,6 +18,7 @@
 /* PROTOTYPE switch (not for merge): the two-section SVF core instead of the ladder (engine/filter.c) */
 #ifndef FM_FILTER_LADDER
 #define FM_FILTER_SVF
+#define FM_SVF_EF                               /* the carried-remainder variant */
 #endif
 
 /* At or above this cutoff the lowpass is fully open: a plain wire. */
