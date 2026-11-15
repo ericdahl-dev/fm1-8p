@@ -220,12 +220,13 @@ TT_TEST(resonance_turns_the_passband_down_as_on_pg8x)
 }
 
 /*
- * Maximum resonance self-oscillates; the soft clip in the feedback path
- * must hold every output within +-4.0 (Q8.24) at any cutoff, for any
- * input, for as long as it runs: 10 s per case, with a loud saw, loud
- * noise and a single huge impulse followed by silence.
+ * Maximum resonance self-oscillates; the soft clip on the feedback and
+ * the hold on the ladder's input must keep every output within +-8.0
+ * (Q8.24) at any cutoff, for any input, for as long as it runs: 10 s per
+ * case, with a loud saw, loud noise and a single huge impulse followed by
+ * silence.
  */
-#define FILTER_BOUND (4 << 24)
+#define FILTER_BOUND (8 << 24)
 
 TT_TEST(max_resonance_stays_bounded_over_a_long_render)
 {
@@ -2478,8 +2479,40 @@ TT_TEST(cutoff_curve_holds_its_values_at_the_range_edges)
         TT_CHECK_EQ(fm_filter_voice_cents(in[i], 0, 60, 0), want[i]);
 }
 
+/*
+ * With no resonance the lowpass is linear at any level an oscillator pair
+ * reaches: the ring's peaks pass +-2.0 (its x2 (a + b m1) + c m1 reaches
+ * -2.46 with squares at full), and a filter that bent them would add the
+ * DC and sub-audio PG-8X doesn't have (CHURCHBELL, #136). A signal at
+ * +-3.5 comes out exactly 1.75 times the same signal at +-2.0, within
+ * rounding, and so does a quiet one against a loud one. Only the
+ * resonance's feedback saturates.
+ */
+TT_TEST(lowpass_without_resonance_is_linear_past_two)
+{
+    static fm_filter a, b;
+    int32_t rate_cents = fm_filter_rate_cents(48000);
+    uint32_t i;
+    double worst = 0;
+    fm_filter_reset(&a);
+    fm_filter_reset(&b);
+    fm_filter_set_cutoff(&a, 6000, rate_cents);
+    fm_filter_set_cutoff(&b, 6000, rate_cents);
+    for (i = 0; i < 4800; i++) {
+        /* a square-ish wave at about 220 Hz */
+        int32_t x = ((i / 109) & 1) ? (1 << 24) : -(1 << 24);
+        double ya = fm_filter_process(&a, 2 * x);           /* +-2.0 */
+        double yb = fm_filter_process(&b, x * 7 / 2);       /* +-3.5 */
+        double d = fabs(yb - ya * 1.75);
+        if (d > worst) worst = d;
+    }
+    printf("    lowpass at resonance 0, +-3.5 against 1.75 x +-2.0: worst %.0f Q8.24 units\n", worst);
+    TT_CHECK(worst <= 64.0);
+}
+
 static void run_filter_tests(void)
 {
+    TT_RUN(lowpass_without_resonance_is_linear_past_two);
     TT_RUN(cutoff_curve_holds_its_values_at_the_range_edges);
     TT_RUN(linear_cents_holds_its_values_at_the_range_edges);
     TT_RUN(cutoff_sources_add_in_knob_steps_on_pg8x_curve);

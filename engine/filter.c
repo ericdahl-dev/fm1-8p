@@ -19,10 +19,11 @@
  * zero, so the fully open filter is an exact wire.
  *
  * m is a weighted average of x and x1, and y of m and the old y, so with
- * 0 <= w, g <= 1 no stage can exceed its input. The feedback sum
- * goes through a soft clip that never exceeds CLIP_MAX, so every state
- * stays within +-CLIP_MAX whatever the resonance: no overflow, no
- * runaway. See docs/fixed-point.md for the formats and the measured
+ * 0 <= w, g <= 1 no stage can exceed its input. The feedback goes through
+ * a soft clip that never exceeds CLIP_MAX, and the ladder's input (the
+ * signal less that feedback) is held to +-U_MAX, so every state stays
+ * within +-U_MAX whatever the resonance or level: no overflow, no runaway.
+ * With no resonance the lowpass is linear (loop_in). See docs/fixed-point.md for the formats and the measured
  * response.
  */
 #include "filter.h"
@@ -431,6 +432,32 @@ static int32_t soft_clip(int32_t u)
 }
 
 /*
+ * The ladder's input: the signal less the resonance's feedback. Only the
+ * feedback saturates (the soft clip, on k s3 in 64 bits): with no
+ * resonance the input passes linearly, at any level an oscillator pair
+ * reaches (a ring's peaks pass +-2.0, and bending them adds DC and
+ * sub-audio PG-8X doesn't have, #136), and with a quiet input the loop
+ * saturates exactly as it did, -soft(k s3) being soft(-k s3). The sum is
+ * held to +-U_MAX, far past any oscillator, so every state stays within
+ * it: each stage is a weighted average of its inputs, so the states, and
+ * every difference a stage takes (at most 2 U_MAX), stay in Q8.24, and
+ * eight voices of it sum within the mix's range.
+ */
+#define U_MAX (8 << 24)
+
+static int32_t hold(int32_t u)
+{
+    return u > U_MAX ? U_MAX : u < -U_MAX ? -U_MAX : u;
+}
+
+static int32_t loop_in(int32_t x, int32_t s3, int32_t k)
+{
+    int64_t fb = ((int64_t)s3 * k) >> 28;          /* within 8.0 x 4.2 */
+    int64_t u = (int64_t)x - soft_clip((int32_t)fb);
+    return (int32_t)(u > U_MAX ? U_MAX : u < -U_MAX ? -U_MAX : u);
+}
+
+/*
  * Every Q8.24 input (to +-128.0) gives exactly the output of the 64-bit
  * filter, with 32-bit sums on the usual path:
  * - The highpass state stays within the input's range. While both are
@@ -495,7 +522,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
     int32_t x, u, p0, p1, p2;
     if (fm_filter_is_wire(f)) { /* the default patch: a wire (see leave_open) */
-        f->s[3] = soft_clip(clamp_in(in));
+        f->s[3] = hold(clamp_in(in));
         return f->s[3];
     }
     if (!f->hp_g) {
@@ -510,7 +537,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
     }
     if (f->a != ONE_Q30) x = mul_q30(x, f->a);
-    u = soft_clip(x - (int32_t)(((int64_t)f->s[3] * f->k) >> 28));
+    u = loop_in(x, f->s[3], f->k);
     /* each stage after the first takes the one before it, now and as it
      * was one sample ago */
     p0 = f->s[0];
