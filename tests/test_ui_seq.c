@@ -148,14 +148,13 @@ static void seq_render_to(int32_t want)
 }
 
 /* The button LEDs (interaction.md 5): SEQ lit in SEQ view and glowing elsewhere; PLAY glowing when
- * stopped, lit while playing with a dark flash on each beat's first step; REC off until step record
- * (S5). In SEQ view SEL (rest) and ENV (tie) glow, LFO (MOVE, #42) and FX (BACK, in REC) are off. */
+ * stopped, lit while playing with a dark flash on each beat's first step; REC (seq_rec_button_leds). In
+ * SEQ view SEL (rest) and ENV (tie) glow, LFO (MOVE, #42) and FX (BACK, in REC) are off. */
 TT_TEST(seq_button_leds)
 {
     ui_setup();
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEQ), (uint32_t)UI_LED_GLOW);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_PLAY), (uint32_t)UI_LED_GLOW);
-    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_OFF);
     ui_tap(UI_BTN_SEQ, 1000);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEQ), (uint32_t)UI_LED_LIT);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), (uint32_t)UI_LED_GLOW);
@@ -899,6 +898,22 @@ TT_TEST(seq_rec_play_starts_and_disarms)
     TT_CHECK_EQ(ui_u.state, UI_SEQ);
 }
 
+/* REC's LED: lit while step record is armed, glowing when stopped, off while playing (REC does nothing
+ * then); FX glows in REC, where it steps back, and is off otherwise */
+TT_TEST(seq_rec_button_leds)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_GLOW);
+    ui_tap(UI_BTN_REC, 1000);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_LIT);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_FX), (uint32_t)UI_LED_GLOW);
+    ui_tap(UI_BTN_REC, 1100);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_FX), (uint32_t)UI_LED_OFF);
+    ui_tap(UI_BTN_PLAY, 1200);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_OFF);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -912,6 +927,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_fx_steps_back);
     TT_RUN(seq_rec_disarms_and_drops_the_step_being_built);
     TT_RUN(seq_rec_play_starts_and_disarms);
+    TT_RUN(seq_rec_button_leds);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);

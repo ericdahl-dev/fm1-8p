@@ -1378,8 +1378,9 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_ENV:
     case UI_BTN_FX:
     case UI_BTN_LFO:                            /* lit while a page of its ring shows */
-        if (u->state == UI_SEQ)                 /* SEQ view: REST and TIE; MOVE (#42) and BACK (REC) wait */
-            return button == UI_BTN_SEL || button == UI_BTN_ENV ? UI_LED_GLOW : UI_LED_OFF;
+        if (u->state == UI_SEQ)                 /* SEQ view: REST, TIE, and BACK in REC; MOVE (#42) waits */
+            return button == UI_BTN_SEL || button == UI_BTN_ENV || (button == UI_BTN_FX && u->seq_rec)
+                       ? UI_LED_GLOW : UI_LED_OFF;
         if (u->state == UI_SAVE || u->state == UI_GLO)   /* they do nothing there: off (interaction.md) */
             return UI_LED_OFF;
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
@@ -1401,7 +1402,12 @@ uint32_t ui_led(const ui *u, uint32_t button)
             return UI_LED_GLOW;
         return at >= 0 && at % (int32_t)SEQ_PPQ == 0 ? UI_LED_OFF : UI_LED_LIT;
     }
-    default:                                    /* (REC: step record is S5) */
+    case UI_BTN_REC:                            /* lit armed; glows where a tap arms it; off playing */
+        if (play_seq(u->p)->want)
+            return UI_LED_OFF;
+        return u->seq_rec ? UI_LED_LIT : u->state == UI_PLAY || u->state == UI_EDIT || u->state == UI_SEQ
+                                             ? UI_LED_GLOW : UI_LED_OFF;
+    default:
         return UI_LED_OFF;
     }
 }
