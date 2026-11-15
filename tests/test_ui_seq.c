@@ -696,8 +696,50 @@ TT_TEST(seq_roll_wide_span_fits_once)
     TT_CHECK(!ui_seq_roll_fit(&ui_u));
 }
 
+/* Step record (interaction.md 5, way 2): a REC tap while stopped arms it and opens SEQ view, from PLAY
+ * or EDIT; in SEQ view it arms where the cursor is */
+TT_TEST(seq_rec_tap_arms_and_opens_seq_view)
+{
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);                                 /* from PLAY */
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    TT_CHECK(ui_u.seq_rec);
+    ui_tap(UI_BTN_REC, 1100);                                 /* disarms (9 has the rest) */
+    TT_CHECK(!ui_u.seq_rec);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 3, 1200);      /* cursor on step 4 */
+    ui_tap(UI_BTN_REC, 1300);
+    TT_CHECK(ui_u.seq_rec);
+    TT_CHECK_EQ(ui_u.seq_cursor, 3u);
+    ui_tap(UI_BTN_SEQ, 1400);                                 /* out of SEQ view */
+    ui_tap(UI_BTN_ENV, 1500);                                 /* EDIT */
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    ui_tap(UI_BTN_REC, 1600);                                 /* from EDIT */
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    TT_CHECK(ui_u.seq_rec);
+}
+
+/* The cursor stays inside the pattern: a white key for a step past the length arms nothing, and LENGTH
+ * turned below the cursor brings it to the last step (found by the hammer) */
+TT_TEST(seq_cursor_stays_inside_the_length)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -8, 1100);     /* LENGTH 8 */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[12], 1, 1200), 1);      /* step 13: past it */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[12], 0, 1210), 1);
+    TT_CHECK(!ui_u.seq_armed);
+    TT_CHECK(ui_u.seq_cursor < 8u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 8, 1300);      /* LENGTH 16 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 13, 1400);     /* cursor on step 14 */
+    TT_CHECK_EQ(ui_u.seq_cursor, 13u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -6, 1500);     /* LENGTH 10 */
+    TT_CHECK_EQ(ui_u.seq_cursor, 9u);
+}
+
 static void run_ui_seq_tests(void)
 {
+    TT_RUN(seq_cursor_stays_inside_the_length);
+    TT_RUN(seq_rec_tap_arms_and_opens_seq_view);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);

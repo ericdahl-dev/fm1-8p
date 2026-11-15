@@ -78,8 +78,8 @@ int32_t ui_seq_step_of_key(uint32_t k)
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms)
 {
     int32_t st = ui_seq_step_of_key(k);
-    if (!down || st < 0)                        /* (a black key: nothing) */
-        return;
+    if (!down || st < 0 || (uint32_t)st >= seq_length(play_seq(u->p)))
+        return;                                 /* (a black key, or a step past the length: nothing) */
     roll(u, ROLL_AT(u->seq_cursor) | ROLL_AT(st));
     u->seq_cursor = (uint32_t)st;               /* the cursor there, armed: the notes played next go to it */
     u->seq_armed = 1;
@@ -93,6 +93,7 @@ void ui_seq_open(ui *u)
     u->seq_from = u->state;
     u->state = UI_SEQ;
     u->seq_armed = u->built_n = 0;
+    u->seq_rec = 0;
     u->roll_pps = 0;                            /* (fitted anew) */
     u->roll_dirty = ROLL_ALL;
     u->shown_playhead = -1;
@@ -100,6 +101,12 @@ void ui_seq_open(ui *u)
     u->warned = 0;
     u->focus = 4u;
     u->dirty |= UI_D_FULL;
+}
+
+void ui_seq_rec(ui *u)
+{
+    u->seq_rec = !u->seq_rec;
+    u->dirty |= UI_D_HEAD | UI_D_FOCUS;
 }
 
 void ui_seq_transport(ui *u)
@@ -150,7 +157,13 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         seq_set_tempo(s, (uint32_t)(v < 0 ? 0 : v));
         u->dirty |= UI_D_FOOT | UI_D_HEAD;
         break;
-    case 1: v += clicks; seq_set_length(s, (uint32_t)(v < 1 ? 1 : v)); roll(u, ROLL_ALL); break;
+    case 1:
+        v += clicks;
+        seq_set_length(s, (uint32_t)(v < 1 ? 1 : v));
+        if (u->seq_cursor >= seq_length(s))     /* (the cursor stays inside the pattern) */
+            u->seq_cursor = seq_length(s) - 1u;
+        roll(u, ROLL_ALL);
+        break;
     case 2: v += clicks * (fast ? 5 : 1); seq_set_swing(s, (uint32_t)(v < 0 ? 0 : v)); break;
     case 3: v += clicks * (fast ? 5 : 1); seq_set_gate(s, (uint32_t)(v < 0 ? 0 : v)); break;
     case 4:                                     /* the cursor step's velocity: a note or chord only */
@@ -217,6 +230,10 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->seq_armed = 0;
         u->dirty |= UI_D_FOCUS;
         roll(u, ROLL_AT(u->seq_cursor));
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_REC) && tap) {          /* step record: armed or not */
+        ui_seq_rec(u);
+        return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SEQ) && tap) {          /* back, on the page it left */
         u->seq_armed = u->built_n = 0;

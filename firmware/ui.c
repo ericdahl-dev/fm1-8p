@@ -377,6 +377,7 @@ void ui_init(ui *u, play *p)
     u->seq_armed = 0;
     u->built_n = 0;
     u->roll_dirty = 0;
+    u->seq_rec = 0;
     u->roll_lo = 0;
     u->roll_pps = 0;
     u->roll_seen_lo = u->roll_seen_hi = 0;
@@ -1200,6 +1201,12 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     if (ev == (UI_EV_BTN_UP | UI_BTN_SEQ) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
         !u->comparing && !(u->jump_screen & UI_JS_UP)) {
         ui_seq_open(u);
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_REC) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
+        !u->comparing && !(u->jump_screen & UI_JS_UP)) {
+        ui_seq_open(u);                         /* REC: SEQ view, step record armed (interaction.md 5) */
+        ui_seq_rec(u);
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
