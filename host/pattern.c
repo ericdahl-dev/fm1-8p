@@ -112,10 +112,7 @@ int render_pattern(const char *text, const char *wav_path, const render_opts *o,
                 fm_engine_render(&eng, pcm + 2u * (size_t)(done + at), ev[e].at - at);
                 at = ev[e].at;
             }
-            if (ev[e].vel)
-                fm_engine_note_on(&eng, ev[e].note, ev[e].vel);
-            else
-                fm_engine_note_off(&eng, ev[e].note);
+            seq_apply_event(&eng, &ev[e], 0);
         }
         fm_engine_render(&eng, pcm + 2u * (size_t)(done + at), n - at);
         done += n;

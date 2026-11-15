@@ -85,6 +85,7 @@ typedef struct {
     uint32_t cc_out_ms;                 /* when the last CC went out */
     uint8_t cc_out_at;                  /* the slot it was (the next goes round from it) */
     uint8_t cc_sent_cc, cc_sent_v;      /* what it was, so the same isn't sent twice (0xFF: none) */
+    int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
@@ -212,6 +213,11 @@ int ui_midi_in(const ui *u, uint32_t st);
 uint32_t ui_midi_out(const ui *u, uint32_t st);
 /* G32 FIXED VELOCITY: a key's velocity, the host's (1..127), or G32's for a key with no force sensing (0) */
 uint32_t ui_key_velocity(const ui *u, int32_t host_vel);
+/* G41 PROGRAM CHANGE: a received PC n (with RECV or BOTH) loads program n at once, edits or not
+ * (0..63 the user slots 11..88, 64 up the P patches); 1 taken. With SEND or BOTH a panel load's program
+ * waits for ui_pc_out (1: *pc to send, taken). */
+int ui_program_change(ui *u, uint32_t pc, uint32_t ms);
+int ui_pc_out(ui *u, uint32_t *pc);
 /* G31 VELOCITY CURVE: the host's velocity curve for force-sensed keys (fm1-dock's sense_set curve, the
  * exponent x 100), G31's % of the host's own (UI_SENSE_CURVE_HOST, fm1-dock dock.c sense_defaults) */
 #define UI_SENSE_CURVE_HOST 70u
