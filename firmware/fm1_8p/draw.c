@@ -194,9 +194,9 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
         if (head_mark == 2) {
             H->cv_rect(rx - 12, 8, 8, 8, C_DIM);
         } else {
-            for (k = 0; k < 5; k++)             /* a play triangle, 5 rows of narrowing width */
-                H->cv_rect(rx - 12, 7 + k, 5 - (k > 2 ? k - 2 : 2 - k) + 1, 1, led_of(C_PLAY)),
-                H->cv_rect(rx - 12, 7 + (8 - k), 5 - (k > 2 ? k - 2 : 2 - k) + 1, 1, led_of(C_PLAY));
+            for (k = 0; k < 5; k++)             /* a play triangle: rows 7..15, widest (5) in the middle */
+                H->cv_rect(rx - 12, 7 + k, k + 1, 1, led_of(C_PLAY)),
+                H->cv_rect(rx - 12, 15 - k, k + 1, 1, led_of(C_PLAY));
         }
     } else {
         ui_octave_label(P->oct, o);              /* (HB_F_SCREEN hides the host's line, which had it) */
@@ -871,7 +871,7 @@ static const seq_step *tie_source(const seq *sq, uint32_t i)
 /* note's block in a column canvas: rows of U->roll_pps from the bottom; off the range a 1 px edge tick */
 static void roll_note(int32_t x, int32_t w, uint32_t note, uint16_t c)
 {
-    const uint32_t pps = U->roll_pps, rows = UI_ROLL_H / pps;
+    const uint32_t pps = U->roll_pps ? U->roll_pps : 3u, rows = UI_ROLL_H / pps;   /* (0: not fitted yet) */
     if (note < U->roll_lo)
         H->cv_rect(x, (int32_t)UI_ROLL_H - 1, w, 1, c);
     else if (note >= U->roll_lo + rows)
@@ -885,7 +885,7 @@ static void roll_column(uint32_t i)
 {
     const seq *sq = play_seq(P);
     const seq_step *st = seq_get_step(sq, i), *src;
-    const uint32_t len = seq_length(sq), pps = U->roll_pps, rows = UI_ROLL_H / pps;
+    const uint32_t len = seq_length(sq), pps = U->roll_pps ? U->roll_pps : 3u, rows = UI_ROLL_H / pps;
     int32_t at = sq->want ? seq_step_now(sq) : -1, playing = (int32_t)i == at;
     uint16_t bg = i >= len ? C_WINDOW : i / 4u & 1u ? mix(C_BG, C_SURF, 160) : C_BG;
     uint16_t on = playing ? C_TEXT : C_SEQ, tie = mix(bg, C_SEQ, 115);
@@ -1062,6 +1062,7 @@ static uint32_t parts(uint32_t b)
  * waits behind more than one part (ui_draw_frame). */
 static uint32_t pending;                        /* UI_D_* bands still to draw */
 static uint32_t band, part;                     /* the band being drawn (0: none) and its next part */
+static uint32_t band_screen;                    /* the screen it was started for */
 #ifdef FM1_DEBUG
 static uint32_t worst_call;                     /* the longest draw() call, in 24 MHz ticks */
 static uint32_t screen_key = ~0u, screen_worst; /* the screen showing (jump, state, page) and its worst call */
@@ -1086,6 +1087,8 @@ void ui_draw_frame(uint32_t full)
     }
     if (H->ticks() - blit_t < blit_wait)
         return;                                 /* the panel is still taking the last part */
+    if (band && ui_screen(U) != band_screen)    /* another screen since the band began (a key between parts): */
+        band = 0;                               /* its parts aren't this one's; it redraws whole (UI_D_FULL) */
     if (!band) {                                /* the next band: a frame's all go first (ui_band) */
 #ifdef FM1_THEME_NIGHT
         static int seeded;                      /* a preview build (FM1_THEME=night): THEME starts NIGHT */
@@ -1098,6 +1101,7 @@ void ui_draw_frame(uint32_t full)
         part = 0;
         if (!band)
             return;
+        band_screen = ui_screen(U);
         T = ui_theme_shown(U) == UI_THEME_NIGHT ? &UI_NIGHT_PANEL : &UI_MEMBRANE;   /* (a switch: UI_D_FULL) */
         if (band == UI_D_SLOT && ui_screen(U) == UI_SCREEN_SEQ) {   /* the roll: the columns to draw now */
             uint32_t k;
