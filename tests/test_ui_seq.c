@@ -587,6 +587,20 @@ TT_TEST(seq_roll_blink_redraws_the_armed_column)
     TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 1u << 3);
 }
 
+/* An armed step's notes count toward the range as they go down: one below it refits the roll */
+TT_TEST(seq_roll_fits_an_armed_note)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_seq_roll_fit(&ui_u);                             /* empty: around C4 */
+    TT_CHECK(ui_u.roll_lo > 30u);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[0], 1, 1100), 1);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[0], 0, 1110), 1);       /* armed on step 1 */
+    seq_note(5, 30, 100, 1, 1200);                            /* F#1, held */
+    TT_CHECK(ui_seq_roll_fit(&ui_u));
+    TT_CHECK(ui_u.roll_lo <= 30u);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -600,6 +614,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_redraws_only_what_changed);
     TT_RUN(seq_chord_names);
     TT_RUN(seq_roll_blink_redraws_the_armed_column);
+    TT_RUN(seq_roll_fits_an_armed_note);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
