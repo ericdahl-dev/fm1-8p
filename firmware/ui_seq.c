@@ -109,7 +109,10 @@ int32_t ui_seq_value(const ui *u, uint32_t k)
     seq *s = play_seq(u->p);
     const seq_step *st = seq_get_step(s, u->seq_cursor);
     switch (u->seq_page * 4u + k) {
-    case 0: return (int32_t)(seq_clock_external(s) ? seq_clock_tempo(s) : seq_tempo(s));   /* (#38) */
+    case 0:                                     /* the clock's tempo when it runs the steps or they're
+                                                 * stopped, as the footer has it (#38); before it: the pattern's */
+        return (int32_t)(seq_clock_external(s) && seq_clock_tempo(s) && (s->clk_running || !s->want)
+                             ? seq_clock_tempo(s) : seq_tempo(s));
     case 1: return (int32_t)seq_length(s);
     case 2: return s->edit.swing_pct;
     case 3: return s->edit.gate_pct;

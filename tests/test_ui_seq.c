@@ -579,12 +579,26 @@ TT_TEST(seq_clock_changes_redraw_by_themselves)
     TT_CHECK(ui_take(&ui_u, 1600) & UI_D_COL(0));
 }
 
+/* G13 MIDI before any clock comes in: TEMPO shows the pattern's tempo (the clock has none yet), still
+ * marked MIDI CLOCK; a turn still says the clock sets it */
+TT_TEST(seq_tempo_before_the_clock_comes_in)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(num, "120") == 0);
+    TT_CHECK(strcmp(unit, "MIDI CLOCK") == 0);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tempo_shows_the_midi_clock);
     TT_RUN(seq_tempo_turn_under_the_clock_says_so);
     TT_RUN(seq_clock_text_names_the_source);
     TT_RUN(seq_clock_changes_redraw_by_themselves);
+    TT_RUN(seq_tempo_before_the_clock_comes_in);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
