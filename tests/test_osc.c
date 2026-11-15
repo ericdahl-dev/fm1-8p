@@ -200,6 +200,66 @@ TT_TEST(saw_polyblep_matches_its_double_precision_model)
     TT_CHECK(worst <= 1024.0);
 }
 
+/* Worst distance (Q8.24) of osc `which`'s next n samples from the
+ * double-precision 2-point polyBLEP saw at its current increment. */
+static double saw_vs_model(fm_osc_pair *p, uint8_t which, uint32_t n)
+{
+    double worst = 0;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        uint32_t t = p->osc[which].phase, dt = p->osc[which].inc;
+        double x, want = ((double)(int32_t)(t ^ 0x80000000u)) / 128.0, got;
+        if (t < dt) {
+            x = (double)t / dt;
+            want -= (2 * x - x * x - 1) * 16777216.0;
+        } else if (t > 0u - dt) {
+            x = (double)(0u - t) / dt;
+            want -= (x * x - 2 * x + 1) * 16777216.0;
+        }
+        got = fm_osc_pair_next(p);
+        if (fabs(got - want) > worst) worst = fabs(got - want);
+    }
+    return worst;
+}
+
+/*
+ * The polyBLEP follows the increment as it changes: after pitch modulation
+ * (an LFO or envelope tick) and after cross-mod has bent osc2 and let go,
+ * each saw still matches the model at its increment of the moment, within
+ * the same two steps of x (#259: a reciprocal left over from an old
+ * increment would put the polyBLEP in the wrong place).
+ */
+TT_TEST(saw_polyblep_follows_pitch_mod_and_cross_mod)
+{
+    static fm_osc_pair p;
+    static int32_t sink[4096];
+    double w1, w2, w3;
+    int k;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_pitch(&p, 100 << 16, 48000);
+    w1 = 0;
+    for (k = 0; k < 40; k++) { /* an LFO's worth of ticks, up and down */
+        double w;
+        fm_osc_pair_set_pitch_mod(&p, (k % 9 - 4) * 3000, 0);
+        w = saw_vs_model(&p, 0, 64);
+        if (w > w1) w1 = w;
+    }
+    /* osc2 alone, cross-mod by osc1, then cross-mod off */
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_pitch_mod(&p, 0, 0);
+    fm_osc_pair_set_xmod(&p, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_render(&p, sink, 4096);
+    fm_osc_pair_set_xmod(&p, 0);
+    w2 = saw_vs_model(&p, 1, 4096);
+    /* and pitch modulation on osc2 after that */
+    fm_osc_pair_set_pitch_mod(&p, 0, -20000);
+    w3 = saw_vs_model(&p, 1, 4096);
+    printf("    saw polyBLEP after pitch mod %.0f, after cross-mod %.0f, osc2 bent %.0f Q8.24 units\n",
+           w1, w2, w3);
+    TT_CHECK(w1 <= 1024.0 && w2 <= 1024.0 && w3 <= 1024.0);
+}
+
 /* Octave shifts by factors of two; fine tune by 2^(cents / 1200). */
 TT_TEST(octave_and_fine_tune_shift_pitch)
 {
@@ -2128,6 +2188,7 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
 static void run_osc_tests(void)
 {
     TT_RUN(saw_polyblep_matches_its_double_precision_model);
+    TT_RUN(saw_polyblep_follows_pitch_mod_and_cross_mod);
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(ring_multiplies_osc2_by_osc1_square);
     TT_RUN(ring_depth_follows_a_saw_osc1);
