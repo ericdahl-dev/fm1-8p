@@ -29,7 +29,10 @@ import os
 import re
 import sys
 
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:                              # --font-only needs no Pillow (tests/test_display_font.sh)
+    Image = None
 
 W = H = 240
 OUT = os.path.dirname(os.path.abspath(__file__))
@@ -971,7 +974,18 @@ def main():
     dock = os.environ.get("FM1_DOCK", os.path.expanduser("~/Projects/fm1-8p-ref/fm1-dock"))
     ap.add_argument("--font", default=os.path.join(dock, "firmware/gen/felucca_font.h"))
     ap.add_argument("--contrast", action="store_true", help="print each theme's colors and contrast")
+    ap.add_argument("--font-only", metavar="PATH",
+                    help="write only the display font's header to PATH (no host font, no Pillow; #55)")
     args = ap.parse_args()
+    if args.font_only:                          # the firmware's font alone, as CI checks it
+        dfont = {k: bake_font(v) for k, v in SIZES.items()}
+        for k, f in dfont.items():
+            check_font(f, k)
+        total = write_font_header(args.font_only, {k: (dfont[k], SIZES[k]) for k in SIZES})
+        print("display font: %d bytes" % total)
+        return
+    if Image is None:
+        sys.exit("render.py needs Pillow for the mockups (pip install Pillow)")
     if not os.path.exists(args.font):
         sys.exit("no host font at %s (set $FM1_DOCK or --font)" % args.font)
     dfont = {k: bake_font(v) for k, v in SIZES.items()}

@@ -2,6 +2,10 @@
 #include "dfont.h"
 #include "../docs/ui/mockups/display_font.h"
 
+/* #55's flash budget for the font, 6 KB: its bitmaps and tables (CI checks the generator's count too) */
+_Static_assert(sizeof D24_W + sizeof D24_OFF + sizeof D24_DATA + sizeof D20_W + sizeof D20_OFF + sizeof D20_DATA <= 6144u,
+               "the display font is over its 6 KB budget (#55)");
+
 const char dfont_chars[] = DFONT_CHARS;
 const uint32_t dfont_n = DFONT_N;
 
