@@ -570,6 +570,23 @@ TT_TEST(seq_chord_names)
     }
 }
 
+/* An armed step's frame blinks at 8 Hz: each flip redraws its column alone, and nothing else in the roll */
+TT_TEST(seq_roll_blink_redraws_the_armed_column)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[3], 1, 1100), 1);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[3], 0, 1110), 1);       /* armed on step 4 */
+    (void)ui_take(&ui_u, 1120);
+    (void)ui_seq_roll_take(&ui_u);
+    (void)ui_take(&ui_u, 1130);                               /* a flip (125 ms a phase) */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 1u << 3);
+    (void)ui_take(&ui_u, 1140);                               /* none */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0u);
+    (void)ui_take(&ui_u, 1250);                               /* the next flip */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 1u << 3);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -582,6 +599,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_fits_the_notes);
     TT_RUN(seq_roll_redraws_only_what_changed);
     TT_RUN(seq_chord_names);
+    TT_RUN(seq_roll_blink_redraws_the_armed_column);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
