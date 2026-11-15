@@ -839,7 +839,7 @@ static void seq_header(void)
     char t[20];
     uint32_t n = 0, bpm = ui_seq_tempo_shown(U) / 10u, i;
     const char *src = seq_waiting(sq) ? "WAIT" : seq_clock_external(sq) ? "MIDI" : "INT";   /* (#38) */
-    char d[4];
+    char d[6];                                  /* (ui_seq_tempo_shown: three digits; room for more) */
     t[n++] = at >= 0 ? (char)('0' + (uint32_t)(at + 1) / 10u) : '-';
     t[n++] = at >= 0 ? (char)('0' + (uint32_t)(at + 1) % 10u) : '-';
     t[n++] = ' ';
