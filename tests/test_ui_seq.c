@@ -788,6 +788,37 @@ TT_TEST(seq_rec_writes_a_step_and_moves_on)
     TT_CHECK_EQ(ui_u.seq_cursor, 2u);
 }
 
+/* In REC the cursor goes around at the length */
+TT_TEST(seq_rec_wraps_at_the_length)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -12, 1100);    /* LENGTH 4 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 3, 1200);      /* step 4, the last */
+    ui_tap(UI_BTN_REC, 1300);
+    seq_note(5, 60, 90, 1, 1400);
+    seq_note(5, 60, 0, 0, 1500);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 3)->kind, SEQ_NOTES_ON);
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+    TT_CHECK(ui_u.seq_rec);
+}
+
+/* In REC, MIDI notes join the step as keys do */
+TT_TEST(seq_rec_takes_midi_notes)
+{
+    const seq_step *st;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    ui_chord_note(&ui_u, 48, 100, 1);
+    ui_chord_note(&ui_u, 55, 100, 1);
+    ui_chord_note(&ui_u, 48, 0, 0);
+    ui_chord_note(&ui_u, 55, 0, 0);
+    st = seq_get_step(play_seq(&ui_p), 0);
+    TT_CHECK_EQ(st->kind, SEQ_NOTES_ON);
+    TT_CHECK_EQ(st->n, 2u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 1u);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -795,6 +826,8 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_while_playing_says_stop_to_record);
     TT_RUN(seq_rec_every_key_plays);
     TT_RUN(seq_rec_writes_a_step_and_moves_on);
+    TT_RUN(seq_rec_wraps_at_the_length);
+    TT_RUN(seq_rec_takes_midi_notes);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
