@@ -29,6 +29,12 @@
 #define SEQ_SWING_DEF 50u               /* swing, %: 50 straight .. 75 (the even steps late by half a step) */
 #define SEQ_TRANSPOSE_MAX 24            /* transpose, semitones: -24..+24 (interaction.md, S3 PLAY) */
 #define SEQ_VEL_DEF 100u
+/* #38: external MIDI clock, 24 ticks a quarter note (6 a step), its times on the host's 24 MHz
+ * counter (fm1-dock's ticks()) */
+#define SEQ_CLK_HZ 24000000u
+#define SEQ_CLK_PPQN 24u
+#define SEQ_CLK_HIST 25u                /* ticks kept for the tempo: a beat's worth of lengths */
+enum { SEQ_CLK_AUTO = 0, SEQ_CLK_INT = 1, SEQ_CLK_MIDI = 2 };
 
 /* What a step plays. */
 typedef enum {
@@ -105,6 +111,39 @@ typedef struct {
     int32_t cur_bend, cur_mod;          /* #42: the bend and mod it last sent */
     int32_t from_bend, from_mod, to_bend, to_mod;   /* a GLIDE step's move */
     uint32_t glide_on, glide_next;      /* gliding; the clock (acc) at its next update */
+    /* #38, external MIDI clock. Main loop: the clock source (G13) and the clock as it comes in, each
+     * tick stamped with the host's 24 MHz counter (SEQ_CLK_HZ) */
+    uint8_t clk_src;                    /* SEQ_CLK_AUTO, _INT, _MIDI */
+    uint8_t clk_present;                /* ticks are coming (none for the time out: gone) */
+    uint8_t clk_pending;                /* a start (1) or continue (2) waiting for its first tick */
+    uint8_t clk_running;                /* the transport is the clock's (started by it) */
+    uint8_t clk_armed;                  /* PLAY pressed with the clock in charge: waiting for a start */
+    uint8_t clk_started;                /* a start has played since init (a continue has somewhere to go on) */
+    uint32_t clk_t[SEQ_CLK_HIST];       /* the last ticks' times, a ring (clk_n is the next slot) */
+    uint32_t clk_n;                     /* ticks since the clock appeared */
+    uint32_t clk_dt;                    /* a tick's length now, host counts (0: not measured yet) */
+    uint32_t clk_shown;                 /* the tick length, smoothed, Q4 (the rate's) */
+    uint32_t clk_view;                  /* smoothed again, Q4: the tempo shown */
+    int32_t clk_freq;                   /* the loop's integral, units a frame, Q4 */
+    uint32_t clk_win;                   /* ticks in the length's window (since a tempo change) */
+    uint32_t clk_target;                /* the units the latest tick should be at, from tick 0 */
+    uint32_t clk_k;                     /* ticks since the start's tick 0 (or the loop's last hard pull) */
+    uint32_t clk_far;                   /* ticks running the steps have been far off them */
+    uint32_t clk_late;                  /* the last tick came held up, and was taken when it was due (1;
+                                                 * 2: and more came bunched after it) */
+    uint32_t clk_raw;                   /* when the last tick came (clk_t has when it was taken) */
+    /* main loop writes, interrupt reads: follow the clock at ext_inc units a frame, a start's
+     * first tick at host time ext_t0 */
+    volatile uint32_t ext;
+    volatile uint32_t ext_inc;
+    volatile uint32_t ext_t0;
+    volatile uint32_t ext_cont;         /* the ask is a continue: on from the step after the last */
+    volatile uint32_t ext_hold;         /* a start is coming: no next step till it does */
+    /* interrupt writes at each block's start (seq_block_time), main loop reads, as a whole while
+     * blk_seq is even (a seqlock) */
+    volatile uint32_t blk_seq, blk_t, blk_u, blk_inc, blk_fs;
+    uint32_t upos;                      /* interrupt: units since a start's tick 0, wrapping */
+    uint32_t fs;                        /* interrupt: the rate of the last render */
     /* interrupt writes, main loop reads */
     volatile uint32_t playing;          /* 1 while the transport runs */
     volatile int32_t step_now;          /* the step playing, 0 .. length-1; -1 stopped */
@@ -156,6 +195,23 @@ void seq_stop(seq *s);
 uint32_t seq_playing(const seq *s);
 int32_t seq_step_now(const seq *s);                    /* the playhead, -1 stopped */
 uint32_t seq_steps(const seq *s);                      /* changes once per step: redraw when it does */
+
+/* #38, external MIDI clock. main loop: the clock source (G13: SEQ_CLK_AUTO follows clock while it
+ * comes, INT ignores it, MIDI only follows it) */
+void seq_set_clock_source(seq *s, uint32_t src);
+/* main loop: a real-time byte as it comes in (0xF8 clock, 0xFA start, 0xFB continue, 0xFC stop; others
+ * are ignored) at host time t (SEQ_CLK_HZ counts, wrapping) */
+void seq_clock_in(seq *s, uint32_t st, uint32_t t);
+/* main loop, often: the time now; a clock gone for its time out stops a transport it was running */
+void seq_clock_poll(seq *s, uint32_t t);
+/* 1 while the clock source in use is MIDI (the header's MIDI, TEMPO's MIDI CLOCK) */
+uint32_t seq_clock_external(const seq *s);
+/* the clock's tempo, tenths of a BPM (0: no clock coming in) */
+uint32_t seq_clock_tempo(const seq *s);
+/* 1 while PLAY waits for the clock's start (the PLAY LED blinks) */
+uint32_t seq_waiting(const seq *s);
+/* audio interrupt, before seq_render: the block's start, at host time t */
+void seq_block_time(seq *s, uint32_t t);
 
 /* audio interrupt (play_render): the next n frames (1..SEQ_BLOCK) at fs Hz (8000..192000), a step's
  * chord cut to its first `voices` notes. Writes their events, in time order (at one frame: the offs, a

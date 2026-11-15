@@ -81,8 +81,8 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         static const char *const FEET[5] = {"32", "16", "8", "4", "2"};
         num = put_str(num, FEET[value < -2 ? 0 : value > 2 ? 4 : value + 2]), u = "'";
     } else if (id == FM_PARAM_OSC1_WAVE || id == FM_PARAM_OSC2_WAVE) {
-        static const char *const WAVE[4] = {"SAW", "PULSE", "SQUARE", "NOISE"};
-        num = put_str(num, WAVE[value < 0 ? 0 : value > 3 ? 3 : value]);
+        static const char *const WAVE[FM_WAVE_COUNT] = {"SAW", "PULSE", "SQUARE", "NOISE", "SPIKE"};
+        num = put_str(num, WAVE[value < 0 ? 0 : value > FM_WAVE_COUNT - 1 ? FM_WAVE_COUNT - 1 : value]);
     } else if (id == FM_PARAM_LFO_PITCH_CENTS || id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
         if (value < 0)                          /* DCO-2's -1: DCO-1's depth */
             num = put_str(num, "D1");
@@ -480,6 +480,8 @@ int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n)
         return ph < 10u * width_pct ? 1000 : -1000;
     case FM_WAVE_SQUARE:
         return ph < 500u ? 1000 : -1000;
+    case FM_WAVE_SPIKE:                         /* PG-8X's narrow peak (#150), then its tail */
+        return ph < 80u ? 1000 - 25 * (int32_t)ph : -150;
     default:                                    /* noise: a fixed scatter, the same every draw */
         r = (i + 1u) * 2654435761u;
         return (int32_t)(r >> 16 & 2047u) * 2000 / 2047 - 1000;
@@ -816,6 +818,8 @@ static void glo_turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
         u->set_changed_ms = ms;
         if (g->setting == 11u)                  /* G34: the theme cards' frame */
             u->dirty |= UI_D_SLOT;
+        if (g->setting == 2u)                   /* G13: the sequencer's clock (#38) */
+            seq_set_clock_source(play_seq(u->p), (uint32_t)v);
     }
     u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
     u->focus = k;
@@ -1388,6 +1392,8 @@ uint32_t ui_led(const ui *u, uint32_t button)
         int32_t at = seq_step_now(s);
         if (!s->want)
             return UI_LED_GLOW;
+        if (seq_waiting(s))                     /* armed, waiting for the MIDI clock's start (#38) */
+            return u->now_ms / UI_BLINK_MS & 1u ? UI_LED_OFF : UI_LED_LIT;
         return at >= 0 && at % (int32_t)SEQ_PPQ == 0 ? UI_LED_OFF : UI_LED_LIT;
     }
     default:                                    /* (REC: step record is S5) */
