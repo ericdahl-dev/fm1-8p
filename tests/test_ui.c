@@ -252,7 +252,7 @@ TT_TEST(ui_page_strip_fills_the_rule)
         end = x + w + 2;
     }
     TT_CHECK_EQ(end - 2, 235);
-    TT_CHECK_EQ(UI_PAGES, 18u);
+    TT_CHECK_EQ(UI_PAGES, 19u);
     TT_CHECK(strcmp(UI_PAGE_INFO[UI_PAGE_5A].name, "5A") == 0);
 }
 
@@ -1163,17 +1163,18 @@ TT_TEST(ui_map_table_is_well_formed)
             const ui_slot *sl = &UI_SLOTS[4u * p + k];
             uint32_t sec = (uint32_t)(UI_PAGE_INFO[p].name[0] - '0');
             uint32_t knob = (UI_PAGE_INFO[p].name[1] == 'B' ? 5u : 1u) + k;
+            uint32_t want = UI_PAGE_INFO[p].name[1] == 'C' ? UI_SLOT_W1 + k : sec * 10u + knob;   /* (0C: W1, W2) */
             if (sl->kind == UI_RESERVED) {
                 TT_CHECK(sl->label == 0);
                 continue;
             }
-            if (strlen(sl->label) > 7u || sl->num != sec * 10u + knob)
+            if (strlen(sl->label) > 7u || sl->num != want)
                 printf("    slot %u: \"%s\" on page %s knob %u\n", sl->num, sl->label, UI_PAGE_INFO[p].name, k + 1u);
             TT_CHECK(strlen(sl->label) <= 7u && sl->full != 0);
             if (strlen(UI_PAGE_INFO[p].section) + 1u + strlen(sl->full) > 20u)  /* the focus row: 163 px */
                 printf("    slot %u: \"%s %s\" is over 20 characters\n", sl->num, UI_PAGE_INFO[p].section, sl->full);
             TT_CHECK(strlen(UI_PAGE_INFO[p].section) + 1u + strlen(sl->full) <= 20u);
-            TT_CHECK_EQ(sl->num, sec * 10u + knob);
+            TT_CHECK_EQ(sl->num, want);
             TT_CHECK(sl->kind != UI_LIVE || fm_param_info_get(sl->id) != 0);
         }
 }
@@ -1403,14 +1404,14 @@ TT_TEST(ui_env_turn_redraws_the_adsr)
     TT_CHECK(ui_take(&ui_u, 500) & UI_D_SLOT);
 }
 
-/* LFO's ring (interaction.md 4): 7A LFO, 0A AFTERTOUCH (04 GLIDE live), 0B CONTROL. 7A: 71 WAVE in
+/* LFO's ring (interaction.md 4): 7A LFO, 0A AFTERTOUCH (04 GLIDE live), 0B CONTROL, 0C WHEEL. 7A: 71 WAVE in
  * panel order (RANDOM, SQUARE, TRI, and our SAW), 72 DELAY a time, 73 RATE in Hz, 74 PW in %. */
 TT_TEST(ui_lfo_ring_and_page)
 {
-    static const uint8_t WANT[4] = {71, 1, 5, 71};
+    static const uint8_t WANT[5] = {71, 1, 5, UI_SLOT_W1, 71};
     uint32_t i;
     ui_setup();
-    for (i = 0; i < 4u; i++) {
+    for (i = 0; i < 5u; i++) {
         ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_LFO, 0, 100 * i);
         TT_CHECK_EQ(ui_page_slot(&ui_u, 0)->num, WANT[i]);
     }
@@ -1511,8 +1512,8 @@ TT_TEST(ui_select_and_algorithm_walk_pages_and_sections)
     TT_CHECK_EQ(ui_num0(), 51);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 10, 200);        /* 5A + 10: 0B */
     TT_CHECK_EQ(ui_num0(), 5);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 300);
-    TT_CHECK_EQ(ui_num0(), 11);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 300);         /* 0C WHEEL */
+    TT_CHECK_EQ(ui_num0(), UI_SLOT_W1);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, -1, 400);
     TT_CHECK_EQ(ui_num0(), 5);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 500);      /* 0B: on to 1A */
@@ -2253,8 +2254,8 @@ TT_TEST(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs)
         TT_CHECK_EQ(ui_pg800_of(UI_CC_MAP_JX, i), UI_CC_NONE);
     for (i = 0; i < UI_PAGES * 4u; i++) {
         uint32_t cc;
-        if (UI_SLOTS[i].kind != UI_LIVE)
-            continue;
+        if (UI_SLOTS[i].kind != UI_LIVE || UI_SLOTS[i].num >= UI_SLOT_W1)
+            continue;                           /* (0C WHEEL's W1, W2: no CC) */
         cc = ui_cc_of(UI_CC_MAP_JX, UI_SLOTS[i].num);
         TT_CHECK(cc >= 2u && cc <= 119u && cc != 6u && cc != 7u && cc != 11u && cc != 32u && cc != 38u &&
                  cc != 64u);
@@ -2347,7 +2348,7 @@ TT_TEST(ui_cc_map_doc_matches_the_code)
     }
     fclose(f);
     for (i = 0; i < UI_PAGES * 4u; i++)
-        if (UI_SLOTS[i].kind != UI_RESERVED) {
+        if (UI_SLOTS[i].kind != UI_RESERVED && UI_SLOTS[i].num < UI_SLOT_W1) {   /* (W1, W2: no CC) */
             slots++;
             TT_CHECK(seen[UI_SLOTS[i].num / 32u] >> (UI_SLOTS[i].num % 32u) & 1u);
         }
@@ -2694,8 +2695,46 @@ TT_TEST(ui_velocity_curve_scales_the_hosts)
     TT_CHECK_EQ(ui_sense_curve(&ui_u), 140u);
 }
 
+/* 0C WHEEL (Eric, #41): a third page for section 0, after 0B on the LFO button's ring and SELECT's walk,
+ * with W1 WHEEL PITCH and W2 WHEEL PW on its first two knobs. The number jump's two digits don't reach
+ * it, and it has no CC (CC 101 is RPN's). */
+TT_TEST(ui_wheel_page_has_the_wheel_amounts)
+{
+    const ui_slot *w1, *w2;
+    char num[4];
+    int32_t before;
+    ui_setup();
+    ui_tap(UI_BTN_LFO, 0);                                    /* 7A, 0A, 0B, 0C */
+    ui_tap(UI_BTN_LFO, 200);
+    ui_tap(UI_BTN_LFO, 400);
+    ui_tap(UI_BTN_LFO, 600);
+    TT_CHECK(strcmp(UI_PAGE_INFO[ui_u.page].name, "0C") == 0);
+    TT_CHECK(strcmp(UI_PAGE_INFO[ui_u.page].section, "WHEEL") == 0);
+    w1 = ui_page_slot(&ui_u, 0);
+    w2 = ui_page_slot(&ui_u, 1);
+    TT_CHECK_EQ(w1->id, FM_PARAM_WHEEL_PITCH_CENTS);
+    TT_CHECK_EQ(w2->id, FM_PARAM_WHEEL_PW_PCT);
+    ui_slot_number(w1, num);
+    TT_CHECK(strcmp(num, "W1") == 0);
+    ui_slot_number(w2, num);
+    TT_CHECK(strcmp(num, "W2") == 0);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->kind, (uint8_t)UI_RESERVED);
+    before = play_get_param(&ui_p, FM_PARAM_WHEEL_PITCH_CENTS);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 800);
+    TT_CHECK(play_get_param(&ui_p, FM_PARAM_WHEEL_PITCH_CENTS) > before);
+    ui_tap(UI_BTN_LFO, 1000);                                 /* the ring: around to 7A */
+    TT_CHECK(strcmp(UI_PAGE_INFO[ui_u.page].name, "7A") == 0);
+    TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_JX, w1->num), UI_CC_NONE);
+    TT_CHECK_EQ(ui_cc_of(UI_CC_MAP_STANDARD, w1->num), UI_CC_NONE);
+    ui_u.set.cc_map = UI_CC_MAP_JX;
+    before = play_get_param(&ui_p, FM_PARAM_WHEEL_PITCH_CENTS);
+    TT_CHECK(!ui_cc(&ui_u, 101, 127, 1100));
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_WHEEL_PITCH_CENTS), before);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_wheel_page_has_the_wheel_amounts);
     TT_RUN(ui_velocity_curve_scales_the_hosts);
     TT_RUN(ui_program_change_in_loads_the_patch);
     TT_RUN(ui_program_change_out_on_a_panel_load);
