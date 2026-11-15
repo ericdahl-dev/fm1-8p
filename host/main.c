@@ -20,9 +20,10 @@ static void usage(void)
             "  -p PATTERN     play a sequencer pattern instead of a MIDI file: up to\n"
             "                 %u steps split by ';', each MIDI notes split by ','\n"
             "                 (a chord, up to %u), '-' a rest or '_' a tie\n"
-            "                 (\"60,64,67;_;-;62\"); with -B, -g and -n\n"
+            "                 (\"60,64,67;_;-;62\"); with -B, -g, -w and -n\n"
             "  -B TEMPO       the pattern's tempo, tenths of a BPM (default 1200)\n"
             "  -g GATE        the pattern's gate, %% of a step (default 50)\n"
+            "  -w SWING       the pattern's swing, %%: 50 straight .. 75 (default 50)\n"
             "  -n LOOPS       times through the pattern (default 2)\n"
             "  -r RATE        sample rate in Hz (default 44100)\n"
             "  -t MS          tail rendered after the song ends (default 1000)\n"
@@ -45,7 +46,7 @@ int main(int argc, char **argv)
     render_info info;
     char line[160];
     const char *pattern = NULL;
-    uint32_t tempo = SEQ_TEMPO_DEF, gate = SEQ_GATE_DEF, loops = 2;
+    uint32_t tempo = SEQ_TEMPO_DEF, gate = SEQ_GATE_DEF, swing = SEQ_SWING_DEF, loops = 2;
     int i;
     memset(&o, 0, sizeof o);
     o.sample_rate = 44100;
@@ -92,6 +93,11 @@ int main(int argc, char **argv)
                 fprintf(stderr, "bad gate (1..100): %s\n", argv[i]);
                 return 2;
             }
+        } else if (strcmp(opt, "-w") == 0) {
+            if (args_parse_u32(argv[++i], &swing) != 0 || swing < 50 || swing > 75) {
+                fprintf(stderr, "bad swing (50..75): %s\n", argv[i]);
+                return 2;
+            }
         } else if (strcmp(opt, "-n") == 0) {
             if (args_parse_u32(argv[++i], &loops) != 0 || loops < 1 || loops > 1000) {
                 fprintf(stderr, "bad loop count (1..1000): %s\n", argv[i]);
@@ -113,7 +119,7 @@ int main(int argc, char **argv)
             usage();
             return 2;
         }
-        if (render_pattern(pattern, argv[i], &o, tempo, gate, loops) != 0) return 1;
+        if (render_pattern(pattern, argv[i], &o, tempo, gate, swing, loops) != 0) return 1;
         printf("%s: the pattern, %u times\n", argv[i], (unsigned)loops);
         return 0;
     }
