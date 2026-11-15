@@ -45,6 +45,7 @@ typedef struct {
     store_lib *lib_attached;            /* main loop: attached at init, loaded on the first tick */
     const store_io *io;                 /* main loop: its flash */
     volatile uint32_t sounding;         /* ISR writes after each block: the voices sounding */
+    uint32_t live_mod;                  /* ISR only: the last MIDI CC1 (#42: where a stop returns the mod) */
     uint32_t prog;                      /* main loop: the program playing (PLAY_PROG_P + n: P n+1) */
     char name[STORE_NAME_LEN + 1u];     /* main loop: its name */
     /* compare (EDIT held): the edit buffer, kept while the stored patch sounds */

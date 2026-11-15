@@ -54,7 +54,7 @@ typedef enum {
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
 #define FM_ENGINE_BUDGET_BASE_32 6056u     /* +8: the mod wheel's state (#41) */
-#define FM_ENGINE_BUDGET_BASE_64 6412u
+#define FM_ENGINE_BUDGET_BASE_64 6416u     /* +4: 64-bit padding with 56 params (#108) */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 

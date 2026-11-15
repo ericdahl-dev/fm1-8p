@@ -74,7 +74,7 @@ typedef struct {
     const char *const *cols;            /* shorter names for a column (0: names) */
     const char *zero;                   /* the min's name when it is a number otherwise ("ALL"), or 0 */
 } ui_glo_slot;
-#define UI_GLO_PAGES 3u
+#define UI_GLO_PAGES 4u
 #define UI_GLO_SLOTS_COUNT (4u * UI_GLO_PAGES)
 extern const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT];
 

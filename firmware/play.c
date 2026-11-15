@@ -237,6 +237,7 @@ int play_init(play *p)
     p->io = 0;
     p->sounding = 0;
     p->comparing = 0;
+    p->live_mod = 0;
     seq_init(&p->seq);
     p->plib = p->plib_attached = 0;
     p->store_bank = 0;
@@ -285,7 +286,11 @@ static void apply(play *p, uint32_t ev)
     switch (ev >> 16) {
     case 0x90u: fm_engine_note_on(&p->engine, d1, d2); break;
     case 0x80u: fm_engine_note_off(&p->engine, d1); break;
-    case 0xB0u: fm_engine_controller(&p->engine, d1, d2); break;
+    case 0xB0u:
+        if (d1 == 1u || d1 == 121u)             /* the live wheel, for a stopping sequencer (#42) */
+            p->live_mod = d1 == 1u ? d2 : 0u;
+        fm_engine_controller(&p->engine, d1, d2);
+        break;
     case 0xE0u: fm_engine_pitch_bend(&p->engine, (uint16_t)(d2 << 7 | d1)); break;
     default: break;
     }
@@ -463,10 +468,7 @@ void play_render(play *p, int32_t *out, uint32_t n)
                 fm_engine_render(&p->engine, p->buf + 2u * at, p->seq_ev[e].at - at);
                 at = p->seq_ev[e].at;
             }
-            if (p->seq_ev[e].vel)
-                fm_engine_note_on(&p->engine, p->seq_ev[e].note, p->seq_ev[e].vel);
-            else
-                fm_engine_note_off(&p->engine, p->seq_ev[e].note);
+            seq_apply_event(&p->engine, &p->seq_ev[e], p->live_mod);
         }
         fm_engine_render(&p->engine, p->buf + 2u * at, n - at);
     }
