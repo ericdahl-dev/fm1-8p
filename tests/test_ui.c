@@ -2193,7 +2193,7 @@ TT_TEST(ui_cc_leaves_the_engines_ccs_to_it)
     TT_CHECK(!ui_cc(&ui_u, 64, 127, 0));
     TT_CHECK(!ui_cc(&ui_u, 120, 0, 0));
     TT_CHECK(!ui_cc(&ui_u, 123, 0, 0));
-    TT_CHECK(!ui_cc(&ui_u, 13, 10, 0));                       /* 13 TUNE: pending */
+    TT_CHECK(!ui_cc(&ui_u, 54, 10, 0));                       /* 54 VCF LFO DEPTH: pending */
     ui_u.set.cc_recv = 0;
     TT_CHECK(!ui_cc(&ui_u, 52, 10, 0));
 }

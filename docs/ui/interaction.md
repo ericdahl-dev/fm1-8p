@@ -97,7 +97,7 @@ fast step applies when one event carries 3 or more clicks.
 | --- | --- | --- | --- | --- | --- |
 | 11 | K1 | `osc1_octave` | RANGE | 16', 8', 4', 2' (and our 32') | 1 / 1 |
 | 12 | K2 | `osc1_wave` | WAVE | SAW, PULSE, SQUARE, NOISE (panel order) | 1 / 1 |
-| 13 | K3 | `osc1_coarse_semis` (pending, #158) | TUNE | -12..+12 st | 1 / 1 |
+| 13 | K3 | `osc1_coarse_semis` (#108) | TUNE | -12..+12 st | 1 / 1 |
 | 14 | K4 | `lfo_pitch_cents` | LFO | 0..1200 ct | 1 to 99 ct: 1 / 10; then 10 / 50 |
 | 15 | K1 | `pitch_env_osc1_cents` (its size) | ENV | 0..32 st, to 0.1 (32 MODE has the sign) | 10 ct / 100 ct |
 | 16 | K2 | `osc1_fine_cents` (*ours*) | FINE | -100..+100 ct | 1 / 10 |
@@ -991,7 +991,7 @@ CC first.
 | --- | --- | --- | --- | --- |
 | 11 | DCO-1 | RANGE | 110 | 65 |
 | 12 | DCO-1 | WAVEFORM | 12 | 66 |
-| 13 | DCO-1 | TUNE (when it lands) | 13 | 8 |
+| 13 | DCO-1 | TUNE | 13 | 8 |
 | 14 | DCO-1 | LFO DEPTH | 14 | 9 |
 | 15 | DCO-1 | ENV DEPTH | 15 | 10 |
 | 16 | DCO-1 | FINE TUNE | 16 | - |

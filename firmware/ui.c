@@ -93,11 +93,11 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         *num++ = '.';
         num = put_u(num, t % 10u), u = "st";
     } else if (id == FM_PARAM_OSC1_FINE_CENTS || id == FM_PARAM_OSC2_FINE_CENTS ||
-               id == FM_PARAM_OSC2_COARSE_SEMIS) {
+               id == FM_PARAM_OSC2_COARSE_SEMIS || id == FM_PARAM_OSC1_COARSE_SEMIS) {
         if (value)
             *num++ = value < 0 ? '-' : '+';
         num = put_u(num, (uint32_t)(value < 0 ? -value : value));
-        u = id == FM_PARAM_OSC2_COARSE_SEMIS ? "st" : "ct";
+        u = id == FM_PARAM_OSC2_COARSE_SEMIS || id == FM_PARAM_OSC1_COARSE_SEMIS ? "st" : "ct";
     } else if (id == FM_PARAM_OSC1_PULSE_WIDTH_PCT || id == FM_PARAM_OSC2_PULSE_WIDTH_PCT) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
     } else if (id == FM_PARAM_PITCH_ENV_DYNA || id == FM_PARAM_OSC_MIX_ENV_DYNA ||
