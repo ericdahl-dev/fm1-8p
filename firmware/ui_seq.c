@@ -187,3 +187,98 @@ uint32_t ui_key_led(const ui *u, uint32_t k, int down)
     }
     return led;
 }
+
+/* s and then the unsigned number v at the end of it; returns the new end */
+static char *put_u(char *s, uint32_t v)
+{
+    char d[10];
+    uint32_t n = 0;
+    do {
+        d[n++] = (char)('0' + v % 10u);
+        v /= 10u;
+    } while (v);
+    while (n)
+        *s++ = d[--n];
+    *s = 0;
+    return s;
+}
+
+static char *put_s(char *s, const char *t)
+{
+    while (*t)
+        *s++ = *t++;
+    *s = 0;
+    return s;
+}
+
+void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit)
+{
+    int32_t v = ui_seq_value(u, k);
+    char *n = num;
+    *num = 0, *unit = 0;
+    if (!UI_SEQ_SLOTS[u->seq_page][k].label)
+        return;
+    if (!UI_SEQ_SLOTS[u->seq_page][k].live) {
+        put_s(num, "--");
+        return;
+    }
+    switch (u->seq_page * 4u + k) {
+    case 0:                                     /* tenths of a BPM: the tenth only when there is one */
+        n = put_u(n, (uint32_t)v / 10u);
+        if (v % 10)
+            *n++ = '.', put_u(n, (uint32_t)v % 10u);
+        put_s(unit, "BPM");
+        break;
+    case 2:
+    case 3:
+        put_u(n, (uint32_t)v);
+        put_s(unit, "%");
+        break;
+    case 4:                                     /* VEL: a rest or a tie has none */
+        if (v)
+            put_u(n, (uint32_t)v);
+        else
+            put_s(n, "--");
+        break;
+    case 8:                                     /* TRANSPOSE: signed, in semitones */
+        if (v > 0)
+            *n++ = '+';
+        else if (v < 0)
+            *n++ = '-';
+        put_u(n, (uint32_t)(v < 0 ? -v : v));
+        put_s(unit, "st");
+        break;
+    default:
+        put_u(n, (uint32_t)v);
+    }
+}
+
+/* notes into s by name, a space between */
+static void note_names(const uint8_t *note, uint32_t n, char *s)
+{
+    uint32_t i;
+    char name[PLAY_NOTE_NAME];
+    *s = 0;
+    for (i = 0; i < n; i++) {
+        play_note_name(note[i], name);
+        if (i)
+            s = put_s(s, " ");
+        s = put_s(s, name);
+    }
+}
+
+void ui_seq_step_text(const ui *u, uint32_t i, char *s)
+{
+    const seq_step *st = seq_get_step(play_seq(u->p), i);
+    if (st->kind == SEQ_TIE)
+        put_s(s, "TIE");
+    else if (st->kind != SEQ_NOTES_ON || !st->n)
+        put_s(s, "REST");
+    else
+        note_names(st->note, st->n, s);
+}
+
+void ui_seq_chord_text(const ui *u, char *s)
+{
+    note_names(u->chord, u->chord_n < PLAY_VOICES ? u->chord_n : PLAY_VOICES, s);
+}

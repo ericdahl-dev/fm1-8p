@@ -23,6 +23,14 @@ extern const ui_seq_slot UI_SEQ_SLOTS[UI_SEQ_PAGES][4];
 /* knob k's value on the SEQ page shown: TEMPO in tenths of a BPM, LENGTH, SWING %, GATE %, VEL (the
  * cursor step's, 0 for a rest or a tie), TRANSPOSE in semitones */
 int32_t ui_seq_value(const ui *u, uint32_t k);
+/* knob k's value as its column reads it: the number into num, a short unit into unit (UI_VALUE_LEN
+ * each): TEMPO 120 / 123.5 BPM, LENGTH 16, SWING and GATE 50 %, VEL 100, TRANSPOSE +3 st; -- waits */
+void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit);
+/* step i as notes by name ("C4 E4 G4"), REST or TIE; the chord held now by name ("" none); s:
+ * UI_SEQ_TEXT_LEN */
+#define UI_SEQ_TEXT_LEN 40u
+void ui_seq_step_text(const ui *u, uint32_t i, char *s);
+void ui_seq_chord_text(const ui *u, char *s);
 /* SEQ view: a step key (0..15) down or up */
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* An event while SEQ view is open. */

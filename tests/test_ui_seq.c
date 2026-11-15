@@ -1,4 +1,5 @@
 /* SEQ view (interaction.md 5, firmware/ui_seq.c): the sequencer on the panel (#39, S2). */
+#include "../firmware/ui_seq.h"
 
 /* A SEQ tap from PLAY or EDIT opens SEQ view; another goes back where it came from, on the same page. */
 TT_TEST(seq_tap_opens_and_goes_back)
@@ -273,6 +274,46 @@ TT_TEST(seq_key_leds)
     TT_CHECK_EQ(ui_key_led(&ui_u, 2, 1), (uint32_t)UI_LED_LIT);    /* a held key */
 }
 
+/* What SEQ view reads out: a knob's value for its column (TEMPO in BPM, a sign on TRANSPOSE, -- for a
+ * knob that waits); a step as its notes by name, REST or TIE; the chord held now */
+TT_TEST(seq_texts)
+{
+    static const uint8_t CH[3] = {60, 64, 67};
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN], t[UI_SEQ_TEXT_LEN];
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(num, "120") == 0 && strcmp(unit, "BPM") == 0);
+    seq_set_tempo(s, 1235);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(num, "123.5") == 0);
+    ui_seq_column(&ui_u, 3, num, unit);
+    TT_CHECK(strcmp(num, "50") == 0 && strcmp(unit, "%") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1100);  /* S2 */
+    ui_seq_column(&ui_u, 1, num, unit);
+    TT_CHECK(strcmp(num, "--") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1200);  /* S3 */
+    seq_set_transpose(s, 3);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(num, "+3") == 0 && strcmp(unit, "st") == 0);
+    seq_set_step(s, 1, CH, 3, 100);
+    seq_toggle_tie(s, 2);
+    ui_seq_step_text(&ui_u, 1, t);
+    TT_CHECK(strcmp(t, "C4 E4 G4") == 0);
+    ui_seq_step_text(&ui_u, 2, t);
+    TT_CHECK(strcmp(t, "TIE") == 0);
+    ui_seq_step_text(&ui_u, 0, t);
+    TT_CHECK(strcmp(t, "REST") == 0);
+    ui_seq_chord_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "") == 0);
+    ui_chord_note(&ui_u, 57, 90, 1);
+    ui_chord_note(&ui_u, 61, 90, 1);
+    ui_seq_chord_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "A3 C#4") == 0);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -285,4 +326,5 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_section_buttons_and_the_way_out);
     TT_RUN(seq_button_leds);
     TT_RUN(seq_key_leds);
+    TT_RUN(seq_texts);
 }
