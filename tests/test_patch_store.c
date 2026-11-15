@@ -29,6 +29,22 @@ TT_TEST(store_record_round_trips_every_factory_patch)
     TT_CHECK(same);
 }
 
+/* A user patch saved before the spike (#150) keeps its wave: a slot with DCO-1 on the rectangle pulse
+ * (wave 1) and DCO-2 on the square loads them unchanged, not as the spike the converter now picks. */
+TT_TEST(store_slot_from_before_the_spike_keeps_its_waves)
+{
+    static store_patch in, out;
+    store_from_factory(0, &in);
+    in.v[FM_PARAM_OSC1_WAVE] = FM_WAVE_PULSE;
+    in.v[FM_PARAM_OSC2_WAVE] = FM_WAVE_SQUARE;
+    TT_CHECK_EQ(store_decode(store_rec, store_encode(&in, store_rec), &out), 0);
+    TT_CHECK_EQ(out.v[FM_PARAM_OSC1_WAVE], FM_WAVE_PULSE);
+    TT_CHECK_EQ(out.v[FM_PARAM_OSC2_WAVE], FM_WAVE_SQUARE);
+    in.v[FM_PARAM_OSC1_WAVE] = FM_WAVE_SPIKE;
+    TT_CHECK_EQ(store_decode(store_rec, store_encode(&in, store_rec), &out), 0);
+    TT_CHECK_EQ(out.v[FM_PARAM_OSC1_WAVE], FM_WAVE_SPIKE);
+}
+
 /* A record from older firmware has fewer tags: the params added since load at their engine default,
  * and the rest as saved. (The record's last 4 entries cut off, as if those params were newer.) */
 TT_TEST(store_record_from_older_firmware_loads_new_params_at_their_default)
@@ -352,6 +368,7 @@ TT_TEST(store_loads_on_the_first_tick_not_at_init)
 
 static void run_patch_store_tests(void)
 {
+    TT_RUN(store_slot_from_before_the_spike_keeps_its_waves);
     TT_RUN(store_record_round_trips_every_factory_patch);
     TT_RUN(store_record_from_older_firmware_loads_new_params_at_their_default);
     TT_RUN(store_record_from_newer_firmware_skips_unknown_params);

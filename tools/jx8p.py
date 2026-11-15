@@ -65,7 +65,8 @@ DYNAMICS_PCT = [0, 33, 67, 100]             # DYNAMICS off, 1, 2, 3
 
 # The 4-position switches send 0, 32, 64, 96: position = value >> 5. Waveform positions run noise,
 # square, pulse, sawtooth (Roland lists them sawtooth, pulse, square, noise from the top).
-WAVE = [3, 2, 1, 0]                         # position -> engine fm_wave (noise, square, pulse, saw)
+# position -> engine fm_wave: noise, square, PG-8X's pulse (FM_WAVE_SPIKE, #150), saw
+WAVE = [3, 2, 4, 0]
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
