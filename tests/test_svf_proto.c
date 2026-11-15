@@ -1,7 +1,7 @@
 /* PROTOTYPE tests for the SVF core (engine/filter.c under FM_FILTER_SVF): its response against the
  * analog two-section model with PG-8X's Q, and its bounds. Run with -DFM_FILTER_SVF only. */
-#ifdef FM_FILTER_SVF
 #include "../engine/filter.h"
+#ifdef FM_FILTER_SVF
 
 /* the steady gain of f for a sine at hz, dB (settled: the peak over the second half of 40 periods and 8000 samples) */
 static double svfp_gain_db(int32_t cut, int32_t res, double hz, uint32_t rate)
