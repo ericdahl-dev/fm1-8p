@@ -92,7 +92,7 @@ PARAMS = [
     P(32, 'FILTER_ENV_AMOUNT_CENTS', 'filter_env_amount_cents', '-16400', '16400', '0', 32,
       'linear cents the filter envelope adds to the cutoff at full level, before the cutoff curve (#253); negative sweeps the cutoff down'),
     P(33, 'HIGHPASS_STEP', 'highpass_step', '0', 'FM_FILTER_HIGHPASS_STEPS - 1', '0', 33,
-      '0 (off) .. 3 (most low cut)'),
+      '0 (off) .. 3 (most low cut); 4 is the bass boost (JX-8P HPF 0, #93)'),
     P(34, 'OSC2_COARSE_SEMIS', 'osc2_coarse_semis', '-12', '12', '0', 34,
       "-12..+12 semitones, on top of osc2's octave and fine"),
     P(35, 'OSC_MIX_ENV', 'osc_mix_env_permille', '-1000', '1000', '0', 35,

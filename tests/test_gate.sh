@@ -55,7 +55,7 @@ expect_ok "and says the CPU rows were skipped" grep -q "^CPU rows: skipped" "$T/
 mkdir -p "$T/fm1/dock" "$T/fm1/tc" "$T/fm1/sdk" && : >"$T/fm1/live"
 expect_ok "the CPU modes stage without an emulator" env GATE_CPU_PREPARE_ONLY=1 JIELI_TOOLCHAIN="$T/fm1/tc" \
     AC79_SDK="$T/fm1/sdk" FM1_DOCK="$T/fm1/dock" FM1_LIVE="$T/fm1/live" sh tools/gate_cpu.sh "$T/base" "$T/cpu"
-expect_ok "SYNC 2's step F has sync then the ring" sh -c "grep -A2 '{FM_PARAM_HIGHPASS_STEP, 1},' '$T/cpu/ring/src/firmware/cpu_test.c' | tr -d '\\n ' | grep -q 'OSC_SYNC,1},{FM_PARAM_OSC_RING,1}'"
+expect_ok "SYNC 2's step F has sync then the ring" sh -c "grep -A2 '{FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},' '$T/cpu/ring/src/firmware/cpu_test.c' | tr -d '\\n ' | grep -q 'OSC_SYNC,1},{FM_PARAM_OSC_RING,1}'"
 expect_ok "plain's step F is the tree's own" cmp "$T/base/firmware/cpu_test.c" "$T/cpu/plain/src/firmware/cpu_test.c"
 expect_ok "pad links its dead code" sh -c "test -f '$T/cpu/plain-pad/src/engine/aa_pad.c' && grep -q 'fm1_8p_gate_pad(3)' '$T/cpu/plain-pad/src/firmware/fm1_8p_cpu/fm1_8p_cpu.c'"
 # make gate runs it: BASE is required, HEAD defaults to the commit checked out.
