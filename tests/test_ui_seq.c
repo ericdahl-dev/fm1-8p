@@ -614,6 +614,25 @@ TT_TEST(seq_roll_redraws_whole_on_a_pattern_load)
     TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
 }
 
+/* LENGTH, a tie and a rest change what the steps after the cursor hold (a tie runs on until a rest),
+ * so each redraws every column */
+TT_TEST(seq_roll_redraws_whole_on_length_tie_and_rest)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1050);
+    (void)ui_seq_roll_take(&ui_u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -4, 1100);     /* LENGTH 12 */
+    (void)ui_take(&ui_u, 1110);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+    ui_tap(UI_BTN_ENV, 1200);                                 /* a tie */
+    (void)ui_take(&ui_u, 1310);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+    ui_tap(UI_BTN_SEL, 1400);                                 /* a rest */
+    (void)ui_take(&ui_u, 1510);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -629,6 +648,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_blink_redraws_the_armed_column);
     TT_RUN(seq_roll_fits_an_armed_note);
     TT_RUN(seq_roll_redraws_whole_on_a_pattern_load);
+    TT_RUN(seq_roll_redraws_whole_on_length_tie_and_rest);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
