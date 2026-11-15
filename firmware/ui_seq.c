@@ -159,3 +159,31 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         turn(u, id - UI_ENC_KNOB1, arg);
     }
 }
+
+uint32_t ui_key_led(const ui *u, uint32_t k, int down)
+{
+    const seq *s = play_seq(u->p);
+    const seq_step *st;
+    int32_t at = seq_step_now(s);
+    uint32_t led;
+    if (u->state != UI_SEQ) {                   /* the playhead's key while playing; the keypad; held keys */
+        if (ui_keypad_led(u, k) == UI_LED_GLOW)
+            return UI_LED_GLOW;
+        return down || (s->want && at >= 0 && (uint32_t)at == k) ? UI_LED_LIT : UI_LED_OFF;
+    }
+    if (k >= UI_STEP_KEYS)                      /* a chord key: the play zone glows, lit while held */
+        return down ? UI_LED_LIT : UI_LED_GLOW;
+    if (k >= seq_length(s))
+        return UI_LED_OFF;
+    st = seq_get_step(s, k);
+    led = st->kind == SEQ_REST ? UI_LED_GLOW : UI_LED_LIT;
+    if (st->kind == SEQ_TIE && u->now_ms % 500u >= 400u)    /* a tie: a short dark blink every 500 ms */
+        led = UI_LED_OFF;
+    if (s->want && at >= 0) {                   /* playing: the playhead, its step inverted */
+        if ((uint32_t)at == k)
+            led = st->kind == SEQ_REST ? UI_LED_LIT : UI_LED_OFF;
+    } else if (k == u->seq_cursor) {            /* stopped: the cursor blinks lit / glow at 4 Hz */
+        led = u->now_ms / 125u & 1u ? UI_LED_GLOW : UI_LED_LIT;
+    }
+    return led;
+}

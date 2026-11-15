@@ -200,6 +200,79 @@ TT_TEST(seq_section_buttons_and_the_way_out)
     TT_CHECK_EQ(ui_u.state, UI_PLAY);
 }
 
+/* render audio until the sequencer's playhead is on step `want` (or a second has gone) */
+static void seq_render_to(int32_t want)
+{
+    uint32_t i, k;
+    for (k = 0; k < 400u && seq_step_now(play_seq(&ui_p)) != want; k++) {
+        for (i = 0; i < 2 * PLAY_BLOCK; i++)
+            ui_out[i] = 0;
+        play_render(&ui_p, ui_out, PLAY_BLOCK);
+    }
+}
+
+/* The button LEDs (interaction.md 5): SEQ lit in SEQ view and glowing elsewhere; PLAY glowing when
+ * stopped, lit while playing with a dark flash on each beat's first step; REC off until step record
+ * (S5). In SEQ view SEL (rest) and ENV (tie) glow, LFO (MOVE, #42) and FX (BACK, in REC) are off. */
+TT_TEST(seq_button_leds)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEQ), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_PLAY), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_OFF);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEQ), (uint32_t)UI_LED_LIT);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_LFO), (uint32_t)UI_LED_OFF);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_FX), (uint32_t)UI_LED_OFF);
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_PLAY), (uint32_t)UI_LED_OFF);   /* the beat's first step */
+    seq_render_to(1);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_PLAY), (uint32_t)UI_LED_LIT);
+}
+
+/* The key LEDs in SEQ view (interaction.md 5): a step key past the length off, a rest glowing, a
+ * note lit, a tie lit with a short dark blink every 500 ms, the cursor blinking lit and glow at 4 Hz
+ * when stopped, the playhead its step inverted; chord keys glow, and are lit while held. Outside SEQ
+ * view, while playing, the playhead's key is lit. */
+TT_TEST(seq_key_leds)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 2, C, 1, 100);
+    seq_toggle_tie(s, 3);
+    seq_set_length(s, 8);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_u.seq_cursor = 5;
+    ui_u.now_ms = 10000;                                      /* (a time off every blink) */
+    TT_CHECK_EQ(ui_key_led(&ui_u, 1, 0), (uint32_t)UI_LED_GLOW);   /* a rest */
+    TT_CHECK_EQ(ui_key_led(&ui_u, 2, 0), (uint32_t)UI_LED_LIT);    /* a note */
+    TT_CHECK_EQ(ui_key_led(&ui_u, 3, 0), (uint32_t)UI_LED_LIT);    /* a tie, between its blinks */
+    ui_u.now_ms = 10450;
+    TT_CHECK_EQ(ui_key_led(&ui_u, 3, 0), (uint32_t)UI_LED_OFF);    /* its blink */
+    TT_CHECK_EQ(ui_key_led(&ui_u, 9, 0), (uint32_t)UI_LED_OFF);    /* past the length */
+    ui_u.now_ms = 10000;
+    TT_CHECK_EQ(ui_key_led(&ui_u, 5, 0), (uint32_t)UI_LED_LIT);    /* the cursor: lit, then glow */
+    ui_u.now_ms = 10125;
+    TT_CHECK_EQ(ui_key_led(&ui_u, 5, 0), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_key_led(&ui_u, 20, 0), (uint32_t)UI_LED_GLOW);  /* a chord key */
+    TT_CHECK_EQ(ui_key_led(&ui_u, 20, 1), (uint32_t)UI_LED_LIT);
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_render_to(2);
+    TT_CHECK_EQ(ui_key_led(&ui_u, 2, 0), (uint32_t)UI_LED_OFF);    /* the playhead on a note */
+    seq_render_to(4);
+    TT_CHECK_EQ(ui_key_led(&ui_u, 4, 0), (uint32_t)UI_LED_LIT);    /* on a rest */
+    TT_CHECK_EQ(ui_key_led(&ui_u, 5, 0), (uint32_t)UI_LED_GLOW);   /* (playing: no cursor blink) */
+    ui_tap(UI_BTN_SEQ, 1400);                                 /* PLAY state, still playing */
+    TT_CHECK_EQ(ui_key_led(&ui_u, 4, 0), (uint32_t)UI_LED_LIT);
+    TT_CHECK_EQ(ui_key_led(&ui_u, 2, 0), (uint32_t)UI_LED_OFF);
+    TT_CHECK_EQ(ui_key_led(&ui_u, 2, 1), (uint32_t)UI_LED_LIT);    /* a held key */
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -210,4 +283,6 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
+    TT_RUN(seq_button_leds);
+    TT_RUN(seq_key_leds);
 }
