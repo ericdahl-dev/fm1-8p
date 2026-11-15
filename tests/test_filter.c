@@ -2407,7 +2407,7 @@ static uint32_t golden_filter_hash(uint8_t step)
  */
 TT_TEST(highpass_steps_0_to_3_are_bit_for_bit_what_they_were)
 {
-    static const uint32_t golden[4] = { 0xA299E9D3u, 0x1927E939u, 0xA5DA987Au, 0x81A53B15u };
+    static const uint32_t golden[4] = { 0x2A01A267u, 0xC5499A2Bu, 0xBE1E6CC9u, 0x094FCDF4u };
     uint8_t step;
     int same = 1;
     for (step = 0; step < 4; step++) {
@@ -2447,8 +2447,8 @@ static uint32_t golden_engine_hash(int step)
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {
-    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x6A5BB0B5u, 0x214F2609u, 0x0C94EC8Du,
-                                        0x8228FB51u };
+    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x479CAD41u, 0xF599E6B5u, 0x463D562Du,
+                                        0x963F89C5u };
     int step, same = 1;
     for (step = -1; step < 4; step++) {
         uint32_t h = golden_engine_hash(step);

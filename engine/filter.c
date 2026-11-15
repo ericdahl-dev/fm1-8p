@@ -314,12 +314,17 @@ static const int32_t k_tab[14] = { 1555853578, 1107028459, 921274491, 913757962,
 #define Q0_Q30   741021855                     /* 1 / k at resonance 0 (Q 0.69): the level is k Q0, 1.0 there */
 #define K_FLOOR  21474836                      /* the level's k, at least 0.02: self-oscillation starts */
 
+/* how much k falls a per mille between the points, Q30 (no divide at control rate; as magnitudes, so
+ * no constant looks like a ROM address) */
+static const int32_t k_fall[13] = { 1547673, 1769086, 1503306, 1331413, 1374530, 1213766, 1203881,
+                                    1297438, 1409255, 1798535, 2126285, 3489064, 1230671 };
+
 static int32_t k_of(int32_t pm)
 {
     int i;
     if (pm >= k_pm[13]) return k_tab[13];
     for (i = 0; pm > k_pm[i + 1]; i++) {}
-    return k_tab[i] + (int32_t)(((int64_t)(k_tab[i + 1] - k_tab[i]) * (pm - k_pm[i])) / (k_pm[i + 1] - k_pm[i]));
+    return k_tab[i] - k_fall[i] * (pm - k_pm[i]);    /* (within 3.5e6 x 290: 32 bits) */
 }
 
 /* tan(pi f / fs), Q5.27, for f / fs in cents (held to 1/4096 .. 0.45) */
@@ -330,7 +335,7 @@ static int32_t tan_of(int32_t d)
     if (d < -14400) d = -14400;
     i = (d + 14400) / 100;
     r = (d + 14400) % 100;
-    return tan_tab[i] + (int32_t)(((int64_t)(tan_tab[i + 1] - tan_tab[i]) * r) / 100);
+    return tan_tab[i] + (int32_t)((((int64_t)(tan_tab[i + 1] - tan_tab[i]) * r) * 42949673) >> 32);   /* / 100 */
 }
 
 /* The coefficients from the cutoff, rate and resonance as set: control rate, a few 32-bit divides. */
@@ -342,7 +347,7 @@ static void apply(fm_filter *f)
     r = c % 1200;
     d = c + (i >= 12 ? f0_off[12] + (f0_off[12] - f0_off[11]) * r / 1200
                      : f0_off[i] + (f0_off[i + 1] - f0_off[i]) * r / 1200) - f->rate;   /* f0 / fs, cents */
-    t = tan_of(d);                                                                       /* Q5.27, <= 6.32 */
+    t = tan_of(d);                                                                       /* Q5.27, <= 6.72 */
     k = k_of(f->res);                                                                    /* Q30, <= 1.45 */
     /* PG-8X's Q falls a little at high cutoffs (F80: 3..10 %, F49: none): k + K_TOP k^2 t, and its
      * passband rises half as much (the level's k: k + half that). Fitted to F80 (t 0.25), and taken no
@@ -358,7 +363,8 @@ static void apply(fm_filter *f)
      * by (240 + 900 t) t (k - k93) cents (F80: +150 at RES 0, -32 at 127; F64: +24; F49: +6) */
     {
         int64_t c_t = ((int64_t)240 << 27) + 900 * (int64_t)tt;                         /* 240 + 900 t, Q27 */
-        int32_t shift = (int32_t)((((c_t * tt) >> 27) * ((int64_t)k - K_93)) >> 57);
+        /* (c_t t: Q27 cents under 2^35, to Q10 under 2^18; times k - k93, within 2^31: under 2^49) */
+        int32_t shift = (int32_t)((((c_t * tt) >> 44) * ((int64_t)k - K_93)) >> 40);
         if (shift) t = tan_of(d + shift);
     }
     den = (1 << 23) + (int32_t)(((int64_t)t * (t + (k >> 3))) >> 31);                    /* 1 + t (t + k), Q9.23 */
@@ -370,7 +376,7 @@ static void apply(fm_filter *f)
     f->a3 = (int32_t)(((int64_t)f->a2 * t) >> 27);
     f->t = t;
     f->z1 = t <= Z1_T0 ? Z1_FULL : t >= Z1_T1 ? 0
-          : (int32_t)(((int64_t)Z1_FULL * (Z1_T1 - t)) / (Z1_T1 - Z1_T0));
+          : (int32_t)(((int64_t)(Z1_T1 - t) * 25) >> 2);   /* Z1_FULL / (Z1_T1 - Z1_T0) is 6.25 */
     f->a = (int32_t)(((int64_t)(kl > K_FLOOR ? kl : K_FLOOR) * Q0_Q30) >> 30);            /* <= 1.0 (1.2 at the top) */
     f->fade = f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS ? ONE_Q30 : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
@@ -402,9 +408,10 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
  *   +-36.5 while both are within +-16.0); louder, it runs in 64 bits and
  *   its output is clamped to +-IN_MAX (64.0). The input level is at most
  *   1.0, so the sections' input is held to +-16.0, Q9.23's 8.0.
- * - Section 1: its peak gain is Q and its input k Q0 of that, so its
- *   output stays within Q0 (0.69) of it, about 5.5, times the ringing a
- *   step can add (measured: 11 at the most).
+ * - Section 1: its input is held to +-16.0 before and after the level, so
+ *   it is within 8.0 (Q9.23); its states, linear in it, reach at most 95
+ *   (worst-case gain over rate, cutoff and resonance: 189 at +-32.0, the
+ *   firmware review's), inside Q9.23's 256.
  * - Section 2: its states are held to +-32.0 (SEC2_MAX). Then v3 is within
  *   43, v1 within 32 + 0.5 x 43 = 53.5 and v2 within 32 + 16 + 43 = 91, so
  *   2 v - ic, the next state before its hold, is within 214: inside
@@ -500,7 +507,8 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
     {
         int32_t a1 = f->a1, a2 = f->a2, a3 = f->a3, i1, i2, v1, v2, v3, y, u;
         int64_t p, out;
-        v3 = (hold(mul_q30(x, f->a)) >> 1) - f->s[1];   /* the input, held to 16.0: Q9.23 */
+        v3 = (hold(mul_q30(hold(x), f->a)) >> 1) - f->s[1];   /* the input, held to 16.0 before and after
+                                                         * its level (within 1.14): Q9.23 */
         i1 = f->s[0];
         i2 = f->s[1];
         p = (int64_t)a1 * i1 + (int64_t)a2 * v3 + f->c[0];
@@ -531,6 +539,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         y = out > (U_MAX >> 1) ? U_MAX : out < -(U_MAX >> 1) ? -U_MAX : (int32_t)out * 2;   /* Q8.24 */
         if (f->fade == ONE_Q30)
             return y;
-        return hold(x + mul_q30(y - x, f->fade));   /* (the top of the range: to the input) */
+        x = hold(x);                            /* (the top of the range: to the input, held as a wire's) */
+        return x + mul_q30(y - x, f->fade);
     }
 }

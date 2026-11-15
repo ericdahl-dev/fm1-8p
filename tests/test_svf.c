@@ -268,28 +268,17 @@ TT_TEST(svf_peak_holds_across_rates)
     double wc = 0, wd = 0;
     size_t c, r;
     for (c = 0; c < 2; c++) {
-        double ref_hz = 0, ref_db = 0;
-        for (r = 0; r < 5; r++) {
-            uint32_t rate = r == 4 ? SVF_RATE : rates[r];
-            double best = -1e9, at = 0, hz0 = c ? 1121.2 : 368.3;
-            int k;
-            if (r < 4 && c == 1 && rate == 8000u) continue;   /* (1.1 kHz at 8 kHz: too near Nyquist) */
-            fm_filter_reset(&f);
-            fm_filter_set_resonance(&f, 935);
-            fm_filter_set_cutoff(&f, cuts[c], fm_filter_rate_cents(rate));
-            for (k = -100; k <= 100; k += 2) {
-                double h = hz0 * pow(2.0, k / 1200.0), g = svf_gain_db(&f, h, rate);
-                if (g > best) best = g, at = h;
-            }
-            if (r == 0 && c == 0) { ref_hz = 0; }
-            if (r == 4) {
-                ref_hz = at;
-                ref_db = best;
-            }
-            if (r == 4) continue;
-            (void)ref_db;
+        double ref_hz = 0, ref_db = 0, best = -1e9;
+        int k;
+        fm_filter_reset(&f);                    /* 48 kHz's peak */
+        fm_filter_set_resonance(&f, 935);
+        fm_filter_set_cutoff(&f, cuts[c], fm_filter_rate_cents(SVF_RATE));
+        for (k = -100; k <= 100; k += 2) {
+            double h = (c ? 1121.2 : 368.3) * pow(2.0, k / 1200.0), g = svf_gain_db(&f, h, SVF_RATE);
+            if (g > best) best = g, ref_hz = h;
         }
-        /* second pass against 48 kHz's */
+        ref_db = best;
+        /* the other rates against it */
         for (r = 0; r < 4; r++) {
             uint32_t rate = rates[r];
             double best = -1e9, at = 0, hz0 = c ? 1121.2 : 368.3;
@@ -478,6 +467,58 @@ TT_TEST(svf_cutoff_change_has_no_click_of_its_own)
     TT_CHECK(clean);
 }
 
+/* PG-8X's f0 moves with resonance near the top of the range: at F80, from its RES 93 (3760.9 Hz),
+ * +155 cents at RES 0 (4113.2) and -32 at RES 127 (3692.9). The sections' f0 (from their tan) moves
+ * the same within 20 cents. */
+TT_TEST(svf_f0_moves_with_resonance_as_pg8x_at_f80)
+{
+    static fm_filter f;
+    static const struct { int16_t permille; double cents; } at[] = { { 0, 155.4 }, { 935, -31.8 } };
+    int32_t rate = fm_filter_rate_cents(SVF_RATE);
+    double f93, worst = 0;
+    size_t r;
+    fm_filter_reset(&f);
+    fm_filter_set_resonance(&f, 756);
+    fm_filter_set_cutoff(&f, 10844, rate);
+    f93 = atan(f.t / 134217728.0);
+    for (r = 0; r < 2; r++) {
+        double c;
+        fm_filter_set_resonance(&f, at[r].permille);
+        c = 1200 * log2(atan(f.t / 134217728.0) / f93);
+        printf("    F80, resonance %d: f0 %+.1f cents from RES 93's (PG-8X %+.1f)\n", (int)at[r].permille, c, at[r].cents);
+        worst = fmax(worst, fabs(c - at[r].cents));
+    }
+    TT_CHECK(worst < 20.0);
+}
+
+/* Any input past the hold acts as the hold: a sign pattern at +-60.0 (far past any oscillator, with
+ * no highpass) gives, sample for sample, what the same pattern at +-16.0 gives, at the fade's top
+ * (14100 cents, 48 kHz) and every resonance from 756 up: nothing inside wraps */
+TT_TEST(svf_input_past_the_hold_is_the_hold)
+{
+    static const int32_t res[] = { 756, 828, 935, 1000 };
+    static fm_filter f, g;
+    int32_t rate = fm_filter_rate_cents(SVF_RATE);
+    uint32_t seed = 7, i, differ = 0;
+    size_t r;
+    for (r = 0; r < 4; r++) {
+        fm_filter_reset(&f);
+        fm_filter_reset(&g);
+        fm_filter_set_resonance(&f, res[r]);
+        fm_filter_set_resonance(&g, res[r]);
+        fm_filter_set_cutoff(&f, 14100, rate);
+        fm_filter_set_cutoff(&g, 14100, rate);
+        for (i = 0; i < 48000u; i++) {
+            int sign;
+            seed = seed * 1664525u + 1013904223u;
+            sign = (seed >> 31) ? 1 : -1;
+            differ += fm_filter_run(&f, sign * (60 << 24)) != fm_filter_run(&g, sign * FM_FILTER_HOLD);
+        }
+    }
+    printf("    +-60.0 against +-16.0: %u of %u samples differ\n", differ, 4u * 48000u);
+    TT_CHECK_EQ(differ, 0u);
+}
+
 static void run_svf_tests(void)
 {
     TT_RUN(svf_lowpass_is_pg8x_two_sections);
@@ -489,4 +530,6 @@ static void run_svf_tests(void)
     TT_RUN(svf_is_bounded_at_every_rate);
     TT_RUN(svf_fades_to_the_wire_at_the_top);
     TT_RUN(svf_cutoff_change_has_no_click_of_its_own);
+    TT_RUN(svf_f0_moves_with_resonance_as_pg8x_at_f80);
+    TT_RUN(svf_input_past_the_hold_is_the_hold);
 }
