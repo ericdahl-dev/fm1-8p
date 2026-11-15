@@ -55,6 +55,7 @@ typedef struct {
      * name, and the one queued to take over after the pass (-1 none) */
     pat_lib *plib;
     pat_lib *plib_attached;
+    uint32_t store_bank;                /* main loop: the next bank the first draws read (one a draw) */
     uint32_t pat_prog;
     int32_t pat_next;
     char pat_name[STORE_NAME_LEN + 1u];
@@ -81,9 +82,10 @@ void play_prog_name(const play *p, char *name);
 void play_attach_store(play *p, store_lib *lib, const store_io *io);
 /* At init, after play_attach_store: the pattern slots, on the same flash, not read yet. */
 void play_attach_patterns(play *p, pat_lib *lib);
-/* main loop: the first call loads the attached store's banks, and the pattern slots' with slot 0's
- * pattern into the sequencer; after that, nothing. */
-void play_store_tick(play *p);
+/* main loop, each draw: the first calls read the attached banks, one a call (a bank's read is about
+ * 4 ms, a draw call's budget 5: visual.md): the user slots' two, then the pattern slots' two, and with
+ * the last slot 0's pattern into the sequencer. 1 when it read one (the call's work is done), 0 after. */
+uint32_t play_store_tick(play *p);
 /* Pattern slots (#40), main loop. The slot playing (0..63, shown 11..88; 0 from init) and its name
  * (STORE_NAME_LEN + 1 chars, "" for an empty slot); the slot queued to take over after the pass, -1 none. */
 uint32_t play_pattern_prog(const play *p);

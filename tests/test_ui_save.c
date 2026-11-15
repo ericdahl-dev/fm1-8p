@@ -6,7 +6,7 @@ static void save_setup(void)
     store_flash_blank();
     (void)play_init(&ui_p);
     play_attach_store(&ui_p, &store_lib_a, &store_fake_io);
-    play_store_tick(&ui_p);                     /* as the module's first draw */
+    while (play_store_tick(&ui_p)) {}            /* as the module's first draws */
     ui_init(&ui_u, &ui_p);
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_ENV, 0, 0);
 }

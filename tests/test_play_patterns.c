@@ -9,7 +9,7 @@ static void pp_setup(void)
     (void)play_init(&sp_a);
     play_attach_store(&sp_a, &store_lib_a, &store_fake_io);
     play_attach_patterns(&sp_a, &pp_lib);
-    play_store_tick(&sp_a);
+    while (play_store_tick(&sp_a)) {}            /* the first draws */
 }
 
 static void pp_write(uint32_t slot, uint8_t note, uint32_t len, const char *name)
@@ -156,10 +156,35 @@ TT_TEST(play_pattern_survives_a_patch_change)
     TT_CHECK_EQ(seq_tempo(s), SEQ_TEMPO_DEF);
 }
 
+/* The first draws read one bank each (about 4 ms a bank in fm1-emu: visual.md's 5 ms a draw call):
+ * user slots 1 and 2, then pattern slots 3 and 4; the patterns, and slot 0's, are there after the fourth. */
+TT_TEST(play_store_reads_one_bank_a_draw)
+{
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t k;
+    store_flash_blank();
+    pat_lib_load(&pp_lib, &store_fake_io);
+    pp_write(0, 50, 3, "INTRO");
+    store_flash.loads = 0;
+    (void)play_init(&sp_a);
+    play_attach_store(&sp_a, &store_lib_a, &store_fake_io);
+    play_attach_patterns(&sp_a, &pp_lib);
+    for (k = 1; k <= 4u; k++) {
+        TT_CHECK_EQ(play_store_tick(&sp_a), 1u);
+        TT_CHECK_EQ(store_flash.loads, k);
+        play_pattern_name(&sp_a, name);
+        TT_CHECK_EQ(name[0] != '\0', k == 4u);   /* slot 0's pattern with the last bank */
+    }
+    TT_CHECK_EQ(play_store_tick(&sp_a), 0u);
+    TT_CHECK_EQ(store_flash.loads, 4u);
+    TT_CHECK_EQ(seq_length(play_seq(&sp_a)), 3u);
+}
+
 static void run_play_patterns_tests(void)
 {
     TT_RUN(play_pattern_starts_on_slot_0);
     TT_RUN(play_pattern_first_draw_loads_slot_0);
+    TT_RUN(play_store_reads_one_bank_a_draw);
     TT_RUN(play_pattern_save_then_load);
     TT_RUN(play_pattern_load_while_playing_queues);
     TT_RUN(play_pattern_cancel_and_stop);

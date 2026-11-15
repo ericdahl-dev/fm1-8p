@@ -340,10 +340,13 @@ TT_TEST(store_loads_on_the_first_tick_not_at_init)
     play_attach_store(&ui_p, &store_lib_a, &store_fake_io);
     TT_CHECK_EQ(store_flash.loads, 0u);
     TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), PLAY_PROG_P);
-    play_store_tick(&ui_p);
+    TT_CHECK_EQ(play_store_tick(&ui_p), 1u);   /* one bank a draw: each read is one draw call's work */
+    TT_CHECK_EQ(store_flash.loads, 1u);
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), PLAY_PROG_P);   /* not yet */
+    TT_CHECK_EQ(play_store_tick(&ui_p), 1u);
     TT_CHECK_EQ(store_flash.loads, 2u);
     TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), 9u);
-    play_store_tick(&ui_p);
+    TT_CHECK_EQ(play_store_tick(&ui_p), 0u);   /* (no pattern slots attached) */
     TT_CHECK_EQ(store_flash.loads, 2u);
 }
 

@@ -25,6 +25,8 @@ typedef struct {
 
 /* At the first draw: the banks from flash (a bank not there: every slot empty). */
 void pat_lib_load(pat_lib *l, const store_io *io);
+/* One of them, b (0, 1): a bank's read is a draw call's work (visual.md's 5 ms) */
+void pat_lib_load_bank(pat_lib *l, const store_io *io, uint32_t b);
 /* Slot s (0..63) into p and name: 0, or -1 when it is empty (p the empty pattern, name ""). */
 int pat_slot_read(const pat_lib *l, uint32_t s, seq_pattern *p, char *name);
 /* 1 when slot s holds a pattern */

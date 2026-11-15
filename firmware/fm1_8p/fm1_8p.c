@@ -148,7 +148,13 @@ static const settings_io SETTINGS = { set_load, set_save, 0 };
 /* The host calls draw() from its main loop: the LEDs on a full redraw, then the screen (draw.c) */
 static void draw(uint32_t full)
 {
-    play_store_tick(&P);                        /* the first: the user slots from flash */
+    static uint32_t full_held;                  /* a full redraw asked for while the banks load */
+    if (play_store_tick(&P)) {                  /* the first draws: a flash bank each, nothing else */
+        full_held |= full;
+        return;
+    }
+    full |= full_held;
+    full_held = 0;
     play_pattern_tick(&P);                      /* a queued pattern that took over (#40) */
     if (!set_loaded) {                          /* the first: GLO's settings (a THEME switches itself) */
         settings_load(&U.set, &SETTINGS);
