@@ -216,6 +216,17 @@ settings.
 | 07 | K3 | `voice_mode` (*ours*) | VOICE | POLY, UNISON | 1 / 1 |
 | 08 | K4 | `unison_detune_cents` (*ours*) | DETUNE | 0..100 ct (inactive in POLY) | 1 / 10 |
 
+### 0C WHEEL (page 0C)
+
+The mod wheel's amounts (#41), on a third page of section 0 (Eric: 0B had no free knob). They have no
+PG-800 number and no CC, so they show as W1 and W2; the number jump's two digits can't reach them,
+but LFO's ring and SELECT do. The LED window shows only the digit (a 7-segment W can't be drawn).
+
+| No. | Knob | Engine parameter | Label | Shown as | Step / fast |
+| --- | --- | --- | --- | --- | --- |
+| W1 | K1 | `wheel_pitch_cents`: the wheel at full adds this to the vibrato depth | W PITCH | 0..1200 ct | 1 / 10 |
+| W2 | K2 | `wheel_pw_pct`: the wheel at full adds this to the PW depth | W PW | 0..49 % | 1 / 5 |
+
 ### Units and value tables
 
 - **Time:** the engine stores ms. The screen shows `0 ms` .. `999 ms`, then
@@ -255,7 +266,7 @@ settings.
 The SELECT encoder walks the pages in number order, section 1 to 9 then 0, and
 wraps at both ends:
 
-`1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B` (18 pages)
+`1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B, 0C` (19 pages)
 
 **Pages with nothing live are skipped.** The SELECT walk and the section
 button rings skip a page whose slots are all pending or reserved, and the page
@@ -278,7 +289,7 @@ is shown, and glows otherwise.
 | SEL | 1A, 1B DCO-1; 2A, 2B DCO-2; 3A DCO ENV; 4A, 4B MIXER | the sources: "select the source" |
 | ENV | 5A, 5B VCF; 8A, 8B ENV-1; 9A, 9B ENV-2 | the filter, with the envelopes |
 | FX | 6A, 6B VCA and CHORUS | the output end |
-| LFO | 7A LFO; 0A, 0B AFTERTOUCH and CONTROL | modulation and performance |
+| LFO | 7A LFO; 0A, 0B AFTERTOUCH and CONTROL; 0C WHEEL | modulation and performance |
 
 The FM-1 has four section buttons for the panel's ten sections, so each
 button holds the sections that sit together on the panel. VCF is the
@@ -1118,7 +1129,7 @@ test.
    and back to 5A.
 2. From page 7A, SEL tap shows 1A, the first page of SEL's ring, not the next
    page.
-3. SELECT +1 from 0B shows 1A, and SELECT -1 from 1A shows 0B. A page whose
+3. SELECT +1 from 0B shows 0C, SELECT +1 from 0C shows 1A, and SELECT -1 from 1A shows 0C. A page whose
    slots are all pending or reserved is skipped (0A while 01-04 have only
    04 GLIDE live is not skipped).
 4. ALGORITHM +1 from 4B shows 5A, the next section's page A, and ALGORITHM +1

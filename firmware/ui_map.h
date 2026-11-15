@@ -31,8 +31,9 @@ typedef struct {
  * RATE  the LFO rate, the same on the rate table (UI_RATES) */
 typedef enum { UI_HOW_PLAIN, UI_HOW_PAIR, UI_HOW_MODE, UI_HOW_SIZE, UI_HOW_TIME, UI_HOW_RATE } ui_how;
 
-/* interaction.md's page order: 1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B */
-#define UI_PAGES 18u
+/* interaction.md's page order: 1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B, 0C */
+#define UI_PAGES 19u
+#define UI_SLOT_W1 101u                 /* 0C WHEEL's knobs, shown W1, W2: no PG-800 number, no CC */
 #define UI_PAGE_5A 7u
 typedef struct {
     char name[3];                       /* "5A" */

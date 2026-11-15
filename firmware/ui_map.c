@@ -50,6 +50,7 @@ const ui_page_info UI_PAGE_INFO[UI_PAGES] = {
     {"6A", UI_SEC_VCA, "VCA"}, {"6B", UI_SEC_VCA, "VCA"}, {"7A", UI_SEC_LFO, "LFO"},
     {"8A", UI_SEC_VCF_ENV, "ENV-1"}, {"8B", UI_SEC_VCF_ENV, "ENV-1"}, {"9A", UI_SEC_VCA, "ENV-2"},
     {"9B", UI_SEC_VCA, "ENV-2"}, {"0A", UI_SEC_CTRL, "AFTERTOUCH"}, {"0B", UI_SEC_CTRL, "CONTROL"},
+    {"0C", UI_SEC_CTRL, "WHEEL"},                                       /* (Eric, #41: the wheel's amounts) */
 };
 
 /* HPF as the JX-8P's panel has it (#138): BOOST, FLAT, 240 Hz, 560 Hz (engine steps 4, 0, 2, 3), with
@@ -163,6 +164,8 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     PEND(6, "PORTA", "PORTAMENTO"),                                        /* #62 */
     CHOICE(7, "VOICE", "VOICE MODE", FM_PARAM_VOICE_MODE, TWO_ORDER),       /* ours */
     LIVE(8, "DETUNE", "DETUNE", FM_PARAM_UNISON_DETUNE_CENTS, 1, 10),   /* ours */
+    PAGE(18) LIVE(UI_SLOT_W1, "W PITCH", "WHEEL PITCH", FM_PARAM_WHEEL_PITCH_CENTS, 1, 10),   /* #41: the wheel */
+    LIVE(UI_SLOT_W1 + 1, "W PW", "WHEEL PW", FM_PARAM_WHEEL_PW_PCT, 1, 5),
     PAGE(7) {51, "HPF", "HIGHPASS", FM_PARAM_HIGHPASS_STEP, UI_LIVE, 1, 1, HPF_ORDER, 5, HPF_STOPS, 0, 0, 0},
     LIVE(52, "CUTOFF", "CUTOFF", FM_PARAM_FILTER_CUTOFF_CENTS, 100, 400),
     LIVE(53, "RES", "RESONANCE", FM_PARAM_FILTER_RESONANCE, 10, 50),
@@ -177,7 +180,7 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
 const uint8_t UI_RING_SEL[] = {0, 1, 2, 3, 4, 5, 6, UI_RING_END};
 const uint8_t UI_RING_ENV[] = {7, 8, 12, 13, 14, 15, UI_RING_END};
 const uint8_t UI_RING_FX[] = {9, 10, UI_RING_END};
-const uint8_t UI_RING_LFO[] = {11, 16, 17, UI_RING_END};
+const uint8_t UI_RING_LFO[] = {11, 16, 17, 18, UI_RING_END};
 
 /* interaction.md, units: the time table, 0 to 32000 ms. 0..22 as listed, then each the readable
  * value nearest 7 % up (whole ms below 100, 5 ms below 1 s, 50 ms below 10 s, then 500 ms) */
