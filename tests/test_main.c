@@ -38,6 +38,7 @@
 #include "test_patch_store.c"
 #include "test_pattern_store.c"
 #include "test_ui_save.c"
+#include "test_ui_seq.c"
 #include "test_settings_store.c"
 #include "test_ui_reach.c"
 #include "test_seq.c"
@@ -70,6 +71,7 @@ int main(void)
     run_patch_store_tests();
     run_pattern_store_tests();
     run_ui_save_tests();
+    run_ui_seq_tests();
     run_settings_store_tests();
     run_ui_reach_tests();
     run_seq_tests();

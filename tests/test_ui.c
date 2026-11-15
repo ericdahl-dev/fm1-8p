@@ -1,6 +1,7 @@
 /* The on-device UI's logic (firmware/ui.c): pages, knobs and values, run on the desktop. */
 #include "../firmware/ui.h"
 #include "../firmware/ui_settings.h"
+#include "../firmware/ui_seq.h"
 
 static play ui_p;
 static ui ui_u;
@@ -1206,8 +1207,11 @@ static uint32_t ui_hammer(void)
                                   UI_EV_BTN_DOWN | UI_BTN_LFO, UI_EV_BTN_DOWN | UI_BTN_FX,
                                   UI_EV_ENC | UI_ENC_SELECT, UI_EV_ENC | UI_ENC_ALGORITHM,
                                   UI_EV_ENC | UI_ENC_PRESETS, UI_EV_BTN_DOWN | UI_BTN_GLO, UI_EV_BTN_UP | UI_BTN_GLO,
-                                  UI_EV_BTN_DOWN | UI_BTN_SAVE, UI_EV_BTN_UP | UI_BTN_SAVE};
-    uint32_t i, r = 12345u, ms = 0, bad = 0, in_save = 0, in_glo = 0;
+                                  UI_EV_BTN_DOWN | UI_BTN_SAVE, UI_EV_BTN_UP | UI_BTN_SAVE,
+                                  UI_EV_BTN_DOWN | UI_BTN_SEQ, UI_EV_BTN_UP | UI_BTN_SEQ,
+                                  UI_EV_BTN_DOWN | UI_BTN_PLAY, UI_EV_BTN_UP | UI_BTN_PLAY,
+                                  UI_EV_BTN_DOWN | UI_BTN_REC, UI_EV_BTN_UP | UI_BTN_REC};
+    uint32_t i, r = 12345u, ms = 0, bad = 0, in_save = 0, in_glo = 0, in_seq = 0;
     for (i = 0; i < 20000u; i++) {
         const ui_slot *f;
         r = r * 1103515245u + 12345u;
@@ -1221,6 +1225,15 @@ static uint32_t ui_hammer(void)
             (void)ui_cc(&ui_u, (r >> 18) % 128u, (r >> 3) % 128u, ms);
         } else
             ui_event(&ui_u, ev, (int32_t)((r >> 4) % 7u) - 3, ms);
+        if ((r >> 22) % 16u == 0) {             /* a MIDI note held or let go: SEQ view's chord */
+            ui_chord_note(&ui_u, 48u + (r >> 9) % 24u, 1u + (r >> 3) % 127u, (int)((r >> 7) & 1u));
+        }
+        if ((r >> 24) % 8u == 0) {              /* audio now and then: the sequencer's playhead moves */
+            uint32_t j;
+            for (j = 0; j < 2 * PLAY_BLOCK; j++)
+                ui_out[j] = 0;
+            play_render(&ui_p, ui_out, PLAY_BLOCK);
+        }
         (void)ui_take(&ui_u, ms);               /* (the jump screen's 400 ms timer) */
         if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && (r >> 12) % 4u != 0 && (r >> 12) % 8u != 1u &&
             ui_screen(&ui_u) == UI_SCREEN_JUMP)   /* (sent: neither a key nor a CC instead) */
@@ -1234,6 +1247,10 @@ static uint32_t ui_hammer(void)
                                                       : ui_u.focus != 4u)))
             bad++;
         in_save += ui_u.state == UI_SAVE;
+        in_seq += ui_u.state == UI_SEQ;
+        if (ui_u.state == UI_SEQ && (ui_u.seq_cursor >= seq_length(play_seq(&ui_p)) ||
+                                     ui_u.seq_page >= UI_SEQ_PAGES || ui_u.chord_n > UI_CHORD_MAX))
+            bad++;                              /* SEQ view: the cursor inside the pattern, a real page */
         in_glo += ui_u.state == UI_GLO;
         if (ui_u.state == UI_SAVE && (ui_u.save_dest >= 64u || ui_u.save_cursor >= STORE_NAME_LEN ||
                                       ui_u.save_step > UI_SAVE_CONFIRM ||
@@ -1248,8 +1265,8 @@ static uint32_t ui_hammer(void)
         if (ui_u.page >= UI_PAGES || ui_u.focus > 3u || f->kind == UI_RESERVED || !f->label || !f->full)
             bad++;
     }
-    printf("    %u bad states in 20000 events (%u in SAVE, %u in GLO)\n", (unsigned)bad, (unsigned)in_save,
-           (unsigned)in_glo);
+    printf("    %u bad states in 20000 events (%u in SAVE, %u in GLO, %u in SEQ)\n", (unsigned)bad,
+           (unsigned)in_save, (unsigned)in_glo, (unsigned)in_seq);
     return bad;
 }
 
