@@ -99,8 +99,11 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             *num++ = value < 0 ? '-' : '+';
         num = put_u(num, (uint32_t)(value < 0 ? -value : value));
         u = id == FM_PARAM_OSC2_COARSE_SEMIS || id == FM_PARAM_OSC1_COARSE_SEMIS ? "st" : "ct";
-    } else if (id == FM_PARAM_OSC1_PULSE_WIDTH_PCT || id == FM_PARAM_OSC2_PULSE_WIDTH_PCT) {
+    } else if (id == FM_PARAM_OSC1_PULSE_WIDTH_PCT || id == FM_PARAM_OSC2_PULSE_WIDTH_PCT ||
+               id == FM_PARAM_WHEEL_PW_PCT) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
+    } else if (id == FM_PARAM_WHEEL_PITCH_CENTS) {   /* 0C WHEEL: the wheel at full adds this */
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "ct";
     } else if (id == FM_PARAM_PITCH_ENV_DYNA || id == FM_PARAM_OSC_MIX_ENV_DYNA ||
                id == FM_PARAM_FILTER_ENV_DYNA || id == FM_PARAM_AMP_DYNA) {    /* DYNAMICS */
         if (value <= 0)
@@ -894,6 +897,8 @@ uint32_t ui_keypad_led(const ui *u, uint32_t k)
 uint32_t ui_cc_of(uint32_t map, uint32_t num)
 {
     uint32_t i;
+    if (num >= UI_SLOT_W1)                      /* (0C WHEEL: none) */
+        return UI_CC_NONE;
     if (map == UI_CC_MAP_STANDARD) {
         for (i = 0; i < UI_CC_STANDARD_COUNT; i++)
             if (UI_CC_STANDARD[i].pg800 == num)
@@ -933,7 +938,7 @@ static const ui_slot *cc_slot(uint32_t map, uint32_t cc)
     if (num == UI_CC_NONE)
         return 0;
     for (i = 0; i < UI_PAGES * 4u; i++)
-        if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == num)
+        if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == num && num < UI_SLOT_W1)
             return &UI_SLOTS[i];
     return 0;
 }
@@ -1416,6 +1421,10 @@ void ui_octave_label(int32_t oct, char *s)
 
 void ui_slot_number(const ui_slot *sl, char *s)
 {
+    if (sl->num >= UI_SLOT_W1) {                /* 0C WHEEL: W1, W2 */
+        s[0] = 'W', s[1] = (char)('1' + sl->num - UI_SLOT_W1), s[2] = 0;
+        return;
+    }
     s[0] = (char)('0' + sl->num / 10u);
     s[1] = (char)('0' + sl->num % 10u);
     s[2] = 0;
