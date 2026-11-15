@@ -63,7 +63,7 @@ void seq_init(seq *s)
     s->clk_present = s->clk_pending = s->clk_running = s->clk_armed = 0;
     s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = s->clk_k = s->clk_view = s->clk_win = s->clk_far = 0;
     s->clk_freq = 0;
-    s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = 0;
+    s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = s->ext_hold = 0;
     s->blk_seq = s->blk_t = s->blk_u = s->blk_inc = s->blk_fs = 0;
     s->upos = s->fs = 0;
 }
@@ -418,6 +418,8 @@ static void clock_tick(seq *s, uint32_t t)
         s->want = 1;
         BARRIER();                              /* the rate and tick 0 before the ask */
         s->ask_play++;
+        BARRIER();
+        s->ext_hold = 0;                        /* (the interrupt takes the ask before it would step) */
         return;
     }
     if (s->clk_running && s->clk_dt) {          /* where the steps were at this tick, against it */
@@ -435,7 +437,11 @@ void seq_clock_in(seq *s, uint32_t st, uint32_t t)
         return;
     switch (st) {
     case 0xF8u: clock_tick(s, t); break;
-    case 0xFAu: s->clk_pending = 1; break;      /* from step 1, on the next tick */
+    case 0xFAu:                                 /* from step 1, on the next tick */
+        s->clk_pending = 1;
+        if (s->clk_running)
+            s->ext_hold = 1;                    /* (playing: no next step till then) */
+        break;
     case 0xFBu:                                 /* on from where it stopped, on the next tick */
         if (!s->clk_running)
             s->clk_pending = 2;
@@ -667,6 +673,11 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             s->glide_next = inc * SEQ_GLIDE_FRAMES;    /* (the step's first update) */
         glide = s->glide_on && s->glide_next < thr ? s->glide_next : thr;
         target = glide < target ? glide : target;
+        if (target == thr && xi && s->ext_hold) {   /* a start is coming: wait at this step's end */
+            uint32_t to = s->acc + (n - t) * inc;
+            s->acc = to < thr ? to : thr - 1u;
+            break;
+        }
         j = s->acc >= target ? 0 : (target - s->acc + inc - 1u) / inc;
         if (j >= n - t) {                       /* not in this block */
             s->acc += (n - t) * inc;

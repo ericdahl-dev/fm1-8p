@@ -134,6 +134,7 @@ typedef struct {
     volatile uint32_t ext_inc;
     volatile uint32_t ext_t0;
     volatile uint32_t ext_cont;         /* the ask is a continue: on from the step after the last */
+    volatile uint32_t ext_hold;         /* a start is coming: no next step till it does */
     /* interrupt writes at each block's start (seq_block_time), main loop reads, as a whole while
      * blk_seq is even (a seqlock) */
     volatile uint32_t blk_seq, blk_t, blk_u, blk_inc, blk_fs;

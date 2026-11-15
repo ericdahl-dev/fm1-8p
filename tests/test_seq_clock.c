@@ -12,6 +12,7 @@ typedef struct { double at, stamp; uint8_t st; } ck_msg;
 static ck_msg ck_msgs[40000];
 static uint32_t ck_n_msgs;
 static double ck_on[4096];                     /* each note on's time, s from the render's start */
+static uint8_t ck_note[4096];                  /* and its note (step i plays 48 + i) */
 static uint32_t ck_n_on, ck_n_off;
 static uint32_t ck_rng = 12345u;
 static double ck_watch_from = 1e9;             /* from this time on, the tempo shown's range */
@@ -91,8 +92,10 @@ static void ck_run(double secs)
         got = seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
         for (k = 0; k < got; k++)
             if (ev[k].kind == SEQ_EV_NOTE) {
-                if (ev[k].vel && ck_n_on < 4096)
+                if (ev[k].vel && ck_n_on < 4096) {
+                    ck_note[ck_n_on] = ev[k].note;
                     ck_on[ck_n_on++] = (double)(done + ev[k].at) / CK_FS;
+                }
                 else if (!ev[k].vel)
                     ck_n_off++;
             }
@@ -246,10 +249,53 @@ TT_TEST(clock_follows_tempo_changes)
     TT_CHECK(during_ramp < 3.0);
 }
 
+/* Start, stop and continue: FC lets every note go and stops; FB goes on from the step after the last
+ * one played, on the next tick; FA, even while playing, starts again from step 1 on the next tick; FC
+ * while stopped, and ticks alone, start nothing. */
+TT_TEST(clock_start_stop_and_continue)
+{
+    double dt = 60.0 / 120.0 / SEQ_CLK_PPQN;
+    uint32_t i, ok = 1, before_fb;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 120.0, 120.0, 0, 1, 24u * 24u);   /* 24 beats of steady clock, from 0.05 s */
+    ck_msg_at(ck_tick_at[10] + dt / 2, 0, 0xFCu);          /* a stop while stopped: nothing */
+    ck_msg_at(ck_tick_at[24] - dt / 2, 0, 0xFAu);          /* start: step 1 on tick 24 */
+    ck_msg_at(ck_tick_at[24 + 6 * 8] - dt / 2, 0, 0xFCu);  /* stop before step 9 */
+    ck_msg_at(ck_tick_at[120] - dt / 2, 0, 0xFBu);         /* continue: step 9 on tick 120 */
+    ck_msg_at(ck_tick_at[120 + 6 * 4] - dt / 2, 0, 0xFAu); /* start again, playing: step 1 on tick 144 */
+    ck_run(ck_tick_at[144 + 6 * 4] - 0.012);
+    before_fb = 8;
+    printf("    start/stop/continue: %u notes on, %u off; notes", ck_n_on, ck_n_off);
+    for (i = 0; i < ck_n_on; i++)
+        printf(" %u", ck_note[i] - 48u + 1u);
+    printf("\n");
+    TT_CHECK(ck_n_on == 8u + 4u + 4u);
+    for (i = 0; i < before_fb && i < ck_n_on; i++) {          /* steps 1..8 from tick 24 */
+        ok &= ck_note[i] == 48u + i;
+        ok &= fabs(ck_on[i] - ck_tick_at[24 + 6 * i]) < (i ? 0.0005 : 0.008);
+    }
+    TT_CHECK(ok);
+    for (i = 0; i < 4 && 8 + i < ck_n_on; i++) {               /* steps 9..12 from tick 120 */
+        TT_CHECK(ck_note[8 + i] == 48u + 8u + i);
+        TT_CHECK(fabs(ck_on[8 + i] - ck_tick_at[120 + 6 * i]) < (i ? 0.001 : 0.008));
+    }
+    for (i = 0; i < 4 && 12 + i < ck_n_on; i++) {              /* steps 1..4 again from tick 144 */
+        TT_CHECK(ck_note[12 + i] == 48u + i);
+        TT_CHECK(fabs(ck_on[12 + i] - ck_tick_at[144 + 6 * i]) < (i ? 0.001 : 0.008));
+    }
+    TT_CHECK(ck_n_off >= 8u + 4u);                             /* every step's note let go */
+    TT_CHECK(seq_playing(&ck));
+    ck_fresh(SEQ_CLK_MIDI);                                    /* ticks alone: nothing plays */
+    ck_ticks_ramp(0.05, 120.0, 120.0, 0, 1, 96u);
+    ck_run(1.0);
+    TT_CHECK(ck_n_on == 0u && !seq_playing(&ck));
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_steps_follow_a_steady_clock);
     TT_RUN(clock_steps_ride_out_a_jittery_clock);
     TT_RUN(clock_measures_the_tempo_over_its_range);
     TT_RUN(clock_follows_tempo_changes);
+    TT_RUN(clock_start_stop_and_continue);
 }
