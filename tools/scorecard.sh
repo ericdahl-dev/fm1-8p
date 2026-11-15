@@ -4,7 +4,8 @@
 #
 # usage: tools/scorecard.sh COMMIT [BASE]        (make scorecard COMMIT=<commit> [BASE=<commit>])
 #   SCORECARD_REF       the PG-8X reference renders: NN.wav and manifest.json (made outside this repo;
-#                       no PG-8X audio is committed). Required.
+#                       no PG-8X audio is committed). Default: $FM1_REF/pg8x/scorecard/v5 (PG-8X 2.0.13,
+#                       SELFNOISE 0: #247).
 #   SCORECARD_HISTORY   history.jsonl to append to (default build/scorecard/history.jsonl)
 #   SCORECARD_PYTHON    a Python with numpy and scipy (default python3)
 #   SCORECARD_MATCH     the match harness's match.py, and SCORECARD_MATCH_PYTHON and SCORECARD_MATCH_CACHE
@@ -17,7 +18,9 @@ set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 die() { echo "scorecard: $*" >&2; exit 2; }
 [ $# -ge 1 ] || die "usage: scorecard.sh COMMIT [BASE]"
-[ -n "${SCORECARD_REF:-}" ] || die "set SCORECARD_REF to the PG-8X reference folder"
+[ -n "${SCORECARD_REF:-}" ] || { [ -n "${FM1_REF:-}" ] && SCORECARD_REF=$FM1_REF/pg8x/scorecard/v5; } ||
+    die "set SCORECARD_REF to the PG-8X reference folder (or FM1_REF: its pg8x/scorecard/v5)"
+[ -f "$SCORECARD_REF/manifest.json" ] || die "$SCORECARD_REF: no manifest.json (the PG-8X reference: v5)"
 c=$(git -C "$ROOT" rev-parse --verify --quiet "$1^{commit}") || die "$1: not a commit"
 s=$(git -C "$ROOT" rev-parse --short "$c")
 W=$ROOT/build/scorecard/$s
