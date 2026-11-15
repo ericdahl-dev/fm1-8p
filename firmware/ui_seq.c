@@ -273,6 +273,8 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->seq_cursor = (u->seq_cursor + 1u) % seq_length(s);
         u->dirty |= UI_D_FOCUS | UI_D_COL(0);
         roll(u, ROLL_ALL);
+    } else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && u->seq_rec) {
+        /* REC: SEL held does nothing (interaction.md's table) */
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL)) {
         if (ms - u->down_ms[UI_BTN_SEL] >= UI_SEQ_CLEAR_MS) {   /* held: the whole pattern */
             for (i = 0; i < SEQ_STEPS; i++)

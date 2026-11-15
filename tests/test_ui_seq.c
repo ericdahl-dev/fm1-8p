@@ -950,6 +950,19 @@ TT_TEST(seq_rec_cursor_has_the_armed_look)
     TT_CHECK(strcmp(t, "C4") == 0);
 }
 
+/* In REC, SEL held does nothing (interaction.md's table: "-"); outside REC it clears the pattern */
+TT_TEST(seq_rec_sel_held_keeps_the_pattern)
+{
+    static const uint8_t C[1] = {60};
+    ui_setup();
+    seq_set_step(play_seq(&ui_p), 5, C, 1, 100);
+    ui_tap(UI_BTN_REC, 1000);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3000);     /* held 1.9 s */
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 5)->kind, SEQ_NOTES_ON);
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -966,6 +979,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_button_leds);
     TT_RUN(seq_rec_key_leds);
     TT_RUN(seq_rec_cursor_has_the_armed_look);
+    TT_RUN(seq_rec_sel_held_keeps_the_pattern);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
