@@ -173,6 +173,30 @@ TT_TEST(seq_play_step_velocity_sets_the_level)
     TT_CHECK(peak[1] < peak[0] / 2);
 }
 
+/* #42 in play: a step's bend and mod reach the engine; stopping puts the bend back to center and the
+ * mod to the live wheel, the last CC1 that came in over MIDI. */
+TT_TEST(seq_play_bend_and_mod_reach_the_engine)
+{
+    uint8_t note = 57;
+    uint32_t k;
+    seq *s;
+    (void)play_init(&sp_a);
+    play_midi(&sp_a, 0xB0, 1, 33);              /* the live wheel, before the pattern */
+    s = play_seq(&sp_a);
+    seq_set_step(s, 0, &note, 1, 100);
+    seq_set_step_bend_mod(s, 0, 4096, 100, 0);
+    seq_set_length(s, 1);
+    seq_play(s);
+    for (k = 0; k < 4u; k++)
+        sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
+    TT_CHECK_EQ(sp_a.engine.bend_value, 4096);
+    TT_CHECK_EQ(sp_a.engine.wheel_to, 100 << 8);
+    seq_stop(s);
+    sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
+    TT_CHECK_EQ(sp_a.engine.bend_value, 0);
+    TT_CHECK_EQ(sp_a.engine.wheel_to, 33 << 8);
+}
+
 static void run_seq_play_tests(void)
 {
     TT_RUN(seq_play_note_lands_on_its_frame);
@@ -181,4 +205,5 @@ static void run_seq_play_tests(void)
     TT_RUN(seq_play_survives_a_patch_load);
     TT_RUN(seq_play_same_note_as_a_key);
     TT_RUN(seq_play_step_velocity_sets_the_level);
+    TT_RUN(seq_play_bend_and_mod_reach_the_engine);
 }

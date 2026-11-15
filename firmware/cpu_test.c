@@ -180,10 +180,7 @@ void cpu_test_render(cpu_test *t, int32_t *out, uint32_t n)
                 fm_engine_render(&t->engine, t->buf + 2u * at, t->seq_ev[e].at - at);
                 at = t->seq_ev[e].at;
             }
-            if (t->seq_ev[e].vel)
-                fm_engine_note_on(&t->engine, t->seq_ev[e].note, t->seq_ev[e].vel);
-            else
-                fm_engine_note_off(&t->engine, t->seq_ev[e].note);
+            seq_apply_event(&t->engine, &t->seq_ev[e], 0);
         }
         fm_engine_render(&t->engine, t->buf + 2u * at, n - at);
     }
