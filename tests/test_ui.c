@@ -1854,6 +1854,25 @@ TT_TEST(ui_glo_holds_the_patch_controls)
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_GLO), (uint32_t)UI_LED_GLOW);  /* and glowing where it would open */
 }
 
+/* #38: PLAY armed under MIDI clock (G13 MIDI, no start yet) blinks, UI_BLINK_MS on and off, until a
+ * second press disarms it (interaction.md 5, Button LEDs) */
+TT_TEST(ui_play_led_blinks_while_waiting_for_the_clock)
+{
+    uint32_t a, b;
+    ui_setup();
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    ui_tap(UI_BTN_PLAY, 1000);
+    TT_CHECK(seq_waiting(play_seq(&ui_p)));
+    (void)ui_take(&ui_u, 2000);
+    a = ui_led(&ui_u, UI_BTN_PLAY);
+    (void)ui_take(&ui_u, 2000 + UI_BLINK_MS);
+    b = ui_led(&ui_u, UI_BTN_PLAY);
+    TT_CHECK(a != b && (a == UI_LED_LIT || b == UI_LED_LIT));
+    ui_tap(UI_BTN_PLAY, 3000);
+    TT_CHECK(!seq_waiting(play_seq(&ui_p)));
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_PLAY), (uint32_t)UI_LED_GLOW);
+}
+
 /* GLO's table (interaction.md 4): three pages of four, G11..G34, each on its setting; clock out waits on
  * its feature, so G14 shows -- (G13 CLOCK SOURCE is live: #38) */
 TT_TEST(ui_glo_table_is_well_formed)
@@ -2833,6 +2852,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_cc_pickup_banner_leaves_the_warnings_up);
     TT_RUN(ui_theme_applies_after_its_debounce);
     TT_RUN(ui_glo_knobs_and_pages);
+    TT_RUN(ui_play_led_blinks_while_waiting_for_the_clock);
     TT_RUN(ui_glo_table_is_well_formed);
     TT_RUN(ui_glo_holds_the_patch_controls);
     TT_RUN(ui_glo_opens_and_goes_back);

@@ -471,6 +471,27 @@ TT_TEST(clock_edits_act_as_on_the_internal_clock)
     TT_CHECK(fabs(ck_on[31] - ck_tick_at[24 + 6 * 31]) < 0.0005);
 }
 
+/* From the review: G13 to INT while the clock runs the pattern goes on, on the pattern's own tempo (it
+ * doesn't wait for ticks it now ignores and stop); a continue with no start before it plays from step 1 */
+TT_TEST(clock_to_int_plays_on_and_a_first_continue_starts)
+{
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_tempo(&ck, 900);
+    ck_ticks_ramp(0.05, 120.0, 120.0, 0, 1, 24u * 24u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[24 + 6 * 4] - 0.003);    /* 4 steps on the clock */
+    seq_set_clock_source(&ck, SEQ_CLK_INT);
+    ck_run(ck_tick_at[24 + 6 * 4] + 2.0);
+    printf("    to INT mid-clock: %u steps, playing %u\n", ck_n_on, seq_playing(&ck));
+    TT_CHECK(seq_playing(&ck) && ck_n_on > 12u);
+    TT_CHECK(ck_spaced(5u, 60.0 / 90.0 / SEQ_PPQ));     /* its own 90 BPM */
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 120.0, 120.0, 0, 1, 24u * 8u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFBu);
+    ck_run(ck_tick_at[24 + 6 * 2] - 0.012);
+    TT_CHECK(ck_n_on == 2u && ck_note[0] == 48u);
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_steps_follow_a_steady_clock);
@@ -483,4 +504,5 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_swing_and_gate_follow_the_clock);
     TT_RUN(clock_rides_out_a_burst_of_late_ticks);
     TT_RUN(clock_edits_act_as_on_the_internal_clock);
+    TT_RUN(clock_to_int_plays_on_and_a_first_continue_starts);
 }

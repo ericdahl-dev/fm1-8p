@@ -60,7 +60,7 @@ void seq_init(seq *s)
     s->step_now = -1;
     s->steps = 0;
     s->clk_src = SEQ_CLK_AUTO;
-    s->clk_present = s->clk_pending = s->clk_running = s->clk_armed = 0;
+    s->clk_present = s->clk_pending = s->clk_running = s->clk_armed = s->clk_started = 0;
     s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = s->clk_k = s->clk_view = s->clk_win = s->clk_far = s->clk_late = s->clk_raw = 0;
     s->clk_freq = 0;
     s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = s->ext_hold = 0;
@@ -320,6 +320,20 @@ uint32_t seq_steps(const seq *s)
 void seq_set_clock_source(seq *s, uint32_t src)
 {
     s->clk_src = (uint8_t)(src <= SEQ_CLK_MIDI ? src : SEQ_CLK_AUTO);
+    if (s->clk_src != SEQ_CLK_INT)
+        return;
+    s->clk_pending = 0;                         /* INT: the clock is ignored from now */
+    if (s->clk_armed) {                         /* (waiting for it: nothing to wait for) */
+        s->clk_armed = 0;
+        s->want = 0;
+    }
+    if (s->clk_running) {                       /* playing on it: on, on the pattern's own tempo, from
+                                                 * where it is (the interrupt's next block) */
+        s->clk_running = 0;
+        s->ext = 0;
+        BARRIER();
+        s->ext_hold = 0;
+    }
 }
 
 /* the block stamped last, read whole: its host time, clock, rate and fs */
@@ -448,6 +462,7 @@ static void clock_tick(seq *s, uint32_t t)
             s->clk_shown = 0;                   /* (the second tick measures it outright) */
         }                       /* the start's tick 0 */
         s->ext_cont = s->clk_pending == 2u;
+        s->clk_started = 1;
         s->clk_pending = 0;
         s->clk_target = 0;
         s->clk_k = 0;
@@ -471,7 +486,8 @@ static void clock_tick(seq *s, uint32_t t)
         s->clk_k++;
     } else if (s->clk_running && s->clk_dt) {   /* where the steps were at this tick, against it */
         int32_t f = frames_q8((int32_t)(t - bt), fs);
-        uint32_t at = bu + (uint32_t)((f >> 8) * (int32_t)binc) + (uint32_t)(((f & 255) * (int32_t)binc) >> 8);
+        uint32_t at = bu + (uint32_t)(f >> 8) * binc + (((uint32_t)f & 255u) * binc >> 8);   /* (f < 0: wraps
+                                                 * as the signed sum would, with no overflow) */
         s->clk_target += fs * 100u;
         s->clk_k++;
         set_rate(s, (int32_t)(s->clk_target - at), fs, 0);
@@ -489,9 +505,10 @@ void seq_clock_in(seq *s, uint32_t st, uint32_t t)
         if (s->clk_running)
             s->ext_hold = 1;                    /* (playing: no next step till then) */
         break;
-    case 0xFBu:                                 /* on from where it stopped, on the next tick */
+    case 0xFBu:                                 /* on from where it stopped, on the next tick (with no
+                                                 * start before it, nowhere: from step 1) */
         if (!s->clk_running)
-            s->clk_pending = 2;
+            s->clk_pending = s->clk_started ? 2u : 1u;
         break;
     case 0xFCu:
         s->clk_pending = 0;

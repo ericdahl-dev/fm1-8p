@@ -1382,6 +1382,8 @@ uint32_t ui_led(const ui *u, uint32_t button)
         int32_t at = seq_step_now(s);
         if (!s->want)
             return UI_LED_GLOW;
+        if (seq_waiting(s))                     /* armed, waiting for the MIDI clock's start (#38) */
+            return u->now_ms / UI_BLINK_MS & 1u ? UI_LED_OFF : UI_LED_LIT;
         return at >= 0 && at % (int32_t)SEQ_PPQ == 0 ? UI_LED_OFF : UI_LED_LIT;
     }
     default:                                    /* (REC: step record is S5) */
