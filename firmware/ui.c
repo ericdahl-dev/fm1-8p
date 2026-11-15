@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui.h"
 #include "ui_save.h"
+#include "ui_seq.h"
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
@@ -1093,6 +1094,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     }
     if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS)
         u->held &= ~(1u << id);
+    if (ev == (UI_EV_BTN_DOWN | UI_BTN_PLAY)) { /* PLAY: start / stop, in every state (interaction.md) */
+        ui_seq_transport(u);
+        return;
+    }
     if (u->state == UI_SAVE) {                  /* SAVE takes the controls while it is open */
         ui_save_event(u, ev, arg, ms);
         return;
@@ -1112,6 +1117,15 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         } else if ((ev == (UI_EV_ENC | UI_ENC_SELECT) || ev == (UI_EV_ENC | UI_ENC_ALGORITHM)) && arg) {
             glo_walk(u, arg);
         }
+        return;
+    }
+    if (u->state == UI_SEQ) {                   /* SEQ view takes the controls (interaction.md 5) */
+        ui_seq_event(u, ev, arg, ms);
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_SEQ) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
+        !u->comparing && !(u->jump_screen & UI_JS_UP)) {
+        ui_seq_open(u);
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
@@ -1192,6 +1206,8 @@ uint32_t ui_screen(const ui *u)
         return UI_SCREEN_SAVE;
     if (u->state == UI_GLO)
         return UI_SCREEN_GLO;
+    if (u->state == UI_SEQ)
+        return UI_SCREEN_SEQ;
     return u->jump_screen & UI_JS_UP ? UI_SCREEN_JUMP : u->state == UI_EDIT ? UI_SCREEN_PAGE : UI_SCREEN_PLAY;
 }
 

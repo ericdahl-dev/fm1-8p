@@ -19,6 +19,9 @@
 #define UI_BTN_EDIT    6u
 #define UI_BTN_GLO     7u
 #define UI_BTN_HOME    8u
+#define UI_BTN_SEQ     11u
+#define UI_BTN_PLAY    12u
+#define UI_BTN_REC     13u
 #define UI_BTN_SAVE    9u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
 #define UI_ENC_SELECT  0u
@@ -29,7 +32,7 @@
 #define UI_ENC_KNOB4   5u
 #define UI_ENC_PRESETS 6u
 
-typedef enum { UI_PLAY, UI_EDIT, UI_SAVE, UI_GLO } ui_state;
+typedef enum { UI_PLAY, UI_EDIT, UI_SAVE, UI_GLO, UI_SEQ } ui_state;
 
 
 typedef struct {
@@ -85,6 +88,7 @@ typedef struct {
     uint32_t cc_out_ms;                 /* when the last CC went out */
     uint8_t cc_out_at;                  /* the slot it was (the next goes round from it) */
     uint8_t cc_sent_cc, cc_sent_v;      /* what it was, so the same isn't sent twice (0xFF: none) */
+    ui_state seq_from;                  /* SEQ view: the state it goes back to */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
@@ -170,7 +174,7 @@ int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* which screen shows (draw.c branches on it for every band): PLAY, an edit page, or the number jump's
  * (up from 400 ms into a SEL hold, or a first digit, until a jump is done or SEL comes up) */
-enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO };
+enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO, UI_SCREEN_SEQ };
 uint32_t ui_screen(const ui *u);
 /* GLO: the slot on knob k (0..3) of the GLO page shown; its value as the focus row reads it (the
  * number or name into num, the unit into unit, UI_VALUE_LEN each; "--" while it waits), and as a

@@ -37,6 +37,7 @@
 #include "test_glide.c"
 #include "test_patch_store.c"
 #include "test_ui_save.c"
+#include "test_ui_seq.c"
 #include "test_settings_store.c"
 #include "test_ui_reach.c"
 #include "test_seq.c"
@@ -67,6 +68,7 @@ int main(void)
     run_glide_tests();
     run_patch_store_tests();
     run_ui_save_tests();
+    run_ui_seq_tests();
     run_settings_store_tests();
     run_ui_reach_tests();
     run_seq_tests();
