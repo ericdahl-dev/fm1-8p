@@ -111,7 +111,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 
 | JX-8P | Engine field | Mapping |
 | --- | --- | --- |
-| RANGE + TUNE | `osc1_octave`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; whole octaves of range + tune go to the octave, the rest to coarse. DCO-1 has no coarse in the engine yet: osc1 plays the whole octave nearest its pitch that leaves osc2 in range, and osc2 moves by what osc1 lacks, so the interval holds and only the whole patch shifts: MUSIC BOX 4 semitones down, WINDCHIMES 9 down. `PATCH_OSC1_COARSE_SEMIS` keeps that amount |
+| RANGE + TUNE | `osc1_octave`, `osc1_coarse_semis`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; for each DCO, whole octaves of range + tune go to its octave and the rest to its coarse (#108), so every patch plays at its own pitch (before #108, DCO-1 had no coarse and MUSIC BOX played 4 semitones down, WINDCHIMES 9 down) |
 | WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse (25 % wide, *est.*), saw |
 | FINE TUNE | `osc2_fine_cents` | (value - 64) x 50 / 64 |
 | MIX DCO-1, DCO-2 | `osc1_level_permille`, `osc2_level_permille` | each byte over 127; the DCOs sum, as PG-8X 2.0.13's mixer does (measured, #102) |
@@ -146,7 +146,6 @@ returns `PATCH_NONE` for them; when a feature lands, its field gets the new para
 | Field | From | Waits for |
 | --- | --- | --- |
 | `FILTER_LFO_PERMILLE` | VCF LFO | #8 (LFO to cutoff) |
-| `OSC1_COARSE_SEMIS` | DCO-1 TUNE | DCO-1 coarse tune (no issue yet) |
 
 Aftertouch (#61) and portamento (#62) are not tone data on the JX-8P: they are panel settings
 (the AFTER TOUCH buttons and the PORTAMENTO switch and knob), so no factory tone carries them, and
@@ -185,7 +184,7 @@ A patch the user saves is a record of at most 248 bytes (`STORE_SLOT_BYTES`), so
 - **Damaged:** a wrong version, a length that disagrees with the count, or a record longer than the
   bytes read is an empty slot.
 <!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
-- **Room:** 55 params take 180 bytes; a slot has room for 77.
+- **Room:** 56 params take 183 bytes; a slot has room for 77.
 <!-- end generated -->
 
 ### Settings (`firmware/settings_store.c`, GLO)
@@ -237,14 +236,14 @@ screen, in fm1-dock's banks 3 and 4 (the user patches have 1 and 2), a record of
 | 15..16 | TEMPO, tenths of a BPM, low byte first |
 | 17, 18 | SWING and GATE, % |
 | 19 | the step count, 16 |
-| 20 | bytes per step, 9 |
-| 21.. | each step: its kind (rest, notes, tie), its note count, its velocity, then 6 notes |
+| 20 | bytes per step, 13 (9 in the first records) |
+| 21.. | each step: its kind (rest, notes, tie), its note count, its velocity, 6 notes; then its bend (int16, low byte first), its mod wheel and its move, 0 JUMP or 1 GLIDE (#42) |
 
 - **An empty slot**, or a damaged record (another version, a length that disagrees, steps under 9 bytes),
   loads as the empty pattern: 16 rests, LENGTH 16, the default TEMPO, SWING and GATE, and no name.
-- **Newer steps:** the version changes only when a record can't be read this way. A step may grow (#42's
-  bend and mod per step); this firmware reads each step's first 9 bytes, so a newer record's notes still
-  load.
+- **Older and newer steps:** the version changes only when a record can't be read this way. A step may
+  grow: the first records' 9-byte steps load at center bend, mod 0 and JUMP, and a newer record's longer
+  steps load what this firmware knows of each.
 - **Out of range:** values load clamped, as the sequencer's own setters clamp them; an unknown step kind is
   a rest.
-- **Room:** 16 steps take 165 bytes; a slot has room for 248.
+- **Room:** 16 steps take 229 bytes; a slot has room for 248.

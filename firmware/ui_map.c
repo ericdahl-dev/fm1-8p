@@ -116,7 +116,7 @@ const uint32_t UI_CC_STANDARD_COUNT = sizeof UI_CC_STANDARD / sizeof UI_CC_STAND
 const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     PAGE(0) CHOICE(11, "RANGE", "RANGE", FM_PARAM_OSC1_OCTAVE, RANGE_ORDER),
     CHOICE(12, "WAVE", "WAVEFORM", FM_PARAM_OSC1_WAVE, WAVE_ORDER),
-    PEND(13, "TUNE", "TUNE"),                                      /* #158 */
+    LIVE(13, "TUNE", "TUNE", FM_PARAM_OSC1_COARSE_SEMIS, 1, 1),           /* (#108) */
     LIVE(14, "LFO", "LFO DEPTH", FM_PARAM_LFO_PITCH_CENTS, 1, 10),
     PAGE(1) SIZE(15, "ENV", "ENV DEPTH", FM_PARAM_PITCH_ENV_OSC1_CENTS, 10, 100),
     LIVE(16, "FINE", "FINE TUNE", FM_PARAM_OSC1_FINE_CENTS, 1, 10),
@@ -219,6 +219,7 @@ const uint8_t UI_PLAY_SLOT[4] = {4 * 7 + 1, 4 * 7 + 2, 4 * 8 + 0, 4 * 14 + 3};  
  * G23's program change, the 7th, waits for a 4th page) */
 static const char *const OFF_ON[] = {"OFF", "ON"};
 static const char *const CLOCK[] = {"AUTO", "INT", "MIDI"};
+static const char *const PROG[] = {"OFF", "RECV", "SEND", "BOTH"};
 static const char *const CC_MAP[] = {"JX", "STANDARD"};
 static const char *const CC_MAP_COL[] = {"JX", "STD"};
 static const char *const EXT_CC[] = {"JUMP", "PICKUP"};
@@ -237,4 +238,8 @@ const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT] = {
     {32, "FIXED", "FIXED VELOCITY", 9, UI_LIVE, 1, 10, 0, 0, 0},
     {33, "LEDS", "KEY LEDS", 10, UI_LIVE, 1, 1, OFF_ON, 0, 0},
     {34, "THEME", "THEME", 11, UI_LIVE, 1, 1, THEME, THEME_COL, 0},
+    {41, "PROG", "PROGRAM CHANGE", 6, UI_LIVE, 1, 1, PROG, 0, 0},     /* (Eric: a 4th page) */
+    {42, 0, 0, 0, UI_RESERVED, 0, 0, 0, 0, 0},
+    {43, 0, 0, 0, UI_RESERVED, 0, 0, 0, 0, 0},
+    {44, 0, 0, 0, UI_RESERVED, 0, 0, 0, 0, 0},
 };

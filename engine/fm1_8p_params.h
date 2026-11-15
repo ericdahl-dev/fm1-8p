@@ -117,6 +117,8 @@ typedef enum {
     /* the mod wheel (CC1) at full adds this to the LFO's pulse-width depth, at most 49 % in
      * all (#41) */
     FM_PARAM_WHEEL_PW_PCT,
+    /* -12..+12 semitones, on top of osc1's octave and fine (DCO-1 TUNE, #108) */
+    FM_PARAM_OSC1_COARSE_SEMIS,
     FM_PARAM_COUNT
 } fm_param_id;
 
