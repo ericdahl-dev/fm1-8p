@@ -10,6 +10,19 @@ void ui_seq_open(ui *u);
 /* PLAY, in any state: starts or stops the sequencer, on what was last asked (not on whether the
  * interrupt has let a stop's notes go yet, so taps alternate). */
 void ui_seq_transport(ui *u);
+/* SEQ view's pages (interaction.md 5): each knob's label, its full name, and 1 when it's live (0: it
+ * waits on its slice and shows --; a NULL label: nothing on that knob) */
+#define UI_SEQ_PAGES 3u
+#define UI_SEQ_CLEAR_MS 1500u           /* SEL held this long in SEQ view clears the pattern */
+typedef struct {
+    const char *label, *full;
+    uint8_t live;
+} ui_seq_slot;
+extern const char *const UI_SEQ_PAGE_NAME[UI_SEQ_PAGES];
+extern const ui_seq_slot UI_SEQ_SLOTS[UI_SEQ_PAGES][4];
+/* knob k's value on the SEQ page shown: TEMPO in tenths of a BPM, LENGTH, SWING %, GATE %, VEL (the
+ * cursor step's, 0 for a rest or a tie), TRANSPOSE in semitones */
+int32_t ui_seq_value(const ui *u, uint32_t k);
 /* SEQ view: a step key (0..15) down or up */
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* An event while SEQ view is open. */

@@ -65,13 +65,97 @@ void ui_seq_transport(ui *u)
     u->dirty |= UI_D_HEAD;
 }
 
+const char *const UI_SEQ_PAGE_NAME[UI_SEQ_PAGES] = {"S1 PATTERN", "S2 STEP", "S3 PLAY"};
+const ui_seq_slot UI_SEQ_SLOTS[UI_SEQ_PAGES][4] = {
+    {{"TEMPO", "TEMPO", 1}, {"LENGTH", "LENGTH", 1}, {"SWING", "SWING", 1}, {"GATE", "GATE", 1}},
+    {{"VEL", "VELOCITY", 1}, {"BEND", "BEND", 0}, {"MOD", "MOD", 0}, {"MOVE", "MOVE", 0}},   /* (#42) */
+    {{"TRANSP", "TRANSPOSE", 1}, {"KEYTR", "KEY TRANSPOSE", 0}, {0, 0, 0}, {0, 0, 0}},
+};
+
+int32_t ui_seq_value(const ui *u, uint32_t k)
+{
+    seq *s = play_seq(u->p);
+    const seq_step *st = seq_get_step(s, u->seq_cursor);
+    switch (u->seq_page * 4u + k) {
+    case 0: return (int32_t)seq_tempo(s);
+    case 1: return (int32_t)seq_length(s);
+    case 2: return s->edit.swing_pct;
+    case 3: return s->edit.gate_pct;
+    case 4: return st->kind == SEQ_NOTES_ON ? st->vel : 0;
+    case 8: return seq_transpose(s);
+    default: return 0;
+    }
+}
+
+/* knob k on the SEQ page shown, clicks (3 or more at once: fast) */
+static void turn(ui *u, uint32_t k, int32_t clicks)
+{
+    seq *s = play_seq(u->p);
+    int32_t fast = clicks >= 3 || clicks <= -3, v = ui_seq_value(u, k);
+    const seq_step *st;
+    uint8_t notes[SEQ_NOTES];
+    uint32_t i;
+    if (!UI_SEQ_SLOTS[u->seq_page][k].live)
+        return;
+    switch (u->seq_page * 4u + k) {
+    case 0: v += clicks * (fast ? 100 : 10); seq_set_tempo(s, (uint32_t)(v < 0 ? 0 : v)); break;
+    case 1: v += clicks; seq_set_length(s, (uint32_t)(v < 1 ? 1 : v)); break;
+    case 2: v += clicks * (fast ? 5 : 1); seq_set_swing(s, (uint32_t)(v < 0 ? 0 : v)); break;
+    case 3: v += clicks * (fast ? 5 : 1); seq_set_gate(s, (uint32_t)(v < 0 ? 0 : v)); break;
+    case 4:                                     /* the cursor step's velocity: a note or chord only */
+        st = seq_get_step(s, u->seq_cursor);
+        if (st->kind != SEQ_NOTES_ON)
+            return;
+        for (i = 0; i < st->n; i++)
+            notes[i] = st->note[i];
+        v += clicks * (fast ? 10 : 1);
+        seq_set_step(s, u->seq_cursor, notes, st->n, (uint32_t)(v < 1 ? 1 : v > 127 ? 127 : v));
+        break;
+    case 8: v += clicks; seq_set_transpose(s, v); break;
+    default: return;
+    }
+    if (u->seq_cursor >= seq_length(s))        /* (a shorter pattern: the cursor inside it) */
+        u->seq_cursor = seq_length(s) - 1u;
+    u->focus = k;
+    u->dirty |= UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3) | UI_D_FOCUS | UI_D_SLOT;
+}
+
 void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 {
-    uint32_t id = ev & 0xFFu;
+    seq *s = play_seq(u->p);
+    uint32_t id = ev & 0xFFu, i, len;
     int tap = (ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS && ms - u->down_ms[id] < UI_TAP_MS;
-    (void)arg;
     if (ev == (UI_EV_BTN_UP | UI_BTN_SEQ) && tap) {          /* back, on the page it left */
         u->state = u->seq_from;
         u->dirty |= UI_D_FULL;
+    } else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap) {
+        u->state = UI_PLAY;
+        u->dirty |= UI_D_FULL;
+    } else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap) {  /* the last edit page */
+        u->state = UI_EDIT;
+        u->dirty |= UI_D_FULL;
+    } else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL)) {
+        if (ms - u->down_ms[UI_BTN_SEL] >= UI_SEQ_CLEAR_MS) {   /* held: the whole pattern */
+            for (i = 0; i < SEQ_STEPS; i++)
+                seq_clear_step(s, i);
+        } else if (tap) {
+            seq_clear_step(s, u->seq_cursor);   /* the cursor step: a rest */
+        }
+        u->dirty |= UI_D_SLOT | UI_D_FOCUS | UI_D_COL(0);
+    } else if (ev == (UI_EV_BTN_UP | UI_BTN_ENV) && tap) {
+        seq_toggle_tie(s, u->seq_cursor);
+        u->dirty |= UI_D_SLOT | UI_D_FOCUS | UI_D_COL(0);
+    } else if (ev == (UI_EV_ENC | UI_ENC_SELECT) && arg) {  /* the cursor, around the length */
+        len = seq_length(s);
+        u->seq_cursor = (uint32_t)(((int32_t)(u->seq_cursor % len) + arg % (int32_t)len + (int32_t)len) %
+                                   (int32_t)len);
+        u->dirty |= UI_D_SLOT | UI_D_FOCUS | UI_D_COL(0);
+    } else if (ev == (UI_EV_ENC | UI_ENC_ALGORITHM) && arg) {   /* the SEQ page, around */
+        u->seq_page = (uint32_t)(((int32_t)u->seq_page + arg % (int32_t)UI_SEQ_PAGES + (int32_t)UI_SEQ_PAGES) %
+                                 (int32_t)UI_SEQ_PAGES);
+        u->focus = 4u;
+        u->dirty |= UI_D_FULL;
+    } else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 && arg) {
+        turn(u, id - UI_ENC_KNOB1, arg);
     }
 }

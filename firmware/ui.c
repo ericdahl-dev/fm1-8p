@@ -364,6 +364,12 @@ void ui_init(ui *u, play *p)
     for (i = 0; i < sizeof u->cc_out / sizeof u->cc_out[0]; i++)
         u->cc_out[i] = 0;
     u->cc_out_ms = 0;
+    u->seq_from = UI_PLAY;
+    u->seq_cursor = 0;
+    u->seq_page = 0;
+    u->seq_keys = 0;
+    u->chord_n = 0;
+    u->seq_msg[0] = 0;
     u->cc_out_at = 0;
     u->cc_sent_cc = u->cc_sent_v = 0xFFu;
     u->focus = 1;
@@ -1127,6 +1133,13 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         } else if ((ev == (UI_EV_ENC | UI_ENC_SELECT) || ev == (UI_EV_ENC | UI_ENC_ALGORITHM)) && arg) {
             glo_walk(u, arg);
         }
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && u->state == UI_SEQ) {
+        u->glo_from = UI_SEQ;                   /* GLO from SEQ view, and back to it */
+        u->state = UI_GLO;
+        u->readout = 0;
+        glo_show(u);
         return;
     }
     if (u->state == UI_SEQ) {                   /* SEQ view takes the controls (interaction.md 5) */

@@ -110,6 +110,96 @@ TT_TEST(seq_chord_keeps_the_first_voices_notes)
     TT_CHECK(strcmp(ui_banner(&ui_u), want) == 0);
 }
 
+/* SELECT moves the cursor through the pattern's length, around; page S1 PATTERN's knobs set TEMPO
+ * (1 BPM a click, 10 fast), LENGTH, SWING and GATE (interaction.md 5) */
+TT_TEST(seq_select_and_the_pattern_page)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_u.seq_page, 0u);                          /* S1 PATTERN */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -12, 1100);    /* LENGTH 16 - 12 */
+    TT_CHECK_EQ(seq_length(s), 4u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 5, 1200);     /* 0 + 5 in 4 steps: 1 */
+    TT_CHECK_EQ(ui_u.seq_cursor, 1u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, -2, 1300);
+    TT_CHECK_EQ(ui_u.seq_cursor, 3u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1400);      /* 120.0 + 1 BPM */
+    TT_CHECK_EQ(seq_tempo(s), SEQ_TEMPO_DEF + 10u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 3, 1500);      /* fast: 10 BPM a click */
+    TT_CHECK_EQ(seq_tempo(s), SEQ_TEMPO_DEF + 10u + 300u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 100, 1600);    /* SWING to its top */
+    TT_CHECK_EQ(s->edit.swing_pct, 75u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, -200, 1700);   /* GATE to its bottom */
+    TT_CHECK_EQ(s->edit.gate_pct, (uint8_t)SEQ_GATE_MIN);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);                         /* (no page change, no patch edit) */
+    TT_CHECK(!play_edited(&ui_p));
+}
+
+/* ALGORITHM walks the pages, around: S2 STEP's VEL sets the cursor step's velocity, S3 PLAY's
+ * TRANSPOSE the transpose; their other knobs wait (S7, #42) */
+TT_TEST(seq_step_and_play_pages)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 2, C, 1, 100);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 2, 1100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1200);  /* S2 STEP */
+    TT_CHECK_EQ(ui_u.seq_page, 1u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -2, 1300);
+    TT_CHECK_EQ(seq_get_step(s, 2)->vel, 98u);
+    TT_CHECK_EQ(seq_get_step(s, 2)->note[0], 60u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 1400);      /* BEND waits: nothing */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1500);  /* S3 PLAY */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -2, 1600);
+    TT_CHECK_EQ(seq_transpose(s), -2);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1700);  /* around */
+    TT_CHECK_EQ(ui_u.seq_page, 0u);
+}
+
+/* The section buttons in SEQ view (not in REC): SEL clears the cursor step, held 1.5 s the whole
+ * pattern; ENV toggles TIE on it. EDIT goes to the last edit page, HOME to PLAY, GLO to GLO and back
+ * to SEQ view; PRESETS and SAVE do nothing until pattern slots (S6). */
+TT_TEST(seq_section_buttons_and_the_way_out)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C, 1, 100);
+    seq_set_step(s, 5, C, 1, 100);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 5, 1100);
+    ui_tap(UI_BTN_SEL, 1200);
+    TT_CHECK_EQ(seq_get_step(s, 5)->kind, (uint8_t)SEQ_REST);
+    TT_CHECK_EQ(seq_get_step(s, 0)->kind, (uint8_t)SEQ_NOTES_ON);
+    ui_tap(UI_BTN_ENV, 1300);
+    TT_CHECK_EQ(seq_get_step(s, 5)->kind, (uint8_t)SEQ_TIE);
+    ui_tap(UI_BTN_ENV, 1400);
+    TT_CHECK_EQ(seq_get_step(s, 5)->kind, (uint8_t)SEQ_REST);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 2000);   /* held 1.5 s: all of it */
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3600);
+    TT_CHECK_EQ(seq_get_step(s, 0)->kind, (uint8_t)SEQ_REST);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 3700);    /* no patch load from SEQ view */
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    TT_CHECK(!ui_u.warned);
+    ui_tap(UI_BTN_SAVE, 3800);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    ui_tap(UI_BTN_GLO, 3900);
+    TT_CHECK_EQ(ui_u.state, UI_GLO);
+    ui_tap(UI_BTN_GLO, 4000);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    ui_tap(UI_BTN_EDIT, 4100);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    ui_tap(UI_BTN_SEQ, 4200);
+    ui_tap(UI_BTN_HOME, 4300);
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -117,4 +207,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_step_keys_are_taken_in_seq_view);
     TT_RUN(seq_chord_and_step_key_writes_the_step);
     TT_RUN(seq_chord_keeps_the_first_voices_notes);
+    TT_RUN(seq_select_and_the_pattern_page);
+    TT_RUN(seq_step_and_play_pages);
+    TT_RUN(seq_section_buttons_and_the_way_out);
 }

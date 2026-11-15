@@ -92,6 +92,7 @@ typedef struct {
     uint8_t cc_sent_cc, cc_sent_v;      /* what it was, so the same isn't sent twice (0xFF: none) */
     ui_state seq_from;                  /* SEQ view: the state it goes back to */
     uint32_t seq_cursor;                /* the step cursor, 0..15 */
+    uint32_t seq_page;                  /* the SEQ page: 0 S1 PATTERN, 1 S2 STEP, 2 S3 PLAY */
     uint32_t seq_keys;                  /* step keys taken by SEQ view (bit k), so their ups go there too */
     uint8_t chord[UI_CHORD_MAX];        /* the notes held now (chord keys and MIDI in), in press order */
     uint8_t chord_vel[UI_CHORD_MAX];
