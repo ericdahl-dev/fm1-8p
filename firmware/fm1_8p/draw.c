@@ -157,6 +157,8 @@ static void blit(int32_t x, int32_t y, int32_t w, int32_t h)
 /* rows 0..27: the header and the gap under it: the section name on a chip of its color, or under a
  * 3 px band in it (the theme's), then lead and tail dim around lit ("A/" "B" "": page B) */
 #define GLO_STRIP 0x100                         /* header()'s page: GLO's page + this, its own strip */
+static const char *head_right;                  /* SEQ view: the transport, in place of the octave */
+static int head_mark;                           /* with it: 1 a play mark, 2 a stop mark */
 static void header(const char *chip, uint16_t col, const char *lead, const char *lit, const char *tail,
                    int32_t page, int32_t gap)
 {
@@ -185,8 +187,20 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
     x += TEXT_W(0, lead);
     CV_TEXT(x, 4, 0, lit, C_TEXT);
     CV_TEXT(x + TEXT_W(0, lit), 4, 0, tail, C_DIM);
-    ui_octave_label(P->oct, o);                  /* (HB_F_SCREEN hides the host's line, which had it) */
-    CV_TEXT(240 - M - TEXT_W(0, o), 4, 0, o, P->oct ? C_TEXT : C_DIM);
+    if (head_right) {                           /* SEQ view: >07 112 INT */
+        int32_t rx = 240 - M - TEXT_W(0, head_right), k;
+        CV_TEXT(rx, 4, 0, head_right, C_TEXT);
+        if (head_mark == 2) {
+            H->cv_rect(rx - 12, 8, 8, 8, C_DIM);
+        } else {
+            for (k = 0; k < 5; k++)             /* a play triangle, 5 rows of narrowing width */
+                H->cv_rect(rx - 12, 7 + k, 5 - (k > 2 ? k - 2 : 2 - k) + 1, 1, led_of(C_PLAY)),
+                H->cv_rect(rx - 12, 7 + (8 - k), 5 - (k > 2 ? k - 2 : 2 - k) + 1, 1, led_of(C_PLAY));
+        }
+    } else {
+        ui_octave_label(P->oct, o);              /* (HB_F_SCREEN hides the host's line, which had it) */
+        CV_TEXT(240 - M - TEXT_W(0, o), 4, 0, o, P->oct ? C_TEXT : C_DIM);
+    }
     H->cv_rect(0, 23, 240, 1, C_LINE);
     if (page >= GLO_STRIP)                      /* GLO: a segment a page (visual.md) */
         for (i = 0; i < UI_GLO_PAGES; i++)
@@ -810,197 +824,234 @@ static void seq_tempo_text(char *s)
     *s = 0;
 }
 
-static void seq_footer(void)
+/* SEQ view (interaction.md 5, visual.md's piano roll): the header with the transport; rows 28..99 the
+ * roll, a 14 x 72 canvas a step column; 100..155 the cursor step's readout; 156..187 the SEQ page's
+ * four knob cells; 188..239 what the section buttons mean, the 27-key strip and the footer */
+#define ROLL_Y 28
+#define ROLL_X0 8
+#define ROLL_W 14                               /* a column: 12 px and a 2 px gap */
+static uint32_t roll_todo, roll_parts;          /* the columns this slot band draws, one a part */
+
+static void seq_header(void)
 {
-    char t[16];
-    const char *b = ui_banner(U);
-    H->cv_begin(240, 18, C_SURF);
-    H->cv_rect(0, 0, 240, 1, C_BG);
-    H->cv_rect(0, 1, 240, 1, C_LINE);
-    if (*b) {
-        text_c(0, 240, 2, 0, b, C_PLAY);
-    } else {
-        char left[UI_SEQ_TEXT_LEN], right[UI_SEQ_TEXT_LEN];
-        ui_seq_footer_text(U, left, right);     /* the pattern, and NEXT nn or the tempo */
-        CV_TEXT(M, 2, 0, left, C_TEXT);
-        if (*right) {
-            CV_TEXT(240 - M - TEXT_W(0, right), 2, 0, right, led_of(C_PLAY));
-        } else {
-            seq_tempo_text(t);
-            CV_TEXT(240 - M - TEXT_W(0, t), 2, 0, t, C_DIM);
-        }
-    }
-    blit(0, 222, 240, 18);
+    const seq *sq = play_seq(P);
+    int32_t at = sq->want ? seq_step_now(sq) : -1;
+    char t[20];
+    uint32_t n = 0, bpm = seq_tempo(sq) / 10u, i;
+    char d[4];
+    t[n++] = at >= 0 ? (char)('0' + (uint32_t)(at + 1) / 10u) : '-';
+    t[n++] = at >= 0 ? (char)('0' + (uint32_t)(at + 1) % 10u) : '-';
+    t[n++] = ' ';
+    i = 0;
+    do {
+        d[i++] = (char)('0' + bpm % 10u);
+        bpm /= 10u;
+    } while (bpm);
+    while (i)
+        t[n++] = d[--i];
+    t[n++] = ' ', t[n++] = 'I', t[n++] = 'N', t[n++] = 'T', t[n] = 0;   /* (MIDI clock: #38) */
+    head_right = t;
+    head_mark = sq->want ? 1 : 2;
+    header("SEQ", C_SEQ, "", UI_SEQ_PAGE_NAME[U->seq_page], "", -1, 8);
+    head_right = 0;
 }
 
-/* rows 28..77: the cursor step (its number, its notes, REST or TIE, its velocity); the chord held, or
- * how to write one; what SEL and ENV do here, and the transpose when it isn't 0 */
-static void seq_focus(void)
+/* the notes a tie at step i holds: the step before's, back to the step that played them */
+static const seq_step *tie_source(const seq *sq, uint32_t i)
 {
-    char t[UI_SEQ_TEXT_LEN], n[UI_VALUE_LEN];
+    uint32_t k, len = seq_length(sq);
+    for (k = 0; k < len; k++) {
+        i = (i + len - 1u) % len;
+        if (seq_get_step(sq, i)->kind != SEQ_TIE)
+            return seq_get_step(sq, i)->kind == SEQ_NOTES_ON ? seq_get_step(sq, i) : 0;
+    }
+    return 0;
+}
+
+/* note's block in a column canvas: rows of U->roll_pps from the bottom; off the range a 1 px edge tick */
+static void roll_note(int32_t x, int32_t w, uint32_t note, uint16_t c)
+{
+    const uint32_t pps = U->roll_pps, rows = UI_ROLL_H / pps;
+    if (note < U->roll_lo)
+        H->cv_rect(x, (int32_t)UI_ROLL_H - 1, w, 1, c);
+    else if (note >= U->roll_lo + rows)
+        H->cv_rect(x, 0, w, 1, c);
+    else
+        H->cv_rect(x, (int32_t)((rows - 1u - (note - U->roll_lo)) * pps), w, (int32_t)pps, c);
+}
+
+/* step column i of the roll */
+static void roll_column(uint32_t i)
+{
+    const seq *sq = play_seq(P);
+    const seq_step *st = seq_get_step(sq, i), *src;
+    const uint32_t len = seq_length(sq), pps = U->roll_pps, rows = UI_ROLL_H / pps;
+    int32_t at = sq->want ? seq_step_now(sq) : -1, playing = (int32_t)i == at;
+    uint16_t bg = i >= len ? C_WINDOW : i / 4u & 1u ? mix(C_BG, C_SURF, 160) : C_BG;
+    uint16_t on = playing ? C_TEXT : C_SEQ, tie = mix(bg, C_SEQ, 115);
+    uint32_t j, p;
+    H->cv_begin(ROLL_W, UI_ROLL_H, C_BG);
+    H->cv_rect(0, 0, ROLL_W - 2, UI_ROLL_H, playing ? mix(bg, C_TEXT, 40) : bg);
+    for (p = U->roll_lo; p < U->roll_lo + rows; p++)    /* a line at every C */
+        if (p % 12u == 0u)
+            H->cv_rect(0, (int32_t)((rows - 1u - (p - U->roll_lo)) * pps + pps / 2u), ROLL_W, 1, C_LINE);
+    if (playing)
+        H->cv_rect((ROLL_W - 2) / 2, 0, 1, UI_ROLL_H, C_TEXT);   /* the playhead's center line */
+    if (i < len) {
+        if (st->kind == SEQ_NOTES_ON) {
+            const seq_step *nx = i + 1u < len ? seq_get_step(sq, i + 1u) : 0;
+            for (j = 0; j < st->n; j++)         /* (tied on: through the gap) */
+                roll_note(0, nx && nx->kind == SEQ_TIE ? ROLL_W : ROLL_W - 2, st->note[j], on);
+        } else if (st->kind == SEQ_TIE && (src = tie_source(sq, i)) != 0) {
+            const seq_step *nx = i + 1u < len ? seq_get_step(sq, i + 1u) : 0;
+            for (j = 0; j < src->n; j++)        /* the held notes run on, at 45 % */
+                roll_note(0, nx && nx->kind == SEQ_TIE ? ROLL_W : ROLL_W - 2, src->note[j], tie);
+        }
+        if (U->seq_armed && i == U->seq_cursor)  /* an armed step: the notes played so far, at 45 % */
+            for (j = 0; j < U->built_n; j++)
+                roll_note(0, ROLL_W - 2, U->built[j], tie);
+    }
+    if (i == U->seq_cursor) {                   /* the cursor; armed, 2 px and blinking */
+        if (!U->seq_armed)
+            frame(0, 0, ROLL_W - 2, UI_ROLL_H, C_TEXT);
+        else if (!U->shown_blink)
+            frame(0, 0, ROLL_W - 2, UI_ROLL_H, C_TEXT), frame(1, 1, ROLL_W - 4, UI_ROLL_H - 2, C_TEXT);
+    }
+    blit(ROLL_X0 + (int32_t)i * ROLL_W, ROLL_Y, ROLL_W, UI_ROLL_H);
+}
+
+/* rows 100..155: the cursor step's number in the LED window, its chord name (or its note, REST, TIE), its
+ * notes, TIE > n; the last line: PLAY and the notes played for an armed step, else the hint */
+static void seq_readout(void)
+{
+    char t[UI_SEQ_TEXT_LEN], name[UI_SEQ_TEXT_LEN], num[3];
     const seq *sq = play_seq(P);
     const seq_step *st = seq_get_step(sq, U->seq_cursor);
-    int32_t x;
-    H->cv_begin(240, 50, C_BG);
-    x = M;
-    CV_TEXT(x, 0, 0, "STEP", C_DIM);
-    x += TEXT_W(0, "STEP") + 6;
-    n[0] = U->seq_cursor >= 9u ? '1' : (char)('1' + U->seq_cursor);
-    n[1] = U->seq_cursor >= 9u ? (char)('0' + U->seq_cursor - 9u) : 0;
-    n[2] = 0;
-    CV_TEXT(x, 0, 0, n, C_TEXT);
-    x += TEXT_W(0, "16") + 8;
+    const int32_t x = M + 72;
+    num[0] = (char)('0' + (U->seq_cursor + 1u) / 10u), num[1] = (char)('0' + (U->seq_cursor + 1u) % 10u), num[2] = 0;
+    H->cv_begin(240, 56, C_BG);
+    H->cv_rect(M, 4, 64, 46, C_WINDOW);
+    frame(M, 4, 64, 46, C_LINE);
+    seg7(M + (64 - 38) / 2, 9, num, led_of(C_SEQ), mix(C_WINDOW, led_of(C_SEQ), T->ghost));
     ui_seq_step_text(U, U->seq_cursor, t);
-    CV_TEXT(x, 0, 0, t, st->kind == SEQ_NOTES_ON ? C_TEXT : C_DIM);
-    if (st->kind == SEQ_NOTES_ON) {             /* its velocity, on the right */
-        n[0] = 0;
-        {
-            uint32_t v = st->vel, k = 0;
-            char d[4];
-            do {
-                d[k++] = (char)('0' + v % 10u);
-                v /= 10u;
-            } while (v);
-            for (v = 0; k; v++)
-                n[v] = d[--k];
-            n[v] = 0;
-        }
-        CV_TEXT(240 - M - TEXT_W(0, n), 0, 0, n, C_TEXT);
-        CV_TEXT(240 - M - TEXT_W(0, n) - TEXT_W(0, "VEL") - 4, 0, 0, "VEL", C_DIM);
+    name[0] = 0;
+    if (st->kind == SEQ_NOTES_ON)
+        ui_seq_chord_name(st->note, st->n, name);
+    if (*name) {                                /* a named chord: its name big, its notes under it */
+        d24(x, 2, name, C_TEXT);
+        CV_TEXT(x, 26, 0, t, sec_text(UI_SEC_SEQ));
+    } else if (d24_w(t) <= 240 - M - x) {       /* a note, REST or TIE big */
+        d24(x, 2, t, st->kind == SEQ_NOTES_ON ? C_TEXT : C_DIM);
+    } else {
+        CV_TEXT(x, 10, 0, t, C_TEXT);
+    }
+    if (st->kind == SEQ_TIE) {                  /* TIE > n: the step it holds into is this one */
+        char tie[8] = "TIE > ";
+        uint32_t k = 6, n = U->seq_cursor + 1u;
+        if (n >= 10u)
+            tie[k++] = (char)('0' + n / 10u);
+        tie[k++] = (char)('0' + n % 10u), tie[k] = 0;
+        CV_TEXT(240 - M - TEXT_W(0, tie), 26, 0, tie, sec_text(UI_SEC_SEQ));
     }
     ui_seq_chord_text(U, t);
-    if (U->seq_armed) {                         /* a step tapped: play its notes (all the keys play now) */
-        CV_TEXT(M, 17, 0, "PLAY", led_of(C_PLAY));
-        CV_TEXT(M + TEXT_W(0, "PLAY") + 6, 17, 0, *t ? t : "NOTES FOR THE STEP", *t ? C_TEXT : C_DIM);
+    if (U->seq_armed) {
+        CV_TEXT(x, 40, 0, "PLAY", led_of(C_PLAY));
+        CV_TEXT(x + TEXT_W(0, "PLAY") + 6, 40, 0, *t ? t : "ITS NOTES", *t ? C_TEXT : C_DIM);
     } else {
-        CV_TEXT(M, 17, 0, "TAP A STEP, THEN PLAY", C_DIM);
+        CV_TEXT(x, 40, 0, "TAP A STEP, THEN PLAY", C_DIM);
     }
-    CV_TEXT(M, 33, 0, "SEL REST  ENV TIE", C_DIM);
-    if (seq_transpose(sq)) {
-        if (U->seq_page != 2u) {                /* (S3's column shows it there) */
-            int32_t tr = seq_transpose(sq);
-            uint32_t a = (uint32_t)(tr < 0 ? -tr : tr), k = 0;
-            n[k++] = tr < 0 ? '-' : '+';
-            if (a >= 10u)
-                n[k++] = (char)('0' + a / 10u);
-            n[k++] = (char)('0' + a % 10u);
-            n[k++] = ' ', n[k++] = 'S', n[k++] = 'T', n[k] = 0;
-            CV_TEXT(240 - M - TEXT_W(0, n), 33, 0, n, C_TEXT);
-            CV_TEXT(240 - M - TEXT_W(0, n) - TEXT_W(0, "TRANSP") - 4, 33, 0, "TRANSP", C_DIM);
-        }
-    }
-    blit(0, 28, 240, 50);
+    blit(0, 100, 240, 56);
 }
 
-/* rows 78..137: the 16 steps (a rest empty, a note filled, a chord with a tick a note, a tie a bar
- * on from the step before; past the length only an outline), a mark each beat, the cursor framed, the
- * playhead underlined; under them, the split keyboard */
-#define SEQ_PITCH 14
-#define SEQ_X0 ((240 - 16 * SEQ_PITCH + 2) / 2)
-static void seq_strip(void)
+/* rows 156..187: the SEQ page's knob k, a compact cell: its label, its value */
+static void seq_cell(uint32_t k)
 {
-    const seq *sq = play_seq(P);
-    uint32_t i, j, len = seq_length(sq);
-    int32_t at = sq->want ? seq_step_now(sq) : -1;
-    H->cv_begin(240, 60, C_BG);
-    for (i = 0; i < SEQ_STEPS; i++) {
-        const seq_step *st = seq_get_step(sq, i);
-        int32_t x = SEQ_X0 + (int32_t)i * SEQ_PITCH, y = 4, w = SEQ_PITCH - 2, h = 32;
-        if (i >= len) {
-            frame(x, y, w, h, mix(C_BG, C_LINE, 128));
-            continue;
-        }
-        if (st->kind == SEQ_NOTES_ON) {
-            H->cv_rect(x, y, w, h, C_SEQ);
-            for (j = 0; j < st->n && st->n > 1u; j++)  /* a chord: a tick a note */
-                H->cv_rect(x + 2, y + h - 4 - (int32_t)j * 4, w - 4, 2, T->ink);
-        } else {
-            H->cv_rect(x, y, w, h, C_SURF);
-            if (st->kind == SEQ_TIE)            /* held on from the step before */
-                H->cv_rect(x - 2, y + h / 2 - 3, w + 2, 6, C_SEQ);
-        }
-        if (i % 4u == 0u)                       /* each beat */
-            H->cv_rect(x, y + h + 2, w, 1, C_DIM);
-        if (i == U->seq_cursor)
-            frame(x - 1, y - 1, w + 2, h + 2, C_TEXT);
-        if ((int32_t)i == at)                   /* the playhead */
-            H->cv_rect(x, y + h + 4, w, 4, C_TEXT);
-    }
-    text_c(0, 240, 44, 0, "WHITE KEYS: STEPS 1-16", C_DIM);
-    blit(0, 78, 240, 60);
-}
-
-/* rows 138..221: the SEQ page's knob k */
-static void seq_column(uint32_t k)
-{
-    static const int32_t LO[3][4] = {{300, 1, 50, 5}, {1, 0, 0, 0}, {-24, 0, 0, 0}};
-    static const int32_t HI[3][4] = {{3000, 16, 75, 100}, {127, 1, 1, 1}, {24, 1, 1, 1}};
     const ui_seq_slot *sl = &UI_SEQ_SLOTS[U->seq_page][k];
     const int32_t cx = k ? M - 2 + (int32_t)k * (COL_W + 2) : 0;
     const int32_t cw = (k == 3u ? 240 : M - 2 + (int32_t)(k + 1u) * (COL_W + 2)) - cx;
     const int32_t x = M + (int32_t)k * (COL_W + 2) - cx;
-    uint32_t act = k == U->focus, i;
-    uint16_t bg = act ? C_SURFHI : C_SURF, on = act ? C_SEQ : mix(bg, C_SEQ, 154);
-    char num[4], val[UI_VALUE_LEN], unit[UI_VALUE_LEN];
-    int32_t tw, x0, v, lo = LO[U->seq_page][k], hi = HI[U->seq_page][k];
-    H->cv_begin(cw, 84, C_BG);
-    H->cv_rect(x, 0, COL_W, 84, bg);
+    uint32_t act = k == U->focus;
+    char val[UI_VALUE_LEN * 2u], unit[UI_VALUE_LEN];
+    H->cv_begin(cw, 32, C_BG);
+    H->cv_rect(x, 0, COL_W, 32, act ? C_SURFHI : C_SURF);
     if (sl->label) {
-        num[0] = 'S', num[1] = (char)('1' + U->seq_page), num[2] = (char)('1' + k), num[3] = 0;
-        text_c(x, COL_W, 3, 0, num, sec_text(UI_SEC_SEQ));
-        text_c(x, COL_W, 19, 0, sl->label, act ? C_TEXT : C_DIM);
+        text_c(x, COL_W, 0, 0, sl->label, act ? C_TEXT : C_DIM);
         ui_seq_column(U, k, val, unit);
-        if (sl->live && val[0] != '-') {        /* (-- for a rest's VEL: no meter) */
-            v = ui_seq_value(U, k);
-            v = v < lo ? lo : v > hi ? hi : v;
-            H->cv_rect(x + 6, 40, 44, 6, C_LINE);
-            if (lo < 0) {                       /* bipolar: out from the middle */
-                int32_t b = v * 22 / hi;
-                H->cv_rect(x + 28 + (b < 0 ? b : 0), 40, b < 0 ? -b : b, 6, on);
-            } else {
-                H->cv_rect(x + 6, 40, (v - lo) * 44 / (hi - lo), 6, on);
-            }
+        if (*unit && TEXT_W(0, val) + TEXT_W(0, unit) + 2 <= COL_W - 2) {
+            uint32_t n = 0, j;
+            while (val[n])
+                n++;
+            val[n] = ' ';
+            for (j = 0; unit[j]; j++)
+                val[n + 1u + j] = unit[j];
+            val[n + 1u + j] = 0;
         }
-        tw = d24_w(val) + (*unit ? 3 + TEXT_W(0, unit) : 0);
-        if (tw > COL_W - 4) {
-            *unit = 0;
-            tw = d24_w(val);
-        }
-        if (tw > COL_W - 4) {
-            text_c(x, COL_W, 58, 0, val, act ? C_TEXT : C_DIM);
-        } else {
-            x0 = d24(x + (COL_W - tw) / 2, 52, val, act && sl->live ? C_TEXT : C_DIM);
-            if (*unit)
-                CV_TEXT(x0 + 1, 60, 0, unit, mix(C_SURF, act ? C_TEXT : C_DIM, 179));
-        }
+        text_c(x, COL_W, 16, 0, val, sl->live ? (act ? C_TEXT : C_DIM) : mix(C_SURF, C_DIM, 128));
         if (act)
-            for (i = 0; i < 3u && T->focus[i]; i++)
-                frame(x + (int32_t)i, (int32_t)i, COL_W - 2 * (int32_t)i, 84 - 2 * (int32_t)i,
-                      mix(C_BG, C_SEQ, T->focus[i]));
+            frame(x, 0, COL_W, 32, C_SEQ);
     }
-    blit(cx, 138, cw, 84);
+    blit(cx, 156, cw, 32);
+}
+
+/* rows 188..239: what the section buttons mean here, the 27-key strip (the key LEDs; the white keys
+ * underlined as the steps, the black keys dim), and the footer: the pattern, NEXT nn or the tempo, or a
+ * banner */
+static void seq_bottom(void)
+{
+    char left[UI_SEQ_TEXT_LEN], right[UI_SEQ_TEXT_LEN], t[16];
+    const char *b = ui_banner(U);
+    uint32_t k;
+    H->cv_begin(240, 52, C_BG);
+    CV_TEXT(M, 0, 0, "SEL REST  ENV TIE  LFO --", C_DIM);
+    for (k = 0; k < PLAY_KEYS; k++) {           /* 8 px a key, as the LEDs show */
+        uint32_t led = ui_key_led(U, k, 0);
+        int32_t x = ROLL_X0 + (int32_t)k * 8, white = ui_seq_step_of_key(k) >= 0;
+        H->cv_rect(x, 18, 6, 10, led == UI_LED_LIT ? C_SEQ : led == UI_LED_GLOW ? mix(C_SURF, C_SEQ, 90) : C_SURF);
+        H->cv_rect(x, 29, 6, 2, white ? C_SEQ : C_LINE);
+    }
+    H->cv_rect(0, 33, 240, 1, C_LINE);
+    H->cv_rect(0, 34, 240, 18, C_SURF);
+    if (*b) {
+        text_c(0, 240, 35, 0, b, C_PLAY);
+    } else {
+        ui_seq_footer_text(U, left, right);
+        CV_TEXT(M, 35, 0, left, C_TEXT);
+        if (*right) {
+            CV_TEXT(240 - M - TEXT_W(0, right), 35, 0, right, led_of(C_PLAY));
+        } else {
+            seq_tempo_text(t);
+            CV_TEXT(240 - M - TEXT_W(0, t), 35, 0, t, C_DIM);
+        }
+    }
+    blit(0, 188, 240, 52);
 }
 
 static void seq_part(uint32_t b, uint32_t part)
 {
-    uint32_t k;
+    uint32_t k, n;
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
-        seq_footer();
+        seq_bottom();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("SEQ", C_SEQ, "", UI_SEQ_PAGE_NAME[U->seq_page], "", -1, 8);
+        seq_header();
     } else if (b == UI_D_FOCUS) {
-        seq_focus();
-    } else if (b == UI_D_SLOT) {
-        seq_strip();
+        seq_readout();
+    } else if (b == UI_D_SLOT) {                /* the part-th of the columns this band draws */
+        for (k = 0, n = 0; k < SEQ_STEPS; k++)
+            if (roll_todo >> k & 1u && n++ == part) {
+                roll_column(k);
+                break;
+            }
     } else {
         for (k = 0; k < 4u; k++)
             if (b == UI_D_COL(k))
-                seq_column(k);
+                seq_cell(k);
     }
 }
 
 static uint32_t parts(uint32_t b)
 {
+    if (b == UI_D_SLOT && ui_screen(U) == UI_SCREEN_SEQ)
+        return roll_parts;                      /* a part a roll column */
     return b == UI_D_FULL ? 2u : b == UI_D_SLOT && ui_screen(U) == UI_SCREEN_PAGE ? SLOT_PARTS : 1u;
 }
 
@@ -1045,6 +1096,15 @@ void ui_draw_frame(uint32_t full)
         if (!band)
             return;
         T = ui_theme_shown(U) == UI_THEME_NIGHT ? &UI_NIGHT_PANEL : &UI_MEMBRANE;   /* (a switch: UI_D_FULL) */
+        if (band == UI_D_SLOT && ui_screen(U) == UI_SCREEN_SEQ) {   /* the roll: the columns to draw now */
+            uint32_t k;
+            roll_todo = ui_seq_roll_take(U);
+            if (ui_seq_roll_fit(U))
+                roll_todo = 0xFFFFu, (void)ui_seq_roll_take(U);
+            for (k = 0, roll_parts = 0; k < SEQ_STEPS; k++)
+                roll_parts += roll_todo >> k & 1u;
+            roll_parts = roll_parts ? roll_parts : 1u;
+        }
     }
     switch (ui_screen(U)) {                     /* every band through the screen that shows */
     case UI_SCREEN_SAVE:
