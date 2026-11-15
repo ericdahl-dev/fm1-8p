@@ -360,6 +360,11 @@ void ui_init(ui *u, play *p)
     u->p = p;
     u->state = UI_PLAY;
     u->cc_loads = p->loads + 1u;              /* (the first CC starts the pickup over) */
+    for (i = 0; i < sizeof u->cc_out / sizeof u->cc_out[0]; i++)
+        u->cc_out[i] = 0;
+    u->cc_out_ms = 0;
+    u->cc_out_at = 0;
+    u->cc_sent_cc = u->cc_sent_v = 0xFFu;
     u->focus = 1;
     u->dirty = UI_D_FULL;
     u->drawn_ms = 0;
@@ -718,6 +723,8 @@ static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
         u->readout_ms = ms;
     }
     u->dirty |= slot_redraw(u, s);
+    if (u->set.cc_send && ui_cc_of(u->set.cc_map, s->num) != UI_CC_NONE)
+        u->cc_out[(uint32_t)(s - UI_SLOTS) / 32u] |= 1u << ((uint32_t)(s - UI_SLOTS) % 32u);   /* G22 */
     u->focus = k;
 }
 
@@ -865,18 +872,30 @@ uint32_t ui_keypad_led(const ui *u, uint32_t k)
 }
 
 /* the slot a CC sets (the CC map): its number is the slot's, NULL for none */
-uint32_t ui_cc_of(uint32_t num)
+uint32_t ui_cc_of(uint32_t map, uint32_t num)
 {
     uint32_t i;
+    if (map == UI_CC_MAP_STANDARD) {
+        for (i = 0; i < UI_CC_STANDARD_COUNT; i++)
+            if (UI_CC_STANDARD[i].pg800 == num)
+                return UI_CC_STANDARD[i].cc;
+        return UI_CC_NONE;
+    }
     for (i = 0; i < UI_CC_MOVED_COUNT; i++)
         if (UI_CC_MOVED[i].pg800 == num)
             return UI_CC_MOVED[i].cc;
     return num < 120u ? num : UI_CC_NONE;
 }
 
-uint32_t ui_pg800_of(uint32_t cc)
+uint32_t ui_pg800_of(uint32_t map, uint32_t cc)
 {
     uint32_t i;
+    if (map == UI_CC_MAP_STANDARD) {
+        for (i = 0; i < UI_CC_STANDARD_COUNT; i++)
+            if (UI_CC_STANDARD[i].cc == cc)
+                return UI_CC_STANDARD[i].pg800;
+        return UI_CC_NONE;
+    }
     if (cc == 0u || cc >= 120u)                 /* bank select; the channel mode messages */
         return UI_CC_NONE;
     for (i = 0; i < UI_CC_MOVED_COUNT; i++) {
@@ -889,15 +908,26 @@ uint32_t ui_pg800_of(uint32_t cc)
 }
 
 /* the live slot CC cc sets (the CC map), NULL for none */
-static const ui_slot *cc_slot(uint32_t cc)
+static const ui_slot *cc_slot(uint32_t map, uint32_t cc)
 {
-    uint32_t i, num = ui_pg800_of(cc);
+    uint32_t i, num = ui_pg800_of(map, cc);
     if (num == UI_CC_NONE)
         return 0;
     for (i = 0; i < UI_PAGES * 4u; i++)
         if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == num)
             return &UI_SLOTS[i];
     return 0;
+}
+
+/* a choice slot's knob positions (the engine's values, at most 16) into at; how many */
+static uint32_t cc_stops(const ui_slot *s, int32_t *at)
+{
+    int32_t max = s->how == UI_HOW_PLAIN ? fm_param_info_get(s->id)->max : 3;
+    uint32_t i, n = 0;
+    for (i = 0; i < s->n_order && n < 16u; i++)
+        if (s->stops >> i & 1u && s->order[i] <= max)
+            at[n++] = s->order[i];
+    return n;
 }
 
 /* the value CC value v gives slot s (not a choice): along its table, or across its range (a SIZE:
@@ -966,6 +996,55 @@ static void cc_ignored(ui *u, uint32_t cc, uint32_t v, uint32_t ms)
     show_banner(u, u->cc_msg, ms);
 }
 
+/* slot s's value on the CC scale, 0..127: the inverse of what ui_cc sets (a choice: its band's middle;
+ * a time or rate: its table entry, the one at or below) */
+uint32_t ui_cc_scale(const ui *u, const ui_slot *s)
+{
+    int32_t v = ui_slot_value(u, s), lo, hi;
+    uint32_t i, n;
+    if (s->order) {
+        int32_t at[16];
+        n = cc_stops(s, at);
+        for (i = 0; i + 1u < n && at[i] != v; i++)
+            ;
+        return n ? (i * 128u + 64u) / n : 0u;
+    }
+    if (s->how == UI_HOW_TIME || s->how == UI_HOW_RATE) {
+        const uint16_t *t = s->how == UI_HOW_TIME ? UI_TIMES : UI_RATES;
+        n = s->how == UI_HOW_TIME ? UI_TIME_COUNT : UI_RATE_COUNT;
+        for (i = 0; i + 1u < n && t[i + 1u] <= v; i++)
+            ;
+        return (i * 127u + (n - 1u) / 2u) / (n - 1u);
+    }
+    lo = s->how == UI_HOW_SIZE ? 0 : fm_param_info_get(s->id)->min;
+    hi = fm_param_info_get(s->id)->max;
+    v = v < lo ? lo : v > hi ? hi : v;
+    return hi > lo ? (uint32_t)(((int64_t)(v - lo) * 127 + (hi - lo) / 2) / (hi - lo)) : 0u;
+}
+
+int ui_cc_out(ui *u, uint32_t ms, uint32_t *cc, uint32_t *value)
+{
+    uint32_t j, i, c, v;
+    if (u->cc_out_ms && ms - u->cc_out_ms < UI_CC_OUT_MS)
+        return 0;
+    for (j = 1; j <= UI_PAGES * 4u; j++) {      /* round from the last one sent */
+        i = (u->cc_out_at + j) % (UI_PAGES * 4u);
+        if (!(u->cc_out[i / 32u] >> (i % 32u) & 1u))
+            continue;
+        u->cc_out[i / 32u] &= ~(1u << (i % 32u));
+        c = ui_cc_of(u->set.cc_map, UI_SLOTS[i].num);
+        v = ui_cc_scale(u, &UI_SLOTS[i]);
+        if (c == u->cc_sent_cc && v == u->cc_sent_v)
+            continue;                           /* (no change on the CC scale) */
+        u->cc_out_at = (uint8_t)i;
+        u->cc_out_ms = ms ? ms : 1u;
+        u->cc_sent_cc = (uint8_t)c, u->cc_sent_v = (uint8_t)v;
+        *cc = c, *value = v;
+        return 1;
+    }
+    return 0;
+}
+
 uint32_t ui_key_velocity(const ui *u, int32_t host_vel)
 {
     return host_vel > 0 ? (uint32_t)(host_vel > 127 ? 127 : host_vel) : u->set.fixed_vel;
@@ -973,15 +1052,12 @@ uint32_t ui_key_velocity(const ui *u, int32_t host_vel)
 
 int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
 {
-    const ui_slot *s = cc_slot(cc);
+    const ui_slot *s = cc_slot(u->set.cc_map, cc);
     if (!s || !u->set.cc_recv || value > 127u)
         return 0;
     if (s->order) {                             /* a choice: equal bands, one per knob position; no pickup */
-        int32_t max = s->how == UI_HOW_PLAIN ? fm_param_info_get(s->id)->max : 3, at[16];
-        uint32_t i, n = 0;
-        for (i = 0; i < s->n_order && n < 16u; i++)
-            if (s->stops >> i & 1u && s->order[i] <= max)
-                at[n++] = s->order[i];
+        int32_t at[16];
+        uint32_t n = cc_stops(s, at);
         if (n)
             set_slot(u, s, at[value * n / 128u]);
     } else if (u->set.ext_cc && !cc_pick(u, s, (uint32_t)(s - UI_SLOTS), value)) {
