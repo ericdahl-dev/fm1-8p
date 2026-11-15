@@ -264,11 +264,12 @@ static void leave_open(fm_filter *f)
  * f0 under the cutoff: PG-8X 2.0.13's two sections' f0 (resonance 93,
  * tests/test_svf.c's method) against the engine's cutoff for the same VCF
  * FREQ, -176 cents at 6769 (F49) to -260 at 2639 (F16) and -246 at
- * 11927 (F88; there set by PG-8X's peak, -261), every 1200 cents of the
+ * 11927 (F88; there set by PG-8X's peak, -261; and F96's peaks, -343 at
+ * 13022), every 1200 cents of the
  * cutoff from 0, read with linear interpolation (above F88 PG-8X's f0 nears
  * its Nyquist and goes on the slope from there).
  */
-static const int16_t f0_off[13] = { -260, -260, -260, -237, -199, -181, -177, -188, -209, -228, -263, -298, -333 };
+static const int16_t f0_off[13] = { -260, -260, -260, -237, -199, -181, -177, -188, -209, -228, -263, -357, -416 };
 /* tan(pi 2^(d / 1200)), d = -14400 .. -1300 by 100 (fc / fs from 1/4096 to 0.47), Q5.27 */
 static const int32_t tan_tab[132] = {
     102944, 109065, 115550, 122421, 129701, 137413, 145584, 154241,
@@ -310,6 +311,11 @@ static const int32_t k_tab[14] = { 1555853578, 1107028459, 921274491, 913757962,
 #define K_TOP    683920082                     /* 0.637 (2 / pi), Q30 */
 #define K_93     458487882                     /* k at RES 93 (756), where the f0 offset is measured */
 #define RATE48_CENTS 15023                     /* fm_filter_rate_cents(48000) */
+#define E_LIFT   912680550                     /* 0.85, Q30 */
+#define T2_LIFT  524288                        /* 0.0625 (F80's t^2), Q9.23 */
+#define OVER_MAX 3355443                       /* 0.4, Q9.23: no more than about 2.5 dB out (F96) */
+#define T_SHIFT  80530637                      /* 0.6, Q5.27: the f0 shift's t at most */
+typedef char t_shift_fits[T_SHIFT <= 80530637 ? 1 : -1];   /* c_t t overflows past t 0.63 */
 #define T_TRIM   40265318                      /* 0.3, Q5.27: the trim's t at most */
 #define Q0_Q30   741021855                     /* 1 / k at resonance 0 (Q 0.69): the level is k Q0, 1.0 there */
 #define K_FLOOR  21474836                      /* the level's k, at least 0.02: self-oscillation starts */
@@ -341,7 +347,7 @@ static int32_t tan_of(int32_t d)
 /* The coefficients from the cutoff, rate and resonance as set: control rate, a few 32-bit divides. */
 static void apply(fm_filter *f)
 {
-    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, tt, k, kl, trim, den, a1;
+    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, t48, tt, k, kl, trim, den, a1;
     int was_open = fm_filter_is_wire(f);
     i = c / 1200;
     r = c % 1200;
@@ -354,16 +360,19 @@ static void apply(fm_filter *f)
      * further than t 0.3 (F82): at most 0.4 more, k within 1.85 */
     /* PG-8X's own top: how its sections move at high f0 goes by f0's tan at 48 kHz (PG-8X's), whatever
      * the rate here */
-    tt = tan_of(d + f->rate - RATE48_CENTS);
-    tt = tt < T_TRIM ? tt : T_TRIM;
+    t48 = tan_of(d + f->rate - RATE48_CENTS);
+    tt = t48 < T_TRIM ? t48 : T_TRIM;
     trim = (int32_t)(((((int64_t)k * k) >> 30) * (((int64_t)tt * K_TOP) >> 27)) >> 30);
     kl = k + trim / 2;
     k += trim;
     /* and its f0 moves with the resonance there, the offset being RES 93's: up under it, down over it,
-     * by (240 + 900 t) t (k - k93) cents (F80: +150 at RES 0, -32 at 127; F64: +24; F49: +6) */
+     * by (240 + 900 t) t (k - k93) cents (F80: +150 at RES 0, -32 at 127; F64: +24; F49: +6), its t
+     * taken to 0.6 (F96; PG-8X's peaks at F88 and F96, RES 112 and 127) */
+    tt = t48 < (k > K_93 ? T_TRIM : T_SHIFT) ? t48 : (k > K_93 ? T_TRIM : T_SHIFT);   /* (up: as before, t 0.3) */
     {
         int64_t c_t = ((int64_t)240 << 27) + 900 * (int64_t)tt;                         /* 240 + 900 t, Q27 */
-        /* (c_t t: Q27 cents under 2^35, to Q10 under 2^18; times k - k93, within 2^31: under 2^49) */
+        /* (c_t t: Q54 cents under 2^63 for t to 0.63, so T_SHIFT 0.6 at most; to Q10 under 2^19;
+         * times k - k93, within 2^31: under 2^50) */
         int32_t shift = (int32_t)((((c_t * tt) >> 44) * ((int64_t)k - K_93)) >> 40);
         if (shift) t = tan_of(d + shift);
     }
@@ -378,6 +387,20 @@ static void apply(fm_filter *f)
     f->z1 = t <= Z1_T0 ? Z1_FULL : t >= Z1_T1 ? 0
           : (int32_t)(((int64_t)(Z1_T1 - t) * 25) >> 2);   /* Z1_FULL / (Z1_T1 - Z1_T0) is 6.25 */
     f->a = (int32_t)(((int64_t)(kl > K_FLOOR ? kl : K_FLOOR) * Q0_Q30) >> 30);            /* <= 1.0 (1.2 at the top) */
+    {   /* the zero corrections lift the resonant peak past F80 over PG-8X's (F88: 1.4 dB, F96: 4.0):
+         * the level takes out 1 + E_LIFT (t^2 - t80^2) of it (none to F80; t^2 - t80^2 held to 0.4, so
+         * 1.34 at most; t at the engine's rate, as z1: the lift is the digital sections'), by a 32-bit divide and a Newton step (it in Q9.23, 1 / it in Q30) */
+        int64_t over = (((int64_t)t * t) >> 31) - T2_LIFT;                              /* t^2 past F80's, Q9.23 */
+        int32_t e, inv;
+        over = over < 0 ? 0 : over > OVER_MAX ? OVER_MAX : over;
+        /* a lift of the peak, so as much of it as there is a peak: none at resonance 0, nearly all at 935
+         * (1 - k / k0 = 1 - k Q0: the untrimmed k, from the table) */
+        over = (over * (ONE_Q30 - (((int64_t)k_of(f->res) * Q0_Q30) >> 30))) >> 30;
+        e = (1 << 23) + (int32_t)((over * E_LIFT) >> 30);
+        inv = (int32_t)((0x80000000u / (uint32_t)(e >> 7)) << 15);
+        inv = (int32_t)(((int64_t)inv * ((1ll << 31) - (((int64_t)e * inv) >> 23))) >> 30);
+        f->a = (int32_t)(((int64_t)f->a * inv) >> 30);
+    }
     f->fade = f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS ? ONE_Q30 : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }

@@ -519,6 +519,41 @@ TT_TEST(svf_input_past_the_hold_is_the_hold)
     TT_CHECK_EQ(differ, 0u);
 }
 
+/* PG-8X 2.0.13 at the top: its peak re its open render (noise, as PG_ROWS) at VCF FREQ 88 and 96, the
+ * engine's cutoff for them, RES 112 and 127 */
+static const struct { int16_t cut, permille; float db, hz; } PG_TOP[] = {
+    { 11927, 900, 10.0f, 6557.0f }, { 11927, 935, 13.4f, 6568.0f },
+    { 13022, 900, 11.3f, 11628.0f }, { 13022, 935, 14.7f, 11610.0f } };
+
+/* Up at F88 and F96 (f0 6.6 and 11.6 kHz at 48 kHz) the resonant peak is PG-8X's: as high within 1
+ * dB (the zero corrections' lift folded out of the level) and where it is within 30 cents */
+TT_TEST(svf_top_peaks_are_pg8x)
+{
+    static fm_filter f;
+    int32_t rate = fm_filter_rate_cents(SVF_RATE);
+    double wh = 0, wc = 0;
+    size_t r;
+    for (r = 0; r < sizeof PG_TOP / sizeof PG_TOP[0]; r++) {
+        double best = -1e9, at = 0, c;
+        int k;
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, PG_TOP[r].permille);
+        fm_filter_set_cutoff(&f, PG_TOP[r].cut, rate);
+        for (k = -400; k <= 400; k += 4) {
+            double h = PG_TOP[r].hz * pow(2.0, k / 1200.0), g;
+            if (h >= SVF_RATE / 2.0) continue;
+            g = svf_gain_db(&f, h, SVF_RATE);
+            if (g > best) best = g, at = h;
+        }
+        c = 1200 * log2(at / PG_TOP[r].hz);
+        printf("    cutoff %d res %d: peak %+.1f dB at %.0f Hz (PG-8X %+.1f at %.0f: %+.0f cents)\n", PG_TOP[r].cut,
+               PG_TOP[r].permille, best, at, PG_TOP[r].db, PG_TOP[r].hz, c);
+        wh = fmax(wh, fabs(best - PG_TOP[r].db));
+        wc = fmax(wc, fabs(c));
+    }
+    TT_CHECK(wh < 1.0 && wc < 30.0);
+}
+
 static void run_svf_tests(void)
 {
     TT_RUN(svf_lowpass_is_pg8x_two_sections);
@@ -532,4 +567,5 @@ static void run_svf_tests(void)
     TT_RUN(svf_cutoff_change_has_no_click_of_its_own);
     TT_RUN(svf_f0_moves_with_resonance_as_pg8x_at_f80);
     TT_RUN(svf_input_past_the_hold_is_the_hold);
+    TT_RUN(svf_top_peaks_are_pg8x);
 }
