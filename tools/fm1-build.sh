@@ -337,6 +337,11 @@ build_firmware() {
     mkdir -p "$OUT" || return 1
     build_module fm1_8p fm1-8p "FM1-8P" || return 1             # the playable synth
     build_module fm1_8p_cpu fm1-8p-cpu "FM1-8P CPU" || return 1
+    # the CPU rows' modules too (emu, emu-ui, emu-seq), so a source one of them lacks fails here and in CI,
+    # not only when the gate runs (#236's ui row didn't link and the gate said only "ui: no report")
+    build_module fm1_8p_cpu_quick fm1-8p-cpu-quick "FM1-8P CPU" || return 1
+    build_module fm1_8p_cpu_ui fm1-8p-cpu-ui "FM1-8P CPU" || return 1
+    build_module fm1_8p_cpu_seq fm1-8p-cpu-seq "FM1-8P CPU" || return 1
 }
 
 run_canaries() {
