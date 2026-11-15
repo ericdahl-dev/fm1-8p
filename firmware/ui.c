@@ -373,6 +373,7 @@ void ui_init(ui *u, play *p)
     u->seq_cursor = 0;
     u->seq_page = 0;
     u->seq_keys = 0;
+    u->boot = u->boot_ms = u->boot_loaded = 0;
     u->chord_n = 0;
     u->seq_armed = 0;
     u->built_n = 0;
@@ -1272,8 +1273,22 @@ int ui_play_readout(const ui *u, uint32_t ms)
     return u->readout && ms - u->readout_ms < UI_READOUT_MS;
 }
 
+void ui_boot_begin(ui *u)
+{
+    u->boot = 1u;
+    u->boot_loaded = 0;
+    u->dirty |= UI_D_FULL;
+}
+
+void ui_boot_loaded(ui *u)
+{
+    u->boot_loaded = 1u;
+}
+
 uint32_t ui_screen(const ui *u)
 {
+    if (u->boot)
+        return UI_SCREEN_BOOT;
     if (u->state == UI_SAVE)
         return UI_SCREEN_SAVE;
     if (u->state == UI_GLO)
@@ -1298,6 +1313,13 @@ uint32_t ui_take(ui *u, uint32_t ms)
         u->dirty |= UI_D_FULL;
     }
     u->now_ms = ms;
+    if (u->boot == 1u) {                        /* the boot screen: its time starts at its first draw */
+        u->boot = 2u;
+        u->boot_ms = ms;
+    } else if (u->boot && ms - u->boot_ms >= UI_BOOT_MS && u->boot_loaded) {
+        u->boot = 0;                            /* shown long enough, the banks read: PLAY */
+        u->dirty |= UI_D_FULL;
+    }
     ui_save_tick(u, ms);
     if (play_edited(u->p) != u->shown_edited) {  /* the footer's `*` */
         u->shown_edited = play_edited(u->p);
