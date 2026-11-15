@@ -318,12 +318,15 @@ uint32_t ui_key_led(const ui *u, uint32_t k, int down)
         return (down && u->set.key_leds) || (s->want && at >= 0 && step == at) ? UI_LED_LIT
                                                                                : UI_LED_OFF;   /* (G33) */
     }
-    if (u->seq_armed && down)                   /* armed: every key plays, lit while held */
+    if ((u->seq_armed || u->seq_rec) && down)   /* armed or REC: every key plays, lit while held */
         return UI_LED_LIT;
     if (step < 0 || (uint32_t)step >= seq_length(s))   /* a black key; a step past the length */
         return UI_LED_OFF;
     k = (uint32_t)step;
     st = seq_get_step(s, k);
+    if (u->seq_rec)                             /* REC (Eric, R2): the cursor at 8 Hz, the rest a dim map */
+        return k == u->seq_cursor ? (u->now_ms / 63u & 1u ? UI_LED_GLOW : UI_LED_LIT)
+                                  : st->kind == SEQ_REST ? UI_LED_OFF : UI_LED_GLOW;
     led = st->kind == SEQ_REST ? UI_LED_GLOW : UI_LED_LIT;
     if (st->kind == SEQ_TIE && u->now_ms % 500u >= 400u)    /* a tie: a short dark blink every 500 ms */
         led = UI_LED_OFF;

@@ -914,6 +914,25 @@ TT_TEST(seq_rec_button_leds)
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_OFF);
 }
 
+/* Key LEDs in REC (Eric, R2): a key held is lit; the cursor's white key blinks at 8 Hz; the other white
+ * keys keep their steps as a dim map (a note or tie glows, a rest is off) */
+TT_TEST(seq_rec_key_leds)
+{
+    static const uint8_t C[1] = {60};
+    ui_setup();
+    seq_set_step(play_seq(&ui_p), 2, C, 1, 100);
+    ui_tap(UI_BTN_REC, 1000);
+    (void)ui_take(&ui_u, 1008);                               /* 1008 / 63: even */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[0], 0), (uint32_t)UI_LED_LIT);
+    (void)ui_take(&ui_u, 1071);                               /* odd */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[0], 0), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[2], 0), (uint32_t)UI_LED_GLOW);   /* a note: dim */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[3], 0), (uint32_t)UI_LED_OFF);    /* a rest */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_BK[0], 0), (uint32_t)UI_LED_OFF);
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_BK[0], 1), (uint32_t)UI_LED_LIT);    /* held */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[3], 1), (uint32_t)UI_LED_LIT);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -928,6 +947,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_disarms_and_drops_the_step_being_built);
     TT_RUN(seq_rec_play_starts_and_disarms);
     TT_RUN(seq_rec_button_leds);
+    TT_RUN(seq_rec_key_leds);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
