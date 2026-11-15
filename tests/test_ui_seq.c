@@ -841,6 +841,22 @@ TT_TEST(seq_rec_sel_and_env_write_and_move_on)
     TT_CHECK_EQ(ui_u.seq_cursor, 3u);
 }
 
+/* In REC, FX steps back one step, around, without writing; outside REC it does nothing */
+TT_TEST(seq_rec_fx_steps_back)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_tap(UI_BTN_FX, 1100);                                  /* not in REC: nothing */
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+    ui_tap(UI_BTN_REC, 1200);
+    ui_tap(UI_BTN_FX, 1300);                                  /* around: the last step */
+    TT_CHECK_EQ(ui_u.seq_cursor, 15u);
+    ui_tap(UI_BTN_FX, 1400);
+    TT_CHECK_EQ(ui_u.seq_cursor, 14u);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 15)->kind, SEQ_REST);
+    TT_CHECK(ui_u.seq_rec);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -851,6 +867,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_wraps_at_the_length);
     TT_RUN(seq_rec_takes_midi_notes);
     TT_RUN(seq_rec_sel_and_env_write_and_move_on);
+    TT_RUN(seq_rec_fx_steps_back);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);

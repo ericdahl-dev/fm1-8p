@@ -248,6 +248,12 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap) {  /* the last edit page */
         u->state = UI_EDIT;
         u->dirty |= UI_D_FULL;
+    } else if (u->seq_rec && tap && ev == (UI_EV_BTN_UP | UI_BTN_FX)) {   /* REC: back one, nothing written */
+        roll(u, ROLL_AT(u->seq_cursor));
+        u->built_n = 0;
+        u->seq_cursor = (u->seq_cursor + seq_length(s) - 1u) % seq_length(s);
+        roll(u, ROLL_AT(u->seq_cursor));
+        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
     } else if (u->seq_rec && tap && (ev == (UI_EV_BTN_UP | UI_BTN_SEL) || ev == (UI_EV_BTN_UP | UI_BTN_ENV))) {
         if (id == UI_BTN_SEL)                   /* REC: a rest or a tie at the cursor, then on (interaction.md 5) */
             seq_clear_step(s, u->seq_cursor);
