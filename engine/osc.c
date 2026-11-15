@@ -77,15 +77,73 @@ void fm_osc_reset(fm_osc *o)
 {
     o->phase = 0;
     o->inc = 0;
+    o->rcp = 0;
+    o->rsh = 0;
+}
+
+static int64_t recip_seed(int64_t m);
+static int64_t recip_step(int64_t m, int64_t x);
+
+/* the leading zeros of m (m > 0) */
+static inline uint32_t lead0(uint32_t m)
+{
+#if defined(__GNUC__) || defined(__clang__)
+    return (uint32_t)__builtin_clz(m);
+#else
+    uint32_t s = 0;
+    while (!(m & 0x80000000u)) {
+        m <<= 1;
+        s++;
+    }
+    return s;
+#endif
 }
 
 void fm_osc_set_inc(fm_osc *o, uint32_t inc)
 {
+    uint32_t m, old = o->inc, s;
     o->inc = inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : inc;
+    if (!o->inc) {
+        o->rcp = 0;
+        return;
+    }
+    /* inc shifted up to 2^31..2^32 is m, and 2^62 / m by Newton's steps (as derive() takes osc1's): 1 /
+     * inc in Q16 of a distance is then rcp >> rsh (#259). No division. A small move (pitch mod's, a
+     * control tick's: under 1/512 of it, in the same octave) is one step on from the last, the rest
+     * three from the seed: within 2^-17 either way, which blep_x's one correction makes exact. */
+    s = lead0(o->inc);
+    m = o->inc << s;
+    if (o->rcp && o->rsh == (uint8_t)(46 - s) &&
+        (o->inc > old ? o->inc - old : old - o->inc) < (old >> 9))
+        o->rcp = (uint32_t)recip_step(m >> 2, o->rcp);
+    else
+        o->rcp = (uint32_t)recip_step(m >> 2, recip_step(m >> 2, recip_step(m >> 2, recip_seed(m >> 2))));
+    o->rsh = (uint8_t)(46 - s);
 }
 
-/* polyBLEP saw at phase t with increment dt, Q8.24. */
-static int32_t saw_at(uint32_t t, uint32_t dt)
+/* d / dt in Q16 (d < dt: under 1.0), exactly the divide's floor. By o's reciprocal when dt is its
+ * increment: the estimate is within 1 below for the increment the reciprocal was made from, so one
+ * correction, then a check that it is the floor; if not (cross-mod's bent increment, which next_special
+ * writes into inc itself, or a restart's dt), the divide. Only in a polyBLEP's few samples a cycle. */
+static uint32_t blep_x(uint32_t d, uint32_t dt, const fm_osc *o)
+{
+    uint64_t n = (uint64_t)d << 16;
+    if (dt == o->inc && o->rcp) {
+        uint64_t x = ((uint64_t)d * o->rcp) >> o->rsh, f;
+        x = x > 65535u ? 65535u : x;
+        f = x * dt;
+        if (f > n)
+            x--, f -= dt;
+        else if (f + dt <= n)
+            x++, f += dt;
+        if (f <= n && n < f + dt)
+            return (uint32_t)x;
+    }
+    return (uint32_t)(n / dt);
+}
+
+/* polyBLEP saw at phase t with increment dt (o's, its reciprocal's, when dt is o's increment), Q8.24. */
+static int32_t saw_at(uint32_t t, uint32_t dt, const fm_osc *o)
 {
     /* naive saw 2t - 1 as Q0.31: -1.0 at t = 0, rising to +1.0 */
     int64_t v = (int32_t)(t ^ 0x80000000u);
@@ -93,10 +151,10 @@ static int32_t saw_at(uint32_t t, uint32_t dt)
     if (dt) {
         int64_t blep = 0; /* Q16 */
         if (t < dt) { /* just after the wrap: x = t/dt in [0, 1) */
-            int64_t x = (int64_t)(((uint64_t)t << 16) / dt);
+            int64_t x = blep_x(t, dt, o);
             blep = 2 * x - ((x * x) >> 16) - 65536;
         } else if (t > 0u - dt) { /* just before: x = (1 - t)/dt */
-            int64_t x = (int64_t)(((uint64_t)(0u - t) << 16) / dt);
+            int64_t x = blep_x(0u - t, dt, o);
             blep = ((x * x) >> 16) - 2 * x + 65536;
         }
         v -= blep * 32768; /* Q16 -> Q0.31 (no left shift of negatives) */
@@ -115,9 +173,9 @@ static int32_t saw_at(uint32_t t, uint32_t dt)
  * line: inlined at -Os, it makes wave_next save four more registers on
  * every call, the saw's included (+1.7 % at 8 voices in fm1-emu).
  */
-static FM_NOINLINE int32_t pulse_at(uint32_t t, uint32_t dt0, uint32_t dt, uint32_t width)
+static FM_NOINLINE int32_t pulse_at(uint32_t t, uint32_t dt0, const fm_osc *o, uint32_t width)
 {
-    return saw_at(t, dt0) - saw_at(t + width, dt);
+    return saw_at(t, dt0, o) - saw_at(t + width, o->inc, o);
 }
 
 static void ring_coef(fm_osc_pair *p);
@@ -474,14 +532,14 @@ static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0)
     uint32_t t = o->phase;
     switch (p->wave[which]) {
     case FM_WAVE_PULSE:
-        return (int32_t)(((int64_t)pulse_at(t, dt0, o->inc, p->pw[which]) *
+        return (int32_t)(((int64_t)pulse_at(t, dt0, o, p->pw[which]) *
                           p->pw_gain[which]) >> 30);
     case FM_WAVE_SQUARE:
-        return pulse_at(t, dt0, o->inc, 0x80000000u);
+        return pulse_at(t, dt0, o, 0x80000000u);
     case FM_WAVE_NOISE:
         return noise_next(p);
     default:
-        return saw_at(t, dt0);
+        return saw_at(t, dt0, o);
     }
 }
 
@@ -516,7 +574,7 @@ static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
  */
 static int32_t unwrap_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
 {
-    int64_t x = (int64_t)(((uint64_t)(0u - t) << 16) / dt);
+    int64_t x = blep_x(0u - t, dt, &p->osc[1]);
     return osc2_gain(p, (((x * x) >> 16) - 2 * x + 65536) * 256); /* Q16 -> Q8.24 */
 }
 
@@ -527,7 +585,7 @@ static int32_t unwrap_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
  */
 static int32_t wrap_after_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
 {
-    int64_t x = (int64_t)(((uint64_t)t << 16) / dt);
+    int64_t x = blep_x(t, dt, &p->osc[1]);
     return osc2_gain(p, -(2 * x - ((x * x) >> 16) - 65536) * 256);
 }
 
@@ -676,7 +734,8 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
         p->sync_pend = 0;
         return gain(a, p->level[0]);
     }
-    if (p->xmod) {
+    if (p->xmod) { /* a bent increment: its polyBLEPs divide (#259: blep_x sees it isn't the one its
+                    * reciprocal is of, so nothing to clear and put back a sample) */
         int64_t now = (int64_t)inc + (((int64_t)p->xmod_inc * a) >> 24);
         p->osc[1].inc = now < 0 ? 0u : now > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)now;
     }
@@ -700,14 +759,14 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
     o->phase = t + o->inc;
     switch (p->wave[which]) {
     case FM_WAVE_PULSE:
-        return (int32_t)(((int64_t)pulse_at(t, o->inc, o->inc, p->pw[which]) *
+        return (int32_t)(((int64_t)pulse_at(t, o->inc, o, p->pw[which]) *
                           p->pw_gain[which]) >> 30);
     case FM_WAVE_SQUARE:
-        return pulse_at(t, o->inc, o->inc, 0x80000000u);
+        return pulse_at(t, o->inc, o, 0x80000000u);
     case FM_WAVE_NOISE:
         return noise_next(p);
     default:
-        return saw_at(t, o->inc);
+        return saw_at(t, o->inc, o);
     }
 }
 
@@ -758,14 +817,14 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
         uint32_t w = p->pw[which];
         int32_t g = p->pw_gain[which];
         for (i = 0; i < n; i++, t += dt) {
-            b = (int32_t)(((int64_t)(saw_at(t, dt) - saw_at(t + w, dt)) * g) >> 30);
+            b = (int32_t)(((int64_t)(saw_at(t, dt, o) - saw_at(t + w, dt, o)) * g) >> 30);
             out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
     }
     case FM_WAVE_SQUARE:
         for (i = 0; i < n; i++, t += dt) {
-            b = saw_at(t, dt) - saw_at(t + 0x80000000u, dt);
+            b = saw_at(t, dt, o) - saw_at(t + 0x80000000u, dt, o);
             out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
@@ -777,7 +836,7 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
         break;
     default:
         for (i = 0; i < n; i++, t += dt) {
-            b = saw_at(t, dt);
+            b = saw_at(t, dt, o);
             out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
@@ -931,11 +990,11 @@ static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n)
     switch (p->wave[1]) {
     case FM_WAVE_SQUARE:
         for (i = 0; i < n; i++, t += dt)
-            out[i] = ring_sum(p, out[i], saw_at(t, dt) - saw_at(t + 0x80000000u, dt));
+            out[i] = ring_sum(p, out[i], saw_at(t, dt, o) - saw_at(t + 0x80000000u, dt, o));
         break;
     case FM_WAVE_SAW:
         for (i = 0; i < n; i++, t += dt)
-            out[i] = ring_sum(p, out[i], saw_at(t, dt));
+            out[i] = ring_sum(p, out[i], saw_at(t, dt, o));
         break;
     default: /* pulse and noise (one factory tone, none): a sample at a time */
         for (i = 0; i < n; i++)

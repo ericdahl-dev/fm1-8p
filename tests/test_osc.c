@@ -159,6 +159,107 @@ TT_TEST(pulse_peaks_at_the_saw_level_at_every_width)
         TT_CHECK_NEAR(held_peak(FM_WAVE_PULSE, widths[k]) / saw, 1.0, 0.03);
 }
 
+/*
+ * The saw's polyBLEP is the textbook 2-point one: a double-precision
+ * model of it (naive saw 2t - 1, less 2x - x^2 - 1 after a wrap and plus
+ * (1 - x)^2 before it, x the distance to the wrap in samples) gives every
+ * sample within two steps of x's Q16 (2 x 2^-16 of the step's 2.0, 1024
+ * Q8.24 units), at notes 0..127, 44.1 and 192 kHz. A divide per sample reads
+ * 480 (one step), and a reciprocal at pitch change (#259) may round x one
+ * step further.
+ */
+TT_TEST(saw_polyblep_matches_its_double_precision_model)
+{
+    static const uint32_t rates[] = { 44100, 192000 };
+    static fm_osc_pair p;
+    size_t r;
+    int note;
+    double worst = 0;
+    for (r = 0; r < 2; r++)
+        for (note = 0; note <= 127; note += 7) {
+            uint32_t i, t, dt;
+            fm_osc_pair_reset(&p, 1);
+            fm_osc_pair_set_pitch(&p, note << 16, rates[r]);
+            dt = p.osc[0].inc;
+            for (i = 0; i < 4000; i++) {
+                double x, want, d;
+                t = p.osc[0].phase;
+                want = ((double)(int32_t)(t ^ 0x80000000u)) / 128.0;   /* Q8.24 */
+                if (t < dt) {
+                    x = (double)t / dt;
+                    want -= (2 * x - x * x - 1) * 16777216.0;
+                } else if (t > 0u - dt) {
+                    x = (double)(0u - t) / dt;
+                    want -= (x * x - 2 * x + 1) * 16777216.0;
+                }
+                d = fabs((double)fm_osc_pair_next(&p) - want);
+                if (d > worst) worst = d;
+            }
+        }
+    printf("    saw polyBLEP against its model: worst %.2f Q8.24 units\n", worst);
+    TT_CHECK(worst <= 1024.0);
+}
+
+/* Worst distance (Q8.24) of osc `which`'s next n samples from the
+ * double-precision 2-point polyBLEP saw at its current increment. */
+static double saw_vs_model(fm_osc_pair *p, uint8_t which, uint32_t n)
+{
+    double worst = 0;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        uint32_t t = p->osc[which].phase, dt = p->osc[which].inc;
+        double x, want = ((double)(int32_t)(t ^ 0x80000000u)) / 128.0, got;
+        if (t < dt) {
+            x = (double)t / dt;
+            want -= (2 * x - x * x - 1) * 16777216.0;
+        } else if (t > 0u - dt) {
+            x = (double)(0u - t) / dt;
+            want -= (x * x - 2 * x + 1) * 16777216.0;
+        }
+        got = fm_osc_pair_next(p);
+        if (fabs(got - want) > worst) worst = fabs(got - want);
+    }
+    return worst;
+}
+
+/*
+ * The polyBLEP follows the increment as it changes: after pitch modulation
+ * (an LFO or envelope tick) and after cross-mod has bent osc2 and let go,
+ * each saw still matches the model at its increment of the moment, within
+ * the same two steps of x (#259: a reciprocal left over from an old
+ * increment would put the polyBLEP in the wrong place).
+ */
+TT_TEST(saw_polyblep_follows_pitch_mod_and_cross_mod)
+{
+    static fm_osc_pair p;
+    static int32_t sink[4096];
+    double w1, w2, w3;
+    int k;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_pitch(&p, 100 << 16, 48000);
+    w1 = 0;
+    for (k = 0; k < 40; k++) { /* an LFO's worth of ticks, up and down */
+        double w;
+        fm_osc_pair_set_pitch_mod(&p, (k % 9 - 4) * 3000, 0);
+        w = saw_vs_model(&p, 0, 64);
+        if (w > w1) w1 = w;
+    }
+    /* osc2 alone, cross-mod by osc1, then cross-mod off */
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_pitch_mod(&p, 0, 0);
+    fm_osc_pair_set_xmod(&p, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_render(&p, sink, 4096);
+    fm_osc_pair_set_xmod(&p, 0);
+    w2 = saw_vs_model(&p, 1, 4096);
+    /* and pitch modulation on osc2 after that */
+    fm_osc_pair_set_pitch_mod(&p, 0, -20000);
+    w3 = saw_vs_model(&p, 1, 4096);
+    printf("    saw polyBLEP after pitch mod %.0f, after cross-mod %.0f, osc2 bent %.0f Q8.24 units\n",
+           w1, w2, w3);
+    TT_CHECK(w1 <= 1024.0 && w2 <= 1024.0 && w3 <= 1024.0);
+}
+
 /* Octave shifts by factors of two; fine tune by 2^(cents / 1200). */
 TT_TEST(octave_and_fine_tune_shift_pitch)
 {
@@ -2084,8 +2185,98 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
     TT_CHECK(db > 1.2 && db < 2.0);
 }
 
+/* The polyBLEP saw as it was, by a divide (#259's reference): what the reciprocal must give, bit for bit */
+static int32_t saw_by_divide(uint32_t t, uint32_t dt)
+{
+    int64_t v = (int32_t)(t ^ 0x80000000u), blep = 0;
+    if (t < dt) {
+        int64_t x = (int64_t)(((uint64_t)t << 16) / dt);
+        blep = 2 * x - ((x * x) >> 16) - 65536;
+    } else if (t > 0u - dt) {
+        int64_t x = (int64_t)(((uint64_t)(0u - t) << 16) / dt);
+        blep = ((x * x) >> 16) - 2 * x + 65536;
+    }
+    v -= blep * 32768;
+    return (int32_t)(v >> 7);
+}
+
+/* #259: the saw's polyBLEP by the reciprocal is the divide's exactly, at every pitch: 4000 increments
+ * spread over the range (low to the top, where every sample is in a polyBLEP), 4096 samples each, osc1
+ * alone at full through the pair; and again with the increment moved a little every 16 samples (pitch
+ * mod's, a control tick's: set_inc's one step on from the last). Not 1 LSB off anywhere. */
+TT_TEST(blep_reciprocal_is_the_divide_exactly)
+{
+    static fm_osc_pair p;
+    uint32_t r = 0x9E3779B9u, k, i, off = 0, blep = 0;
+    for (k = 0; k < 4000; k++) {
+        uint32_t inc, t = 0;
+        r = r * 1664525u + 1013904223u;
+        inc = (r >> 1) % (FM_OSC_MAX_INC - 64u) + 64u;
+        if (k & 1u) inc >>= (r >> 27) & 15u;   /* (half of them lower) */
+        if (inc < 64u) inc = 64u;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_set_inc(&p.osc[0], inc);
+        fm_osc_pair_set_level(&p, 0, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_level(&p, 1, 0);
+        for (i = 0; i < 4096; i++, t += inc) {
+            int32_t want, got;
+            if (k >= 2000u && i % 16u == 15u) {   /* (the second 2000: a vibrato's moves) */
+                uint32_t d = (inc >> 12) + 1u;
+                inc = (i / 16u) & 8u ? inc - d : inc + d;
+                inc = inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : inc < 64u ? 64u : inc;
+                fm_osc_set_inc(&p.osc[0], inc);
+            }
+            want = saw_by_divide(t, inc);
+            got = fm_osc_pair_next(&p);
+            blep += t < inc || t > 0u - inc;
+            if (got != want && off++ < 3)
+                printf("    inc %u t %u: %d, the divide %d\n", inc, t, got, want);
+        }
+    }
+    printf("    polyBLEP by the reciprocal: %u samples off the divide, of %u in a polyBLEP\n", off, blep);
+    TT_CHECK_EQ(off, 0u);
+}
+
+/* The same through cross-mod and sync with osc2 heard (its bent increment, its restarts): a pair whose
+ * reciprocals are cleared (rcp 0: every polyBLEP divides) is the reference, bit for bit. Saw and square,
+ * over pitches and depths. */
+TT_TEST(blep_reciprocal_under_cross_mod_and_sync_is_the_divide)
+{
+    static fm_osc_pair a, b;
+    static const uint8_t waves[] = { FM_WAVE_SAW, FM_WAVE_SQUARE };
+    static const int32_t notes[] = { 36, 60, 84, 108 };
+    uint32_t off = 0, k, w, n, i, mode;
+    for (mode = 0; mode < 3; mode++)          /* cross-mod, sync, both */
+    for (w = 0; w < 2; w++)
+    for (n = 0; n < 4; n++)
+    for (k = 0; k < 3; k++) {
+        fm_osc_pair *q[2] = { &a, &b };
+        uint32_t j;
+        for (j = 0; j < 2; j++) {
+            fm_osc_pair_reset(q[j], 1);
+            fm_osc_pair_set_wave(q[j], 0, waves[w]);
+            fm_osc_pair_set_wave(q[j], 1, waves[1 - w]);
+            fm_osc_pair_set_tune(q[j], 1, 702 + 300 * (int32_t)k, notes[n] << 16, 48000);
+            fm_osc_pair_set_pitch(q[j], notes[n] << 16, 48000);
+            fm_osc_pair_set_level(q[j], 0, FM_OSC_LEVEL_FULL / 2);
+            fm_osc_pair_set_level(q[j], 1, FM_OSC_LEVEL_FULL);
+            if (mode != 1) fm_osc_pair_set_xmod(q[j], FM_OSC_LEVEL_FULL / 3 * (int32_t)(k + 1));
+            if (mode != 0) fm_osc_pair_set_sync(q[j], 1);
+        }
+        b.osc[0].rcp = b.osc[1].rcp = 0;       /* the reference divides */
+        for (i = 0; i < 8000; i++)
+            off += fm_osc_pair_next(&a) != fm_osc_pair_next(&b);
+    }
+    printf("    polyBLEP under cross-mod and sync: %u samples off the divide's\n", off);
+    TT_CHECK_EQ(off, 0u);
+}
+
 static void run_osc_tests(void)
 {
+    TT_RUN(blep_reciprocal_is_the_divide_exactly);
+    TT_RUN(blep_reciprocal_under_cross_mod_and_sync_is_the_divide);
+    TT_RUN(saw_polyblep_matches_its_double_precision_model);
+    TT_RUN(saw_polyblep_follows_pitch_mod_and_cross_mod);
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(ring_multiplies_osc2_by_osc1_square);
     TT_RUN(ring_depth_follows_a_saw_osc1);
