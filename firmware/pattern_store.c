@@ -9,19 +9,21 @@
  *   [17]       SWING, %
  *   [18]       GATE, %
  *   [19]       step count
- *   [20]       bytes per step: 9 here; newer firmware may make steps longer (#42's bend and mod), and
- *              this one reads each step's first 9
- *   [21..]     steps: kind (seq_kind), note count, velocity, then SEQ_NOTES notes
+ *   [20]       bytes per step: 13 here, at least 9 (the first records, before #42); newer firmware may
+ *              make steps longer, and this one reads what it knows of each
+ *   [21..]     steps: kind (seq_kind), note count, velocity, SEQ_NOTES notes; then (from 13 bytes, #42)
+ *              the bend, int16 low byte first, the mod wheel and the move (0 JUMP, 1 GLIDE)
  *
  * The version changes only when a record can't be read this way; adding to the steps doesn't. Out-of-range
  * values load clamped, as seq.c's setters would have them. */
 #include "pattern_store.h"
 
 #define HEADER 21u
-#define STEP 9u                         /* kind, n, vel, SEQ_NOTES notes */
+#define STEP_V1 9u                      /* kind, n, vel, SEQ_NOTES notes: the least a step has */
+#define STEP 13u                        /* and bend (2), mod, move (#42) */
 #define VERSION 1u
 
-typedef char pat_step_is_v1s[STEP == 3u + SEQ_NOTES ? 1 : -1];
+typedef char pat_step_is_v1s[STEP_V1 == 3u + SEQ_NOTES ? 1 : -1];
 typedef char pat_record_fits_a_slot[HEADER + STEP * SEQ_STEPS <= STORE_SLOT_BYTES ? 1 : -1];
 
 #define BANKS (PAT_SLOTS / STORE_BANK_SLOTS)
@@ -29,7 +31,7 @@ typedef char pat_record_fits_a_slot[HEADER + STEP * SEQ_STEPS <= STORE_SLOT_BYTE
 
 static int is_record(const uint8_t *rec, uint32_t n)
 {
-    return n >= HEADER && rec[1] == VERSION && rec[20] >= STEP && rec[0] <= n &&
+    return n >= HEADER && rec[1] == VERSION && rec[20] >= STEP_V1 && rec[0] <= n &&
            (uint32_t)rec[0] == HEADER + (uint32_t)rec[19] * rec[20];
 }
 
@@ -54,6 +56,10 @@ uint32_t pat_encode(const seq_pattern *p, const char *name, uint8_t *rec)
         rec[n + 2u] = st->vel;
         for (k = 0; k < SEQ_NOTES; k++)
             rec[n + 3u + k] = st->note[k];
+        rec[n + 9u] = (uint8_t)((uint16_t)st->bend & 0xFFu);
+        rec[n + 10u] = (uint8_t)((uint16_t)st->bend >> 8);
+        rec[n + 11u] = st->mod;
+        rec[n + 12u] = st->glide;
         n += STEP;
     }
     rec[0] = (uint8_t)n;
@@ -88,6 +94,12 @@ int pat_decode(const uint8_t *rec, uint32_t n, seq_pattern *p, char *name)
             st->note[k] = (uint8_t)CLAMP(e[3u + k], 0u, 127u);
         if (st->kind == SEQ_NOTES_ON && !st->n)
             st->kind = SEQ_REST;                /* notes with none: a rest, as seq_set_step makes it */
+        if (size >= STEP) {                     /* bend, mod and move (#42); before them: center, 0, JUMP */
+            int32_t b = (int16_t)(uint16_t)(e[9] | (uint32_t)e[10] << 8);
+            st->bend = (int16_t)CLAMP(b, -8192, 8191);
+            st->mod = (uint8_t)CLAMP(e[11], 0u, 127u);
+            st->glide = (uint8_t)(e[12] != 0);
+        }
     }
     return 0;
 }
