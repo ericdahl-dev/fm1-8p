@@ -79,11 +79,14 @@ typedef struct {
     int32_t sync_after; /* polyBLEP terms due on osc2's sample after a restart, Q8.24 */
     int64_t dc_sum;    /* synced: the pair's samples so far in this osc1 cycle, Q8.24 */
     int32_t dc;        /* synced: the last osc1 cycle's mean, taken off this one's samples */
-    uint32_t rate;     /* the sample rate the increments are for (the spike's times) */
-    /* the spike (FM_WAVE_SPIKE, #150), from the unmodulated pitch: the
-     * lowpass's decay per 2^32 of phase (Q16 log2), 1 / (1 - q) and the
-     * earlier cycles' share (Q16, q its decay over a cycle), and its mean,
-     * Q8.24 */
+    /* the spike (FM_WAVE_SPIKE, #150): from the sample rate (on events),
+     * the lowpass's decay per sample (Q16 log2) and the impulse area times
+     * the rate (for the mean); from the pitch as played (on events and the
+     * pitch modulation's control ticks), the decay per 2^32 of phase (Q16
+     * log2), 1 / (1 - q) and the earlier cycles' share (Q16, q its decay
+     * over a cycle), and its mean, Q8.24 */
+    uint32_t sp_kq;
+    uint32_t sp_ar;
     uint32_t sp_g[2];
     int32_t sp_p1[2];
     int32_t sp_zc[2];

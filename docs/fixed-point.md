@@ -103,11 +103,18 @@ That's a closed form of the phase, so it has no state: every path that reads
 a wave at its phase plays it alike, sync and the ring included. It starts from
 0 at each impulse (continuous), so it needs no polyBLEP, and at note 96 its
 aliasing is under the limit above.
-- **Constants:** from the unmodulated pitch, on events. Those are the decay per
-  2^32 of phase, from 1 / dt by Newton's reciprocal (no division), 1 / (1 - q),
-  the earlier cycles' share, and the mean.
-- **Per sample:** a 32 x 32 -> 64 multiply, a 2^-x table lookup with
-  interpolation (65 entries, Q30), and two multiplies.
+- **Constants:** two from the sample rate, on events (a divide there): the
+  decay per sample and the impulse area times the rate. The rest come from the
+  pitch as played, on events and on the pitch modulation's control ticks (only
+  the oscillator whose modulation moved), with no division: the decay per
+  2^32 of phase (1 / dt by Newton's reciprocal), 1 / (1 - q) (Newton
+  again), the earlier cycles' share, and the mean.
+- **Per sample:** six 32 x 32 -> 64 multiplies, two of them in a 2^-x table
+  lookup with interpolation (65 entries, Q30). Past 30 halvings of the decay,
+  only the mean is left.
+- **Not band-limited:** a sync restart that lands inside the spike, where the
+  wave is far from its start value, steps without a polyBLEP. That's a
+  follow-up.
 - **Level:** its level rises about 2.8 dB an octave against the square, as
   PG-8X's does, and it peaks at about twice the square's at the same level. One
   voice at full level of it therefore reaches the soft clip.

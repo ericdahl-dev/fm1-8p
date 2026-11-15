@@ -160,16 +160,17 @@ static void update_spike(fm_osc_pair *p, uint8_t i)
     uint64_t g, tt;
     int64_t p1, m;
     uint8_t sh;
-    if (!dt || !p->rate) {
+    if (!dt || !p->sp_kq) {
         p->sp_g[i] = 0;
         p->sp_p1[i] = 1 << 16;
         p->sp_zc[i] = p->sp_mean[i] = 0;
         return;
     }
-    /* the decay per 2^32 of phase, Q16 log2: (1 / dt) x 2^32 x
-     * 2 pi f / (rate ln 2); SPIKE_KQ / rate is the decay per sample */
+    /* the decay per 2^32 of phase, Q16 log2: (1 / dt) x 2^32 x the decay
+     * per sample (sp_kq: 2 pi f / (rate ln 2)) */
+    if (dt < 4u) dt = 4u; /* keeps the shift below non-negative */
     r = recip_of(dt, &sh); /* 1 / dt = r x 2^(sh - 62) */
-    g = ((uint64_t)(SPIKE_KQ / p->rate) * r) >> (30 - sh);
+    g = ((uint64_t)p->sp_kq * r) >> (30 - sh);
     if (g > 0xFFFFFFFFu) g = 0xFFFFFFFFu;
     p->sp_g[i] = (uint32_t)g;
     q = (uint32_t)exp2_neg(g);                 /* e^(-T / tau), Q30 */
@@ -180,7 +181,7 @@ static void update_spike(fm_osc_pair *p, uint8_t i)
     tt = (g * LN2_Q16) >> 16;                  /* T / tau, Q16 */
     p->sp_p1[i] = (int32_t)p1;
     p->sp_zc[i] = (int32_t)(((((int64_t)((tt * q) >> 30)) * p1 >> 16) * p1) >> 16);
-    p->sp_mean[i] = (int32_t)(((uint64_t)SPIKE_A_Q24 * p->rate * dt) >> 32); /* A / T */
+    p->sp_mean[i] = (int32_t)(((uint64_t)p->sp_ar * dt) >> 32); /* A / T */
 }
 
 /* The spike of oscillator `i` at phase t (the time since its impulse),
@@ -266,7 +267,7 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->recip0 = 0;
     p->recip0_sh = 0;
     p->noise = seed ? seed : 0x2545F491u;
-    p->rate = 0;
+    p->sp_kq = p->sp_ar = 0;
     for (i = 0; i < 2; i++) {
         p->sp_g[i] = 0;
         p->sp_p1[i] = 1 << 16;
@@ -454,7 +455,10 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
                      uint32_t sample_rate)
 {
     p->base[i] = fm_osc_pitch_inc(pitch + p->tune[i], sample_rate);
-    p->rate = sample_rate;
+    if (p->sp_ar != SPIKE_A_Q24 * sample_rate) { /* the spike's rate terms: a divide, on events */
+        p->sp_kq = sample_rate ? SPIKE_KQ / sample_rate : 0;
+        p->sp_ar = SPIKE_A_Q24 * sample_rate;
+    }
     fm_osc_set_inc(&p->osc[i], mod_inc(p->base[i], p->mod_oct[i]));
     update_pw(p, i);
     if (p->wave[i] == FM_WAVE_SPIKE) update_spike(p, i);
@@ -491,13 +495,14 @@ void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth)
 
 void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct1, int32_t oct2)
 {
-    if (oct1 == p->mod_oct[0] && oct2 == p->mod_oct[1]) return;
+    int32_t old1 = p->mod_oct[0], old2 = p->mod_oct[1];
+    if (oct1 == old1 && oct2 == old2) return;
     p->mod_oct[0] = oct1;
     p->mod_oct[1] = oct2;
     fm_osc_set_inc(&p->osc[0], mod_inc(p->base[0], oct1));
     fm_osc_set_inc(&p->osc[1], mod_inc(p->base[1], oct2));
-    if (p->wave[0] == FM_WAVE_SPIKE) update_spike(p, 0);
-    if (p->wave[1] == FM_WAVE_SPIKE) update_spike(p, 1);
+    if (p->wave[0] == FM_WAVE_SPIKE && oct1 != old1) update_spike(p, 0);
+    if (p->wave[1] == FM_WAVE_SPIKE && oct2 != old2) update_spike(p, 1);
     derive(p);
 }
 
