@@ -111,6 +111,12 @@ typedef enum {
     /* VCA MODE GATE (#63): 1, the amp envelope is a gate (on with the key, a fixed short
      * ramp), and the amp_* settings run envelope 2 for the cutoff, pitch and mix instead */
     FM_PARAM_AMP_GATE,
+    /* the mod wheel (CC1) at full adds this to both oscillators' vibrato depth (#41; 50 ct,
+     * Eric) */
+    FM_PARAM_WHEEL_PITCH_CENTS,
+    /* the mod wheel (CC1) at full adds this to the LFO's pulse-width depth, at most 49 % in
+     * all (#41) */
+    FM_PARAM_WHEEL_PW_PCT,
     FM_PARAM_COUNT
 } fm_param_id;
 
