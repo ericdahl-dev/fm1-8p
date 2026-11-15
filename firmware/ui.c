@@ -871,6 +871,13 @@ uint32_t ui_keypad_led(const ui *u, uint32_t k)
     return u->jump >= 0 && key_digit(k) >= 0 ? UI_LED_GLOW : UI_LED_OFF;
 }
 
+uint32_t ui_key_led(const ui *u, uint32_t k, int down)
+{
+    if (ui_keypad_led(u, k) == UI_LED_GLOW)
+        return UI_LED_GLOW;
+    return down && u->set.key_leds ? UI_LED_LIT : UI_LED_OFF;
+}
+
 /* the slot a CC sets (the CC map): its number is the slot's, NULL for none */
 uint32_t ui_cc_of(uint32_t map, uint32_t num)
 {

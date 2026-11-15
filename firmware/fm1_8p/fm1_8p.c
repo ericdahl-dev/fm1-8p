@@ -84,7 +84,7 @@ static void keypad_leds(void)
 {
     uint32_t k;
     for (k = 0; k < PLAY_KEYS; k++)
-        H->led(HB_LED_KEY(k), ui_keypad_led(&U, k) == UI_LED_GLOW ? UI_LED_GLOW : keys_down >> k & 1u);
+        H->led(HB_LED_KEY(k), ui_key_led(&U, k, (int)(keys_down >> k & 1u)));
 }
 
 static void ui_ev(uint32_t ev, int32_t arg)
@@ -98,14 +98,14 @@ static void ui_ev(uint32_t ev, int32_t arg)
     case HB_EV_KEY_DOWN:                        /* arg: the velocity, 0 an unsensed key (G32's, then) */
         play_key_down(&P, id, ui_key_velocity(&U, arg));
         keys_down |= 1u << id;
-        H->led(HB_LED_KEY(id), 1);
+        H->led(HB_LED_KEY(id), ui_key_led(&U, id, 1));   /* (G33 OFF: dark) */
         out_st[id] = (uint8_t)ui_midi_out(&U, 0x80u);   /* (its note-off on the same channel, G12 changed or not) */
         H->midi_send(ui_midi_out(&U, 0x90u), P.held[id], ui_key_velocity(&U, arg));
         return;
     case HB_EV_KEY_UP:
         play_key_up(&P, id);
         keys_down &= ~(1u << id);
-        H->led(HB_LED_KEY(id), 0);
+        H->led(HB_LED_KEY(id), ui_key_led(&U, id, 0));
         H->midi_send(out_st[id] ? out_st[id] : ui_midi_out(&U, 0x80u), P.held[id], 0);
         return;
     case HB_EV_BTN_DOWN:
