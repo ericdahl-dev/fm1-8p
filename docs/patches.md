@@ -221,3 +221,30 @@ passed since the last change (`SET_WAIT_MS`). Version 1:
     FM-1 can't say so.
   - The record is GLO's alone. The edit buffer (decision Q4) needs a flash bank: 174 bytes for its
     params would leave no room to grow.
+
+### Saved patterns (`firmware/pattern_store.c`, #40)
+
+A sequencer pattern has its own slots, separate from patches (decision Q2): 64 of them, 11..88 on the
+screen, in fm1-dock's banks 3 and 4 (the user patches have 1 and 2), a record of at most 248 bytes each
+(`STORE_SLOT_BYTES`). Version 1:
+
+| Bytes | What |
+| --- | --- |
+| 0 | the record's length, header and steps; 0 or 0xFF (erased flash) is an empty slot |
+| 1 | version, 1 |
+| 2..13 | the name, 12 bytes, `\0`-padded |
+| 14 | LENGTH, 1..16 |
+| 15..16 | TEMPO, tenths of a BPM, low byte first |
+| 17, 18 | SWING and GATE, % |
+| 19 | the step count, 16 |
+| 20 | bytes per step, 9 |
+| 21.. | each step: its kind (rest, notes, tie), its note count, its velocity, then 6 notes |
+
+- **An empty slot**, or a damaged record (another version, a length that disagrees, steps under 9 bytes),
+  loads as the empty pattern: 16 rests, LENGTH 16, the default TEMPO, SWING and GATE, and no name.
+- **Newer steps:** the version changes only when a record can't be read this way. A step may grow (#42's
+  bend and mod per step); this firmware reads each step's first 9 bytes, so a newer record's notes still
+  load.
+- **Out of range:** values load clamped, as the sequencer's own setters clamp them; an unknown step kind is
+  a rest.
+- **Room:** 16 steps take 165 bytes; a slot has room for 248.
