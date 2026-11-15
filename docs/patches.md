@@ -237,14 +237,14 @@ screen, in fm1-dock's banks 3 and 4 (the user patches have 1 and 2), a record of
 | 15..16 | TEMPO, tenths of a BPM, low byte first |
 | 17, 18 | SWING and GATE, % |
 | 19 | the step count, 16 |
-| 20 | bytes per step, 9 |
-| 21.. | each step: its kind (rest, notes, tie), its note count, its velocity, then 6 notes |
+| 20 | bytes per step, 13 (9 in the first records) |
+| 21.. | each step: its kind (rest, notes, tie), its note count, its velocity, 6 notes; then its bend (int16, low byte first), its mod wheel and its move, 0 JUMP or 1 GLIDE (#42) |
 
 - **An empty slot**, or a damaged record (another version, a length that disagrees, steps under 9 bytes),
   loads as the empty pattern: 16 rests, LENGTH 16, the default TEMPO, SWING and GATE, and no name.
-- **Newer steps:** the version changes only when a record can't be read this way. A step may grow (#42's
-  bend and mod per step); this firmware reads each step's first 9 bytes, so a newer record's notes still
-  load.
+- **Older and newer steps:** the version changes only when a record can't be read this way. A step may
+  grow: the first records' 9-byte steps load at center bend, mod 0 and JUMP, and a newer record's longer
+  steps load what this firmware knows of each.
 - **Out of range:** values load clamped, as the sequencer's own setters clamp them; an unknown step kind is
   a rest.
-- **Room:** 16 steps take 165 bytes; a slot has room for 248.
+- **Room:** 16 steps take 229 bytes; a slot has room for 248.
