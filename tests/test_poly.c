@@ -13,6 +13,8 @@ static int16_t pbuf[PRATE * 2 * 2]; /* up to 2 s of stereo */
 static void init_poly(uint8_t voices)
 {
     fm_engine_init(&poly, PRATE, voices);
+
+    fm_engine_set_self_noise(&poly, 0);   /* (#247: not what this measures) */
     fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 2);
     fm_engine_set_param(&poly, FM_PARAM_AMP_DECAY_MS, 0);
     fm_engine_set_param(&poly, FM_PARAM_AMP_SUSTAIN, 1000);
@@ -420,6 +422,7 @@ TT_TEST(random_playing_stays_bounded_and_ends_silent)
         for (c = 0; c < sizeof counts; c++) {
             int clipped = 0, loud_after = 0;
             TT_CHECK_EQ(fm_engine_init(&poly, rates[r], counts[c]), FM_OK);
+            fm_engine_set_self_noise(&poly, 0);   /* (#247: not what this measures) */
             fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 0);
             /* tau 2 ms: idle (-80 dB) in 18.4 ms, inside the 50 ms below */
             fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 2);

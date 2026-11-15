@@ -15,6 +15,7 @@
 #endif
 
 #include "test_engine.c"
+#include "test_self_noise.c"
 #include "test_host.c"
 #include "test_poly.c"
 #include "test_unison.c"
@@ -47,6 +48,7 @@
 int main(void)
 {
     run_engine_tests();
+    run_self_noise_tests();
     run_host_tests();
     run_poly_tests();
     run_unison_tests();

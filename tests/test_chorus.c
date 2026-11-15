@@ -48,6 +48,7 @@ static uint32_t ch_render_golden_phrase(int set_mode, int32_t mode,
 {
     memset(ch_buf, 0, 2 * 20000 * sizeof ch_buf[0]);
     fm_engine_init(&ch_eng, CH_RATE, 8);
+    fm_engine_set_self_noise(&ch_eng, 0);   /* (#247: not what this measures) */
     if (was_on) {
         fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, FM_CHORUS_DEEP);
         fm_engine_render(&ch_eng, ch_buf, 3000);

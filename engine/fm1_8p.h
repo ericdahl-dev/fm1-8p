@@ -134,6 +134,14 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity);
 void fm_engine_note_off(fm_engine *e, uint8_t note);
 
 /*
+ * Self-noise (#247): each sounding voice adds white noise into its filter, as PG-8X 2.0.13's SELFNOISE
+ * at its default 0.5 does (45.6 dB under a full saw through the same voice). On from fm_engine_init;
+ * off (0) the voices render exactly as without it. For tests that measure something else (pitch by
+ * zero crossings, silence, clicks); call it after fm_engine_init and before notes.
+ */
+void fm_engine_set_self_noise(fm_engine *e, int on);
+
+/*
  * MIDI control change (controller and value 0..127). Handled: 64
  * (sustain pedal, down at 64 or more), 120 (all sound off: silence now)
  * and 123 (all notes off: release every note, even those the pedal

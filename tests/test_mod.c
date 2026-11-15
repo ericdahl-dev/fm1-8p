@@ -254,6 +254,7 @@ static int retrigger_at(uint8_t again, int *level)
 {
     int jump;
     fm_engine_init(&mod_eng, MOD_RATE, 1);
+    fm_engine_set_self_noise(&mod_eng, 0);   /* (#247: not what this measures) */
     fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
     /* one voice peaks at the knee (KNEE_LSB), so a 20 ms attack keeps the
      * start under CLICK_LSB too. Note 2 (9 Hz): its saw changes by about 7 LSB per

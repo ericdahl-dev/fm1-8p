@@ -185,6 +185,7 @@ TT_TEST(extreme_settings_stay_bounded_and_release)
         for (n = 0; n < sizeof notes / sizeof notes[0]; n++) {
             int loud_after = 0;
             TT_CHECK_EQ(fm_engine_init(&eng, rates[r], 1), FM_OK);
+            fm_engine_set_self_noise(&eng, 0);   /* (#247: not what this measures) */
             fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
             fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
             fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
@@ -201,6 +202,7 @@ TT_TEST(extreme_settings_stay_bounded_and_release)
     }
     /* longest times at the highest rate: steps must not round to zero */
     TT_CHECK_EQ(fm_engine_init(&eng, 192000, 1), FM_OK);
+    fm_engine_set_self_noise(&eng, 0);   /* (#247: not what this measures) */
     fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 30000);
     fm_engine_note_on(&eng, 60, 100);
     fm_engine_render(&eng, buf, RATE);
@@ -517,6 +519,8 @@ TT_TEST(raising_sustain_mid_decay_glides_instead_of_jumping)
 static int saws_peak(int32_t osc1, int32_t osc2)
 {
     fm_engine_init(&eng, RATE, 1);
+
+    fm_engine_set_self_noise(&eng, 0);   /* (#247: not what this measures) */
     fm_engine_set_param(&eng, FM_PARAM_OSC1_LEVEL, osc1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, osc2);
     fm_engine_note_on(&eng, 57, 127);

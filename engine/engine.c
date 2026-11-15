@@ -825,6 +825,14 @@ static void unison_note_off(fm_engine *e, uint8_t note)
     }
 }
 
+void fm_engine_set_self_noise(fm_engine *e, int on)
+{
+    uint32_t i;
+    /* a xorshift32 at 0 stays 0: no noise, and no cost or branch in the render loops */
+    for (i = 0; i < FM_MAX_VOICES; i++)
+        e->voices[i].self_noise = on ? FM_VOICE_SELF_NOISE_SEED((i + 1) * 0x9E3779B9u) : 0u;
+}
+
 void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
 {
     if (e->sample_rate == 0 || note > 127 || velocity > 127)

@@ -10,6 +10,8 @@
 static void osc_init(void)
 {
     fm_engine_init(&eng, RATE, 1);
+
+    fm_engine_set_self_noise(&eng, 0);   /* (#247: not what this measures) */
     fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
@@ -1058,6 +1060,8 @@ TT_TEST(unison_voices_make_distinct_noise)
 static void slave_init(uint32_t rate, uint8_t wave2)
 {
     fm_engine_init(&eng, rate, 1);
+
+    fm_engine_set_self_noise(&eng, 0);   /* (#247: not what this measures) */
     fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
@@ -1308,6 +1312,7 @@ TT_TEST(max_xmod_and_sync_stay_in_range)
     for (sy = 0; sy < 2; sy++) {
         int loud_after = 0;
         TT_CHECK_EQ(fm_engine_init(&eng, rates[r], 1), FM_OK);
+        fm_engine_set_self_noise(&eng, 0);   /* (#247: not what this measures) */
         fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
         fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
         fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);

@@ -28,10 +28,31 @@
 #define FM_NOINLINE
 #endif
 
+/*
+ * Self-noise (#247): PG-8X 2.0.13's SELFNOISE at its default 0.5, white noise into the filter of each
+ * sounding voice, so the VCF, HPF, VCA and chorus shape it as they do the oscillators. Measured
+ * (2026-11-15, the DCO mixes at 0): 45.6 dB under a full saw through the same voice, independent per
+ * voice, the same at every key and velocity, nothing without a note. A xorshift32 a voice, inline in
+ * the render loops, scaled by one multiply: Q8.24, a uniform +-SELF_NOISE_GAIN / 2 (87170: RMS 0.0030
+ * of 1.0, 45.6 dB under the engine's full saw; tests/test_self_noise.c).
+ */
+#define SELF_NOISE_GAIN 174340
+
+static FM_ALWAYS_INLINE int32_t self_noise_next(uint32_t *r)
+{
+    uint32_t x = *r;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *r = x;
+    return (int32_t)(((int64_t)(int32_t)x * SELF_NOISE_GAIN) >> 32);
+}
+
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
                     const fm_env_settings *amp, const fm_env_settings *filter)
 {
     fm_osc_pair_reset(&v->osc, seed);
+    v->self_noise = FM_VOICE_SELF_NOISE_SEED(seed); /* apart from the osc's noise */
     fm_env_init(&v->amp_env, amp);
     v->stamp = 0;
     v->pitch = 0;
@@ -491,19 +512,21 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
                         int32_t *osc, uint32_t frames)
 {
     int32_t last = v->filter.s[3];
-    uint32_t i;
+    uint32_t i, r;
     (void)m; /* read by the FM_CHECK_BUSY check only */
     if (fm_voice_busy(v) || v->amp_env.stage == FM_ENV_IDLE)
         return 0;
 #ifdef FM_CHECK_BUSY
     assert(!fm_voice_busy_derived(v, m)); /* the busy word hid a processor */
 #endif
+    r = v->self_noise;
     if (osc_chunk_safe(v) && frames) {
         /* the note plays the whole chunk: the oscillators all at once */
         fm_osc_pair_render(&v->osc, osc, frames);
-        for (i = 0; i < frames; i++)
-            mix[i] += (int32_t)(((int64_t)osc[i] * fm_env_step(&v->amp_env)) >> 30);
-        last = osc[frames - 1];
+        for (i = 0; i < frames; i++) {
+            last = osc[i] + self_noise_next(&r);
+            mix[i] += (int32_t)(((int64_t)last * fm_env_step(&v->amp_env)) >> 30);
+        }
     } else for (i = 0; i < frames; i++) {
         int32_t level;
         if (v->amp_env.stage == FM_ENV_IDLE) break; /* the release ended */
@@ -512,10 +535,11 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
          * untouched +-2.0, sync and cross-mod included
          * (extreme_osc_settings_stay_bounded_and_release,
          * max_xmod_and_sync_stay_in_range) */
-        last = fm_osc_pair_next(&v->osc);
+        last = fm_osc_pair_next(&v->osc) + self_noise_next(&r);
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)last * level) >> 30);
     }
+    v->self_noise = r;
     v->filter.s[3] = last;
     v->fenv_lag += i;
     /* each sample: 0 -> FILTER_CTRL_SAMPLES, then down one */
@@ -529,9 +553,10 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
                          uint32_t frames, uint32_t sample_rate,
                          uint32_t next_tick, uint32_t tick_left)
 {
-    uint32_t i;
+    uint32_t i, r;
     int whole;
     if (render_plain(v, m, mix, osc, frames)) return;
+    r = v->self_noise;
     whole = osc_chunk_safe(v);
     if (whole) fm_osc_pair_render(&v->osc, osc, frames);
     for (i = 0; i < frames; i++) {
@@ -541,7 +566,10 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
              * still to come in this chunk (one at tick_left, then one
              * every FM_LFO_TICK_FRAMES) */
             uint32_t now = next_tick;
-            if (!v->pending) return;
+            if (!v->pending) {
+                v->self_noise = r;
+                return;
+            }
             if (i >= tick_left)
                 now += ((i - tick_left) >> FM_LFO_TICK_SHIFT) + 1;
             start(v, m, sample_rate, v->next_peak, v->next_velocity, now);
@@ -576,8 +604,9 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         v->ctrl_phase--;
         if (v->mix_step)
             fm_osc_pair_set_level(&v->osc, 1, v->osc.req[1] + v->mix_step);
-        out = fm_filter_run(&v->filter, whole ? osc[i] : fm_osc_pair_next(&v->osc));
+        out = fm_filter_run(&v->filter, (whole ? osc[i] : fm_osc_pair_next(&v->osc)) + self_noise_next(&r));
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
     }
+    v->self_noise = r;
 }

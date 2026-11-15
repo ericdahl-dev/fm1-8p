@@ -27,6 +27,7 @@
 typedef struct {
     fm_osc_pair osc;
     fm_env amp_env;
+    uint32_t self_noise; /* xorshift32 state of the voice's self-noise (never 0) */
     uint32_t stamp;    /* engine event count at the last note on or off */
     int32_t pitch;     /* sounding pitch, Q16.16 semitones (note + bend) */
     int32_t next_pitch; /* pitch of `note` (kept while an old note fades) */
@@ -86,6 +87,8 @@ typedef struct {
  * voice its own. `rate_cents` is fm_filter_rate_cents of the engine's
  * sample rate. `amp` and `filter` are the settings its two envelopes read
  * (shared by every voice, owned by the engine; kept by pointer). */
+/* the self-noise's start state for a voice reset with `seed` (odd: never 0, which is silent) */
+#define FM_VOICE_SELF_NOISE_SEED(seed) (((uint32_t)(seed) * 0x2C1B3C6Du) | 1u)
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
                     const fm_env_settings *amp, const fm_env_settings *filter);
 
