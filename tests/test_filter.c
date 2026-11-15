@@ -2444,8 +2444,27 @@ TT_TEST(cutoff_setting_round_trips_through_linear_cents)
     TT_CHECK_EQ(fm_filter_voice_cents(FM_FILTER_OPEN_CENTS, 0, 60, 0), FM_FILTER_OPEN_CENTS);
 }
 
+/*
+ * fm_filter_linear_cents at the edges of its range, against the curve's
+ * own inverse worked in floating point (-1474 + (sqrt(1 + 4 A Y) - 1) /
+ * 2A, Y = cents + 1474, A = 0.0988 / 115.03^2): below knob step 0 it
+ * passes the cents through, at the top it holds at twice open, which is
+ * the largest numerator its divide sees (#253).
+ */
+TT_TEST(linear_cents_holds_its_values_at_the_range_edges)
+{
+    static const int32_t in[] = { -5000, -1474, -1473, 0, 6900, 14400, 14728,
+                                  28799, 28800, 28801, 40000, INT32_MAX };
+    static const int32_t want[] = { -5000, -1474, -1473, -16, 6433, 12865, 13134,
+                                    23966, 23967, 23967, 23967, 23967 };
+    size_t i;
+    for (i = 0; i < sizeof in / sizeof in[0]; i++)
+        TT_CHECK_EQ(fm_filter_linear_cents(in[i]), want[i]);
+}
+
 static void run_filter_tests(void)
 {
+    TT_RUN(linear_cents_holds_its_values_at_the_range_edges);
     TT_RUN(cutoff_sources_add_in_knob_steps_on_pg8x_curve);
     TT_RUN(cutoff_setting_round_trips_through_linear_cents);
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
