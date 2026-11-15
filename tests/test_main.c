@@ -46,6 +46,7 @@
 #include "test_seq_clock.c"
 #include "test_play_patterns.c"
 #include "test_dfont.c"
+#include "test_ui_boot.c"
 
 int main(void)
 {
@@ -81,5 +82,6 @@ int main(void)
     run_seq_clock_tests();
     run_play_patterns_tests();
     run_dfont_tests();
+    run_ui_boot_tests();
     return tt_report();
 }
