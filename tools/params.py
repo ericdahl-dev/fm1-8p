@@ -131,6 +131,10 @@ PARAMS = [
       "1: levels, filter and LFO depths glide as PG-8X's (#146)"),
     P(52, 'AMP_GATE', 'amp_gate', '0', '1', '0', 52,
       'VCA MODE GATE (#63): 1, the amp envelope is a gate (on with the key, a fixed short ramp), and the amp_* settings run envelope 2 for the cutoff, pitch and mix instead'),
+    P(53, 'WHEEL_PITCH_CENTS', 'wheel_pitch_cents', '0', '1200', '50', 53,
+      'the mod wheel (CC1) at full adds this to both oscillators\' vibrato depth (#41; 50 ct, Eric)'),
+    P(54, 'WHEEL_PW_PCT', 'wheel_pw_pct', '0', '49', '0', 54,
+      'the mod wheel (CC1) at full adds this to the LFO\'s pulse-width depth, at most 49 % in all (#41)'),
 ]
 
 

@@ -65,6 +65,8 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_AMP_LEVEL, "amp_level_permille", 0, 1000, 1000 },
     { FM_PARAM_SETTING_GLIDE, "setting_glide", 0, 1, 0 },
     { FM_PARAM_AMP_GATE, "amp_gate", 0, 1, 0 },
+    { FM_PARAM_WHEEL_PITCH_CENTS, "wheel_pitch_cents", 0, 1200, 50 },
+    { FM_PARAM_WHEEL_PW_PCT, "wheel_pw_pct", 0, 49, 0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)
