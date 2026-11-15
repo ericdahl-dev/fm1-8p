@@ -220,7 +220,7 @@ void fm_filter_reset(fm_filter *f)
 {
     fm_filter_clear(f);
     f->a1 = ONE_Q30;
-    f->a2 = f->a3 = f->t = f->z1 = 0;
+    f->a2 = f->a3 = f->t = f->z3 = f->zt = 0;
     f->res = 0;
     f->a = ONE_Q30;
     f->cut = FM_FILTER_OPEN_CENTS;
@@ -397,7 +397,9 @@ static void apply(fm_filter *f)
                    : (int32_t)(((int64_t)(Z1_T1 - t) * 25) >> 2);          /* Z1_FULL / (Z1_T1 - Z1_T0): 6.25 */
         int32_t z0 = t <= Z1_T0R ? Z1_FULL : t >= Z1_T1R ? 0
                    : (int32_t)(((int64_t)(Z1_T1R - t) * 479349029) >> 26);  /* Z1_FULL / 0.7: 50/7, Q26 */
-        f->z1 = z0 + (int32_t)(((int64_t)(zp - z0) * w) >> 30);
+        zp = z0 + (int32_t)(((int64_t)(zp - z0) * w) >> 30);   /* z1 */
+        f->z3 = 3 * zp;                                          /* <= 1.875, Q30 */
+        f->zt = (int32_t)(((int64_t)t * zp) >> 30);              /* t z1, Q5.27 */
     }
     f->a = (int32_t)(((int64_t)(kl > K_FLOOR ? kl : K_FLOOR) * Q0_Q30) >> 30);            /* <= 1.0 (1.2 at the top) */
     {   /* the zero corrections lift the resonant peak past F80 over PG-8X's (F88: 1.4 dB, F96: 4.0):
@@ -550,25 +552,23 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         }
     }
     {
-        int32_t a1 = f->a1, a2 = f->a2, a3 = f->a3, i1, i2, v1, v2, v3, y, u;
-        int64_t p, out;
-        v3 = (hold(mul_q30(hold(x), f->a)) >> 1) - f->s[1];   /* the input, held to 16.0 before and after
-                                                         * its level (within 1.14): Q9.23 */
+        int32_t a1 = f->a1, a2 = f->a2, a3 = f->a3, i1, i2, v1, dv, v3, y, u;
+        int64_t p;
+        x = hold(x);                             /* the input held to 16.0 (an input past it acts as it) */
+        v3 = (mul_q30(x, f->a) >> 1) - f->s[1];  /* its level (at most 1.2: 19.2 at most), Q9.23 */
         i1 = f->s[0];
         i2 = f->s[1];
         p = (int64_t)a1 * i1 + (int64_t)a2 * v3 + f->c[0];
         v1 = (int32_t)(p >> 30);
         f->c[0] = (int32_t)(p & 0x3FFFFFFF);
         p = (int64_t)a2 * i1 + (int64_t)a3 * v3 + f->c[1];
-        v2 = i2 + (int32_t)(p >> 30);
+        dv = (int32_t)(p >> 30);                 /* v2 - i2 */
         f->c[1] = (int32_t)(p & 0x3FFFFFFF);
         f->s[0] = 2 * v1 - i1;
-        f->s[1] = 2 * v2 - i2;
-        /* section 1's output with its zeros at the origin too (within 2.6 of its input level: hold) */
-        {
-            int64_t dz = 3 * ((int64_t)v2 - i2) - (((int64_t)f->t * i1) >> 27);
-            u = (int32_t)(v2 + ((dz * f->z1) >> 30));
-        }
+        f->s[1] = i2 + 2 * dv;
+        /* section 1's output with its zeros z1 of the way to the origin: v2 + z1 (3 (v2 - i2) - t i1),
+         * by 3 z1 and t z1 from apply */
+        u = i2 + dv + (int32_t)(((int64_t)dv * f->z3) >> 30) - (int32_t)(((int64_t)i1 * f->zt) >> 27);
         i1 = f->s[2];                            /* section 2, on section 1's */
         i2 = f->s[3];
         v3 = u - i2;
@@ -576,15 +576,17 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         v1 = (int32_t)(p >> 30);
         f->c[2] = (int32_t)(p & 0x3FFFFFFF);
         p = (int64_t)a2 * i1 + (int64_t)a3 * v3 + f->c[3];
-        v2 = i2 + (int32_t)(p >> 30);
+        dv = (int32_t)(p >> 30);
         f->c[3] = (int32_t)(p & 0x3FFFFFFF);
-        out = (int64_t)v2 + 3 * ((int64_t)v2 - i2) - (((int64_t)f->t * i1) >> 27);   /* zeros at the origin */
+        /* zeros at the origin, v2 + 3 (v2 - i2) - t i1, in Q10.22: within 32 + 1.5 dv + 2.1 * 32 there,
+         * under 512 */
+        p = (int64_t)(i2 + dv) + 3 * (int64_t)dv - (((int64_t)f->t * i1) >> 27);
+        u = (int32_t)(p >> 1);
         f->s[2] = sec_hold(2 * v1 - i1);
-        f->s[3] = sec_hold(2 * v2 - i2);
-        y = out > (U_MAX >> 1) ? U_MAX : out < -(U_MAX >> 1) ? -U_MAX : (int32_t)out * 2;   /* Q8.24 */
+        f->s[3] = sec_hold(i2 + 2 * dv);
+        y = u > (U_MAX >> 2) ? U_MAX : u < -(U_MAX >> 2) ? -U_MAX : u * 4;   /* Q8.24 */
         if (f->fade == ONE_Q30)
             return y;
-        x = hold(x);                            /* (the top of the range: to the input, held as a wire's) */
-        return x + mul_q30(y - x, f->fade);
+        return x + mul_q30(y - x, f->fade);     /* (the top of the range: to the input, held as a wire's) */
     }
 }

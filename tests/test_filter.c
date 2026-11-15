@@ -2403,11 +2403,12 @@ static uint32_t golden_filter_hash(uint8_t step)
  * Highpass steps 0 to 3 are, bit for bit, what they were before the bass-boost step was added
  * (#93): the hashes are of main's filter at dc9d495 (engine/filter.c and filter.h from main, this
  * test unchanged), retaken after main's #98 changed the filter; first taken on 38bfa6d. Retaken
- * with the two-section lowpass (#162): the highpass's path into it is the same.
+ * with the two-section lowpass (#162): the highpass's path into it is the same; and with its cheaper
+ * per-sample form (one input hold, section 1's zeros by 3 z1 and t z1, the output in Q10.22).
  */
 TT_TEST(highpass_steps_0_to_3_are_bit_for_bit_what_they_were)
 {
-    static const uint32_t golden[4] = { 0x2A01A267u, 0xC5499A2Bu, 0xBE1E6CC9u, 0x094FCDF4u };
+    static const uint32_t golden[4] = { 0x3747B1A5u, 0x05B9A51Fu, 0x7E181425u, 0xEA74A08Cu };
     uint8_t step;
     int same = 1;
     for (step = 0; step < 4; step++) {
@@ -2443,12 +2444,12 @@ static uint32_t golden_engine_hash(int step)
  * (#93): retaken on af3712b (#255's cutoff curve) with main's engine/filter.c and filter.h, as on
  * dc9d495 before; first taken on 38bfa6d. Steps 0..3 retaken again with the feedback clip (#266: only
  * the resonance's feedback saturates, busy_filter_patch is resonant), and with the two-section
- * lowpass (#162); the default patch, a wire, is unchanged.
+ * lowpass (#162) and its cheaper per-sample form; the default patch, a wire, is unchanged.
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {
-    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x479CAD41u, 0xF599E6B5u, 0x463D562Du,
-                                        0x963F89C5u };
+    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x949C0D25u, 0x96D53165u, 0x5E3A23F1u,
+                                        0x761C931Du };
     int step, same = 1;
     for (step = -1; step < 4; step++) {
         uint32_t h = golden_engine_hash(step);

@@ -311,7 +311,7 @@ static double svf_ref_run(svf_ref *r, const fm_filter *f, double x)
     i1 = r->s[0]; i2 = r->s[1]; v3 = x - i2;
     v1 = a1 * i1 + a2 * v3; v2 = i2 + a2 * i1 + a3 * v3;
     r->s[0] = 2 * v1 - i1; r->s[1] = 2 * v2 - i2;
-    v2 += f->z1 / 1073741824.0 * (3 * (v2 - i2) - t * i1);   /* section 1's zeros z1 to the origin */
+    v2 += f->z3 / 3221225472.0 * (3 * (v2 - i2) - t * i1);   /* section 1's zeros z1 to the origin */
     i1 = r->s[2]; i2 = r->s[3]; v3 = v2 - i2;
     v1 = a1 * i1 + a2 * v3; v2 = i2 + a2 * i1 + a3 * v3;
     out = v2 + 3 * (v2 - i2) - t * i1;

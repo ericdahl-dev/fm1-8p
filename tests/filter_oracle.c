@@ -51,17 +51,15 @@ static int32_t oracle_filter_process(fm_filter *f, int32_t in)
     x = oracle_hold(x, (1 << 30) - 1);
     i1 = f->s[0];
     i2 = f->s[1];
-    v2 = oracle_section(f, &f->s[0], &f->c[0], oracle_hold((oracle_hold(x, FM_FILTER_HOLD) * f->a) >> 30, FM_FILTER_HOLD) >> 1, &v1, 0);
-    {   /* section 1's zeros 5/8 of the way to the origin */
-        int64_t dz = 3 * (v2 - i2) - ((f->t * i1) >> 27);
-        v2 = (int32_t)(v2 + ((dz * f->z1) >> 30));
-    }
+    x = oracle_hold(x, FM_FILTER_HOLD);
+    v2 = oracle_section(f, &f->s[0], &f->c[0], ((x * f->a) >> 30) >> 1, &v1, 0);
+    /* section 1's zeros z1 of the way to the origin: by 3 z1 and t z1 */
+    v2 = v2 + (((v2 - i2) * f->z3) >> 30) - ((i1 * f->zt) >> 27);
     i1 = f->s[2];
     i2 = f->s[3];
     v2 = oracle_section(f, &f->s[2], &f->c[2], v2, &v1, 1);
-    out = v2 + 3 * (v2 - i2) - ((f->t * i1) >> 27);
-    y = oracle_hold(out, FM_FILTER_HOLD >> 1) * 2;
+    out = (v2 + 3 * (v2 - i2) - ((f->t * i1) >> 27)) >> 1;   /* Q10.22 */
+    y = oracle_hold(out, FM_FILTER_HOLD >> 2) * 4;
     if (f->fade == (1 << 30)) return (int32_t)y;
-    x = oracle_hold(x, FM_FILTER_HOLD);
     return (int32_t)(x + (((y - x) * f->fade) >> 30));
 }

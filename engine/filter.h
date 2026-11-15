@@ -26,7 +26,9 @@ typedef struct {
     int32_t c[4];  /* each state's carried remainder (under 2^30) */
     int32_t a1, a2, a3; /* the sections' coefficients, Q1.30 */
     int32_t t;     /* tan(pi f0 / fs), Q5.27: the sections' zeros */
-    int32_t z1;    /* how far section 1's zeros move to the origin, Q1.30 (5/8, to 0 near Nyquist) */
+    /* section 1's zeros, z1 of the way to the origin (5/8, to 0 near Nyquist): 3 z1, Q1.30, and t z1,
+     * Q5.27 */
+    int32_t z3, zt;
     /* 1.0 below the top of the cutoff range, to 0 at open: the output's
      * share against the input there */
     int32_t fade;
