@@ -58,6 +58,7 @@ typedef struct {
     uint32_t shown_edited;              /* the footer's `*` as drawn: play_edited then */
     /* SAVE (ui_save.c) */
     ui_state save_from;                 /* the state SAVE goes back to */
+    uint32_t save_pattern;              /* 1: SAVE opened in SEQ view, for the pattern (pattern slots) */
     uint32_t save_dest;                 /* the destination user slot, 0..63 (11..88) */
     char save_name[STORE_NAME_LEN + 1u];
     char save_msg[32];                  /* the banner SAVE leaves (SAVED 23, ...), or its prompt */
@@ -116,6 +117,7 @@ typedef struct {
 enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
 enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
 #define UI_SAVE_NO_DRAFT 0xFFFFFFFFu
+#define UI_SAVE_PATTERN_DRAFT 0x100u    /* save_draft_prog: this bit on, a pattern slot's draft */
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
