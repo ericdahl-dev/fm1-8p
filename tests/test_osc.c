@@ -190,7 +190,7 @@ static double held_rms(uint8_t wave, uint8_t note)
  */
 static double spike_ref(double u, double T)
 {
-    const double A = 2.9317e-4, tau = 1.0 / (2.0 * M_PI * 3050.0);
+    const double A = 2.9317e-4, tau = 1.0 / (2.0 * AN_PI * 3050.0);
     double q = exp(-T / tau);
     return A / tau * exp(-u / tau) * (u / tau / (1 - q) + T / tau * q / ((1 - q) * (1 - q))) - A / T;
 }
