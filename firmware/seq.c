@@ -457,6 +457,8 @@ static void clock_tick(seq *s, uint32_t t)
             s->clk_dt = CLK_DT_MIN;
             s->clk_shown = CLK_DT_MIN << 4;
         }
+        if (s->clk_view < CLK_DT_MIN << 4)      /* the tempo shown too: never past 2500.0 BPM */
+            s->clk_view = CLK_DT_MIN << 4;
         s->clk_view += (uint32_t)((int32_t)(s->clk_shown - s->clk_view) / (int32_t)CLK_VIEW);   /* calmer, to read */
     }
     block_read(s, &bt, &bu, &binc, &fs);
