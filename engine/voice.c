@@ -508,8 +508,8 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
         int32_t level;
         if (v->amp_env.stage == FM_ENV_IDLE) break; /* the release ended */
         level = fm_env_step(&v->amp_env);
-        /* the wire: the pair peaks at 2.0 (both levels full), within the soft clip's
-         * untouched +-2.0, sync and cross-mod included
+        /* the wire: the pair peaks at 2.0 (both levels full; a ring's peaks near 2.5),
+         * within the filter's hold (+-8.0), sync and cross-mod included
          * (extreme_osc_settings_stay_bounded_and_release,
          * max_xmod_and_sync_stay_in_range) */
         last = fm_osc_pair_next(&v->osc);

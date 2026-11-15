@@ -220,10 +220,11 @@ TT_TEST(resonance_turns_the_passband_down_as_on_pg8x)
 }
 
 /*
- * Maximum resonance self-oscillates; the soft clip in the feedback path
- * must hold every output within +-4.0 (Q8.24) at any cutoff, for any
- * input, for as long as it runs: 10 s per case, with a loud saw, loud
- * noise and a single huge impulse followed by silence.
+ * Maximum resonance self-oscillates; the soft clip on the feedback holds
+ * its level, so a saw at +-1.0 and noise at +-2.0 stay within +-4.0
+ * (Q8.24), the level of #25's clip, at any cutoff, for as long as it runs
+ * (10 s per case). A single huge impulse followed by silence stays within
+ * the ladder's hold, +-8.0.
  */
 #define FILTER_BOUND (4 << 24)
 
@@ -253,10 +254,10 @@ TT_TEST(max_resonance_stays_bounded_over_a_long_render)
                 if (y < 0) y = -y;
                 if (y > peak) peak = y;
             }
-            if (peak > FILTER_BOUND)
+            if (peak > (kind == 2 ? FM_FILTER_HOLD : FILTER_BOUND))
                 printf("    cutoff %d, input %d: peak %.3f\n", (int)cutoffs[c],
                        (int)kind, peak / 16777216.0);
-            TT_CHECK(peak <= FILTER_BOUND);
+            TT_CHECK(peak <= (kind == 2 ? FM_FILTER_HOLD : FILTER_BOUND));
         }
     }
 }
@@ -2471,12 +2472,14 @@ static uint32_t golden_engine_hash(int step)
  * The default patch (highpass step 0, the filter a wire) and a filtered patch at each of steps
  * 0 to 3 render, through the engine, bit for bit what main renders without the bass-boost step
  * (#93): retaken on af3712b (#255's cutoff curve) with main's engine/filter.c and filter.h, as on
- * dc9d495 before; first taken on 38bfa6d.
+ * dc9d495 before; first taken on 38bfa6d. Steps 0..3 retaken again with the feedback clip (#266: only
+ * the resonance's feedback saturates, busy_filter_patch is resonant); the default patch, a wire, is
+ * unchanged.
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {
-    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x92BE3E25u, 0xF1A0BDE9u, 0x099E00E1u,
-                                        0x908DE489u };
+    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x97780FE1u, 0x6C7C3235u, 0xEE5AC87Du,
+                                        0xB6E87291u };
     int step, same = 1;
     for (step = -1; step < 4; step++) {
         uint32_t h = golden_engine_hash(step);
@@ -2611,8 +2614,67 @@ TT_TEST(cutoff_curve_holds_its_values_at_the_range_edges)
         TT_CHECK_EQ(fm_filter_voice_cents(in[i], 0, 60, 0), want[i]);
 }
 
+/*
+ * With no resonance the lowpass is linear at any level an oscillator pair
+ * reaches: the ring's peaks pass +-2.0 (its x2 (a + b m1) + c m1 reaches
+ * -2.46 with squares at full), and a filter that bent them would add the
+ * DC and sub-audio PG-8X doesn't have (CHURCHBELL, #136). A signal at
+ * +-3.5 comes out exactly 1.75 times the same signal at +-2.0, within
+ * rounding, and so does a quiet one against a loud one. Only the
+ * resonance's feedback saturates.
+ */
+TT_TEST(lowpass_without_resonance_is_linear_past_two)
+{
+    static fm_filter a, b;
+    int32_t rate_cents = fm_filter_rate_cents(48000);
+    uint32_t i;
+    double worst = 0;
+    fm_filter_reset(&a);
+    fm_filter_reset(&b);
+    fm_filter_set_cutoff(&a, 6000, rate_cents);
+    fm_filter_set_cutoff(&b, 6000, rate_cents);
+    for (i = 0; i < 4800; i++) {
+        /* a square-ish wave at about 220 Hz */
+        int32_t x = ((i / 109) & 1) ? (1 << 24) : -(1 << 24);
+        double ya = fm_filter_process(&a, 2 * x);           /* +-2.0 */
+        double yb = fm_filter_process(&b, x * 7 / 2);       /* +-3.5 */
+        double d = fabs(yb - ya * 1.75);
+        if (d > worst) worst = d;
+    }
+    printf("    lowpass at resonance 0, +-3.5 against 1.75 x +-2.0: worst %.0f Q8.24 units\n", worst);
+    TT_CHECK(worst <= 64.0);
+}
+
+/* The hold is past anything the pair can play (its peak 3.503, #267) through the bass boost (step 4:
+ * 2.28 x at low frequencies) at no resonance's input level (1.41): up to 11.3. A 20 Hz square at
+ * +-3.503 never reaches it, at cutoffs from 6000 to 12000 cents, so the hold leaves it alone (what
+ * shapes it at that level is the resonance's soft clip: at resonance 0 its k is 0.45, the knee's). */
+TT_TEST(the_hold_is_past_the_pair_through_the_bass_boost)
+{
+    static const int32_t cuts[] = { 6000, 9000, 12000 };
+    static fm_filter f;
+    int32_t rate = fm_filter_rate_cents(FRATE), peak = 0;
+    size_t c, i;
+    for (c = 0; c < sizeof cuts / sizeof cuts[0]; c++) {
+        fm_filter_reset(&f);
+        fm_filter_set_highpass(&f, 4, rate);
+        fm_filter_set_cutoff(&f, cuts[c], rate);
+        for (i = 0; i < FRATE; i++) {
+            int32_t x = (i / (FRATE / 40u)) % 2u ? (int32_t)(3.503 * 16777216.0) : -(int32_t)(3.503 * 16777216.0);
+            int32_t a = fm_filter_run(&f, x);
+            a = a < 0 ? -a : a;
+            peak = a > peak ? a : peak;
+        }
+    }
+    printf("    no resonance, bass boost, a +-3.503 square: largest %.2f, the hold %.1f\n", peak / 16777216.0,
+           FM_FILTER_HOLD / 16777216.0);
+    TT_CHECK(peak < FM_FILTER_HOLD - (1 << 24));
+}
+
 static void run_filter_tests(void)
 {
+    TT_RUN(the_hold_is_past_the_pair_through_the_bass_boost);
+    TT_RUN(lowpass_without_resonance_is_linear_past_two);
     TT_RUN(cutoff_curve_holds_its_values_at_the_range_edges);
     TT_RUN(linear_cents_holds_its_values_at_the_range_edges);
     TT_RUN(cutoff_sources_add_in_knob_steps_on_pg8x_curve);
