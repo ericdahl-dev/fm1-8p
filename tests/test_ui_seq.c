@@ -527,9 +527,26 @@ TT_TEST(seq_tempo_shows_the_midi_clock)
     TT_CHECK(strncmp(num, want, strlen(want)) == 0);
 }
 
+/* A TEMPO turn under external clock changes nothing and says TEMPO FOLLOWS MIDI CLOCK (case 48) */
+TT_TEST(seq_tempo_turn_under_the_clock_says_so)
+{
+    uint32_t before;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    seq_clock_ticks(96);
+    before = seq_tempo(play_seq(&ui_p));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 5, 1100);
+    TT_CHECK_EQ(seq_tempo(play_seq(&ui_p)), before);
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+    TT_CHECK(strcmp(ui_banner(&ui_u), "TEMPO FOLLOWS MIDI CLOCK") == 0);
+    TT_CHECK(strlen(ui_banner(&ui_u)) <= 28u);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tempo_shows_the_midi_clock);
+    TT_RUN(seq_tempo_turn_under_the_clock_says_so);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);

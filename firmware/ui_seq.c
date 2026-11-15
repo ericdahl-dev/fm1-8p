@@ -131,6 +131,10 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         return;
     switch (u->seq_page * 4u + k) {
     case 0:                                     /* (the footer shows it too) */
+        if (seq_clock_external(s)) {            /* the clock sets it: nothing, and why (case 48) */
+            banner(u, "TEMPO FOLLOWS MIDI CLOCK", u->now_ms);
+            break;
+        }
         v += clicks * (fast ? 100 : 10);
         seq_set_tempo(s, (uint32_t)(v < 0 ? 0 : v));
         u->dirty |= UI_D_FOOT;
