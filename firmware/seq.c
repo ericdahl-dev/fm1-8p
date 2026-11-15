@@ -59,6 +59,12 @@ void seq_init(seq *s)
     s->playing = 0;
     s->step_now = -1;
     s->steps = 0;
+    s->clk_src = SEQ_CLK_AUTO;
+    s->clk_present = s->clk_pending = s->clk_running = s->clk_armed = 0;
+    s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = 0;
+    s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = 0;
+    s->blk_seq = s->blk_t = s->blk_u = s->blk_inc = s->blk_fs = 0;
+    s->upos = s->fs = 0;
 }
 
 uint32_t seq_length(const seq *s)
@@ -276,6 +282,160 @@ uint32_t seq_steps(const seq *s)
     return s->steps;
 }
 
+/* ---- #38, external MIDI clock (main loop) ----
+ * The clock's ticks reach the module in the main loop (fm1-dock's midi()), late and jittered by as much as
+ * a render block, so the steps don't start on them. Each tick is stamped on the host counter, and the
+ * interrupt stamps each block's start on it too, with where its clock (upos, units since the start's tick
+ * 0) had got to. So the main loop sees how far the steps are from the ticks, and sets the rate they play
+ * at (ext_inc, units a frame): the tick length measured over the last beat, plus a share of that
+ * distance, made up over a beat (CLK_PULL ticks). The steps still start on exact frames. The units are
+ * the internal clock's (a step is fs x 600): a tick is fs x 100, and a tick of dt counts is
+ * 100 x SEQ_CLK_HZ / dt units a frame (fs drops out). */
+#define CLK_UNITS_HZ (100u * SEQ_CLK_HZ)       /* 2.4e9: a tick's units a frame are this / dt */
+#define CLK_TENTHS_COUNTS (600u * (SEQ_CLK_HZ / SEQ_CLK_PPQN))   /* 6e8: a tick's counts x tempo in tenths */
+#define CLK_PULL 24u                           /* ticks to make up a distance in */
+#define CLK_GONE_MIN (SEQ_CLK_HZ / 4u)         /* gone: no tick for 250 ms, or 3 ticks if longer */
+
+void seq_set_clock_source(seq *s, uint32_t src)
+{
+    s->clk_src = (uint8_t)(src <= SEQ_CLK_MIDI ? src : SEQ_CLK_AUTO);
+}
+
+/* the block stamped last, read whole: its host time, clock, rate and fs */
+static void block_read(const seq *s, uint32_t *t, uint32_t *u, uint32_t *inc, uint32_t *fs)
+{
+    uint32_t a;
+    do {
+        a = s->blk_seq;
+        BARRIER();
+        *t = s->blk_t;
+        *u = s->blk_u;
+        *inc = s->blk_inc;
+        *fs = s->blk_fs;
+        BARRIER();
+    } while ((a & 1u) || a != s->blk_seq);
+}
+
+/* frames in `counts` of the host counter at fs, Q8 (counts within +-2^23: 0.35 s). A frame is taken
+ * as a whole number of counts (544 at 44.1 kHz for 544.2): 4e-4 off, 2 us over a block. 32-bit. */
+static int32_t frames_q8(int32_t counts, uint32_t fs)
+{
+    uint32_t per = SEQ_CLK_HZ / (fs ? fs : 44100u);
+    int32_t c = counts > (1 << 23) ? (1 << 23) : counts < -(1 << 23) ? -(1 << 23) : counts;
+    return c < 0 ? -(int32_t)(((uint32_t)-c << 8) / per) : (int32_t)(((uint32_t)c << 8) / per);
+}
+
+/* the clock's rate now: a tick of dt units a frame, plus the distance e (units: ahead of the steps,
+ * positive) made up over CLK_PULL ticks */
+static void set_rate(seq *s, int32_t e, uint32_t fs)
+{
+    int32_t inc = (int32_t)(CLK_UNITS_HZ / s->clk_dt), frames = frames_q8((int32_t)s->clk_dt, fs) * (int32_t)CLK_PULL / 256;
+    inc += frames > 0 ? e / frames : 0;
+    s->ext_inc = (uint32_t)(inc < 1 ? 1 : inc);
+}
+
+static void clock_tick(seq *s, uint32_t t)
+{
+    uint32_t m, bt, bu, binc, fs;
+    if (!s->clk_present) {
+        s->clk_present = 1;
+        s->clk_n = 0;
+        s->clk_dt = 0;
+    }
+    s->clk_t[s->clk_n % SEQ_CLK_HIST] = t;
+    s->clk_n++;
+    m = s->clk_n - 1u < SEQ_CLK_HIST - 1u ? s->clk_n - 1u : SEQ_CLK_HIST - 1u;
+    if (m)
+        s->clk_dt = (t - s->clk_t[(s->clk_n - 1u - m) % SEQ_CLK_HIST]) / m;
+    block_read(s, &bt, &bu, &binc, &fs);
+    if (s->clk_pending) {                       /* (a clock that starts with the start: its length is
+                                                 * the pattern's tempo's until a second tick) */
+        if (!s->clk_dt)
+            s->clk_dt = CLK_TENTHS_COUNTS / s->edit.tempo;                       /* the start's tick 0 */
+        s->ext_cont = s->clk_pending == 2u;
+        s->clk_pending = 0;
+        s->clk_target = 0;
+        s->ext_t0 = t;
+        set_rate(s, 0, fs);
+        s->ext = 1;
+        s->clk_running = 1;
+        s->clk_armed = 0;
+        s->want = 1;
+        BARRIER();                              /* the rate and tick 0 before the ask */
+        s->ask_play++;
+        return;
+    }
+    if (s->clk_running && s->clk_dt) {          /* where the steps were at this tick, against it */
+        int32_t f = frames_q8((int32_t)(t - bt), fs);
+        uint32_t at = bu + (uint32_t)((f >> 8) * (int32_t)binc) + (uint32_t)(((f & 255) * (int32_t)binc) >> 8);
+        s->clk_target += fs * 100u;
+        set_rate(s, (int32_t)(s->clk_target - at), fs);
+    }
+}
+
+void seq_clock_in(seq *s, uint32_t st, uint32_t t)
+{
+    if (s->clk_src == SEQ_CLK_INT)
+        return;
+    switch (st) {
+    case 0xF8u: clock_tick(s, t); break;
+    case 0xFAu: s->clk_pending = 1; break;      /* from step 1, on the next tick */
+    case 0xFBu:                                 /* on from where it stopped, on the next tick */
+        if (!s->clk_running)
+            s->clk_pending = 2;
+        break;
+    case 0xFCu:
+        s->clk_pending = 0;
+        if (s->clk_running || s->clk_armed) {
+            s->clk_running = 0;
+            s->clk_armed = 0;
+            seq_stop(s);
+        }
+        break;
+    default: break;
+    }
+}
+
+void seq_clock_poll(seq *s, uint32_t t)
+{
+    uint32_t gone = 3u * s->clk_dt > CLK_GONE_MIN ? 3u * s->clk_dt : CLK_GONE_MIN;
+    if (!s->clk_present || t - s->clk_t[(s->clk_n - 1u) % SEQ_CLK_HIST] <= gone)
+        return;
+    s->clk_present = 0;                         /* gone: a transport it ran stops (Eric: as MIDI stop) */
+    s->clk_pending = 0;
+    if (s->clk_running) {
+        s->clk_running = 0;
+        seq_stop(s);
+    }
+}
+
+uint32_t seq_clock_external(const seq *s)
+{
+    return s->clk_src == SEQ_CLK_MIDI || (s->clk_src == SEQ_CLK_AUTO && (s->clk_present || s->clk_running));
+}
+
+uint32_t seq_clock_tempo(const seq *s)
+{
+    return s->clk_present && s->clk_dt ? CLK_TENTHS_COUNTS / s->clk_dt : 0;
+}
+
+uint32_t seq_waiting(const seq *s)
+{
+    return s->clk_armed;
+}
+
+void seq_block_time(seq *s, uint32_t t)
+{
+    s->blk_seq++;                               /* odd: being written */
+    BARRIER();
+    s->blk_t = t;
+    s->blk_u = s->upos;
+    s->blk_inc = s->ext ? s->ext_inc : 0;
+    s->blk_fs = s->fs;
+    BARRIER();
+    s->blk_seq++;
+}
+
 /* ---- the audio interrupt ---- */
 
 /* the step playing's length in clock units: a step is fs x 600, and with swing the steps pair up, the
@@ -400,12 +560,28 @@ static uint32_t start_step(seq *s, seq_event *ev, uint32_t cnt, uint32_t at, uin
 
 uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event *ev)
 {
-    uint32_t cnt = 0, t = 0, thr, inc, gate, target, j, next, glide;
+    uint32_t cnt = 0, t = 0, thr, inc, gate, target, j, next, glide, xi;
+    s->fs = fs;
     if (s->ask_play != s->play_seen || s->ask_stop != s->stop_seen) {
         s->play_seen = s->ask_play;             /* the latest ask wins: play (again, from step 1) or stop */
         s->stop_seen = s->ask_stop;
         cnt = let_go(s, ev, cnt, 0);
-        if (s->want) {
+        if (s->want && s->ext) {                /* #38: the clock's start (or continue) */
+            uint32_t late;
+            int32_t f = frames_q8((int32_t)(s->blk_t - s->ext_t0), fs);   /* tick 0 was this long ago */
+            f = f < 0 ? 0 : f;
+            s->pos = s->ext_cont ? s->pos + 1u : 0;     /* (start_step wraps it at the length) */
+            late = (uint32_t)(f >> 8) * s->ext_inc + (((uint32_t)f & 255u) * s->ext_inc >> 8);
+            s->upos = late;
+            s->acc = 0;
+            s->cur_bend = s->cur_mod = 0;
+            s->glide_on = 0;
+            s->playing = 1;
+            cnt = start_step(s, ev, cnt, 0, voices);
+            thr = step_len(s, fs);
+            s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
+        } else if (s->want) {
+            s->ext = 0;
             s->pos = s->acc = 0;
             s->cur_bend = s->cur_mod = 0;       /* (a first GLIDE moves from center and 0) */
             s->glide_on = 0;
@@ -423,8 +599,10 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
     }
     if (!s->playing)
         return cnt;
+    xi = s->ext ? s->ext_inc : 0;
+    s->upos += n * xi;
     while (t < n) {
-        inc = (uint32_t)s->run.tempo * SEQ_PPQ;
+        inc = xi ? xi : (uint32_t)s->run.tempo * SEQ_PPQ;
         thr = step_len(s, fs);                  /* (at 50 % swing, fs x 600: every step alike) */
         gate = thr / 100u * s->run.gate_pct;
         next = s->run.step[s->pos + 1u < s->run.length ? s->pos + 1u : 0].kind;
