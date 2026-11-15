@@ -235,5 +235,8 @@ _Static_assert(UI_ENC_SELECT == HB_ENC_SELECT && UI_ENC_ALGORITHM == HB_ENC_ALGO
                UI_ENC_PRESETS == HB_ENC_PRESETS,
                "ui.h's encoders are hb_module.h's");
 
-/* no release(): init() starts afresh; no cc(): midi() takes every channel message */
-HB_DESC = {HB_ABI, "FM1-8P", init, 0, note, 0, render, ui_ev, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL, midi};
+/* the host switches to another module: the sequencer stops (init() starts afresh when it comes back) */
+static void release(void) { seq_stop(play_seq(&P)); }
+
+/* no cc(): midi() takes every channel message */
+HB_DESC = {HB_ABI, "FM1-8P", init, release, note, 0, render, ui_ev, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL, midi};

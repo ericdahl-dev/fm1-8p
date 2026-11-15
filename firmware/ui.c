@@ -1110,6 +1110,9 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     }
     if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS)
         u->held &= ~(1u << id);
+    if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && ms - u->down_ms[UI_BTN_HOME] >= UI_PICKER_MS &&
+        play_seq(u->p)->want)
+        seq_stop(play_seq(u->p));               /* the host's picker: the sequencer stops (case 62) */
     if (ev == (UI_EV_BTN_DOWN | UI_BTN_PLAY)) { /* PLAY: start / stop, in every state (interaction.md) */
         ui_seq_transport(u);
         return;

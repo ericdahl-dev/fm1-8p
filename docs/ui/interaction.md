@@ -844,8 +844,14 @@ Everywhere, unless the state says otherwise:
 ### Back from the host's picker
 
 `draw(full)` redraws the whole state, and every LED is sent again. The state
-is the one fm1-8p was in when it was left, but the sequencer is stopped:
-`release()` cuts notes.
+is the one fm1-8p was in when it was left, but the sequencer is stopped.
+
+fm1-dock doesn't call `release()` for the picker: the module keeps running
+under it. It opens on HOME held alone 1.5 s, and then hands the module HOME's
+release (fm1-dock `dock.c`, "HOME held alone: the picker; the module saw it let
+go"). So a HOME release after a 1.5 s hold stops the sequencer, in every state.
+`release()` (the host switching to another module) stops it too, and `init()`
+starts afresh when the module comes back.
 
 ## 7. Navigation states
 
@@ -1259,8 +1265,8 @@ test.
     edited buffer. PC 8 loads slot 21, PC 63 loads slot 88, and PC 64 loads P1.
     A PC past the last P patch changes nothing.
 61. With G41 SEND or BOTH, loading slot 21 on the panel sends PC 8.
-62. After `release()`, then `draw(full)`, every LED is sent again and the
-    transport is STOPPED.
+62. HOME held 1.5 s (the host's picker opens), then `draw(full)`: every LED is
+    sent again and the transport is STOPPED.
 63. With G24 = PICKUP and cutoff at 64 (CC scale), CC 52 = 20 is ignored, and
     CC 52 = 63, 64 or 65 takes over. After that, CC 52 = 20 sets the value.
 64. With G24 = JUMP, CC 52 = 20 sets cutoff at once.
