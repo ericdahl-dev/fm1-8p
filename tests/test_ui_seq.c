@@ -166,7 +166,7 @@ TT_TEST(seq_step_and_play_pages)
 
 /* The section buttons in SEQ view (not in REC): SEL clears the cursor step, held 1.5 s the whole
  * pattern; ENV toggles TIE on it. EDIT goes to the last edit page, HOME to PLAY, GLO to GLO and back
- * to SEQ view; PRESETS browses patterns there, never patches, and SAVE does nothing until S6 layer 4. */
+ * to SEQ view; PRESETS browses patterns there, never patches, and SAVE opens SAVE for the pattern. */
 TT_TEST(seq_section_buttons_and_the_way_out)
 {
     static const uint8_t C[1] = {60};
@@ -190,7 +190,10 @@ TT_TEST(seq_section_buttons_and_the_way_out)
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 3700);    /* a pattern, not a patch (edited: a warning) */
     TT_CHECK_EQ(ui_u.state, UI_SEQ);
     TT_CHECK(!ui_u.warned);
-    ui_tap(UI_BTN_SAVE, 3800);
+    ui_tap(UI_BTN_SAVE, 3800);                  /* SAVE: the pattern's (test_ui_save.c) */
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK(ui_u.save_pattern);
+    ui_tap(UI_BTN_HOME, 3850);                  /* canceled: back to SEQ view */
     TT_CHECK_EQ(ui_u.state, UI_SEQ);
     ui_tap(UI_BTN_GLO, 3900);
     TT_CHECK_EQ(ui_u.state, UI_GLO);

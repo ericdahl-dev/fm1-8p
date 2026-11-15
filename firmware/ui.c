@@ -1173,6 +1173,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         glo_show(u);
         return;
     }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && u->state == UI_SEQ && !u->save_waiting) {
+        ui_save_open(u, ms);                    /* SAVE in SEQ view: the pattern (interaction.md, SAVE) */
+        return;
+    }
     if (u->state == UI_SEQ) {                   /* SEQ view takes the controls (interaction.md 5) */
         ui_seq_event(u, ev, arg, ms);
         return;
