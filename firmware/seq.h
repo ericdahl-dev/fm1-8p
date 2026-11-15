@@ -89,6 +89,8 @@ typedef struct {
 
 /* At init (play_init): the empty pattern (every step a rest), length 16, the defaults; stopped. */
 void seq_init(seq *s);
+/* p as the empty pattern: 16 rests, LENGTH 16, the default TEMPO, SWING and GATE (an empty pattern slot's) */
+void seq_pattern_empty(seq_pattern *p);
 
 /* main loop: the pattern. Each call publishes the edit (the interrupt takes it at a step's start). */
 uint32_t seq_length(const seq *s);

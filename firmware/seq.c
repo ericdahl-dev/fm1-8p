@@ -22,20 +22,25 @@ static void edit_end(seq *s)
     s->editing = 0;
 }
 
-void seq_init(seq *s)
+void seq_pattern_empty(seq_pattern *p)
 {
     uint32_t i, k;
-    s->edit.length = SEQ_STEPS;
-    s->edit.gate_pct = SEQ_GATE_DEF;
-    s->edit.swing_pct = SEQ_SWING_DEF;
-    s->edit.tempo = SEQ_TEMPO_DEF;
+    p->length = SEQ_STEPS;
+    p->gate_pct = SEQ_GATE_DEF;
+    p->swing_pct = SEQ_SWING_DEF;
+    p->tempo = SEQ_TEMPO_DEF;
     for (i = 0; i < SEQ_STEPS; i++) {
-        s->edit.step[i].kind = SEQ_REST;
-        s->edit.step[i].n = 0;
-        s->edit.step[i].vel = SEQ_VEL_DEF;
+        p->step[i].kind = SEQ_REST;
+        p->step[i].n = 0;
+        p->step[i].vel = SEQ_VEL_DEF;
         for (k = 0; k < SEQ_NOTES; k++)
-            s->edit.step[i].note[k] = 0;
+            p->step[i].note[k] = 0;
     }
+}
+
+void seq_init(seq *s)
+{
+    seq_pattern_empty(&s->edit);
     s->run = s->edit;
     s->editing = 0;
     s->edits = s->edits_seen = 0;
