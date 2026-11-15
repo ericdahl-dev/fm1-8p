@@ -950,6 +950,97 @@ def scr_seq(fonts, t):
     return sc
 
 
+# ================================================================ boot screens (#50, drafts for Eric)
+BOOT_LOAD = 0.6                           # the mockups catch the flash banks 60 % read
+
+
+def art_sunset(sc, t, x, y, w, h):
+    """Membrane's art at any size: the six sunset bands, the lower ones thinner, a 1 px gap under each."""
+    weights = (11, 11, 11, 9, 7, 4)
+    total = sum(weights) + 3
+    yy = y
+    for k, (c, wt) in enumerate(zip(t["sun"], weights)):
+        hgt = max(2, round(wt * h / total))
+        sc.fill(x, yy, w, hgt, c)
+        yy += hgt + (1 if k >= 2 else 0)
+    return yy
+
+
+def art_horizon(sc, t, x, y, w, h, hz, r):
+    """Night Panel's art at any size: the striped sun on the horizon at hz, over the perspective grid."""
+    cy, rows = hz + r // 8, len(t["sun"])
+    k = r / 30
+    cuts = sun_cuts(hz, tuple(max(1, round(g * k)) for g in (3, 2, 2, 1, 1)),
+                    tuple(max(1, round(g * k)) for g in (3, 3, 4, 5, 6)))
+    sc.disc_rows(x + w // 2, cy, r, lambda yy: t["sun"][min(rows - 1, max(0, (yy - (cy - r)) * rows // (hz - (cy - r))))],
+                 lambda yy: yy in cuts, hz)
+    sc.fill(x, hz, w, 1, t["horizon"])
+    mid = x + w // 2
+    for kk in range(-8, 9):
+        x0, x1, y1 = mid + kk * round(9 * w / 230), mid + kk * round(40 * w / 230), y + h - 1
+        if not (x <= x1 <= x + w - 1):
+            xe = x if x1 < x else x + w - 1
+            y1 = hz + (y1 - hz) * (xe - x0) / (x1 - x0)
+            x1 = xe
+        sc.line(x0, hz, x1, y1, t["grid"])
+    yy, step = hz + 2, 2.0
+    while yy < y + h:
+        sc.fill(x, int(yy), w, 1, t["grid"])
+        step *= 1.6
+        yy += step
+
+
+def boot_bar(sc, t, y):
+    """the flash banks read so far, as a thin bar (the first draws read one bank each)"""
+    sc.fill(M + 20, y, W - 2 * M - 40, 2, t["line"])
+    sc.fill(M + 20, y, round((W - 2 * M - 40) * BOOT_LOAD), 2, accent(t, "PLAY"))
+
+
+def scr_boot_a(fonts, t):
+    """A, Horizon: the theme's art across the top two thirds, the name in D24 under it, a load bar."""
+    sc = Screen(fonts, t["bg"])
+    if t["art"] == "badge":
+        art_sunset(sc, t, 0, 0, W, 132)
+    else:
+        art_horizon(sc, t, 0, 0, W, 140, 92, 56)
+    sc.fill(0, 140, W, H - 140, t["bg"])
+    sc.dtext(0, 156, "D24", "FM1-8P", t["text"], align="c", w=W)
+    sc.text(0, 186, "POLY SYNTH  4 VOICES", t["dim"], align="c", w=W)
+    boot_bar(sc, t, 214)
+    sc.text(0, 222, "V1", t["dim"], align="c", w=W)
+    return sc
+
+
+def scr_boot_b(fonts, t):
+    """B, Badge: PLAY's badge (or sun) as a card in the middle of a plain screen, the name on it."""
+    sc = Screen(fonts, t["bg"])
+    x, y, w, h = 30, 62, 180, 92
+    sc.fill(x - 2, y - 2, w + 4, h + 4, t["line"])
+    if t["art"] == "badge":
+        art_sunset(sc, t, x, y, w, h)
+        sc.fill(x, y + h - 2, w, 2, t["sun"][-1])
+        sc.dtext(x, y + 14, "D24", "FM1-8P", t["ink"], align="c", w=w)
+    else:
+        sc.fill(x, y, w, h, t["window"])
+        art_horizon(sc, t, x, y, w, h, y + 60, 22)
+        sc.dtext(x, y + 6, "D20", "FM1-8P", t["text"], align="c", w=w)
+    sc.text(0, y + h + 14, "POLY SYNTH  4 VOICES", t["dim"], align="c", w=W)
+    boot_bar(sc, t, y + h + 40)
+    return sc
+
+
+def scr_boot_c(fonts, t):
+    """C, no boot screen of its own: PLAY at once (its art is already the device's face), the footer
+    saying the name and version while the banks read."""
+    sc = scr_play(fonts, t)
+    draw_footer(sc, t, "FM1-8P V1  4 VOICES", "")
+    boot_bar(sc, t, H - 18)                     # (on the footer's top edge, under the columns)
+    return sc
+
+
+BOOT = [("boot-a-horizon", scr_boot_a), ("boot-b-badge", scr_boot_b), ("boot-c-play", scr_boot_c)]
+
+
 SCREENS = [("1-play", scr_play), ("2-vcf", scr_vcf), ("3-env", scr_env), ("4-seq", scr_seq), ("5-glo", scr_glo)]
 
 
@@ -974,6 +1065,7 @@ def main():
     dock = os.environ.get("FM1_DOCK", os.path.expanduser("~/Projects/fm1-8p-ref/fm1-dock"))
     ap.add_argument("--font", default=os.path.join(dock, "firmware/gen/felucca_font.h"))
     ap.add_argument("--contrast", action="store_true", help="print each theme's colors and contrast")
+    ap.add_argument("--boot", action="store_true", help="only the boot screen drafts (#50), into boot/")
     ap.add_argument("--font-only", metavar="PATH",
                     help="write only the display font's header to PATH (no host font, no Pillow; #55)")
     args = ap.parse_args()
@@ -992,6 +1084,17 @@ def main():
     for k, f in dfont.items():
         check_font(f, k)
     fonts = (load_host_font(args.font), dfont)
+    if args.boot:                               # the boot screen drafts alone (#50), both themes side by side
+        os.makedirs(os.path.join(OUT, "boot"), exist_ok=True)
+        for name, fn in BOOT:
+            pair = Image.new("RGB", (2 * W + 8, H), (40, 40, 40))
+            for c, (key, t) in enumerate(THEMES.items()):
+                sc = fn(fonts, t)
+                sc.save(os.path.join(OUT, "boot", "%s-%s" % (name, key)))
+                pair.paste(sc.img, (c * (W + 8), 0))
+            pair.resize(((2 * W + 8) * 3, H * 3), Image.NEAREST).save(os.path.join(OUT, "boot", name + "-both-3x.png"))
+            print(os.path.join("boot", name + "-both-3x.png"))
+        return
     total = write_font_header(os.path.join(OUT, "display_font.h"), {k: (dfont[k], SIZES[k]) for k in SIZES})
     print("display font: %d bytes" % total)
     specimen(fonts).save(os.path.join(OUT, "font-specimen"))
