@@ -633,6 +633,22 @@ TT_TEST(seq_roll_redraws_whole_on_length_tie_and_rest)
     TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
 }
 
+/* Stopping takes the playhead off: its last column redraws */
+TT_TEST(seq_roll_stop_clears_the_playhead)
+{
+    static const uint8_t C[1] = {60};
+    ui_setup();
+    seq_set_step(play_seq(&ui_p), 0, C, 1, 100);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_tap(UI_BTN_PLAY, 1100);
+    seq_render_to(2);
+    (void)ui_take(&ui_u, 1200);
+    (void)ui_seq_roll_take(&ui_u);
+    ui_tap(UI_BTN_PLAY, 1300);                                /* stop */
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK(ui_seq_roll_take(&ui_u) & (1u << 2));
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -649,6 +665,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_fits_an_armed_note);
     TT_RUN(seq_roll_redraws_whole_on_a_pattern_load);
     TT_RUN(seq_roll_redraws_whole_on_length_tie_and_rest);
+    TT_RUN(seq_roll_stop_clears_the_playhead);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
