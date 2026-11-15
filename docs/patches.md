@@ -205,8 +205,8 @@ passed since the last change (`SET_WAIT_MS`). Version 1:
 | ..63 | 0 |
 
 - **Always 64 bytes** (`SET_REC_BYTES`): the host loads a record only at the length it was saved,
-  so a longer record would load as none. A new setting takes a pair from the room left: 12 settings
-  take 27 bytes, and there is room for 30.
+  so a longer record would load as none. A new setting takes a pair from the room left: 13 settings
+  take 29 bytes, and there is room for 30.
 - **Tags** name settings for good: the table in `settings_store.c` is append only, and
   `settings_tags_keep_their_fields` holds every tag to its field.
 - **No record, or a damaged one** (another version, a length that disagrees with the count): the

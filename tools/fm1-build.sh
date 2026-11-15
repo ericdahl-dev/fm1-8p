@@ -16,6 +16,8 @@
 #              into build/fm1/emu-report.md (report only)
 #   emu-ui     the same, with FM1-8P's VCF page redrawing every frame (firmware/fm1_8p_cpu_ui): the
 #              UI-active rows (build/fm1/emu-ui-report.md)
+#   emu-seq    the same, with step F played by a running sequencer (firmware/fm1_8p_cpu_seq, #36): a
+#              6-note chord every step on the device's voices, 300 BPM (build/fm1/emu-seq-report.md)
 #   emu-play   play a scripted note sequence (keys and MIDI) into build/fm1/fm1-8p.fwsc (built if
 #              missing) in fm1-emu's strict timing
 #              mode; fails on an overrun (build/fm1/emu-play-report.md)
@@ -487,8 +489,9 @@ case "${1:-}" in
     canaries) run_canaries ;;
     emu)      run_emu fm1_8p_cpu_quick emu ;;
     emu-ui)   run_emu fm1_8p_cpu_ui emu-ui ;;
+    emu-seq)  run_emu fm1_8p_cpu_seq emu-seq ;;
     emu-play) run_emu_play ;;
     emu-save) run_emu_save ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
-    *)        sed -n '2,29s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *)        sed -n '2,31s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac

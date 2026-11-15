@@ -32,6 +32,15 @@ static void note(uint32_t ch, uint32_t key, uint32_t vel)
     play_note(&P, key, vel);
 }
 
+/* G22 CC SEND: a knob turn out as its CC on G12's channel, at most one every UI_CC_OUT_MS (ui_cc_out);
+ * asked after each event and each draw, so the last value of a fast turn still goes */
+static void cc_send(void)
+{
+    uint32_t cc, v;
+    if (ui_cc_out(&U, H->ms(), &cc, &v))
+        H->midi_send(0xB0u | ((U.set.midi_out - 1u) & 15u), cc, v);
+}
+
 /* a CC on the map sets its parameter as a knob would (firmware/ui.c, #49); the rest reaches the engine */
 static void midi(uint32_t st, uint32_t d1, uint32_t d2)
 {
@@ -110,6 +119,7 @@ static void ui_ev(uint32_t ev, int32_t arg)
     H->log_u32("fm1-8p TRAIL ev kind/arg/id", (ev & 0xFF0000FFu) | ((uint32_t)arg & 0xFFFFu) << 8);
 #endif
     ui_event(&U, ev, arg, H->ms());             /* pages and knobs */
+    cc_send();
     page_leds(0);
     if (id == HB_BTN_SEL && (kind == HB_EV_BTN_DOWN || kind == HB_EV_BTN_UP))
         keypad_leds();                          /* the keypad glows while SEL is held */
@@ -124,6 +134,7 @@ static void draw(uint32_t full)
         page_leds(1);
     }
     ui_draw_frame(full);
+    cc_send();
     if (!full)
         page_leds(0);                           /* a change ui_take made: compare, the EDIT blink */
 }

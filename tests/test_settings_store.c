@@ -69,13 +69,14 @@ TT_TEST(settings_tags_keep_their_fields)
         {7, offsetof(ui_settings, prog_change)},   {8, offsetof(ui_settings, ext_cc)},
         {9, offsetof(ui_settings, vel_curve_pct)}, {10, offsetof(ui_settings, fixed_vel)},
         {11, offsetof(ui_settings, key_leds)},     {12, offsetof(ui_settings, theme)},
+        {13, offsetof(ui_settings, cc_map)},
     };
     uint32_t i;
     TT_CHECK_EQ(sizeof FROZEN / sizeof FROZEN[0], UI_SETTINGS_COUNT);   /* every setting has a tag */
     for (i = 0; i < sizeof FROZEN / sizeof FROZEN[0]; i++)
         TT_CHECK_EQ(settings_tag_offset(FROZEN[i].tag), FROZEN[i].offset);
     TT_CHECK_EQ(settings_tag_offset(0), SET_NO_TAG);
-    TT_CHECK_EQ(settings_tag_offset(13), SET_NO_TAG);
+    TT_CHECK_EQ(settings_tag_offset(14), SET_NO_TAG);
 }
 
 /* Saved and loaded back, every setting is as it was; the record is always SET_REC_BYTES long (the
@@ -91,6 +92,7 @@ TT_TEST(settings_round_trip)
     a.vel_curve_pct = 200;
     a.fixed_vel = 1;
     a.theme = UI_THEME_NIGHT;
+    a.cc_map = UI_CC_MAP_JX;                    /* tag 13, off its default */
     settings_save(&a, &set_fake_io);
     TT_CHECK_EQ(set_host_len, SET_REC_BYTES);
     TT_CHECK_EQ(set_host[1], 1u);              /* version 1 */
@@ -128,7 +130,7 @@ TT_TEST(settings_missing_tags_load_their_defaults)
 /* A newer record, with tags this firmware doesn't know: those entries are skipped, the rest load. */
 TT_TEST(settings_unknown_tags_are_skipped)
 {
-    static const uint8_t pairs[] = {200, 7, 1, 5, 0, 3, 13, 1, 10, 64};
+    static const uint8_t pairs[] = {200, 7, 1, 5, 0, 3, 14, 1, 10, 64};
     ui_settings s, d;
     set_host_record(pairs, 5);
     ui_settings_default(&d);
@@ -207,6 +209,19 @@ TT_TEST(settings_without_io_keeps_the_defaults)
     TT_CHECK_EQ(dirty, 0u);
 }
 
+/* A record saved before CC MAP (tags 1..12 only) loads CC MAP at its default, STANDARD. */
+TT_TEST(settings_old_record_loads_cc_map_standard)
+{
+    static const uint8_t pairs[] = {1, 3, 2, 4, 3, 1, 4, 1, 5, 0, 6, 1, 7, 2, 8, 1, 9, 120, 10, 90,
+                                    11, 0, 12, UI_THEME_NIGHT};
+    ui_settings s;
+    set_host_record(pairs, 12);
+    settings_load(&s, &set_fake_io);
+    TT_CHECK_EQ(s.cc_map, (uint32_t)UI_CC_MAP_STANDARD);
+    TT_CHECK_EQ(s.theme, (uint32_t)UI_THEME_NIGHT);    /* the rest as saved */
+    TT_CHECK_EQ(s.midi_in, 3u);
+}
+
 static void run_settings_store_tests(void)
 {
     TT_RUN(settings_tags_keep_their_fields);
@@ -218,4 +233,5 @@ static void run_settings_store_tests(void)
     TT_RUN(settings_damaged_record_loads_the_defaults);
     TT_RUN(settings_tick_saves_once_silent_and_settled);
     TT_RUN(settings_without_io_keeps_the_defaults);
+    TT_RUN(settings_old_record_loads_cc_map_standard);
 }
