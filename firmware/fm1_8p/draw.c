@@ -827,9 +827,16 @@ static void seq_footer(void)
         CV_TEXT(M, 2, 0, left, C_TEXT);
         if (*right) {
             CV_TEXT(240 - M - TEXT_W(0, right), 2, 0, right, led_of(C_PLAY));
-        } else {
-            seq_tempo_text(t);
-            CV_TEXT(240 - M - TEXT_W(0, t), 2, 0, t, C_DIM);
+        } else {                                /* the tempo and the clock: INT, MIDI or WAITING FOR CLOCK */
+            char c[UI_SEQ_TEXT_LEN];
+            ui_seq_clock_text(U, c);
+            if (seq_waiting(play_seq(P))) {
+                CV_TEXT(240 - M - TEXT_W(0, c), 2, 0, c, led_of(C_PLAY));
+            } else {
+                seq_tempo_text(t);
+                CV_TEXT(240 - M - TEXT_W(0, c), 2, 0, c, C_DIM);
+                CV_TEXT(240 - M - TEXT_W(0, c) - 6 - TEXT_W(0, t), 2, 0, t, C_DIM);
+            }
         }
     }
     blit(0, 222, 240, 18);
@@ -950,8 +957,13 @@ static void seq_column(uint32_t k)
     if (sl->label) {
         num[0] = 'S', num[1] = (char)('1' + U->seq_page), num[2] = (char)('1' + k), num[3] = 0;
         text_c(x, COL_W, 3, 0, num, sec_text(UI_SEC_SEQ));
-        text_c(x, COL_W, 19, 0, sl->label, act ? C_TEXT : C_DIM);
         ui_seq_column(U, k, val, unit);
+        if (unit[0] == 'M') {                   /* MIDI CLOCK: TEMPO under the clock (#38), in the label's place */
+            const char *mc = TEXT_W(0, "MIDI CLK") <= COL_W - 2 ? "MIDI CLK" : "MIDI";
+            text_c(x, COL_W, 19, 0, mc, led_of(C_PLAY));
+        } else {
+            text_c(x, COL_W, 19, 0, sl->label, act ? C_TEXT : C_DIM);
+        }
         if (sl->live && val[0] != '-') {        /* (-- for a rest's VEL: no meter) */
             v = ui_seq_value(U, k);
             v = v < lo ? lo : v > hi ? hi : v;
