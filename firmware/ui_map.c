@@ -228,8 +228,8 @@ static const char *const THEME_COL[] = {"MEMB", "NIGHT"};
 const ui_glo_slot UI_GLO_SLOTS[UI_GLO_SLOTS_COUNT] = {
     {11, "CH IN", "MIDI CHANNEL IN", 0, UI_LIVE, 1, 4, 0, 0, "ALL"},
     {12, "CH OUT", "MIDI CHANNEL OUT", 1, UI_LIVE, 1, 4, 0, 0, 0},
-    {13, "CLOCK", "CLOCK SOURCE", 2, UI_PENDING, 1, 1, CLOCK, 0, 0},          /* (#38) */
-    {14, "CLKOUT", "CLOCK OUT", 3, UI_PENDING, 1, 1, OFF_ON, 0, 0},          /* (#38) */
+    {13, "CLOCK", "CLOCK SOURCE", 2, UI_LIVE, 1, 1, CLOCK, 0, 0},             /* (#38: the sequencer's) */
+    {14, "CLKOUT", "CLOCK OUT", 3, UI_PENDING, 1, 1, OFF_ON, 0, 0},          /* (clock out: later) */
     {21, "CC IN", "CC RECEIVE", 4, UI_LIVE, 1, 1, OFF_ON, 0, 0},
     {22, "CC OUT", "CC SEND", 5, UI_LIVE, 1, 1, OFF_ON, 0, 0},
     {23, "CC MAP", "CC MAP", 12, UI_LIVE, 1, 1, CC_MAP, CC_MAP_COL, 0},    /* (program change: G41, once built) */

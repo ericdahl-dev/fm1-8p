@@ -795,7 +795,9 @@ static void glo_part(uint32_t b, uint32_t part)
 #define C_SEQ (T->section[UI_SEC_SEQ])
 static void seq_tempo_text(char *s)
 {
-    uint32_t t = seq_tempo(play_seq(P)), n = 0;
+    const seq *q = play_seq(P);
+    uint32_t t = seq_clock_external(q) && seq_clock_tempo(q) && (q->clk_running || !q->want) ? seq_clock_tempo(q)
+                 : seq_tempo(q), n = 0;         /* (#38: the clock's, when it runs the steps or they're stopped) */
     char d[6];
     uint32_t v = t / 10u;
     do {
