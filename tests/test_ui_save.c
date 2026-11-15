@@ -430,6 +430,28 @@ TT_TEST(save_hammered_with_a_store_keeps_its_states)
     TT_CHECK(used > 0u);                        /* (the writes happened: SAVE was really hammered) */
 }
 
+/* #201: with the sequencer running on rests, no voice sounds, yet a SAVE waits: the transport counts as
+ * sound. A stop lets it write. */
+TT_TEST(save_waits_while_the_sequencer_runs)
+{
+    uint32_t k;
+    save_setup();
+    seq_play(play_seq(&ui_p));                  /* every step a rest: nothing sounds */
+    save_render(4);
+    TT_CHECK_EQ(ui_p.sounding, 0u);
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 1200);
+    (void)ui_take(&ui_u, 2000);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVING 11 WHEN SILENT") == 0);
+    TT_CHECK_EQ(store_flash.saves, 0u);
+    seq_stop(play_seq(&ui_p));
+    for (k = 0; k < 4 && !play_silent(&ui_p); k++)
+        save_render(1);
+    (void)ui_take(&ui_u, 2500);
+    TT_CHECK_EQ(store_flash.saves, 1u);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED 11") == 0);
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
@@ -451,4 +473,5 @@ static void run_ui_save_tests(void)
     TT_RUN(save_opened_with_sel_held_ends_the_keypad);
     TT_RUN(save_has_the_screen_and_takes_the_jump_down);
     TT_RUN(save_without_a_store_says_save_failed);
+    TT_RUN(save_waits_while_the_sequencer_runs);
 }
