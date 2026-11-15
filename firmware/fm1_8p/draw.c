@@ -188,9 +188,11 @@ static void header(const char *chip, uint16_t col, const char *lead, const char 
     ui_octave_label(P->oct, o);                  /* (HB_F_SCREEN hides the host's line, which had it) */
     CV_TEXT(240 - M - TEXT_W(0, o), 4, 0, o, P->oct ? C_TEXT : C_DIM);
     H->cv_rect(0, 23, 240, 1, C_LINE);
-    if (page >= GLO_STRIP)                      /* GLO: a 3-segment strip (visual.md) */
+    if (page >= GLO_STRIP)                      /* GLO: a segment a page (visual.md) */
         for (i = 0; i < UI_GLO_PAGES; i++)
-            H->cv_rect(M + (int32_t)i * 78, 22, 74, 2, i == (uint32_t)(page - GLO_STRIP) ? col : C_LINE);
+            H->cv_rect(M + (int32_t)(i * (240u - 2u * M + 4u) / UI_GLO_PAGES), 22,
+                       (int32_t)((240u - 2u * M + 4u) / UI_GLO_PAGES) - 4, 2,
+                       i == (uint32_t)(page - GLO_STRIP) ? col : C_LINE);
     else if (page >= 0)
         for (i = 0; i < UI_PAGES; i++) {
             ui_strip(i, &x, &w);
@@ -717,6 +719,10 @@ static void glo_column(uint32_t k)
     int32_t tw, x0, v = ((const uint8_t *)&U->set)[in->offset];
     H->cv_begin(cw, 84, C_BG);
     H->cv_rect(x, 0, COL_W, 84, bg);
+    if (g->kind == UI_RESERVED) {               /* an empty knob (G4x): nothing on it */
+        blit(cx, 138, cw, 84);
+        return;
+    }
     glo_number(g, num);
     text_c(x, COL_W, 3, 0, num, C_GLO);
     text_c(x, COL_W, 19, 0, g->label, act ? C_TEXT : C_DIM);

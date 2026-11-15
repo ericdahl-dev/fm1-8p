@@ -10,7 +10,7 @@ typedef enum {
     PATCH_OSC1_WAVE,
     PATCH_OSC1_PULSE_WIDTH_PCT,
     PATCH_OSC1_OCTAVE,
-    /* waits: what osc1 lacks of DCO-1 tune, folded into osc2 */
+    /* DCO-1 tune: -12..+12 semitones over its octave (#108) */
     PATCH_OSC1_COARSE_SEMIS,
     PATCH_OSC2_WAVE,
     PATCH_OSC2_PULSE_WIDTH_PCT,

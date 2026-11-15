@@ -100,6 +100,7 @@ typedef struct {
     char seq_msg[16];                   /* "MAX 4 NOTES", the banner */
     uint32_t shown_steps;               /* seq_steps as SEQ view's strip last drew it */
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
+    int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
@@ -209,7 +210,7 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on);
 /* key k's LED as the keypad has it: UI_LED_GLOW for a digit key while SEL is held, else UI_LED_OFF */
 uint32_t ui_keypad_led(const ui *u, uint32_t k);
 /* key k's LED, down or not (interaction.md 5, Key LEDs): SEQ view's step and chord keys; outside it the
- * playhead's key while playing, the keypad's glow while SEL is held, and a held key lit */
+ * playhead's key while playing, the keypad's glow while SEL is held, and a held key lit with G33 ON */
 uint32_t ui_key_led(const ui *u, uint32_t k, int down);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
@@ -232,6 +233,11 @@ int ui_midi_in(const ui *u, uint32_t st);
 uint32_t ui_midi_out(const ui *u, uint32_t st);
 /* G32 FIXED VELOCITY: a key's velocity, the host's (1..127), or G32's for a key with no force sensing (0) */
 uint32_t ui_key_velocity(const ui *u, int32_t host_vel);
+/* G41 PROGRAM CHANGE: a received PC n (with RECV or BOTH) loads program n at once, edits or not
+ * (0..63 the user slots 11..88, 64 up the P patches); 1 taken. With SEND or BOTH a panel load's program
+ * waits for ui_pc_out (1: *pc to send, taken). */
+int ui_program_change(ui *u, uint32_t pc, uint32_t ms);
+int ui_pc_out(ui *u, uint32_t *pc);
 /* a MIDI control change, cc 0..127 at value 0..127 (#49, interaction.md 8): the parameter on cc (the
  * CC map) takes the value across its knob's range, as a knob would set it. 1: taken (G21 ON and cc on
  * the map), so the engine needn't have it; 0: the module passes it on (sustain, all notes off ...). */

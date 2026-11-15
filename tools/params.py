@@ -135,6 +135,8 @@ PARAMS = [
       'the mod wheel (CC1) at full adds this to both oscillators\' vibrato depth (#41; 50 ct, Eric)'),
     P(54, 'WHEEL_PW_PCT', 'wheel_pw_pct', '0', '49', '0', 54,
       'the mod wheel (CC1) at full adds this to the LFO\'s pulse-width depth, at most 49 % in all (#41)'),
+    P(55, 'OSC1_COARSE_SEMIS', 'osc1_coarse_semis', '-12', '12', '0', 55,
+      '-12..+12 semitones, on top of osc1\'s octave and fine (DCO-1 TUNE, #108)'),
 ]
 
 
@@ -154,7 +156,7 @@ PATCH_FIELDS = [
     F('OSC1_WAVE', 'OSC1_WAVE', (12,), 'fm_wave'),
     F('OSC1_PULSE_WIDTH_PCT', 'OSC1_PULSE_WIDTH_PCT', (12,), ''),
     F('OSC1_OCTAVE', 'OSC1_OCTAVE', (11, 13, 16, 19), ''),
-    F('OSC1_COARSE_SEMIS', None, (11, 13, 16, 19), 'waits: what osc1 lacks of DCO-1 tune, folded into osc2', lo=-12, hi=12, waits='DCO-1 coarse tune, folded into osc2 for now (no issue yet)'),
+    F('OSC1_COARSE_SEMIS', 'OSC1_COARSE_SEMIS', (11, 13, 16, 19), 'DCO-1 tune: -12..+12 semitones over its octave (#108)'),
     F('OSC2_WAVE', 'OSC2_WAVE', (17,), ''),
     F('OSC2_PULSE_WIDTH_PCT', 'OSC2_PULSE_WIDTH_PCT', (17,), ''),
     F('OSC2_OCTAVE', 'OSC2_OCTAVE', (11, 13, 16, 19), ''),

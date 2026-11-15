@@ -175,7 +175,8 @@ uint32_t ui_key_led(const ui *u, uint32_t k, int down)
     if (u->state != UI_SEQ) {                   /* the playhead's key while playing; the keypad; held keys */
         if (ui_keypad_led(u, k) == UI_LED_GLOW)
             return UI_LED_GLOW;
-        return down || (s->want && at >= 0 && (uint32_t)at == k) ? UI_LED_LIT : UI_LED_OFF;
+        return (down && u->set.key_leds) || (s->want && at >= 0 && (uint32_t)at == k) ? UI_LED_LIT
+                                                                                       : UI_LED_OFF;   /* (G33) */
     }
     if (k >= UI_STEP_KEYS)                      /* a chord key: the play zone glows, lit while held */
         return down ? UI_LED_LIT : UI_LED_GLOW;

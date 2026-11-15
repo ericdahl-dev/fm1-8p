@@ -11,11 +11,19 @@ typedef struct {
 } seq_at;
 static seq_at seq_log[2048];
 static uint32_t seq_logged, seq_clock, seq_worst_block;
+/* the bend and mod events (#42), apart: kind, frame, value */
+typedef struct {
+    uint32_t t;
+    uint8_t kind;
+    int32_t value;
+} seq_ctl;
+static seq_ctl seq_ctls[2048];
+static uint32_t seq_n_ctls;
 
 static void seq_fresh(void)
 {
     seq_init(&sq);
-    seq_logged = seq_clock = seq_worst_block = 0;
+    seq_logged = seq_clock = seq_worst_block = seq_n_ctls = 0;
 }
 
 /* frames in blocks cycling through sizes[0..n_sizes-1] (each <= SEQ_BLOCK), into seq_log */
@@ -28,7 +36,18 @@ static void seq_run(uint32_t frames, const uint32_t *sizes, uint32_t n_sizes, ui
         n = n < frames ? n : frames;
         got = seq_render(&sq, n, fs, voices, ev);
         seq_worst_block = got > seq_worst_block ? got : seq_worst_block;
-        for (k = 0; k < got && seq_logged < sizeof seq_log / sizeof seq_log[0]; k++) {
+        for (k = 0; k < got; k++) {
+            if (ev[k].kind != SEQ_EV_NOTE) {    /* bend and mod: their own log */
+                if (seq_n_ctls < sizeof seq_ctls / sizeof seq_ctls[0]) {
+                    seq_ctls[seq_n_ctls].t = seq_clock + ev[k].at;
+                    seq_ctls[seq_n_ctls].kind = ev[k].kind;
+                    seq_ctls[seq_n_ctls].value = ev[k].value;
+                    seq_n_ctls++;
+                }
+                continue;
+            }
+            if (seq_logged >= sizeof seq_log / sizeof seq_log[0])
+                continue;
             seq_log[seq_logged].t = seq_clock + ev[k].at;
             seq_log[seq_logged].note = ev[k].note;
             seq_log[seq_logged].vel = ev[k].vel;
@@ -557,6 +576,159 @@ TT_TEST(seq_edited_marks_an_edit_until_saved)
     TT_CHECK_EQ(seq_edited(&sq), 0u);
 }
 
+/* #42: a JUMP step sets its bend and mod at its start, after the steps' offs and before its ons (so its
+ * notes start bent); a plain seq_set_step is center and 0, JUMP. */
+TT_TEST(seq_jump_step_sets_bend_and_mod_at_its_start)
+{
+    static seq_event ev[SEQ_EVENTS];
+    uint32_t fs = 44100, tempo = 1200, n, k, saw_bend = 0, saw_mod = 0, on_after = 1;
+    uint8_t note = 60;
+    seq_fresh();
+    seq_set_tempo(&sq, tempo);
+    seq_set_gate(&sq, 100);
+    seq_set_length(&sq, 2);
+    seq_set_step(&sq, 0, &note, 1, 100);
+    TT_CHECK_EQ(seq_get_step(&sq, 0)->bend, 0);
+    TT_CHECK_EQ(seq_get_step(&sq, 0)->mod, 0u);
+    TT_CHECK_EQ(seq_get_step(&sq, 0)->glide, 0u);
+    seq_set_step(&sq, 1, &note, 1, 100);
+    seq_set_step_bend_mod(&sq, 1, 4096, 64, 0);
+    seq_play(&sq);
+    seq_run(seq_start_at(1, fs, tempo), SEQ_256, 1, fs, 6);   /* up to step 1's start, not it */
+    n = seq_render(&sq, 256, fs, 6, ev);       /* the block with step 1's start at its frame 0 */
+    for (k = 0; k < n; k++) {
+        if (ev[k].kind == SEQ_EV_BEND) {
+            TT_CHECK_EQ(ev[k].at, 0u);
+            TT_CHECK_EQ(ev[k].value, 4096);
+            saw_bend = 1;
+        } else if (ev[k].kind == SEQ_EV_MOD) {
+            TT_CHECK_EQ(ev[k].value, 64);
+            saw_mod = 1;
+        } else if (ev[k].vel && !(saw_bend && saw_mod))
+            on_after = 0;                       /* an on before its step's bend and mod */
+    }
+    TT_CHECK(saw_bend && saw_mod && on_after);
+    TT_CHECK_EQ(seq_ctls[0].t, 0u);             /* step 0: center and 0 at its start */
+    TT_CHECK_EQ(seq_ctls[0].value, 0);
+}
+
+/* #42: a GLIDE step ramps from the values before it to its own over its length: no stair over the set
+ * size, every update toward the target, and the target exactly at the step's end. */
+TT_TEST(seq_glide_step_ramps_to_its_values)
+{
+    uint32_t fs = 44100, tempo = 1200, i, ups = 0;
+    int32_t last = 0, worst = 0, len;
+    uint8_t note = 60;
+    seq_fresh();
+    seq_set_tempo(&sq, tempo);
+    seq_set_length(&sq, 3);
+    seq_set_step(&sq, 0, &note, 1, 100);        /* center, 0 */
+    seq_set_step(&sq, 1, &note, 1, 100);
+    seq_set_step_bend_mod(&sq, 1, 8191, 127, 1);   /* glide up */
+    seq_play(&sq);
+    seq_run(seq_start_at(2, fs, tempo) + 1u, SEQ_256, 1, fs, 6);
+    len = (int32_t)(seq_start_at(2, fs, tempo) - seq_start_at(1, fs, tempo));
+    for (i = 0; i < seq_n_ctls; i++) {
+        if (seq_ctls[i].kind != SEQ_EV_BEND || seq_ctls[i].t <= seq_start_at(0, fs, tempo))
+            continue;
+        TT_CHECK(seq_ctls[i].value >= last);    /* toward it */
+        worst = seq_ctls[i].value - last > worst ? seq_ctls[i].value - last : worst;
+        last = seq_ctls[i].value;
+        ups++;
+    }
+    TT_CHECK_EQ(last, 8191);                    /* there */
+    TT_CHECK(ups >= 30u);
+    TT_CHECK(worst <= 8191 * (int32_t)SEQ_GLIDE_FRAMES / len + 1);
+    for (i = 0; i < seq_n_ctls; i++)            /* the target lands at the step's end */
+        if (seq_ctls[i].kind == SEQ_EV_BEND && seq_ctls[i].value == 8191) {
+            TT_CHECK_EQ(seq_ctls[i].t, seq_start_at(2, fs, tempo));
+            break;
+        }
+}
+
+/* #42: rests and ties keep the bend and mod they had: no events. */
+TT_TEST(seq_rests_and_ties_keep_bend_and_mod)
+{
+    uint32_t fs = 44100, tempo = 1200, i, ctl_after = 0;
+    uint8_t note = 60;
+    seq_fresh();
+    seq_set_tempo(&sq, tempo);
+    seq_set_length(&sq, 3);
+    seq_set_step(&sq, 0, &note, 1, 100);
+    seq_set_step_bend_mod(&sq, 0, -3000, 20, 0);
+    seq_toggle_tie(&sq, 1);
+    /* step 2: a rest */
+    seq_play(&sq);
+    seq_run(seq_start_at(3, fs, tempo), SEQ_256, 1, fs, 6);
+    for (i = 0; i < seq_n_ctls; i++)
+        ctl_after += seq_ctls[i].t > 0;
+    TT_CHECK_EQ(ctl_after, 0u);
+    TT_CHECK_EQ(seq_n_ctls, 2u);                /* step 0's bend and mod only */
+}
+
+/* #42: stopping returns the bend to center and the mod to the live wheel (SEQ_MOD_LIVE: play has it). */
+TT_TEST(seq_stop_returns_bend_and_mod)
+{
+    uint8_t note = 60;
+    seq_fresh();
+    seq_set_step(&sq, 0, &note, 1, 100);
+    seq_set_step_bend_mod(&sq, 0, 5000, 90, 0);
+    seq_play(&sq);
+    seq_run(1000, SEQ_256, 1, 44100, 6);
+    seq_stop(&sq);
+    seq_n_ctls = 0;
+    seq_run(256, SEQ_256, 1, 44100, 6);
+    TT_CHECK_EQ(seq_n_ctls, 2u);
+    TT_CHECK_EQ(seq_ctls[0].kind, SEQ_EV_BEND);
+    TT_CHECK_EQ(seq_ctls[0].value, 0);
+    TT_CHECK_EQ(seq_ctls[1].kind, SEQ_EV_MOD);
+    TT_CHECK_EQ(seq_ctls[1].value, SEQ_MOD_LIVE);
+}
+
+/* Bend and mod values are clamped: -8192..8191, 0..127. */
+TT_TEST(seq_bend_and_mod_are_clamped)
+{
+    seq_fresh();
+    seq_set_step_bend_mod(&sq, 3, -20000, 300, 7);
+    TT_CHECK_EQ(seq_get_step(&sq, 3)->bend, -8192);
+    TT_CHECK_EQ(seq_get_step(&sq, 3)->mod, 127u);
+    TT_CHECK_EQ(seq_get_step(&sq, 3)->glide, 1u);
+    seq_set_step_bend_mod(&sq, 3, 20000, 0, 0);
+    TT_CHECK_EQ(seq_get_step(&sq, 3)->bend, 8191);
+}
+
+/* Glides sound the same whatever the block size. */
+TT_TEST(seq_glides_do_not_depend_on_the_block_size)
+{
+    static const uint32_t ONE[] = {1}, MIX[] = {256, 1, 33, 200, 2, 97};
+    static seq_ctl first[sizeof seq_ctls / sizeof seq_ctls[0]];
+    uint32_t r, i, n_first = 0;
+    uint8_t note = 48;
+    for (r = 0; r < 2u; r++) {
+        seq_fresh();
+        seq_set_tempo(&sq, 2999);
+        seq_set_length(&sq, 2);
+        seq_set_step(&sq, 0, &note, 1, 100);
+        seq_set_step_bend_mod(&sq, 0, -8192, 127, 1);
+        seq_set_step(&sq, 1, &note, 1, 100);
+        seq_set_step_bend_mod(&sq, 1, 8191, 0, 1);
+        seq_play(&sq);
+        seq_run(20000, r ? MIX : ONE, r ? 6 : 1, 48000, 6);
+        if (!r) {
+            n_first = seq_n_ctls;
+            for (i = 0; i < n_first; i++)
+                first[i] = seq_ctls[i];
+            continue;
+        }
+        TT_CHECK(n_first > 100u && n_first < sizeof first / sizeof first[0]);
+        TT_CHECK_EQ(seq_n_ctls, n_first);
+        for (i = 0; i < n_first && i < seq_n_ctls; i++) {
+            TT_CHECK_EQ(seq_ctls[i].t, first[i].t);
+            TT_CHECK_EQ(seq_ctls[i].value, first[i].value);
+        }
+    }
+}
+
 static void run_seq_tests(void)
 {
     TT_RUN(seq_starts_empty_and_stopped);
@@ -579,4 +751,10 @@ static void run_seq_tests(void)
     TT_RUN(seq_load_queued_can_be_canceled);
     TT_RUN(seq_stop_loads_the_queued_pattern);
     TT_RUN(seq_edited_marks_an_edit_until_saved);
+    TT_RUN(seq_jump_step_sets_bend_and_mod_at_its_start);
+    TT_RUN(seq_glide_step_ramps_to_its_values);
+    TT_RUN(seq_rests_and_ties_keep_bend_and_mod);
+    TT_RUN(seq_stop_returns_bend_and_mod);
+    TT_RUN(seq_bend_and_mod_are_clamped);
+    TT_RUN(seq_glides_do_not_depend_on_the_block_size);
 }
