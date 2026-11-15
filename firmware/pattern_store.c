@@ -92,14 +92,21 @@ int pat_decode(const uint8_t *rec, uint32_t n, seq_pattern *p, char *name)
     return 0;
 }
 
+void pat_lib_load_bank(pat_lib *l, const store_io *io, uint32_t b)
+{
+    uint32_t i;
+    if (b >= BANKS)
+        return;
+    for (i = 0; i < STORE_BANK_BYTES; i++)      /* no bank, or a short one: empty slots */
+        l->img[b][i] = 0;
+    (void)io->load(io->ctx, PAT_BANK0 + b, l->img[b], STORE_BANK_BYTES);
+}
+
 void pat_lib_load(pat_lib *l, const store_io *io)
 {
-    uint32_t b, i;
-    for (b = 0; b < BANKS; b++) {
-        for (i = 0; i < STORE_BANK_BYTES; i++)  /* no bank, or a short one: empty slots */
-            l->img[b][i] = 0;
-        (void)io->load(io->ctx, PAT_BANK0 + b, l->img[b], STORE_BANK_BYTES);
-    }
+    uint32_t b;
+    for (b = 0; b < BANKS; b++)
+        pat_lib_load_bank(l, io, b);
 }
 
 static const uint8_t *slot(const pat_lib *l, uint32_t s)

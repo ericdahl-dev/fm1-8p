@@ -30,15 +30,21 @@ static int is_record(const uint8_t *rec, uint32_t n)
 
 #define BANKS (STORE_USER_SLOTS / STORE_BANK_SLOTS)
 
+void store_lib_load_bank(store_lib *l, const store_io *io, uint32_t b)
+{
+    uint32_t i;
+    if (b >= BANKS)
+        return;
+    for (i = 0; i < STORE_BANK_BYTES; i++)      /* no bank, or a short one: empty slots */
+        l->img[b][i] = 0;
+    (void)io->load(io->ctx, 1u + b, l->img[b], STORE_BANK_BYTES);
+}
+
 void store_lib_load(store_lib *l, const store_io *io)
 {
     uint32_t b;
-    uint32_t i;
-    for (b = 0; b < BANKS; b++) {
-        for (i = 0; i < STORE_BANK_BYTES; i++)  /* no bank, or a short one: empty slots */
-            l->img[b][i] = 0;
-        (void)io->load(io->ctx, 1u + b, l->img[b], STORE_BANK_BYTES);
-    }
+    for (b = 0; b < BANKS; b++)
+        store_lib_load_bank(l, io, b);
 }
 
 int store_slot_read(const store_lib *l, uint32_t s, store_patch *p)

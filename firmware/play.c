@@ -58,13 +58,119 @@ void play_attach_store(play *p, store_lib *lib, const store_io *io)
     p->io = io;
 }
 
-void play_store_tick(play *p)
+void play_attach_patterns(play *p, pat_lib *lib)
 {
-    if (!p->lib_attached)
+    p->plib_attached = lib;
+}
+
+uint32_t play_store_tick(play *p)
+{
+    if (p->lib_attached) {                      /* the user slots' banks: here, not in init (#185) */
+        store_lib_load_bank(p->lib_attached, p->io, p->store_bank);
+        if (++p->store_bank == STORE_USER_SLOTS / STORE_BANK_SLOTS) {
+            p->lib = p->lib_attached;
+            p->lib_attached = 0;
+            p->store_bank = 0;
+        }
+        return 1;
+    }
+    if (p->plib_attached && p->io) {            /* the pattern slots', then slot 0 into the sequencer */
+        pat_lib_load_bank(p->plib_attached, p->io, p->store_bank);
+        if (++p->store_bank == PAT_SLOTS / STORE_BANK_SLOTS) {
+            p->plib = p->plib_attached;
+            p->plib_attached = 0;
+            p->store_bank = 0;
+            play_load_pattern(p, p->pat_prog);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+uint32_t play_pattern_prog(const play *p)
+{
+    return p->pat_prog;
+}
+
+void play_pattern_name(const play *p, char *name)
+{
+    uint32_t i;
+    for (i = 0; i <= STORE_NAME_LEN; i++)
+        name[i] = p->pat_name[i];
+}
+
+int32_t play_pattern_next(const play *p)
+{
+    return p->pat_next;
+}
+
+static void copy_name(char *to, const char *from)
+{
+    uint32_t i;
+    for (i = 0; i < STORE_NAME_LEN && from[i]; i++)
+        to[i] = from[i];
+    for (; i <= STORE_NAME_LEN; i++)
+        to[i] = '\0';
+}
+
+void play_load_pattern(play *p, uint32_t q)
+{
+    static seq_pattern pat;                     /* (main loop only: kept off its stack) */
+    char name[STORE_NAME_LEN + 1u];
+    if (q >= PAT_SLOTS)
         return;
-    store_lib_load(p->lib_attached, p->io);     /* the banks' reads: here, not in init */
-    p->lib = p->lib_attached;
-    p->lib_attached = 0;
+    if (p->seq.want && p->seq.playing && q == p->pat_prog) {
+        seq_cancel_next(&p->seq);               /* back to the running one: nothing queued */
+        p->pat_next = -1;
+        return;
+    }
+    if (p->plib)
+        (void)pat_slot_read(p->plib, q, &pat, name);
+    else {
+        seq_pattern_empty(&pat);
+        name[0] = '\0';
+    }
+    seq_load_pattern(&p->seq, &pat);
+    if (seq_next_queued(&p->seq)) {
+        p->pat_next = (int32_t)q;
+        copy_name(p->pat_next_name, name);
+    } else {
+        p->pat_prog = q;
+        p->pat_next = -1;
+        copy_name(p->pat_name, name);
+    }
+}
+
+void play_pattern_tick(play *p)
+{
+    (void)seq_main_tick(&p->seq);
+    if (p->pat_next >= 0 && !seq_next_queued(&p->seq)) {   /* taken over, or loaded by a stop */
+        p->pat_prog = (uint32_t)p->pat_next;
+        copy_name(p->pat_name, p->pat_next_name);
+        p->pat_next = -1;
+    }
+}
+
+void play_pattern_snapshot(const play *p, seq_pattern *snap)
+{
+    *snap = p->seq.edit;
+}
+
+int play_pattern_write(play *p, uint32_t dest, const seq_pattern *snap, const char *name)
+{
+    if (!p->plib || !p->io || dest >= PAT_SLOTS || pat_slot_write(p->plib, p->io, dest, snap, name) != 0)
+        return -1;
+    p->pat_prog = dest;
+    copy_name(p->pat_name, name);
+    p->seq.stored = *snap;                      /* edited now only by what changed since the snapshot */
+    return 0;
+}
+
+int play_pattern_save(play *p, uint32_t dest, const char *name)
+{
+    static seq_pattern snap;
+    play_pattern_snapshot(p, &snap);
+    return play_pattern_write(p, dest, &snap, name);
 }
 
 uint32_t play_silent(const play *p)
@@ -132,6 +238,11 @@ int play_init(play *p)
     p->sounding = 0;
     p->comparing = 0;
     seq_init(&p->seq);
+    p->plib = p->plib_attached = 0;
+    p->store_bank = 0;
+    p->pat_prog = 0;
+    p->pat_next = -1;
+    p->pat_name[0] = p->pat_next_name[0] = '\0';
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
         return -1;
     p->patch = &PATCHES[PATCH_SOUNDTRACK];

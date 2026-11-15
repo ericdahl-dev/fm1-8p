@@ -42,6 +42,7 @@
 #include "test_ui_reach.c"
 #include "test_seq.c"
 #include "test_seq_play.c"
+#include "test_play_patterns.c"
 
 int main(void)
 {
@@ -73,5 +74,6 @@ int main(void)
     run_ui_reach_tests();
     run_seq_tests();
     run_seq_play_tests();
+    run_play_patterns_tests();
     return tt_report();
 }
