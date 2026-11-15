@@ -15,3 +15,15 @@ int32_t dfont_glyph(char c)
             return (int32_t)i;
     return -1;
 }
+
+const dfont DFONT_D24 = {D24_W, D24_DATA, D24_OFF, D24_H, D24_GAP};
+const dfont DFONT_D20 = {D20_W, D20_DATA, D20_OFF, D20_H, D20_GAP};
+
+int32_t dfont_width(const dfont *f, const char *s)
+{
+    int32_t w = 0, g;
+    for (; *s; s++)
+        if ((g = dfont_glyph(*s)) >= 0)
+            w += f->w[g] + f->gap;
+    return w ? w - f->gap : 0;
+}

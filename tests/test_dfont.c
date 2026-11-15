@@ -12,7 +12,19 @@ TT_TEST(dfont_finds_every_glyph)
     TT_CHECK_EQ(dfont_glyph('z'), dfont_glyph('Z'));
 }
 
+/* A string's width is its glyphs' widths plus a gap between each two: no gap after the last; "" is 0.
+ * Pinned against display_font.h's widths (D24: "1" 9, "0" and "2" 11, "." 3; gap 2) */
+TT_TEST(dfont_widths)
+{
+    TT_CHECK_EQ(dfont_width(&DFONT_D24, ""), 0);
+    TT_CHECK_EQ(dfont_width(&DFONT_D24, "1"), 9);
+    TT_CHECK_EQ(dfont_width(&DFONT_D24, "120"), 9 + 11 + 11 + 2 * 2);
+    TT_CHECK_EQ(dfont_width(&DFONT_D24, "1.2"), 9 + 3 + 11 + 2 * 2);
+    TT_CHECK_EQ(dfont_width(&DFONT_D20, "c min7"), dfont_width(&DFONT_D20, "C MIN7"));
+}
+
 static void run_dfont_tests(void)
 {
     TT_RUN(dfont_finds_every_glyph);
+    TT_RUN(dfont_widths);
 }

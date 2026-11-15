@@ -11,3 +11,16 @@ extern const uint32_t dfont_n;
 
 /* c's glyph: its index in dfont_chars, lower case as upper; -1 when the font has none */
 int32_t dfont_glyph(char c);
+
+/* a size: its glyph widths, bitmaps (1 bit a pixel, MSB first, each row ceil(w / 8) bytes) and where each
+ * glyph starts, its height and the gap between glyphs */
+typedef struct {
+    const uint8_t *w, *data;
+    const uint16_t *off;
+    uint32_t h;
+    int32_t gap;
+} dfont;
+extern const dfont DFONT_D24, DFONT_D20;
+
+/* s's width in f, px: its glyphs and a gap between each two */
+int32_t dfont_width(const dfont *f, const char *s);
