@@ -283,7 +283,9 @@ int32_t fm_filter_linear_cents(int32_t cents)
     /* C(u) = cents: d = (sqrt(1 + 4 A Y) - 1) / 2A, Y = cents + 1474 */
     y = (uint64_t)((int64_t)cents - CURVE_ZERO);
     s = isqrt64((1ull << 32) + 4ull * CURVE_A_Q32 * y); /* Q16 */
-    u = CURVE_ZERO + (int32_t)(((uint64_t)(s - 65536u) * 32768u + 16035u) / 32070u);
+    /* s - 65536 is under 25000 (cents is held to 2 x open), so the
+     * numerator stays under 8.2e8: a 32-bit divide */
+    u = CURVE_ZERO + (int32_t)(((s - 65536u) * 32768u + 16035u) / 32070u);
     /* the u whose curve value is nearest `cents` (the lower on a tie) */
     while (curve_of(u) < cents) u++;
     while (u > CURVE_ZERO && curve_of(u - 1) >= cents) u--;
