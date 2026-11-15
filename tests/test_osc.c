@@ -1789,12 +1789,11 @@ TT_TEST(synced_osc2_has_no_dc)
 }
 
 /*
- * SYNC 2 with a pulse osc1 (SYNC LEAD's): the ring drives osc2 past the
- * pair's +-2.0 a third of the time, and taking a mean off shifts more of
- * it into the hold, which clips one side more than the other. The pair
- * still plays with no DC.
+ * SYNC 2 with a pulse osc1 (SYNC LEAD's): the ring drives osc2 past +-2.0
+ * a third of the time (inside the pair's +-4.0 hold), and taking a mean off
+ * shifts the wave. The pair still plays with no DC.
  */
-TT_TEST(synced_ring_held_at_two_has_no_dc)
+TT_TEST(synced_ring_held_at_four_has_no_dc)
 {
     static fm_osc_pair p;
     int32_t pitch = 48 << 16;
@@ -2051,7 +2050,8 @@ TT_TEST(ring_stays_within_four)
         }
     }
     printf("    ring: largest sample %.3f\n", peak / RING_ONE);
-    TT_CHECK(peak <= (4 << 24));
+    /* under the hold, not at it: nothing is cut (3.503 at worst) */
+    TT_CHECK(peak < (int32_t)(3.6 * RING_ONE));
 }
 
 /*
@@ -2182,7 +2182,7 @@ static void run_osc_tests(void)
     TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
     TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
     TT_RUN(synced_osc2_has_no_dc);
-    TT_RUN(synced_ring_held_at_two_has_no_dc);
+    TT_RUN(synced_ring_held_at_four_has_no_dc);
     TT_RUN(synced_ring_settles_after_osc1_stops);
     TT_RUN(xmod_follows_osc2_coarse_changed_on_a_held_note);
     TT_RUN(xmod_zero_matches_no_xmod);

@@ -634,7 +634,10 @@ static int32_t ring(const fm_osc_pair *p, int32_t x, int32_t m)
  * leaves, not what came in, takes off the DC the hold adds when the
  * offset shifts the wave into it (a ringed osc2 runs into +-4.0). The
  * offset needs no hold of its own: past the wave's range every sample
- * leaves at the hold and pulls it back, so it stays within about +-4.0.
+ * leaves at the hold and pulls it back, so it stays within about +-4.0
+ * (+-8.0 at worst, where a cycle's mean overshoots after osc1 is pitched
+ * up mid-cycle and cycle_mean holds it at +-4.0; v less it then fits
+ * 32 bits with room).
  */
 static int32_t cycle_mean(int64_t sum, uint32_t inc)
 {

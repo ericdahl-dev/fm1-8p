@@ -2315,8 +2315,8 @@ TT_TEST(open_filter_without_envelope_matches_the_full_render)
  * The same with osc2 synced and cross-modulated hard (and both
  * oscillators heard, on a pulse and a saw): the render's cheapest path
  * passes the pair's output straight through, which needs the pair to stay
- * inside the soft clip's untouched +-2.0 (max_xmod_and_sync_stay_in_range
- * holds it at 1.0), so it must match the full path bit for bit.
+ * inside the filter's hold, +-8.0 (max_xmod_and_sync_stay_in_range holds
+ * it at 1.0), so it must match the full path bit for bit.
  */
 TT_TEST(open_filter_with_sync_and_xmod_matches_the_full_render)
 {
@@ -2357,8 +2357,9 @@ TT_TEST(open_filter_with_sync_and_xmod_matches_the_full_render)
 /*
  * The same with the ring on (SYNC 2: a saw osc1 ringing a synced square,
  * mixed alone, where the ring peaks highest): the cheapest path passes it
- * straight through, which needs it inside the soft clip's untouched +-2.0
- * (ring_stays_within_two), so it must match the full path bit for bit.
+ * straight through, which needs it inside the filter's hold, +-8.0 (the
+ * ring's is +-4.0, ring_stays_within_four), so it must match the full path
+ * bit for bit.
  */
 TT_TEST(open_filter_with_the_ring_matches_the_full_render)
 {
