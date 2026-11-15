@@ -309,6 +309,8 @@ static const int32_t k_tab[14] = { 1555853578, 1107028459, 921274491, 913757962,
 #define Z1_FULL  671088640                     /* 5/8, Q30 */
 #define Z1_T0    53687091                      /* t 0.4, Q5.27 */
 #define Z1_T1    161061274                     /* t 1.2, Q5.27 */
+#define Z1_T0R   40265318                      /* t 0.3, Q5.27: at resonance 0 */
+#define Z1_T1R   134217728                     /* t 1.0, Q5.27 */
 #define K_TOP    683920082                     /* 0.637 (2 / pi), Q30 */
 #define K_93     458487882                     /* k at RES 93 (756), where the f0 offset is measured */
 #define RATE48_CENTS 15023                     /* fm_filter_rate_cents(48000) */
@@ -348,7 +350,7 @@ static int32_t tan_of(int32_t d)
 /* The coefficients from the cutoff, rate and resonance as set: control rate, a few 32-bit divides. */
 static void apply(fm_filter *f)
 {
-    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, t48, tt, k, kl, trim, den, a1;
+    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, t48, tt, k, kl, trim, den, a1, w;
     int was_open = fm_filter_is_wire(f);
     i = c / 1200;
     r = c % 1200;
@@ -356,6 +358,8 @@ static void apply(fm_filter *f)
                      : f0_off[i] + (f0_off[i + 1] - f0_off[i]) * r / 1200) - f->rate;   /* f0 / fs, cents */
     t = tan_of(d);                                                                       /* Q5.27, <= 6.72 */
     k = k_of(f->res);                                                                    /* Q30, <= 1.45 */
+    w = ONE_Q30 - (int32_t)(((int64_t)k * Q0_Q30) >> 30);     /* how much peak: 0 at resonance 0 */
+    w = w <= 0 ? 0 : w >= ONE_Q30 / 2 ? ONE_Q30 : 2 * w;      /* twice it, to 1 from about resonance 400 */
     /* PG-8X's Q falls a little at high cutoffs (F80: 3..10 %, F49: none): k + K_TOP k^2 t, and its
      * passband rises half as much (the level's k: k + half that). Fitted to F80 (t 0.25), and taken no
      * further than t 0.3 (F82): at most 0.4 more, k within 1.85 */
@@ -386,8 +390,15 @@ static void apply(fm_filter *f)
     f->a2 = (int32_t)(((int64_t)a1 * t) >> 27);
     f->a3 = (int32_t)(((int64_t)f->a2 * t) >> 27);
     f->t = t;
-    f->z1 = t <= Z1_T0 ? Z1_FULL : t >= Z1_T1 ? 0
-          : (int32_t)(((int64_t)(Z1_T1 - t) * 25) >> 2);   /* Z1_FULL / (Z1_T1 - Z1_T0) is 6.25 */
+    {   /* section 1's zeros: 5/8 of the way to the origin, to none near Nyquist, from t 0.4 to 1.2 where
+         * there is a peak (PG-8X's peaks at F88..F96), from 0.3 to 1.0 at resonance 0 (its slope past f0
+         * up to F104, as match.py's VCF_FREQ reads it); between, by w (twice 1 - k Q0, to 1) */
+        int32_t zp = t <= Z1_T0 ? Z1_FULL : t >= Z1_T1 ? 0
+                   : (int32_t)(((int64_t)(Z1_T1 - t) * 25) >> 2);          /* Z1_FULL / (Z1_T1 - Z1_T0): 6.25 */
+        int32_t z0 = t <= Z1_T0R ? Z1_FULL : t >= Z1_T1R ? 0
+                   : (int32_t)(((int64_t)(Z1_T1R - t) * 479349029) >> 26);  /* Z1_FULL / 0.7: 50/7, Q26 */
+        f->z1 = z0 + (int32_t)(((int64_t)(zp - z0) * w) >> 30);
+    }
     f->a = (int32_t)(((int64_t)(kl > K_FLOOR ? kl : K_FLOOR) * Q0_Q30) >> 30);            /* <= 1.0 (1.2 at the top) */
     {   /* the zero corrections lift the resonant peak past F80 over PG-8X's (F88: 1.4 dB, F96: 4.0):
          * the level takes out 1 + E_LIFT (t^2 - t80^2) of it (none to F80; t^2 - t80^2 held to 0.4, so
@@ -408,8 +419,7 @@ static void apply(fm_filter *f)
                                  * fold): the sections' peak near Nyquist (zeros at the origin) to PG-8X's
                                  * height at F104 (+8.8..17.6 dB); the passband is the input's either way,
                                  * and at resonance 0 the fade is as it was */
-        int32_t f1 = f->fade, f3, w = ONE_Q30 - (int32_t)(((int64_t)k_of(f->res) * Q0_Q30) >> 30);
-        w = w <= 0 ? 0 : w >= ONE_Q30 / 2 ? ONE_Q30 : 2 * w;   /* (twice it, to 1 from about resonance 400) */
+        int32_t f1 = f->fade, f3;                       /* (w: as section 1's zeros) */
         f3 = (int32_t)(((int64_t)f1 * f1) >> 30);
         f3 = (int32_t)(((int64_t)f3 * f1) >> 30);
         f->fade = f1 - (int32_t)(((int64_t)(f1 - f3) * w) >> 30);

@@ -587,6 +587,45 @@ TT_TEST(svf_top_stops_where_pg8x_does)
     TT_CHECK(wh < 2.0 && wc < 30.0 && lc > -100.0);
 }
 
+/* PG-8X 2.0.13 at RES 0, VCF FREQ 96/100/104 (match.py's VCF_FREQ probe, KEY 0 at C4: the engine's
+ * 10479/11017/11558): its cutoff as match.py's measure.asym_fc reads it, the 24 dB/oct asymptote
+ * (f 10^(H/80), the median where H is 25..55 dB under the passband, under 18 kHz) */
+static const struct { int16_t cut; float hz; } PG_ASYM[] = { { 10479, 3314.8f }, { 11017, 4580.7f }, { 11558, 6359.5f } };
+
+/* At resonance 0 up to F104 the slope past f0 reads as PG-8X's: the asymptote's cutoff within half a
+ * semitone of its */
+TT_TEST(svf_top_slope_is_pg8x_at_resonance_0)
+{
+    static fm_filter f;
+    int32_t rate = fm_filter_rate_cents(SVF_RATE);
+    double worst = 0;
+    size_t r;
+    for (r = 0; r < sizeof PG_ASYM / sizeof PG_ASYM[0]; r++) {
+        double g[400], hz[400], pas = -1e9, v[400], st;
+        int n = 0, m = 0, i, j, ipk = 0;
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, 0);
+        fm_filter_set_cutoff(&f, PG_ASYM[r].cut, rate);
+        for (n = 0; n < 400; n++) {             /* measure.py's GRID: 20 Hz by 1/24 octave, under 20 kHz */
+            hz[n] = 20.0 * pow(2.0, n / 24.0);
+            if (hz[n] >= 20000.0) break;
+            g[n] = svf_gain_db(&f, hz[n], SVF_RATE);
+        }
+        for (i = 0; i < n; i++)
+            if (hz[i] < 18000.0 && g[i] > g[ipk]) ipk = i;
+        for (i = 0; i <= ipk; i++) pas = fmax(pas, g[i]);
+        for (i = ipk + 1; i < n && hz[i] < 18000.0; i++)
+            if (g[i] - pas < -25.0 && g[i] - pas > -55.0) v[m++] = hz[i] * pow(10.0, (g[i] - pas) / 80.0);
+        for (i = 1; i < m; i++)                 /* the median */
+            for (j = i; j > 0 && v[j - 1] > v[j]; j--) { double x = v[j]; v[j] = v[j - 1]; v[j - 1] = x; }
+        st = m ? 12 * log2((m % 2 ? v[m / 2] : (v[m / 2 - 1] + v[m / 2]) / 2) / PG_ASYM[r].hz) : 99;
+        printf("    cutoff %d, resonance 0: the asymptote's cutoff %+.2f st from PG-8X's (%d points)\n",
+               PG_ASYM[r].cut, st, m);
+        worst = fmax(worst, fabs(st));
+    }
+    TT_CHECK(worst < 0.5);
+}
+
 static void run_svf_tests(void)
 {
     TT_RUN(svf_lowpass_is_pg8x_two_sections);
@@ -602,4 +641,5 @@ static void run_svf_tests(void)
     TT_RUN(svf_input_past_the_hold_is_the_hold);
     TT_RUN(svf_top_peaks_are_pg8x);
     TT_RUN(svf_top_stops_where_pg8x_does);
+    TT_RUN(svf_top_slope_is_pg8x_at_resonance_0);
 }
