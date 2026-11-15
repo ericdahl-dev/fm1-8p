@@ -696,8 +696,133 @@ TT_TEST(seq_roll_wide_span_fits_once)
     TT_CHECK(!ui_seq_roll_fit(&ui_u));
 }
 
+/* MIDI clock in at 120 BPM: n ticks, from host time 0 (24 MHz, 500000 counts a tick) */
+static void seq_clock_ticks(uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        seq_clock_in(play_seq(&ui_p), 0xF8u, i * (SEQ_CLK_HZ / 48u));
+}
+
+/* Under external clock, TEMPO shows the clock's tempo and MIDI CLOCK (interaction.md 5); on INT, the
+ * pattern's tempo in BPM */
+TT_TEST(seq_tempo_shows_the_midi_clock)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN], want[UI_VALUE_LEN];
+    uint32_t t;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(unit, "BPM") == 0);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    seq_clock_ticks(96);
+    t = seq_clock_tempo(play_seq(&ui_p));
+    TT_CHECK(t >= 1190u && t <= 1210u);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(unit, "MIDI CLOCK") == 0);
+    snprintf(want, sizeof want, "%u", (unsigned)(t / 10u));
+    TT_CHECK(strncmp(num, want, strlen(want)) == 0);
+}
+
+/* A TEMPO turn under external clock changes nothing and says TEMPO FOLLOWS MIDI CLOCK (case 48) */
+TT_TEST(seq_tempo_turn_under_the_clock_says_so)
+{
+    uint32_t before;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    seq_clock_ticks(96);
+    before = seq_tempo(play_seq(&ui_p));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 5, 1100);
+    TT_CHECK_EQ(seq_tempo(play_seq(&ui_p)), before);
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+    TT_CHECK(strcmp(ui_banner(&ui_u), "TEMPO FOLLOWS MIDI CLOCK") == 0);
+    TT_CHECK(strlen(ui_banner(&ui_u)) <= 28u);
+}
+
+/* The transport's clock (interaction.md 7): INT, MIDI, or WAITING FOR CLOCK while PLAY waits (case 47) */
+TT_TEST(seq_clock_text_names_the_source)
+{
+    char t[UI_SEQ_TEXT_LEN];
+    ui_setup();
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "INT") == 0);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);      /* G13 MIDI, no clock yet */
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "MIDI") == 0);
+    ui_tap(UI_BTN_PLAY, 1000);
+    TT_CHECK(seq_waiting(play_seq(&ui_p)));
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "WAITING FOR CLOCK") == 0);
+}
+
+/* The clock changes with no input (it starts, its tempo moves, PLAY waits): SEQ view's TEMPO, header and
+ * footer redraw by themselves; with nothing changed, none of them */
+TT_TEST(seq_clock_changes_redraw_by_themselves)
+{
+    uint32_t d, i;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1100);
+    TT_CHECK_EQ(ui_take(&ui_u, 1200) & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), 0u);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);      /* INT to MIDI */
+    d = ui_take(&ui_u, 1300);
+    TT_CHECK_EQ(d & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), UI_D_FOOT | UI_D_HEAD | UI_D_COL(0));   /* (the roll's
+                                                                                   header: >07 120 MIDI) */
+    seq_clock_ticks(96);                                      /* 120 BPM: as shown already, so nothing */
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK_EQ(ui_take(&ui_u, 1500) & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), 0u);
+    for (i = 96; i < 192; i++)                                /* faster: 140 BPM */
+        seq_clock_in(play_seq(&ui_p), 0xF8u, 96u * (SEQ_CLK_HZ / 48u) + (i - 96u) * (SEQ_CLK_HZ / 56u));
+    TT_CHECK(ui_take(&ui_u, 1600) & UI_D_COL(0));
+}
+
+/* G13 MIDI before any clock comes in: TEMPO shows the pattern's tempo (the clock has none yet), still
+ * marked MIDI CLOCK; a turn still says the clock sets it */
+TT_TEST(seq_tempo_before_the_clock_comes_in)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(num, "120") == 0);
+    TT_CHECK(strcmp(unit, "MIDI CLOCK") == 0);
+}
+
+/* A 120 BPM clock with +-1.5 ms of jitter: once it has settled, TEMPO shows 120 and the screen doesn't
+ * redraw for the clock's small moves (the firmware review: the raw tempo redrew at frame rate) */
+TT_TEST(seq_jittery_clock_settles_on_the_screen)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    uint32_t i, r = 777u, redraws = 0, ms = 1000;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, ms);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    for (i = 0; i < 960u; i++) {                              /* 40 beats */
+        r = r * 1103515245u + 12345u;
+        seq_clock_in(play_seq(&ui_p), 0xF8u, 1000000u + i * (SEQ_CLK_HZ / 48u) + (r >> 16) % 72000u - 36000u);
+        if (i % 4u == 0) {                                    /* a frame each 4 ticks (about 30 a second) */
+            ms += 40u;
+            if (i >= 480u && ui_take(&ui_u, ms) & (UI_D_FOOT | UI_D_COL(0)))
+                redraws++;
+            else if (i < 480u)
+                (void)ui_take(&ui_u, ms);
+        }
+    }
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(num, "120") == 0);
+    TT_CHECK_EQ(redraws, 0u);
+}
+
 static void run_ui_seq_tests(void)
 {
+    TT_RUN(seq_tempo_shows_the_midi_clock);
+    TT_RUN(seq_tempo_turn_under_the_clock_says_so);
+    TT_RUN(seq_clock_text_names_the_source);
+    TT_RUN(seq_clock_changes_redraw_by_themselves);
+    TT_RUN(seq_tempo_before_the_clock_comes_in);
+    TT_RUN(seq_jittery_clock_settles_on_the_screen);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
