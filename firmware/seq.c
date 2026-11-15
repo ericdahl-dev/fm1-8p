@@ -61,7 +61,7 @@ void seq_init(seq *s)
     s->steps = 0;
     s->clk_src = SEQ_CLK_AUTO;
     s->clk_present = s->clk_pending = s->clk_running = s->clk_armed = 0;
-    s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = s->clk_k = s->clk_view = s->clk_win = s->clk_far = 0;
+    s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = s->clk_k = s->clk_view = s->clk_win = s->clk_far = s->clk_late = s->clk_raw = 0;
     s->clk_freq = 0;
     s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = s->ext_hold = 0;
     s->blk_seq = s->blk_t = s->blk_u = s->blk_inc = s->blk_fs = 0;
@@ -314,6 +314,7 @@ uint32_t seq_steps(const seq *s)
 #define CLK_CHANGE_PCT 4u                      /* ... past this % of the length: taken at once */
 #define CLK_SMOOTH 16u                         /* the length is smoothed 1/this a tick */
 #define CLK_VIEW 16u                           /* and again 1/this, for the tempo shown */
+#define CLK_DT_MIN (SEQ_CLK_HZ / 1000u)         /* the shortest tick taken: 1 ms */
 #define CLK_GONE_MIN (SEQ_CLK_HZ / 4u)         /* gone: no tick for 250 ms, or 3 ticks if longer */
 
 void seq_set_clock_source(seq *s, uint32_t src)
@@ -381,11 +382,37 @@ static uint32_t mean_len(const seq *s, uint32_t t, uint32_t m)
 
 static void clock_tick(seq *s, uint32_t t)
 {
-    uint32_t bt, bu, binc, fs;
+    uint32_t bt, bu, binc, fs, held = 0;
     if (!s->clk_present) {
         s->clk_present = 1;
         s->clk_win = 0;
         s->clk_dt = s->clk_shown = s->clk_view = 0;
+    }
+    if (!s->clk_win || !s->clk_dt)
+        s->clk_raw = t;
+    if (s->clk_win && s->clk_dt) {
+        /* held up (a USB stall): a tick more than 1.5 lengths after the last is taken a length after it,
+         * where it was due, and so are the ones that come bunched up after it (under a third of a length
+         * apart), none later than it came. If the next comes a length or more on, not bunched, it was the
+         * tempo slowing down: it is taken as it came, and the window starts again from it. */
+        uint32_t prev = s->clk_t[(s->clk_n - 1u) % SEQ_CLK_HIST], gap = t - prev, raw = t - s->clk_raw;
+        s->clk_raw = t;
+        if ((!s->clk_late && gap > s->clk_dt + s->clk_dt / 2u) || (s->clk_late && raw < s->clk_dt / 3u)) {
+            uint32_t due = prev + s->clk_dt;
+            t = (int32_t)(t - due) < 0 ? t : due;
+            s->clk_late = s->clk_late ? 2u : 1u;    /* (2: others came bunched after it) */
+            held = 1;
+        } else if (s->clk_late) {
+            if (s->clk_late == 1u) {            /* it slowed: the length is the one it came after, and
+                                                 * measured again from here */
+                s->clk_win = 0;
+                s->clk_dt = raw < CLK_DT_MIN ? CLK_DT_MIN : raw;
+                s->clk_shown = s->clk_view = s->clk_dt << 4;
+                s->clk_freq = 0;
+                s->clk_k = 0;
+            }
+            s->clk_late = 0;
+        }
     }
     s->clk_t[s->clk_n % SEQ_CLK_HIST] = t;
     s->clk_n++;
@@ -407,6 +434,10 @@ static void clock_tick(seq *s, uint32_t t)
             s->clk_shown += (uint32_t)((int32_t)((d << 4) - s->clk_shown) / (int32_t)CLK_SMOOTH);
         }
         s->clk_dt = (s->clk_shown + 8u) >> 4;
+        if (s->clk_dt < CLK_DT_MIN) {           /* (past any clock: 2500 BPM) */
+            s->clk_dt = CLK_DT_MIN;
+            s->clk_shown = CLK_DT_MIN << 4;
+        }
         s->clk_view += (uint32_t)((int32_t)(s->clk_shown - s->clk_view) / (int32_t)CLK_VIEW);   /* calmer, to read */
     }
     block_read(s, &bt, &bu, &binc, &fs);
@@ -434,7 +465,11 @@ static void clock_tick(seq *s, uint32_t t)
     }
     if (s->clk_running && !s->clk_pending)
         s->ext_hold = 0;                        /* (a tick: on again) */
-    if (s->clk_running && s->clk_dt) {          /* where the steps were at this tick, against it */
+    if (s->clk_running && s->clk_dt && held) {  /* (a held-up tick: counted, the rate left till one comes
+                                                 * as it should) */
+        s->clk_target += fs * 100u;
+        s->clk_k++;
+    } else if (s->clk_running && s->clk_dt) {   /* where the steps were at this tick, against it */
         int32_t f = frames_q8((int32_t)(t - bt), fs);
         uint32_t at = bu + (uint32_t)((f >> 8) * (int32_t)binc) + (uint32_t)(((f & 255) * (int32_t)binc) >> 8);
         s->clk_target += fs * 100u;

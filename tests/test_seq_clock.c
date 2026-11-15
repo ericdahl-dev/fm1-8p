@@ -14,6 +14,7 @@ static ck_msg ck_msgs[40000];
 static uint32_t ck_n_msgs;
 static double ck_on[4096];                     /* each note on's time, s from the render's start */
 static uint8_t ck_note[4096];                  /* and its note (step i plays 48 + i) */
+static double ck_off[4096];                    /* each note off's time */
 static uint32_t ck_n_on, ck_n_off;
 static uint32_t ck_done, ck_m;                 /* ck_run's frames rendered and messages handled so far */
 static uint32_t ck_rng = 12345u;
@@ -106,8 +107,11 @@ static void ck_run(double secs)
                     ck_note[ck_n_on] = ev[k].note;
                     ck_on[ck_n_on++] = (double)(done + ev[k].at) / CK_FS;
                 }
-                else if (!ev[k].vel)
+                else if (!ev[k].vel) {
+                    if (ck_n_off < 4096)
+                        ck_off[ck_n_off] = (double)(done + ev[k].at) / CK_FS;
                     ck_n_off++;
+                }
             }
         done += CK_BLOCK;
     }
@@ -235,8 +239,8 @@ static double ck_worst_ticks_ms(uint32_t k0, uint32_t first, uint32_t last)
     return worst;
 }
 
-/* The tempo changes under a playing pattern: a jump, 120 to 140 BPM, is back on the grid (1 ms) within
- * 2 beats; a ramp, 100 to 160 BPM over 16 beats (8 s), stays within 3 ms of it; neither loses or adds a
+/* The tempo changes under a playing pattern: a jump, 120 to 140 BPM (or 140 to 70), is back on the grid
+ * (1 ms) within 2 beats; a ramp, 100 to 160 BPM over 16 beats (8 s), stays within 3 ms of it; neither loses or adds a
  * step. */
 TT_TEST(clock_follows_tempo_changes)
 {
@@ -254,6 +258,18 @@ TT_TEST(clock_follows_tempo_changes)
     ck_run(ck_tick_at[24u + 24u * 24u] - 0.012);
     during_ramp = ck_worst_ticks_ms(24u, 1u, 96u);
     n_ramp = ck_n_on;
+    {                                          /* and down by half at once (a gap a stall would leave) */
+        double after_half;
+        uint32_t n_half;
+        ck_fresh(SEQ_CLK_MIDI);
+        ck_ticks_ramp(0.05, 140.0, 70.0, 24u + 8u * 24u, 24u + 8u * 24u + 1u, 24u + 16u * 24u + 1u);
+        ck_msg_at(ck_tick_at[24] - 0.001, 0, 0xFAu);
+        ck_run(ck_tick_at[24u + 16u * 24u] - 0.012);
+        after_half = ck_worst_ticks_ms(24u, 32u + 8u, 64u);
+        n_half = ck_n_on;
+        printf("    140 -> 70 BPM at once: %.3f ms off from 2 beats on (%u steps)\n", after_half, n_half);
+        TT_CHECK(n_half == 64u && after_half < 1.0);
+    }
     printf("    120 -> 140 BPM: %.3f ms off from 2 beats on (%u steps); 100 -> 160 ramp: %.3f ms (%u steps)\n",
            after_jump, n_jump, during_ramp, n_ramp);
     TT_CHECK(n_jump == 64u && n_ramp == 96u);
@@ -379,6 +395,53 @@ TT_TEST(clock_source_int_midi_and_auto)
     TT_CHECK(!seq_waiting(&ck) && !seq_playing(&ck));
 }
 
+/* SWING and GATE under clock: at 66 % the second step of each pair starts 1.32 steps into it, and a
+ * 25 % gate lets go a quarter step in, of the clock's step (within 0.5 ms once locked) */
+TT_TEST(clock_swing_and_gate_follow_the_clock)
+{
+    double dt = 60.0 / 100.0 / SEQ_CLK_PPQN, step = 6 * dt, worst_on = 0, worst_off = 0;
+    uint32_t j;
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_swing(&ck, 66);
+    seq_set_gate(&ck, 25);
+    ck_ticks_ramp(0.05, 100.0, 100.0, 0, 1, 24u + 24u * 16u + 1u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[24 + 24 * 16] - 0.012);
+    for (j = 8; j < ck_n_on && j < 64; j++) {
+        double pair = ck_tick_at[24 + 12 * (j / 2)], on = pair + (j & 1u ? 1.32 * step : 0);
+        double len = j & 1u ? 0.68 * step : 1.32 * step;
+        worst_on = fmax(worst_on, fabs(ck_on[j] - on) * 1000);
+        worst_off = fmax(worst_off, fabs(ck_off[j] - (on + 0.25 * len)) * 1000);
+    }
+    printf("    swing 66 %%, gate 25 %% at 100 BPM: worst %.3f ms on, %.3f ms off (%u steps)\n", worst_on,
+           worst_off, ck_n_on);
+    TT_CHECK(ck_n_on == 64u);
+    TT_CHECK(worst_on < 0.5 && worst_off < 0.5);
+}
+
+/* A hiccup: ticks 96..104 are held up and come all at once with tick 105 (a USB stall of 208 ms, short
+ * of the 250 ms time out). The steps wait for them rather than run on, none is lost or doubled, the tempo shown
+ * doesn't jump, and 2 beats on they are back on the grid (1 ms). */
+TT_TEST(clock_rides_out_a_burst_of_late_ticks)
+{
+    uint32_t i, lo = 0xFFFFFFFFu, hi = 0;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 120.0, 120.0, 0, 1, 24u + 24u * 12u + 1u);
+    for (i = 96; i < 105; i++)
+        ck_msgs[i].stamp = ck_tick_at[105];
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_watch_from = ck_tick_at[48];
+    ck_run(ck_tick_at[24 + 24 * 12] - 0.012);
+    lo = ck_tempo_lo, hi = ck_tempo_hi;
+    printf("    a burst of 9 late ticks: %u steps, tempo shown %.1f..%.1f, %.3f ms off from 2 beats after\n", ck_n_on,
+           lo / 10.0, hi / 10.0, ck_worst_ticks_ms(24u, 22u, 48u));
+    TT_CHECK(ck_n_on == 48u);
+    for (i = 0; i < ck_n_on; i++)
+        TT_CHECK(ck_note[i] == 48u + (i % 16u));
+    TT_CHECK(lo >= 1190u && hi <= 1210u);
+    TT_CHECK(ck_worst_ticks_ms(24u, 22u, 48u) < 1.0);
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_steps_follow_a_steady_clock);
@@ -388,4 +451,6 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_start_stop_and_continue);
     TT_RUN(clock_lost_stops_and_the_internal_clock_takes_over);
     TT_RUN(clock_source_int_midi_and_auto);
+    TT_RUN(clock_swing_and_gate_follow_the_clock);
+    TT_RUN(clock_rides_out_a_burst_of_late_ticks);
 }

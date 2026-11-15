@@ -127,7 +127,10 @@ typedef struct {
     uint32_t clk_win;                   /* ticks in the length's window (since a tempo change) */
     uint32_t clk_target;
     uint32_t clk_k;                     /* ticks since the start's tick 0 (or the loop's last hard pull) */
-    uint32_t clk_far;                   /* ticks running the steps have been far off them */                /* the units the latest tick should be at, from tick 0 */
+    uint32_t clk_far;                   /* ticks running the steps have been far off them */
+    uint32_t clk_late;                  /* the last tick came held up, and was taken when it was due (1;
+                                                 * 2: and more came bunched after it) */
+    uint32_t clk_raw;                   /* when the last tick came (clk_t has when it was taken) */                /* the units the latest tick should be at, from tick 0 */
     /* main loop writes, interrupt reads: follow the clock at ext_inc units a frame, a start's
      * first tick at host time ext_t0 */
     volatile uint32_t ext;
