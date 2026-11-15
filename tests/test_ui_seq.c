@@ -41,76 +41,6 @@ TT_TEST(seq_play_starts_and_stops_anywhere)
     TT_CHECK_EQ(ui_u.state, UI_GLO);
 }
 
-/* The split keyboard (interaction.md 5): in SEQ view keys 0-15 are steps and make no sound; their up
- * goes where their down went, even if SEQ view closed in between. Outside it they play. */
-TT_TEST(seq_step_keys_are_taken_in_seq_view)
-{
-    ui_setup();
-    TT_CHECK_EQ(ui_key(&ui_u, 3, 1, 900), 0);                /* PLAY: a note */
-    TT_CHECK_EQ(ui_key(&ui_u, 3, 0, 950), 0);
-    ui_tap(UI_BTN_SEQ, 1000);
-    TT_CHECK_EQ(ui_key(&ui_u, 3, 1, 1100), 1);               /* a step: taken */
-    TT_CHECK_EQ(ui_key(&ui_u, 16, 1, 1150), 0);              /* A4, a chord key: it plays */
-    TT_CHECK_EQ(ui_key(&ui_u, 16, 0, 1160), 0);
-    ui_tap(UI_BTN_SEQ, 1200);                                 /* closed while step 3 is down */
-    TT_CHECK_EQ(ui_key(&ui_u, 3, 0, 1300), 1);               /* its up still goes to SEQ */
-    TT_CHECK_EQ(ui_key(&ui_u, 3, 1, 1400), 0);               /* and now it plays */
-    TT_CHECK_EQ(ui_key(&ui_u, 3, 0, 1450), 0);
-}
-
-/* A chord held (chord keys or MIDI in, as the module reports them) and a step key: the chord is
- * written there at its highest velocity, and the cursor moves there. More step keys while it's held
- * write it again; a step key with nothing held only moves the cursor. */
-TT_TEST(seq_chord_and_step_key_writes_the_step)
-{
-    seq *s;
-    const seq_step *st;
-    ui_setup();
-    s = play_seq(&ui_p);
-    ui_tap(UI_BTN_SEQ, 1000);
-    ui_chord_note(&ui_u, 60, 100, 1);
-    ui_chord_note(&ui_u, 64, 90, 1);
-    ui_chord_note(&ui_u, 67, 110, 1);
-    TT_CHECK_EQ(ui_key(&ui_u, 3, 1, 1100), 1);
-    st = seq_get_step(s, 3);
-    TT_CHECK_EQ(st->kind, (uint8_t)SEQ_NOTES_ON);
-    TT_CHECK_EQ(st->n, 3u);
-    TT_CHECK(st->note[0] == 60 && st->note[1] == 64 && st->note[2] == 67);
-    TT_CHECK_EQ(st->vel, 110u);
-    TT_CHECK_EQ(ui_u.seq_cursor, 3u);
-    ui_key(&ui_u, 3, 0, 1150);
-    ui_key(&ui_u, 7, 1, 1200);                                /* again, still held */
-    ui_key(&ui_u, 7, 0, 1250);
-    TT_CHECK_EQ(seq_get_step(s, 7)->n, 3u);
-    ui_chord_note(&ui_u, 60, 0, 0);
-    ui_chord_note(&ui_u, 64, 0, 0);
-    ui_chord_note(&ui_u, 67, 0, 0);
-    ui_key(&ui_u, 10, 1, 1300);                               /* nothing held: the cursor only */
-    ui_key(&ui_u, 10, 0, 1350);
-    TT_CHECK_EQ(ui_u.seq_cursor, 10u);
-    TT_CHECK_EQ(seq_get_step(s, 10)->kind, (uint8_t)SEQ_REST);
-}
-
-/* Only as many notes as the voices are kept, the first pressed, and the screen says MAX n NOTES */
-TT_TEST(seq_chord_keeps_the_first_voices_notes)
-{
-    static const uint8_t N[6] = {48, 52, 55, 59, 62, 65};
-    const seq_step *st;
-    uint32_t i;
-    char want[16];
-    ui_setup();
-    ui_tap(UI_BTN_SEQ, 1000);
-    for (i = 0; i < 6u; i++)
-        ui_chord_note(&ui_u, N[i], 80, 1);
-    ui_key(&ui_u, 0, 1, 1100);
-    st = seq_get_step(play_seq(&ui_p), 0);
-    TT_CHECK_EQ(st->n, (uint8_t)PLAY_VOICES);
-    for (i = 0; i < PLAY_VOICES; i++)
-        TT_CHECK_EQ(st->note[i], N[i]);
-    snprintf(want, sizeof want, "MAX %u NOTES", (unsigned)PLAY_VOICES);
-    TT_CHECK(strcmp(ui_banner(&ui_u), want) == 0);
-}
-
 /* SELECT moves the cursor through the pattern's length, around; page S1 PATTERN's knobs set TEMPO
  * (1 BPM a click, 10 fast), LENGTH, SWING and GATE (interaction.md 5) */
 TT_TEST(seq_select_and_the_pattern_page)
@@ -236,48 +166,8 @@ TT_TEST(seq_button_leds)
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_PLAY), (uint32_t)UI_LED_LIT);
 }
 
-/* The key LEDs in SEQ view (interaction.md 5): a step key past the length off, a rest glowing, a
- * note lit, a tie lit with a short dark blink every 500 ms, the cursor blinking lit and glow at 4 Hz
- * when stopped, the playhead its step inverted; chord keys glow, and are lit while held. Outside SEQ
- * view, while playing, the playhead's key is lit. */
-TT_TEST(seq_key_leds)
-{
-    static const uint8_t C[1] = {60};
-    seq *s;
-    ui_setup();
-    s = play_seq(&ui_p);
-    seq_set_step(s, 2, C, 1, 100);
-    seq_toggle_tie(s, 3);
-    seq_set_length(s, 8);
-    ui_tap(UI_BTN_SEQ, 1000);
-    ui_u.seq_cursor = 5;
-    ui_u.now_ms = 10000;                                      /* (a time off every blink) */
-    TT_CHECK_EQ(ui_key_led(&ui_u, 1, 0), (uint32_t)UI_LED_GLOW);   /* a rest */
-    TT_CHECK_EQ(ui_key_led(&ui_u, 2, 0), (uint32_t)UI_LED_LIT);    /* a note */
-    TT_CHECK_EQ(ui_key_led(&ui_u, 3, 0), (uint32_t)UI_LED_LIT);    /* a tie, between its blinks */
-    ui_u.now_ms = 10450;
-    TT_CHECK_EQ(ui_key_led(&ui_u, 3, 0), (uint32_t)UI_LED_OFF);    /* its blink */
-    TT_CHECK_EQ(ui_key_led(&ui_u, 9, 0), (uint32_t)UI_LED_OFF);    /* past the length */
-    ui_u.now_ms = 10000;
-    TT_CHECK_EQ(ui_key_led(&ui_u, 5, 0), (uint32_t)UI_LED_LIT);    /* the cursor: lit, then glow */
-    ui_u.now_ms = 10125;
-    TT_CHECK_EQ(ui_key_led(&ui_u, 5, 0), (uint32_t)UI_LED_GLOW);
-    TT_CHECK_EQ(ui_key_led(&ui_u, 20, 0), (uint32_t)UI_LED_GLOW);  /* a chord key */
-    TT_CHECK_EQ(ui_key_led(&ui_u, 20, 1), (uint32_t)UI_LED_LIT);
-    ui_tap(UI_BTN_PLAY, 1200);
-    seq_render_to(2);
-    TT_CHECK_EQ(ui_key_led(&ui_u, 2, 0), (uint32_t)UI_LED_OFF);    /* the playhead on a note */
-    seq_render_to(4);
-    TT_CHECK_EQ(ui_key_led(&ui_u, 4, 0), (uint32_t)UI_LED_LIT);    /* on a rest */
-    TT_CHECK_EQ(ui_key_led(&ui_u, 5, 0), (uint32_t)UI_LED_GLOW);   /* (playing: no cursor blink) */
-    ui_tap(UI_BTN_SEQ, 1400);                                 /* PLAY state, still playing */
-    TT_CHECK_EQ(ui_key_led(&ui_u, 4, 0), (uint32_t)UI_LED_LIT);
-    TT_CHECK_EQ(ui_key_led(&ui_u, 2, 0), (uint32_t)UI_LED_OFF);
-    TT_CHECK_EQ(ui_key_led(&ui_u, 2, 1), (uint32_t)UI_LED_LIT);    /* a held key */
-}
-
 /* What SEQ view reads out: a knob's value for its column (TEMPO in BPM, a sign on TRANSPOSE, -- for a
- * knob that waits); a step as its notes by name, REST or TIE; the chord held now */
+ * knob that waits); a step as its notes by name, REST or TIE; while a step is armed, the notes played */
 TT_TEST(seq_texts)
 {
     static const uint8_t CH[3] = {60, 64, 67};
@@ -310,6 +200,8 @@ TT_TEST(seq_texts)
     TT_CHECK(strcmp(t, "REST") == 0);
     ui_seq_chord_text(&ui_u, t);
     TT_CHECK(strcmp(t, "") == 0);
+    ui_key(&ui_u, 0, 1, 1300);                                /* armed on step 1: the notes played so far */
+    ui_key(&ui_u, 0, 0, 1350);
     ui_chord_note(&ui_u, 57, 90, 1);
     ui_chord_note(&ui_u, 61, 90, 1);
     ui_seq_chord_text(&ui_u, t);
@@ -431,18 +323,192 @@ TT_TEST(seq_stops_when_the_picker_opens)
     TT_CHECK(!s->want);
 }
 
+/* the key (0..26 from F3) of step i (0..15): the white keys F3..G5 in order (Eric, over decision Q1) */
+static const uint8_t SEQ_WK[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
+static const uint8_t SEQ_BK[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
+
+/* a key that plays while armed, as the module reports it: ui_key leaves it, it sounds, and the note
+ * joins the chord (ui_chord_note) */
+static void seq_note(uint32_t k, uint32_t note, uint32_t vel, int down, uint32_t ms)
+{
+    TT_CHECK_EQ(ui_key(&ui_u, k, down, ms), 0);
+    ui_chord_note(&ui_u, note, vel, down);
+}
+
+/* SEQ view's keyboard (Eric): the 16 white keys F3..G5 are the steps; the 11 black keys do nothing
+ * (silent). A white key's up goes where its down went, even after SEQ view closed. Outside it, every
+ * key plays. */
+TT_TEST(seq_white_keys_are_steps_and_black_keys_nothing)
+{
+    uint32_t i;
+    ui_setup();
+    TT_CHECK_EQ(ui_key(&ui_u, 2, 1, 900), 0);                /* PLAY: a note */
+    TT_CHECK_EQ(ui_key(&ui_u, 2, 0, 950), 0);
+    ui_tap(UI_BTN_SEQ, 1000);
+    for (i = 0; i < 11u; i++) {                               /* black: taken, nothing happens */
+        TT_CHECK_EQ(ui_key(&ui_u, SEQ_BK[i], 1, 1100 + 10 * i), 1);
+        TT_CHECK_EQ(ui_key(&ui_u, SEQ_BK[i], 0, 1105 + 10 * i), 1);
+        TT_CHECK(!ui_u.seq_armed);
+    }
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[15], 1, 1300), 1);      /* G5: step 16, taken */
+    TT_CHECK_EQ(ui_u.seq_cursor, 15u);
+    ui_tap(UI_BTN_SEQ, 1400);                                 /* closed while it's down */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[15], 0, 1500), 1);      /* its up still goes to SEQ */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[15], 1, 1600), 0);      /* and now it plays */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[15], 0, 1650), 0);
+}
+
+/* Tap a step, then play (Eric): the white key moves the cursor there and arms it; then all 27 keys
+ * (and MIDI in) play, and the notes played go to that step, the first PLAY_VOICES pressed at the
+ * highest velocity, when the last is let go; the cursor moves on to the next step and the white keys
+ * are steps again. */
+TT_TEST(seq_tap_a_step_then_play_writes_it)
+{
+    seq *s;
+    const seq_step *st;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[4], 1, 1100), 1);       /* C4: step 5 */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[4], 0, 1150), 1);
+    TT_CHECK_EQ(ui_u.seq_cursor, 4u);
+    TT_CHECK(ui_u.seq_armed);
+    seq_note(SEQ_WK[4], 60, 100, 1, 1200);                    /* the same key now plays: C4 */
+    seq_note(SEQ_BK[3], 61, 90, 1, 1210);                     /* a black key plays too: C#4 */
+    seq_note(SEQ_WK[6], 64, 110, 1, 1220);                    /* E4 */
+    seq_note(SEQ_WK[6], 64, 0, 0, 1300);                      /* let go one by one: */
+    TT_CHECK_EQ(seq_get_step(s, 4)->kind, (uint8_t)SEQ_REST); /* (not yet) */
+    seq_note(SEQ_BK[3], 61, 0, 0, 1310);
+    seq_note(SEQ_WK[4], 60, 0, 0, 1320);                      /* the last: written */
+    st = seq_get_step(s, 4);
+    TT_CHECK_EQ(st->kind, (uint8_t)SEQ_NOTES_ON);
+    TT_CHECK_EQ(st->n, 3u);
+    TT_CHECK(st->note[0] == 60 && st->note[1] == 61 && st->note[2] == 64);
+    TT_CHECK_EQ(st->vel, 110u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 5u);                         /* on to the next */
+    TT_CHECK(!ui_u.seq_armed);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[0], 1, 1400), 1);       /* white keys are steps again */
+    ui_key(&ui_u, SEQ_WK[0], 0, 1450);
+    ui_chord_note(&ui_u, 67, 100, 1);                         /* MIDI in plays and writes the same */
+    ui_chord_note(&ui_u, 67, 0, 0);
+    TT_CHECK_EQ(seq_get_step(s, 0)->note[0], 67u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 1u);
+}
+
+/* Only the voices' worth of notes is kept, the first pressed (MAX n NOTES); the cursor wraps at the
+ * pattern's length */
+TT_TEST(seq_step_keeps_the_first_voices_notes_and_wraps)
+{
+    static const uint8_t N[6] = {48, 52, 55, 59, 62, 65};
+    const seq_step *st;
+    uint32_t i;
+    char want[16] = "MAX 0 NOTES";
+    ui_setup();
+    seq_set_length(play_seq(&ui_p), 4);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_key(&ui_u, SEQ_WK[3], 1, 1100);                        /* step 4, the last */
+    ui_key(&ui_u, SEQ_WK[3], 0, 1150);
+    for (i = 0; i < 6u; i++)
+        ui_chord_note(&ui_u, N[i], 80, 1);
+    for (i = 0; i < 6u; i++)
+        ui_chord_note(&ui_u, N[i], 0, 0);
+    st = seq_get_step(play_seq(&ui_p), 3);
+    TT_CHECK_EQ(st->n, (uint8_t)PLAY_VOICES);
+    for (i = 0; i < PLAY_VOICES; i++)
+        TT_CHECK_EQ(st->note[i], N[i]);
+    want[4] = (char)('0' + PLAY_VOICES);
+    TT_CHECK(strcmp(ui_banner(&ui_u), want) == 0);
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);                         /* around */
+}
+
+/* A tapped step with nothing played only moves the cursor: after UI_SEQ_ARM_MS with no note, or at
+ * any other control, the white keys are steps again; a note down keeps it armed till it's let go */
+TT_TEST(seq_armed_step_lets_go_without_a_note)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_key(&ui_u, SEQ_WK[2], 1, 1100);
+    ui_key(&ui_u, SEQ_WK[2], 0, 1150);
+    (void)ui_take(&ui_u, 1100 + UI_SEQ_ARM_MS - 10u);
+    TT_CHECK(ui_u.seq_armed);
+    (void)ui_take(&ui_u, 1100 + UI_SEQ_ARM_MS);               /* the time's up */
+    TT_CHECK(!ui_u.seq_armed);
+    TT_CHECK_EQ(ui_u.seq_cursor, 2u);
+    TT_CHECK_EQ(seq_get_step(s, 2)->kind, (uint8_t)SEQ_REST);
+    ui_key(&ui_u, SEQ_WK[7], 1, 5000);                        /* again; a knob lets go of it */
+    ui_key(&ui_u, SEQ_WK[7], 0, 5050);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 5100);
+    TT_CHECK(!ui_u.seq_armed);
+    ui_key(&ui_u, SEQ_WK[8], 1, 6000);                        /* a note down: no time limit */
+    ui_key(&ui_u, SEQ_WK[8], 0, 6050);
+    seq_note(SEQ_WK[1], 55, 100, 1, 6100);
+    (void)ui_take(&ui_u, 6000 + 10u * UI_SEQ_ARM_MS);
+    TT_CHECK(ui_u.seq_armed);
+    seq_note(SEQ_WK[1], 55, 0, 0, 60000);
+    TT_CHECK_EQ(seq_get_step(s, 8)->note[0], 55u);
+}
+
+/* The key LEDs in SEQ view (interaction.md 5): on the white keys, a step past the length off, a rest
+ * glowing, a note lit, a tie lit with a short dark blink every 500 ms, the cursor blinking lit and glow
+ * at 4 Hz when stopped (armed: 8 Hz), the playhead its step inverted; black keys dark, and while armed
+ * a held key lit. Outside SEQ view, while playing, the playhead's white key is lit. */
+TT_TEST(seq_key_leds)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 2, C, 1, 100);
+    seq_toggle_tie(s, 3);
+    seq_set_length(s, 8);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_u.seq_cursor = 5;
+    ui_u.now_ms = 10000;                                      /* (a time off every blink) */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[1], 0), (uint32_t)UI_LED_GLOW);   /* a rest */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[2], 0), (uint32_t)UI_LED_LIT);    /* a note */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[3], 0), (uint32_t)UI_LED_LIT);    /* a tie, between blinks */
+    ui_u.now_ms = 10450;
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[3], 0), (uint32_t)UI_LED_OFF);    /* its blink */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[9], 0), (uint32_t)UI_LED_OFF);    /* past the length */
+    ui_u.now_ms = 10000;
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[5], 0), (uint32_t)UI_LED_LIT);    /* the cursor: lit, glow */
+    ui_u.now_ms = 10125;
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[5], 0), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_BK[0], 0), (uint32_t)UI_LED_OFF);    /* a black key */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_BK[0], 1), (uint32_t)UI_LED_OFF);
+    ui_key(&ui_u, SEQ_WK[6], 1, 11000);                       /* armed on step 7 */
+    ui_key(&ui_u, SEQ_WK[6], 0, 11050);
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_BK[0], 1), (uint32_t)UI_LED_LIT);    /* held while armed */
+    ui_u.now_ms = 10000;
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[6], 0), (uint32_t)UI_LED_LIT);    /* armed: 8 Hz */
+    ui_u.now_ms = 10063;
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[6], 0), (uint32_t)UI_LED_GLOW);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 0, 11100);      /* (let go of the arming) */
+    ui_tap(UI_BTN_PLAY, 12000);
+    seq_render_to(2);
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[2], 0), (uint32_t)UI_LED_OFF);    /* the playhead on a note */
+    seq_render_to(4);
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[4], 0), (uint32_t)UI_LED_LIT);    /* on a rest */
+    ui_tap(UI_BTN_SEQ, 12400);                                /* PLAY state, still playing */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[4], 0), (uint32_t)UI_LED_LIT);
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[2], 1), (uint32_t)UI_LED_LIT);    /* a held key */
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
-    TT_RUN(seq_step_keys_are_taken_in_seq_view);
-    TT_RUN(seq_chord_and_step_key_writes_the_step);
-    TT_RUN(seq_chord_keeps_the_first_voices_notes);
+    TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
+    TT_RUN(seq_tap_a_step_then_play_writes_it);
+    TT_RUN(seq_step_keeps_the_first_voices_notes_and_wraps);
+    TT_RUN(seq_armed_step_lets_go_without_a_note);
+    TT_RUN(seq_key_leds);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
     TT_RUN(seq_button_leds);
-    TT_RUN(seq_key_leds);
     TT_RUN(seq_texts);
     TT_RUN(seq_view_redraws_and_edit_hold);
     TT_RUN(seq_footer_says_the_pattern);
