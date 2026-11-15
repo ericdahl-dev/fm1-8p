@@ -106,9 +106,10 @@ void ui_seq_open(ui *u)
 void ui_seq_rec(ui *u)
 {
     u->seq_rec = !u->seq_rec;
+    u->seq_armed = 0;                           /* (one arming at a time: REC takes over from a tapped step) */
     u->built_n = 0;                             /* (a step part-built when it disarms: dropped) */
     roll(u, ROLL_AT(u->seq_cursor));
-    u->dirty |= UI_D_HEAD | UI_D_FOCUS;
+    u->dirty |= UI_D_HEAD | UI_D_FOCUS | UI_D_FOOT;   /* (the chip, the readout, the legend and key map) */
 }
 
 void ui_seq_transport(ui *u)
@@ -121,7 +122,7 @@ void ui_seq_transport(ui *u)
     if (u->seq_rec) {                           /* PLAY in REC: it plays, and REC disarms (interaction.md 5) */
         u->seq_rec = 0;
         u->built_n = 0;
-        u->dirty |= UI_D_FOCUS;
+        u->dirty |= UI_D_FOCUS | UI_D_FOOT;
         roll(u, ROLL_AT(u->seq_cursor));
     }
     u->dirty |= UI_D_HEAD;

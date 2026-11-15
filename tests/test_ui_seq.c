@@ -963,6 +963,28 @@ TT_TEST(seq_rec_sel_held_keeps_the_pattern)
     TT_CHECK_EQ(ui_u.seq_cursor, 0u);
 }
 
+/* Arming or disarming REC redraws the bottom strip (its legend and key map change), PLAY's disarm too;
+ * and REC takes over from a tapped step (way 1): one arming at a time */
+TT_TEST(seq_rec_toggle_redraws_the_strip_and_ends_a_tapped_step)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1001);
+    ui_tap(UI_BTN_REC, 1100);
+    TT_CHECK(ui_take(&ui_u, 1101) & UI_D_FOOT);
+    ui_tap(UI_BTN_REC, 1200);
+    TT_CHECK(ui_take(&ui_u, 1201) & UI_D_FOOT);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 1, 1300), 1);       /* a step tapped: way 1 */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 0, 1310), 1);
+    TT_CHECK(ui_u.seq_armed);
+    ui_tap(UI_BTN_REC, 1400);
+    TT_CHECK(ui_u.seq_rec);
+    TT_CHECK(!ui_u.seq_armed);
+    (void)ui_take(&ui_u, 1401);
+    ui_tap(UI_BTN_PLAY, 1500);                                /* starts, disarms */
+    TT_CHECK(ui_take(&ui_u, 1501) & UI_D_FOOT);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -980,6 +1002,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_key_leds);
     TT_RUN(seq_rec_cursor_has_the_armed_look);
     TT_RUN(seq_rec_sel_held_keeps_the_pattern);
+    TT_RUN(seq_rec_toggle_redraws_the_strip_and_ends_a_tapped_step);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
