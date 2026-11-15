@@ -86,10 +86,33 @@ TT_TEST(boot_sweeps_the_key_leds_once)
         TT_CHECK_EQ(ui_key_led(&ui_u, k, 0), (uint32_t)UI_LED_OFF);
 }
 
+/* Its text: what the device is, its voice count (PLAY_VOICES) and the firmware's version */
+TT_TEST(boot_text_names_the_device)
+{
+    char line[UI_VALUE_LEN * 3u], ver[UI_VALUE_LEN];
+    ui_boot_text(line, ver);
+    TT_CHECK(strcmp(line, "POLY SYNTH  4 VOICES") == 0);
+    TT_CHECK_EQ(PLAY_VOICES, 4u);
+    TT_CHECK(strcmp(ver, "V1") == 0);
+    {                                           /* the module's version is the one shown */
+        FILE *f = fopen("firmware/fm1_8p/module.cfg", "r");
+        char l[200];
+        unsigned v = 0;
+        TT_CHECK(f != 0);
+        while (f && fgets(l, sizeof l, f))
+            if (sscanf(l, "version = %u", &v) == 1)
+                break;
+        if (f)
+            fclose(f);
+        TT_CHECK_EQ(v, UI_FW_VERSION);
+    }
+}
+
 static void run_ui_boot_tests(void)
 {
     TT_RUN(boot_shows_at_least_1_5_s);
     TT_RUN(boot_waits_for_the_banks_at_most_5_s);
     TT_RUN(boot_any_control_skips_it);
     TT_RUN(boot_sweeps_the_key_leds_once);
+    TT_RUN(boot_text_names_the_device);
 }

@@ -1300,6 +1300,16 @@ void ui_boot_loaded(ui *u)
     u->boot_loaded = 1u;
 }
 
+void ui_boot_text(char *line, char *ver)
+{
+    static const char L[] = "POLY SYNTH  0 VOICES";
+    uint32_t i;
+    for (i = 0; i < sizeof L; i++)
+        line[i] = L[i];
+    line[12] = (char)('0' + PLAY_VOICES % 10u);
+    ver[0] = 'V', ver[1] = (char)('0' + UI_FW_VERSION % 10u), ver[2] = 0;
+}
+
 uint32_t ui_screen(const ui *u)
 {
     if (u->boot)

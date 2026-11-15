@@ -206,6 +206,10 @@ uint32_t ui_screen(const ui *u);
 #define UI_BOOT_SWEEP_MS 500u               /* its key LED sweep, once */
 void ui_boot_begin(ui *u);
 void ui_boot_loaded(ui *u);
+/* the firmware's version, as module.cfg's `version` (a test keeps the two equal) */
+#define UI_FW_VERSION 1u
+/* the boot screen's text: "POLY SYNTH  4 VOICES" (PLAY_VOICES) into line, "V1" into ver */
+void ui_boot_text(char *line, char *ver);
 /* GLO: the slot on knob k (0..3) of the GLO page shown; its value as the focus row reads it (the
  * number or name into num, the unit into unit, UI_VALUE_LEN each; "--" while it waits), and as a
  * column reads it (a shorter name where one is too wide) */
