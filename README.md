@@ -9,7 +9,8 @@ by Roland or M-VAVE.
 On the desktop, the fixed-point engine plays band-limited voices of two
 oscillators each (saw, pulse, square or noise, with octave, fine tune, pulse
 width and a mix between them), a resonant 24 dB lowpass (with key tracking
-and its own envelope), a 4-position highpass and an ADSR amp envelope, up to
+and its own envelope), a 4-position highpass (with a bass-boost
+position, the JX-8P's HPF 0) and an ADSR amp envelope, up to
 8 at once (6 by default), with voice stealing, the sustain pedal, pitch bend,
 a unison mode, an LFO routed to pitch and pulse width with a delay, and
 velocity, rendered from a MIDI file to a WAV.
