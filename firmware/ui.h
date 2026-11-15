@@ -104,6 +104,10 @@ typedef struct {
     uint32_t built_n;
     char seq_msg[16];                   /* "MAX 4 NOTES", the banner */
     uint32_t shown_steps;               /* seq_steps as SEQ view's strip last drew it */
+    uint32_t roll_dirty;                /* the piano roll's columns to redraw (bit i: step i) */
+    uint32_t roll_lo, roll_pps;         /* its pitch range: the lowest note, px a semitone (0: fit anew) */
+    int32_t shown_playhead;             /* the playhead as the roll last drew it (-1 none) */
+    uint32_t shown_blink;               /* the armed step's blink phase as drawn */
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
     int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
 } ui;

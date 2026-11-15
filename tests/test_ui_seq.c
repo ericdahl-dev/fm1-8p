@@ -496,6 +496,77 @@ TT_TEST(seq_key_leds)
     TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[2], 1), (uint32_t)UI_LED_LIT);    /* a held key */
 }
 
+/* The piano roll's pitch range (visual.md, S5a): it fits the pattern's notes, at least an octave; 3 px a
+ * semitone up to 24 rows, 2 px up to 36; it refits only when a note falls outside, so it doesn't jump */
+TT_TEST(seq_roll_fits_the_notes)
+{
+    static const uint8_t LOW[1] = {48}, HIGH[1] = {72}, MID[1] = {60}, TOP[1] = {90};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_seq_roll_fit(&ui_u);                             /* empty: an octave around C4 */
+    TT_CHECK_EQ(ui_u.roll_pps, 3u);
+    TT_CHECK(ui_u.roll_lo <= 60u && 60u < ui_u.roll_lo + 72u / 3u);
+    seq_set_step(s, 0, LOW, 1, 100);
+    seq_set_step(s, 1, HIGH, 1, 100);                         /* 48..72: 25 rows, 2 px */
+    TT_CHECK(ui_seq_roll_fit(&ui_u));
+    TT_CHECK_EQ(ui_u.roll_pps, 2u);
+    TT_CHECK(ui_u.roll_lo <= 48u && 72u < ui_u.roll_lo + 72u / 2u);
+    seq_set_step(s, 2, MID, 1, 100);                          /* inside: no refit */
+    TT_CHECK(!ui_seq_roll_fit(&ui_u));
+    seq_set_step(s, 3, TOP, 1, 100);                          /* 48..90: wider than 36, centered */
+    TT_CHECK(ui_seq_roll_fit(&ui_u));
+    TT_CHECK_EQ(ui_u.roll_pps, 2u);
+}
+
+/* The roll redraws column by column (visual.md: never whole while it plays): a cursor move marks the
+ * old and new columns, an edit its column, a playhead move the old and new, opening SEQ view all 16 */
+TT_TEST(seq_roll_redraws_only_what_changed)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);            /* all of it */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 3, 1100);      /* cursor 0 -> 3 */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), (1u << 0) | (1u << 3));
+    ui_tap(UI_BTN_ENV, 1200);                                 /* a tie on step 4 */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u) & (1u << 3), 1u << 3);
+    seq_set_step(s, 0, C, 1, 100);
+    (void)ui_seq_roll_take(&ui_u);
+    ui_tap(UI_BTN_PLAY, 1300);
+    seq_render_to(1);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK(ui_seq_roll_take(&ui_u) & (1u << 1));            /* the playhead's new column */
+    seq_render_to(2);
+    (void)ui_take(&ui_u, 1500);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u) & ((1u << 1) | (1u << 2)), (1u << 1) | (1u << 2));
+}
+
+/* The readout names a step's chord when it's a common triad or seventh (Eric, R3), from any voicing and
+ * inversion; otherwise "" (the notes show alone) */
+TT_TEST(seq_chord_names)
+{
+    static const struct { uint8_t n, note[4]; const char *name; } C[] = {
+        {3, {60, 64, 67}, "C MAJ"}, {3, {57, 60, 64}, "A MIN"}, {3, {64, 67, 72}, "C MAJ"},
+        {3, {59, 62, 65}, "B DIM"}, {3, {60, 64, 68}, "C AUG"}, {3, {62, 64, 69}, "D SUS2"},
+        {3, {62, 67, 69}, "D SUS4"}, {4, {55, 59, 62, 65}, "G 7"}, {4, {53, 57, 60, 64}, "F MAJ7"},
+        {4, {48, 51, 55, 58}, "C MIN7"}, {4, {61, 65, 68, 72}, "C# MAJ7"}, {1, {60}, ""},
+        {2, {60, 67}, ""}, {3, {60, 61, 62}, ""},
+    };
+    char name[UI_SEQ_TEXT_LEN];
+    uint32_t i;
+    for (i = 0; i < sizeof C / sizeof C[0]; i++) {
+        ui_seq_chord_name(C[i].note, C[i].n, name);
+        if (strcmp(name, C[i].name) != 0)
+            printf("    chord %u: \"%s\", not \"%s\"\n", (unsigned)i, name, C[i].name);
+        TT_CHECK(strcmp(name, C[i].name) == 0);
+    }
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -505,6 +576,9 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_step_keeps_the_first_voices_notes_and_wraps);
     TT_RUN(seq_armed_step_lets_go_without_a_note);
     TT_RUN(seq_key_leds);
+    TT_RUN(seq_roll_fits_the_notes);
+    TT_RUN(seq_roll_redraws_only_what_changed);
+    TT_RUN(seq_chord_names);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
