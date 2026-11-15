@@ -2573,8 +2573,21 @@ TT_TEST(ui_midi_out_is_on_its_channel)
     TT_CHECK_EQ(ui_midi_out(&ui_u, 0xB0u), 0xBFu);
 }
 
+/* G32 FIXED VELOCITY: a key with no force sensing (the host's velocity 0) plays at it, 100 by default;
+ * a sensed key's own velocity stands */
+TT_TEST(ui_unsensed_keys_play_at_the_fixed_velocity)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_key_velocity(&ui_u, 0), 100u);
+    TT_CHECK_EQ(ui_key_velocity(&ui_u, 37), 37u);
+    ui_u.set.fixed_vel = 64;
+    TT_CHECK_EQ(ui_key_velocity(&ui_u, 0), 64u);
+    TT_CHECK_EQ(ui_key_velocity(&ui_u, 127), 127u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_unsensed_keys_play_at_the_fixed_velocity);
     TT_RUN(ui_midi_in_takes_its_channel);
     TT_RUN(ui_midi_out_is_on_its_channel);
     TT_RUN(ui_cc_map_setting_picks_the_map);
