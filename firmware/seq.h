@@ -16,6 +16,7 @@
 #ifndef SEQ_H
 #define SEQ_H
 #include <stdint.h>
+#include "../engine/fm1_8p.h"
 
 #define SEQ_STEPS 16u                   /* a pattern's steps (32 / 64 later) */
 #define SEQ_NOTES 6u                    /* a step's notes: the voice count after #34; more are dropped */
@@ -41,6 +42,11 @@ typedef struct {
     uint8_t n;                          /* SEQ_NOTES_ON: notes in note[] (1..SEQ_NOTES) */
     uint8_t vel;                        /* 1..127, every note of the step (S3: per step, already here) */
     uint8_t note[SEQ_NOTES];            /* MIDI notes, before transpose */
+    /* #42: a notes step's bend (-8192..8191, center 0) and mod wheel (0..127): JUMP sets them at its
+     * start, GLIDE ramps to them from the values before it over its length. Rests and ties keep. */
+    int16_t bend;
+    uint8_t mod;
+    uint8_t glide;                      /* 0 JUMP, 1 GLIDE */
 } seq_step;
 
 typedef struct {
@@ -51,15 +57,22 @@ typedef struct {
     seq_step step[SEQ_STEPS];
 } seq_pattern;
 
-/* A note on or off the interrupt hands play_render: `at` frames into the block (0 .. n-1). */
+/* What the interrupt hands play_render, `at` frames into the block (0 .. n-1): a note on or off, or a bend
+ * or mod wheel value (#42). seq_apply_event plays one into the engine. */
+enum { SEQ_EV_NOTE = 0, SEQ_EV_BEND = 1, SEQ_EV_MOD = 2 };
+#define SEQ_MOD_LIVE 255                /* a SEQ_EV_MOD value: back to the live wheel (the last MIDI CC1) */
+#define SEQ_GLIDE_FRAMES 32u            /* a GLIDE step's bend and mod move every this many frames */
 typedef struct {
     uint16_t at;
+    uint8_t kind;                       /* SEQ_EV_* */
     uint8_t note;
-    uint8_t vel;                        /* 0: note off */
+    uint8_t vel;                        /* a note's: 0, note off */
+    int16_t value;                      /* a bend's (-8192..8191) or a mod's (0..127, or SEQ_MOD_LIVE) */
 } seq_event;
 /* the most one block holds: a step is over SEQ_BLOCK frames even at 300 BPM and 8 kHz, so at most a
- * gate's offs, a step's offs and ons, and its gate's offs */
-#define SEQ_EVENTS (4u * SEQ_NOTES)
+ * gate's offs, a step's offs and ons, its gate's offs, a glide's updates (bend and mod) and a step's
+ * bend and mod twice */
+#define SEQ_EVENTS (4u * SEQ_NOTES + 2u * (SEQ_BLOCK / SEQ_GLIDE_FRAMES) + 4u)
 
 typedef struct {
     /* main loop: the pattern being edited, and its version (+1 per edit published). While `editing`
@@ -89,6 +102,9 @@ typedef struct {
     uint32_t gated;                     /* 1 once this step's notes are let go (its gate passed) */
     uint8_t sounding[SEQ_NOTES];        /* the notes the sequencer has on */
     uint8_t n_sounding;
+    int32_t cur_bend, cur_mod;          /* #42: the bend and mod it last sent */
+    int32_t from_bend, from_mod, to_bend, to_mod;   /* a GLIDE step's move */
+    uint32_t glide_on, glide_next;      /* gliding; the clock (acc) at its next update */
     /* interrupt writes, main loop reads */
     volatile uint32_t playing;          /* 1 while the transport runs */
     volatile int32_t step_now;          /* the step playing, 0 .. length-1; -1 stopped */
@@ -106,6 +122,9 @@ void seq_set_length(seq *s, uint32_t length);          /* clamped to 1..SEQ_STEP
 const seq_step *seq_get_step(const seq *s, uint32_t i);   /* the edited pattern's step i */
 /* step i plays notes[0..n-1] (n clamped to SEQ_NOTES; 0 makes it a rest) at velocity vel */
 void seq_set_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel);
+/* (seq_set_step makes its bend center, its mod 0 and its move JUMP) */
+/* step i's bend (clamped to -8192..8191), mod (0..127) and move (0 JUMP, else GLIDE), #42 */
+void seq_set_step_bend_mod(seq *s, uint32_t i, int32_t bend, int32_t mod, uint32_t glide);
 void seq_clear_step(seq *s, uint32_t i);               /* a rest */
 void seq_toggle_tie(seq *s, uint32_t i);               /* a tie, or back to a rest */
 /* main loop: load a pattern (#40). Stopped (or before play has started), it loads at once. Playing, it
@@ -139,8 +158,10 @@ int32_t seq_step_now(const seq *s);                    /* the playhead, -1 stopp
 uint32_t seq_steps(const seq *s);                      /* changes once per step: redraw when it does */
 
 /* audio interrupt (play_render): the next n frames (1..SEQ_BLOCK) at fs Hz (8000..192000), a step's
- * chord cut to its first `voices` notes. Writes their note events, in time order and a note's off
- * before an on at the same frame, into ev (room for SEQ_EVENTS), and returns how many. */
+ * chord cut to its first `voices` notes. Writes their events, in time order (at one frame: the offs, a
+ * step's bend and mod, then its ons), into ev (room for SEQ_EVENTS), and returns how many. */
 #define SEQ_BLOCK 256u
 uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event *ev);
+/* audio interrupt: one event into the engine (live_mod: the live wheel, for SEQ_MOD_LIVE) */
+void seq_apply_event(fm_engine *e, const seq_event *ev, uint32_t live_mod);
 #endif
