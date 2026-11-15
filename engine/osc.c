@@ -84,6 +84,121 @@ void fm_osc_set_inc(fm_osc *o, uint32_t inc)
     o->inc = inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : inc;
 }
 
+/*
+ * The spike (FM_WAVE_SPIKE, #150): PG-8X 2.0.13's PULSE. Fitted to #150's
+ * measurements (its level against the square at C2..C6 and its partials
+ * at C4, C5 and C6, within 0.81 dB rms), it is an impulse train of area
+ * SPIKE_AREA (in the square's amplitude x seconds) through two one-pole
+ * lowpasses at SPIKE_LP_HZ, in its periodic steady state, less its mean.
+ * With u the time since the impulse, tau the lowpasses' time constant, T
+ * the period and q = e^(-T / tau):
+ *   y(u) = (A / tau) e^(-u / tau) (u / tau / (1 - q) + (T / tau) q / (1 - q)^2) - A / T
+ * A closed form of the phase, so the spike has no state: every path that
+ * reads a wave at its phase plays it alike. It starts from 0 at each
+ * impulse (continuous), so it needs no polyBLEP. The constants come from
+ * the unmodulated pitch, on events, with no division per sample.
+ */
+#define SPIKE_LP_HZ 3050u
+#define SPIKE_KQ 1811899801u /* 2 pi SPIKE_LP_HZ / ln 2 x 2^16 */
+#define SPIKE_KA 94258198    /* A 2 pi SPIKE_LP_HZ (A / tau) in Q8.24: 5.618 */
+#define SPIKE_A_Q24 4919u    /* A x 2^24 (A = 2.9317e-4 s) */
+#define LN2_Q16 45426u
+
+/* 2^(-i / 64), Q30, i = 0..64 */
+static const int32_t exp2_tab[65] = {
+    1073741824, 1062175491, 1050733751, 1039415261, 1028218693, 1017142735,
+    1006186087, 995347464, 984625594, 974019220, 963527098, 953147997,
+    942880699, 932724001, 922676710, 912737649, 902905651, 893179563,
+    883558244, 874040567, 864625413, 855311680, 846098274, 836984114,
+    827968132, 819049271, 810226483, 801498734, 792865000, 784324269,
+    775875538, 767517817, 759250125, 751071493, 742980960, 734977579,
+    727060411, 719228525, 711481005, 703816941, 696235434, 688735596,
+    681316545, 673977412, 666717336, 659535466, 652430958, 645402981,
+    638450708, 631573326, 624770026, 618040012, 611382493, 604796689,
+    598281827, 591837143, 585461881, 579155293, 572916640, 566745190,
+    560640218, 554601009, 548626854, 542717053, 536870912
+};
+
+/* 2^(-e), e in Q16 (>= 0), Q30. */
+static int32_t exp2_neg(uint64_t e)
+{
+    uint32_t n, i, f;
+    int32_t a, b;
+    if (e >= (30u << 16)) return 0;
+    n = (uint32_t)(e >> 16);
+    i = (uint32_t)(e >> 10) & 63u;
+    f = (uint32_t)e & 1023u;
+    a = exp2_tab[i];
+    b = exp2_tab[i + 1];
+    return (a - (int32_t)(((int64_t)(a - b) * f) >> 10)) >> n;
+}
+
+/*
+ * 1 / dt as r * 2^(sh - 62): Newton's reciprocal (recip_seed, recip_step)
+ * of dt shifted up to 2^31..2^32, as derive() takes osc1's. No division.
+ */
+static int64_t recip_seed(int64_t m);
+static int64_t recip_step(int64_t m, int64_t x);
+static uint32_t recip_of(uint32_t dt, uint8_t *sh)
+{
+    uint32_t m = dt;
+    uint8_t s = 0;
+    while (!(m & 0x80000000u)) {
+        m <<= 1;
+        s++;
+    }
+    *sh = s;
+    return (uint32_t)recip_step(m >> 2, recip_step(m >> 2, recip_step(m >> 2, recip_seed(m >> 2))));
+}
+
+/* The spike's constants for oscillator `i`, from its increment as played
+ * (pitch modulation included): on events and at the control rate, with no
+ * division. */
+static void update_spike(fm_osc_pair *p, uint8_t i)
+{
+    uint32_t dt = p->osc[i].inc, r, q;
+    uint64_t g, tt;
+    int64_t p1, m;
+    uint8_t sh;
+    if (!dt || !p->rate) {
+        p->sp_g[i] = 0;
+        p->sp_p1[i] = 1 << 16;
+        p->sp_zc[i] = p->sp_mean[i] = 0;
+        return;
+    }
+    /* the decay per 2^32 of phase, Q16 log2: (1 / dt) x 2^32 x
+     * 2 pi f / (rate ln 2); SPIKE_KQ / rate is the decay per sample */
+    r = recip_of(dt, &sh); /* 1 / dt = r x 2^(sh - 62) */
+    g = ((uint64_t)(SPIKE_KQ / p->rate) * r) >> (30 - sh);
+    if (g > 0xFFFFFFFFu) g = 0xFFFFFFFFu;
+    p->sp_g[i] = (uint32_t)g;
+    q = (uint32_t)exp2_neg(g);                 /* e^(-T / tau), Q30 */
+    /* 1 / (1 - q), Q16, by Newton's reciprocal: 1 - q is 0.5..1 for any
+     * pitch under 27 kHz (q under 0.5 while T / tau is over 0.69) */
+    m = (int64_t)((1u << 30) - q);
+    p1 = recip_step(m, recip_step(m, recip_seed(m))) >> 14;
+    tt = (g * LN2_Q16) >> 16;                  /* T / tau, Q16 */
+    p->sp_p1[i] = (int32_t)p1;
+    p->sp_zc[i] = (int32_t)(((((int64_t)((tt * q) >> 30)) * p1 >> 16) * p1) >> 16);
+    p->sp_mean[i] = (int32_t)(((uint64_t)SPIKE_A_Q24 * p->rate * dt) >> 32); /* A / T */
+}
+
+/* The spike of oscillator `i` at phase t (the time since its impulse),
+ * Q8.24. Every multiply is one 32 x 32 -> 64: past 30 halvings of the
+ * decay (v at 30 << 16) the impulse's tail is 0 and only the mean is left,
+ * and under it v, u / tau (under 21 in Q16), 1 / (1 - q) (under 2 in Q16)
+ * and z each fit 32 bits. */
+static int32_t spike_at(const fm_osc_pair *p, uint8_t i, uint32_t t)
+{
+    uint32_t v = (uint32_t)(((uint64_t)t * p->sp_g[i]) >> 32); /* u / tau in log2, Q16 */
+    int32_t e, z, ke;
+    if (v >= (30u << 16)) return -p->sp_mean[i];
+    e = exp2_neg(v);                                            /* e^(-u / tau), Q30 */
+    z = (int32_t)((((uint64_t)v * LN2_Q16) >> 16) * (uint32_t)p->sp_p1[i] >> 16) + p->sp_zc[i];
+    ke = (int32_t)(((int64_t)SPIKE_KA * e) >> 30);
+    return (int32_t)(((int64_t)ke * z) >> 16) - p->sp_mean[i];
+}
+
 /* polyBLEP saw at phase t with increment dt, Q8.24. */
 static int32_t saw_at(uint32_t t, uint32_t dt)
 {
@@ -151,6 +266,12 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->recip0 = 0;
     p->recip0_sh = 0;
     p->noise = seed ? seed : 0x2545F491u;
+    p->rate = 0;
+    for (i = 0; i < 2; i++) {
+        p->sp_g[i] = 0;
+        p->sp_p1[i] = 1 << 16;
+        p->sp_zc[i] = p->sp_mean[i] = 0;
+    }
     ring_coef(p);
 }
 
@@ -165,11 +286,12 @@ static void update_only1(fm_osc_pair *p)
  * Each wave's level against the same oscillator's saw, Q1.30, as PG-8X
  * 2.0.13 plays them (#132: each DCO alone, steady C2..C6): square +0.76 dB
  * on DCO-1 and -2.38 on DCO-2 over the engine's (+4.8 dB re the saw before),
- * noise -1.34 and -4.26. Saw and pulse 1.0: unchanged.
+ * noise -1.34 and -4.26. Saw and pulse 1.0: unchanged. The spike (#150)
+ * at the square's level on DCO-1, and 3.6 dB under that on DCO-2.
  */
 static const int32_t wave_level[2][FM_WAVE_COUNT] = {
-    { 1 << 30, 1 << 30, 1171925138, 920237379 }, /* osc1: saw, pulse, square, noise */
-    { 1 << 30, 1 << 30, 816394123, 657506227 },  /* osc2 */
+    { 1 << 30, 1 << 30, 1171925138, 920237379, 1171925138 }, /* osc1: saw, pulse, square, noise, spike */
+    { 1 << 30, 1 << 30, 816394123, 657506227, 774283260 },    /* osc2 */
 };
 
 /* The level played: as set, times the wave's level (exactly as set at 1.0). */
@@ -332,8 +454,10 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
                      uint32_t sample_rate)
 {
     p->base[i] = fm_osc_pitch_inc(pitch + p->tune[i], sample_rate);
+    p->rate = sample_rate;
     fm_osc_set_inc(&p->osc[i], mod_inc(p->base[i], p->mod_oct[i]));
     update_pw(p, i);
+    if (p->wave[i] == FM_WAVE_SPIKE) update_spike(p, i);
 }
 
 /* sync or cross-mod on: fm_osc_pair_next takes the slower path */
@@ -372,6 +496,8 @@ void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct1, int32_t oct2)
     p->mod_oct[1] = oct2;
     fm_osc_set_inc(&p->osc[0], mod_inc(p->base[0], oct1));
     fm_osc_set_inc(&p->osc[1], mod_inc(p->base[1], oct2));
+    if (p->wave[0] == FM_WAVE_SPIKE) update_spike(p, 0);
+    if (p->wave[1] == FM_WAVE_SPIKE) update_spike(p, 1);
     derive(p);
 }
 
@@ -401,6 +527,7 @@ void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave)
     p->wave[which] = wave;
     apply_level(p, which);
     if (wave == FM_WAVE_PULSE) update_pw(p, which); /* any LFO offset */
+    if (wave == FM_WAVE_SPIKE) update_spike(p, which);
 }
 
 void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate)
@@ -437,6 +564,8 @@ static int32_t naive_at(const fm_osc_pair *p, uint8_t which, uint32_t t)
         return pulse;
     case FM_WAVE_NOISE:
         return 0;
+    case FM_WAVE_SPIKE: /* continuous: it is its own naive wave */
+        return spike_at(p, which, t);
     default:
         return saw;
     }
@@ -480,6 +609,8 @@ static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0)
         return pulse_at(t, dt0, o->inc, 0x80000000u);
     case FM_WAVE_NOISE:
         return noise_next(p);
+    case FM_WAVE_SPIKE:
+        return spike_at(p, which, t);
     default:
         return saw_at(t, dt0);
     }
@@ -503,7 +634,8 @@ static uint64_t restart_x(const fm_osc_pair *p, uint32_t t)
 /* A polyBLEP term of osc2's first saw (Q8.24 at unit gain) at osc2's gain. */
 static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
 {
-    if (p->wave[1] == FM_WAVE_NOISE) return 0;
+    /* noise has no polyBLEP, and the spike no step at its wrap */
+    if (p->wave[1] == FM_WAVE_NOISE || p->wave[1] == FM_WAVE_SPIKE) return 0;
     if (p->wave[1] == FM_WAVE_PULSE) v = (v * p->pw_gain[1]) >> 30;
     return (int32_t)v;
 }
@@ -587,11 +719,15 @@ static inline int32_t gain(int32_t x, int32_t level)
  * read as a deeper b at peak 1):
  *   saw 1.12, -0.85, 0.235; pulse (fit at PG-8X's 2-3 % width) 1.66, -1.0,
  *   0.15; square 0.84, -0.83, 0.21.
- * Noise isn't measured: plain ring modulation, 1.0, -1.0 and 0.
+ * Noise isn't measured: plain ring modulation, 1.0, -1.0 and 0. The spike
+ * (#150) keeps the pulse's a; its b and c are refit for its own shape (it
+ * peaks near 2.0, the impulse response's crest) to PG-8X's products with
+ * DCO-1 on PULSE (A3, DCO-2 a saw a fourth up, every line about -35 dB re
+ * f2; f1 and 2f1 at -34): 1.66, -0.398, 0.177.
  */
-static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216 };
-static const int32_t ring_b[FM_WAVE_COUNT] = { -14260634, -16777216, -13925089, -16777216 };
-static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0 };
+static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216, 27850179 };
+static const int32_t ring_b[FM_WAVE_COUNT] = { -14260634, -16777216, -13925089, -16777216, -6679130 };
+static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0, 2973000 };
 
 /*
  * osc2's sample x ringed by osc1's sample m: x (a + b m) + c m, Q8.24,
@@ -706,6 +842,8 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
         return pulse_at(t, o->inc, o->inc, 0x80000000u);
     case FM_WAVE_NOISE:
         return noise_next(p);
+    case FM_WAVE_SPIKE:
+        return spike_at(p, which, t);
     default:
         return saw_at(t, o->inc);
     }
@@ -772,6 +910,12 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
     case FM_WAVE_NOISE:
         for (i = 0; i < n; i++, t += dt) {
             b = noise_next(p);
+            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
+        }
+        break;
+    case FM_WAVE_SPIKE:
+        for (i = 0; i < n; i++, t += dt) {
+            b = spike_at(p, which, t);
             out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
@@ -937,7 +1081,7 @@ static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n)
         for (i = 0; i < n; i++, t += dt)
             out[i] = ring_sum(p, out[i], saw_at(t, dt));
         break;
-    default: /* pulse and noise (one factory tone, none): a sample at a time */
+    default: /* pulse, noise and spike: a sample at a time */
         for (i = 0; i < n; i++)
             out[i] = ring_sum(p, out[i], wave_next(p, 1));
         return;

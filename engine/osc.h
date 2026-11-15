@@ -40,6 +40,10 @@ typedef enum {
     FM_WAVE_PULSE,
     FM_WAVE_SQUARE,
     FM_WAVE_NOISE,
+    /* PG-8X's PULSE (#150): a narrow spike of fixed length through a
+     * gentle lowpass, so its level rises with pitch; the pulse width
+     * params don't apply to it */
+    FM_WAVE_SPIKE,
     FM_WAVE_COUNT
 } fm_wave;
 
@@ -75,6 +79,15 @@ typedef struct {
     int32_t sync_after; /* polyBLEP terms due on osc2's sample after a restart, Q8.24 */
     int64_t dc_sum;    /* synced: the pair's samples so far in this osc1 cycle, Q8.24 */
     int32_t dc;        /* synced: the last osc1 cycle's mean, taken off this one's samples */
+    uint32_t rate;     /* the sample rate the increments are for (the spike's times) */
+    /* the spike (FM_WAVE_SPIKE, #150), from the unmodulated pitch: the
+     * lowpass's decay per 2^32 of phase (Q16 log2), 1 / (1 - q) and the
+     * earlier cycles' share (Q16, q its decay over a cycle), and its mean,
+     * Q8.24 */
+    uint32_t sp_g[2];
+    int32_t sp_p1[2];
+    int32_t sp_zc[2];
+    int32_t sp_mean[2];
 } fm_osc_pair;
 
 /*

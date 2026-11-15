@@ -112,7 +112,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | JX-8P | Engine field | Mapping |
 | --- | --- | --- |
 | RANGE + TUNE | `osc1_octave`, `osc1_coarse_semis`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; for each DCO, whole octaves of range + tune go to its octave and the rest to its coarse (#108), so every patch plays at its own pitch (before #108, DCO-1 had no coarse and MUSIC BOX played 4 semitones down, WINDCHIMES 9 down) |
-| WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse (25 % wide, *est.*), saw |
+| WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse, saw. The JX-8P's pulse is PG-8X's narrow spike, `FM_WAVE_SPIKE` (#150; docs/fixed-point.md), not the engine's rectangle pulse: an impulse train through two one-poles at 3050 Hz, fitted to PG-8X's level against the square at C2..C6 and its partials at C4..C6 within 0.81 dB rms. The pulse width params stay at 50 and don't apply to it |
 | FINE TUNE | `osc2_fine_cents` | (value - 64) x 50 / 64 |
 | MIX DCO-1, DCO-2 | `osc1_level_permille`, `osc2_level_permille` | each byte over 127; the DCOs sum, as PG-8X 2.0.13's mixer does (measured, #102) |
 | VCA LEVEL | `amp_level_permille` | 0.30 dB a step below 127, linear in dB down to 0 (−38.1 dB, not silent), as PG-8X 2.0.13 plays it (measured within 0.1 dB at 127, 112, 96, 88, 64, 32, 16, 8, 4, 1, 0). It scales the whole note, read at note on with the velocity |

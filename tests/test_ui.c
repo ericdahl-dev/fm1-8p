@@ -470,6 +470,36 @@ TT_TEST(ui_focus_value_splits_number_and_unit)
     TT_CHECK(strcmp(n, "34") == 0 && strcmp(u, "") == 0);
 }
 
+/* DCO WAVE reads its five waves by name, the spike (#150) last, after the four it had. */
+TT_TEST(ui_wave_names_list_the_spike_last)
+{
+    static const char *const want[] = { "SAW", "PULSE", "SQUARE", "NOISE", "SPIKE" };
+    char n[UI_VALUE_LEN], u[UI_VALUE_LEN];
+    int32_t w;
+    for (w = 0; w < FM_WAVE_COUNT; w++) {
+        ui_value(FM_PARAM_OSC1_WAVE, w, n, u);
+        TT_CHECK(strcmp(n, want[w]) == 0);
+        ui_value(FM_PARAM_OSC2_WAVE, w, n, u);
+        TT_CHECK(strcmp(n, want[w]) == 0);
+    }
+    TT_CHECK_EQ(FM_WAVE_SPIKE, 4);
+}
+
+/* The spike draws as a narrow peak: up for under a fifth of its cycle, then back down, never
+ * past the frame. */
+TT_TEST(ui_spike_draws_as_a_narrow_peak)
+{
+    uint32_t i, up = 0;
+    int ok = 1;
+    for (i = 0; i < 200; i++) {
+        int32_t v = ui_wave_level(FM_WAVE_SPIKE, 25, i, 200);
+        ok &= v >= -1000 && v <= 1000;
+        up += v > 0;
+    }
+    TT_CHECK(ok);
+    TT_CHECK(up > 0 && up < 200 / 2 / 5);
+}
+
 /* A redraw goes one band per draw() call, so the main loop gets back to the keys between bands:
  * the frame first, then the focus row, the curve and the columns, each handed out once. */
 TT_TEST(ui_redraw_goes_one_band_at_a_time)
@@ -2734,6 +2764,8 @@ TT_TEST(ui_wheel_page_has_the_wheel_amounts)
 
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_wave_names_list_the_spike_last);
+    TT_RUN(ui_spike_draws_as_a_narrow_peak);
     TT_RUN(ui_wheel_page_has_the_wheel_amounts);
     TT_RUN(ui_velocity_curve_scales_the_hosts);
     TT_RUN(ui_program_change_in_loads_the_patch);

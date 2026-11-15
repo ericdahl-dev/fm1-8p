@@ -89,6 +89,31 @@ peak of 1.0, so switching between saw, square and pulse never jumps in level.
 At 50 % the gain is 1 (the square is +-1.0). The mix sums the two at their
 levels, so both at full peak at 2.0, as on PG-8X's mixer.
 
+The spike (`FM_WAVE_SPIKE`, #150) is PG-8X 2.0.13's PULSE, which is not a
+fixed duty. Fitted to #150's measurements (its level against the square at C2
+to C6 and its partials at C4, C5 and C6, within 0.81 dB rms), it is an impulse
+train of area 2.93e-4 (the square's amplitude times seconds) through two
+one-pole lowpasses at 3050 Hz, in its periodic steady state, less its mean.
+With u the time since the impulse, tau the lowpasses' time constant, T the
+period and q = e^(-T / tau):
+
+    y(u) = (A / tau) e^(-u / tau) (u / tau / (1 - q) + (T / tau) q / (1 - q)^2) - A / T
+
+That's a closed form of the phase, so it has no state: every path that reads
+a wave at its phase plays it alike, sync and the ring included. It starts from
+0 at each impulse (continuous), so it needs no polyBLEP, and at note 96 its
+aliasing is under the limit above.
+- **Constants:** from the unmodulated pitch, on events. Those are the decay per
+  2^32 of phase, from 1 / dt by Newton's reciprocal (no division), 1 / (1 - q),
+  the earlier cycles' share, and the mean.
+- **Per sample:** a 32 x 32 -> 64 multiply, a 2^-x table lookup with
+  interpolation (65 entries, Q30), and two multiplies.
+- **Level:** its level rises about 2.8 dB an octave against the square, as
+  PG-8X's does, and it peaks at about twice the square's at the same level. One
+  voice at full level of it therefore reaches the soft clip.
+- **DCO-2:** its spike sits 3.6 dB under DCO-1's.
+- **Width:** the pulse width params don't apply to it.
+
 ### Filter
 
 `engine/filter.c` is a per-voice filter: a one-pole highpass, then a

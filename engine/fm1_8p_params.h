@@ -20,7 +20,7 @@ typedef enum {
     FM_PARAM_VOICE_MODE,
     /* unison spread, lowest to highest voice */
     FM_PARAM_UNISON_DETUNE_CENTS,
-    /* fm_wave: 0 saw, 1 pulse, 2 square, 3 noise */
+    /* fm_wave: 0 saw, 1 pulse, 2 square, 3 noise, 4 spike (PG-8X pulse, #150) */
     FM_PARAM_OSC1_WAVE,
     /* pulse duty, percent of a cycle */
     FM_PARAM_OSC1_PULSE_WIDTH_PCT,
@@ -28,7 +28,7 @@ typedef enum {
     FM_PARAM_OSC1_OCTAVE,
     /* -100..+100 cents */
     FM_PARAM_OSC1_FINE_CENTS,
-    /* the same four for osc2 */
+    /* the same five for osc2 */
     FM_PARAM_OSC2_WAVE,
     FM_PARAM_OSC2_PULSE_WIDTH_PCT,
     FM_PARAM_OSC2_OCTAVE,

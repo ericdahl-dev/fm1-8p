@@ -58,15 +58,19 @@ class MapTest(unittest.TestCase):
     def test_waveform_switch_positions_map_to_engine_waves(self):
         self.assertEqual(patch("POLY BRASS")["OSC1_WAVE"], 0)    # 96: sawtooth
         self.assertEqual(patch("SQUARELEAD")["OSC1_WAVE"], 2)    # 32: square
-        self.assertEqual(patch("BUBBLES")["OSC1_WAVE"], 1)       # 64: pulse
+        self.assertEqual(patch("BUBBLES")["OSC1_WAVE"], 4)       # 64: pulse, PG-8X's spike (#150)
         self.assertEqual(patch("T O M S")["OSC2_WAVE"], 3)       # 0: noise
 
-    # the JX-8P's pulse is a fixed narrow pulse; the engine's square is its own wave
-    def test_pulse_is_a_quarter_cycle_wide(self):
-        e = patch("BUBBLES")                    # DCO-1 pulse, DCO-2 pulse
-        self.assertEqual((e["OSC1_PULSE_WIDTH_PCT"], e["OSC2_PULSE_WIDTH_PCT"]), (25, 25))
-        e = patch("SOUNDTRACK")                 # saws: the engine's default width
-        self.assertEqual((e["OSC1_PULSE_WIDTH_PCT"], e["OSC2_PULSE_WIDTH_PCT"]), (50, 50))
+    # the JX-8P's pulse is PG-8X's narrow spike, the engine's FM_WAVE_SPIKE (#150), which has no
+    # width: the pulse width params stay at the engine's default, for the rectangle pulse alone
+    def test_pulse_is_the_spike(self):
+        for name, dcos in (("BUBBLES", (1, 2)), ("ARCOSTRING", (2,)), ("ORGAN 2", (2,)),
+                           ("RES LEAD", (1,)), ("SYNC LEAD", (1,))):
+            e = patch(name)
+            for n in dcos:
+                self.assertEqual(e["OSC%d_WAVE" % n], 4, (name, n))
+                self.assertEqual(e["OSC%d_PULSE_WIDTH_PCT" % n], 50, (name, n))
+        self.assertNotIn(1, [jx8p.to_engine(t)[f] for t in factory() for f in ("OSC1_WAVE", "OSC2_WAVE")])
 
     # range (16' is octave -1, 8' is 0) plus tune: the pitch of each oscillator in semitones
     def test_range_and_tune_set_each_oscillators_pitch(self):
@@ -510,7 +514,7 @@ class RangeTest(unittest.TestCase):
     # the ranges of the fields the engine has come from engine/params.c, not copies of it
     def test_engine_ranges_are_read_from_params_c(self):
         ranges = jx8p.engine_ranges()
-        self.assertEqual(ranges["OSC1_WAVE"], (0, 3))                       # FM_WAVE_COUNT - 1
+        self.assertEqual(ranges["OSC1_WAVE"], (0, 4))                       # FM_WAVE_COUNT - 1
         self.assertEqual(ranges["FILTER_CUTOFF_CENTS"], (0, 14400))         # FM_FILTER_OPEN_CENTS
         self.assertEqual(ranges["HIGHPASS_STEP"], (0, 3))
         self.assertEqual(ranges["OSC_MIX_ENV"], (-1000, 1000))
