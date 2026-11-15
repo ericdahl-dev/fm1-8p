@@ -208,6 +208,8 @@ uint32_t ui_cc_scale(const ui *u, const ui_slot *s);
  * always); G12 MIDI CHANNEL OUT: status st (0x80, 0x90, 0xB0 ...) on G12's channel */
 int ui_midi_in(const ui *u, uint32_t st);
 uint32_t ui_midi_out(const ui *u, uint32_t st);
+/* G32 FIXED VELOCITY: a key's velocity, the host's (1..127), or G32's for a key with no force sensing (0) */
+uint32_t ui_key_velocity(const ui *u, int32_t host_vel);
 /* a MIDI control change, cc 0..127 at value 0..127 (#49, interaction.md 8): the parameter on cc (the
  * CC map) takes the value across its knob's range, as a knob would set it. 1: taken (G21 ON and cc on
  * the map), so the engine needn't have it; 0: the module passes it on (sustain, all notes off ...). */

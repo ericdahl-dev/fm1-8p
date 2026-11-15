@@ -95,12 +95,12 @@ static void ui_ev(uint32_t ev, int32_t arg)
     if ((kind == HB_EV_KEY_DOWN || kind == HB_EV_KEY_UP) && ui_key(&U, id, kind == HB_EV_KEY_DOWN, H->ms()))
         return;                                 /* the number jump's keypad (SEL held): no sound */
     switch (kind) {
-    case HB_EV_KEY_DOWN:                        /* arg: the velocity, 0 an unsensed key */
-        play_key_down(&P, id, (uint32_t)arg);
+    case HB_EV_KEY_DOWN:                        /* arg: the velocity, 0 an unsensed key (G32's, then) */
+        play_key_down(&P, id, ui_key_velocity(&U, arg));
         keys_down |= 1u << id;
         H->led(HB_LED_KEY(id), 1);
         out_st[id] = (uint8_t)ui_midi_out(&U, 0x80u);   /* (its note-off on the same channel, G12 changed or not) */
-        H->midi_send(ui_midi_out(&U, 0x90u), P.held[id], arg > 0 ? (uint32_t)arg : 100u);
+        H->midi_send(ui_midi_out(&U, 0x90u), P.held[id], ui_key_velocity(&U, arg));
         return;
     case HB_EV_KEY_UP:
         play_key_up(&P, id);
