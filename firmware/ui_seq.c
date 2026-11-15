@@ -126,6 +126,41 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     u->dirty |= UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3) | UI_D_FOCUS | UI_D_SLOT;
 }
 
+#define UI_PATTERNS 64u                 /* pattern slots 11..88 */
+static char *put_slot(char *s, uint32_t q);
+static char *put_s(char *s, const char *t);
+
+/* PRESETS in SEQ view (interaction.md 5, Pattern slots): the next or previous pattern, around (a fast
+ * turn: a row, 8). Stopped it loads at once, playing it is queued for the end of the pass (back to the
+ * running one: none queued). With PATTERN EDITED the first click only warns, as for patches. */
+static void browse(ui *u, int32_t clicks, uint32_t ms)
+{
+    const seq *s = play_seq(u->p);
+    int32_t way = clicks > 0 ? 1 : -1, from = play_pattern_next(u->p), q;
+    if (seq_edited(s) && !(u->warned == way && ms - u->warned_ms < UI_DISCARD_MS)) {
+        banner(u, "PTN EDITED - TURN TO DISCARD", ms);   /* the first click loads nothing */
+        u->warned = way;
+        u->warned_ms = ms;
+        return;
+    }
+    u->warned = 0;
+    if (clicks >= 3 || clicks <= -3)
+        clicks = clicks > 0 ? 8 : -8;
+    if (from < 0)                               /* (on from the queued one, if there is one) */
+        from = (int32_t)play_pattern_prog(u->p);
+    q = ((from + clicks) % (int32_t)UI_PATTERNS + (int32_t)UI_PATTERNS) % (int32_t)UI_PATTERNS;
+    play_load_pattern(u->p, (uint32_t)q);
+    if (s->want && play_pattern_next(u->p) >= 0) {   /* queued: say which */
+        put_slot(put_s(u->seq_msg, "NEXT PATTERN "), (uint32_t)q);
+        banner(u, u->seq_msg, ms);
+    } else {
+        u->banner = "";
+    }
+    if (u->seq_cursor >= seq_length(s))
+        u->seq_cursor = 0;
+    u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;
+}
+
 void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 {
     seq *s = play_seq(u->p);
@@ -161,6 +196,8 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
                                  (int32_t)UI_SEQ_PAGES);
         u->focus = 4u;
         u->dirty |= UI_D_FULL;
+    } else if (ev == (UI_EV_ENC | UI_ENC_PRESETS) && arg) {
+        browse(u, arg, ms);
     } else if ((ev & 0xFF000000u) == UI_EV_ENC && id >= UI_ENC_KNOB1 && id <= UI_ENC_KNOB4 && arg) {
         turn(u, id - UI_ENC_KNOB1, arg);
     }
