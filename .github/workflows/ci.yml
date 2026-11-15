@@ -85,14 +85,29 @@ jobs:
       - name: Python packages for fm1-dock
         run: pip install "Pillow==$(sed -n 's/^PILLOW_VERSION=//p' firmware/pins.env)"
 
-      - name: Cache the JieLi toolchain
-        uses: actions/cache@v4
+      # Every pinned download (fm1-dock, the toolchain, the SDK files, fm1-emu), keyed on the pins, so
+      # a run downloads only when a pin changes; fetch still checks each one. Saved as soon as the
+      # fetch succeeds, so a later failing step doesn't lose it.
+      - name: Restore the pinned inputs
+        id: deps
+        uses: actions/cache/restore@v4
         with:
-          path: build/fm1-deps/jieli
-          key: jieli-${{ hashFiles('firmware/pins.env') }}
+          path: build/fm1-deps
+          key: fm1-deps-${{ hashFiles('firmware/pins.env') }}
 
       - name: Fetch and check pinned inputs
         run: tools/fm1-build.sh fetch
+
+      - name: Fetch fm1-emu (for the report-only steps)
+        continue-on-error: true
+        run: tools/fm1-build.sh fetch-emu
+
+      - name: Save the pinned inputs
+        if: steps.deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/fm1-deps
+          key: fm1-deps-${{ hashFiles('firmware/pins.env') }}
 
       - name: Build .dock and .fwsc
         run: tools/fm1-build.sh build
@@ -131,6 +146,20 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$rc"
 
+      - name: FM1-8P's SAVE writes in silence in fm1-emu (#48, strict timing, report only)
+        continue-on-error: true
+        run: |
+          rc=0
+          tools/fm1-build.sh emu-save || rc=$?
+          {
+            echo "## FM1-8P's SAVE in fm1-emu: the flash write lands in silence (#48, report only)"
+            echo
+            echo "A chord held, SAVE tapped twice while it sounds, released: the one write must come after the release, with silence around it."
+            echo
+            cat build/fm1/emu-save-report.md 2>/dev/null || echo "**No report: the run failed before it (see the log).**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$rc"
+
       - name: Upload the synth
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -162,4 +191,7 @@ jobs:
             build/fm1/emu-play-report.md
             build/fm1/emu-play.log
             build/fm1/emu-play/panel.png
+            build/fm1/emu-save-report.md
+            build/fm1/emu-save.log
+            build/fm1/emu-save/log.txt
           if-no-files-found: warn

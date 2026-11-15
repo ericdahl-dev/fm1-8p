@@ -5,6 +5,9 @@
 #include <stdint.h>
 #include "../engine/fm1_8p.h"
 #include "patches.h"
+#include "patch_store.h"
+#include "seq.h"
+#include "pattern_store.h"
 
 #define PLAY_FS 44100u
 #define PLAY_BLOCK 256u                 /* frames per fm1-dock render call */
@@ -38,11 +41,78 @@ typedef struct {
     volatile uint32_t loading;          /* main loop: 1 part way through a load (the ISR waits) */
     volatile uint32_t loads;            /* main loop: +1 per load done */
     uint32_t loads_seen;                /* ISR only: the last `loads` it applied */
+    store_lib *lib;                     /* main loop: the user slots (NULL: none, or not loaded yet) */
+    store_lib *lib_attached;            /* main loop: attached at init, loaded on the first tick */
+    const store_io *io;                 /* main loop: its flash */
+    volatile uint32_t sounding;         /* ISR writes after each block: the voices sounding */
+    uint32_t prog;                      /* main loop: the program playing (PLAY_PROG_P + n: P n+1) */
+    char name[STORE_NAME_LEN + 1u];     /* main loop: its name */
+    /* compare (EDIT held): the edit buffer, kept while the stored patch sounds */
+    int32_t edit[FM_PARAM_COUNT];
+    uint32_t comparing;                 /* main loop: 1 while the stored patch sounds for compare */
+    seq seq;                            /* the sequencer (seq.h: its own main loop / ISR split) */
+    /* pattern slots (#40), main loop: the slots (NULL: none, or not read yet), the slot playing and its
+     * name, and the one queued to take over after the pass (-1 none) */
+    pat_lib *plib;
+    pat_lib *plib_attached;
+    uint32_t store_bank;                /* main loop: the next bank the first draws read (one a draw) */
+    uint32_t pat_prog;
+    int32_t pat_next;
+    char pat_name[STORE_NAME_LEN + 1u];
+    char pat_next_name[STORE_NAME_LEN + 1u];
+    seq_event seq_ev[SEQ_EVENTS];       /* ISR only: a block's sequencer notes, static (not on its stack) */
 } play;
 
 /* Sets up the engine on PLAY_VOICES voices with the default patch, SOUNDTRACK
  * (PATCHES[PATCH_SOUNDTRACK]); 0: ready. */
 int play_init(play *p);
+/* Programs, as PRESETS goes through them: the user slots 0..63 (11..88), then P1.. (the factory
+ * patches) from PLAY_PROG_P. */
+#define PLAY_PROG_P STORE_USER_SLOTS
+#define PLAY_PROGS (PLAY_PROG_P + PATCH_COUNT)
+/* The program `clicks` steps from `from`, over the user slots that hold a patch, wrapping. */
+uint32_t play_prog_step(const play *p, uint32_t from, int32_t clicks);
+/* Loads program q (play_load_patch's way: one block, all notes off): 0, or -1 for an empty user slot
+ * (nothing changes). */
+int play_load_prog(play *p, uint32_t q);
+/* The program playing, and its name (STORE_NAME_LEN + 1 chars). */
+uint32_t play_prog(const play *p);
+void play_prog_name(const play *p, char *name);
+/* At init: the user slots and their flash, not read yet (init stays fixed work). */
+void play_attach_store(play *p, store_lib *lib, const store_io *io);
+/* At init, after play_attach_store: the pattern slots, on the same flash, not read yet. */
+void play_attach_patterns(play *p, pat_lib *lib);
+/* main loop, each draw: the first calls read the attached banks, one a call (a bank's read is about
+ * 4 ms, a draw call's budget 5: visual.md): the user slots' two, then the pattern slots' two, and with
+ * the last slot 0's pattern into the sequencer. 1 when it read one (the call's work is done), 0 after. */
+uint32_t play_store_tick(play *p);
+/* Pattern slots (#40), main loop. The slot playing (0..63, shown 11..88; 0 from init) and its name
+ * (STORE_NAME_LEN + 1 chars, "" for an empty slot); the slot queued to take over after the pass, -1 none. */
+uint32_t play_pattern_prog(const play *p);
+void play_pattern_name(const play *p, char *name);
+int32_t play_pattern_next(const play *p);
+/* Load slot q (an empty one: the empty pattern). Stopped, at once; playing, queued for the end of the
+ * pass, and q the running slot cancels a queued one (interaction.md, Pattern slots). */
+void play_load_pattern(play *p, uint32_t q);
+/* Each draw: a queued pattern that has taken over (or that a stop loaded) becomes the slot playing. */
+void play_pattern_tick(play *p);
+/* The edit buffer, for a save that waits (SAVE: the snapshot is what is written). */
+void play_pattern_snapshot(const play *p, seq_pattern *snap);
+/* snap, named `name`, into pattern slot dest and its bank to flash: 0, or -1 when the write failed.
+ * dest is then the slot playing, and the edit buffer is edited only by what changed since the snapshot. */
+int play_pattern_write(play *p, uint32_t dest, const seq_pattern *snap, const char *name);
+/* play_pattern_snapshot then play_pattern_write, at once */
+int play_pattern_save(play *p, uint32_t dest, const char *name);
+/* main loop: 1 when nothing sounds, no note waits to, and the sequencer is stopped (a flash write may
+ * stall the sound then; #201) */
+uint32_t play_silent(const play *p);
+/* The sequencer: play_render plays its notes at their frames, on PLAY_VOICES voices. */
+seq *play_seq(play *p);
+/* main loop: the edit buffer as a patch named `name` (during compare: the buffer kept) */
+void play_snapshot(const play *p, const char *name, store_patch *s);
+/* main loop: s into user slot `dest` and its bank to flash: 0, or -1 when the write failed. When the
+ * edit buffer still equals s, that slot becomes the stored patch playing (no longer edited). */
+int play_save(play *p, uint32_t dest, const store_patch *s);
 /* The patch playing. */
 const patch *play_patch(const play *p);
 /* main loop: load PATCHES[i] (PRESETS): the next render lets the sounding notes go and applies every
@@ -75,8 +145,12 @@ void play_note_name(int32_t note, char *s);
 void play_set_param(play *p, uint16_t id, int32_t value);
 /* main loop: a param's value as last set (the engine follows it), 0 for an unknown id */
 int32_t play_get_param(const play *p, uint16_t id);
-/* main loop: 1 while some param differs from the stored patch */
+/* main loop: 1 while some param of the edit buffer differs from the stored patch (during compare too) */
 uint32_t play_edited(const play *p);
+/* main loop: compare. begin keeps the edit buffer and sounds the stored patch (notes held go on);
+ * end puts the buffer back exactly. */
+void play_compare_begin(play *p);
+void play_compare_end(play *p);
 /* audio interrupt: add n (<= PLAY_BLOCK) stereo frames, Q15 in int32, into out */
 void play_render(play *p, int32_t *out, uint32_t n);
 #endif

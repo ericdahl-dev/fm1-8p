@@ -29,11 +29,10 @@ typedef char fm_require_arithmetic_shift[((-8 >> 1) == -4) ? 1 : -1];
 
 /*
  * fm_engine's budget on 32-bit targets (the FM-1, Cortex-M), where it
- * lives: the size fm1_8p.h documents. Growing it must update that comment
- * and this number. The FM-1 build fails past it; 64-bit desktops only
- * have the loose guard in tests/test_chorus.c (pointers there are 8 bytes).
+ * lives: FM_ENGINE_BUDGET_32 in fm1_8p.h, a base plus 4 bytes a param. The
+ * FM-1 build fails past it; 64-bit desktops check theirs in
+ * tests/test_chorus.c (pointers there are 8 bytes).
  */
-#define FM_ENGINE_BUDGET_32 6264u
 typedef char fm_require_engine_within_its_32_bit_budget[
     (sizeof(void *) != 4 || sizeof(fm_engine) <= FM_ENGINE_BUDGET_32) ? 1 : -1];
 
@@ -258,6 +257,46 @@ static void glide_init(fm_engine *e)
 static void apply_param(fm_engine *e, uint16_t id);
 
 /*
+ * The mod wheel (#41): CC1 adds each patch's wheel amount to the LFO's
+ * vibrato (both oscillators) and pulse-width depths, in proportion. A
+ * move is smoothed: the wheel steps to CC1 over WHEEL_TICKS control ticks
+ * (about 12 ms at 44.1 kHz), so a depth never jumps. At 0 every depth is
+ * the patch's own, exactly, and nothing else changes.
+ */
+#define WHEEL_FULL (127 << 8)
+#define WHEEL_TICKS 16
+
+/* The LFO's route depths: the patch's, plus the wheel's share. Pitch in
+ * cents -> Q16.16 octaves (exact for multiples of 75 cents); osc 2 has its
+ * own depth, or (-1) osc 1's. Pulse width in percent -> Q0.32, at most
+ * 0.49 in all. */
+static void lfo_routes(fm_engine *e)
+{
+    int32_t add = e->params[FM_PARAM_WHEEL_PITCH_CENTS] * e->wheel / WHEEL_FULL;
+    int32_t c1 = e->params[FM_PARAM_LFO_PITCH_CENTS];
+    int32_t c2 = e->params[FM_PARAM_LFO_PITCH_OSC2_CENTS];
+    int32_t pw = e->params[FM_PARAM_LFO_PW_PCT] +
+                 e->params[FM_PARAM_WHEEL_PW_PCT] * e->wheel / WHEEL_FULL;
+    if (c2 < 0) c2 = c1;
+    if (pw > 49) pw = 49;
+    fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH1,
+                     (c1 + add) * 65536 / 1200);
+    fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH2,
+                     (c2 + add) * 65536 / 1200);
+    fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
+                     pw * 42949673);
+}
+
+/* A control tick while the wheel moves: one step of its smoothing. */
+static void wheel_tick(fm_engine *e)
+{
+    int32_t step = WHEEL_FULL / WHEEL_TICKS, d = e->wheel_to - e->wheel;
+    e->wheel += d > step ? step : d < -step ? -step : d;
+    e->wheel_moving = (uint8_t)(e->wheel != e->wheel_to);
+    lfo_routes(e);
+}
+
+/*
  * The glide turned on: its 8 settings' parameters now hold where they
  * play, their targets apart (glide_to). After a render they start where
  * they are; before one, at PG-8X's power-on values, as its renders do.
@@ -389,23 +428,12 @@ static void apply_param(fm_engine *e, uint16_t id)
                                : FM_LFO_FULL;
         return;
     case FM_PARAM_LFO_PW_PCT:
-        /* percent -> Q0.32, at most 0.49 */
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
-                         v * 42949673);
-        return;
     case FM_PARAM_LFO_PITCH_CENTS:
-    case FM_PARAM_LFO_PITCH_OSC2_CENTS: {
-        /* cents -> Q16.16 octaves: exact for multiples of 75 cents. Osc 2
-         * has its own depth, or (-1) osc 1's */
-        int32_t c1 = e->params[FM_PARAM_LFO_PITCH_CENTS];
-        int32_t c2 = e->params[FM_PARAM_LFO_PITCH_OSC2_CENTS];
-        if (c2 < 0) c2 = c1;
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH1,
-                         c1 * 65536 / 1200);
-        fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PITCH2,
-                         c2 * 65536 / 1200);
+    case FM_PARAM_LFO_PITCH_OSC2_CENTS:
+    case FM_PARAM_WHEEL_PITCH_CENTS:
+    case FM_PARAM_WHEEL_PW_PCT:
+        lfo_routes(e);
         return;
-    }
     case FM_PARAM_PITCH_ENV_OSC1_CENTS: /* cents -> Q16.16 octaves */
     case FM_PARAM_PITCH_ENV_OSC2_CENTS:
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_PENV,
@@ -572,6 +600,8 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     }
     fm_chorus_init(&e->chorus, sample_rate);
     glide_init(e);
+    e->wheel = e->wheel_to = 0;                 /* the mod wheel down (#41) */
+    e->wheel_moving = 0;
     /* all defaults first: some settings combine several parameters */
     for (id = 0; id < FM_PARAM_COUNT; id++)
         e->params[id] = fm_param_info_get(id)->def;
@@ -842,6 +872,10 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
 {
     uint8_t i;
     if (controller == 64) e->pedal_down = value >= 64;
+    if (controller == 1 || controller == 121) { /* the mod wheel; reset all controllers puts it down */
+        e->wheel_to = controller == 1 ? (int32_t)(value & 127u) << 8 : 0;
+        e->wheel_moving = (uint8_t)(e->wheel != e->wheel_to);
+    }
     if (controller == 120 || controller == 123) unison_reset(e);
     if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
     for (i = 0; i < e->voice_count; i++) {
@@ -964,6 +998,7 @@ static void control_tick(fm_engine *e)
     e->ticks++;
     e->tick_left = FM_LFO_TICK_FRAMES;
     if (e->glide_moving && !(e->ticks % GLIDE_TICKS)) glide_tick(e);
+    if (e->wheel_moving) wheel_tick(e);
     /* with every depth at 0 (after one tick that clears any offset still
      * applied) the voices have nothing to do */
     if (lfo_live(e))
@@ -988,7 +1023,7 @@ static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    if ((lfo_live(e) || e->glide_moving) && n > e->tick_left)
+    if ((lfo_live(e) || e->glide_moving || e->wheel_moving) && n > e->tick_left)
         n = e->tick_left;
     return n;
 }

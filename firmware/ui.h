@@ -5,6 +5,8 @@
 #define UI_H
 #include <stdint.h>
 #include "play.h"
+#include "ui_map.h"
+#include "ui_settings.h"
 
 /* ui_event's events: the same values as fm1-dock's hb_module.h (the glue passes them on as they are) */
 #define UI_EV_BTN_DOWN 0x01000000u
@@ -15,29 +17,20 @@
 #define UI_BTN_ENV     4u
 #define UI_BTN_LFO     5u
 #define UI_BTN_EDIT    6u
+#define UI_BTN_GLO     7u
 #define UI_BTN_HOME    8u
+#define UI_BTN_SAVE    9u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
+#define UI_ENC_SELECT  0u
+#define UI_ENC_ALGORITHM 1u
 #define UI_ENC_KNOB1   2u
 #define UI_ENC_KNOB2   3u
 #define UI_ENC_KNOB3   4u
 #define UI_ENC_KNOB4   5u
 #define UI_ENC_PRESETS 6u
 
-typedef enum { UI_PLAY, UI_EDIT } ui_state;
+typedef enum { UI_PLAY, UI_EDIT, UI_SAVE, UI_GLO } ui_state;
 
-/* What a slot holds (interaction.md section 3): a live param, one whose issue hasn't landed (shown
- * as `--`, its knob does nothing), or nothing. */
-typedef enum { UI_LIVE, UI_PENDING, UI_RESERVED } ui_slot_kind;
-
-/* One numbered parameter slot. */
-typedef struct {
-    uint8_t num;                        /* 41: section 4, parameter 1 */
-    const char *label;                  /* the knob column's, at most 7 characters */
-    const char *full;                   /* the focus row's full label */
-    uint16_t id;                        /* fm_param_id, when live */
-    uint8_t kind;                       /* ui_slot_kind */
-    int32_t step, fast;                 /* engine units a click moves it; a fast turn's click */
-} ui_slot;
 
 typedef struct {
     play *p;
@@ -52,9 +45,56 @@ typedef struct {
     uint32_t banner_ms;                 /* when it came */
     int32_t warned;                     /* PRESETS warned of edits: the way it turned (+1 / -1), 0 not */
     uint32_t warned_ms;                 /* when */
+    uint32_t page;                      /* the edit page, in the page order (UI_PAGE_INFO) */
+    uint32_t inv;                       /* an ENV MODE's INV while its depth is 0 (bit: ui.c inv_bit) */
+    uint32_t held;                      /* bit b: button b is down */
+    uint32_t comparing;                 /* EDIT held: UI_COMPARE_ON, or UI_COMPARE_NONE (no edits); 0 not */
+    uint32_t now_ms;                    /* ui_take's last ms (the EDIT LED's blink) */
+    uint32_t shown_edited;              /* the footer's `*` as drawn: play_edited then */
+    /* SAVE (ui_save.c) */
+    ui_state save_from;                 /* the state SAVE goes back to */
+    uint32_t save_dest;                 /* the destination user slot, 0..63 (11..88) */
+    char save_name[STORE_NAME_LEN + 1u];
+    char save_msg[32];                  /* the banner SAVE leaves (SAVED 23, ...), or its prompt */
+    uint32_t save_step;                 /* UI_SAVE_EDITING, UI_SAVE_CONFIRM */
+    uint32_t save_cursor;               /* the name's character being edited, 0..11 */
+    uint32_t save_waiting;              /* 1: a snapshot waits for silence to be written */
+    uint32_t save_wait_ms;              /* when it began to wait (the banner's turns) */
+    char save_wait_msg[24];             /* SAVING 23 WHEN SILENT */
+    uint32_t save_home_ms;              /* a HOME tap that asked to cancel the waiting write, when */
+    uint32_t save_home_armed;           /* 1: that tap is on screen; a second cancels */
+    char save_draft[STORE_NAME_LEN + 1u];   /* a canceled SAVE's name, offered again */
+    uint32_t save_draft_prog;           /* for this program; UI_SAVE_NO_DRAFT: none */
+    int32_t jump;                       /* the number jump: -1 SEL up; 0 held, no digit; 1..10 a first digit + 1 */
+    uint32_t jump_keys;                 /* keys taken by it while SEL is held (bit k: key k), so their ups go too */
+    uint32_t jump_screen;               /* UI_JS_*: the number jump's screen up, and a jump done in this hold */
+    uint32_t readout;                   /* PLAY: a knob's readout in the focus row (UI_READOUT_MS from readout_ms) */
+    uint32_t readout_ms;
+    /* GLO (interaction.md 4): the instrument's settings */
+    ui_state glo_from;                  /* the state GLO goes back to */
+    uint32_t glo_page;                  /* 0..2: G1x, G2x, G3x */
+    ui_settings set;                    /* the settings (agent2's store loads them, and saves them) */
+    uint32_t set_dirty;                 /* 1: a GLO knob changed one since the store last wrote */
+    uint32_t set_changed_ms;            /* when */
+    uint32_t shown_theme;               /* the theme the screen is in: set.theme, UI_THEME_MS after it changed */
+    uint32_t cc_picked[(UI_PAGES * 4u + 31u) / 32u];   /* G24 PICKUP: bit per UI_SLOTS slot, taken over */
+    uint8_t cc_last[UI_PAGES * 4u];     /* each slot's last ignored CC value (0xFF: none yet) */
+    uint32_t cc_loads;                  /* play's loads when the pickup last started over */
+    char cc_msg[24];                    /* "CC 52: 20 (PICKUP)", the banner */
+    uint32_t cc_out[(UI_PAGES * 4u + 31u) / 32u];   /* G22: bit per UI_SLOTS slot a knob turned, to go out */
+    uint32_t cc_out_ms;                 /* when the last CC went out */
+    uint8_t cc_out_at;                  /* the slot it was (the next goes round from it) */
+    uint8_t cc_sent_cc, cc_sent_v;      /* what it was, so the same isn't sent twice (0xFF: none) */
 } ui;
+#define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
+#define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
+#define UI_JS_UP   1u
+#define UI_JS_DONE 2u
 
 /* ui_take's bits: what changed since the last redraw */
+enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
+enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
+#define UI_SAVE_NO_DRAFT 0xFFFFFFFFu
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
@@ -63,7 +103,9 @@ typedef struct {
 #define UI_D_FOOT   0x100u              /* the footer alone (the banner came or went) */
 #define UI_D_ALL    0xF7u               /* all of it */
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
+#define UI_BLINK_MS 250u                /* the EDIT LED's blink during compare: on, then off */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
+#define UI_FORCE_MS 1000u               /* SAVE held this long writes a waiting save at once */
 #define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
 /* PRESETS again within this, the same way: discard and load. The warning's time on screen, so a turn
  * never discards with nothing showing (the spec had 2 s against a 1.5 s banner: PR #83 review). */
@@ -85,9 +127,9 @@ typedef struct { uint32_t q2, n1; int32_t cut; } ui_curve;
 /* set up for a cutoff and resonance across n columns; then column i's level */
 void ui_curve_begin(ui_curve *c, int32_t cutoff_cents, int32_t reso_permille, uint32_t n);
 int32_t ui_curve_db(const ui_curve *c, uint32_t i);
+/* the floor of v's square root (the PLAY sun's rows) */
+uint32_t ui_isqrt(uint32_t v);
 /* the header's page strip: segment i (interaction.md's page order, 1A .. 8B) at x, w px wide */
-#define UI_PAGES 14u
-#define UI_PAGE_4A 4u
 void ui_strip(uint32_t i, int32_t *x, int32_t *w);
 /* a 7-segment digit's lit segments, bits a..g = 0..6 (0 for one it can't show) */
 uint32_t ui_seg7(char c);
@@ -95,10 +137,85 @@ uint32_t ui_seg7(char c);
 /* the knob meter's lit segments (bit k, left to right): a range from the left, a bipolar param
  * (min = -max) out from the middle */
 uint32_t ui_meter(uint16_t id, int32_t value);
+/* a one-bar meter (Membrane) in a w px track: the bar from *a to *b px, a range from the left in
+ * proportion, a bipolar param (min = -max) out from the middle */
+void ui_meter_bar(uint16_t id, int32_t value, int32_t w, int32_t *a, int32_t *b);
+/* a slot's bar (its value from ui_slot_value): an ENV size from the left over 0..its top, the rest as
+ * ui_meter_bar */
+void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_t *b);
+/* a choice slot's (order set) meter: value's knob position (a value between positions: the one
+ * before it), of *n positions */
+uint32_t ui_choice_pos(const ui_slot *sl, int32_t value, uint32_t *n);
+/* the DCO pages' waveform picture: wave's (fm_wave) level, -1000..+1000, at column i of n, two cycles
+ * across (a pulse high for width_pct of each) */
+int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n);
+/* 0 while a slot does nothing to the sound (shown dim, no meter): WIDTH off a pulse wave */
+int ui_slot_active(const ui *u, const ui_slot *sl);
+/* 7A's picture: the LFO wave's (fm_lfo_wave) level, -1000..+1000, at column i of n, two cycles across
+ * (random: a fixed level each cycle) */
+int32_t ui_lfo_level(uint32_t wave, uint32_t i, uint32_t n);
+/* the ENV pages' ADSR picture (render.py's env_points): the level, per mille, at column i of n, for knob
+ * positions a, d, r and sustain s (per mille): a linear attack, exponential decay and release */
+int32_t ui_adsr_level(uint32_t a, uint32_t d, uint32_t s, uint32_t r, uint32_t i, uint32_t n);
+/* the time table (interaction.md, units): its size, entry i, and a time clicks entries on (a time
+ * not in it snaps to the next entry the way of the turn first), clamped at both ends */
+uint32_t ui_time_count(void);
+uint32_t ui_rate_count(void);           /* the same for the LFO rate table, centihertz */
+int32_t ui_rate_at(uint32_t i);
+int32_t ui_time_at(uint32_t i);
+int32_t ui_time_step(int32_t ms, int32_t clicks);
+/* a slot's value: its param's, or a paired slot's two as id | id2 << 1 */
+int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
+/* which screen shows (draw.c branches on it for every band): PLAY, an edit page, or the number jump's
+ * (up from 400 ms into a SEL hold, or a first digit, until a jump is done or SEL comes up) */
+enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO };
+uint32_t ui_screen(const ui *u);
+/* GLO: the slot on knob k (0..3) of the GLO page shown; its value as the focus row reads it (the
+ * number or name into num, the unit into unit, UI_VALUE_LEN each; "--" while it waits), and as a
+ * column reads it (a shorter name where one is too wide) */
+const ui_glo_slot *ui_glo_slot_at(const ui *u, uint32_t k);
+/* the theme to draw in (UI_THEME_MEMBRANE, UI_THEME_NIGHT) */
+uint32_t ui_theme_shown(const ui *u);
+void ui_glo_value(const ui *u, uint32_t k, char *num, char *unit);
+void ui_glo_column(const ui *u, uint32_t k, char *num, char *unit);
+/* PLAY: the focus row shows the last turned knob (3 s after its turn), not the patch's name */
+int ui_play_readout(const ui *u, uint32_t ms);
+/* the jump screen's number: the digits typed, then _ ("4_", "__"); s: 3 chars */
+void ui_jump_digits(const ui *u, char *s);
+/* a key (0..PLAY_KEYS-1) going down or up: 1 when the UI takes it (SEL held: the number jump's keypad,
+ * and the key makes no sound), 0 when it plays */
+int ui_key(ui *u, uint32_t k, int down, uint32_t ms);
+/* key k's LED as the keypad has it: UI_LED_GLOW for a digit key while SEL is held, else UI_LED_OFF */
+uint32_t ui_keypad_led(const ui *u, uint32_t k);
+/* key k's LED, down or not: the keypad's glow while SEL is held, else lit while down with G33 KEY LEDS ON */
+uint32_t ui_key_led(const ui *u, uint32_t k, int down);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
+#define UI_CC_NONE 0xFFu
+/* CC map `map` (UI_CC_MAP_*): PG-800 number num's CC (the one it sends), and CC cc's PG-800 number
+ * (UI_CC_NONE: none) */
+uint32_t ui_cc_of(uint32_t map, uint32_t num);
+uint32_t ui_pg800_of(uint32_t map, uint32_t cc);
+/* G22 CC SEND: a CC a knob turn made, taken (1), on the scale a CC in reads; 0: none now. Only knob
+ * turns, never a CC that came in. At most one every UI_CC_OUT_MS, each slot's latest value when it
+ * goes, round the slots turned; the same CC and value as the last sent isn't sent again. The module
+ * asks after each event and each draw. */
+#define UI_CC_OUT_MS 10u
+int ui_cc_out(ui *u, uint32_t ms, uint32_t *cc, uint32_t *value);
+/* slot s's value on the CC scale, 0..127 (what G22 sends) */
+uint32_t ui_cc_scale(const ui *u, const ui_slot *s);
+/* G11 MIDI CHANNEL IN: 1 when a message with status st comes in (ALL, or its channel; system messages
+ * always); G12 MIDI CHANNEL OUT: status st (0x80, 0x90, 0xB0 ...) on G12's channel */
+int ui_midi_in(const ui *u, uint32_t st);
+uint32_t ui_midi_out(const ui *u, uint32_t st);
+/* G32 FIXED VELOCITY: a key's velocity, the host's (1..127), or G32's for a key with no force sensing (0) */
+uint32_t ui_key_velocity(const ui *u, int32_t host_vel);
+/* a MIDI control change, cc 0..127 at value 0..127 (#49, interaction.md 8): the parameter on cc (the
+ * CC map) takes the value across its knob's range, as a knob would set it. 1: taken (G21 ON and cc on
+ * the map), so the engine needn't have it; 0: the module passes it on (sustain, all notes off ...). */
+int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms);
 /* the banner's message ("": none) */
 const char *ui_banner(const ui *u);
 /* the UI_D_* bits to redraw now (0: nothing, or the last redraw was under UI_FRAME_MS ago), taken */
@@ -107,10 +224,16 @@ uint32_t ui_take(ui *u, uint32_t ms);
 void ui_octave_label(int32_t oct, char *s);
 /* a patch's number as the screen shows it: the factory tones are the starter group, "P1" .. "P32" */
 void ui_patch_number(const patch *t, char *s);
+/* program q's number as shown: 11..88 for the user slots, P1.. for the factory patches */
+void ui_prog_number(uint32_t q, char *s);
 /* a slot's number as the screen shows it, two digits ("41"); s: 3 chars */
 void ui_slot_number(const ui_slot *sl, char *s);
 /* the host asked for all of it (draw(full)): UI_D_ALL, and nothing stays pending */
 uint32_t ui_take_full(ui *u, uint32_t ms);
+/* the band to draw now, out of pending (0: none). What changed (ui_take) is taken only once pending
+ * is drawn, so steady turns can't starve the later bands; a new page (UI_D_FULL) is taken at once and
+ * starts pending over as all of it. */
+uint32_t ui_band(ui *u, uint32_t *pending, uint32_t ms);
 /* the next band to draw out of pending (UI_D_* bits, in drawing order), taken out of it; 0: none */
 uint32_t ui_next_band(uint32_t *pending);
 /* a button's LED (interaction.md): UI_LED_OFF, UI_LED_LIT or UI_LED_GLOW (dim) */

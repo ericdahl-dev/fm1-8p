@@ -5,16 +5,24 @@
 #
 # usage: tools/fm1-build.sh COMMAND
 #   fetch      download fm1-dock, the JieLi toolchain and the AC79 SDK files into $FM1_DEPS
-#              (default build/fm1-deps) and check each against firmware/pins.env
+#              (default build/fm1-deps) and check each against firmware/pins.env; each download
+#              is tried up to 5 times, the waits doubling from 2 s (FM1_FETCH_TRIES, FM1_FETCH_BACKOFF)
+#   fetch-emu  the same for fm1-emu (emu and emu-play fetch it themselves when missing)
 #   build      the synth (FM1-8P) and the CPU test, each as a .dock (USB deploy) and a solo .fwsc,
-#              (FM1_DEBUG=1: the debug variant, with timing in the log)
+#              (FM1_DEBUG=1: the debug variant, with timing in the log; FM1_THEME=night: Night Panel)
 #              into build/fm1/
 #   canaries   each module in firmware/canary/ breaks an fm1-dock safety rule; its build must fail
 #   emu        run the CPU test in fm1-emu's strict timing mode; worst load per voice count
 #              into build/fm1/emu-report.md (report only)
+#   emu-ui     the same, with FM1-8P's VCF page redrawing every frame (firmware/fm1_8p_cpu_ui): the
+#              UI-active rows (build/fm1/emu-ui-report.md)
+#   emu-seq    the same, with step F played by a running sequencer (firmware/fm1_8p_cpu_seq, #36): a
+#              6-note chord every step on the device's voices, 300 BPM (build/fm1/emu-seq-report.md)
 #   emu-play   play a scripted note sequence (keys and MIDI) into build/fm1/fm1-8p.fwsc (built if
 #              missing) in fm1-emu's strict timing
 #              mode; fails on an overrun (build/fm1/emu-play-report.md)
+#   emu-save   #48: a chord held, SAVE tapped twice, released; fails unless the one flash write lands
+#              after the release in silence, with no gap while held (build/fm1/emu-save-report.md)
 #   all        fetch, build, canaries
 #
 # Already have the inputs? Point at them; they are checked all the same:
@@ -61,6 +69,7 @@ abspath() {
 stage_module() {
     src=$(abspath "$1") eng=$(abspath "$3")
     dbg=; [ "${FM1_DEBUG:-}" = 1 ] && dbg=" -DFM1_DEBUG"   # only 1 is the debug build (0 is not)
+    [ "${FM1_THEME:-}" = night ] && dbg="$dbg -DFM1_THEME_NIGHT"   # a Night Panel preview (the default: Membrane)
     mkdir -p "$2" || return 1
     rm -f "$2"/module.cfg
     while IFS= read -r line || [ -n "$line" ]; do
@@ -191,18 +200,36 @@ canary_caught() {
     grep -qF "$(cat "$2")" "$1"
 }
 
+# retry CMD...: run CMD until it succeeds, FM1_FETCH_TRIES times at most (default 5), waiting
+# FM1_FETCH_BACKOFF seconds (default 2) after the first failure and twice as long after each next.
+# For downloads: CI's runners see "curl: (35) Connection reset", which curl's own --retry doesn't
+# count as transient.
+retry() {
+    try=1
+    while :; do
+        "$@" && return 0
+        [ "$try" -ge "${FM1_FETCH_TRIES:-5}" ] && { echo "fm1-build: gave up after $try tries: $*" >&2; return 1; }
+        wait=$(( ${FM1_FETCH_BACKOFF:-2} << (try - 1) ))
+        echo "fm1-build: try $try failed, again in ${wait} s: $*" >&2
+        sleep "$wait"
+        try=$((try + 1))
+    done
+}
+
 fetch_fm1_dock() {
     if [ -n "${FM1_DOCK_USER:-}" ]; then        # the user's clone: check it, never change it
         [ "$(git -C "$FM1_DOCK" rev-parse HEAD 2>/dev/null)" = "$FM1_DOCK_SHA" ] && return 0
         echo "fm1-build: FM1_DOCK=$FM1_DOCK is not at fm1-dock $FM1_DOCK_SHA (left as it is)" >&2
         return 1
     fi
+    # already at the pin (a cached clone): nothing to fetch
+    [ "$(git -C "$FM1_DOCK" rev-parse HEAD 2>/dev/null)" = "$FM1_DOCK_SHA" ] && return 0
     if [ ! -d "$FM1_DOCK/.git" ]; then
         mkdir -p "$FM1_DOCK"
         git -C "$FM1_DOCK" init -q
         git -C "$FM1_DOCK" remote add origin "$FM1_DOCK_REPO"
     fi
-    git -C "$FM1_DOCK" fetch -q --depth 1 origin "$FM1_DOCK_SHA"
+    retry git -C "$FM1_DOCK" fetch -q --depth 1 origin "$FM1_DOCK_SHA" || return 1
     git -C "$FM1_DOCK" checkout -q --detach FETCH_HEAD
 }
 
@@ -215,7 +242,7 @@ fetch_toolchain() {
     verify_toolchain_dir "$JIELI_TOOLCHAIN" "$JIELI_TOOLCHAIN_DIR" 2>/dev/null && return 0
     d=$FM1_DEPS/jieli
     mkdir -p "$d" || return 1
-    curl -fL --retry 3 -o "$d/toolchain.tar.xz" "$JIELI_TOOLCHAIN_URL" || return 1
+    retry curl -fL -o "$d/toolchain.tar.xz" "$JIELI_TOOLCHAIN_URL" || return 1
     got=$(sha256 "$d/toolchain.tar.xz")
     if [ "$got" != "$JIELI_TOOLCHAIN_SHA256" ]; then     # the URL serves JieLi's latest, unversioned
         echo "fm1-build: JieLi published a new toolchain (got sha256 $got, pinned $JIELI_TOOLCHAIN_SHA256)." >&2
@@ -239,7 +266,7 @@ fetch_sdk() {
             continue
         fi
         mkdir -p "$(dirname "$f")" || return 1
-        curl -fsSL --retry 3 -o "$f.part" "$AC79_SDK_RAW/$AC79_SDK_COMMIT/cpu/wl82/tools/$rel" || return 1
+        retry curl -fsSL -o "$f.part" "$AC79_SDK_RAW/$AC79_SDK_COMMIT/cpu/wl82/tools/$rel" || return 1
         verify_sha256 "$f.part" "${pin#*:}" || { rm -f "$f.part"; return 1; }
         mv "$f.part" "$f"
     done
@@ -261,7 +288,7 @@ fetch_emu() {
     d=$FM1_DEPS/fm1-emu
     if [ ! -f "$d/$FM1_EMU_DIR/fm1-live" ]; then
         mkdir -p "$d" || return 1
-        curl -fL --retry 3 -o "$d/fm1-emu.tar.gz" "$FM1_EMU_URL" || return 1
+        retry curl -fL -o "$d/fm1-emu.tar.gz" "$FM1_EMU_URL" || return 1
         verify_sha256 "$d/fm1-emu.tar.gz" "$FM1_EMU_SHA256" || return 1
         tar -xzf "$d/fm1-emu.tar.gz" -C "$d" || return 1
         rm "$d/fm1-emu.tar.gz"
@@ -333,28 +360,32 @@ run_canaries() {
     return $rc
 }
 
+# run_emu MODULE NAME: the CPU-test module firmware/MODULE (fm1_8p_cpu_quick, or fm1_8p_cpu_ui with a
+# page drawing) in fm1-emu's strict timing, into $OUT/NAME.log and $OUT/NAME-report.md
 run_emu() {
+    mod=${1:-fm1_8p_cpu_quick} name=${2:-emu}
+    fw=$(echo "$mod" | tr _ -)                # fm1-8p-cpu-quick, fm1-8p-cpu-ui
     check_inputs
     fetch_emu
     ulimit -n 8192 2>/dev/null || true
-    stage_module "$ROOT/firmware/fm1_8p_cpu_quick" "$OUT/modules/fm1_8p_cpu_quick" "$ROOT/engine"
-    dock build.py --modules "$OUT/modules/fm1_8p_cpu_quick" --name fm1-8p-cpu-quick \
+    stage_module "$ROOT/firmware/$mod" "$OUT/modules/$mod" "$ROOT/engine"
+    dock build.py --modules "$OUT/modules/$mod" --name "$fw" \
         --app-name "FM1-8P CPU" --identity "$FM1_IDENTITY"
-    check_module_symbols "$FM1_DOCK/build/modules/fm1_8p_cpu_quick" || return 1
+    check_module_symbols "$FM1_DOCK/build/modules/$mod" || return 1
     emu_rc=0      # (no pipefail in sh: the log goes to a file first, so a crash isn't hidden by tee)
     (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
-        --fwsc build/fm1-8p-cpu-quick.fwsc --ms "${FM1_EMU_MS:-$(emu_window_ms "$(sed -n 's/.*-DCPU_HOLD_BLOCKS=\([0-9]*\)u.*/\1/p' "$ROOT/firmware/fm1_8p_cpu_quick/module.cfg")")}" --out "$OUT/emu") \
-        >"$OUT/emu.log" 2>&1 || emu_rc=$?
-    cat "$OUT/emu.log"
+        --fwsc "build/$fw.fwsc" --ms "${FM1_EMU_MS:-$(emu_window_ms "$(sed -n 's/.*-DCPU_HOLD_BLOCKS=\([0-9]*\)u.*/\1/p' "$ROOT/firmware/$mod/module.cfg")")}" --out "$OUT/$name") \
+        >"$OUT/$name.log" 2>&1 || emu_rc=$?
+    cat "$OUT/$name.log"
     report_rc=0
-    emu_report "$OUT/emu.log" >"$OUT/emu-report.md" 2>&1 || report_rc=1
+    emu_report "$OUT/$name.log" >"$OUT/$name-report.md" 2>&1 || report_rc=1
     if ! verify_sha256 "$FM1_LIVE" "$FM1_LIVE_SHA256" 2>/dev/null; then
-        printf '\nNote: run with an unpinned fm1-live (%s).\n' "$FM1_LIVE" >>"$OUT/emu-report.md"
+        printf '\nNote: run with an unpinned fm1-live (%s).\n' "$FM1_LIVE" >>"$OUT/$name-report.md"
     fi
     if [ "$emu_rc" -ne 0 ]; then
-        printf '\n**The emulator run failed (exit %s): the table is partial or empty.**\n' "$emu_rc" >>"$OUT/emu-report.md"
+        printf '\n**The emulator run failed (exit %s): the table is partial or empty.**\n' "$emu_rc" >>"$OUT/$name-report.md"
     fi
-    cat "$OUT/emu-report.md"
+    cat "$OUT/$name-report.md"
     [ "$emu_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
 }
 
@@ -362,16 +393,19 @@ run_emu() {
 # `ms:id^` lets it go; `ms:mHEX` is MIDI into the jack). Keys: a C major 7th chord (C4 E4 G4 B4) held 2 s.
 # MIDI: the same chord with a full bend up and back, the sustain pedal over the note offs, then five
 # notes on four voices (one stolen), on another channel. Then ENV opens the VCF page and a chord plays
-# while KNOB2, KNOB1, KNOB3 and KNOB4 turn (the page redraws as the audio runs). Last, with a chord
-# held, PRESETS turns twice: the edits warn, then the next patch loads and the chord lets go.
+# while KNOB2, KNOB1, KNOB3 and KNOB4 turn (the page redraws as the audio runs), and ENV again turns
+# to page 5B. Last, with a chord held, PRESETS turns twice: the edits warn, then the next patch loads.
+# KNOB2 edits it, and EDIT held 600 ms compares (KNOB3 turned meanwhile changes nothing) before the
+# chord lets go.
 EMU_PLAY_MS=9500
 EMU_PLAY_KEYS="1000:21,1000:25,1000:28,1000:32,3000:21^,3000:25^,3000:28^,3000:32^,\
 3500:m903c64,3500:m904050,3500:m904364,3500:m904740,3700:me07f7f,4000:me00040,4200:mb0407f,\
 4300:m803c00,4300:m804000,4300:m804300,4300:m804700,4800:mb04000,\
 5200:m93306e,5250:m933464,5300:m93375a,5350:m933b50,5400:m933e46,\
 6500:m833000,6500:m833400,6500:m833700,6500:m833b00,6500:m833e00,\
-6700:4,6750:4^,6800:21,6800:25,6800:28,7000:e3:3,7200:e2:-4,7300:e4:1,7400:e5:-2,7600:21^,7600:25^,7600:28^,\
-7650:21,7650:25,7700:e6:1,7900:e6:1,8300:21^,8300:25^"
+6700:4,6750:4^,6800:21,6800:25,6800:28,7000:e3:3,7200:e2:-4,7300:e4:1,7400:e5:-2,7450:4,7500:4^,\
+7600:21^,7600:25^,7600:28^,7650:21,7650:25,7700:e6:1,7900:e6:1,7950:e3:2,8000:6,8450:e4:1,8600:6^,\
+8700:21^,8700:25^"
 
 # run_emu_play: plays $OUT/fm1-8p.fwsc, the one `build` made (run `build` again after a change); it
 # builds the synth first only when that file isn't there.
@@ -400,6 +434,40 @@ run_emu_play() {
     [ "$emu_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
 }
 
+# emu-save (#48): a chord from PRESS, SAVE opened and tapped again while it sounds (SAVE waits), let go
+# at RELEASE; the run goes on long enough for SOUNDTRACK's tail to end and the write to happen.
+EMU_SAVE_MS=16000 EMU_SAVE_PRESS=1500 EMU_SAVE_RELEASE=4000
+EMU_SAVE_KEYS="1500:14,1500:18,1500:21,2000:9,2100:9^,2500:9,2600:9^,4000:14^,4000:18^,4000:21^"
+
+# run_emu_save: plays $OUT/fm1-8p.fwsc (built when missing) on a fresh flash image, so the write is
+# the first to slot 11, and checks it with tools/emu_save.py.
+run_emu_save() {
+    check_inputs || return 1
+    fetch_emu || return 1
+    ulimit -n 8192 2>/dev/null || true
+    mkdir -p "$OUT" || return 1
+    if [ ! -f "$OUT/fm1-8p.fwsc" ]; then
+        build_module fm1_8p fm1-8p "FM1-8P" || return 1
+    fi
+    rm -f "$OUT/emu-save.flash"
+    emu_rc=0
+    (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
+        --fwsc "$OUT/fm1-8p.fwsc" --ms "$EMU_SAVE_MS" --keys "$EMU_SAVE_KEYS" --flash "$OUT/emu-save.flash" \
+        --out "$OUT/emu-save") >"$OUT/emu-save.log" 2>&1 || emu_rc=$?
+    cat "$OUT/emu-save.log"
+    report_rc=0
+    "$PYTHON" "$ROOT/tools/emu_save.py" "$OUT/emu-save/log.txt" "$OUT/emu-save/audio.wav" \
+        "$EMU_SAVE_PRESS" "$EMU_SAVE_RELEASE" >"$OUT/emu-save-report.md" 2>&1 || report_rc=1
+    if ! verify_sha256 "$FM1_LIVE" "$FM1_LIVE_SHA256" 2>/dev/null; then
+        printf '\nNote: run with an unpinned fm1-live (%s).\n' "$FM1_LIVE" >>"$OUT/emu-save-report.md"
+    fi
+    if [ "$emu_rc" -ne 0 ]; then
+        printf '\n**The emulator run failed (exit %s).**\n' "$emu_rc" >>"$OUT/emu-save-report.md"
+    fi
+    cat "$OUT/emu-save-report.md"
+    [ "$emu_rc" -eq 0 ] && [ "$report_rc" -eq 0 ]
+}
+
 [ -n "${FM1_BUILD_LIB:-}" ] && return 0       # sourced by tests/test_fm1_build.sh
 
 set -eu
@@ -416,10 +484,14 @@ mkdir -p "$OUT"
 
 case "${1:-}" in
     fetch)    fetch_fm1_dock; fetch_toolchain; fetch_sdk; check_inputs ;;
+    fetch-emu) fetch_emu ;;
     build)    build_firmware ;;
     canaries) run_canaries ;;
-    emu)      run_emu ;;
+    emu)      run_emu fm1_8p_cpu_quick emu ;;
+    emu-ui)   run_emu fm1_8p_cpu_ui emu-ui ;;
+    emu-seq)  run_emu fm1_8p_cpu_seq emu-seq ;;
     emu-play) run_emu_play ;;
+    emu-save) run_emu_save ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
-    *)        sed -n '2,24s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *)        sed -n '2,31s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac

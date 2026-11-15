@@ -14,7 +14,7 @@ Eric's follow-up answers settled four more:
 
 | decision | what it means |
 | --- | --- |
-| **Night Panel is the default theme** | a fresh device, or a settings record without THEME, starts in Night Panel |
+| **Membrane is the default theme** | a fresh device, or a settings record without THEME, starts in Membrane (Eric, 2026-11-14; this replaces the earlier Night Panel default) |
 | **Names are 12 characters at most** | patch and pattern names always fit the D20 focus row; SAVE's name editor stops at 12 |
 | **SEQ view's footer shows the pattern** | `PTN 41 NIGHT DRIVE*`, and `NEXT 42` while one is queued; the patch shows again on leaving SEQ view |
 | **THEME is live** | a turn applies at once, debounced by 150 ms (see [THEME in GLO](#theme-in-glo-and-what-a-switch-redraws)) |
@@ -66,7 +66,7 @@ The mockups show one moment in both themes:
 
 - **Patch:** 23 CHROME DUSK, edited.
 - **Pattern:** 41 NIGHT DRIVE, edited, playing at step 7, 112 BPM on the internal clock.
-- **Focus:** on the edit pages, knob 2 is the focus (42 RESO, 52 DECAY). On GLO the focus is
+- **Focus:** on the edit pages, knob 2 is the focus (52 CUTOFF, 82 DECAY). On GLO the focus is
   G34 THEME.
 - **SEQ view:**
   - page S2;
@@ -81,7 +81,7 @@ reads its bands from. Every position below is the same in both themes.
 
 | band | rows | contents |
 | --- | --- | --- |
-| header | 0-23 | the state or section chip, its context, and the transport on the right: a play or stop mark, step, tempo and clock source (`07 112 INT`). On EDIT pages a 14-segment strip on the header's bottom rule shows where the page sits in interaction.md's page order (`PAGE_ORDER` in `render.py`: 1A, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 7B, 8A, 8B, so 4A VCF lights the 5th segment and 5A VCF ENV the 7th), and on GLO a 3-segment strip does the same. |
+| header | 0-23 | the state or section chip, its context, and the transport on the right: a play or stop mark, step, tempo and clock source (`07 112 INT`). On EDIT pages an 18-segment strip on the header's bottom rule shows where the page sits in interaction.md's page order (1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B, so 5A VCF lights the 8th segment; the mockups still draw the earlier 14-page order), and on GLO a 3-segment strip does the same. |
 | focus | 28-73 | a 64 x 46 LED window with the parameter number, then the section name, the full label, and the value in D24 with its unit |
 | slot | 78-133 | a single 230 x 56 canvas. It holds the filter response (VCF), the ADSR (VCF ENV and VCA), the art (PLAY) or the theme cards (GLO). |
 | knob columns | 138-221 | four 56 x 84 columns with 2 px gaps, left to right for KNOB1-4. Each column holds the number, the label, a meter, and the value in D24 with its unit. |
@@ -95,7 +95,7 @@ The SEQ view keeps the header and footer, and uses its own body (see the piano r
   - the LED window shows the patch number;
   - the focus row shows the name in D20;
   - the slot holds the art;
-  - the columns are the four performance knobs: 41 CUTOFF, 42 RESO, 43 ENV and 64 RELEASE, each
+  - the columns are the four performance knobs: 52 CUTOFF, 53 RES, 55 ENV and 94 RELEASE, each
     in its own section's color.
 
   After a turn, the focus readout takes the name row for 3 s.
@@ -103,7 +103,7 @@ The SEQ view keeps the header and footer, and uses its own body (see the piano r
   - a column shows the value in D24 with its unit in Terminus (`1.25k`, `480ms`, `+24st`);
   - the focus row shows the unit in full (`1.25 kHz`);
   - a choice too long for D24 in 56 px, such as `MEMB` or `NIGHT`, falls back to Terminus.
-- **Inactive and pending values:** an inactive value, such as 14 WIDTH when WAVE isn't PULSE,
+- **Inactive and pending values:** an inactive value, such as 17 WIDTH when WAVE isn't PULSE,
   is drawn in `dim` and has no meter. A pending parameter shows `--`. A reserved slot leaves
   its column empty.
 
@@ -114,22 +114,22 @@ the two themes:
 
 | key | Membrane | Night Panel | what it changes |
 | --- | --- | --- | --- |
-| `bg` | `18E4` | `0863` | the screen |
-| `surface` | `2145` | `18C5` | columns, footer, cells |
-| `surface_hi` | `31A7` | `2107` | the focus column, legend chips |
-| `line` | `3A09` | `2969` | rules, frames, unlit meter |
-| `text` | `EF3A` cream | `EF7F` | values, focused labels |
-| `dim` | `A513` | `9CB7` | other labels |
-| `ink` | `1082` | `0863` | text on a chip or on the sunset |
-| `window` | `0861` | `0021` | LED and graph windows |
-| `led` | `F984` red | the section color | the 7-segment digits |
+| `bg` | `2986` the button strip | `0863` | the screen |
+| `surface` | `3A08` | `18C5` | columns, footer, cells |
+| `surface_hi` | `4249` | `2107` | the focus column, legend chips |
+| `line` | `83EF` the body | `2969` | rules, frames, unlit meter |
+| `text` | `F7BE` the lettering | `EF7F` | values, focused labels |
+| `dim` | `C659` | `9CB7` | other labels |
+| `ink` | `1904` | `0863` | text on a chip or on the sunset |
+| `window` | `0020` | `0021` | LED and graph windows |
+| `led` | `AF9E` pale cyan | the section color | the 7-segment digits |
 | `ghost` | 10 % | 8 % | unlit segments, as this much of the LED color |
 | `header` | `chip` | `band` | the section name on a chip of its color, or in its color under a 3 px band |
 | `meter_segments`, `meter_gap` | 0, 0 (one bar) | 8, 2 (an LED ladder) | the knob meter |
 | `focus` | `(1.0, 1.0)` | `(1.0, 0.45, 0.2)` | frames inward from the focused element's edge, as mixes from `bg` to the accent: a 2 px frame, or a glow |
 | `hatch` | 0 | 16 % | the fill under graph curves |
 | `art` | `badge` | `sun` | the PLAY slot: six sunset bands with the device name, or the striped sun over a perspective grid |
-| `playhead`, `cursor` | `EF3A`, `F984` | `2EDF`, `EF7F` | the SEQ playhead and step cursor |
+| `playhead`, `cursor` | `F7BE`, `DB0B` | `2EDF`, `EF7F` | the SEQ playhead and step cursor |
 | `sun` | `FE88 FD87 FC67 FB49 F24E D1D2` | `FEC9 FD88 FC48 FAEC F1F2 C198` | the sunset bands (PLAY only) |
 | `grid`, `horizon` | none | `5953`, `F9FB` | the perspective grid (PLAY only) |
 
@@ -137,27 +137,45 @@ All values are RGB565, which is what `HB_RGB()` produces.
 
 ### Section colors
 
+Membrane takes the JX-8P's own colors (Eric, 2026-11-14, from a render of its panel). The screen
+is the button strip's dark gray. The body's mid gray is too light to put text on, so it draws the
+rules, frames and unlit meters. Text is the lettering, the LED window the display's pale cyan, and
+the sections the panel buttons' colors, named below by the button each comes from. The panel has
+five button colors for eight sections, so some repeat on sections far apart, and each is lightened
+only as far as the contrast rules below need. The red is the exception: lightened enough for text it
+read as pink (Eric, 2026-11-14), so it stays the panel's red and is a fill only. It fills the header
+chip, the page strip, meters, focus frames and graph lines, the number jump puts each digit on a
+chip of its section's color, and where a red section would color text (the focus row's section name,
+the knob numbers) the text takes the lettering instead. The theme's `fill_only` lists these sections.
+Their meter bars sit on a near-black track (`fill_track`, the LED window's `0020`), so a bar stands
+out by lightness and not by hue alone. VCF ENV takes a more orange red of its own, `FA23`, so ENV-1
+stays apart from DCO-1 (Eric, 2026-11-14).
+
 | section | Membrane | Night Panel |
 | --- | --- | --- |
-| 1x DCO-1 | `EC07` orange | `FAF4` pink |
-| 2x DCO-2 | `EDC7` amber | `FC47` orange |
-| 3x MIX | `CE15` stone | `DEBE` lilac white |
-| 4x VCF | `4D9A` steel blue | `2EDF` cyan |
-| 5x VCF ENV | `DB53` rose | `FE07` amber |
-| 6x VCA | `8E4C` green | `7F8F` green |
-| 7x LFO | `9C5C` lavender | `B3FF` violet |
-| 8x CTRL | `5657` teal | `3D1F` blue |
-| SEQ | `FB4D` red | `F9FB` magenta |
-| GLO | `CE15` stone | `DEBE` lilac white |
-| PLAY | `EF3A` cream | `F9FB` magenta |
+| 1x DCO-1 | `DB0B` red (COPY/WRITE), fill only | `FAF4` pink |
+| 2x DCO-2 | `DD6B` amber (KEY MODE) | `FC47` orange |
+| 3x MIX | `CE58` cream-gray (TONE) | `DEBE` lilac white |
+| 4x VCF | `8D9A` blue (PATCH CHAIN) | `2EDF` cyan |
+| 5x VCF ENV | `FA23` orange red, fill only | `FE07` amber |
+| 6x VCA | `C5F5` light gray (EDIT) | `7F8F` green |
+| 7x LFO | `B65C` pale blue | `B3FF` violet |
+| 8x CTRL | `CD4D` amber (AFTER TOUCH) | `3D1F` blue |
+| SEQ | `DB0B` red (WRITE), fill only | `F9FB` magenta |
+| GLO | `AD95` gray | `DEBE` lilac white |
+| PLAY | `D6B9` the lettering | `F9FB` magenta |
 
 ### Contrast
 
 All ratios are WCAG ratios, computed on the quantized RGB565 values.
 
-- **Text:** at least 10.2:1 on every surface in Membrane, and 13.9:1 in Night Panel.
-- **Dim labels:** at least 4.9:1 in Membrane and 5.6:1 in Night Panel.
-- **Section colors:** at least 4.7:1 on `surface` and 4.9:1 on `bg`.
+- **Text:** at least 8.5:1 on every surface in Membrane, and 13.9:1 in Night Panel.
+- **Dim labels:** at least 5.6:1 in Membrane and 5.6:1 in Night Panel.
+- **Section colors:** at least 4.7:1 on `surface` and 4.9:1 on `bg`, except a fill-only color.
+- **Fills:** every section color at least 3.0:1 on `surface`, and with a chip header, `ink` on it at
+  least 4.5:1.
+- **Fill-only meters:** the bar at least 3.0:1 on `fill_track`, lit or dimmed, and the track at least
+  1.8:1 on `surface` and `surface_hi`.
 
 ### Where the layouts differ, and why it stays minimal
 
@@ -178,12 +196,12 @@ the key strip are identical.
 
 ### THEME in GLO, and what a switch redraws
 
-THEME takes the reserved slot G34 (GLO page 3, K4): `MEMBRANE`, `NIGHT`. The default is Night
-Panel, and the setting is one byte in the settings record.
+THEME takes the reserved slot G34 (GLO page 3, K4): `MEMBRANE`, `NIGHT`. The default is
+Membrane, and the setting is one byte in the settings record.
 
 | No. | Knob | Setting | Shown as | Default |
 | --- | --- | --- | --- | --- |
-| G34 | K4 | THEME | MEMBRANE, NIGHT (the column shows `MEMB` or `NIGHT`, and the focus row the full name) | NIGHT |
+| G34 | K4 | THEME | MEMBRANE, NIGHT (the column shows `MEMB` or `NIGHT`, and the focus row the full name) | MEMBRANE |
 
 - **The GLO slot shows a card for each theme,** each drawn in its own colors, with the chosen
   card framed. You see both before you turn.
@@ -308,6 +326,10 @@ The meaning stays the same in both themes:
   Scintilla and Prophet do.
 - **Coalesced knob turns.** A turn marks its column dirty. Dirty items redraw at most every
   33 ms (30 Hz), and fast turns coalesce into one redraw.
+- **A draw() call takes at most 5 ms** on any screen (Eric, 2026-11-14). The host calls `draw()`
+  between its key scans and MIDI reads, so a longer call holds them up. A screen draws in parts,
+  one a call, to stay under it. `tools/emu_pages.py` measures each screen's worst call in fm1-emu
+  (a debug build), and anything new (the sequencer's piano roll) must fit too.
 - **A value change** costs:
   - a 56 x 24 blit for the value;
   - at most 8 meter fills;
