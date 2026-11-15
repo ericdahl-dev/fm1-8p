@@ -810,6 +810,8 @@ static void glo_turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
         u->set_changed_ms = ms;
         if (g->setting == 11u)                  /* G34: the theme cards' frame */
             u->dirty |= UI_D_SLOT;
+        if (g->setting == 2u)                   /* G13: the sequencer's clock (#38) */
+            seq_set_clock_source(play_seq(u->p), (uint32_t)v);
     }
     u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
     u->focus = k;

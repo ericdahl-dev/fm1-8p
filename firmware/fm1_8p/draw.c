@@ -795,7 +795,8 @@ static void glo_part(uint32_t b, uint32_t part)
 #define C_SEQ (T->section[UI_SEC_SEQ])
 static void seq_tempo_text(char *s)
 {
-    uint32_t t = seq_tempo(play_seq(P)), n = 0;
+    uint32_t t = seq_clock_external(play_seq(P)) && seq_clock_tempo(play_seq(P)) ? seq_clock_tempo(play_seq(P))
+                 : seq_tempo(play_seq(P)), n = 0;  /* (#38: the clock's, under MIDI clock) */
     char d[6];
     uint32_t v = t / 10u;
     do {
