@@ -107,6 +107,7 @@ typedef struct {
     uint32_t shown_steps;               /* seq_steps as SEQ view's strip last drew it */
     uint32_t boot;                      /* the boot screen (#50): 1 while it shows, 2 begun, 0 done */
     uint32_t boot_ms, boot_loaded;      /* when it began (its first ui_take); the flash banks read */
+    uint32_t boot_btns;                 /* buttons that skipped it: their releases do nothing either */
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
     int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
 } ui;

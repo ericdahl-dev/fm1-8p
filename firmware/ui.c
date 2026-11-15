@@ -373,7 +373,7 @@ void ui_init(ui *u, play *p)
     u->seq_cursor = 0;
     u->seq_page = 0;
     u->seq_keys = 0;
-    u->boot = u->boot_ms = u->boot_loaded = 0;
+    u->boot = u->boot_ms = u->boot_loaded = u->boot_btns = 0;
     u->chord_n = 0;
     u->seq_armed = 0;
     u->built_n = 0;
@@ -861,6 +861,10 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
 int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
 {
     int32_t d = key_digit(k);
+    if (down && u->boot) {                      /* a key skips the boot screen and plays (#50) */
+        u->boot = 0;
+        u->dirty |= UI_D_FULL;
+    }
     if (!down && k < 32u && u->seq_keys >> k & 1u) {   /* a key SEQ view took: its up too, wherever we are */
         u->seq_keys &= ~(1u << k);
         ui_seq_step_key(u, k, 0, ms);
@@ -1152,6 +1156,17 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     }
     if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS)
         u->held &= ~(1u << id);
+    if (u->boot && ((ev & 0xFF000000u) == UI_EV_ENC || (ev & 0xFF000000u) == UI_EV_BTN_DOWN)) {
+        u->boot = 0;                            /* the boot screen: any knob or button skips it, nothing else */
+        u->dirty |= UI_D_FULL;
+        if ((ev & 0xFF000000u) == UI_EV_BTN_DOWN && id < UI_BUTTONS)
+            u->boot_btns |= 1u << id;           /* (and its release) */
+        return;
+    }
+    if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS && u->boot_btns >> id & 1u) {
+        u->boot_btns &= ~(1u << id);
+        return;
+    }
     if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && ms - u->down_ms[UI_BTN_HOME] >= UI_PICKER_MS &&
         play_seq(u->p)->want)
         seq_stop(play_seq(u->p));               /* the host's picker: the sequencer stops (case 62) */

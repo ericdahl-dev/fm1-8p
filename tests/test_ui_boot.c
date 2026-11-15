@@ -40,8 +40,33 @@ TT_TEST(boot_waits_for_the_banks_at_most_5_s)
     TT_CHECK_EQ(ui_screen(&ui_u), (uint32_t)UI_SCREEN_PLAY);
 }
 
+/* Any knob or button skips it: PLAY at once, and that event does nothing else (a turn changes no value,
+ * EDIT opens no page). A key skips it too and still plays (ui_key leaves it to the engine) */
+TT_TEST(boot_any_control_skips_it)
+{
+    int32_t before;
+    boot_setup();
+    (void)ui_take(&ui_u, 1000);
+    before = ui_slot_value(&ui_u, ui_page_slot(&ui_u, 0));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 3, 1100);
+    TT_CHECK_EQ(ui_screen(&ui_u), (uint32_t)UI_SCREEN_PLAY);
+    TT_CHECK_EQ(ui_slot_value(&ui_u, ui_page_slot(&ui_u, 0)), before);
+    TT_CHECK(ui_take(&ui_u, 1200) & UI_D_FULL);
+    boot_setup();
+    (void)ui_take(&ui_u, 1000);
+    ui_tap(UI_BTN_EDIT, 1100);
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+    TT_CHECK_EQ(ui_screen(&ui_u), (uint32_t)UI_SCREEN_PLAY);
+    boot_setup();
+    (void)ui_take(&ui_u, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, 5, 1, 1100), 0);                /* sounds */
+    TT_CHECK_EQ(ui_screen(&ui_u), (uint32_t)UI_SCREEN_PLAY);
+    TT_CHECK_EQ(ui_key(&ui_u, 5, 0, 1150), 0);
+}
+
 static void run_ui_boot_tests(void)
 {
     TT_RUN(boot_shows_at_least_1_5_s);
     TT_RUN(boot_waits_for_the_banks_at_most_5_s);
+    TT_RUN(boot_any_control_skips_it);
 }
