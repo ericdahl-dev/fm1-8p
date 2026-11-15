@@ -97,7 +97,7 @@ fast step applies when one event carries 3 or more clicks.
 | --- | --- | --- | --- | --- | --- |
 | 11 | K1 | `osc1_octave` | RANGE | 16', 8', 4', 2' (and our 32') | 1 / 1 |
 | 12 | K2 | `osc1_wave` | WAVE | SAW, PULSE, SQUARE, NOISE (panel order) | 1 / 1 |
-| 13 | K3 | `osc1_coarse_semis` (pending, #158) | TUNE | -12..+12 st | 1 / 1 |
+| 13 | K3 | `osc1_coarse_semis` (#108) | TUNE | -12..+12 st | 1 / 1 |
 | 14 | K4 | `lfo_pitch_cents` | LFO | 0..1200 ct | 1 to 99 ct: 1 / 10; then 10 / 50 |
 | 15 | K1 | `pitch_env_osc1_cents` (its size) | ENV | 0..32 st, to 0.1 (32 MODE has the sign) | 10 ct / 100 ct |
 | 16 | K2 | `osc1_fine_cents` (*ours*) | FINE | -100..+100 ct | 1 / 10 |
@@ -448,6 +448,7 @@ is sounding, as fm1-dock's rules ask.
 | G32 | K2 | Fixed velocity, for keys with no force sensing | 1..127 | 100 |
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
 | G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | MEMBRANE |
+| G41 | K1 | Program change | OFF, RECV, SEND, BOTH | RECV |
 
 **MIDI channels (G11, G12):** G11 takes the channel messages of one channel (notes, CCs, bend,
 pressure), or every channel with ALL. System messages (clock, start, stop) always come in. G12 is
@@ -456,10 +457,12 @@ channel its note-on went on, even if G12 changed while it was held. The host has
 option, which passes only that channel on, as channel 1 (fm1-dock `dock.c`, "MIDI CH"). With it
 set, leave G11 at ALL (or 1).
 
-Program change, G23 before CC MAP took its place (Eric), moves to G41 on a fourth page when it is
-built: OFF, RECV, SEND, BOTH, default RECV.
+**Key LEDs (G33):** ON lights a panel key's LED while it is held, OFF leaves it dark. The number
+jump's keypad glow (SEL held) shows either way, and so will the sequencer's step keys in SEQ view.
 
-Until their features land, G13 and G14 (clock, #38) and G41 (program change) show `--` and their
+Program change is G41, on a fourth page (Eric: CC MAP took G23). G42-G44 are empty for now.
+
+Until their features land, G13 and G14 (clock, #38) show `--` and their
 knobs do nothing. G21-G24 are live (#49).
 
 **CC send (G22):** with it ON, a panel knob turn goes out as its parameter's CC (the CC map below),
@@ -970,7 +973,7 @@ CC first.
   source, 79 and 80 LFO 2 and 3 wave, 82 load sequence, 83 MIDI control, 86-90 arpeggiator,
   sequencer and clock, 92 and 93 mod wheel and aftertouch destinations, 96-101 NRPN and RPN, 102-106
   voice and arpeggiator options. Kiwi's 1 mod wheel, 7 volume, 64 hold, 120 and 123 keep their
-  standard meanings, as in JX; 119 program change waits on G41.
+  standard meanings, as in JX; 119 (program change as a CC) isn't taken: program change itself is G41's.
 - **Parameters with no Kiwi CC:** 16 DCO-1 FINE TUNE, 17 and 28 PULSE WIDTH, 33 X-MOD AMOUNT, 51
   HIGHPASS (Kiwi's 73 went to attack), 65 VELOCITY, 74 PW DEPTH, 85 and 95 KEY FOLLOW, 04 GLIDE,
   and aftertouch 01-03.
@@ -996,7 +999,7 @@ CC first.
 | --- | --- | --- | --- | --- |
 | 11 | DCO-1 | RANGE | 110 | 65 |
 | 12 | DCO-1 | WAVEFORM | 12 | 66 |
-| 13 | DCO-1 | TUNE (when it lands) | 13 | 8 |
+| 13 | DCO-1 | TUNE | 13 | 8 |
 | 14 | DCO-1 | LFO DEPTH | 14 | 9 |
 | 15 | DCO-1 | ENV DEPTH | 15 | 10 |
 | 16 | DCO-1 | FINE TUNE | 16 | - |
