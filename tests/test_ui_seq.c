@@ -751,11 +751,25 @@ TT_TEST(seq_rec_while_playing_says_stop_to_record)
     TT_CHECK(strcmp(ui_banner(&ui_u), "STOP TO RECORD") == 0);
 }
 
+/* In REC every key plays (Eric, R1): no white key is a step key, no black key is silent */
+TT_TEST(seq_rec_every_key_plays)
+{
+    uint32_t k;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    for (k = 0; k < PLAY_KEYS; k++) {
+        TT_CHECK_EQ(ui_key(&ui_u, k, 1, 1100 + 20 * k), 0);
+        TT_CHECK_EQ(ui_key(&ui_u, k, 0, 1110 + 20 * k), 0);
+    }
+    TT_CHECK(!ui_u.seq_armed);                                /* (no step tapped) */
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
     TT_RUN(seq_rec_tap_arms_and_opens_seq_view);
     TT_RUN(seq_rec_while_playing_says_stop_to_record);
+    TT_RUN(seq_rec_every_key_plays);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);

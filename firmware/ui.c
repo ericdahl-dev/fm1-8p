@@ -868,11 +868,11 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
         ui_seq_step_key(u, k, 0, ms);
         return 1;
     }
-    if (down && u->state == UI_SEQ && !u->seq_armed && k < 32u) {   /* SEQ view: a step or nothing; no sound */
+    if (down && u->state == UI_SEQ && !u->seq_armed && !u->seq_rec && k < 32u) {   /* SEQ view: a step or nothing */
         u->seq_keys |= 1u << k;
         ui_seq_step_key(u, k, 1, ms);
         return 1;
-    }                                           /* (armed: every key plays, ui_chord_note collects it) */
+    }                                           /* (armed or REC: every key plays, ui_chord_note collects it) */
     if (!down) {                                /* an up goes where its down went */
         if (!(u->jump_keys >> k & 1u))
             return 0;
