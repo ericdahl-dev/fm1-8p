@@ -243,6 +243,7 @@ void fm_filter_clear(fm_filter *f)
     f->x1 = 0;
     f->hp = 0;
     f->lp = 0;
+    f->nhp = 0;
 }
 
 void fm_filter_reset(fm_filter *f)
@@ -257,6 +258,7 @@ void fm_filter_reset(fm_filter *f)
     f->rate = 0;
     f->fade = 0;
     f->hp_g = 0;
+    f->ng = 1 << 28;
 }
 
 static int32_t mul_q30(int32_t a, int32_t b)
@@ -291,6 +293,38 @@ static int32_t grid_lookup(const int16_t *tab, int32_t d)
     return tab[i] + (tab[i + 1] - tab[i]) * r / WARP_STEP;
 }
 
+/* floor(sqrt(x)) of a 32-bit value (control rate only) */
+static uint32_t isqrt32(uint32_t x)
+{
+    uint32_t r = 0, b = 1u << 30;
+    while (b > x) b >>= 2;
+    while (b) {
+        if (x >= r + b) {
+            x -= r + b;
+            r = (r >> 1) + b;
+        } else {
+            r >>= 1;
+        }
+        b >>= 2;
+    }
+    return r;
+}
+
+/*
+ * The self-noise's gain into stage 2, Q4.28 of FM_FILTER_NOISE_OPEN: sqrt(g (2 - g)) x the trim. A
+ * sample added to a stage's state each sample piles up as 1 / (g (2 - g)) of its power (the stage's
+ * own recursion), so the square root keeps the total level as the cutoff moves. The trim is PG-8X's:
+ * below the open top its noise is 3-5 dB over its open level where this alone is 4-5 under (VCF FREQ
+ * 33-100, measured 2026-11-15), so NOISE_TRIM, faded to 1 over the fade to open (no step at the wire).
+ */
+#define NOISE_TRIM 636186000            /* 2.37 (+7.5 dB), Q4.28 */
+static int32_t noise_gain(int32_t g, int32_t fade)
+{
+    uint32_t t = (uint32_t)(((int64_t)g * ((2LL << 30) - g)) >> 30);   /* Q30, 0 .. 1.0 */
+    int32_t trim = (1 << 28) + mul_q30(NOISE_TRIM - (1 << 28), fade);
+    return (int32_t)(((int64_t)trim * isqrt32(t)) >> 15);              /* isqrt of Q30 is Q15 */
+}
+
 /* The coefficients from the cutoff, rate and resonance as set. */
 static void apply(fm_filter *f)
 {
@@ -316,6 +350,7 @@ static void apply(fm_filter *f)
          * already take four more multiplies */
         h = 0;
     }
+    f->ng = noise_gain(f->g, f->fade);
     h = mul_q30(h, ONE_Q30 - f->g); /* the weight of lp before its update */
     if (h && !f->h) f->lp = f->s[3]; /* shelf on: the output carries on */
     f->h = h;
@@ -424,10 +459,21 @@ static void stage_quarter(int32_t *y, int32_t x, int32_t x1, int32_t g)
 
 int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
-    int32_t x, u, p0, p1, p2;
+    return fm_filter_process_noise(f, in, 0);
+}
+
+int32_t fm_filter_process_noise(fm_filter *f, int32_t in, int32_t r)
+{
+    int32_t x, u, p0, p1, p2, n;
     if (fm_filter_is_wire(f)) { /* the default patch: a wire (see leave_open) */
-        f->s[3] = soft_clip(clamp_in(in));
+        f->s[3] = soft_clip(clamp_in(in + fm_filter_noise_open(r)));
         return f->s[3];
+    }
+    /* the self-noise, at its gain, through its own highpass (as the input through the filter's) */
+    n = (int32_t)(((int64_t)fm_filter_noise_open(r) * f->ng) >> 28);
+    if (f->hp_g) {
+        f->nhp += mul_q30(n - f->nhp, f->hp_g);
+        n -= f->nhp;
     }
     if (!f->hp_g) {
         x = clamp_in(in);
@@ -451,12 +497,14 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         stage_quarter(&f->s[0], u, f->x1, f->g);
         stage_quarter(&f->s[1], f->s[0], p0, f->g);
         stage_quarter(&f->s[2], f->s[1], p1, f->g);
+        f->s[2] += n;
         stage_quarter(&f->s[3], f->s[2], p2, f->g);
     } else { /* w = 1/4 x fade, exactly (W_ZERO is 2^28) */
         int32_t w = f->fade >> 2;
         stage(&f->s[0], u, f->x1, w, f->g);
         stage(&f->s[1], f->s[0], p0, w, f->g);
         stage(&f->s[2], f->s[1], p1, w, f->g);
+        f->s[2] += n;
         stage(&f->s[3], f->s[2], p2, w, f->g);
     }
     f->x1 = u;

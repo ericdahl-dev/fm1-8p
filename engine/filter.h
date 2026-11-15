@@ -38,6 +38,10 @@ typedef struct {
     int32_t lp;   /* the shelf's lowpass state, Q8.24 */
     int32_t a;    /* input level, Q1.30: the resonance's passband level */
     int32_t h;    /* shelf * (1 - g), Q1.30 (0 .. 0.57) */
+    /* self-noise (#247): its gain into stage 2, Q4.28 of FM_FILTER_NOISE_OPEN (see apply), and its own
+     * highpass state (the highpass shapes it as it does the input; Q8.24) */
+    int32_t ng;
+    int32_t nhp;
     int16_t res;  /* resonance as set, per mille */
     int16_t cut;  /* lowpass cutoff as set (clamped), cents */
     int16_t rate; /* rate_cents it was set with (0: not yet) */
@@ -83,6 +87,20 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents);
  * output of the same filter computed in 64 bits. */
 int32_t fm_filter_process(fm_filter *f, int32_t in);
 
+/*
+ * Self-noise (#247): PG-8X 2.0.13's SELFNOISE at 0.5. `r` is a raw white sample (any int32: a voice's
+ * xorshift32). Open, it is added to the input at FM_FILTER_NOISE_OPEN; otherwise into stage 2's state,
+ * through the highpass, at a gain that keeps its total level as the cutoff moves (kT/C noise: PG-8X's is
+ * within a few dB at every VCF FREQ), so the last two stages shape it (PG-8X: 12 dB an octave above the
+ * cutoff, where the input gets 24) and the resonance rings it. r = 0: exactly fm_filter_process.
+ */
+#define FM_FILTER_NOISE_OPEN 174340     /* a uniform +-87170 Q8.24: 45.6 dB under a full saw */
+static inline int32_t fm_filter_noise_open(int32_t r)
+{
+    return (int32_t)(((int64_t)r * FM_FILTER_NOISE_OPEN) >> 32);
+}
+int32_t fm_filter_process_noise(fm_filter *f, int32_t in, int32_t r);
+
 /* Nonzero while the filter is a wire (fully open, highpass off): the one
  * place that decides it. */
 static inline int fm_filter_is_wire(const fm_filter *f)
@@ -103,6 +121,20 @@ static inline int32_t fm_filter_run(fm_filter *f, int32_t in)
         return in;
     }
     return fm_filter_process(f, in);
+}
+
+/* fm_filter_run with the self-noise sample r (fm_filter_process_noise): the render loop's */
+static inline int32_t fm_filter_run_noise(fm_filter *f, int32_t in, int32_t r)
+{
+    if (fm_filter_is_wire(f)) {
+        int32_t x = in + fm_filter_noise_open(r);
+        if (x <= (2 << 24) && x >= -(2 << 24)) {
+            f->s[3] = x;
+            return x;
+        }
+        return fm_filter_process(f, x);
+    }
+    return fm_filter_process_noise(f, in, r);
 }
 
 #endif /* FM_FILTER_H */

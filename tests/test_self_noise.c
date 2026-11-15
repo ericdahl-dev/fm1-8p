@@ -80,23 +80,50 @@ static double sn_band_db(double lo, double hi)
     return 10.0 * log10(sum / (b - a) + 1e-30);
 }
 
-/* The noise goes through the filter: white with it open (250-500 Hz and 4-8 kHz within 3 dB a Hz, as
- * PG-8X's +2 and -1 re 1 kHz); the lowpass at 500 Hz takes 4-8 kHz down by more than 30 dB and keeps
- * 100-250 Hz within 3 dB. */
-TT_TEST(self_noise_goes_through_the_filter)
+/* The noise comes from the filter, as PG-8X's (2026-11-15): white with it open (250-500 Hz and 4-8 kHz
+ * within 3 dB a Hz, as PG-8X's +2 and -1 re 1 kHz); with the lowpass at 500 Hz its total stays up (PG-8X:
+ * +0.7 to +5.0 dB over open at every VCF FREQ, kT/C noise), piled up under the cutoff (100-250 Hz up
+ * more than 6 dB), and above it falls by the last two stages' slope, not the four's (PG-8X: about 10 dB
+ * an octave band, where its input falls 20): 4-8 kHz at least 8 dB under 2-4 kHz, and at most 16. */
+TT_TEST(self_noise_comes_from_the_filter)
 {
-    double lo, hi, closed, lo_open, lo_closed;
-    (void)sn_held_db(0, 1, FM_FILTER_OPEN_CENTS);
+    double lo, hi, closed, lo_open, lo_closed, total_open, total_closed, mid_closed;
+    total_open = sn_held_db(0, 1, FM_FILTER_OPEN_CENTS);
     lo = sn_band_db(250, 500);
     hi = sn_band_db(4000, 8000);
     lo_open = sn_band_db(100, 250);
     TT_CHECK_NEAR(hi - lo, 0.0, 3.0);
-    (void)sn_held_db(0, 1, 7100);                 /* about 500 Hz */
+    total_closed = sn_held_db(0, 1, 7100);       /* about 500 Hz */
     closed = sn_band_db(4000, 8000);
     lo_closed = sn_band_db(100, 250);
-    TT_CHECK_NEAR(lo_closed - lo_open, 0.0, 3.0);
-    printf("    self-noise 4-8 kHz: open %.1f, cutoff 500 Hz %.1f dB\n", hi, closed);
-    TT_CHECK(hi - closed > 30.0);
+    mid_closed = sn_band_db(2000, 4000);
+    printf("    self-noise, open / cutoff 500 Hz: total %.1f / %.1f dBFS, 100-250 Hz %+.1f dB, "
+           "4-8 kHz under 2-4 kHz by %.1f dB\n", total_open, total_closed, lo_closed - lo_open, mid_closed - closed);
+    TT_CHECK(total_closed - total_open > 0.0 && total_closed - total_open < 5.5);
+    TT_CHECK(lo_closed - lo_open > 6.0);
+    TT_CHECK(mid_closed - closed > 8.0 && mid_closed - closed < 16.0);
+    (void)hi;
+    total_closed = sn_held_db(0, 1, 3950);       /* about 80 Hz: the total still stays up */
+    printf("    self-noise, cutoff 80 Hz: total %.1f dBFS\n", total_closed);
+    TT_CHECK(total_closed - total_open > 0.0 && total_closed - total_open < 5.5);
+}
+
+/* The highpass shapes it as it does the oscillators (PG-8X: HPF 3 takes 20-40 Hz down 34 dB on both). */
+TT_TEST(self_noise_goes_through_the_highpass)
+{
+    double plain, hp;
+    (void)sn_held_db(0, 1, 7100);
+    plain = sn_band_db(30, 60);
+    if (fm_engine_init(&sn_eng, RATE, 6) != FM_OK) return;
+    fm_engine_set_param(&sn_eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&sn_eng, FM_PARAM_OSC1_LEVEL, 0);
+    fm_engine_set_param(&sn_eng, FM_PARAM_FILTER_CUTOFF_CENTS, 7100);
+    fm_engine_set_param(&sn_eng, FM_PARAM_HIGHPASS_STEP, 3);
+    fm_engine_note_on(&sn_eng, 60, 100);
+    fm_engine_render(&sn_eng, sn_buf, RATE * 13 / 10);
+    hp = sn_band_db(30, 60);
+    printf("    self-noise 30-60 Hz: highpass off %.1f, step 3 %.1f dB\n", plain, hp);
+    TT_CHECK(plain - hp > 15.0);
 }
 
 static void run_self_noise_tests(void)
@@ -104,5 +131,6 @@ static void run_self_noise_tests(void)
     TT_RUN(self_noise_sits_45_6_db_under_a_full_saw);
     TT_RUN(self_noise_is_independent_per_voice);
     TT_RUN(self_noise_is_silent_without_a_note);
-    TT_RUN(self_noise_goes_through_the_filter);
+    TT_RUN(self_noise_comes_from_the_filter);
+    TT_RUN(self_noise_goes_through_the_highpass);
 }

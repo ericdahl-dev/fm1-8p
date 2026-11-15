@@ -29,15 +29,13 @@
 #endif
 
 /*
- * Self-noise (#247): PG-8X 2.0.13's SELFNOISE at its default 0.5, white noise into the filter of each
- * sounding voice, so the VCF, HPF, VCA and chorus shape it as they do the oscillators. Measured
- * (2026-11-15, the DCO mixes at 0): 45.6 dB under a full saw through the same voice, independent per
- * voice, the same at every key and velocity, nothing without a note. A xorshift32 a voice, inline in
- * the render loops, scaled by one multiply: Q8.24, a uniform +-SELF_NOISE_GAIN / 2 (87170: RMS 0.0030
- * of 1.0, 45.6 dB under the engine's full saw; tests/test_self_noise.c).
+ * Self-noise (#247): PG-8X 2.0.13's SELFNOISE at its default 0.5, white noise from each sounding
+ * voice's filter (fm_filter_run_noise: open, at the input; else inside, shaped by the last two stages,
+ * the highpass and the resonance), so the VCA and chorus shape it as they do the oscillators. Measured
+ * (2026-11-15, the DCO mixes at 0): 45.6 dB under a full saw through the same open voice, its total
+ * within a few dB at every cutoff, independent per voice, the same at every key and velocity, nothing
+ * without a note. A xorshift32 a voice, inline in the render loops: the raw sample.
  */
-#define SELF_NOISE_GAIN 174340
-
 static FM_ALWAYS_INLINE int32_t self_noise_next(uint32_t *r)
 {
     uint32_t x = *r;
@@ -45,7 +43,7 @@ static FM_ALWAYS_INLINE int32_t self_noise_next(uint32_t *r)
     x ^= x >> 17;
     x ^= x << 5;
     *r = x;
-    return (int32_t)(((int64_t)(int32_t)x * SELF_NOISE_GAIN) >> 32);
+    return (int32_t)x;
 }
 
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
@@ -524,7 +522,7 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
         /* the note plays the whole chunk: the oscillators all at once */
         fm_osc_pair_render(&v->osc, osc, frames);
         for (i = 0; i < frames; i++) {
-            last = osc[i] + self_noise_next(&r);
+            last = osc[i] + fm_filter_noise_open(self_noise_next(&r));   /* the filter a wire */
             mix[i] += (int32_t)(((int64_t)last * fm_env_step(&v->amp_env)) >> 30);
         }
     } else for (i = 0; i < frames; i++) {
@@ -535,7 +533,7 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
          * untouched +-2.0, sync and cross-mod included
          * (extreme_osc_settings_stay_bounded_and_release,
          * max_xmod_and_sync_stay_in_range) */
-        last = fm_osc_pair_next(&v->osc) + self_noise_next(&r);
+        last = fm_osc_pair_next(&v->osc) + fm_filter_noise_open(self_noise_next(&r));
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)last * level) >> 30);
     }
@@ -604,7 +602,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         v->ctrl_phase--;
         if (v->mix_step)
             fm_osc_pair_set_level(&v->osc, 1, v->osc.req[1] + v->mix_step);
-        out = fm_filter_run(&v->filter, (whole ? osc[i] : fm_osc_pair_next(&v->osc)) + self_noise_next(&r));
+        out = fm_filter_run_noise(&v->filter, whole ? osc[i] : fm_osc_pair_next(&v->osc), self_noise_next(&r));
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
     }
