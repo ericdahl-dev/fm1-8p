@@ -1,78 +1,60 @@
 /*
- * filter_oracle.c - the filter's per-sample processing as merged in #25 (engine/filter.c at
- * 7af3bd1), with the soft clip on the resonance's feedback alone and the ladder's input held to
- * +-16.0 (the feedback clip; past anything the pair plays through the bass boost), kept as a test-only
- * reference: its lowpass, soft clip and highpass with every sum in 64 bits, plus the resonance's bass shelf on the output (#98), and the bass boost that highpass step 4 added later (#93). It runs on the engine's own fm_filter, set up by the engine's own setters (the
- * coefficients are not what is under test), and is never built into the engine. Tests hold the
- * engine's fm_filter_process to it (test_filter_oracle.c), so the engine can change its arithmetic
- * and still be held to the sound that shipped.
+ * filter_oracle.c - the filter's per-sample processing as a test-only reference, every sum in 64 bits:
+ * the highpass (#25) and its bass boost (#93), the input level, and the lowpass as two equal
+ * state-variable sections (#162): each state's products summed with the remainder carried, the
+ * second section's states held to +-32.0 (Q9.23) and its zeros at the origin, the output held to
+ * +-16.0. It runs on the engine's own fm_filter, set up by the engine's own setters (the coefficients
+ * are not what is under test), and is never built into the engine. Tests hold the engine's
+ * fm_filter_process to it (test_filter_oracle.c): its 32-bit sums never wrap.
  */
 #include <stdint.h>
 
 #include "../engine/filter.h"
 
-/* #25's soft clip: a wire to +-2.0, a quadratic knee, flat at +-4.0. */
-static int32_t oracle_soft_clip(int64_t u)
+static int64_t oracle_hold(int64_t u, int64_t m)
 {
-    int64_t a = (u < 0 ? -u : u) - (2 << 24);
-    int32_t m;
-    if (a <= 0) return (int32_t)u;
-    m = a >= (4 << 24) ? (4 << 24) : (2 << 24) + (int32_t)(a - ((a * a) >> 27)); /* a - a^2/8 */
-    return u < 0 ? -m : m;
+    return u > m ? m : u < -m ? -m : u;
 }
 
-/* The ladder's input held to +-FM_FILTER_HOLD, 16.0 (the feedback clip). */
-static int64_t oracle_hold(int64_t u)
+/* one section on v0 (Q9.23): its two states from s, carries c; returns its lowpass v2 and leaves
+ * its bandpass's next value in *v1 */
+static int64_t oracle_section(const fm_filter *f, int32_t *s, int32_t *c, int64_t v0, int64_t *v1, int held)
 {
-    return u > FM_FILTER_HOLD ? FM_FILTER_HOLD : u < -FM_FILTER_HOLD ? -FM_FILTER_HOLD : u;
+    int64_t i1 = s[0], i2 = s[1], v3 = v0 - i2, p, v2;
+    p = (int64_t)f->a1 * i1 + (int64_t)f->a2 * v3 + c[0];
+    *v1 = p >> 30;
+    c[0] = (int32_t)(p - ((p >> 30) << 30));
+    p = (int64_t)f->a2 * i1 + (int64_t)f->a3 * v3 + c[1];
+    v2 = i2 + (p >> 30);
+    c[1] = (int32_t)(p - ((p >> 30) << 30));
+    s[0] = (int32_t)(held ? oracle_hold(2 * *v1 - i1, 32 << 23) : 2 * *v1 - i1);
+    s[1] = (int32_t)(held ? oracle_hold(2 * v2 - i2, 32 << 23) : 2 * v2 - i2);
+    return v2;
 }
 
-static int32_t oracle_mul_q30(int32_t a, int32_t b)
-{
-    return (int32_t)(((int64_t)a * b) >> 30);
-}
-
-/* One stage: m = x - w * (x - x1), y += g * (m - y). (At w = 1/4 the engine uses a shift, which
- * is the same value.) x1 is the stage's input one sample ago: the first stage's is kept in f->x1,
- * each later one's is the stage before it as it was (#25 kept all four; the values are the same). */
-static void oracle_stage(int32_t *y, int32_t x, int32_t x1, int32_t w, int32_t g)
-{
-    int32_t m = x - oracle_mul_q30(x - x1, w);
-    *y += oracle_mul_q30(m - *y, g);
-}
-
-/* #25's fm_filter_process, on `f` set up by the engine's setters. */
 static int32_t oracle_filter_process(fm_filter *f, int32_t in)
 {
-    int64_t x = in;
-    int32_t u, p0, p1, p2, w = f->fade >> 2; /* #25's w: 1/4 x fade */
+    int64_t x = in, v1, v2, out, y, i1, i2;
     if (f->fade == 0 && f->hp_g == 0) { /* open, highpass off: a wire */
-        f->s[3] = (int32_t)oracle_hold(x);
+        f->s[3] = (int32_t)oracle_hold(x, FM_FILTER_HOLD);
         return f->s[3];
     }
-    if (f->hp_g > 0) { /* highpass = input minus a one-pole lowpass of it */
+    if (f->hp_g > 0) {                  /* highpass = input minus a one-pole lowpass of it */
         f->hp += (int32_t)(((x - f->hp) * f->hp_g) >> 30);
         x -= f->hp;
-    } else if (f->hp_g < 0) { /* the bass boost (#93, after #25): 1.26 x + 1.02 that lowpass */
+    } else if (f->hp_g < 0) {           /* the bass boost: 1.26 x + 1.02 that lowpass */
         f->hp += (int32_t)(((x - f->hp) * -(int64_t)f->hp_g) >> 30);
         x += ((x * 279172874) >> 30) + (((int64_t)f->hp * 1095216660) >> 30);
+    } else {
+        x = oracle_hold(x, (1 << 30) - 1);
     }
-    x = (x * f->a) >> 30; /* #98's input level */
-    u = (int32_t)oracle_hold(x - oracle_soft_clip(((int64_t)f->s[3] * f->k) >> 28));
-    p0 = f->s[0];
-    p1 = f->s[1];
-    p2 = f->s[2];
-    oracle_stage(&f->s[0], u, f->x1, w, f->g);
-    oracle_stage(&f->s[1], f->s[0], p0, w, f->g);
-    oracle_stage(&f->s[2], f->s[1], p1, w, f->g);
-    oracle_stage(&f->s[3], f->s[2], p2, w, f->g);
-    f->x1 = u;
-    if (!f->h) return f->s[3];
-    /* #98's bass shelf: a weighted average of the output and its one-pole lowpass at the cutoff,
-     * h = shelf * (1 - g) weighing the difference before lp's update */
-    {
-        int64_t d = (int64_t)f->s[3] - f->lp;
-        f->lp += (int32_t)((d * f->g) >> 30);
-        return f->s[3] - (int32_t)((d * f->h) >> 30);
-    }
+    x = oracle_hold(x, (1 << 30) - 1);
+    v2 = oracle_section(f, &f->s[0], &f->c[0], oracle_hold((x * f->a) >> 30, FM_FILTER_HOLD) >> 1, &v1, 0);
+    i1 = f->s[2];
+    i2 = f->s[3];
+    v2 = oracle_section(f, &f->s[2], &f->c[2], v2, &v1, 1);
+    out = v2 + 3 * (v2 - i2) - ((f->t * i1) >> 27);
+    y = oracle_hold(out, FM_FILTER_HOLD >> 1) * 2;
+    if (f->fade == (1 << 30)) return (int32_t)y;
+    return (int32_t)oracle_hold(x + (((y - x) * f->fade) >> 30), FM_FILTER_HOLD);
 }
