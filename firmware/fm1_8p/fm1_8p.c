@@ -26,7 +26,11 @@ static play P;                                  /* static: the engine's 5 KiB mu
 static ui U;
 static uint8_t out_st[PLAY_KEYS];               /* each held key's note-off status: its note-on's channel */
 
-static void render(int32_t *out, uint32_t n) { play_render(&P, out, n); }
+static void render(int32_t *out, uint32_t n)
+{
+    seq_block_time(play_seq(&P), H->ticks());   /* (#38: where the block starts, for the MIDI clock) */
+    play_render(&P, out, n);
+}
 
 static void note(uint32_t ch, uint32_t key, uint32_t vel)
 {
@@ -50,6 +54,10 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
 {
     if (!ui_midi_in(&U, st))
         return;                                 /* G11: another channel's */
+    if (st >= 0xF8u) {                          /* clock, start, continue, stop (#38), stamped as they come */
+        seq_clock_in(play_seq(&P), st, H->ticks());
+        return;
+    }
     if ((st & 0xF0u) == 0x90u || (st & 0xF0u) == 0x80u)  /* MIDI notes held count as chord keys (SEQ view) */
         ui_chord_note(&U, d1, d2, (st & 0xF0u) == 0x90u && d2);
     if ((st & 0xF0u) == 0xB0u && ui_cc(&U, d1, d2, H->ms()))
@@ -188,8 +196,10 @@ static void draw(uint32_t full)
     play_pattern_tick(&P);                      /* a queued pattern that took over (#40) */
     if (!set_loaded) {                          /* the first: GLO's settings (a THEME switches itself) */
         settings_load(&U.set, &SETTINGS);
+        seq_set_clock_source(play_seq(&P), U.set.clock_src);   /* (G13, #38) */
         set_loaded = 1;
     }
+    seq_clock_poll(play_seq(&P), H->ticks());   /* a MIDI clock gone stops what it ran (#38) */
     (void)settings_tick(&U.set, &U.set_dirty, U.set_changed_ms, H->ms(), play_silent(&P), &SETTINGS);
     sense_curve();                              /* (G31, loaded or turned) */
     if (full) {

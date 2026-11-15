@@ -481,8 +481,8 @@ jump's keypad glow (SEL held) shows either way, and so will the sequencer's step
 
 Program change is G41, on a fourth page (Eric: CC MAP took G23). G42-G44 are empty for now.
 
-Until their features land, G13 and G14 (clock, #38) show `--` and their
-knobs do nothing. G21-G24 are live (#49).
+G13 CLOCK SOURCE is live (#38). Until clock out lands, G14 shows `--` and
+its knob does nothing. G21-G24 are live (#49).
 
 **CC send (G22):** with it ON, a panel knob turn goes out as its parameter's CC (the CC map below),
 on G12's channel, on the scale a CC in reads, so a DAW that records it and plays it back lands on
@@ -498,9 +498,21 @@ interaction model is the same in both.
 **Clock source:**
 
 - **AUTO:** follows MIDI clock when it arrives, and goes back to the internal
-  clock after it stops (the behavior #38 builds).
+  clock after it stops (#38). A clock is gone after 250 ms with no tick (or 3
+  ticks' time, if that is longer). If it was running the sequencer, the
+  sequencer stops as it does on MIDI stop, and the next PLAY runs on the
+  internal clock (Eric).
 - **INT:** ignores MIDI clock.
-- **MIDI:** only MIDI clock. With no clock coming in, the sequencer waits.
+- **MIDI:** only MIDI clock. With no clock coming in, the sequencer waits. A
+  clock lost while playing stops it, as in AUTO.
+- **Under MIDI clock** (#38): 24 ticks a quarter note, 6 a step. MIDI start
+  plays from step 1 and continue from the step after the last one played,
+  each on the next tick. MIDI stop lets every note go. The steps start on
+  exact samples at the clock's measured tempo, locked to its ticks: within
+  0.5 ms of them with +-1.5 ms of jitter, once locked. SWING and GATE are
+  of the clock's step. Ticks held up and then delivered all at once (a USB
+  stall) are taken where they were due. Over USB only for now: fm1-dock
+  doesn't yet pass real-time messages from the DIN jack (fm1-dock#91).
 
 ### Transport and sequencer buttons
 
@@ -747,10 +759,12 @@ Patterns have their own slots, separate from patches (decision Q2).
   - a queued next pattern loads at once;
   - with G14 on, MIDI stop goes out.
 - **Starting** sends MIDI start, with G14 on.
-- **Clock source MIDI** (G13) or AUTO with clock present:
-  - a PLAY press with no clock running arms the start: PLAY blinks, and the
-    sequencer starts on the next MIDI start or continue;
-  - a second press disarms.
+- **Clock source MIDI** (G13): a PLAY press arms the start: PLAY blinks, and
+  the sequencer starts on the next MIDI start or continue. A second press
+  disarms.
+- **Clock source AUTO with a clock coming:** a PLAY press starts from step 1
+  on the clock's next tick, locked to it, with no MIDI start needed (Eric:
+  many devices send clock and never a start).
   - MIDI start, stop and continue act as #38 says, whatever the PLAY LED shows.
 - **Transpose:** S3 TRANSPOSE sets an offset, -24..+24 semitones.
   - With KEY TRANSPOSE on and the sequencer playing, played keys do not sound.
