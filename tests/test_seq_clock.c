@@ -494,9 +494,31 @@ TT_TEST(clock_to_int_plays_on_and_a_first_continue_starts)
     TT_CHECK(ck_n_on == 2u && ck_note[0] == 48u);
 }
 
+/* Two first ticks a hair apart (1 us: a glitch, or two clocks at once) read no faster than the
+ * shortest tick taken, 1 ms (2500.0 BPM), at any point after, so what shows the tempo never sees more
+ * than 4 digits (agent1's review: 39761 BPM once overflowed a 4-digit buffer) */
+TT_TEST(clock_tempo_shown_is_held_to_the_shortest_tick)
+{
+    uint32_t i, worst = 0;
+    seq_init(&ck);
+    seq_set_clock_source(&ck, SEQ_CLK_MIDI);
+    seq_clock_in(&ck, 0xF8u, 1000000u);
+    seq_clock_in(&ck, 0xF8u, 1000024u);         /* 24 counts: 1 us */
+    worst = seq_clock_tempo(&ck);
+    for (i = 2; i < 200; i++) {                 /* then a steady 120 BPM */
+        uint32_t tp;
+        seq_clock_in(&ck, 0xF8u, 1000024u + i * 500000u);
+        tp = seq_clock_tempo(&ck);
+        worst = tp > worst ? tp : worst;
+    }
+    printf("    two ticks 1 us apart: the tempo shown at most %.1f BPM\n", worst / 10.0);
+    TT_CHECK(worst <= 25000u);
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_steps_follow_a_steady_clock);
+    TT_RUN(clock_tempo_shown_is_held_to_the_shortest_tick);
     TT_RUN(clock_steps_ride_out_a_jittery_clock);
     TT_RUN(clock_measures_the_tempo_over_its_range);
     TT_RUN(clock_follows_tempo_changes);
