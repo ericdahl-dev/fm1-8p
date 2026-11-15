@@ -404,7 +404,9 @@ void ui_seq_clock_text(const ui *u, char *s)
 uint32_t ui_seq_tempo_shown(const ui *u)
 {
     const seq *s = play_seq(u->p);
-    if (seq_clock_external(s) && seq_clock_tempo(s) && (s->clk_running || !s->want))
-        return (seq_clock_tempo(s) + 5u) / 10u * 10u;   /* the clock's, in whole BPM: its jitter doesn't show */
+    if (seq_clock_external(s) && seq_clock_tempo(s) && (s->clk_running || !s->want)) {
+        uint32_t t = (seq_clock_tempo(s) + 5u) / 10u * 10u;   /* the clock's, in whole BPM: its jitter doesn't show */
+        return t > 9990u ? 9990u : t;           /* (three digits at most: a start's first ticks can read far higher) */
+    }
     return seq_tempo(s);                        /* (before the clock, or on INT: the pattern's) */
 }

@@ -617,6 +617,27 @@ TT_TEST(seq_jittery_clock_settles_on_the_screen)
     TT_CHECK_EQ(redraws, 0u);
 }
 
+/* A clock's first two ticks a hair apart read as a huge tempo for a moment: the tempo SEQ view shows stays
+ * three digits (999 BPM at most), so no text runs past its digits (the firmware review: 39761 BPM wrote
+ * past the header's buffer) */
+TT_TEST(seq_clock_burst_shows_at_most_three_digits)
+{
+    uint32_t i, worst = 0;
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_clock_source(s, SEQ_CLK_MIDI);
+    seq_clock_in(s, 0xF8u, 1000u);
+    seq_clock_in(s, 0xF8u, 1010u);                            /* 10 counts apart */
+    for (i = 0; i < 48u; i++) {
+        uint32_t t;
+        seq_clock_in(s, 0xF8u, 1010u + (i + 1u) * (SEQ_CLK_HZ / 48u));
+        t = ui_seq_tempo_shown(&ui_u);
+        worst = t > worst ? t : worst;
+    }
+    TT_CHECK(worst <= 9990u);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tempo_shows_the_midi_clock);
@@ -625,6 +646,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_clock_changes_redraw_by_themselves);
     TT_RUN(seq_tempo_before_the_clock_comes_in);
     TT_RUN(seq_jittery_clock_settles_on_the_screen);
+    TT_RUN(seq_clock_burst_shows_at_most_three_digits);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
