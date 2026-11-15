@@ -10,6 +10,8 @@ void ui_seq_open(ui *u);
 /* PLAY, in any state: starts or stops the sequencer, on what was last asked (not on whether the
  * interrupt has let a stop's notes go yet, so taps alternate). */
 void ui_seq_transport(ui *u);
+/* SEQ view: a step key (0..15) down or up */
+void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* An event while SEQ view is open. */
 void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 

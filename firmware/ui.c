@@ -841,6 +841,16 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
 int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
 {
     int32_t d = key_digit(k);
+    if (!down && k < UI_STEP_KEYS && u->seq_keys >> k & 1u) {   /* a step's up: SEQ view's, wherever we are */
+        u->seq_keys &= ~(1u << k);
+        ui_seq_step_key(u, k, 0, ms);
+        return 1;
+    }
+    if (down && u->state == UI_SEQ && k < UI_STEP_KEYS) {   /* SEQ view: a step, no sound */
+        u->seq_keys |= 1u << k;
+        ui_seq_step_key(u, k, 1, ms);
+        return 1;
+    }
     if (!down) {                                /* an up goes where its down went */
         if (!(u->jump_keys >> k & 1u))
             return 0;

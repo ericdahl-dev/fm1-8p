@@ -33,6 +33,8 @@
 #define UI_ENC_PRESETS 6u
 
 typedef enum { UI_PLAY, UI_EDIT, UI_SAVE, UI_GLO, UI_SEQ } ui_state;
+#define UI_CHORD_MAX 16u                /* notes held at once that a chord keeps track of */
+#define UI_STEP_KEYS 16u                /* SEQ view: keys 0-15 (F3..G#4) are the steps */
 
 
 typedef struct {
@@ -89,6 +91,12 @@ typedef struct {
     uint8_t cc_out_at;                  /* the slot it was (the next goes round from it) */
     uint8_t cc_sent_cc, cc_sent_v;      /* what it was, so the same isn't sent twice (0xFF: none) */
     ui_state seq_from;                  /* SEQ view: the state it goes back to */
+    uint32_t seq_cursor;                /* the step cursor, 0..15 */
+    uint32_t seq_keys;                  /* step keys taken by SEQ view (bit k), so their ups go there too */
+    uint8_t chord[UI_CHORD_MAX];        /* the notes held now (chord keys and MIDI in), in press order */
+    uint8_t chord_vel[UI_CHORD_MAX];
+    uint32_t chord_n;
+    char seq_msg[16];                   /* "MAX 4 NOTES", the banner */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
@@ -191,6 +199,9 @@ void ui_jump_digits(const ui *u, char *s);
 /* a key (0..PLAY_KEYS-1) going down or up: 1 when the UI takes it (SEL held: the number jump's keypad,
  * and the key makes no sound), 0 when it plays */
 int ui_key(ui *u, uint32_t k, int down, uint32_t ms);
+/* a note held or let go (a key that played, or MIDI in), at velocity vel: the chord SEQ view writes
+ * with a step key (interaction.md 5, Writing steps) */
+void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on);
 /* key k's LED as the keypad has it: UI_LED_GLOW for a digit key while SEL is held, else UI_LED_OFF */
 uint32_t ui_keypad_led(const ui *u, uint32_t k);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
