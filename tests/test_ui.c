@@ -470,6 +470,36 @@ TT_TEST(ui_focus_value_splits_number_and_unit)
     TT_CHECK(strcmp(n, "34") == 0 && strcmp(u, "") == 0);
 }
 
+/* DCO WAVE reads its five waves by name, the spike (#150) last, after the four it had. */
+TT_TEST(ui_wave_names_list_the_spike_last)
+{
+    static const char *const want[] = { "SAW", "PULSE", "SQUARE", "NOISE", "SPIKE" };
+    char n[UI_VALUE_LEN], u[UI_VALUE_LEN];
+    int32_t w;
+    for (w = 0; w < FM_WAVE_COUNT; w++) {
+        ui_value(FM_PARAM_OSC1_WAVE, w, n, u);
+        TT_CHECK(strcmp(n, want[w]) == 0);
+        ui_value(FM_PARAM_OSC2_WAVE, w, n, u);
+        TT_CHECK(strcmp(n, want[w]) == 0);
+    }
+    TT_CHECK_EQ(FM_WAVE_SPIKE, 4);
+}
+
+/* The spike draws as a narrow peak: up for under a fifth of its cycle, then back down, never
+ * past the frame. */
+TT_TEST(ui_spike_draws_as_a_narrow_peak)
+{
+    uint32_t i, up = 0;
+    int ok = 1;
+    for (i = 0; i < 200; i++) {
+        int32_t v = ui_wave_level(FM_WAVE_SPIKE, 25, i, 200);
+        ok &= v >= -1000 && v <= 1000;
+        up += v > 0;
+    }
+    TT_CHECK(ok);
+    TT_CHECK(up > 0 && up < 200 / 2 / 5);
+}
+
 /* A redraw goes one band per draw() call, so the main loop gets back to the keys between bands:
  * the frame first, then the focus row, the curve and the columns, each handed out once. */
 TT_TEST(ui_redraw_goes_one_band_at_a_time)
@@ -2732,8 +2762,71 @@ TT_TEST(ui_wheel_page_has_the_wheel_amounts)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_WHEEL_PITCH_CENTS), before);
 }
 
+/* Every live knob, on every page and on PLAY, names a param the engine knows: ui_slot_bar, ui_meter and
+ * the value text all look its info up, and on the FM-1 a missing one is a bus fault, not a crash a
+ * desktop test sees (the 6840fa5 fault, 2026-11-15) */
+TT_TEST(ui_every_live_slot_names_a_known_param)
+{
+    uint32_t i, k;
+    for (i = 0; i < UI_PAGES * 4u; i++) {
+        const ui_slot *s = &UI_SLOTS[i];
+        if (s->kind != UI_LIVE)
+            continue;
+        if (!fm_param_info_get(s->id))
+            printf("    slot %u (page %u knob %u): id %u unknown\n", (unsigned)i, (unsigned)(i / 4u),
+                   (unsigned)(i % 4u), (unsigned)s->id);
+        TT_CHECK(fm_param_info_get(s->id) != 0);
+        if (s->how == UI_HOW_PAIR || s->how == UI_HOW_MODE)
+            TT_CHECK(fm_param_info_get(s->id2) != 0);
+        if (s->how == UI_HOW_MODE)
+            TT_CHECK(fm_param_info_get(s->id3) != 0);
+    }
+    for (k = 0; k < 4u; k++) {
+        const ui_slot *s = &UI_SLOTS[UI_PLAY_SLOT[k]];
+        TT_CHECK(s->kind == UI_LIVE && fm_param_info_get(s->id) != 0);
+    }
+}
+
+/* A slot naming a param the engine doesn't know draws an empty bar, not a fault (on the FM-1 the info
+ * lookup's NULL was read: a bus fault 150 ms after start, 6840fa5) */
+TT_TEST(ui_slot_bar_of_an_unknown_param_is_empty)
+{
+    ui_slot sl;
+    int32_t a = -1, b = -1;
+    memset(&sl, 0, sizeof sl);
+    sl.kind = UI_LIVE;
+    sl.how = UI_HOW_SIZE;
+    sl.id = (uint16_t)(FM_PARAM_COUNT + 45u);
+    ui_slot_bar(&sl, 100, 44, &a, &b);
+    TT_CHECK_EQ(a, 0);
+    TT_CHECK_EQ(b, 0);
+    sl.how = UI_HOW_PLAIN;
+    a = b = -1;
+    ui_slot_bar(&sl, 100, 44, &a, &b);
+    TT_CHECK_EQ(a, 0);
+    TT_CHECK_EQ(b, 0);
+}
+
+/* A page past the last (a corrupted or never-set page) has no slots: NULL, which every caller takes as
+ * an empty column, rather than a read past UI_SLOTS */
+TT_TEST(ui_page_slot_past_the_pages_is_none)
+{
+    ui_setup();
+    ui_tap(UI_BTN_ENV, 1000);                                 /* EDIT */
+    TT_CHECK(ui_page_slot(&ui_u, 0) != 0);
+    ui_u.page = UI_PAGES;
+    TT_CHECK(ui_page_slot(&ui_u, 0) == 0);
+    ui_u.page = 0xFFFFFFFFu;
+    TT_CHECK(ui_page_slot(&ui_u, 3) == 0);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_wave_names_list_the_spike_last);
+    TT_RUN(ui_spike_draws_as_a_narrow_peak);
+    TT_RUN(ui_every_live_slot_names_a_known_param);
+    TT_RUN(ui_slot_bar_of_an_unknown_param_is_empty);
+    TT_RUN(ui_page_slot_past_the_pages_is_none);
     TT_RUN(ui_wheel_page_has_the_wheel_amounts);
     TT_RUN(ui_velocity_curve_scales_the_hosts);
     TT_RUN(ui_program_change_in_loads_the_patch);

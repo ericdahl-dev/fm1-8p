@@ -58,15 +58,19 @@ class MapTest(unittest.TestCase):
     def test_waveform_switch_positions_map_to_engine_waves(self):
         self.assertEqual(patch("POLY BRASS")["OSC1_WAVE"], 0)    # 96: sawtooth
         self.assertEqual(patch("SQUARELEAD")["OSC1_WAVE"], 2)    # 32: square
-        self.assertEqual(patch("BUBBLES")["OSC1_WAVE"], 1)       # 64: pulse
+        self.assertEqual(patch("BUBBLES")["OSC1_WAVE"], 4)       # 64: pulse, PG-8X's spike (#150)
         self.assertEqual(patch("T O M S")["OSC2_WAVE"], 3)       # 0: noise
 
-    # the JX-8P's pulse is a fixed narrow pulse; the engine's square is its own wave
-    def test_pulse_is_a_quarter_cycle_wide(self):
-        e = patch("BUBBLES")                    # DCO-1 pulse, DCO-2 pulse
-        self.assertEqual((e["OSC1_PULSE_WIDTH_PCT"], e["OSC2_PULSE_WIDTH_PCT"]), (25, 25))
-        e = patch("SOUNDTRACK")                 # saws: the engine's default width
-        self.assertEqual((e["OSC1_PULSE_WIDTH_PCT"], e["OSC2_PULSE_WIDTH_PCT"]), (50, 50))
+    # the JX-8P's pulse is PG-8X's narrow spike, the engine's FM_WAVE_SPIKE (#150), which has no
+    # width: the pulse width params stay at the engine's default, for the rectangle pulse alone
+    def test_pulse_is_the_spike(self):
+        for name, dcos in (("BUBBLES", (1, 2)), ("ARCOSTRING", (2,)), ("ORGAN 2", (2,)),
+                           ("RES LEAD", (1,)), ("SYNC LEAD", (1,))):
+            e = patch(name)
+            for n in dcos:
+                self.assertEqual(e["OSC%d_WAVE" % n], 4, (name, n))
+                self.assertEqual(e["OSC%d_PULSE_WIDTH_PCT" % n], 50, (name, n))
+        self.assertNotIn(1, [jx8p.to_engine(t)[f] for t in factory() for f in ("OSC1_WAVE", "OSC2_WAVE")])
 
     # range (16' is octave -1, 8' is 0) plus tune: the pitch of each oscillator in semitones
     def test_range_and_tune_set_each_oscillators_pitch(self):
@@ -90,10 +94,12 @@ class MapTest(unittest.TestCase):
         self.assertEqual(sounding(patch("MUSIC BOX")), (28, 32))      # DCO-1 2' +4, DCO-2 2' +8
         self.assertEqual(sounding(patch("WINDCHIMES")), (21, 36))     # DCO-1 2' -3, DCO-2 2' +12
 
-    def test_dco2_fine_tune_is_plus_minus_50_cents_around_64(self):
-        self.assertEqual(patch("HI STRINGS")["OSC2_FINE_CENTS"], 15)    # 83
-        self.assertEqual(patch("SOUNDTRACK")["OSC2_FINE_CENTS"], -13)   # 48
-        self.assertEqual(patch("PIANO 3")["OSC2_FINE_CENTS"], -33)      # 22
+    def test_dco2_fine_tune_is_100_cents_around_67(self):
+        # PG-8X centers FINE at 67, 100 cents over 0..127 (#256)
+        self.assertEqual(patch("HI STRINGS")["OSC2_FINE_CENTS"], 13)    # 83
+        self.assertEqual(patch("SOUNDTRACK")["OSC2_FINE_CENTS"], -15)   # 48
+        self.assertEqual(patch("PIANO 3")["OSC2_FINE_CENTS"], -35)      # 22
+        self.assertEqual(patch("CHURCHBELL")["OSC2_FINE_CENTS"], -12)   # 52: its beat rates on PG-8X
 
     # PG-8X 2.0.13 sums the DCOs, each at its level byte over 127 (measured, #102)
     def test_each_dco_level_is_its_byte_over_127(self):
@@ -153,14 +159,15 @@ class MapTest(unittest.TestCase):
         self.assertEqual(patch("PSYCHMELLO")["FILTER_RESONANCE_PERMILLE"], 928)     # resonance 122
         self.assertEqual(patch("SOUNDTRACK")["FILTER_RESONANCE_PERMILLE"], 0)
 
-    # HPF as PG-8X 2.0.13 plays it (2026-11-10 probe, docs/patches.md): 1 is flat and 2 and 3 are
-    # the engine's steps 2 and 3 (within about 2 dB); 0 is a bass boost the engine lacks, so flat.
+    # HPF as PG-8X 2.0.13 plays it (2026-11-10 probe, docs/patches.md): 0 is a bass boost, the
+    # engine's step 4 (#93); 1 is flat, step 0; 2 and 3 are the engine's steps 2 and 3 (within
+    # about 2 dB). The engine's step 1 (100 Hz) is no JX-8P position.
     def test_hpf_step_per_position(self):
-        self.assertEqual([jx8p.hpf_step(v) for v in (0, 32, 64, 96)], [0, 0, 2, 3])
-        self.assertEqual([jx8p.hpf_step(v) for v in (31, 63, 95, 127)], [0, 0, 2, 3])
+        self.assertEqual([jx8p.hpf_step(v) for v in (0, 32, 64, 96)], [4, 0, 2, 3])
+        self.assertEqual([jx8p.hpf_step(v) for v in (31, 63, 95, 127)], [4, 0, 2, 3])
 
-    def test_hpf_positions_are_the_engines_four_highpass_steps(self):
-        self.assertEqual(patch("SOUNDTRACK")["HIGHPASS_STEP"], 0)   # 0
+    def test_hpf_positions_are_the_engines_highpass_steps(self):
+        self.assertEqual(patch("SOUNDTRACK")["HIGHPASS_STEP"], 4)   # 0: the bass boost
         self.assertEqual(patch("PIANO 1")["HIGHPASS_STEP"], 0)      # 32: flat on PG-8X
         self.assertEqual(patch("WINDCHIMES")["HIGHPASS_STEP"], 2)   # 64
 
@@ -510,9 +517,9 @@ class RangeTest(unittest.TestCase):
     # the ranges of the fields the engine has come from engine/params.c, not copies of it
     def test_engine_ranges_are_read_from_params_c(self):
         ranges = jx8p.engine_ranges()
-        self.assertEqual(ranges["OSC1_WAVE"], (0, 3))                       # FM_WAVE_COUNT - 1
+        self.assertEqual(ranges["OSC1_WAVE"], (0, 4))                       # FM_WAVE_COUNT - 1
         self.assertEqual(ranges["FILTER_CUTOFF_CENTS"], (0, 14400))         # FM_FILTER_OPEN_CENTS
-        self.assertEqual(ranges["HIGHPASS_STEP"], (0, 3))
+        self.assertEqual(ranges["HIGHPASS_STEP"], (0, 4))                     # FM_FILTER_HIGHPASS_STEPS - 1
         self.assertEqual(ranges["OSC_MIX_ENV"], (-1000, 1000))
         for f in jx8p.FIELDS:
             if f.param:

@@ -5,8 +5,8 @@
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
-    if (k >= 4u)
-        return 0;
+    if (k >= 4u || (u->state != UI_PLAY && u->page >= UI_PAGES))
+        return 0;                               /* (no such page: no slots, not a read past UI_SLOTS) */
     return u->state == UI_PLAY ? &UI_SLOTS[UI_PLAY_SLOT[k]] : &UI_SLOTS[4u * u->page + k];
 }
 
@@ -81,8 +81,8 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         static const char *const FEET[5] = {"32", "16", "8", "4", "2"};
         num = put_str(num, FEET[value < -2 ? 0 : value > 2 ? 4 : value + 2]), u = "'";
     } else if (id == FM_PARAM_OSC1_WAVE || id == FM_PARAM_OSC2_WAVE) {
-        static const char *const WAVE[4] = {"SAW", "PULSE", "SQUARE", "NOISE"};
-        num = put_str(num, WAVE[value < 0 ? 0 : value > 3 ? 3 : value]);
+        static const char *const WAVE[FM_WAVE_COUNT] = {"SAW", "PULSE", "SQUARE", "NOISE", "SPIKE"};
+        num = put_str(num, WAVE[value < 0 ? 0 : value > FM_WAVE_COUNT - 1 ? FM_WAVE_COUNT - 1 : value]);
     } else if (id == FM_PARAM_LFO_PITCH_CENTS || id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
         if (value < 0)                          /* DCO-2's -1: DCO-1's depth */
             num = put_str(num, "D1");
@@ -341,8 +341,10 @@ void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_
         ui_meter_bar(sl->id, value, w, a, b);
         return;
     }
+    *a = *b = 0;
+    if (!fm_param_info_get(sl->id))             /* (an unknown param: empty; on the FM-1 a NULL read faults) */
+        return;
     max = fm_param_info_get(sl->id)->max;
-    *a = 0;
     *b = value <= 0 || max <= 0 ? 0 : value >= max ? w : (2 * w * value + max) / (2 * max);
 }
 
@@ -472,6 +474,8 @@ int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n)
         return ph < 10u * width_pct ? 1000 : -1000;
     case FM_WAVE_SQUARE:
         return ph < 500u ? 1000 : -1000;
+    case FM_WAVE_SPIKE:                         /* PG-8X's narrow peak (#150), then its tail */
+        return ph < 80u ? 1000 - 25 * (int32_t)ph : -150;
     default:                                    /* noise: a fixed scatter, the same every draw */
         r = (i + 1u) * 2654435761u;
         return (int32_t)(r >> 16 & 2047u) * 2000 / 2047 - 1000;

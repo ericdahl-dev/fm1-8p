@@ -159,6 +159,255 @@ TT_TEST(pulse_peaks_at_the_saw_level_at_every_width)
         TT_CHECK_NEAR(held_peak(FM_WAVE_PULSE, widths[k]) / saw, 1.0, 0.03);
 }
 
+/* RMS of a held note on osc1 alone with `wave`, 0.2 s to 0.7 s in, on
+ * 6 voices as the scorecard plays: one voice alone would take the spike's
+ * peak (about twice the square's) into the output's soft clip. */
+static double held_rms(uint8_t wave, uint8_t note)
+{
+    double sum = 0;
+    size_t i, from = RATE / 5, to = RATE * 7 / 10;
+    osc_init();
+    fm_engine_init(&eng, RATE, 6);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, wave);
+    fm_engine_note_on(&eng, note, 100);
+    fm_engine_render(&eng, buf, to);
+    for (i = from; i < to; i++) sum += (double)buf[2 * i] * buf[2 * i];
+    return sqrt(sum / (double)(to - from));
+}
+
+/*
+ * The spike against its closed form in double (#150's model: an impulse of
+ * area A through two one-poles at 3050 Hz, steady state, less its mean),
+ * osc1 alone at full, notes 24..108 at 48 kHz and 120..132 at 192 kHz: the
+ * largest error is under -58 dB of the spike's peak at 48 kHz (-45 dB at
+ * 192 kHz's high notes), so a cheaper way to the same form stays as close to
+ * the fit (0.81 dB rms) as the closed form itself. Past about 27 kHz (notes
+ * 144..168 at 192 kHz, to its pitch limit) it keeps that pitch's shape, so
+ * it stays within the spike's own peak (2.3) and never runs away.
+ */
+static double spike_ref(double u, double T)
+{
+    const double A = 2.9317e-4, tau = 1.0 / (2.0 * AN_PI * 3050.0);
+    double q = exp(-T / tau);
+    return A / tau * exp(-u / tau) * (u / tau / (1 - q) + T / tau * q / ((1 - q) * (1 - q))) - A / T;
+}
+
+TT_TEST(spike_matches_its_closed_form)
+{
+    static fm_osc_pair p;
+    static const struct { int32_t note; uint32_t rate; } at[] = {
+        { 24, 48000 }, { 48, 48000 }, { 60, 48000 }, { 72, 48000 }, { 84, 48000 }, { 96, 48000 },
+        { 108, 48000 }, { 120, 192000 }, { 132, 192000 }
+    };
+    static const int32_t past[] = { 144, 156, 160, 168 };
+    double worst = -1e9;
+    size_t n, k;
+    for (n = 0; n < sizeof at / sizeof at[0]; n++) {
+        int32_t pitch = at[n].note << 16;
+        uint32_t rate = at[n].rate;
+        double peak = 0, err0 = 0, err1 = 0, g, T;
+        uint32_t inc, t;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 0, FM_WAVE_SPIKE);
+        fm_osc_pair_set_pitch(&p, pitch, rate);
+        fm_osc_pair_set_level(&p, 0, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_level(&p, 1, 0);
+        inc = p.osc[0].inc;
+        T = 4294967296.0 / inc / rate;
+        g = (double)p.level[0] / (1 << 30);
+        for (k = 0, t = 0; k < rate; k++, t += inc) {
+            double v = fm_osc_pair_next(&p) / 16777216.0;
+            double r0 = g * spike_ref((double)t / 4294967296.0 * T, T);
+            double r1 = g * spike_ref((double)(uint32_t)(t + inc) / 4294967296.0 * T, T);
+            peak = fmax(peak, fabs(r0));
+            err0 = fmax(err0, fabs(v - r0));
+            err1 = fmax(err1, fabs(v - r1));
+        }
+        worst = fmax(worst, 20 * log10(fmin(err0, err1) / peak) - (rate > 48000 ? 13.0 : 0.0));
+    }
+    printf("    spike against its closed form: worst %.1f dB of its peak (192 kHz's high notes 13 dB looser)\n",
+           worst);
+    TT_CHECK(worst < -58.0);
+    for (n = 0; n < sizeof past / sizeof past[0]; n++) {
+        double big = 0;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 0, FM_WAVE_SPIKE);
+        fm_osc_pair_set_pitch(&p, past[n] << 16, 192000);
+        fm_osc_pair_set_level(&p, 0, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_level(&p, 1, 0);
+        for (k = 0; k < 192000; k++)
+            big = fmax(big, fabs(fm_osc_pair_next(&p) / 16777216.0));
+        printf("    spike at note %d, 192 kHz: largest %.3f\n", (int)past[n], big);
+        TT_CHECK(big < 2.3);
+    }
+}
+
+/*
+ * PG-8X 2.0.13's PULSE is a narrow spike of fixed length, not a fixed
+ * duty (#150): its level against the square rises about 2.8 dB an octave
+ * with pitch. DCO-1 alone, steady RMS, PG-8X: pulse minus square -12.9 dB
+ * at C3, -10.0 at C4, -7.2 at C5, -4.5 at C6. The spike wave keeps to
+ * that within a dB.
+ */
+TT_TEST(spike_level_rises_with_pitch_as_pg8x)
+{
+    static const struct { uint8_t note; double db; } want[] = {
+        { 48, -12.9 }, { 60, -10.0 }, { 72, -7.2 }, { 84, -4.5 }
+    };
+    size_t k;
+    for (k = 0; k < sizeof want / sizeof want[0]; k++) {
+        double db = 20.0 * log10(held_rms(FM_WAVE_SPIKE, want[k].note) /
+                                 held_rms(FM_WAVE_SQUARE, want[k].note));
+        printf("    spike re square at note %u: %+.2f dB (PG-8X %+.1f)\n", want[k].note, db,
+               want[k].db);
+        TT_CHECK(fabs(db - want[k].db) < 1.0);
+    }
+}
+
+/* Partials of a held note on `which` (0 osc1, 1 osc2) alone with `wave`,
+ * h1..h16 in dB re h1, and h1's amplitude, 6 voices (as held_rms). */
+static double held_partials(uint8_t which, uint8_t wave, uint8_t note, double *db)
+{
+    double h1;
+    int k;
+    osc_init();
+    fm_engine_init(&eng, RATE, 6);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, which ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE, wave);
+    if (which) set_crossfade(&eng, 1000);
+    fm_engine_note_on(&eng, note, 100);
+    fm_engine_render(&eng, buf, 4410 + 32768);
+    h1 = tone_amp(buf + 2 * 4410, 32768, 0, note_hz(note), RATE);
+    for (k = 1; k <= 16; k++)
+        db[k - 1] = 20.0 * log10(tone_amp(buf + 2 * 4410, 32768, 0, k * note_hz(note), RATE) / h1);
+    return h1;
+}
+
+/*
+ * PG-8X's PULSE rolls off smoothly, with no sinc nulls (#150): partials
+ * h1..h16 against h1 at C4, C5 and C6, as measured. The spike keeps to
+ * them within 2.5 dB.
+ */
+TT_TEST(spike_partials_follow_pg8x)
+{
+    static const struct { uint8_t note; double db[16]; } want[] = {
+        { 60, { 0, 0, 0, -1, -1, -1, -2, -2, -3, -4, -5, -5, -6, -8, -9, -10 } },
+        { 72, { 0, 0, -1, -2, -4, -5, -7, -10, -12, -13, -14, -15, -15, -15, -16, -17 } },
+        { 84, { 0, -2, -5, -9, -13, -14, -15, -17, -20, -21, -22, -24, -26, -27, -28, -30 } },
+    };
+    size_t n;
+    int k;
+    for (n = 0; n < sizeof want / sizeof want[0]; n++) {
+        double db[16], worst = 0;
+        held_partials(0, FM_WAVE_SPIKE, want[n].note, db);
+        for (k = 0; k < 16; k++)
+            if (fabs(db[k] - want[n].db[k]) > worst) worst = fabs(db[k] - want[n].db[k]);
+        printf("    spike partials at note %u: worst %.2f dB off PG-8X\n", want[n].note, worst);
+        TT_CHECK(worst < 2.5);
+    }
+}
+
+/*
+ * DCO-2's spike sits 3.6 dB under DCO-1's, as PG-8X's PULSE does (#150;
+ * its other waves are under DCO-1's too, #132).
+ */
+TT_TEST(dco2_spike_sits_3_6_db_under_dco1s)
+{
+    double db1[16], db2[16];
+    double a1 = held_partials(0, FM_WAVE_SPIKE, 60, db1), a2 = held_partials(1, FM_WAVE_SPIKE, 60, db2);
+    double d = 20.0 * log10(a2 / a1);
+    printf("    DCO-2 spike re DCO-1's: %+.2f dB (PG-8X -3.6)\n", d);
+    TT_CHECK(fabs(d + 3.6) < 0.2);
+}
+
+/* The spike is continuous, so a high one stays clean: under the aliasing
+ * limit of the other waves at note 96. */
+TT_TEST(high_spike_note_has_low_aliasing)
+{
+    double db;
+    osc_init();
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SPIKE);
+    fm_engine_note_on(&eng, 96, 100);
+    fm_engine_render(&eng, buf, 4800 + 32768);
+    db = aliasing_db(buf + 2 * 4800, 32768, 0, note_hz(96), RATE, 6);
+    printf("    aliasing for the spike at note 96: %.1f dB\n", db);
+    TT_CHECK(db < ALIAS_LIMIT_DB);
+}
+
+/*
+ * The ring (X-MOD) with a spike on DCO-1 plays PG-8X's products (#150):
+ * DCO-1's spike against DCO-2's saw a fourth up (A3, +5 semitones, MIX
+ * DCO-1 at 0), every line at about -35 dB re DCO-2's fundamental on PG-8X
+ * 2.0.13's engine (measured on PG-8X 3.0, 2026-11-16: f2 - f1 -35, 2f1 - f2
+ * -35, f1 -34, 3f1 - f2 -35, f1 + f2 -35, 2f1 + f2 -35, 3f1 + f2 -35, 2f1
+ * -34). Each is held within 4 dB.
+ */
+TT_TEST(ring_with_a_spike_plays_pg8x_products)
+{
+    const double f1 = note_hz(57), f2 = note_hz(62);
+    const double lines[] = { f2 - f1, 2 * f1 - f2, f1, 3 * f1 - f2, f1 + f2, 2 * f1 + f2, 3 * f1 + f2, 2 * f1 };
+    const double want = -35.0;
+    double ref, worst = 0;
+    size_t k;
+    osc_init();
+    fm_engine_init(&eng, RATE, 6);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SPIKE);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_WAVE, FM_WAVE_SAW);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 5);
+    set_crossfade(&eng, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_RING, 1);
+    fm_engine_note_on(&eng, 57, 100);
+    fm_engine_render(&eng, buf, 4410 + 32768);
+    ref = tone_amp(buf + 2 * 4410, 32768, 0, f2, RATE);
+    for (k = 0; k < sizeof lines / sizeof lines[0]; k++) {
+        double db = 20.0 * log10(tone_amp(buf + 2 * 4410, 32768, 0, lines[k], RATE) / ref);
+        printf("    ring with a spike, line %.1f Hz: %+.1f dB (PG-8X about %.0f)\n", lines[k], db, want);
+        if (fabs(db - want) > worst) worst = fabs(db - want);
+    }
+    TT_CHECK(worst < 4.0);
+}
+
+/*
+ * The spike follows the pitch it plays, not only the note's: one bent down
+ * by pitch modulation (BUBBLES' DCO ENV holds it 31 semitones under its key)
+ * has the shape of a spike at that pitch. Its decay (the lowpass) stays at
+ * its time, so a spike at C4 bent an octave down matches C3 within 0.3 dB in
+ * level and in its first 8 partials.
+ */
+TT_TEST(spike_follows_its_pitch_modulation)
+{
+    static fm_osc_pair a, b;
+    static int32_t ba[8192], bb[8192];
+    double ea = 0, eb = 0;
+    uint32_t i;
+    fm_osc_pair_reset(&a, 1);
+    fm_osc_pair_reset(&b, 1);
+    fm_osc_pair_set_wave(&a, 0, FM_WAVE_SPIKE);
+    fm_osc_pair_set_wave(&b, 0, FM_WAVE_SPIKE);
+    fm_osc_pair_set_pitch(&a, 60 << 16, RATE);
+    fm_osc_pair_set_pitch_mod(&a, -(1 << 16), 0); /* an octave down */
+    fm_osc_pair_set_pitch(&b, 48 << 16, RATE);
+    fm_osc_pair_render(&a, ba, 8192);
+    fm_osc_pair_render(&b, bb, 8192);
+    for (i = 0; i < 8192; i++) {
+        ea += (double)ba[i] * ba[i];
+        eb += (double)bb[i] * bb[i];
+    }
+    printf("    spike at C4 bent an octave down re C3: %+.2f dB\n", 10.0 * log10(ea / eb));
+    TT_CHECK(fabs(10.0 * log10(ea / eb)) < 0.3);
+    for (i = 0; i < 8192; i++)
+        if (abs(ba[i] - bb[i]) > (1 << 24) / 50) break; /* the same wave within 2 % of full */
+    TT_CHECK_EQ(i, 8192u);
+}
+
 /* Octave shifts by factors of two; fine tune by 2^(cents / 1200). */
 TT_TEST(octave_and_fine_tune_shift_pitch)
 {
@@ -1131,6 +1380,31 @@ TT_TEST(synced_osc2_has_low_aliasing)
 }
 
 /*
+ * A synced spike (#150, #260): osc1 restarts osc2 inside the spike's body,
+ * where the wave is far from where a restart starts it again, so each
+ * restart is a step. osc2 a little over an octave up (+12 semitones +40
+ * cents, C5) meets each restart about 0.05 into its cycle, inside the
+ * spike; held to ALIAS_LIMIT_DB like the other synced waves.
+ */
+TT_TEST(synced_spike_restart_inside_the_spike_has_low_aliasing)
+{
+    static const int32_t fines[] = { 40, 20, 70 };
+    size_t k;
+    for (k = 0; k < sizeof fines / sizeof fines[0]; k++) {
+        double db;
+        slave_init(RATE, FM_WAVE_SPIKE);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 12);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, fines[k]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, 1);
+        fm_engine_note_on(&eng, 72, 100);
+        fm_engine_render(&eng, buf, 4800 + 32768);
+        db = aliasing_db(buf + 2 * 4800, 32768, 0, note_hz(72), RATE, 6);
+        printf("    aliasing for a synced spike +12 st %+d cents at note 72: %.1f dB\n", (int)fines[k], db);
+        TT_CHECK(db < ALIAS_LIMIT_DB);
+    }
+}
+
+/*
  * osc2 an octave less 2 cents up (a ratio just under 2) meets each
  * restart about 0.998 into its cycle, within one increment of its own wrap:
  * the polyBLEP it would put on that wrap must not add to the restart's.
@@ -1296,6 +1570,13 @@ TT_TEST(xmod_adds_sidebands)
  * (the soft clip's knee, #102): past it the clip bends the peak toward full scale, so 1.5 holds it.
  */
 #define SYNC_PEAK (KNEE_LSB * 3 / 2)
+/*
+ * The spike (#150) peaks at about twice the square's at the same level (the
+ * same RMS as PG-8X's PULSE, at its crest), so one voice of it at full
+ * level goes past the knee into the soft clip, which holds it at 0.966 of
+ * full scale (31653) short of the rails.
+ */
+#define SPIKE_PEAK 31653
 TT_TEST(max_xmod_and_sync_stay_in_range)
 {
     static const uint32_t rates[] = { 8000, 44100, 192000 };
@@ -1323,11 +1604,14 @@ TT_TEST(max_xmod_and_sync_stay_in_range)
         fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 1000);
         fm_engine_note_on(&eng, notes[n], 127);
         fm_engine_render(&eng, buf, 2000);
-        if (peak_abs(buf, 0, 2000) > (sy ? SYNC_PEAK : KNEE_LSB + 64))
-            printf("    over at rate %u note %u waves %u/%u sync %u: %d\n", (unsigned)rates[r],
-                   (unsigned)notes[n], (unsigned)w1, (unsigned)w2, (unsigned)sy, peak_abs(buf, 0, 2000));
-        /* one voice at full level, like the noise test */
-        TT_CHECK(peak_abs(buf, 0, 2000) <= (sy ? SYNC_PEAK : KNEE_LSB + 64));
+        {
+            int limit = w2 == FM_WAVE_SPIKE ? SPIKE_PEAK : sy ? SYNC_PEAK : KNEE_LSB + 64;
+            if (peak_abs(buf, 0, 2000) > limit)
+                printf("    over at rate %u note %u waves %u/%u sync %u: %d\n", (unsigned)rates[r],
+                       (unsigned)notes[n], (unsigned)w1, (unsigned)w2, (unsigned)sy, peak_abs(buf, 0, 2000));
+            /* one voice at full level, like the noise test */
+            TT_CHECK(peak_abs(buf, 0, 2000) <= limit);
+        }
         fm_engine_note_off(&eng, notes[n]);
         fm_engine_render(&eng, buf, 2000);
         for (i = 2; i < 2 * 2000; i++)
@@ -2086,6 +2370,14 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
 
 static void run_osc_tests(void)
 {
+    TT_RUN(synced_spike_restart_inside_the_spike_has_low_aliasing);
+    TT_RUN(spike_matches_its_closed_form);
+    TT_RUN(spike_level_rises_with_pitch_as_pg8x);
+    TT_RUN(spike_partials_follow_pg8x);
+    TT_RUN(dco2_spike_sits_3_6_db_under_dco1s);
+    TT_RUN(high_spike_note_has_low_aliasing);
+    TT_RUN(ring_with_a_spike_plays_pg8x_products);
+    TT_RUN(spike_follows_its_pitch_modulation);
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(ring_multiplies_osc2_by_osc1_square);
     TT_RUN(ring_depth_follows_a_saw_osc1);

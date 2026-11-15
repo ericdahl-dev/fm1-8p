@@ -205,6 +205,49 @@ TT_TEST(pattern_out_of_range_values_load_clamped)
     TT_CHECK_EQ(out.step[3].mod, 127u);
 }
 
+/* Any bytes in a pattern slot, a damaged record, one from an older build or a byte storm: the decoder
+ * writes only the pattern and the name, and each field lands in range (the 6840fa5 fault hunt: nothing
+ * read from flash at start may index past an array). Random records and single-byte changes to a real one,
+ * each with a valid length byte so they get past the record check. */
+TT_TEST(pattern_any_record_decodes_in_range)
+{
+    static struct { seq_pattern p; uint8_t canary[64]; } g;
+    static struct { char name[STORE_NAME_LEN + 1u]; uint8_t canary[64]; } nm;
+    uint8_t good[STORE_SLOT_BYTES], rec[STORE_SLOT_BYTES];
+    uint32_t seed = 12345u, t, i, k, bad = 0;
+    seq_pattern sample;
+    pat_sample(&sample);
+    (void)pat_encode(&sample, "FUZZ", good);
+    for (t = 0; t < 20000u; t++) {
+        for (i = 0; i < STORE_SLOT_BYTES; i++) {
+            seed = seed * 1103515245u + 12345u;
+            rec[i] = t & 1u ? good[i] : (uint8_t)(seed >> 16);
+        }
+        seed = seed * 1103515245u + 12345u;
+        rec[(seed >> 16) % STORE_SLOT_BYTES] = (uint8_t)(seed >> 8);   /* a byte off */
+        if (!(t & 2u)) {                        /* a length that passes: 21 + count x size */
+            rec[1] = 1u;
+            rec[19] = (uint8_t)(rec[19] % 26u);
+            rec[20] = (uint8_t)(9u + rec[20] % 5u);
+            rec[0] = (uint8_t)(21u + rec[19] * rec[20] > 255u ? 255u : 21u + rec[19] * rec[20]);
+        }
+        memset(g.canary, 0xA5, sizeof g.canary);
+        memset(nm.canary, 0x5A, sizeof nm.canary);
+        (void)pat_decode(rec, STORE_SLOT_BYTES, &g.p, nm.name);
+        for (i = 0; i < sizeof g.canary; i++)
+            bad += g.canary[i] != 0xA5 || nm.canary[i] != 0x5A;
+        bad += g.p.length < 1u || g.p.length > SEQ_STEPS || nm.name[STORE_NAME_LEN] != 0;
+        for (i = 0; i < SEQ_STEPS; i++) {
+            const seq_step *st = &g.p.step[i];
+            bad += st->kind != SEQ_REST && st->kind != SEQ_TIE && st->kind != SEQ_NOTES_ON;
+            bad += st->n > SEQ_NOTES || (st->kind == SEQ_NOTES_ON && !st->n) || st->vel > 127u;
+            for (k = 0; k < SEQ_NOTES; k++)
+                bad += st->note[k] > 127u;
+        }
+    }
+    TT_CHECK_EQ(bad, 0u);
+}
+
 static void run_pattern_store_tests(void)
 {
     TT_RUN(pattern_saved_loads_identically);
@@ -213,4 +256,5 @@ static void run_pattern_store_tests(void)
     TT_RUN(pattern_damaged_record_is_empty);
     TT_RUN(pattern_older_and_newer_steps_load);
     TT_RUN(pattern_out_of_range_values_load_clamped);
+    TT_RUN(pattern_any_record_decodes_in_range);
 }

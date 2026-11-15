@@ -89,6 +89,38 @@ peak of 1.0, so switching between saw, square and pulse never jumps in level.
 At 50 % the gain is 1 (the square is +-1.0). The mix sums the two at their
 levels, so both at full peak at 2.0, as on PG-8X's mixer.
 
+The spike (`FM_WAVE_SPIKE`, #150) is PG-8X 2.0.13's PULSE, which is not a
+fixed duty. Fitted to #150's measurements (its level against the square at C2
+to C6 and its partials at C4, C5 and C6, within 0.81 dB rms), it is an impulse
+train of area 2.93e-4 (the square's amplitude times seconds) through two
+one-pole lowpasses at 3050 Hz, in its periodic steady state, less its mean.
+With u the time since the impulse, tau the lowpasses' time constant, T the
+period and q = e^(-T / tau):
+
+    y(u) = (A / tau) e^(-u / tau) (u / tau / (1 - q) + (T / tau) q / (1 - q)^2) - A / T
+
+That's a closed form of the phase, so it has no state: every path that reads
+a wave at its phase plays it alike, sync and the ring included. It starts from
+0 at each impulse (continuous), so it needs no polyBLEP, and at note 96 its
+aliasing is under the limit above.
+- **Constants:** two from the sample rate, on events (a divide there): the
+  decay per sample and the impulse area times the rate. The rest come from the
+  pitch as played, on events and on the pitch modulation's control ticks (only
+  the oscillator whose modulation moved), with no division: the decay per
+  2^32 of phase (1 / dt by Newton's reciprocal), 1 / (1 - q) (Newton
+  again), the earlier cycles' share, and the mean.
+- **Per sample:** six 32 x 32 -> 64 multiplies, two of them in a 2^-x table
+  lookup with interpolation (65 entries, Q30). Past 30 halvings of the decay,
+  only the mean is left.
+- **Not band-limited:** a sync restart that lands inside the spike, where the
+  wave is far from its start value, steps without a polyBLEP. That's a
+  follow-up.
+- **Level:** its level rises about 2.8 dB an octave against the square, as
+  PG-8X's does, and it peaks at about twice the square's at the same level. One
+  voice at full level of it therefore reaches the soft clip.
+- **DCO-2:** its spike sits 3.6 dB under DCO-1's.
+- **Width:** the pulse width params don't apply to it.
+
 ### Filter
 
 `engine/filter.c` is a per-voice filter: a one-pole highpass, then a
@@ -211,6 +243,15 @@ resonant 4-pole (24 dB/octave) lowpass.
   resonate. Turning it on clears that lowpass, so the output starts equal to
   the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
   and 560 Hz (6 dB/octave).
+- **Bass boost.** Highpass position 4 is not a highpass: it is the JX-8P's
+  HPF position 0, a low shelf on 2 dB of gain (#93),
+  `1.26 * x + 1.02 * lowpass(x)` with the same one-pole lowpass at 62 Hz.
+  Against the flat position it is +6.55 / +5.39 / +3.72 / +2.57 / +2.18 /
+  +2.08 dB at 30 / 60 / 120 / 250 / 500 / 1000 Hz (PG-8X 2.0.13: +6.5 /
+  +5.4 / +3.7 / +2.6 / +2.1 / +2.0), and 2.28 (+7.2 dB) at DC, so a low
+  note can reach the soft clip's knee at +-2.0. Turning it on from off
+  starts its lowpass from zero: the output steps by the 2 dB and the bass
+  comes in over a few milliseconds.
 - **Envelope curves.** Attack charges like an RC toward 1.6 x the peak (as
   PG-8X 2.0.13's, fitted within 0.4 % of level) and stops on the peak at the
   attack time, 0.98 of its tau. Decay (toward sustain) and
@@ -263,7 +304,7 @@ at 110 Hz, 0 / -2.7 / -7.8 / -14.7 dB.
 Cost per sample, per voice: five 32x32->64 multiplies (four stages and the
 feedback), three more with resonance on (the input level and the shelf's
 lowpass and mix), and about 40 adds, shifts and compares, plus one multiply for the
-highpass when it is on, one in the clip only above +-2.0, and the filter
+highpass when it is on (three for the bass boost), one in the clip only above +-2.0, and the filter
 envelope step. Inside the top 600 cents of cutoff the stage zero takes a
 multiply instead of a shift (four more). The cutoff update every 16 samples
 adds about ten multiplies and three divisions by constants (1200 and 10,

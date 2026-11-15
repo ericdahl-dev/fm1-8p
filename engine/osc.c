@@ -84,6 +84,204 @@ void fm_osc_set_inc(fm_osc *o, uint32_t inc)
     o->inc = inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : inc;
 }
 
+/*
+ * The spike (FM_WAVE_SPIKE, #150): PG-8X 2.0.13's PULSE. Fitted to #150's
+ * measurements (its level against the square at C2..C6 and its partials
+ * at C4, C5 and C6, within 0.81 dB rms), it is an impulse train of area
+ * SPIKE_AREA (in the square's amplitude x seconds) through two one-pole
+ * lowpasses at SPIKE_LP_HZ, in its periodic steady state, less its mean.
+ * With u the time since the impulse, tau the lowpasses' time constant, T
+ * the period and q = e^(-T / tau):
+ *   y(u) = (A / tau) e^(-u / tau) (u / tau / (1 - q) + (T / tau) q / (1 - q)^2) - A / T
+ * A closed form of the phase, so the spike has no state: every path that
+ * reads a wave at its phase plays it alike. It starts from 0 at each
+ * impulse (continuous), so it needs no polyBLEP. The constants come from
+ * the unmodulated pitch, on events, with no division per sample.
+ */
+#define SPIKE_LP_HZ 3050u
+#define SPIKE_KQ 1811899801u /* 2 pi SPIKE_LP_HZ / ln 2 x 2^16 */
+#define SPIKE_KA 94258198    /* A 2 pi SPIKE_LP_HZ (A / tau) in Q8.24: 5.618 */
+#define SPIKE_A_Q24 4919u    /* A x 2^24 (A = 2.9317e-4 s) */
+#define LN2_Q16 45426u
+
+/* 2^(-i / 64), Q30, i = 0..64 */
+static const int32_t exp2_tab[65] = {
+    1073741824, 1062175491, 1050733751, 1039415261, 1028218693, 1017142735,
+    1006186087, 995347464, 984625594, 974019220, 963527098, 953147997,
+    942880699, 932724001, 922676710, 912737649, 902905651, 893179563,
+    883558244, 874040567, 864625413, 855311680, 846098274, 836984114,
+    827968132, 819049271, 810226483, 801498734, 792865000, 784324269,
+    775875538, 767517817, 759250125, 751071493, 742980960, 734977579,
+    727060411, 719228525, 711481005, 703816941, 696235434, 688735596,
+    681316545, 673977412, 666717336, 659535466, 652430958, 645402981,
+    638450708, 631573326, 624770026, 618040012, 611382493, 604796689,
+    598281827, 591837143, 585461881, 579155293, 572916640, 566745190,
+    560640218, 554601009, 548626854, 542717053, 536870912
+};
+
+/* The spike's 2^(-f), f = (i + 0.5) / 1024 (each step's middle), Q15: read with
+ * no interpolation, 1 / 1024 of an octave a step, within +-0.034 % (-69 dB).
+ * From: round(32768 * 2^(-(i + 0.5) / 1024)). */
+static const uint16_t spike_exp[1024] = {
+    32757, 32735, 32713, 32690, 32668, 32646, 32624, 32602, 32580, 32558, 32536, 32514, 32492, 32470, 32448, 32426,
+    32404, 32382, 32360, 32338, 32316, 32295, 32273, 32251, 32229, 32207, 32185, 32164, 32142, 32120, 32098, 32077,
+    32055, 32033, 32012, 31990, 31968, 31947, 31925, 31903, 31882, 31860, 31839, 31817, 31796, 31774, 31753, 31731,
+    31710, 31688, 31667, 31645, 31624, 31603, 31581, 31560, 31538, 31517, 31496, 31474, 31453, 31432, 31411, 31389,
+    31368, 31347, 31326, 31304, 31283, 31262, 31241, 31220, 31199, 31178, 31157, 31135, 31114, 31093, 31072, 31051,
+    31030, 31009, 30988, 30967, 30946, 30925, 30904, 30884, 30863, 30842, 30821, 30800, 30779, 30758, 30738, 30717,
+    30696, 30675, 30654, 30634, 30613, 30592, 30572, 30551, 30530, 30510, 30489, 30468, 30448, 30427, 30406, 30386,
+    30365, 30345, 30324, 30304, 30283, 30263, 30242, 30222, 30201, 30181, 30160, 30140, 30120, 30099, 30079, 30059,
+    30038, 30018, 29998, 29977, 29957, 29937, 29916, 29896, 29876, 29856, 29836, 29815, 29795, 29775, 29755, 29735,
+    29715, 29695, 29674, 29654, 29634, 29614, 29594, 29574, 29554, 29534, 29514, 29494, 29474, 29454, 29434, 29414,
+    29395, 29375, 29355, 29335, 29315, 29295, 29275, 29256, 29236, 29216, 29196, 29177, 29157, 29137, 29117, 29098,
+    29078, 29058, 29039, 29019, 28999, 28980, 28960, 28940, 28921, 28901, 28882, 28862, 28843, 28823, 28804, 28784,
+    28765, 28745, 28726, 28706, 28687, 28668, 28648, 28629, 28609, 28590, 28571, 28551, 28532, 28513, 28493, 28474,
+    28455, 28436, 28416, 28397, 28378, 28359, 28340, 28320, 28301, 28282, 28263, 28244, 28225, 28206, 28186, 28167,
+    28148, 28129, 28110, 28091, 28072, 28053, 28034, 28015, 27996, 27977, 27958, 27940, 27921, 27902, 27883, 27864,
+    27845, 27826, 27807, 27789, 27770, 27751, 27732, 27713, 27695, 27676, 27657, 27639, 27620, 27601, 27582, 27564,
+    27545, 27527, 27508, 27489, 27471, 27452, 27434, 27415, 27396, 27378, 27359, 27341, 27322, 27304, 27285, 27267,
+    27248, 27230, 27212, 27193, 27175, 27156, 27138, 27120, 27101, 27083, 27065, 27046, 27028, 27010, 26991, 26973,
+    26955, 26937, 26918, 26900, 26882, 26864, 26846, 26828, 26809, 26791, 26773, 26755, 26737, 26719, 26701, 26683,
+    26665, 26647, 26629, 26610, 26592, 26574, 26556, 26539, 26521, 26503, 26485, 26467, 26449, 26431, 26413, 26395,
+    26377, 26359, 26342, 26324, 26306, 26288, 26270, 26253, 26235, 26217, 26199, 26182, 26164, 26146, 26129, 26111,
+    26093, 26076, 26058, 26040, 26023, 26005, 25987, 25970, 25952, 25935, 25917, 25900, 25882, 25865, 25847, 25830,
+    25812, 25795, 25777, 25760, 25742, 25725, 25708, 25690, 25673, 25655, 25638, 25621, 25603, 25586, 25569, 25551,
+    25534, 25517, 25500, 25482, 25465, 25448, 25431, 25413, 25396, 25379, 25362, 25345, 25328, 25310, 25293, 25276,
+    25259, 25242, 25225, 25208, 25191, 25174, 25157, 25140, 25123, 25106, 25089, 25072, 25055, 25038, 25021, 25004,
+    24987, 24970, 24953, 24936, 24919, 24903, 24886, 24869, 24852, 24835, 24818, 24802, 24785, 24768, 24751, 24735,
+    24718, 24701, 24684, 24668, 24651, 24634, 24618, 24601, 24584, 24568, 24551, 24534, 24518, 24501, 24485, 24468,
+    24452, 24435, 24418, 24402, 24385, 24369, 24352, 24336, 24319, 24303, 24287, 24270, 24254, 24237, 24221, 24205,
+    24188, 24172, 24155, 24139, 24123, 24106, 24090, 24074, 24058, 24041, 24025, 24009, 23992, 23976, 23960, 23944,
+    23928, 23911, 23895, 23879, 23863, 23847, 23831, 23814, 23798, 23782, 23766, 23750, 23734, 23718, 23702, 23686,
+    23670, 23654, 23638, 23622, 23606, 23590, 23574, 23558, 23542, 23526, 23510, 23494, 23478, 23462, 23447, 23431,
+    23415, 23399, 23383, 23367, 23352, 23336, 23320, 23304, 23288, 23273, 23257, 23241, 23225, 23210, 23194, 23178,
+    23163, 23147, 23131, 23116, 23100, 23084, 23069, 23053, 23038, 23022, 23006, 22991, 22975, 22960, 22944, 22929,
+    22913, 22898, 22882, 22867, 22851, 22836, 22820, 22805, 22789, 22774, 22759, 22743, 22728, 22712, 22697, 22682,
+    22666, 22651, 22636, 22620, 22605, 22590, 22574, 22559, 22544, 22529, 22513, 22498, 22483, 22468, 22453, 22437,
+    22422, 22407, 22392, 22377, 22362, 22346, 22331, 22316, 22301, 22286, 22271, 22256, 22241, 22226, 22211, 22196,
+    22181, 22166, 22151, 22136, 22121, 22106, 22091, 22076, 22061, 22046, 22031, 22016, 22001, 21986, 21971, 21957,
+    21942, 21927, 21912, 21897, 21882, 21868, 21853, 21838, 21823, 21808, 21794, 21779, 21764, 21749, 21735, 21720,
+    21705, 21691, 21676, 21661, 21647, 21632, 21617, 21603, 21588, 21574, 21559, 21544, 21530, 21515, 21501, 21486,
+    21472, 21457, 21442, 21428, 21413, 21399, 21384, 21370, 21356, 21341, 21327, 21312, 21298, 21283, 21269, 21255,
+    21240, 21226, 21211, 21197, 21183, 21168, 21154, 21140, 21126, 21111, 21097, 21083, 21068, 21054, 21040, 21026,
+    21011, 20997, 20983, 20969, 20955, 20940, 20926, 20912, 20898, 20884, 20870, 20856, 20841, 20827, 20813, 20799,
+    20785, 20771, 20757, 20743, 20729, 20715, 20701, 20687, 20673, 20659, 20645, 20631, 20617, 20603, 20589, 20575,
+    20561, 20547, 20533, 20519, 20506, 20492, 20478, 20464, 20450, 20436, 20422, 20409, 20395, 20381, 20367, 20353,
+    20340, 20326, 20312, 20298, 20285, 20271, 20257, 20244, 20230, 20216, 20202, 20189, 20175, 20162, 20148, 20134,
+    20121, 20107, 20093, 20080, 20066, 20053, 20039, 20026, 20012, 19998, 19985, 19971, 19958, 19944, 19931, 19917,
+    19904, 19890, 19877, 19863, 19850, 19837, 19823, 19810, 19796, 19783, 19770, 19756, 19743, 19729, 19716, 19703,
+    19689, 19676, 19663, 19650, 19636, 19623, 19610, 19596, 19583, 19570, 19557, 19543, 19530, 19517, 19504, 19491,
+    19477, 19464, 19451, 19438, 19425, 19412, 19398, 19385, 19372, 19359, 19346, 19333, 19320, 19307, 19294, 19281,
+    19268, 19255, 19241, 19228, 19215, 19202, 19189, 19176, 19164, 19151, 19138, 19125, 19112, 19099, 19086, 19073,
+    19060, 19047, 19034, 19021, 19008, 18996, 18983, 18970, 18957, 18944, 18931, 18919, 18906, 18893, 18880, 18867,
+    18855, 18842, 18829, 18816, 18804, 18791, 18778, 18766, 18753, 18740, 18728, 18715, 18702, 18690, 18677, 18664,
+    18652, 18639, 18626, 18614, 18601, 18589, 18576, 18563, 18551, 18538, 18526, 18513, 18501, 18488, 18476, 18463,
+    18451, 18438, 18426, 18413, 18401, 18388, 18376, 18363, 18351, 18339, 18326, 18314, 18301, 18289, 18277, 18264,
+    18252, 18240, 18227, 18215, 18203, 18190, 18178, 18166, 18153, 18141, 18129, 18117, 18104, 18092, 18080, 18068,
+    18055, 18043, 18031, 18019, 18007, 17994, 17982, 17970, 17958, 17946, 17934, 17921, 17909, 17897, 17885, 17873,
+    17861, 17849, 17837, 17825, 17813, 17800, 17788, 17776, 17764, 17752, 17740, 17728, 17716, 17704, 17692, 17680,
+    17668, 17656, 17645, 17633, 17621, 17609, 17597, 17585, 17573, 17561, 17549, 17537, 17525, 17514, 17502, 17490,
+    17478, 17466, 17454, 17443, 17431, 17419, 17407, 17395, 17384, 17372, 17360, 17348, 17337, 17325, 17313, 17302,
+    17290, 17278, 17266, 17255, 17243, 17231, 17220, 17208, 17196, 17185, 17173, 17162, 17150, 17138, 17127, 17115,
+    17104, 17092, 17080, 17069, 17057, 17046, 17034, 17023, 17011, 17000, 16988, 16977, 16965, 16954, 16942, 16931,
+    16919, 16908, 16896, 16885, 16874, 16862, 16851, 16839, 16828, 16817, 16805, 16794, 16782, 16771, 16760, 16748,
+    16737, 16726, 16714, 16703, 16692, 16681, 16669, 16658, 16647, 16635, 16624, 16613, 16602, 16590, 16579, 16568,
+    16557, 16546, 16534, 16523, 16512, 16501, 16490, 16479, 16467, 16456, 16445, 16434, 16423, 16412, 16401, 16390
+};
+
+/* 2^(-e), e in Q16 (>= 0), Q30. */
+static int32_t exp2_neg(uint64_t e)
+{
+    uint32_t n, i, f;
+    int32_t a, b;
+    if (e >= (30u << 16)) return 0;
+    n = (uint32_t)(e >> 16);
+    i = (uint32_t)(e >> 10) & 63u;
+    f = (uint32_t)e & 1023u;
+    a = exp2_tab[i];
+    b = exp2_tab[i + 1];
+    return (a - (int32_t)(((int64_t)(a - b) * f) >> 10)) >> n;
+}
+
+/*
+ * 1 / dt as r * 2^(sh - 62): Newton's reciprocal (recip_seed, recip_step)
+ * of dt shifted up to 2^31..2^32, as derive() takes osc1's. No division.
+ */
+static int64_t recip_seed(int64_t m);
+static int64_t recip_step(int64_t m, int64_t x);
+static uint32_t recip_of(uint32_t dt, uint8_t *sh)
+{
+    uint32_t m = dt;
+    uint8_t s = 0;
+    while (!(m & 0x80000000u)) {
+        m <<= 1;
+        s++;
+    }
+    *sh = s;
+    return (uint32_t)recip_step(m >> 2, recip_step(m >> 2, recip_step(m >> 2, recip_seed(m >> 2))));
+}
+
+/* The spike's constants for oscillator `i`, from its increment as played
+ * (pitch modulation included): on events and at the control rate, with no
+ * division. */
+static void update_spike(fm_osc_pair *p, uint8_t i)
+{
+    uint32_t dt = p->osc[i].inc, r, q;
+    uint64_t g, g0, tt;
+    int64_t p1, m;
+    uint8_t sh;
+    if (!dt || !p->sp_kq) {
+        p->sp_g[i] = 0;
+        p->sp_p1[i] = p->sp_zc[i] = p->sp_mean[i] = 0;
+        return;
+    }
+    /* the decay per 2^32 of phase, Q16 log2: (1 / dt) x 2^32 x the decay
+     * per sample (sp_kq: 2 pi f / (rate ln 2)) */
+    if (dt < 4u) dt = 4u; /* keeps the shift below non-negative */
+    r = recip_of(dt, &sh); /* 1 / dt = r x 2^(sh - 62) */
+    g = ((uint64_t)p->sp_kq * r) >> (30 - sh);
+    if (g > 0xFFFFFFFFu) g = 0xFFFFFFFFu;
+    g0 = g;
+    if (g < (1u << 16))                         /* past about 27 kHz (96 kHz rates and up): its shape at
+                                                 * that pitch, one halving a period (q 0.5), where 1 / (1 - q)
+                                                 * below stays in its reciprocal's range, and the mean
+                                                 * below that period's; bounded, and above hearing */
+        g = 1u << 16;
+    p->sp_g[i] = (uint32_t)g;
+    q = (uint32_t)exp2_neg(g);                 /* e^(-T / tau), Q30 */
+    /* 1 / (1 - q), Q16, by Newton's reciprocal: 1 - q is 0.5..1 for any
+     * pitch under 27 kHz (q under 0.5 while T / tau is over 0.69) */
+    m = (int64_t)((1u << 30) - q);
+    p1 = recip_step(m, recip_step(m, recip_seed(m))) >> 14;
+    tt = (g * LN2_Q16) >> 16;                  /* T / tau, Q16 */
+    {
+        /* spike_at's two terms, folded: KA ln2 / (1 - q) on u / tau in log2 (Q26: 1 / (1 - q) is at
+         * most 5.5 at the pitch limit, half the rate, so this is under 21.4: 1.44e9), and KA z's
+         * constant (T / tau) q / (1 - q)^2 (Q22) */
+        int64_t zc = ((((int64_t)((tt * q) >> 30)) * p1 >> 16) * p1) >> 16;   /* Q16 */
+        p->sp_p1[i] = (int32_t)((((int64_t)SPIKE_KA * LN2_Q16) * p1) >> 30);
+        p->sp_zc[i] = (int32_t)(((int64_t)SPIKE_KA * zc) >> 18);
+    }
+    m = (int64_t)(((uint64_t)p->sp_ar * dt) >> 32);  /* A / T */
+    p->sp_mean[i] = (int32_t)(g0 < g ? (m * (int64_t)g0) >> 16 : m);   /* (clamped, g is 2^16: the shape's T) */
+}
+
+/* The spike of oscillator `i` at phase t (the time since its impulse),
+ * Q8.24: e^(-u / tau) (spike_exp, no interpolation) times its linear term
+ * w = a v + b (sp_p1, Q26, and sp_zc, Q22: w in Q9.22, under 128), less the
+ * mean. Three 32 x 32 -> 64 multiplies: past 30 halvings of the decay (v
+ * at 30 << 16) the impulse's tail is 0 and only the mean is left, and
+ * under it v is under 2^21, so v a fits 64 bits and w 32. */
+static int32_t spike_at(const fm_osc_pair *p, uint8_t i, uint32_t t)
+{
+    uint32_t v = (uint32_t)(((uint64_t)t * p->sp_g[i]) >> 32); /* u / tau in log2, Q16 */
+    int32_t e, w;
+    if (v >= (30u << 16)) return -p->sp_mean[i];
+    e = (int32_t)(((uint32_t)spike_exp[(v >> 6) & 1023u] << 15) >> (v >> 16));   /* e^(-u / tau), Q30 */
+    w = (int32_t)(((int64_t)v * p->sp_p1[i]) >> 20) + p->sp_zc[i];
+    return (int32_t)(((int64_t)e * w) >> 28) - p->sp_mean[i];
+}
+
 /* polyBLEP saw at phase t with increment dt, Q8.24. */
 static int32_t saw_at(uint32_t t, uint32_t dt)
 {
@@ -151,6 +349,11 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->recip0 = 0;
     p->recip0_sh = 0;
     p->noise = seed ? seed : 0x2545F491u;
+    p->sp_kq = p->sp_ar = 0;
+    for (i = 0; i < 2; i++) {
+        p->sp_g[i] = 0;
+        p->sp_p1[i] = p->sp_zc[i] = p->sp_mean[i] = 0;
+    }
     ring_coef(p);
 }
 
@@ -165,11 +368,12 @@ static void update_only1(fm_osc_pair *p)
  * Each wave's level against the same oscillator's saw, Q1.30, as PG-8X
  * 2.0.13 plays them (#132: each DCO alone, steady C2..C6): square +0.76 dB
  * on DCO-1 and -2.38 on DCO-2 over the engine's (+4.8 dB re the saw before),
- * noise -1.34 and -4.26. Saw and pulse 1.0: unchanged.
+ * noise -1.34 and -4.26. Saw and pulse 1.0: unchanged. The spike (#150)
+ * at the square's level on DCO-1, and 3.6 dB under that on DCO-2.
  */
 static const int32_t wave_level[2][FM_WAVE_COUNT] = {
-    { 1 << 30, 1 << 30, 1171925138, 920237379 }, /* osc1: saw, pulse, square, noise */
-    { 1 << 30, 1 << 30, 816394123, 657506227 },  /* osc2 */
+    { 1 << 30, 1 << 30, 1171925138, 920237379, 1171925138 }, /* osc1: saw, pulse, square, noise, spike */
+    { 1 << 30, 1 << 30, 816394123, 657506227, 774283260 },    /* osc2 */
 };
 
 /* The level played: as set, times the wave's level (exactly as set at 1.0). */
@@ -332,8 +536,13 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
                      uint32_t sample_rate)
 {
     p->base[i] = fm_osc_pitch_inc(pitch + p->tune[i], sample_rate);
+    if (p->sp_ar != SPIKE_A_Q24 * sample_rate) { /* the spike's rate terms: a divide, on events */
+        p->sp_kq = sample_rate ? SPIKE_KQ / sample_rate : 0;
+        p->sp_ar = SPIKE_A_Q24 * sample_rate;
+    }
     fm_osc_set_inc(&p->osc[i], mod_inc(p->base[i], p->mod_oct[i]));
     update_pw(p, i);
+    if (p->wave[i] == FM_WAVE_SPIKE) update_spike(p, i);
 }
 
 /* sync or cross-mod on: fm_osc_pair_next takes the slower path */
@@ -367,11 +576,14 @@ void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth)
 
 void fm_osc_pair_set_pitch_mod(fm_osc_pair *p, int32_t oct1, int32_t oct2)
 {
-    if (oct1 == p->mod_oct[0] && oct2 == p->mod_oct[1]) return;
+    int32_t old1 = p->mod_oct[0], old2 = p->mod_oct[1];
+    if (oct1 == old1 && oct2 == old2) return;
     p->mod_oct[0] = oct1;
     p->mod_oct[1] = oct2;
     fm_osc_set_inc(&p->osc[0], mod_inc(p->base[0], oct1));
     fm_osc_set_inc(&p->osc[1], mod_inc(p->base[1], oct2));
+    if (p->wave[0] == FM_WAVE_SPIKE && oct1 != old1) update_spike(p, 0);
+    if (p->wave[1] == FM_WAVE_SPIKE && oct2 != old2) update_spike(p, 1);
     derive(p);
 }
 
@@ -401,6 +613,7 @@ void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave)
     p->wave[which] = wave;
     apply_level(p, which);
     if (wave == FM_WAVE_PULSE) update_pw(p, which); /* any LFO offset */
+    if (wave == FM_WAVE_SPIKE) update_spike(p, which);
 }
 
 void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate)
@@ -437,6 +650,8 @@ static int32_t naive_at(const fm_osc_pair *p, uint8_t which, uint32_t t)
         return pulse;
     case FM_WAVE_NOISE:
         return 0;
+    case FM_WAVE_SPIKE: /* continuous: it is its own naive wave */
+        return spike_at(p, which, t);
     default:
         return saw;
     }
@@ -480,6 +695,8 @@ static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0)
         return pulse_at(t, dt0, o->inc, 0x80000000u);
     case FM_WAVE_NOISE:
         return noise_next(p);
+    case FM_WAVE_SPIKE:
+        return spike_at(p, which, t);
     default:
         return saw_at(t, dt0);
     }
@@ -503,7 +720,8 @@ static uint64_t restart_x(const fm_osc_pair *p, uint32_t t)
 /* A polyBLEP term of osc2's first saw (Q8.24 at unit gain) at osc2's gain. */
 static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
 {
-    if (p->wave[1] == FM_WAVE_NOISE) return 0;
+    /* noise has no polyBLEP, and the spike no step at its wrap */
+    if (p->wave[1] == FM_WAVE_NOISE || p->wave[1] == FM_WAVE_SPIKE) return 0;
     if (p->wave[1] == FM_WAVE_PULSE) v = (v * p->pw_gain[1]) >> 30;
     return (int32_t)v;
 }
@@ -587,11 +805,15 @@ static inline int32_t gain(int32_t x, int32_t level)
  * read as a deeper b at peak 1):
  *   saw 1.12, -0.85, 0.235; pulse (fit at PG-8X's 2-3 % width) 1.66, -1.0,
  *   0.15; square 0.84, -0.83, 0.21.
- * Noise isn't measured: plain ring modulation, 1.0, -1.0 and 0.
+ * Noise isn't measured: plain ring modulation, 1.0, -1.0 and 0. The spike
+ * (#150) keeps the pulse's a; its b and c are refit for its own shape (it
+ * peaks near 2.0, the impulse response's crest) to PG-8X's products with
+ * DCO-1 on PULSE (A3, DCO-2 a saw a fourth up, every line about -35 dB re
+ * f2; f1 and 2f1 at -34): 1.66, -0.398, 0.177.
  */
-static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216 };
-static const int32_t ring_b[FM_WAVE_COUNT] = { -14260634, -16777216, -13925089, -16777216 };
-static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0 };
+static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216, 27850179 };
+static const int32_t ring_b[FM_WAVE_COUNT] = { -14260634, -16777216, -13925089, -16777216, -6679130 };
+static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0, 2973000 };
 
 /*
  * osc2's sample x ringed by osc1's sample m: x (a + b m) + c m, Q8.24,
@@ -706,6 +928,8 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
         return pulse_at(t, o->inc, o->inc, 0x80000000u);
     case FM_WAVE_NOISE:
         return noise_next(p);
+    case FM_WAVE_SPIKE:
+        return spike_at(p, which, t);
     default:
         return saw_at(t, o->inc);
     }
@@ -772,6 +996,12 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
     case FM_WAVE_NOISE:
         for (i = 0; i < n; i++, t += dt) {
             b = noise_next(p);
+            out[i] = add ? out[i] + gain(b, level) : gain(b, level);
+        }
+        break;
+    case FM_WAVE_SPIKE:
+        for (i = 0; i < n; i++, t += dt) {
+            b = spike_at(p, which, t);
             out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
@@ -937,7 +1167,7 @@ static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n)
         for (i = 0; i < n; i++, t += dt)
             out[i] = ring_sum(p, out[i], saw_at(t, dt));
         break;
-    default: /* pulse and noise (one factory tone, none): a sample at a time */
+    default: /* pulse, noise and spike: a sample at a time */
         for (i = 0; i < n; i++)
             out[i] = ring_sum(p, out[i], wave_next(p, 1));
         return;
