@@ -24,6 +24,7 @@
 #include "test_chorus.c"
 #include "test_lfo.c"
 #include "test_mod.c"
+#include "test_wheel.c"
 #include "test_mod_dest.c"
 #include "test_filter.c"
 #include "test_busy.c"
@@ -34,6 +35,15 @@
 #include "test_units.c"
 #include "test_dyna.c"
 #include "test_glide.c"
+#include "test_patch_store.c"
+#include "test_pattern_store.c"
+#include "test_ui_save.c"
+#include "test_ui_seq.c"
+#include "test_settings_store.c"
+#include "test_ui_reach.c"
+#include "test_seq.c"
+#include "test_seq_play.c"
+#include "test_play_patterns.c"
 
 int main(void)
 {
@@ -47,6 +57,7 @@ int main(void)
     run_chorus_tests();
     run_lfo_tests();
     run_mod_tests();
+    run_wheel_tests();
     run_mod_dest_tests();
     run_filter_tests();
     run_busy_tests();
@@ -57,5 +68,14 @@ int main(void)
     run_units_tests();
     run_dyna_tests();
     run_glide_tests();
+    run_patch_store_tests();
+    run_pattern_store_tests();
+    run_ui_save_tests();
+    run_ui_seq_tests();
+    run_settings_store_tests();
+    run_ui_reach_tests();
+    run_seq_tests();
+    run_seq_play_tests();
+    run_play_patterns_tests();
     return tt_report();
 }

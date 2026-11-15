@@ -306,14 +306,20 @@ class BaseNoteTest(unittest.TestCase):
 class ScoreMidiTest(unittest.TestCase):
     """The scorecard MIDI (tools/gate_midi.py score()) puts a note under every section scorecard.py reads."""
 
+    def test_no_note_starts_before_pg8xs_start_up_burst_is_over(self):
+        """PG-8X 2.0.13 bursts on a note in its render's first 0.2 s and glides its settings from
+        power-on values over about 0.1 s (#146, #163): the first note starts 0.25 s in."""
+        import gate_midi
+        self.assertGreaterEqual(min(s for _, s, _, _ in gate_midi.score()), 0.25)
+
     def test_each_section_lies_inside_its_note(self):
         import gate_midi
         notes = gate_midi.score()
         want = {"chord": (60, 100), "v110": (67, 110), "v60": (72, 60), "v90": (71, 90), "v40": (69, 40),
                 "low": (36, 100), "high": (84, 100)}
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "scorecard.py")).read()
-        for name, (a, b) in {"chord": (0.3, 2.9), "v110": (4.03, 4.4), "v60": (4.53, 4.9), "v90": (5.03, 5.3),
-                             "v40": (5.43, 6.0), "low": (6.7, 8.0), "high": (8.9, 9.9)}.items():
+        for name, (a, b) in {"chord": (0.55, 3.15), "v110": (4.28, 4.65), "v60": (4.78, 5.15), "v90": (5.28, 5.55),
+                             "v40": (5.68, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}.items():
             self.assertIn(f'"{name}": ({a}, {b})', src)
             note, vel = want[name]
             self.assertTrue(any(n == note and v == vel and s <= a and b <= e + 0.001 for n, s, e, v in notes),

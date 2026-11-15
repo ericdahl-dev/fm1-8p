@@ -5,6 +5,14 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "../engine/fm1_8p.h"
+#ifdef CPU_SEQ
+#include "seq.h"
+/* CPU_SEQ (firmware/fm1_8p_cpu_seq): step F is played by a running sequencer instead of a held chord,
+ * on the device's voices: 300 BPM, a 6-note chord every step cut to CT_SEQ_VOICES, gate 100 %, so every
+ * step lets all the voices go and retriggers them in one block (the sequencer's worst block). Rerun the
+ * row if PLAY_VOICES changes. */
+#define CT_SEQ_VOICES 4u                /* PLAY_VOICES (play.h), the device's polyphony */
+#endif
 
 #define CT_FS 44100u
 #define CT_BLOCK 256u                   /* frames per fm1-dock render call */
@@ -49,6 +57,10 @@ typedef struct {
     const cpu_test_param *patch;        /* the full patch's params, patch_n of them */
     uint32_t patch_n;
     volatile uint32_t failed;           /* ISR writes, main loop reads: bit v, count v failed to start */
+#ifdef CPU_SEQ
+    seq seq;                            /* step F's sequencer (CPU_SEQ) */
+    seq_event seq_ev[SEQ_EVENTS];       /* ISR only: a block's notes */
+#endif
 } cpu_test;
 
 int cpu_test_init(cpu_test *t);

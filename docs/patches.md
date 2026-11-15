@@ -111,7 +111,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 
 | JX-8P | Engine field | Mapping |
 | --- | --- | --- |
-| RANGE + TUNE | `osc1_octave`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; whole octaves of range + tune go to the octave, the rest to coarse. DCO-1 has no coarse in the engine yet: osc1 plays the whole octave nearest its pitch that leaves osc2 in range, and osc2 moves by what osc1 lacks, so the interval holds and only the whole patch shifts: MUSIC BOX 4 semitones down, WINDCHIMES 9 down. `PATCH_OSC1_COARSE_SEMIS` keeps that amount |
+| RANGE + TUNE | `osc1_octave`, `osc1_coarse_semis`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; for each DCO, whole octaves of range + tune go to its octave and the rest to its coarse (#108), so every patch plays at its own pitch (before #108, DCO-1 had no coarse and MUSIC BOX played 4 semitones down, WINDCHIMES 9 down) |
 | WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse (25 % wide, *est.*), saw |
 | FINE TUNE | `osc2_fine_cents` | (value - 64) x 50 / 64 |
 | MIX DCO-1, DCO-2 | `osc1_level_permille`, `osc2_level_permille` | each byte over 127; the DCOs sum, as PG-8X 2.0.13's mixer does (measured, #102) |
@@ -140,13 +140,12 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 ## What waits for the engine
 
 These fields are in every patch now and do nothing until their feature lands. `patch_param()`
-returns `PATCH_NONE` for them; when a feature lands, its field gets the new `fm_param_id` in
-`FIELDS` (`tools/jx8p.py`) and the table is regenerated.
+returns `PATCH_NONE` for them; when a feature lands, its field gets the new param in
+`PATCH_FIELDS` (`tools/params.py`) and `make generate` writes the tables again.
 
 | Field | From | Waits for |
 | --- | --- | --- |
-| `FILTER_LFO_PERMILLE`, `FILTER_VELOCITY_PCT` | VCF LFO, VCF DYNAMICS | #8 (LFO to cutoff, filter velocity) |
-| `OSC1_COARSE_SEMIS` | DCO-1 TUNE | DCO-1 coarse tune (no issue yet) |
+| `FILTER_LFO_PERMILLE` | VCF LFO | #8 (LFO to cutoff) |
 
 Aftertouch (#61) and portamento (#62) are not tone data on the JX-8P: they are panel settings
 (the AFTER TOUCH buttons and the PORTAMENTO switch and knob), so no factory tone carries them, and
@@ -154,8 +153,97 @@ the table has no fields for them.
 
 ## Storage
 
-Each patch is its name (12 characters and the end) and one `uint16_t` per field, 46 fields:
-106 bytes, 3392 bytes for the 32. A value is stored with a bias of 32768 (`patch_value()` takes
+<!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
+Each patch is its name (12 characters and the end) and one `uint16_t` per field, 48 fields:
+110 bytes, 3520 bytes for the 32.
+<!-- end generated -->
+A value is stored with a bias of 32768 (`patch_value()` takes
 it off): stored as plain `int16_t`, a value of -64..-49 next to another can make a 32-bit word
 in 0xFFC00000..0xFFCFFFFF, which fm1-dock rejects as a ROM address (`make check-float-free`
 catches it on the desktop).
+
+### Saved patches (`firmware/patch_store.c`, #3 and #48)
+
+A patch the user saves is a record of at most 248 bytes (`STORE_SLOT_BYTES`), so a flash bank
+(fm1-dock's `HB_BANK_MAX`, 8176 bytes) holds 32 of them. Version 1:
+
+| Bytes | What |
+| --- | --- |
+| 0 | the record's length, header and entries; 0 or 0xFF (erased flash) is an empty slot |
+| 1 | version, 1 |
+| 2..13 | the name, 12 bytes, `\0`-padded |
+| 14 | the entry count |
+| 15.. | 3 bytes per param: its tag, then the value as `int16_t`, low byte first |
+
+- **Tags** name params for good: the table in `patch_store.c` is append only, and
+  `store_tags_keep_their_params` holds every tag to its engine name. Each engine param has exactly
+  one tag, so a new param needs one or it is never saved.
+- **Older records**, from before a param existed, load that param at its engine default.
+- **Newer records** may carry tags this firmware doesn't know: those entries are skipped.
+- **Out of range:** a value outside the param's range loads clamped into it.
+- **Damaged:** a wrong version, a length that disagrees with the count, or a record longer than the
+  bytes read is an empty slot.
+<!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
+- **Room:** 56 params take 183 bytes; a slot has room for 77.
+<!-- end generated -->
+
+### Settings (`firmware/settings_store.c`, GLO)
+
+GLO's settings (`firmware/ui_settings.h`) are kept in the FM-1's settings record for this module:
+fm1-dock's `load` and `save`, up to 240 bytes. The host keeps the record in RAM and writes it to
+flash itself, once 2 s have passed since the last change with no panel key held and no MIDI note
+in for 2 s. The module hands it a new record only once nothing sounds (`play_silent`) and 2 s have
+passed since the last change (`SET_WAIT_MS`). Version 1:
+
+| Bytes | What |
+| --- | --- |
+| 0 | the length used, header and entries |
+| 1 | version, 1 |
+| 2 | the entry count |
+| 3.. | 2 bytes per setting: its tag, then the value |
+| ..63 | 0 |
+
+- **Always 64 bytes** (`SET_REC_BYTES`): the host loads a record only at the length it was saved,
+  so a longer record would load as none. A new setting takes a pair from the room left: 13 settings
+  take 29 bytes, and there is room for 30.
+- **Tags** name settings for good: the table in `settings_store.c` is append only, and
+  `settings_tags_keep_their_fields` holds every tag to its field.
+- **No record, or a damaged one** (another version, a length that disagrees with the count): the
+  defaults (`UI_SETTINGS_INFO`).
+- **Older and newer records:** a setting the record lacks loads at its default; a tag this firmware
+  doesn't know is skipped; a value outside its range loads clamped into it.
+- **Limits:**
+  - The host's flush doesn't see the synth's voices, so a MIDI chord held past 2 s, or a long
+    release, can still be sounding when it erases: a short dropout. The host's own settings (OCT and
+    the rest) flush the same way.
+  - `save` returns nothing: if the host's record table is full, the settings are not kept, and the
+    FM-1 can't say so.
+  - The record is GLO's alone. The edit buffer (decision Q4) needs a flash bank: 174 bytes for its
+    params would leave no room to grow.
+
+### Saved patterns (`firmware/pattern_store.c`, #40)
+
+A sequencer pattern has its own slots, separate from patches (decision Q2): 64 of them, 11..88 on the
+screen, in fm1-dock's banks 3 and 4 (the user patches have 1 and 2), a record of at most 248 bytes each
+(`STORE_SLOT_BYTES`). Version 1:
+
+| Bytes | What |
+| --- | --- |
+| 0 | the record's length, header and steps; 0 or 0xFF (erased flash) is an empty slot |
+| 1 | version, 1 |
+| 2..13 | the name, 12 bytes, `\0`-padded |
+| 14 | LENGTH, 1..16 |
+| 15..16 | TEMPO, tenths of a BPM, low byte first |
+| 17, 18 | SWING and GATE, % |
+| 19 | the step count, 16 |
+| 20 | bytes per step, 13 (9 in the first records) |
+| 21.. | each step: its kind (rest, notes, tie), its note count, its velocity, 6 notes; then its bend (int16, low byte first), its mod wheel and its move, 0 JUMP or 1 GLIDE (#42) |
+
+- **An empty slot**, or a damaged record (another version, a length that disagrees, steps under 9 bytes),
+  loads as the empty pattern: 16 rests, LENGTH 16, the default TEMPO, SWING and GATE, and no name.
+- **Older and newer steps:** the version changes only when a record can't be read this way. A step may
+  grow: the first records' 9-byte steps load at center bend, mod 0 and JUMP, and a newer record's longer
+  steps load what this firmware knows of each.
+- **Out of range:** values load clamped, as the sequencer's own setters clamp them; an unknown step kind is
+  a rest.
+- **Room:** 16 steps take 229 bytes; a slot has room for 248.

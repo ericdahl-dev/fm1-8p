@@ -70,11 +70,17 @@ def ab():
             (71, 7.0, 7.3, 90), (69, 7.4, 8.0, 40), (36, 8.3, 10.0, 100)]
 
 
+# The scorecard's notes start this far in: past PG-8X 2.0.13's start-up burst and its settings' glide from
+# power-on values, both in a render's first 0.2 s (#146, #163)
+SCORE_START = 0.25
+
+
 def score():
     """The scorecard's MIDI (tools/scorecard.py SECTIONS): a held C major triad, a phrase at velocities
-    110, 60, 90, 40, a low C held, then a high C held."""
-    return [(60, 0, 3, 100), (64, 0, 3, 100), (67, 0, 3, 100), (67, 4.0, 4.4, 110), (72, 4.5, 4.9, 60),
-            (71, 5.0, 5.3, 90), (69, 5.4, 6.0, 40), (36, 6.4, 8.1, 100), (84, 8.6, 10.0, 100)]
+    110, 60, 90, 40, a low C held, then a high C held, from SCORE_START."""
+    notes = [(60, 0, 3, 100), (64, 0, 3, 100), (67, 0, 3, 100), (67, 4.0, 4.4, 110), (72, 4.5, 4.9, 60),
+             (71, 5.0, 5.3, 90), (69, 5.4, 6.0, 40), (36, 6.4, 8.1, 100), (84, 8.6, 10.0, 100)]
+    return [(n, SCORE_START + a, SCORE_START + b, v) for n, a, b, v in notes]
 
 
 def controllers():

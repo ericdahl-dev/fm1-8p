@@ -80,18 +80,15 @@ class MapTest(unittest.TestCase):
         e = patch("SOUNDTRACK")                 # DCO1 8' tune 0, DCO2 8' tune 2: both -12
         self.assertEqual((pitch(e, 1), pitch(e, 2)), (-12, -12))
 
-    # The engine has no osc1 coarse: osc1 plays the octave nearest its pitch that leaves osc2 in
-    # range, and osc2 moves by what osc1 lacks, so the interval holds. OSC1_COARSE_SEMIS keeps what
-    # osc1 lacks, for when the engine has it.
-    def test_dco1_tune_folds_into_osc2_and_keeps_the_interval(self):
+    # DCO-1 TUNE is osc1's own coarse tune (#108): each DCO plays its own pitch, nothing folded into
+    # osc2 (which had moved a whole patch, WINDCHIMES 9 semitones down).
+    def test_dco1_tune_is_osc1s_coarse_and_each_dco_keeps_its_pitch(self):
+        fields = {f.name: f for f in jx8p.FIELDS}
+        self.assertEqual(fields["OSC1_COARSE_SEMIS"].param, "OSC1_COARSE_SEMIS")
         def sounding(e):                        # each oscillator's pitch as the engine plays it
-            return 12 * e["OSC1_OCTAVE"], 12 * e["OSC2_OCTAVE"] + e["OSC2_COARSE_SEMIS"]
-        e = patch("MUSIC BOX")                  # DCO-1 2' +4, DCO-2 2' +8
-        self.assertEqual(sounding(e), (24, 28))
-        self.assertEqual(e["OSC1_COARSE_SEMIS"], 4)
-        e = patch("WINDCHIMES")                 # DCO-1 2' -3, DCO-2 2' +12: 15 apart
-        self.assertEqual(sounding(e), (12, 27))
-        self.assertEqual(e["OSC1_COARSE_SEMIS"], 9)
+            return (12 * e["OSC1_OCTAVE"] + e["OSC1_COARSE_SEMIS"], 12 * e["OSC2_OCTAVE"] + e["OSC2_COARSE_SEMIS"])
+        self.assertEqual(sounding(patch("MUSIC BOX")), (28, 32))      # DCO-1 2' +4, DCO-2 2' +8
+        self.assertEqual(sounding(patch("WINDCHIMES")), (21, 36))     # DCO-1 2' -3, DCO-2 2' +12
 
     def test_dco2_fine_tune_is_plus_minus_50_cents_around_64(self):
         self.assertEqual(patch("HI STRINGS")["OSC2_FINE_CENTS"], 15)    # 83
@@ -522,9 +519,9 @@ class TableTest(unittest.TestCase):
             self.assertEqual(name, t.name)
             self.assertEqual(values, jx8p.to_engine(t))
 
-    # firmware/patches.h's patch_field enum lists the converter's fields, in order
+    # firmware/patch_fields.h's patch_field enum (generated) lists the converter's fields, in order
     def test_the_header_lists_every_field(self):
-        with open(os.path.join(ROOT, "firmware", "patches.h")) as f:
+        with open(os.path.join(ROOT, "firmware", "patch_fields.h")) as f:
             text = f.read()
         body = text[text.index("typedef enum {"):text.index("} patch_field;")]
         names = re.findall(r"^\s*PATCH_(\w+),", body, re.M)

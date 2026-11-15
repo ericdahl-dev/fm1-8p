@@ -297,8 +297,10 @@ amp envelopes and one for the filter envelopes, and every voice's
 envelope points at it (#19), so a setting change is written once and
 retimes only the envelopes that are running. Unison adds 49 bytes (8
 detune offsets and the 16 held keys). With the chorus (its 2 KiB delay
-line and a 256-byte right-side buffer) `fm_engine` is about 6.1 KiB (6260
-bytes on the FM-1, 6616 on x86-64), so static storage is recommended.
+line and a 256-byte right-side buffer) `fm_engine` is about 6.1 KiB (at
+most `FM_ENGINE_BUDGET_32` bytes on the FM-1 and `FM_ENGINE_BUDGET_64` on
+x86-64: a base plus 4 bytes a param, in `engine/fm1_8p.h`), so static
+storage is recommended.
 
 Divisions all happen on events. A note on costs two 64-by-32 divides per
 voice (one per oscillator's pitch, plus one more for each pulse oscillator's

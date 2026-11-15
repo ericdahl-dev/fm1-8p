@@ -328,6 +328,51 @@ printf '  FAIL  rom_ref: reference to ROM address 0xffc01000\nhbmod: checks fail
 printf 'reference to ROM address\n' >"$T/expect"
 expect_ok   "a canary is caught by the check it targets" canary_caught "$T/canary.log" "$T/expect"
 printf "rom_ref.c:3: error: unknown type name 'uint32'\n" >"$T/typo.log"
+# Downloads retry with backoff: CI's runners see "curl: (35) Connection reset", which curl's own
+# --retry doesn't count as transient.
+sleeps=$T/sleeps
+: >"$sleeps"
+sleep() { echo "$1" >>"$sleeps"; }
+flaky=$T/flaky
+curl() {        # stand-in: fails (35) while $flaky holds a positive count, then writes "fm1-8p\n"
+    n=$(cat "$flaky"); echo "$*" >>"$calls"
+    if [ "$n" -gt 0 ]; then echo $((n - 1)) >"$flaky"; echo "curl: (35) Recv failure: Connection reset by peer" >&2; return 35; fi
+    while [ $# -gt 0 ]; do [ "$1" = -o ] && printf 'fm1-8p\n' >"$2"; shift; done
+}
+echo 2 >"$flaky"
+AC79_SDK=$T/sdk2 AC79_SDK_USER= AC79_SDK_FILES="uboot.boot:$good" AC79_SDK_RAW=http://example.invalid AC79_SDK_COMMIT=x
+expect_ok   "an SDK download reset twice is retried until it lands" fetch_sdk
+expect_ok   "... with the pinned file in place" verify_sha256 "$T/sdk2/cpu/wl82/tools/uboot.boot" "$good"
+expect_ok   "... waiting 2 s, then 4 s" test "$(tr '\n' ' ' <"$sleeps")" = "2 4 "
+echo 9 >"$flaky"; : >"$calls"; rm -rf "$T/sdk2"
+expect_fail "a download that keeps failing gives up" fetch_sdk
+expect_ok   "... after 5 tries" test "$(wc -l <"$calls")" -eq 5
+expect_ok   "... leaving no file behind" test ! -e "$T/sdk2/cpu/wl82/tools/uboot.boot"
+echo 1 >"$flaky"; : >"$calls"; : >"$sleeps"
+(FM1_DEPS=$T/deps3 JIELI_TOOLCHAIN=$T/deps3/jieli/toolchain JIELI_TOOLCHAIN_USER= JIELI_TOOLCHAIN_SHA256=$good
+ tar() { :; }; fetch_toolchain) >/dev/null 2>&1
+expect_ok   "the toolchain download is retried too" test "$(wc -l <"$calls")" -eq 2
+echo 1 >"$flaky"; : >"$calls"
+(FM1_DEPS=$T/deps4 FM1_LIVE= FM1_EMU_DIR=x FM1_EMU_SHA256=$good FM1_EMU_URL=http://example.invalid/emu
+ tar() { :; }; fetch_emu) >/dev/null 2>&1
+expect_ok   "... and fm1-emu's" test "$(wc -l <"$calls")" -eq 2
+# fm1-dock: a clone already at the pin (CI's cache) is used as it is; a fetch is retried.
+mkdir -p "$T/origin" && git -C "$T/origin" init -q && git -C "$T/origin" -c user.name=t -c user.email=t@t commit -q --allow-empty -m pin
+pin=$(git -C "$T/origin" rev-parse HEAD)
+git() {         # stand-in for fetches: fails (128) while $flaky holds a positive count
+    case " $* " in
+        *" fetch "*) echo "git $*" >>"$calls"; n=$(cat "$flaky")
+                     if [ "$n" -gt 0 ]; then echo $((n - 1)) >"$flaky"; return 128; fi ;;
+    esac
+    command git "$@"
+}
+echo 1 >"$flaky"; : >"$calls"
+(FM1_DOCK=$T/dock2 FM1_DOCK_USER= FM1_DOCK_SHA=$pin FM1_DOCK_REPO=$T/origin; fetch_fm1_dock) >/dev/null 2>&1
+expect_ok   "an fm1-dock fetch that fails once is retried" test "$(command git -C "$T/dock2" rev-parse HEAD 2>/dev/null)" = "$pin"
+: >"$calls"
+(FM1_DOCK=$T/dock2 FM1_DOCK_USER= FM1_DOCK_SHA=$pin FM1_DOCK_REPO=$T/none; fetch_fm1_dock) >/dev/null 2>&1
+expect_ok   "an fm1-dock clone already at the pin is not fetched again" test ! -s "$calls"
+unset -f git
 expect_fail "a canary failing for another reason is not caught" canary_caught "$T/typo.log" "$T/expect"
 for c in firmware/canary/*/; do
     expect_ok "canary $(basename "$c") names the check it targets" test -s "$c/expect"
