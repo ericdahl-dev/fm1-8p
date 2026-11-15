@@ -29,7 +29,7 @@ typedef struct {
      * its previous input by fade / 4 (the zero, 1/4 below the top) */
     int32_t fade;
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
-    int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off) */
+    int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off; negative = the bass boost) */
     /* Resonance's bass shelf: the output is s[3] + shelf * (lp - s[3]), lp
      * a one-pole lowpass of s[3] at the cutoff (0: off, the plain ladder),
      * a weighted average of the two, so within their range. It is worked
@@ -86,9 +86,11 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
  * cents of cutoff. */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
-/* Highpass position 0..3 (higher is clamped to 3): 0 is off (a wire),
- * then one-pole (6 dB/octave) corners at about 100, 240 and 560 Hz. */
-#define FM_FILTER_HIGHPASS_STEPS 4
+/* Highpass position 0..4 (higher is clamped to 4): 0 is off (a wire),
+ * then one-pole (6 dB/octave) corners at about 100, 240 and 560 Hz. 4 is
+ * not a highpass but the JX-8P's HPF position 0, a bass boost (filter.c). */
+#define FM_FILTER_HIGHPASS_STEPS 5
+#define FM_FILTER_HIGHPASS_BOOST 4
 void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents);
 
 /* Filters one Q8.24 sample: highpass, then lowpass. Any int32 input (the
@@ -104,13 +106,15 @@ static inline int fm_filter_is_wire(const fm_filter *f)
 }
 
 /* The ladder's input, and so every state and the output, is held to
- * +-FM_FILTER_HOLD (Q8.24 8.0; engine/filter.c, loop_in). */
-#define FM_FILTER_HOLD (8 << 24)
+ * +-FM_FILTER_HOLD (Q8.24 16.0; engine/filter.c, loop_in): past anything the
+ * pair plays (3.855, a ringed spike) through the bass boost (2.28 x) at the
+ * largest input level (1.733), 15.2: the hold never cuts what it plays. */
+#define FM_FILTER_HOLD (16 << 24)
 
 /*
  * fm_filter_process with its wide-open case inline, for the render loop:
  * open (fade 0) with the highpass off, the filter is a wire for any input
- * within its hold (+-8.0), and keeps only the last sample as its state.
+ * within its hold (+-16.0), and keeps only the last sample as its state.
  * Exactly the same output and state as the call.
  */
 static inline int32_t fm_filter_run(fm_filter *f, int32_t in)
