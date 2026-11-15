@@ -499,8 +499,37 @@ TT_TEST(seq_key_leds)
     TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[2], 1), (uint32_t)UI_LED_LIT);    /* a held key */
 }
 
+/* MIDI clock in at 120 BPM: n ticks, from host time 0 (24 MHz, 500000 counts a tick) */
+static void seq_clock_ticks(uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        seq_clock_in(play_seq(&ui_p), 0xF8u, i * (SEQ_CLK_HZ / 48u));
+}
+
+/* Under external clock, TEMPO shows the clock's tempo and MIDI CLOCK (interaction.md 5); on INT, the
+ * pattern's tempo in BPM */
+TT_TEST(seq_tempo_shows_the_midi_clock)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN], want[UI_VALUE_LEN];
+    uint32_t t;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(unit, "BPM") == 0);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    seq_clock_ticks(96);
+    t = seq_clock_tempo(play_seq(&ui_p));
+    TT_CHECK(t >= 1190u && t <= 1210u);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(unit, "MIDI CLOCK") == 0);
+    snprintf(want, sizeof want, "%u", (unsigned)(t / 10u));
+    TT_CHECK(strncmp(num, want, strlen(want)) == 0);
+}
+
 static void run_ui_seq_tests(void)
 {
+    TT_RUN(seq_tempo_shows_the_midi_clock);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
