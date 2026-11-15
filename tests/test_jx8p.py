@@ -141,8 +141,10 @@ class MapTest(unittest.TestCase):
             got = jx8p.cutoff_cents(v) / 100 - self.ENGINE_PEAK_UNDER
             self.assertLess(abs(got - note), 0.5, (v, round(got, 2), note))
 
-    def test_key_follow_scales_0_127_to_1290_per_mille(self):
-        self.assertEqual(patch("PSYCHMELLO")["FILTER_KEY_TRACK_PERMILLE"], 945)   # key follow 93
+    def test_key_follow_is_its_knob_steps_in_linear_cents(self):
+        # key follow 93: 0.0955 x 93 knob steps an octave, at 115.03 linear cents each (#253)
+        self.assertEqual(patch("PSYCHMELLO")["FILTER_KEY_TRACK_PERMILLE"], 851)
+        self.assertEqual(jx8p.key_track_permille(127), 1163)
 
     # VCF RES follows PG-8X 2.0.13's peak heights (VCF FREQ 64, noise in): +4 dB at 64, +8 at 80,
     # +16 at 96, +24 at 112, +31 at 127 (#98), including PG-8X's hump at 32 (+6.5 dB, more than 56)
@@ -238,30 +240,50 @@ class MapTest(unittest.TestCase):
         self.assertEqual((e["AMP_ATTACK_MS"], e["AMP_DECAY_MS"], e["AMP_SUSTAIN_PERMILLE"],
                           e["AMP_RELEASE_MS"]), jx8p.env(t.params, jx8p.ENV2))
 
-    # VCF KEY as PG-8X 2.0.13 plays it (match.py --param VCF_KEY, #95): it pivots at C2 (note 36) and
-    # tracks up to 1.29 octaves an octave. The engine pivots at C4, so the converter moves the pivot by
-    # adding the track's rise from C2 to C4 to the cutoff. The cutoff a note gets, as the engine plays it
-    # (fm_filter_voice_cents, no envelope):
-    @staticmethod
-    def cutoff_at(e, note):
-        return e["FILTER_CUTOFF_CENTS"] + e["FILTER_KEY_TRACK_PERMILLE"] * (note - 60) / 10
+    # The engine's cutoff as it plays it (engine/filter.c, #253): its sources add in linear cents, then
+    # bend once onto cutoff_cents's curve. curve() and linear() are fm_filter_voice_cents's curve and
+    # fm_filter_linear_cents, in floating point.
+    CURVE_A = 0.0988 / 115.03 ** 2
 
-    def test_vcf_key_pivots_at_c2_and_tracks_up_to_1_29(self):
+    @classmethod
+    def curve(cls, u):
+        d = u + 1474
+        return u + cls.CURVE_A * d * d if d > 0 else u
+
+    @classmethod
+    def linear(cls, cents):
+        y = cents + 1474
+        return -1474 + ((1 + 4 * cls.CURVE_A * y) ** 0.5 - 1) / (2 * cls.CURVE_A) if y > 0 else cents
+
+    @classmethod
+    def cutoff_at(cls, e, note, env_cents=0):
+        return cls.curve(cls.linear(e["FILTER_CUTOFF_CENTS"]) + e["FILTER_KEY_TRACK_PERMILLE"] * (note - 60) / 10
+                         + env_cents)
+
+    # VCF KEY as PG-8X plays it (#95, #253): it pivots at C2 (note 36) and adds 0.0955 knob steps an
+    # octave per KEY unit to VCF FREQ, on the curve. The engine pivots at C4, so the cutoff setting is the
+    # curve at FREQ plus the key's steps from C2 to C4. Every note then gets the curve at FREQ plus its own
+    # steps: about 1.29 octaves an octave at KEY 127 in the curve's middle, as match.py measured.
+    def test_vcf_key_pivots_at_c2_and_adds_knob_steps(self):
         d = bytearray(next(t.params for t in factory() if t.name == "SOUNDTRACK"))
         d[jx8p.VCF_KEY] = 127
         e = jx8p.to_engine(jx8p.Tone("KEY 127", bytes(d)))
-        base = jx8p.cutoff_cents(d[jx8p.VCF_FREQ])
-        self.assertLess(abs(self.cutoff_at(e, 36) - base), 5)
-        self.assertLess(abs(self.cutoff_at(e, 60) - base - 2 * 1.29 * 1200), 5)
-        self.assertLess(abs(self.cutoff_at(e, 84) - base - 4 * 1.29 * 1200), 5)
+        f, k = d[jx8p.VCF_FREQ], jx8p.key_steps(127)
+        for note, octaves in ((36, 0), (60, 2), (84, 4)):
+            want = 0.0988 * (f + octaves * k) ** 2 + 115.03 * (f + octaves * k) - 1474
+            self.assertLess(abs(self.cutoff_at(e, note) - want), 5, note)
+        self.assertLess(abs((self.cutoff_at(e, 60) - self.cutoff_at(e, 36)) / 2400 - 1.29), 0.05)
 
     # VCF ENV depth as PG-8X 2.0.13 plays it (match.py --param VCF_ENV, 2026-11-10): the cutoff's
     # rise at the envelope's peak, in semitones, about 1.25 a step
     PG8X_ENV_SHIFT = {8: 9.86, 16: 19.90, 24: 29.99, 32: 40.28, 40: 51.28, 48: 62.24}
 
+    # (from VCF FREQ 56, the probe's base). The engine adds the depth in linear cents on that base and
+    # bends the sum onto the curve (#253), so its rise there:
     def test_filter_env_depth_follows_pg8x(self):
+        base = jx8p.cutoff_cents(56)
         for v, st in self.PG8X_ENV_SHIFT.items():
-            got = jx8p.filter_env_cents(v) / 100
+            got = (self.curve(self.linear(base) + jx8p.filter_env_cents(v)) - base) / 100
             self.assertLess(abs(got / st - 1), 0.05, (v, got, st))
 
     # VCF ENV MODE picks the envelope (ENV-1 or ENV-2) and its polarity: the cutoff follows the
@@ -269,12 +291,12 @@ class MapTest(unittest.TestCase):
     def test_vcf_env_mode_picks_the_filter_envelope_and_its_sign(self):
         e = patch("SOUNDTRACK")                 # ENV-1 normal; depth 60; ENV-1 127, 83, 54, 91
         self.assertEqual(e["FILTER_ENV_SOURCE"], 0)
-        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], 60 * 129)
+        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], jx8p.filter_env_cents(60))
         self.assertEqual((e["FILTER_ENV_ATTACK_MS"], e["FILTER_ENV_DECAY_MS"],
                           e["FILTER_ENV_SUSTAIN_PERMILLE"]), (32000, 1616, 425))   # attack_ms(127), the range's end; decay: tau
         e = patch("VOICES")                     # ENV-1 inverted, depth 5
         self.assertEqual(e["FILTER_ENV_SOURCE"], 0)
-        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -5 * 129)
+        self.assertEqual(e["FILTER_ENV_AMOUNT_CENTS"], -jx8p.filter_env_cents(5))
         e = patch("PIANO 1")                    # ENV-2 normal, VCA on ENV-2: the amp envelope
         self.assertEqual(e["FILTER_ENV_SOURCE"], 1)
 
@@ -289,7 +311,7 @@ class MapTest(unittest.TestCase):
         self.assertEqual(got, {0: 1, 32: 1, 64: 0, 96: 0})
         self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=32, VCA_MODE=0)["FILTER_ENV_SOURCE"], 1)
         self.assertEqual(patch_with("SOUNDTRACK", VCF_ENV_MODE=0, VCA_MODE=127)["FILTER_ENV_AMOUNT_CENTS"],
-                         -60 * 129)
+                         -jx8p.filter_env_cents(60))
 
     # #60: ENV KEY is a 4-position switch; PG-8X 2.0.13 shortens the times by 0.26 octave an octave
     # above C2 per position, so 260 per mille each. The amp settings take ENV-2's (on GATE too:
