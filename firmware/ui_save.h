@@ -5,8 +5,13 @@
 #define UI_SAVE_H
 #include "ui.h"
 
-/* A SAVE tap in PLAY or EDIT: opens SAVE. */
+/* A SAVE tap in PLAY or EDIT: opens SAVE for the patch; in SEQ view, for the pattern. */
 void ui_save_open(ui *u, uint32_t ms);
+/* Main loop: whether SAVE's slot s (a user slot, or with u->save_pattern a pattern slot) holds
+ * something, and with name (STORE_NAME_LEN + 1 chars, or NULL) its name; "" when empty. */
+int ui_save_slot_used(const ui *u, uint32_t s, char *name);
+/* What SAVE writes is edited: the patch's edit buffer, or the pattern. */
+uint32_t ui_save_edited(const ui *u);
 /* From ui_take: a write that waits for silence happens on the first silent moment; until then every
  * screen says SAVING 23 WHEN SILENT, and every other 1.5 s HOLD SAVE: NOW. */
 void ui_save_tick(ui *u, uint32_t ms);

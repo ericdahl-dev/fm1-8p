@@ -5,6 +5,7 @@
 #include "draw.h"
 #include "display_font.h"
 #include "ui_seq.h"
+#include "ui_save.h"
 
 static const hb_host_t *H;
 static play *P;
@@ -527,21 +528,20 @@ static void play_part(uint32_t b, uint32_t part)
  * the step: the controls while editing, the question when it would replace another patch */
 static void save_part(uint32_t b, uint32_t part)
 {
-    static store_patch there;                   /* (main loop) */
-    char s[UI_VALUE_LEN];
+    char s[UI_VALUE_LEN], there[STORE_NAME_LEN + 1u];
     if ((b == UI_D_FULL && part == 1u) || b == UI_D_FOOT) {
         footer();
     } else if (b == UI_D_FULL || b == UI_D_HEAD) {
-        header("SAVE", led_of(C_PLAY), "", "PATCH", "", -1, 8);
+        header("SAVE", led_of(C_PLAY), "", U->save_pattern ? "PATTERN" : "PATCH", "", -1, 8);
     } else if (b == UI_D_FOCUS) {               /* rows 28..77: TO 23, and what is there now */
         ui_prog_number(U->save_dest, s);
         H->cv_begin(240, 50, C_BG);
         CV_TEXT(M, 18, 0, "TO", C_DIM);
         CV_TEXT(M + 28, 6, 1, s, HB_RGB(255, 176, 64));
-        if (play_edited(P))                     /* a rename saves the sound's edits too: say so */
+        if (ui_save_edited(U))                  /* a rename saves the edits too: say so */
             CV_TEXT(M + 28 + TEXT_W(1, s) + 6, 18, 0, "+ EDITS", C_TEXT);
         {                                       /* what is there now, at the right (+ EDITS has the middle) */
-            const char *t = P->lib && store_slot_read(P->lib, U->save_dest, &there) == 0 ? there.name : "EMPTY";
+            const char *t = ui_save_slot_used(U, U->save_dest, there) ? there : "EMPTY";
             CV_TEXT(240 - M - TEXT_W(0, t), 18, 0, t, C_DIM);
         }
         blit(0, 28, 240, 50);

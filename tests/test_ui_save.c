@@ -452,6 +452,127 @@ TT_TEST(save_waits_while_the_sequencer_runs)
     TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED 11") == 0);
 }
 
+/* ---- SAVE in SEQ view: the pattern (interaction.md, SAVE; S6) ---- */
+
+static pat_lib save_plib;
+
+/* save_setup with the pattern slots too, in SEQ view, step 1 holding a C4 (the pattern edited) */
+static void save_seq_setup(void)
+{
+    static const uint8_t c4 = 60;
+    store_flash_blank();
+    (void)play_init(&ui_p);
+    play_attach_store(&ui_p, &store_lib_a, &store_fake_io);
+    play_attach_patterns(&ui_p, &save_plib);
+    while (play_store_tick(&ui_p)) {}
+    ui_init(&ui_u, &ui_p);
+    save_tap(UI_BTN_SEQ, 100);
+    seq_set_step(play_seq(&ui_p), 0, &c4, 1, 100);
+}
+
+/* A SAVE tap in SEQ view opens SAVE for the pattern: the destination is the pattern slot playing, the
+ * name the pattern's (an empty slot's: blank). A second tap writes the pattern there, not a patch:
+ * SAVED PATTERN 11, the pattern no longer edited, and back to SEQ view. */
+TT_TEST(save_in_seq_view_writes_the_pattern)
+{
+    static seq_pattern out;
+    char name[STORE_NAME_LEN + 1u];
+    save_seq_setup();
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    TT_CHECK(seq_edited(play_seq(&ui_p)));
+    save_tap(UI_BTN_SAVE, 1000);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK_EQ(ui_u.save_dest, play_pattern_prog(&ui_p));
+    TT_CHECK(strcmp(ui_u.save_name, "            ") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1100);   /* "B" */
+    save_tap(UI_BTN_SAVE, 2000);
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 0, &out, name), 0);
+    TT_CHECK(strcmp(name, "B") == 0);
+    TT_CHECK_EQ(out.step[0].n, 1u);
+    TT_CHECK_EQ(out.step[0].note[0], 60u);
+    TT_CHECK(!store_slot_used(&store_lib_a, 0));          /* no patch written */
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED PATTERN 11") == 0);
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+}
+
+/* PRESETS and ALGORITHM pick among the pattern slots: ALGORITHM finds the next empty pattern slot,
+ * whatever the patch slots hold; onto another pattern the first tap asks REPLACE 12 <ITS NAME>? */
+TT_TEST(save_in_seq_view_picks_pattern_slots)
+{
+    static store_patch other;
+    static seq_pattern there;
+    store_from_factory(9, &other);
+    save_seq_setup();
+    seq_pattern_empty(&there);
+    there.length = 4;
+    TT_CHECK_EQ(pat_slot_write(&save_plib, &store_fake_io, 1, &there, "GROOVE"), 0);
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 2, &other), 0);   /* a patch in 13 */
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1100);
+    TT_CHECK_EQ(ui_u.save_dest, 2u);            /* 13: its pattern slot is empty; 12 isn't */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -1, 1200);
+    TT_CHECK_EQ(ui_u.save_dest, 1u);
+    save_tap(UI_BTN_SAVE, 1300);
+    TT_CHECK_EQ(ui_u.save_step, (uint32_t)UI_SAVE_CONFIRM);
+    TT_CHECK(strcmp(ui_u.save_msg, "REPLACE 12 GROOVE?") == 0);
+    save_tap(UI_BTN_SAVE, 1400);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED PATTERN 12") == 0);
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+}
+
+/* While the sequencer plays, the pattern's write waits like a patch's: SAVING 11 WHEN SILENT, and an
+ * edit meanwhile doesn't change what is written; the stop writes the snapshot. */
+TT_TEST(save_in_seq_view_waits_for_the_stop)
+{
+    static const uint8_t e4 = 64;
+    static seq_pattern out;
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t k;
+    save_seq_setup();
+    seq_play(play_seq(&ui_p));
+    save_render(4);
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 1200);
+    (void)ui_take(&ui_u, 2000);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVING 11 WHEN SILENT") == 0);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    seq_set_step(play_seq(&ui_p), 0, &e4, 1, 100);       /* after the snapshot */
+    TT_CHECK(!pat_slot_used(&save_plib, 0));
+    seq_stop(play_seq(&ui_p));
+    for (k = 0; k < 20000u && !play_silent(&ui_p); k++)   /* SOUNDTRACK's release: seconds */
+        save_render(1);
+    TT_CHECK(play_silent(&ui_p));
+    (void)ui_take(&ui_u, 2500);
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 0, &out, name), 0);
+    TT_CHECK_EQ(out.step[0].note[0], 60u);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED PATTERN 11") == 0);
+    TT_CHECK(seq_edited(play_seq(&ui_p)));                /* E4 since: still edited */
+}
+
+/* A canceled pattern SAVE keeps its name as the pattern's draft; the patch's next SAVE doesn't take it,
+ * though both play slot 11. */
+TT_TEST(save_in_seq_view_keeps_its_own_draft)
+{
+    static store_patch other;
+    save_seq_setup();
+    store_from_factory(9, &other);
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 0, &other), 0);
+    TT_CHECK_EQ(play_load_prog(&ui_p, 0), 0);  /* the patch from 11, the pattern from 11 */
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1100);   /* "B" */
+    save_tap(UI_BTN_HOME, 1200);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    save_tap(UI_BTN_SAVE, 1400);
+    TT_CHECK(ui_u.save_name[0] == 'B');         /* the pattern's draft */
+    save_tap(UI_BTN_HOME, 1500);
+    save_tap(UI_BTN_SEQ, 1600);                 /* back to EDIT */
+    TT_CHECK(ui_u.state != UI_SEQ);
+    save_tap(UI_BTN_SAVE, 1700);
+    TT_CHECK(ui_u.save_name[0] == other.name[0]);   /* the patch's own name, not B */
+    TT_CHECK(ui_u.save_name[0] != 'B');
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
@@ -474,4 +595,8 @@ static void run_ui_save_tests(void)
     TT_RUN(save_has_the_screen_and_takes_the_jump_down);
     TT_RUN(save_without_a_store_says_save_failed);
     TT_RUN(save_waits_while_the_sequencer_runs);
+    TT_RUN(save_in_seq_view_writes_the_pattern);
+    TT_RUN(save_in_seq_view_picks_pattern_slots);
+    TT_RUN(save_in_seq_view_waits_for_the_stop);
+    TT_RUN(save_in_seq_view_keeps_its_own_draft);
 }

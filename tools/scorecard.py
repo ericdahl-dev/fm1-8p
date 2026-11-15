@@ -9,9 +9,12 @@ import os
 import numpy as np
 from scipy import signal
 
-SCHEMA = 4   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 7   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
-             # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163)
+             # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
+             # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
+             # 6: the reference has PG-8X's SELFNOISE at 0, v5, #247;
+             # 7: both 5 and 6, merged)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = 48000
@@ -133,10 +136,12 @@ def pitch_cents(ours, pg, span=200):
     return arg * 5.0
 
 
-# The scorecard MIDI's sections (tools/gate_midi.py score()), seconds; each starts 30 ms or more past
-# its note's onset, clear of PG-8X's onset burst (#146)
-SECTIONS = {"chord": (0.55, 3.15), "v110": (4.28, 4.65), "v60": (4.78, 5.15), "v90": (5.28, 5.55),
-            "v40": (5.68, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}
+# The scorecard MIDI's sections (tools/gate_midi.py score()), seconds; each starts 130 ms or more past
+# its note on. PG-8X puts a sub-230 Hz thump near -32 dBFS on every note on, a voice's first or not,
+# that dies down over about 120 ms (#146); our engine has none, so a section inside it reads a gap in
+# the lows that isn't timbre
+SECTIONS = {"chord": (0.55, 3.15), "v110": (4.38, 4.65), "v60": (4.88, 5.15), "v90": (5.38, 5.55),
+            "v40": (5.78, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}
 HIGH = (8.85, 10.25, 1046.50)   # the high C6: onset, note-off (s), f0 (Hz): about 1 ms a period
 
 
@@ -256,9 +261,9 @@ def sha256(path):
 
 
 def write_manifest(ref, mid, bank=None):
-    """A reference folder's manifest: the MIDI (and bank) it was rendered from (make_ref.py writes the
-    real one)."""
-    man = {"midi_sha256": sha256(mid)}
+    """A reference folder's manifest: the MIDI (and bank) it was rendered from, PG-8X's SELFNOISE at 0
+    (make_ref.py writes the real one)."""
+    man = {"midi_sha256": sha256(mid), "selfnoise": 0}
     if bank:
         man["bank_sha256"] = sha256(bank)
     with open(os.path.join(ref, "manifest.json"), "w") as fh:
@@ -329,6 +334,11 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
         raise SystemExit(f"scorecard: {ref}: no manifest.json (make the reference first)")
     if man.get("midi_sha256") != sha256(mid):
         raise SystemExit(f"scorecard: {ref} was rendered from other MIDI; make the reference again")
+    if man.get("selfnoise") != 0:
+        # PG-8X 2.0.13's SELFNOISE (default 0.5) puts an analog noise floor under every sounding voice, read
+        # as a 27 dB gap in the lows that isn't timbre; fm1-8p doesn't model it (#247)
+        raise SystemExit(f"scorecard: {ref} was rendered with PG-8X's SELFNOISE on (v4 and older); use v5, or "
+                         "make the reference again with make_ref.py (SELFNOISE 0)")
     if bank and man.get("bank_sha256") != sha256(bank):
         raise SystemExit(f"scorecard: {ref} was not rendered from {bank}")
     names = {i: n for i, n, _ in tone_args(tree, bank)}

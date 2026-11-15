@@ -54,7 +54,7 @@ typedef struct {
     fm_filter filter;
     fm_env filter_env;
     int32_t rate_cents;     /* fm_filter_rate_cents(sample rate) */
-    int32_t cutoff_cents;   /* base cutoff */
+    int32_t cutoff_cents;   /* base cutoff, linear cents (fm_filter_linear_cents) */
     int32_t key_track;      /* per mille */
     int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
     uint32_t fenv_lag;      /* samples filter_env is behind: it is caught

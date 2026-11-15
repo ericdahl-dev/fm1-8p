@@ -53,20 +53,21 @@ typedef enum {
     FM_PARAM_OSC_SYNC,
     /* per mille: osc1 bends osc2's frequency by up to +-100 % */
     FM_PARAM_OSC_XMOD,
-    /* lowpass cutoff, cents above MIDI note 0 (6900 = 440 Hz); FM_FILTER_OPEN_CENTS (the
-     * maximum) is fully open */
+    /* lowpass cutoff at note 60 with no modulation, cents above MIDI note 0 (6900 = 440 Hz);
+     * FM_FILTER_OPEN_CENTS (the maximum) is fully open */
     FM_PARAM_FILTER_CUTOFF_CENTS,
     /* per mille; 1000 self-oscillates */
     FM_PARAM_FILTER_RESONANCE,
-    /* per mille; 1000 follows the note 1:1 */
+    /* per mille of linear cents an octave (#253): 1000 adds 1200 linear cents an octave from
+     * note 60, before the cutoff curve */
     FM_PARAM_FILTER_KEY_TRACK,
     FM_PARAM_FILTER_ENV_ATTACK_MS,
     FM_PARAM_FILTER_ENV_DECAY_MS,
     /* per mille of full level, 0..1000 */
     FM_PARAM_FILTER_ENV_SUSTAIN,
     FM_PARAM_FILTER_ENV_RELEASE_MS,
-    /* cents the filter envelope adds to the cutoff at full level; negative sweeps the cutoff
-     * down */
+    /* linear cents the filter envelope adds to the cutoff at full level, before the cutoff
+     * curve (#253); negative sweeps the cutoff down */
     FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
     /* 0 (off) .. 3 (most low cut); 4 is the bass boost (JX-8P HPF 0, #93) */
     FM_PARAM_HIGHPASS_STEP,

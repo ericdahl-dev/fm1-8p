@@ -488,6 +488,8 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV2, FM_MOD_CUTOFF,
                          env2 ? amount : 0);
     }
+    if (id == FM_PARAM_FILTER_CUTOFF_CENTS) /* once for every voice (#253) */
+        v = fm_filter_linear_cents(v);
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *vc = &e->voices[i];
         if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS)

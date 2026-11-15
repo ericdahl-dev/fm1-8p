@@ -402,10 +402,11 @@ static double rms(const int16_t *stereo, size_t from, size_t to)
 
 /*
  * Key tracking is per mille of the note's distance from middle C (note
- * 60): at 1000 the cutoff follows the keyboard one to one. So note 72
- * with tracking T must sound exactly like note 72 with the cutoff raised
- * by T * 1200 / 1000 cents and no tracking, and full tracking must be
- * brighter than none.
+ * 60), in linear cents (#253): it adds to the base before the cutoff
+ * curve, as PG-8X's VCF KEY adds to VCF FREQ. So note 72 with tracking T
+ * must sound exactly like note 72 with no tracking and the cutoff setting
+ * that the base plus T * 1200 / 1000 linear cents comes to, and full
+ * tracking must be brighter than none.
  */
 TT_TEST(key_tracking_moves_cutoff_with_note_pitch)
 {
@@ -413,12 +414,19 @@ TT_TEST(key_tracking_moves_cutoff_with_note_pitch)
     size_t t;
     for (t = 0; t < sizeof tracks / sizeof tracks[0]; t++) {
         play_filtered(fbuf_a, 72, 5000, 300, tracks[t]);
-        play_filtered(fbuf_b, 72, 5000 + tracks[t] * 1200 / 1000, 300, 0);
+        play_filtered(fbuf_b, 72,
+                      fm_filter_voice_cents(fm_filter_linear_cents(5000) +
+                                                tracks[t] * 1200 / 1000,
+                                            0, 60, 0),
+                      300, 0);
         TT_CHECK(memcmp(fbuf_a, fbuf_b, FRAMES_HALF_S * 4) == 0);
     }
     /* below middle C tracking lowers the cutoff */
     play_filtered(fbuf_a, 48, 5000, 300, 500);
-    play_filtered(fbuf_b, 48, 5000 - 600, 300, 0);
+    play_filtered(fbuf_b, 48,
+                  fm_filter_voice_cents(fm_filter_linear_cents(5000) - 600, 0,
+                                        60, 0),
+                  300, 0);
     TT_CHECK(memcmp(fbuf_a, fbuf_b, FRAMES_HALF_S * 4) == 0);
     /* and it is audible: same note, full tracking vs none */
     play_filtered(fbuf_a, 72, 5000, 300, 1000);
@@ -1296,7 +1304,10 @@ TT_TEST(steal_fade_keeps_the_old_notes_key_tracked_cutoff)
                 /* just updated (every 16 samples): note 36's cutoff
                  * for the setting in force */
                 fm_filter_reset(&want);
-                fm_filter_set_cutoff(&want, base + (36 - 60) * 100 + env,
+                fm_filter_set_cutoff(&want,
+                                     fm_filter_voice_cents(
+                                         fm_filter_linear_cents(base), 1000,
+                                         36, env),
                                      rate_cents);
                 if (feng.voices[0].filter.g != want.g) changed_in_fade = 1;
             }
@@ -1330,7 +1341,9 @@ TT_TEST(mode_switch_during_a_steal_fade_tracks_the_waiting_note)
         fm_engine_render(&feng, fbuf_a, 1);
     fm_engine_render(&feng, fbuf_a, 32);
     fm_filter_reset(&want);
-    fm_filter_set_cutoff(&want, fm_filter_voice_cents(6000, 1000, 96, 0),
+    fm_filter_set_cutoff(&want,
+                         fm_filter_voice_cents(fm_filter_linear_cents(6000),
+                                               1000, 96, 0),
                          rate_cents);
     TT_CHECK_EQ(feng.voices[0].filter.g, want.g);
 }
@@ -2072,7 +2085,7 @@ TT_TEST(filter_envelope_through_a_steal_and_take_back_stays_exact)
     fm_engine_note_on(&feng, 60, 100); /* taken back mid fade */
     fm_env_gate_on(&ref);
     render_beside(&feng, &ref, 1);
-    ok &= feng.voices[0].cutoff_now == fm_filter_voice_cents(4200, 0, 60,
+    ok &= feng.voices[0].cutoff_now == fm_filter_voice_cents(fm_filter_linear_cents(4200), 0, 60,
                                                     (int32_t)(((int64_t)4800 * ref.level) >> 30));
     render_beside(&feng, &ref, 437);
     ok &= fenv_matches(&feng, &ref);
@@ -2135,7 +2148,7 @@ TT_TEST(legato_note_change_reads_the_current_filter_envelope)
     fm_engine_note_off(&feng, 43);     /* legato back to 36 */
     for (v = 0; v < 4; v++)
         ok &= feng.voices[v].cutoff_now ==
-              fm_filter_voice_cents(4800, 0, 36,
+              fm_filter_voice_cents(fm_filter_linear_cents(4800), 0, 36,
                                     (int32_t)(((int64_t)4800 * ref.level) >> 30));
     TT_CHECK(ok);
 }
@@ -2457,12 +2470,13 @@ static uint32_t golden_engine_hash(int step)
 /*
  * The default patch (highpass step 0, the filter a wire) and a filtered patch at each of steps
  * 0 to 3 render, through the engine, bit for bit what main renders without the bass-boost step
- * (#93): retaken on dc9d495 with main's engine/filter.c and filter.h, first taken on 38bfa6d.
+ * (#93): retaken on af3712b (#255's cutoff curve) with main's engine/filter.c and filter.h, as on
+ * dc9d495 before; first taken on 38bfa6d.
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {
-    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x55C96591u, 0xD31D4E05u, 0x498D2B0Du,
-                                        0x2D943F81u };
+    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x92BE3E25u, 0xF1A0BDE9u, 0x099E00E1u,
+                                        0x908DE489u };
     int step, same = 1;
     for (step = -1; step < 4; step++) {
         uint32_t h = golden_engine_hash(step);
@@ -2512,8 +2526,97 @@ TT_TEST(highpass_step_4_is_the_pg8x_bass_boost)
     TT_CHECK(close);
 }
 
+/*
+ * PG-8X 2.0.13 adds VCF ENV and VCF KEY to VCF FREQ in knob steps and
+ * plays the sum through one curve, cents(K) = 0.0988 K^2 + 115.03 K -
+ * 1474 (#253: ENV 100 at sustain 65 adds 50.2-50.7 steps at FREQ 19, 30,
+ * 40 and 56 alike). The engine adds its sources in linear cents, 115.03 a
+ * step, then bends the sum once: a base at FREQ F plus E steps of
+ * modulation must land on cents(F + E), at every F and E short of open.
+ */
+TT_TEST(cutoff_sources_add_in_knob_steps_on_pg8x_curve)
+{
+    double worst = 0.0;
+    int f, e;
+    for (f = 13; f <= 127; f++)
+        for (e = -60; e <= 127; e++) {
+            double k = f + e, want = 0.0988 * k * k + 115.03 * k - 1474;
+            double base = 0.0988 * f * f + 115.03 * f - 1474;
+            int32_t got;
+            if (k < 0 || want > FM_FILTER_OPEN_CENTS - 100) continue;
+            got = fm_filter_voice_cents(fm_filter_linear_cents((int32_t)floor(base + 0.5)), 0, 60,
+                                        (int32_t)floor(115.03 * e + 0.5));
+            if (fabs(got - want) > worst) worst = fabs(got - want);
+        }
+    printf("    FREQ + ENV in knob steps against the curve: worst %.2f cents\n", worst);
+    TT_CHECK(worst <= 2.5);
+}
+
+/*
+ * A cutoff setting comes back within a cent through its linear cents (at
+ * note 60, no modulation), exactly for one that is on the curve, and the
+ * linear cents rise with the setting. Open stays open, and so does a
+ * setting above it.
+ */
+TT_TEST(cutoff_setting_round_trips_through_linear_cents)
+{
+    int32_t y, prev = INT32_MIN;
+    int ok = 1;
+    for (y = 0; y < FM_FILTER_OPEN_CENTS; y++) {
+        int32_t u = fm_filter_linear_cents(y);
+        int32_t c = fm_filter_voice_cents(u, 0, 60, 0);
+        ok &= c >= y - 1 && c <= y + 1;
+        ok &= fm_filter_linear_cents(c) == u;
+        ok &= u >= prev;
+        prev = u;
+    }
+    TT_CHECK(ok);
+    TT_CHECK(fm_filter_voice_cents(fm_filter_linear_cents(FM_FILTER_OPEN_CENTS), 0, 60, 0) >=
+             FM_FILTER_OPEN_CENTS);
+    TT_CHECK(fm_filter_voice_cents(fm_filter_linear_cents(14728), 0, 60, 0) >= FM_FILTER_OPEN_CENTS);
+    TT_CHECK_EQ(fm_filter_voice_cents(FM_FILTER_OPEN_CENTS, 0, 60, 0), FM_FILTER_OPEN_CENTS);
+}
+
+/*
+ * fm_filter_linear_cents at the edges of its range, against the curve's
+ * own inverse worked in floating point (-1474 + (sqrt(1 + 4 A Y) - 1) /
+ * 2A, Y = cents + 1474, A = 0.0988 / 115.03^2): below knob step 0 it
+ * passes the cents through, at the top it holds at twice open, which is
+ * the largest numerator its divide sees (#253).
+ */
+TT_TEST(linear_cents_holds_its_values_at_the_range_edges)
+{
+    static const int32_t in[] = { -5000, -1474, -1473, 0, 6900, 14400, 14728,
+                                  28799, 28800, 28801, 40000, INT32_MAX };
+    static const int32_t want[] = { -5000, -1474, -1473, -16, 6433, 12865, 13134,
+                                    23966, 23967, 23967, 23967, 23967 };
+    size_t i;
+    for (i = 0; i < sizeof in / sizeof in[0]; i++)
+        TT_CHECK_EQ(fm_filter_linear_cents(in[i]), want[i]);
+}
+
+/*
+ * The cutoff curve a voice plays, pinned at the edges of its range against
+ * C(u) = u + A (u + 1474)^2 worked in floating point (A = 0.0988 /
+ * 115.03^2), rounded: nothing added at or below knob step 0, the curve up
+ * to just under open (the largest square on a voice's path), and an open
+ * sum passed as it is (#253).
+ */
+TT_TEST(cutoff_curve_holds_its_values_at_the_range_edges)
+{
+    static const int32_t in[] = { -5000, -1474, -1473, 0, 6433, 12864, 14399, 14400, 20000 };
+    static const int32_t want[] = { -5000, -1474, -1473, 16, 6900, 14399, 16280, 14400, 20000 };
+    size_t i;
+    for (i = 0; i < sizeof in / sizeof in[0]; i++)
+        TT_CHECK_EQ(fm_filter_voice_cents(in[i], 0, 60, 0), want[i]);
+}
+
 static void run_filter_tests(void)
 {
+    TT_RUN(cutoff_curve_holds_its_values_at_the_range_edges);
+    TT_RUN(linear_cents_holds_its_values_at_the_range_edges);
+    TT_RUN(cutoff_sources_add_in_knob_steps_on_pg8x_curve);
+    TT_RUN(cutoff_setting_round_trips_through_linear_cents);
     TT_RUN(lowpass_passes_low_tones_and_rolls_off_24_db_per_octave);
     TT_RUN(no_resonance_knee_is_pg8x);
     TT_RUN(resonance_raises_gain_near_cutoff);
