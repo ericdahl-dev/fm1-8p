@@ -21,10 +21,11 @@ static const cpu_test_param FULL_PATCH[] = {
     {FM_PARAM_AMP_VELOCITY, 100},
     /* the filter never on fm_filter_run's wide-open fast path: a resonant lowpass whose envelope sweeps
      * it from 10500 up to 14100 cents, into the fade at the top of its range (the costlier general path),
-     * and the first highpass step */
+     * and the first highpass step. The envelope adds in linear cents (#253): 3030 of them on 10500's
+     * base come to 14100, as 3600 cents did before */
     {FM_PARAM_FILTER_CUTOFF_CENTS, 10500},
     {FM_PARAM_FILTER_RESONANCE, 700},
-    {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3600},
+    {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3030},
     {FM_PARAM_HIGHPASS_STEP, 1},
     {FM_PARAM_SETTING_GLIDE, 1},
 };
