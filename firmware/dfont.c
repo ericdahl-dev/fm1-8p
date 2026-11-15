@@ -19,12 +19,17 @@ int32_t dfont_glyph(char c)
 const dfont DFONT_D24 = {D24_W, D24_DATA, D24_OFF, D24_H, D24_GAP};
 const dfont DFONT_D20 = {D20_W, D20_DATA, D20_OFF, D20_H, D20_GAP};
 
+/* glyph g's width in f; the box for one the font has none for is an O's (Eric, (a)) */
+static int32_t width_of(const dfont *f, int32_t g)
+{
+    return f->w[g >= 0 ? g : dfont_glyph('O')];
+}
+
 int32_t dfont_width(const dfont *f, const char *s)
 {
-    int32_t w = 0, g;
+    int32_t w = 0;
     for (; *s; s++)
-        if ((g = dfont_glyph(*s)) >= 0)
-            w += f->w[g] + f->gap;
+        w += width_of(f, dfont_glyph(*s)) + f->gap;
     return w ? w - f->gap : 0;
 }
 
@@ -35,8 +40,15 @@ int32_t dfont_draw(const dfont *f, int32_t x, int32_t y, const char *s, uint16_t
         int32_t g = dfont_glyph(*s);
         uint32_t w, bpr, r, b;
         const uint8_t *row;
-        if (g < 0)
+        if (g < 0) {                            /* none: an outline box, an O wide (Eric, (a)) */
+            int32_t bw = width_of(f, g), bh = (int32_t)f->h;
+            rect(x, y, bw, 1, c);
+            rect(x, y + bh - 1, bw, 1, c);
+            rect(x, y + 1, 1, bh - 2, c);
+            rect(x + bw - 1, y + 1, 1, bh - 2, c);
+            x += bw + f->gap;
             continue;
+        }
         w = f->w[g], bpr = (w + 7u) / 8u, row = &f->data[f->off[g]];
         for (r = 0; r < f->h; r++, row += bpr)
             for (b = 0; b < w;) {

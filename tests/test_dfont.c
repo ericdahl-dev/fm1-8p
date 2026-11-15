@@ -70,9 +70,33 @@ TT_TEST(dfont_draws_the_tables_bits)
     TT_CHECK_EQ(bad, 0u);
 }
 
+/* A character the font has none for ("?", "e" with an accent, a control byte) draws as an outline box the
+ * width of an O, the size's height (Eric, (a), 2026-11-15), and takes that width: a missing glyph shows */
+TT_TEST(dfont_unknown_draws_a_box)
+{
+    static const char *const U[3] = {"?", "\xe9", "\x01"};
+    const dfont *f = &DFONT_D24;
+    const int32_t o = f->w[dfont_glyph('O')];
+    uint32_t t, x, y, bad = 0;
+    for (t = 0; t < 3u; t++) {
+        TT_CHECK_EQ(dfont_glyph(U[t][0]), -1);
+        TT_CHECK_EQ(dfont_width(f, U[t]), o);
+        memset(df_px, 0, sizeof df_px);
+        TT_CHECK_EQ(dfont_draw(f, 0, 0, U[t], 1u, df_rect), o);
+        for (y = 0; y < f->h; y++)
+            for (x = 0; x < (uint32_t)o; x++) {
+                int edge = y == 0 || y == f->h - 1u || x == 0 || x == (uint32_t)o - 1u;
+                bad += df_px[y][x] != edge;
+            }
+    }
+    TT_CHECK_EQ(bad, 0u);
+    TT_CHECK_EQ(dfont_width(f, "A?B"), dfont_width(f, "AOB"));
+}
+
 static void run_dfont_tests(void)
 {
     TT_RUN(dfont_finds_every_glyph);
     TT_RUN(dfont_widths);
     TT_RUN(dfont_draws_the_tables_bits);
+    TT_RUN(dfont_unknown_draws_a_box);
 }
