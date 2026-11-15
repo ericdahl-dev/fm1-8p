@@ -179,10 +179,14 @@ void seq_set_swing(seq *s, uint32_t pct)
 void seq_play(seq *s)
 {
     if (s->clk_src == SEQ_CLK_MIDI || (s->clk_src == SEQ_CLK_AUTO && s->clk_present)) {
-        s->want = 1;                            /* #38: the clock's in charge, so this arms: it starts on
-                                                 * a MIDI start or continue (the interrupt acts on asks
-                                                 * only); a second press (seq_stop) disarms */
+        s->want = 1;                            /* #38: the clock's in charge, so this arms (the interrupt
+                                                 * acts on asks only); a second press (seq_stop) disarms.
+                                                 * MIDI: it starts on a MIDI start or continue. AUTO, with a
+                                                 * clock coming: on its next tick, from step 1 (Eric: many
+                                                 * send clock and never a start) */
         s->clk_armed = 1;
+        if (s->clk_src == SEQ_CLK_AUTO)
+            s->clk_pending = 1;
         return;
     }
     s->ext = 0;                                 /* (its own clock) */
@@ -194,6 +198,7 @@ void seq_play(seq *s)
 void seq_stop(seq *s)
 {
     s->clk_armed = 0;
+    s->clk_pending = 0;
     s->clk_running = 0;
     s->want = 0;
     BARRIER();

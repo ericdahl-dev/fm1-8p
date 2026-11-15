@@ -720,10 +720,12 @@ Patterns have their own slots, separate from patches (decision Q2).
   - a queued next pattern loads at once;
   - with G14 on, MIDI stop goes out.
 - **Starting** sends MIDI start, with G14 on.
-- **Clock source MIDI** (G13) or AUTO with clock present:
-  - a PLAY press with no clock running arms the start: PLAY blinks, and the
-    sequencer starts on the next MIDI start or continue;
-  - a second press disarms.
+- **Clock source MIDI** (G13): a PLAY press arms the start: PLAY blinks, and
+  the sequencer starts on the next MIDI start or continue. A second press
+  disarms.
+- **Clock source AUTO with a clock coming:** a PLAY press starts from step 1
+  on the clock's next tick, locked to it, with no MIDI start needed (Eric:
+  many devices send clock and never a start).
   - MIDI start, stop and continue act as #38 says, whatever the PLAY LED shows.
 - **Transpose:** S3 TRANSPOSE sets an offset, -24..+24 semitones.
   - With KEY TRANSPOSE on and the sequencer playing, played keys do not sound.

@@ -355,8 +355,8 @@ TT_TEST(clock_lost_stops_and_the_internal_clock_takes_over)
 }
 
 /* G13. INT ignores the clock (and plays its own); MIDI with no clock waits on PLAY (WAITING FOR CLOCK,
- * nothing plays) and starts on MIDI start; AUTO waits too while a clock comes, and plays its own when
- * none does; a second PLAY while waiting disarms. */
+ * nothing plays) and starts on MIDI start; AUTO with a clock coming starts on its next tick, and plays
+ * its own when none does; a second PLAY while waiting disarms. */
 TT_TEST(clock_source_int_midi_and_auto)
 {
     ck_fresh(SEQ_CLK_INT);                     /* INT: a clock and a start do nothing */
@@ -376,14 +376,16 @@ TT_TEST(clock_source_int_midi_and_auto)
     ck_run(ck_tick_at[24 + 6 * 8] - 0.012);
     TT_CHECK(!seq_waiting(&ck) && ck_n_on == 8u && ck_note[0] == 48u);
     TT_CHECK(fabs(ck_on[1] - ck_tick_at[30]) < 0.001);
-    ck_fresh(SEQ_CLK_AUTO);                    /* AUTO, a clock coming: PLAY waits, a start starts */
+    ck_fresh(SEQ_CLK_AUTO);                    /* AUTO, a clock coming (with no start, as many send it):
+                                                * PLAY starts on its next tick, from step 1 (Eric) */
     ck_ticks_ramp(0.05, 100.0, 100.0, 0, 1, 24u * 8u);
-    ck_msg_at(0.3, 0, CK_PLAY);
-    ck_msg_at(ck_tick_at[48] - 0.002, 0, 0xFAu);
-    ck_run(ck_tick_at[47]);
-    TT_CHECK(ck_n_on == 0u && seq_waiting(&ck) && seq_clock_external(&ck));
-    ck_run(ck_tick_at[48 + 6 * 4] - 0.012);
-    TT_CHECK(ck_n_on == 4u && !seq_waiting(&ck));
+    ck_msg_at(ck_tick_at[30] - 0.002, 0, CK_PLAY);
+    ck_run(ck_tick_at[30 + 6 * 4] - 0.012);
+    TT_CHECK(ck_n_on == 4u && !seq_waiting(&ck) && seq_clock_external(&ck) && ck_note[0] == 48u);
+    TT_CHECK(fabs(ck_on[1] - ck_tick_at[36]) < 0.001);
+    ck_msg_at(ck_tick_at[60] - 0.002, 0, 0xFAu);   /* and a start still starts again */
+    ck_run(ck_tick_at[60 + 6 * 2] - 0.012);
+    TT_CHECK(ck_note[ck_n_on - 2] == 48u);
     ck_fresh(SEQ_CLK_AUTO);                    /* AUTO, no clock: its own */
     ck_msg_at(0.1, 0, CK_PLAY);
     ck_run(1.2);
