@@ -21,7 +21,27 @@ TT_TEST(boot_shows_at_least_1_5_s)
     TT_CHECK_EQ(ui_screen(&ui_u), (uint32_t)UI_SCREEN_PLAY);
 }
 
+/* Past 1.5 s it waits for the flash banks; if they never finish (a read that fails or stalls) it goes
+ * to PLAY at 5 s anyway, so the screen can't hang */
+TT_TEST(boot_waits_for_the_banks_at_most_5_s)
+{
+    boot_setup();
+    (void)ui_take(&ui_u, 1000);
+    (void)ui_take(&ui_u, 3000);
+    TT_CHECK_EQ(ui_screen(&ui_u), (uint32_t)UI_SCREEN_BOOT);   /* banks still reading */
+    ui_boot_loaded(&ui_u);
+    TT_CHECK(ui_take(&ui_u, 3100) & UI_D_FULL);
+    TT_CHECK_EQ(ui_screen(&ui_u), (uint32_t)UI_SCREEN_PLAY);
+    boot_setup();
+    (void)ui_take(&ui_u, 1000);
+    (void)ui_take(&ui_u, 5999);
+    TT_CHECK_EQ(ui_screen(&ui_u), (uint32_t)UI_SCREEN_BOOT);
+    (void)ui_take(&ui_u, 6000);                               /* never loaded: the ceiling */
+    TT_CHECK_EQ(ui_screen(&ui_u), (uint32_t)UI_SCREEN_PLAY);
+}
+
 static void run_ui_boot_tests(void)
 {
     TT_RUN(boot_shows_at_least_1_5_s);
+    TT_RUN(boot_waits_for_the_banks_at_most_5_s);
 }

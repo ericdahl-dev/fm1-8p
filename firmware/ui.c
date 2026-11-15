@@ -1316,8 +1316,8 @@ uint32_t ui_take(ui *u, uint32_t ms)
     if (u->boot == 1u) {                        /* the boot screen: its time starts at its first draw */
         u->boot = 2u;
         u->boot_ms = ms;
-    } else if (u->boot && ms - u->boot_ms >= UI_BOOT_MS && u->boot_loaded) {
-        u->boot = 0;                            /* shown long enough, the banks read: PLAY */
+    } else if (u->boot && ((ms - u->boot_ms >= UI_BOOT_MS && u->boot_loaded) || ms - u->boot_ms >= UI_BOOT_MAX_MS)) {
+        u->boot = 0;                            /* shown long enough and the banks read, or at the ceiling: PLAY */
         u->dirty |= UI_D_FULL;
     }
     ui_save_tick(u, ms);
