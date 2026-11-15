@@ -4,8 +4,8 @@
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
  * Per sample: one delay-line write, one triangle LFO step, two
- * linearly interpolated taps, one 64-bit multiply, one clamp of the dry
- * input and two dry-plus-wet adds. Divisions happen only in fm_chorus_set_mode.
+ * linearly interpolated taps (a 64-bit multiply each), one 64-bit
+ * multiply, one clamp of the dry input and two dry-plus-wet adds. Divisions happen only in fm_chorus_set_mode.
  *
  * Modes I and II are matched to PG-8X 2.0.13's chorus (#104): dry plus
  * wet, 0.68 Hz, L/R correlation about 0.46, and a short delay, so the wet
@@ -15,6 +15,10 @@
 #include "units.h"
 
 #define MASK (FM_CHORUS_DELAY_LEN - 1)
+
+/* The line holds +-2.0 (Q8.24), as the int16 line it replaced did. */
+#define LINE_MAX ((2 << 24) - 1)
+#define LINE_MIN (-(2 << 24))
 
 typedef struct {
     uint32_t rate_mhz;  /* LFO rate, millihertz */
@@ -89,13 +93,11 @@ static int32_t triangle(uint32_t phase)
 static int32_t tap(const fm_chorus *c, int32_t delay)
 {
     uint32_t whole = (uint32_t)delay >> 16;
-    int32_t frac = (int32_t)(((uint32_t)delay & 0xFFFFu) >> 1); /* Q0.15 */
+    int32_t frac = (int32_t)((uint32_t)delay & 0xFFFFu); /* Q0.16 */
     int32_t s0 = c->line[(c->pos - whole) & MASK];
     int32_t s1 = c->line[(c->pos - whole - 1u) & MASK];
-    /* |s0 * 2^15| <= 2^30 and |(s1 - s0) * frac| < 2^31 */
-    int32_t v = s0 * 32768 + (s1 - s0) * frac;
-    /* line units are 2^10 in Q8.24 and v has 15 more bits: drop 5, rounded */
-    return (v + 16) >> 5;
+    /* |s1 - s0| <= 2^26, so the product fits 43 bits; rounded */
+    return s0 + (int32_t)(((int64_t)(s1 - s0) * frac + (1 << 15)) >> 16);
 }
 
 /*
@@ -109,13 +111,9 @@ static int32_t tap(const fm_chorus *c, int32_t delay)
 static void process_on(fm_chorus *c, int32_t in, int32_t *left,
                        int32_t *right)
 {
-    int32_t q, sweep, dry;
-    /* Q8.24 -> line units (1.0 = 16384), rounded, saturating at +-2.0 */
-    q = (in >> 10) + ((in >> 9) & 1);
-    if (q > 32767) q = 32767;
-    if (q < -32768) q = -32768;
+    int32_t sweep, dry;
     c->pos = (uint16_t)((c->pos + 1u) & MASK);
-    c->line[c->pos] = (int16_t)q;
+    c->line[c->pos] = in > LINE_MAX ? LINE_MAX : in < LINE_MIN ? LINE_MIN : in;
 
     sweep = (int32_t)(((int64_t)c->depth * triangle(c->lfo_phase)) >> 30);
     c->lfo_phase += c->lfo_inc;

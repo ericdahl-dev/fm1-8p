@@ -408,9 +408,9 @@ TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
             TT_CHECK(ch_side_ratio(ch_buf, CH_RATE / 2, CH_RATE) > 0.05);
         }
     }
-    /* deep at 192 kHz: 4.1 ms fits the line (5.3 ms there), unscaled */
-    sw = ch_measure_sweep(FM_CHORUS_DEEP, 192000, NULL);
-    TT_CHECK((sw.center_ms + sw.depth_ms) * 192.0 <= FM_CHORUS_DELAY_LEN - 2);
+    /* deep at 96 kHz: 4.1 ms fits the line (5.3 ms there), unscaled */
+    sw = ch_measure_sweep(FM_CHORUS_DEEP, 96000, NULL);
+    TT_CHECK((sw.center_ms + sw.depth_ms) * 96.0 <= FM_CHORUS_DELAY_LEN - 2);
     TT_CHECK_NEAR(sw.center_ms, 2.1, 0.01);
     TT_CHECK_NEAR(sw.depth_ms, 2.0, 0.01);
     TT_CHECK_NEAR(sw.rate_hz, 0.68, 0.0136);
@@ -430,7 +430,7 @@ TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
 
 /*
  * The chorus lives in fm_engine, which is best kept in static storage
- * (fm1_8p.h): its delay line is fixed (2048 bytes of int16 samples, as documented in
+ * (fm1_8p.h): its delay line is fixed (2048 bytes of int32 samples, as documented in
  * engine/chorus_state.h) and the whole struct stays within 2.1 KiB.
  */
 TT_TEST(chorus_memory_is_fixed_and_small)
@@ -799,8 +799,56 @@ TT_TEST(chorus_left_right_correlation_matches_pg8x)
     }
 }
 
+
+/*
+ * A quiet note keeps its detail through the chorus: the delay line holds
+ * the mix at full Q8.24 precision, so each tap is the input history
+ * linearly interpolated, within a couple of Q8.24 units. A line of 1.0 =
+ * 16384 steps left a decayed note (-60 dB and below) a few steps tall,
+ * and its wet half a floor of quantization partials PG-8X doesn't have
+ * (PIANO 3's high C, #245).
+ */
+TT_TEST(chorus_taps_keep_a_quiet_signal_at_full_precision)
+{
+    static fm_chorus ch;
+    static int32_t hist[4096];
+    const double amp = (double)(1 << 24) / 1000.0; /* -60 dB */
+    uint32_t n, phase;
+    int32_t l, r;
+    double worst = 0.0;
+    fm_chorus_init(&ch, CH_RATE);
+    fm_chorus_set_mode(&ch, FM_CHORUS_SLOW);
+    for (n = 0; n < 4096; n++) {
+        int32_t x = (int32_t)(amp * sin(2.0 * 3.14159265358979 * 1046.5 * n / CH_RATE));
+        int32_t sweep;
+        phase = ch.lfo_phase;
+        hist[n] = x;
+        fm_chorus_process(&ch, x, &l, &r);
+        {
+            uint32_t xph = phase < 0x80000000u ? phase : ~phase;
+            int32_t tri = (int32_t)xph - (1 << 30);
+            sweep = (int32_t)(((int64_t)ch.depth * tri) >> 30);
+        }
+        if (n > 1000) {
+            int k;
+            for (k = 0; k < 2; k++) {
+                double d = (double)(k ? ch.center - sweep : ch.center + sweep) / 65536.0;
+                double pos = (double)n - d;
+                uint32_t i0 = (uint32_t)floor(pos);
+                double f = pos - i0;
+                double want = hist[i0] + (hist[i0 + 1] - hist[i0]) * f;
+                double got = (double)(k ? r : l) - x;
+                if (fabs(got - want) > worst) worst = fabs(got - want);
+            }
+        }
+    }
+    printf("    quiet sine through the chorus: worst tap error %.1f Q8.24 units\n", worst);
+    TT_CHECK(worst <= 2.0);
+}
+
 static void run_chorus_tests(void)
 {
+    TT_RUN(chorus_taps_keep_a_quiet_signal_at_full_precision);
     TT_RUN(chorus_left_right_correlation_matches_pg8x);
     TT_RUN(chorus_raises_a_held_saw_about_3_db_like_pg8x);
     TT_RUN(chorus_sweeps_at_pg8x_rate_in_modes_one_and_two);

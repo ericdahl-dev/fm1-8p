@@ -17,10 +17,12 @@
  * to about +-126.0 so the sum never overflows int32.
  *
  * Memory: fixed, no allocation. The delay line is FM_CHORUS_DELAY_LEN
- * int16_t samples = 2048 bytes; the whole struct is about 2.1 KiB
+ * int32_t samples = 2048 bytes; the whole struct is about 2.1 KiB
  * (sizeof(fm_chorus) is 2072 on the desktop), and it lives inside
- * fm_engine. The line holds 23 ms at 44.1 kHz; the deepest mode needs
- * 9.0 ms, so above about 113 kHz a mode's delays are scaled down to fit.
+ * fm_engine. The line keeps the mix at full Q8.24 precision, so a quiet
+ * note's wet half is as clean as its dry half (#245). It holds 11.6 ms
+ * at 44.1 kHz; the deepest mode needs 4.1 ms, so above about 124 kHz a
+ * mode's delays are scaled down to fit.
  */
 #ifndef FM_CHORUS_STATE_H
 #define FM_CHORUS_STATE_H
@@ -28,7 +30,7 @@
 #include <stdint.h>
 
 /* Delay line length in samples; a power of two so the index wraps by mask. */
-#define FM_CHORUS_DELAY_LEN 1024
+#define FM_CHORUS_DELAY_LEN 512
 
 /*
  * Modes (LFO rate, center delay, sweep either side of the center):
@@ -53,7 +55,7 @@ typedef struct {
     int32_t depth;      /* sweep either side of center, samples, Q16.16 */
     uint16_t pos;       /* index of the newest sample in line */
     uint8_t mode;       /* fm_chorus_mode */
-    int16_t line[FM_CHORUS_DELAY_LEN]; /* Q8.24 >> 10: 1.0 = 16384 */
+    int32_t line[FM_CHORUS_DELAY_LEN]; /* Q8.24, held to +-2.0 */
 } fm_chorus;
 
 #endif /* FM_CHORUS_STATE_H */

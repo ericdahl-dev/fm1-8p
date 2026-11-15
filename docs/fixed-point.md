@@ -408,9 +408,13 @@ Q8.24 come out, and each is saturated to int16 as before. The `chorus_mode` para
 
 How it works, per sample:
 
-- The input is written to one delay line of 1024 `int16_t` samples, in units
-  of Q8.24 >> 10 (1.0 = 16384), rounded, saturating at +-2.0. That keeps 14
-  fraction bits, one fewer than the int16 output, on the wet signal only.
+- The input is written to one delay line of 512 `int32_t` samples, at full
+  Q8.24, saturating at +-2.0, so the wet signal is as fine as the dry. (The
+  line was 1024 `int16_t` samples of 1.0 = 16384 until #245, the same 2048
+  bytes: a note 60 dB down was a few steps tall there, and its wet half had a
+  floor of quantization partials PG-8X doesn't have.) It holds 11.6 ms at
+  44.1 kHz; the deepest mode needs 4.1 ms, so above about 124 kHz the delays
+  are scaled down to fit.
   The chorus takes the mix after the mix gain, which peaks at 0.72 (every
   voice's two oscillators at full with lined-up peaks, 2.0 each, times
   `0.36 / voice_count`; see
@@ -419,7 +423,7 @@ How it works, per sample:
 - A triangle LFO (Q0.32 phase, one add per sample) sweeps two taps in opposite
   directions: left at center + sweep, right at center - sweep. Delays are
   Q16.16 samples; each tap reads two neighbors and interpolates linearly
-  (Q0.15 fraction, 32-bit math).
+  (Q0.16 fraction, one 64-bit multiply, rounded).
 - Each output is the dry input plus its tap, at full size each, as on
   PG-8X 2.0.13 (#104). An output never exceeds the input peak plus 2.0 (the
   line's clamp). The dry part is limited to about +-126.0, so the sum fits
