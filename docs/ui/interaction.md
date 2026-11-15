@@ -611,33 +611,60 @@ pressed from. In SEQ view:
 | LFO | toggle JUMP or GLIDE on the cursor step | same |
 | FX | unassigned | step back one step, without writing |
 
-### The piano roll (S5, spec draft)
+### The piano roll: SEQ view's screen (Eric, 2026-11-15; spec draft)
 
-S2 draws a 16-step strip; S5 replaces it with visual.md's piano roll (PR #53).
-What changes from #53 for the white-key steps:
+SEQ view's screen is a **piano roll**, a pitch-by-time grid like a DAW's, in
+step entry, in REC and while playing (Eric: "I would prefer a piano style
+sequencer"). The input is unchanged: the white keys are the steps, tap then
+play, and REC as above. The screen does not depend on REC, so it can land
+before REC (S5a the screen, S5b REC). The rows follow visual.md's layout (PR
+#53), on the 240 x 240 display:
 
-- **The roll:** 16 step columns, pitch upward, the range fitted to the
-  pattern's notes (and the notes being played for a step), at least an octave.
-  Notes are blocks at their pitch, a chord a stack, a tie runs the held notes
-  on through the gap, a rest is empty, steps past the length are dark. The
-  cursor is framed, the playhead shaded with a center line.
-- **The cursor step's readout:** its number in the LED window, the chord's name
-  when it has one (Eric, R3: the common triads and sevenths, `C MAJ`, `C MIN`,
-  `C DIM`, `C AUG`, `C SUS2`, `C SUS4`, `C 7`, `C MAJ7`, `C MIN7`; otherwise
-  none), the notes (`C3 Eb3 G3 Bb3`), and `TIE > 6`
-  on a tie. Under it, while a step is armed or REC is building one, `PLAY` (or
-  `REC`) and the notes played so far; otherwise `TAP A STEP, THEN PLAY` (`PLAY
-  A STEP` in REC).
-- **The SEQ page's knobs:** S1, S2 or S3's four values, one cell each.
-- **The section buttons' meaning here:** `SEL REST`, `ENV TIE`, `LFO MOVE` (with
-  #42), `FX BACK` in REC (`--` otherwise).
-- **The 27-key strip,** mirroring the key LEDs: the 16 white keys underlined in
-  the SEQ color as the steps, the black keys dim (#53 drew the old split).
-- **The footer:** the pattern, as S2 has it.
-- **Redraw cost:** each step column is its own canvas, so a playhead move
-  redraws two columns, the header's step number and two key-strip LEDs (#53's
-  estimate: about 2.3 k pixels a step). The roll is never redrawn whole while
-  it plays. Within the 5 ms a draw call, checked at 300 BPM.
+| rows | what |
+| --- | --- |
+| 0-23 | `SEQ` (or `REC`), the SEQ page (`S1 PATTERN`), the transport `▶07 112 INT` |
+| 26-97 | **the roll**: 16 step columns, 14 px each (12 px plus a 2 px gap, 224 px in all), pitch upward |
+| 101-153 | the cursor step: its number in the LED window, the chord name (`C MIN7`), its notes (`C3 Eb3 G3 Bb3`), `TIE > 6`; the last line `PLAY` / `REC` with the notes played so far, else `TAP A STEP, THEN PLAY` |
+| 156-187 | the SEQ page's four knobs, one compact cell each: label and value (open question P2) |
+| 191-206 | what the section buttons mean here: `SEL REST`, `ENV TIE`, `LFO MOVE` (#42), `FX BACK` in REC |
+| 208-222 | the 27-key strip mirroring the key LEDs, the white keys underlined as the steps (open question P3) |
+| 224-239 | the footer: the pattern, `*` when edited, `NEXT nn` |
+
+**The grid:**
+
+- **Pitch range:** auto-fit to the pattern's notes, plus the notes being
+  played for an armed step, at least one octave (open question P1). The roll
+  is 72 px tall: up to 24 semitones at 3 px a semitone, up to 36 at 2 px. Wider
+  than that, it centers on the cursor step's notes and marks notes off the top
+  or bottom with a 1 px tick at the edge. A refit happens only when a note
+  lands outside the range, so the roll doesn't jump while playing.
+- **Lines:** a line at every C, alternate groups of 4 steps shaded as beats.
+
+**How a step looks** (each in its column):
+
+| step | look |
+| --- | --- |
+| a note | a 12 x 3 px block at its pitch, in the SEQ color (velocity is not shown: open question P4) |
+| a chord | a stack of blocks |
+| a tie | the notes it holds run on from the step before, through the 2 px gap, at 45 % of the SEQ color, so tied steps read as one bar |
+| a rest | an empty column |
+| past the length | the column in `window`, no blocks |
+| the cursor | a 1 px frame in `cursor` |
+| the armed step | the cursor frame at 2 px, blinking 4 times a second, and the notes being played drawn into it at 45 % as they go down; full color once written (open question P5) |
+| the playhead (playing) | its column shaded in `playhead` with a 1 px center line, its notes in the playhead color |
+
+**What replaces S2's screen:** the 16-step strip goes (the roll shows the same
+and more), the focus row's text moves into the readout (rows 101-153), and the
+84 px knob columns become one compact row of four cells (open question P2).
+
+**Redraw budget:** each step column is its own 14 x 72 canvas. A playhead
+move redraws only the old and new columns (2 x 1008 px), the header's step
+number (16 x 16) and two key-strip LEDs, about 2.3 k px a step. At 300 BPM in
+16ths (20 steps a second) that is about 46 k px a second, and each step's
+work is a few small canvases, well inside a draw call's 5 ms (S2's whole strip
+measured 2.2 ms at 300 BPM). The roll is redrawn whole only on a refit, a page
+open, or a pattern load, never once per step. A step edit redraws its column
+and the readout.
 
 ### Writing steps
 
