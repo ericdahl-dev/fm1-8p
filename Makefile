@@ -21,7 +21,8 @@
 #   make check-gate         test the gate itself (renders: minutes, so not part of make check)
 #   make scorecard COMMIT=<commit> [BASE=<commit>]
 #                           how close COMMIT's 32 factory tones are to PG-8X (tools/scorecard.sh: needs
-#                           SCORECARD_REF, the reference renders, and a Python with numpy and scipy);
+#                           SCORECARD_REF, the reference renders (default $FM1_REF/pg8x/scorecard/v5),
+#                           and a Python with numpy and scipy);
 #                           appends to a JSONL history and prints the worst 5 and the tones moved
 #   make check-scorecard    test the scorecard (SCORECARD_PYTHON: a Python with numpy and scipy)
 #
