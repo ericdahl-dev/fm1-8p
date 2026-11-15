@@ -137,7 +137,7 @@ static void ui_ev(uint32_t ev, int32_t arg)
         H->midi_send(out_st[id] ? out_st[id] : ui_midi_out(&U, 0x80u), P.held[id], 0);
         return;
     case HB_EV_BTN_DOWN:
-        if (id == HB_BTN_OCT_DOWN || id == HB_BTN_OCT_UP) {
+        if ((id == HB_BTN_OCT_DOWN || id == HB_BTN_OCT_UP) && !U.boot) {   /* (the boot: a skip only) */
             play_octave(&P, id == HB_BTN_OCT_UP ? 1 : -1);
             octave_shown();                     /* then to the pages too: it cancels the PRESETS warning */
         }
@@ -188,15 +188,22 @@ static void draw(uint32_t full)
 {
     if (!set_loaded) {                          /* the first: GLO's settings (the boot screen's THEME too) */
         settings_load(&U.set, &SETTINGS);
+        U.shown_theme = U.set.theme;            /* (shown at once: the boot draws in it, no switch after) */
         seq_set_clock_source(play_seq(&P), U.set.clock_src);   /* (G13, #38) */
         set_loaded = 1;
     }
     if (P.lib_attached || (P.plib_attached && P.io)) {   /* the first draws: the boot screen, and between */
-        if (!full && ui_draw_idle()) {          /* its parts a flash bank each (#50) */
-            (void)play_store_tick(&P);
-            U.dirty |= UI_D_FOOT;               /* (its load bar) */
+        static uint32_t full_held;              /* its parts a flash bank each (#50) */
+        full_held |= full;
+        if (full_held || !ui_draw_idle()) {     /* a part to draw (a full one first) */
+            ui_draw_frame(full_held);
+            full_held = 0;
         } else {
-            ui_draw_frame(full);
+            ui_draw_frame(0);                   /* (its time and anything it marked) */
+            if (ui_draw_idle()) {               /* still nothing to draw: a bank */
+                (void)play_store_tick(&P);
+                U.dirty |= UI_D_FOOT;           /* (its load bar) */
+            }
         }
         key_leds(0);                            /* (the boot's sweep) */
         return;

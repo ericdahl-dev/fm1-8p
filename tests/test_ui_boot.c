@@ -125,6 +125,22 @@ TT_TEST(boot_progress_follows_the_banks)
     TT_CHECK_EQ(play_store_progress(&ui_p), PLAY_STORE_BANKS);
 }
 
+/* A button that skipped the boot and is still held does nothing later either: EDIT held past the
+ * skip doesn't count as a hold (the firmware review: NO EDITS showed 400 ms on) */
+TT_TEST(boot_skip_button_held_does_nothing)
+{
+    boot_setup();
+    (void)ui_take(&ui_u, 1000);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 1100);  /* skips, still held */
+    (void)ui_take(&ui_u, 1200);
+    (void)ui_take(&ui_u, 1700);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "") == 0);
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+    TT_CHECK(!(ui_u.held >> UI_BTN_EDIT & 1u));
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 1800);
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+}
+
 static void run_ui_boot_tests(void)
 {
     TT_RUN(boot_shows_at_least_1_5_s);
@@ -133,4 +149,5 @@ static void run_ui_boot_tests(void)
     TT_RUN(boot_sweeps_the_key_leds_once);
     TT_RUN(boot_text_names_the_device);
     TT_RUN(boot_progress_follows_the_banks);
+    TT_RUN(boot_skip_button_held_does_nothing);
 }

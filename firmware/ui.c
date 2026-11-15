@@ -1159,8 +1159,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     if (u->boot && ((ev & 0xFF000000u) == UI_EV_ENC || (ev & 0xFF000000u) == UI_EV_BTN_DOWN)) {
         u->boot = 0;                            /* the boot screen: any knob or button skips it, nothing else */
         u->dirty |= UI_D_FULL;
-        if ((ev & 0xFF000000u) == UI_EV_BTN_DOWN && id < UI_BUTTONS)
+        if ((ev & 0xFF000000u) == UI_EV_BTN_DOWN && id < UI_BUTTONS) {
             u->boot_btns |= 1u << id;           /* (and its release) */
+            u->held &= ~(1u << id);             /* (held on, it isn't a hold either) */
+        }
         return;
     }
     if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS && u->boot_btns >> id & 1u) {
