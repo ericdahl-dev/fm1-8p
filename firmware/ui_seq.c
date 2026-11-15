@@ -431,7 +431,7 @@ void ui_seq_step_text(const ui *u, uint32_t i, char *s)
 
 void ui_seq_chord_text(const ui *u, char *s)
 {
-    note_names(u->built, u->seq_armed ? (u->built_n < PLAY_VOICES ? u->built_n : PLAY_VOICES) : 0u, s);
+    note_names(u->built, u->seq_armed || u->seq_rec ? (u->built_n < PLAY_VOICES ? u->built_n : PLAY_VOICES) : 0u, s);
 }
 
 /* a pattern slot (0..63) as the panel numbers it, 11..88 */
@@ -473,7 +473,7 @@ static int roll_notes(const ui *u, uint32_t *lo, uint32_t *hi)
         for (j = 0; st->kind == SEQ_NOTES_ON && j < st->n; j++, any = 1)
             *lo = st->note[j] < *lo ? st->note[j] : *lo, *hi = st->note[j] > *hi ? st->note[j] : *hi;
     }
-    for (j = 0; u->seq_armed && j < u->built_n; j++, any = 1)
+    for (j = 0; (u->seq_armed || u->seq_rec) && j < u->built_n; j++, any = 1)
         *lo = u->built[j] < *lo ? u->built[j] : *lo, *hi = u->built[j] > *hi ? u->built[j] : *hi;
     return (int)any;
 }
@@ -519,7 +519,7 @@ void ui_seq_tick(ui *u, uint32_t ms)
 {
     const seq *s = play_seq(u->p);
     int32_t at = s->want ? seq_step_now(s) : -1;
-    uint32_t blink = u->seq_armed ? ms / 125u & 1u : 0u;
+    uint32_t blink = u->seq_armed || u->seq_rec ? ms / 125u & 1u : 0u;
     if (at != u->shown_playhead) {              /* the playhead: its old and new columns, the header's step */
         if (u->shown_playhead >= 0)
             roll(u, ROLL_AT((uint32_t)u->shown_playhead));

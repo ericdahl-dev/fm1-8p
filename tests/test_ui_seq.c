@@ -933,6 +933,23 @@ TT_TEST(seq_rec_key_leds)
     TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[3], 1), (uint32_t)UI_LED_LIT);
 }
 
+/* In REC the cursor column has the armed look: it blinks (its column redraws on each flip), the notes
+ * going down show there and in the readout's line */
+TT_TEST(seq_rec_cursor_has_the_armed_look)
+{
+    char t[UI_SEQ_TEXT_LEN];
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    (void)ui_take(&ui_u, 1001);                               /* phase 8: even */
+    (void)ui_seq_roll_take(&ui_u);
+    (void)ui_take(&ui_u, 1130);                               /* phase 9: a flip */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 1u << 0);
+    seq_note(5, 60, 90, 1, 1140);
+    TT_CHECK(ui_seq_roll_take(&ui_u) & 1u);
+    ui_seq_chord_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "C4") == 0);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -948,6 +965,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_play_starts_and_disarms);
     TT_RUN(seq_rec_button_leds);
     TT_RUN(seq_rec_key_leds);
+    TT_RUN(seq_rec_cursor_has_the_armed_look);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
