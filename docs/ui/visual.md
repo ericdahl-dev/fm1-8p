@@ -267,7 +267,7 @@ The SEQ view follows `interaction.md`'s SEQ list, top to bottom:
 | --- | --- |
 | 0-23 | `SEQ`, the SEQ page (`S2 STEP`), the transport |
 | 26-97 | the roll: 16 step columns of 14 px, pitch upward. The range fits the pattern's notes, at least an octave. Alternate groups of 4 steps are shaded as beats, with C lines. |
-| 101-153 | the cursor step: its number in the LED window, the chord name in D20 (`C MIN7`), the notes in Terminus (`C3 Eb3 G3 Bb3`), `TIE > 6`, and, while a step is armed or REC builds one, `PLAY` (`REC`) with the notes played so far (else `TAP A STEP, THEN PLAY`) |
+| 101-153 | the cursor step: its number in the LED window, the chord name in D20 (`C MIN7`), the notes in Terminus (`C3 Eb3 G3 Bb3`), `TIE > 6`, and, while a step is armed or REC builds one, `PLAY` (`REC`) with the notes played so far (else `TAP STEP, THEN PLAY`) |
 | 156-187 | the S1, S2 or S3 page's four knob values, one cell per knob |
 | 191-206 | what the section buttons mean here: `SEL REST`, `ENV TIE`, `LFO MOVE`, and `FX BACK` in REC (`--` otherwise) |
 | 208-222 | the 27-key strip (rows 208-219, its 2 px underline at 221-222, clear of the footer's rule at 223), mirroring the key LEDs. The 16 white keys (the steps, F3..G5) are underlined in the SEQ color and the black keys in dim (Eric's white-key steps, #250; the mockup still draws the earlier split). |

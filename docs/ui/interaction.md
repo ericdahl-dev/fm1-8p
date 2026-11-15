@@ -638,7 +638,7 @@ What the white-key steps add to #53:
 - **The 27-key strip** underlines the 16 white keys as the steps and the black
   keys dim (visual.md, updated).
 - **The readout's last line** is `PLAY` (or `REC`) with the notes played so
-  far while a step is armed or REC builds one, else `TAP A STEP, THEN PLAY`
+  far while a step is armed or REC builds one, else `TAP STEP, THEN PLAY`
   (#53's `HELD` line).
 - **The armed step** (new with tap-then-play; #53 has no armed state): its
   cursor frame thickens to 2 px and blinks, and the notes being played appear

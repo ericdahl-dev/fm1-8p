@@ -890,34 +890,37 @@ static void roll_column(uint32_t i)
     uint16_t bg = i >= len ? C_WINDOW : i / 4u & 1u ? mix(C_BG, C_SURF, 160) : C_BG;
     uint16_t on = playing ? C_TEXT : C_SEQ, tie = mix(bg, C_SEQ, 115);
     uint32_t j, p;
-    H->cv_begin(ROLL_W, UI_ROLL_H, C_BG);
-    H->cv_rect(0, 0, ROLL_W - 2, UI_ROLL_H, playing ? mix(bg, C_TEXT, 40) : bg);
+    const int32_t ml = i == 0u ? ROLL_X0 : 0;   /* (the first and last columns clear the margins too) */
+    const int32_t mr = i == SEQ_STEPS - 1u ? 240 - ROLL_X0 - (int32_t)SEQ_STEPS * ROLL_W : 0;
+    const int32_t ox = ml;                      /* the column's x in its canvas */
+    H->cv_begin(ml + ROLL_W + mr, UI_ROLL_H, C_BG);
+    H->cv_rect(ox, 0, ROLL_W - 2, UI_ROLL_H, playing ? mix(bg, C_TEXT, 40) : bg);
     for (p = U->roll_lo; p < U->roll_lo + rows; p++)    /* a line at every C */
         if (p % 12u == 0u)
-            H->cv_rect(0, (int32_t)((rows - 1u - (p - U->roll_lo)) * pps + pps / 2u), ROLL_W, 1, C_LINE);
+            H->cv_rect(ox, (int32_t)((rows - 1u - (p - U->roll_lo)) * pps + pps / 2u), ROLL_W, 1, C_LINE);
     if (playing)
-        H->cv_rect((ROLL_W - 2) / 2, 0, 1, UI_ROLL_H, C_TEXT);   /* the playhead's center line */
+        H->cv_rect(ox + (ROLL_W - 2) / 2, 0, 1, UI_ROLL_H, C_TEXT);   /* the playhead's center line */
     if (i < len) {
         if (st->kind == SEQ_NOTES_ON) {
             const seq_step *nx = i + 1u < len ? seq_get_step(sq, i + 1u) : 0;
             for (j = 0; j < st->n; j++)         /* (tied on: through the gap) */
-                roll_note(0, nx && nx->kind == SEQ_TIE ? ROLL_W : ROLL_W - 2, st->note[j], on);
+                roll_note(ox, nx && nx->kind == SEQ_TIE ? ROLL_W : ROLL_W - 2, st->note[j], on);
         } else if (st->kind == SEQ_TIE && (src = tie_source(sq, i)) != 0) {
             const seq_step *nx = i + 1u < len ? seq_get_step(sq, i + 1u) : 0;
             for (j = 0; j < src->n; j++)        /* the held notes run on, at 45 % */
-                roll_note(0, nx && nx->kind == SEQ_TIE ? ROLL_W : ROLL_W - 2, src->note[j], tie);
+                roll_note(ox, nx && nx->kind == SEQ_TIE ? ROLL_W : ROLL_W - 2, src->note[j], tie);
         }
         if (U->seq_armed && i == U->seq_cursor)  /* an armed step: the notes played so far, at 45 % */
             for (j = 0; j < U->built_n; j++)
-                roll_note(0, ROLL_W - 2, U->built[j], tie);
+                roll_note(ox, ROLL_W - 2, U->built[j], tie);
     }
     if (i == U->seq_cursor) {                   /* the cursor; armed, 2 px and blinking */
         if (!U->seq_armed)
-            frame(0, 0, ROLL_W - 2, UI_ROLL_H, C_TEXT);
+            frame(ox, 0, ROLL_W - 2, UI_ROLL_H, C_TEXT);
         else if (!U->shown_blink)
-            frame(0, 0, ROLL_W - 2, UI_ROLL_H, C_TEXT), frame(1, 1, ROLL_W - 4, UI_ROLL_H - 2, C_TEXT);
+            frame(ox, 0, ROLL_W - 2, UI_ROLL_H, C_TEXT), frame(ox + 1, 1, ROLL_W - 4, UI_ROLL_H - 2, C_TEXT);
     }
-    blit(ROLL_X0 + (int32_t)i * ROLL_W, ROLL_Y, ROLL_W, UI_ROLL_H);
+    blit(ROLL_X0 + (int32_t)i * ROLL_W - ml, ROLL_Y, ml + ROLL_W + mr, UI_ROLL_H);
 }
 
 /* rows 100..155: the cursor step's number in the LED window, its chord name (or its note, REST, TIE), its
@@ -958,7 +961,7 @@ static void seq_readout(void)
         CV_TEXT(x, 40, 0, "PLAY", led_of(C_PLAY));
         CV_TEXT(x + TEXT_W(0, "PLAY") + 6, 40, 0, *t ? t : "ITS NOTES", *t ? C_TEXT : C_DIM);
     } else {
-        CV_TEXT(x, 40, 0, "TAP A STEP, THEN PLAY", C_DIM);
+        CV_TEXT(x, 40, 0, "TAP STEP, THEN PLAY", C_DIM);
     }
     blit(0, 100, 240, 56);
 }
