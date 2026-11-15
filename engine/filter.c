@@ -290,6 +290,7 @@ static const int32_t tan_tab[132] = {
     134217728, 147378461, 162881623, 181479693, 204299355, 233108465, 270849855, 322815567,
     399582160, 525816175, 775495129, 1518452104
 };
+#define F0_MAX (-1480)                          /* f0 / fs at most 0.425 (20.4 kHz at 48 kHz) */
 #define D_MAX (-1383)                           /* f0 / fs at most 0.45 */
 /*
  * k = 1 / Q by resonance per mille: PG-8X 2.0.13's (its F49 and F64 fits'
@@ -374,6 +375,7 @@ static void apply(fm_filter *f)
         /* (c_t t: Q54 cents under 2^63 for t to 0.63, so T_SHIFT 0.6 at most; to Q10 under 2^19;
          * times k - k93, within 2^31: under 2^50) */
         int32_t shift = (int32_t)((((c_t * tt) >> 44) * ((int64_t)k - K_93)) >> 40);
+        if (d + shift > F0_MAX) shift = F0_MAX - d;   /* PG-8X's f0 goes no further (F104: 20.4..20.9 kHz) */
         if (shift) t = tan_of(d + shift);
     }
     den = (1 << 23) + (int32_t)(((int64_t)t * (t + (k >> 3))) >> 31);                    /* 1 + t (t + k), Q9.23 */
@@ -402,6 +404,16 @@ static void apply(fm_filter *f)
         f->a = (int32_t)(((int64_t)f->a * inv) >> 30);
     }
     f->fade = f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS ? ONE_Q30 : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
+    if (f->fade != ONE_Q30) {   /* toward its cube, as much as there is a peak (1 - k Q0, as the level's
+                                 * fold): the sections' peak near Nyquist (zeros at the origin) to PG-8X's
+                                 * height at F104 (+8.8..17.6 dB); the passband is the input's either way,
+                                 * and at resonance 0 the fade is as it was */
+        int32_t f1 = f->fade, f3, w = ONE_Q30 - (int32_t)(((int64_t)k_of(f->res) * Q0_Q30) >> 30);
+        w = w <= 0 ? 0 : w >= ONE_Q30 / 2 ? ONE_Q30 : 2 * w;   /* (twice it, to 1 from about resonance 400) */
+        f3 = (int32_t)(((int64_t)f1 * f1) >> 30);
+        f3 = (int32_t)(((int64_t)f3 * f1) >> 30);
+        f->fade = f1 - (int32_t)(((int64_t)(f1 - f3) * w) >> 30);
+    }
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }
 

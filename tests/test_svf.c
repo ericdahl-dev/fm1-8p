@@ -554,6 +554,39 @@ TT_TEST(svf_top_peaks_are_pg8x)
     TT_CHECK(wh < 1.0 && wc < 30.0);
 }
 
+/* PG-8X 2.0.13 at VCF FREQ 104 (the engine's 14130), its peak re its open render as PG_TOP: its f0
+ * goes no further than about 20.4..20.9 kHz at 48 kHz */
+static const struct { int16_t permille; float db, hz; } PG_F104[] = {
+    { 756, 8.8f, 20883.0f }, { 900, 14.2f, 20628.0f }, { 935, 17.6f, 20399.0f } };
+
+/* At the very top the resonance stops where PG-8X's does: under its f0 by no more than 100 cents
+ * and over it by no more than 30 (PG-8X's own peak there reads within its last bins), and no more than
+ * 2 dB over its height */
+TT_TEST(svf_top_stops_where_pg8x_does)
+{
+    static fm_filter f;
+    int32_t rate = fm_filter_rate_cents(SVF_RATE);
+    double wh = -1e9, wc = -1e9, lc = 1e9;
+    size_t r;
+    for (r = 0; r < sizeof PG_F104 / sizeof PG_F104[0]; r++) {
+        double best = -1e9, at = 0, c, h;
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, PG_F104[r].permille);
+        fm_filter_set_cutoff(&f, 14130, rate);
+        for (h = 12000.0; h < SVF_RATE / 2.0 - 50.0; h *= pow(2.0, 2 / 1200.0)) {
+            double g = svf_gain_db(&f, h, SVF_RATE);
+            if (g > best) best = g, at = h;
+        }
+        c = 1200 * log2(at / PG_F104[r].hz);
+        printf("    F104 res %d: peak %+.1f dB at %.0f Hz (PG-8X %+.1f at %.0f: %+.0f cents)\n", PG_F104[r].permille,
+               best, at, PG_F104[r].db, PG_F104[r].hz, c);
+        wh = fmax(wh, best - PG_F104[r].db);
+        wc = fmax(wc, c);
+        lc = fmin(lc, c);
+    }
+    TT_CHECK(wh < 2.0 && wc < 30.0 && lc > -100.0);
+}
+
 static void run_svf_tests(void)
 {
     TT_RUN(svf_lowpass_is_pg8x_two_sections);
@@ -568,4 +601,5 @@ static void run_svf_tests(void)
     TT_RUN(svf_f0_moves_with_resonance_as_pg8x_at_f80);
     TT_RUN(svf_input_past_the_hold_is_the_hold);
     TT_RUN(svf_top_peaks_are_pg8x);
+    TT_RUN(svf_top_stops_where_pg8x_does);
 }
