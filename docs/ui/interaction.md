@@ -549,7 +549,7 @@ lit.
 
 In REC (step record, S5): every key plays, so a key held is lit; the cursor
 step's white key blinks at 8 Hz (where the next step lands), and the other
-white keys keep showing their steps, as a map (open question R2).
+white keys keep showing their steps, dimmed, as a map (Eric, R2).
 
 Outside SEQ view:
 
@@ -578,10 +578,10 @@ pressed from. In SEQ view:
 
 - **SELECT** moves the step cursor (1..length, wraps), and the screen shows
   that step.
-- **A step key with no chord held** moves the cursor to that step. While
-  stopped and not in REC, it also plays the step's notes once, as an audition.
-- **A step key with a chord held** writes the chord to that step and moves the
-  cursor there (see [Writing steps](#writing-steps)).
+- **A step key** (a white key) moves the cursor to that step and arms it: the
+  notes played next are written there (see [Writing steps](#writing-steps)).
+  It plays nothing itself; there is no audition of the step's old notes
+  (Eric, R4: the roll shows them).
 - **PRESETS** browses patterns (see [Pattern slots](#pattern-slots)).
 - **SAVE** saves the pattern.
 - **ALGORITHM** picks the SEQ page:
@@ -622,7 +622,9 @@ What changes from #53 for the white-key steps:
   on through the gap, a rest is empty, steps past the length are dark. The
   cursor is framed, the playhead shaded with a center line.
 - **The cursor step's readout:** its number in the LED window, the chord's name
-  when it has one (open question R3), the notes (`C3 Eb3 G3 Bb3`), and `TIE > 6`
+  when it has one (Eric, R3: the common triads and sevenths, `C MAJ`, `C MIN`,
+  `C DIM`, `C AUG`, `C SUS2`, `C SUS4`, `C 7`, `C MAJ7`, `C MIN7`; otherwise
+  none), the notes (`C3 Eb3 G3 Bb3`), and `TIE > 6`
   on a tie. Under it, while a step is armed or REC is building one, `PLAY` (or
   `REC`) and the notes played so far; otherwise `TAP A STEP, THEN PLAY` (`PLAY
   A STEP` in REC).
@@ -675,8 +677,8 @@ without tapping each step first.
    view, it goes there. The cursor stays where it is, the REC LED is lit, and
    the header's chip reads `REC`. While playing, REC does nothing but show
    `STOP TO RECORD` (decision Q3), and its LED is off.
-2. **The keyboard in REC:** all 27 keys play notes (open question R1); none is
-   a step key. MIDI notes in play too.
+2. **The keyboard in REC:** all 27 keys play notes (Eric, R1); none is a step
+   key. MIDI notes in play too.
 3. **Building and writing a step:** each key down sounds and joins the step
    being built. When every key and MIDI note is let go, the step is written at
    the cursor (the first voice-count notes, at the highest velocity, as in
@@ -799,7 +801,8 @@ Everywhere, unless the state says otherwise:
 - **Must:** the current pattern number (`PATTERN 41`), with a PATTERN EDITED
   marker. While a next pattern is queued, also `NEXT PATTERN 23`.
 - **Must:** a transport indicator: STOPPED, PLAYING with the step number, or
-  WAITING FOR CLOCK. Also the clock source in use, INT or MIDI, and the tempo.
+  WAITING FOR CLOCK. Also the clock source in use, INT or MIDI, and the tempo:
+  the header's `▶07 112 INT` (R5; `INT` until #38 brings MIDI clock).
 - **Must:** a banner line for short messages, shown 1.5 s:
   - `SAVED 23`, `SAVED PATTERN 23`
   - `EDITED - TURN TO DISCARD`
