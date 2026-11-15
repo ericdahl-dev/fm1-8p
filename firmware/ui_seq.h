@@ -38,6 +38,9 @@ void ui_seq_chord_text(const ui *u, char *s);
 /* SEQ view's footer: left the pattern playing ("PTN 11 NIGHT DRIVE*", `*` edited), right "NEXT 12"
  * while one is queued, else "" (each UI_SEQ_TEXT_LEN) */
 void ui_seq_footer_text(const ui *u, char *left, char *right);
+/* The transport's clock (interaction.md 7): "INT", "MIDI", or "WAITING FOR CLOCK" while PLAY waits for
+ * the clock's start. s: UI_SEQ_TEXT_LEN */
+void ui_seq_clock_text(const ui *u, char *s);
 /* SEQ view: a step key (0..15) down or up */
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* An event while SEQ view is open. */

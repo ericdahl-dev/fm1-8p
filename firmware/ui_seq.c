@@ -394,3 +394,9 @@ void ui_seq_footer_text(const ui *u, char *left, char *right)
     if (next >= 0)
         put_slot(put_s(right, "NEXT "), (uint32_t)next);
 }
+
+void ui_seq_clock_text(const ui *u, char *s)
+{
+    const seq *q = play_seq(u->p);
+    put_s(s, seq_waiting(q) ? "WAITING FOR CLOCK" : seq_clock_external(q) ? "MIDI" : "INT");
+}

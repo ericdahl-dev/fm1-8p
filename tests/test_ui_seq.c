@@ -543,10 +543,27 @@ TT_TEST(seq_tempo_turn_under_the_clock_says_so)
     TT_CHECK(strlen(ui_banner(&ui_u)) <= 28u);
 }
 
+/* The transport's clock (interaction.md 7): INT, MIDI, or WAITING FOR CLOCK while PLAY waits (case 47) */
+TT_TEST(seq_clock_text_names_the_source)
+{
+    char t[UI_SEQ_TEXT_LEN];
+    ui_setup();
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "INT") == 0);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);      /* G13 MIDI, no clock yet */
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "MIDI") == 0);
+    ui_tap(UI_BTN_PLAY, 1000);
+    TT_CHECK(seq_waiting(play_seq(&ui_p)));
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "WAITING FOR CLOCK") == 0);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tempo_shows_the_midi_clock);
     TT_RUN(seq_tempo_turn_under_the_clock_says_so);
+    TT_RUN(seq_clock_text_names_the_source);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
