@@ -27,12 +27,12 @@
  * (loop_in). See docs/fixed-point.md for the formats and the measured
  * response.
  */
+#include "filter.h"
 #ifdef FM_FILTER_SVF /* PROTOTYPE: the ladder's tables and helpers are left in, unused */
 #pragma GCC diagnostic ignored "-Wunused-const-variable"
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
-#include "filter.h"
 
 /* Tables from tools/gen_filter_tables.py. */
 
