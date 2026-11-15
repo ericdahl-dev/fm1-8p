@@ -1191,6 +1191,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && u->state == UI_SEQ && !u->save_waiting) {
+        u->seq_armed = u->built_n = u->seq_rec = 0;   /* (SAVE takes the screen: REC and a step part-built end) */
         ui_save_open(u, ms);                    /* SAVE in SEQ view: the pattern (interaction.md, SAVE) */
         return;
     }

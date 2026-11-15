@@ -226,6 +226,7 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     }
     if (u->seq_cursor >= seq_length(s))
         u->seq_cursor = 0;
+    u->built_n = 0;                             /* (a step part-built in REC: dropped with the old pattern) */
     roll(u, ROLL_ALL);
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;
 }

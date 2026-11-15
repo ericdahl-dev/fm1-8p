@@ -985,6 +985,38 @@ TT_TEST(seq_rec_toggle_redraws_the_strip_and_ends_a_tapped_step)
     TT_CHECK(ui_take(&ui_u, 1501) & UI_D_FOOT);
 }
 
+/* A step part-built in REC is dropped when SAVE opens (REC disarms: SAVE takes the screen) or a pattern
+ * loads from PRESETS: notes let go later write nothing, and the next step starts empty */
+TT_TEST(seq_rec_save_and_pattern_load_drop_the_step_being_built)
+{
+    const seq_step *st;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    seq_note(5, 60, 90, 1, 1100);                             /* held */
+    ui_tap(UI_BTN_SAVE, 1200);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_OFF);
+    seq_note(5, 60, 0, 0, 1300);
+    ui_tap(UI_BTN_HOME, 1400);                                /* SAVE: cancel */
+    ui_tap(UI_BTN_HOME, 1500);
+    if (ui_u.state != UI_SEQ)
+        ui_tap(UI_BTN_SEQ, 1600);
+    ui_tap(UI_BTN_REC, 1700);
+    seq_note(9, 64, 90, 1, 1800);
+    seq_note(9, 64, 0, 0, 1900);
+    st = seq_get_step(play_seq(&ui_p), 0);
+    TT_CHECK_EQ(st->n, 1u);                                   /* E4 alone, no stale C4 */
+    TT_CHECK_EQ(st->note[0], 64u);
+    seq_note(5, 60, 90, 1, 2000);                             /* held on step 2 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2100);    /* edited: warned */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2200);    /* loads 12 */
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    seq_note(5, 60, 0, 0, 2300);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), ui_u.seq_cursor)->kind, SEQ_REST);
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -1003,6 +1035,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_cursor_has_the_armed_look);
     TT_RUN(seq_rec_sel_held_keeps_the_pattern);
     TT_RUN(seq_rec_toggle_redraws_the_strip_and_ends_a_tapped_step);
+    TT_RUN(seq_rec_save_and_pattern_load_drop_the_step_being_built);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
