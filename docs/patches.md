@@ -111,7 +111,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 
 | JX-8P | Engine field | Mapping |
 | --- | --- | --- |
-| RANGE + TUNE | `osc1_octave`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; whole octaves of range + tune go to the octave, the rest to coarse. DCO-1 has no coarse in the engine yet: osc1 plays the whole octave nearest its pitch that leaves osc2 in range, and osc2 moves by what osc1 lacks, so the interval holds and only the whole patch shifts: MUSIC BOX 4 semitones down, WINDCHIMES 9 down. `PATCH_OSC1_COARSE_SEMIS` keeps that amount |
+| RANGE + TUNE | `osc1_octave`, `osc1_coarse_semis`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; for each DCO, whole octaves of range + tune go to its octave and the rest to its coarse (#108), so every patch plays at its own pitch (before #108, DCO-1 had no coarse and MUSIC BOX played 4 semitones down, WINDCHIMES 9 down) |
 | WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse (25 % wide, *est.*), saw |
 | FINE TUNE | `osc2_fine_cents` | (value - 64) x 50 / 64 |
 | MIX DCO-1, DCO-2 | `osc1_level_permille`, `osc2_level_permille` | each byte over 127; the DCOs sum, as PG-8X 2.0.13's mixer does (measured, #102) |
@@ -146,7 +146,6 @@ returns `PATCH_NONE` for them; when a feature lands, its field gets the new para
 | Field | From | Waits for |
 | --- | --- | --- |
 | `FILTER_LFO_PERMILLE` | VCF LFO | #8 (LFO to cutoff) |
-| `OSC1_COARSE_SEMIS` | DCO-1 TUNE | DCO-1 coarse tune (no issue yet) |
 
 Aftertouch (#61) and portamento (#62) are not tone data on the JX-8P: they are panel settings
 (the AFTER TOUCH buttons and the PORTAMENTO switch and knob), so no factory tone carries them, and
