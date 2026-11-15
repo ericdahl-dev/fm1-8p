@@ -64,9 +64,32 @@ TT_TEST(boot_any_control_skips_it)
     TT_CHECK_EQ(ui_key(&ui_u, 5, 0, 1150), 0);
 }
 
+/* The key LEDs sweep once left to right over the boot's first 500 ms, one key lit at a time (key k in
+ * its 1/27 of it), then all dark until PLAY (Eric, 2026-11-15) */
+TT_TEST(boot_sweeps_the_key_leds_once)
+{
+    uint32_t k, lit, at;
+    boot_setup();
+    ui_boot_loaded(&ui_u);
+    (void)ui_take(&ui_u, 1000);                               /* the sweep starts */
+    for (at = 0; at < 500u; at += 37u) {
+        ui_u.now_ms = 1000u + at;
+        for (k = 0, lit = 0; k < PLAY_KEYS; k++)
+            if (ui_key_led(&ui_u, k, 0) == UI_LED_LIT) {
+                lit++;
+                TT_CHECK_EQ(k, at * PLAY_KEYS / 500u);
+            }
+        TT_CHECK_EQ(lit, 1u);
+    }
+    ui_u.now_ms = 1600u;                                      /* swept: dark */
+    for (k = 0; k < PLAY_KEYS; k++)
+        TT_CHECK_EQ(ui_key_led(&ui_u, k, 0), (uint32_t)UI_LED_OFF);
+}
+
 static void run_ui_boot_tests(void)
 {
     TT_RUN(boot_shows_at_least_1_5_s);
     TT_RUN(boot_waits_for_the_banks_at_most_5_s);
     TT_RUN(boot_any_control_skips_it);
+    TT_RUN(boot_sweeps_the_key_leds_once);
 }

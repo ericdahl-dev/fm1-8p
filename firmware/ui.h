@@ -203,6 +203,7 @@ uint32_t ui_screen(const ui *u);
  * UI_BOOT_MS and until the flash banks are read (ui_boot_loaded), at most UI_BOOT_MAX_MS; then PLAY */
 #define UI_BOOT_MS 1500u
 #define UI_BOOT_MAX_MS 5000u
+#define UI_BOOT_SWEEP_MS 500u               /* its key LED sweep, once */
 void ui_boot_begin(ui *u);
 void ui_boot_loaded(ui *u);
 /* GLO: the slot on knob k (0..3) of the GLO page shown; its value as the focus row reads it (the
