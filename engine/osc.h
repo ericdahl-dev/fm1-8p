@@ -11,6 +11,10 @@
 typedef struct {
     uint32_t phase; /* Q0.32, one full cycle = 2^32 */
     uint32_t inc;   /* Q0.32 phase increment per sample, < 2^31 */
+    uint32_t rcp;   /* 1 / inc as rcp / 2^rsh, for the polyBLEP's distance to a
+                     * wrap (#259); 0: none (no increment, or cross-mod's
+                     * bent increment), then it divides */
+    uint8_t rsh;
 } fm_osc;
 
 /* Highest allowed increment: just under Nyquist. */

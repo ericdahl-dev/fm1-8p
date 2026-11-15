@@ -34,21 +34,31 @@ integer divided by 2^n.
 
 Multiplies of two 32-bit values go through a 64-bit intermediate
 (`(int64_t)a * b >> n`). Divisions happen only on events (note on, pitch
-bend, a parameter change, an envelope stage change), except the polyBLEP correction, which does
-one 64-by-32 division on each of the two samples around every saw wrap. That
-is 2 divisions a cycle for a saw and 4 for a pulse or square (two saws, one
-per edge), so up to 8 a cycle for a voice with two pulse oscillators. Per
-sample that is 2 x increment for a saw and 4 x increment for a pulse, where
-the increment is in cycles per sample. High notes add up: the highest pitch
-is note 127 (12.5 kHz, an increment of 0.284 at 44.1 kHz), which is above a
-quarter of the sample rate, so the pulse is forced to a square and divides on
-more than every other sample. The worst case is about 2.28 divisions per
-sample per voice (two pulse or square oscillators at note 127). On the JieLi
-clang toolchain these compile to the native divide, and the branch links with
-no `__*di3` or float helpers (checked by the #12 firmware work). If the CPU
-measurement (#13) shows the divides cost too much, the planned fix is a
-reciprocal of each increment computed on note and retune events, which turns
-every polyBLEP division into a multiply.
+bend, a parameter change, an envelope stage change). The one exception is
+cross-mod's bent increment, below.
+
+The polyBLEP's distance to a wrap (x = t / increment, Q16, on the two samples
+around every saw wrap) is a multiply, not a divide (#259). Each oscillator
+keeps a reciprocal of its increment, worked out whenever the increment is
+set (`fm_osc_set_inc`: note, retune, and the pitch modulation's control
+ticks). That uses three Newton steps on the increment shifted up to
+2^31..2^32, as `derive()` does for sync, with no division, so x is
+`(d x rcp) >> rsh`, one 32 x 32 -> 64 multiply.
+
+The reciprocal can round x one Q16 step away from the divide's floor. Against
+the divide that moves 1 sample in 40.7 million by 1 LSB across the 32 factory
+tones' scorecard renders. `saw_polyblep_matches_its_double_precision_model`
+holds every sample within two steps of x of an exact model (the divide read
+one).
+
+Only cross-mod divides: it bends osc2's increment every sample, so its
+polyBLEPs on osc2 take x by a 64-by-32 division for that sample. That is 2 x
+increment divisions per sample for a saw, 4 x for a pulse or square. The sync
+restart's correction terms (`unwrap_blep`, `wrap_after_blep`) use osc2's
+reciprocal too.
+
+Before #259 every polyBLEP divided, up to about 2.28 divisions per sample per
+voice (two pulse or square oscillators at note 127).
 
 Every divisor is non-zero by construction, because division by zero does not
 trap on pi32v2; it returns garbage:

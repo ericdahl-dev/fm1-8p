@@ -159,6 +159,47 @@ TT_TEST(pulse_peaks_at_the_saw_level_at_every_width)
         TT_CHECK_NEAR(held_peak(FM_WAVE_PULSE, widths[k]) / saw, 1.0, 0.03);
 }
 
+/*
+ * The saw's polyBLEP is the textbook 2-point one: a double-precision
+ * model of it (naive saw 2t - 1, less 2x - x^2 - 1 after a wrap and plus
+ * (1 - x)^2 before it, x the distance to the wrap in samples) gives every
+ * sample within two steps of x's Q16 (2 x 2^-16 of the step's 2.0, 1024
+ * Q8.24 units), at notes 0..127, 44.1 and 192 kHz. A divide per sample reads
+ * 480 (one step), and a reciprocal at pitch change (#259) may round x one
+ * step further.
+ */
+TT_TEST(saw_polyblep_matches_its_double_precision_model)
+{
+    static const uint32_t rates[] = { 44100, 192000 };
+    static fm_osc_pair p;
+    size_t r;
+    int note;
+    double worst = 0;
+    for (r = 0; r < 2; r++)
+        for (note = 0; note <= 127; note += 7) {
+            uint32_t i, t, dt;
+            fm_osc_pair_reset(&p, 1);
+            fm_osc_pair_set_pitch(&p, note << 16, rates[r]);
+            dt = p.osc[0].inc;
+            for (i = 0; i < 4000; i++) {
+                double x, want, d;
+                t = p.osc[0].phase;
+                want = ((double)(int32_t)(t ^ 0x80000000u)) / 128.0;   /* Q8.24 */
+                if (t < dt) {
+                    x = (double)t / dt;
+                    want -= (2 * x - x * x - 1) * 16777216.0;
+                } else if (t > 0u - dt) {
+                    x = (double)(0u - t) / dt;
+                    want -= (x * x - 2 * x + 1) * 16777216.0;
+                }
+                d = fabs((double)fm_osc_pair_next(&p) - want);
+                if (d > worst) worst = d;
+            }
+        }
+    printf("    saw polyBLEP against its model: worst %.2f Q8.24 units\n", worst);
+    TT_CHECK(worst <= 1024.0);
+}
+
 /* Octave shifts by factors of two; fine tune by 2^(cents / 1200). */
 TT_TEST(octave_and_fine_tune_shift_pitch)
 {
@@ -2086,6 +2127,7 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
 
 static void run_osc_tests(void)
 {
+    TT_RUN(saw_polyblep_matches_its_double_precision_model);
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(ring_multiplies_osc2_by_osc1_square);
     TT_RUN(ring_depth_follows_a_saw_osc1);
