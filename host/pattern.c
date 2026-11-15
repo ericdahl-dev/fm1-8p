@@ -64,13 +64,13 @@ int pattern_parse(const char *text, seq *s)
 }
 
 int render_pattern(const char *text, const char *wav_path, const render_opts *o, uint32_t tempo,
-                   uint32_t gate, uint32_t loops)
+                   uint32_t gate, uint32_t swing, uint32_t loops)
 {
     static seq s;
     static seq_event ev[SEQ_EVENTS];
     fm_engine eng;
     uint32_t voices = o->voice_count ? o->voice_count : RENDER_DEFAULT_VOICES, i, total, play, done;
-    uint64_t thr = (uint64_t)o->sample_rate * 600u, inc;
+    uint64_t units = 0, inc;
     int16_t *pcm;
     int rc;
     if (voices > FM_MAX_VOICES || o->sample_rate < 8000 || o->sample_rate > 192000 || loops < 1 ||
@@ -82,8 +82,13 @@ int render_pattern(const char *text, const char *wav_path, const render_opts *o,
         return -1;
     seq_set_tempo(&s, tempo);
     seq_set_gate(&s, gate);
+    seq_set_swing(&s, swing);
     inc = (uint64_t)seq_tempo(&s) * SEQ_PPQ;
-    play = (uint32_t)(((uint64_t)loops * seq_length(&s) * thr + inc - 1u) / inc);
+    for (i = 0; i < seq_length(&s); i++) {     /* the pattern once, in clock units (seq.c's step_len) */
+        uint64_t first = (uint64_t)o->sample_rate * 12u * s.edit.swing_pct;
+        units += i % 2u ? (uint64_t)o->sample_rate * 1200u - first : first;
+    }
+    play = (uint32_t)((loops * units + inc - 1u) / inc);
     total = play + (uint32_t)((uint64_t)o->tail_ms * o->sample_rate / 1000u);
     pcm = malloc((size_t)(total ? total : 1) * 2 * sizeof *pcm);
     if (!pcm || fm_engine_init(&eng, o->sample_rate, (uint8_t)voices) != FM_OK) {
