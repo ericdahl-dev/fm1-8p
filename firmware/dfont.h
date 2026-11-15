@@ -24,3 +24,8 @@ extern const dfont DFONT_D24, DFONT_D20;
 
 /* s's width in f, px: its glyphs and a gap between each two */
 int32_t dfont_width(const dfont *f, const char *s);
+
+/* s in f at x, y (its top left) in color c, each row's runs of lit pixels as one rect; returns the x after
+ * it (x + its width) */
+typedef void (*dfont_rect_fn)(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c);
+int32_t dfont_draw(const dfont *f, int32_t x, int32_t y, const char *s, uint16_t c, dfont_rect_fn rect);

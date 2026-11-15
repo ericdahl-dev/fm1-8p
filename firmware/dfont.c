@@ -27,3 +27,29 @@ int32_t dfont_width(const dfont *f, const char *s)
             w += f->w[g] + f->gap;
     return w ? w - f->gap : 0;
 }
+
+int32_t dfont_draw(const dfont *f, int32_t x, int32_t y, const char *s, uint16_t c, dfont_rect_fn rect)
+{
+    int32_t x0 = x;
+    for (; *s; s++) {
+        int32_t g = dfont_glyph(*s);
+        uint32_t w, bpr, r, b;
+        const uint8_t *row;
+        if (g < 0)
+            continue;
+        w = f->w[g], bpr = (w + 7u) / 8u, row = &f->data[f->off[g]];
+        for (r = 0; r < f->h; r++, row += bpr)
+            for (b = 0; b < w;) {
+                uint32_t e;
+                if (!(row[b >> 3] >> (7u - (b & 7u)) & 1u)) {
+                    b++;
+                    continue;
+                }
+                for (e = b; e < w && row[e >> 3] >> (7u - (e & 7u)) & 1u; e++) {}
+                rect(x + (int32_t)b, y + (int32_t)r, (int32_t)(e - b), 1, c);
+                b = e;
+            }
+        x += (int32_t)w + f->gap;
+    }
+    return x == x0 ? x0 : x - f->gap;
+}

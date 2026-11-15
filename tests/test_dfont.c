@@ -23,8 +23,56 @@ TT_TEST(dfont_widths)
     TT_CHECK_EQ(dfont_width(&DFONT_D20, "c min7"), dfont_width(&DFONT_D20, "C MIN7"));
 }
 
+/* a test canvas the rects land on: 1 where drawn */
+static uint8_t df_px[32][160];
+static void df_rect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t c)
+{
+    int32_t i, j;
+    (void)c;
+    for (j = y; j < y + h; j++)
+        for (i = x; i < x + w; i++)
+            if (i >= 0 && i < 160 && j >= 0 && j < 32)
+                df_px[j][i] = 1;
+}
+
+/* glyph g's pixel (x, y) in f, from the table */
+static int df_bit(const dfont *f, int32_t g, uint32_t x, uint32_t y)
+{
+    uint32_t bpr = (f->w[g] + 7u) / 8u;
+    return f->data[f->off[g] + y * bpr + x / 8u] >> (7u - x % 8u) & 1u;
+}
+
+/* Drawing lights exactly the table's pixels for each glyph, glyph after glyph a gap apart, and returns
+ * the x after the text (the start + its width) */
+TT_TEST(dfont_draws_the_tables_bits)
+{
+    static const char *const S[2] = {"C#7", "1.25K"};
+    const dfont *F[2] = {&DFONT_D24, &DFONT_D20};
+    uint32_t t, k, x, y, bad = 0;
+    for (k = 0; k < 2u; k++)
+        for (t = 0; t < 2u; t++) {
+            const char *s = S[t];
+            int32_t at = 3, end;
+            memset(df_px, 0, sizeof df_px);
+            end = dfont_draw(F[k], 3, 2, s, 1u, df_rect);
+            TT_CHECK_EQ(end, 3 + dfont_width(F[k], s));
+            for (; *s; s++) {
+                int32_t g = dfont_glyph(*s);
+                for (y = 0; y < F[k]->h; y++)
+                    for (x = 0; x < F[k]->w[g]; x++)
+                        bad += df_px[2 + y][at + (int32_t)x] != df_bit(F[k], g, x, y);
+                for (y = 0; y < F[k]->h && *(s + 1); y++)   /* the gap stays dark */
+                    for (x = 0; x < (uint32_t)F[k]->gap; x++)
+                        bad += df_px[2 + y][at + F[k]->w[g] + (int32_t)x] != 0;
+                at += F[k]->w[g] + F[k]->gap;
+            }
+        }
+    TT_CHECK_EQ(bad, 0u);
+}
+
 static void run_dfont_tests(void)
 {
     TT_RUN(dfont_finds_every_glyph);
     TT_RUN(dfont_widths);
+    TT_RUN(dfont_draws_the_tables_bits);
 }
