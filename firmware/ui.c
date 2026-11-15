@@ -1090,6 +1090,11 @@ int ui_pc_out(ui *u, uint32_t *pc)
     return 1;
 }
 
+uint32_t ui_sense_curve(const ui *u)
+{
+    return (UI_SENSE_CURVE_HOST * u->set.vel_curve_pct + 50u) / 100u;
+}
+
 int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
 {
     const ui_slot *s = cc_slot(u->set.cc_map, cc);
