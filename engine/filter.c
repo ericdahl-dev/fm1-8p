@@ -220,7 +220,7 @@ void fm_filter_reset(fm_filter *f)
 {
     fm_filter_clear(f);
     f->a1 = ONE_Q30;
-    f->a2 = f->a3 = f->t = 0;
+    f->a2 = f->a3 = f->t = f->z1 = 0;
     f->res = 0;
     f->a = ONE_Q30;
     f->cut = FM_FILTER_OPEN_CENTS;
@@ -264,11 +264,11 @@ static void leave_open(fm_filter *f)
  * f0 under the cutoff: PG-8X 2.0.13's two sections' f0 (resonance 93,
  * tests/test_svf.c's method) against the engine's cutoff for the same VCF
  * FREQ, -176 cents at 6769 (F49) to -260 at 2639 (F16) and -246 at
- * 11927 (F88), every 1200 cents of the cutoff from 0, read with linear
- * interpolation (above F88 PG-8X's f0 nears its Nyquist and goes on the
- * slope from there).
+ * 11927 (F88; there set by PG-8X's peak, -261), every 1200 cents of the
+ * cutoff from 0, read with linear interpolation (above F88 PG-8X's f0 nears
+ * its Nyquist and goes on the slope from there).
  */
-static const int16_t f0_off[13] = { -260, -260, -260, -237, -199, -181, -177, -188, -209, -228, -246, -264, -282 };
+static const int16_t f0_off[13] = { -260, -260, -260, -237, -199, -181, -177, -188, -209, -228, -263, -298, -333 };
 /* tan(pi 2^(d / 1200)), d = -14400 .. -1300 by 100 (fc / fs from 1/4096 to 0.47), Q5.27 */
 static const int32_t tan_tab[132] = {
     102944, 109065, 115550, 122421, 129701, 137413, 145584, 154241,
@@ -300,9 +300,18 @@ static const int16_t k_pm[14] = { 0, 290, 395, 400, 500, 575, 690, 756, 828, 860
 static const int32_t k_tab[14] = { 1555853578, 1107028459, 921274491, 913757962, 780616755, 677527015,
                                    537944002, 458487882, 365072384, 319976243, 248034877, 194877760,
                                    159987123, 79993562 };
+/* section 1's zeros 5/8 of the way to the origin (section 2's all the way): PG-8X's top end at F80
+ * within 1.7 dB to 4 f0 (none: 8 dB under; both: 4 over). Up toward Nyquist, where the analog
+ * prototype isn't to be had and that shift only lifts the top, it tapers to none: full to t 0.4
+ * (f0 / fs 0.12), none from t 1.2 (0.28) */
+#define Z1_FULL  671088640                     /* 5/8, Q30 */
+#define Z1_T0    53687091                      /* t 0.4, Q5.27 */
+#define Z1_T1    161061274                     /* t 1.2, Q5.27 */
 #define K_TOP    683920082                     /* 0.637 (2 / pi), Q30 */
+#define K_93     458487882                     /* k at RES 93 (756), where the f0 offset is measured */
+#define RATE48_CENTS 15023                     /* fm_filter_rate_cents(48000) */
 #define T_TRIM   40265318                      /* 0.3, Q5.27: the trim's t at most */
-#define Q0_Q30   740881793                     /* Q at resonance 0, 0.69: the level is k Q0 */
+#define Q0_Q30   741021855                     /* 1 / k at resonance 0 (Q 0.69): the level is k Q0, 1.0 there */
 #define K_FLOOR  21474836                      /* the level's k, at least 0.02: self-oscillation starts */
 
 static int32_t k_of(int32_t pm)
@@ -313,32 +322,55 @@ static int32_t k_of(int32_t pm)
     return k_tab[i] + (int32_t)(((int64_t)(k_tab[i + 1] - k_tab[i]) * (pm - k_pm[i])) / (k_pm[i + 1] - k_pm[i]));
 }
 
-/* The coefficients from the cutoff, rate and resonance as set: control rate, two 32-bit divides. */
+/* tan(pi f / fs), Q5.27, for f / fs in cents (held to 1/4096 .. 0.45) */
+static int32_t tan_of(int32_t d)
+{
+    int32_t i, r;
+    if (d > D_MAX) d = D_MAX;
+    if (d < -14400) d = -14400;
+    i = (d + 14400) / 100;
+    r = (d + 14400) % 100;
+    return tan_tab[i] + (int32_t)(((int64_t)(tan_tab[i + 1] - tan_tab[i]) * r) / 100);
+}
+
+/* The coefficients from the cutoff, rate and resonance as set: control rate, a few 32-bit divides. */
 static void apply(fm_filter *f)
 {
-    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, k, kl, trim, den;
+    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, tt, k, kl, trim, den, a1;
     int was_open = fm_filter_is_wire(f);
     i = c / 1200;
     r = c % 1200;
     d = c + (i >= 12 ? f0_off[12] + (f0_off[12] - f0_off[11]) * r / 1200
                      : f0_off[i] + (f0_off[i + 1] - f0_off[i]) * r / 1200) - f->rate;   /* f0 / fs, cents */
-    if (d > D_MAX) d = D_MAX;
-    if (d < -14400) d = -14400;
-    i = (d + 14400) / 100;
-    r = (d + 14400) % 100;
-    t = tan_tab[i] + (int32_t)(((int64_t)(tan_tab[i + 1] - tan_tab[i]) * r) / 100);  /* Q5.27, <= 6.32 */
+    t = tan_of(d);                                                                       /* Q5.27, <= 6.32 */
     k = k_of(f->res);                                                                    /* Q30, <= 1.45 */
     /* PG-8X's Q falls a little at high cutoffs (F80: 3..10 %, F49: none): k + K_TOP k^2 t, and its
      * passband rises half as much (the level's k: k + half that). Fitted to F80 (t 0.25), and taken no
      * further than t 0.3 (F82): at most 0.4 more, k within 1.85 */
-    trim = (int32_t)(((((int64_t)k * k) >> 30) * (((int64_t)(t < T_TRIM ? t : T_TRIM) * K_TOP) >> 27)) >> 30);
+    /* PG-8X's own top: how its sections move at high f0 goes by f0's tan at 48 kHz (PG-8X's), whatever
+     * the rate here */
+    tt = tan_of(d + f->rate - RATE48_CENTS);
+    tt = tt < T_TRIM ? tt : T_TRIM;
+    trim = (int32_t)(((((int64_t)k * k) >> 30) * (((int64_t)tt * K_TOP) >> 27)) >> 30);
     kl = k + trim / 2;
     k += trim;
+    /* and its f0 moves with the resonance there, the offset being RES 93's: up under it, down over it,
+     * by (240 + 900 t) t (k - k93) cents (F80: +150 at RES 0, -32 at 127; F64: +24; F49: +6) */
+    {
+        int64_t c_t = ((int64_t)240 << 27) + 900 * (int64_t)tt;                         /* 240 + 900 t, Q27 */
+        int32_t shift = (int32_t)((((c_t * tt) >> 27) * ((int64_t)k - K_93)) >> 57);
+        if (shift) t = tan_of(d + shift);
+    }
     den = (1 << 23) + (int32_t)(((int64_t)t * (t + (k >> 3))) >> 31);                    /* 1 + t (t + k), Q9.23 */
-    f->a1 = (int32_t)((0x80000000u / (uint32_t)(den >> 7)) << 15);                       /* 2^31 / Q16: Q15, to Q30 */
-    f->a2 = (int32_t)(((int64_t)f->a1 * t) >> 27);
+    a1 = (int32_t)((0x80000000u / (uint32_t)(den >> 7)) << 15);                         /* 2^31 / Q16: Q15, to Q30 */
+    /* one Newton step, a1 (2 - den a1): 15 bits to 30, so the lowpass's DC gain is 1 (within 1e-8) */
+    a1 = (int32_t)(((int64_t)a1 * ((1ll << 31) - (((int64_t)den * a1) >> 23))) >> 30);
+    f->a1 = a1;
+    f->a2 = (int32_t)(((int64_t)a1 * t) >> 27);
     f->a3 = (int32_t)(((int64_t)f->a2 * t) >> 27);
     f->t = t;
+    f->z1 = t <= Z1_T0 ? Z1_FULL : t >= Z1_T1 ? 0
+          : (int32_t)(((int64_t)Z1_FULL * (Z1_T1 - t)) / (Z1_T1 - Z1_T0));
     f->a = (int32_t)(((int64_t)(kl > K_FLOOR ? kl : K_FLOOR) * Q0_Q30) >> 30);            /* <= 1.0 (1.2 at the top) */
     f->fade = f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS ? ONE_Q30 : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
@@ -466,7 +498,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         }
     }
     {
-        int32_t a1 = f->a1, a2 = f->a2, a3 = f->a3, i1, i2, v1, v2, v3, y;
+        int32_t a1 = f->a1, a2 = f->a2, a3 = f->a3, i1, i2, v1, v2, v3, y, u;
         int64_t p, out;
         v3 = (hold(mul_q30(x, f->a)) >> 1) - f->s[1];   /* the input, held to 16.0: Q9.23 */
         i1 = f->s[0];
@@ -479,9 +511,14 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         f->c[1] = (int32_t)(p & 0x3FFFFFFF);
         f->s[0] = 2 * v1 - i1;
         f->s[1] = 2 * v2 - i2;
-        i1 = f->s[2];                            /* section 2, on section 1's lowpass */
+        /* section 1's output with its zeros at the origin too (within 2.6 of its input level: hold) */
+        {
+            int64_t dz = 3 * ((int64_t)v2 - i2) - (((int64_t)f->t * i1) >> 27);
+            u = (int32_t)(v2 + ((dz * f->z1) >> 30));
+        }
+        i1 = f->s[2];                            /* section 2, on section 1's */
         i2 = f->s[3];
-        v3 = v2 - i2;
+        v3 = u - i2;
         p = (int64_t)a1 * i1 + (int64_t)a2 * v3 + f->c[2];
         v1 = (int32_t)(p >> 30);
         f->c[2] = (int32_t)(p & 0x3FFFFFFF);
