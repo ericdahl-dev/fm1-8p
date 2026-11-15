@@ -53,7 +53,7 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on)
             u->chord[j] = u->chord[j + 1u], u->chord_vel[j] = u->chord_vel[j + 1u];
         u->chord_n--;
     }
-    if (u->state == UI_SEQ && u->seq_armed) {   /* armed: the notes played go to the cursor step */
+    if (u->state == UI_SEQ && (u->seq_armed || u->seq_rec)) {   /* armed or REC: to the cursor step */
         for (i = 0; i < u->built_n && u->built[i] != note; i++)
             ;
         if (on && i == u->built_n && u->built_n < UI_CHORD_MAX) {

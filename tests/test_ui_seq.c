@@ -764,12 +764,37 @@ TT_TEST(seq_rec_every_key_plays)
     TT_CHECK(!ui_u.seq_armed);                                /* (no step tapped) */
 }
 
+/* In REC, the keys held make a step; when all are let go it is written at the cursor and the cursor
+ * moves on, still recording: no time-out */
+TT_TEST(seq_rec_writes_a_step_and_moves_on)
+{
+    const seq_step *st;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    seq_note(5, 60, 90, 1, 1100);
+    seq_note(9, 64, 110, 1, 1110);
+    seq_note(5, 60, 0, 0, 1200);
+    seq_note(9, 64, 0, 0, 1210);
+    st = seq_get_step(play_seq(&ui_p), 0);
+    TT_CHECK_EQ(st->kind, SEQ_NOTES_ON);
+    TT_CHECK_EQ(st->n, 2u);
+    TT_CHECK_EQ(st->vel, 110u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 1u);
+    (void)ui_take(&ui_u, 9000);                               /* long after: still recording */
+    TT_CHECK(ui_u.seq_rec);
+    seq_note(7, 62, 100, 1, 9100);
+    seq_note(7, 62, 0, 0, 9200);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 1)->note[0], 62u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 2u);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
     TT_RUN(seq_rec_tap_arms_and_opens_seq_view);
     TT_RUN(seq_rec_while_playing_says_stop_to_record);
     TT_RUN(seq_rec_every_key_plays);
+    TT_RUN(seq_rec_writes_a_step_and_moves_on);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
