@@ -81,8 +81,8 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         static const char *const FEET[5] = {"32", "16", "8", "4", "2"};
         num = put_str(num, FEET[value < -2 ? 0 : value > 2 ? 4 : value + 2]), u = "'";
     } else if (id == FM_PARAM_OSC1_WAVE || id == FM_PARAM_OSC2_WAVE) {
-        static const char *const WAVE[4] = {"SAW", "PULSE", "SQUARE", "NOISE"};
-        num = put_str(num, WAVE[value < 0 ? 0 : value > 3 ? 3 : value]);
+        static const char *const WAVE[FM_WAVE_COUNT] = {"SAW", "PULSE", "SQUARE", "NOISE", "SPIKE"};
+        num = put_str(num, WAVE[value < 0 ? 0 : value > FM_WAVE_COUNT - 1 ? FM_WAVE_COUNT - 1 : value]);
     } else if (id == FM_PARAM_LFO_PITCH_CENTS || id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
         if (value < 0)                          /* DCO-2's -1: DCO-1's depth */
             num = put_str(num, "D1");
@@ -475,6 +475,8 @@ int32_t ui_wave_level(uint32_t wave, uint32_t width_pct, uint32_t i, uint32_t n)
         return ph < 10u * width_pct ? 1000 : -1000;
     case FM_WAVE_SQUARE:
         return ph < 500u ? 1000 : -1000;
+    case FM_WAVE_SPIKE:                         /* PG-8X's narrow peak (#150), then its tail */
+        return ph < 80u ? 1000 - 25 * (int32_t)ph : -150;
     default:                                    /* noise: a fixed scatter, the same every draw */
         r = (i + 1u) * 2654435761u;
         return (int32_t)(r >> 16 & 2047u) * 2000 / 2047 - 1000;
