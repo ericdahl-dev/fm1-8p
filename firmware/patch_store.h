@@ -41,6 +41,8 @@ typedef struct {
 
 /* At power-on: the banks from flash (a bank not there: every slot empty). */
 void store_lib_load(store_lib *l, const store_io *io);
+/* One of them, b (0, 1): a bank's read is a draw call's work (visual.md's 5 ms) */
+void store_lib_load_bank(store_lib *l, const store_io *io, uint32_t b);
 /* User slot s (0..63) into p: 0, or -1 when it is empty. */
 int store_slot_read(const store_lib *l, uint32_t s, store_patch *p);
 /* 1 when user slot s holds a patch */

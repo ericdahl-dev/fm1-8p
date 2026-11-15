@@ -161,11 +161,11 @@ TT_TEST(store_every_param_has_one_tag_and_fits_int16)
     TT_CHECK(ok);
 }
 
-/* A RAM stand-in for fm1-dock's banks: up to 4, each as saved (len -1: not there); `fail` makes a save
- * fail. */
+/* A RAM stand-in for fm1-dock's banks: up to 6 (the patches' 1, 2 and the patterns' 3, 4), each as saved
+ * (len -1: not there); `fail` makes a save fail. */
 typedef struct {
-    uint8_t data[4][8176];
-    int32_t len[4];
+    uint8_t data[6][8176];
+    int32_t len[6];
     int fail;
     uint32_t saves;
     uint32_t loads;
@@ -175,7 +175,7 @@ static int store_fake_load(void *ctx, uint32_t idx, void *p, uint32_t n)
 {
     store_fake *f = ctx;
     f->loads++;
-    if (idx >= 4 || f->len[idx] < 0) return -1;
+    if (idx >= 6 || f->len[idx] < 0) return -1;
     memcpy(p, f->data[idx], n < (uint32_t)f->len[idx] ? n : (uint32_t)f->len[idx]);
     return f->len[idx];
 }
@@ -183,7 +183,7 @@ static int store_fake_load(void *ctx, uint32_t idx, void *p, uint32_t n)
 static int store_fake_save(void *ctx, uint32_t idx, const void *p, uint32_t n)
 {
     store_fake *f = ctx;
-    if (idx >= 4 || f->fail || n > 8176) return -1;
+    if (idx >= 6 || f->fail || n > 8176) return -1;
     memcpy(f->data[idx], p, n);
     f->len[idx] = (int32_t)n;
     f->saves++;
@@ -198,7 +198,7 @@ static void store_flash_blank(void)
 {
     uint32_t i;
     memset(&store_flash, 0xFF, sizeof store_flash);
-    for (i = 0; i < 4; i++) store_flash.len[i] = -1;
+    for (i = 0; i < 6; i++) store_flash.len[i] = -1;
     store_flash.fail = 0;
     store_flash.saves = 0;
     store_flash.loads = 0;
@@ -340,10 +340,13 @@ TT_TEST(store_loads_on_the_first_tick_not_at_init)
     play_attach_store(&ui_p, &store_lib_a, &store_fake_io);
     TT_CHECK_EQ(store_flash.loads, 0u);
     TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), PLAY_PROG_P);
-    play_store_tick(&ui_p);
+    TT_CHECK_EQ(play_store_tick(&ui_p), 1u);   /* one bank a draw: each read is one draw call's work */
+    TT_CHECK_EQ(store_flash.loads, 1u);
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), PLAY_PROG_P);   /* not yet */
+    TT_CHECK_EQ(play_store_tick(&ui_p), 1u);
     TT_CHECK_EQ(store_flash.loads, 2u);
     TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), 9u);
-    play_store_tick(&ui_p);
+    TT_CHECK_EQ(play_store_tick(&ui_p), 0u);   /* (no pattern slots attached) */
     TT_CHECK_EQ(store_flash.loads, 2u);
 }
 

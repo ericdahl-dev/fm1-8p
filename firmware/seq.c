@@ -22,25 +22,32 @@ static void edit_end(seq *s)
     s->editing = 0;
 }
 
-void seq_init(seq *s)
+void seq_pattern_empty(seq_pattern *p)
 {
     uint32_t i, k;
-    s->edit.length = SEQ_STEPS;
-    s->edit.gate_pct = SEQ_GATE_DEF;
-    s->edit.swing_pct = SEQ_SWING_DEF;
-    s->edit.tempo = SEQ_TEMPO_DEF;
+    p->length = SEQ_STEPS;
+    p->gate_pct = SEQ_GATE_DEF;
+    p->swing_pct = SEQ_SWING_DEF;
+    p->tempo = SEQ_TEMPO_DEF;
     for (i = 0; i < SEQ_STEPS; i++) {
-        s->edit.step[i].kind = SEQ_REST;
-        s->edit.step[i].n = 0;
-        s->edit.step[i].vel = SEQ_VEL_DEF;
+        p->step[i].kind = SEQ_REST;
+        p->step[i].n = 0;
+        p->step[i].vel = SEQ_VEL_DEF;
         for (k = 0; k < SEQ_NOTES; k++)
-            s->edit.step[i].note[k] = 0;
+            p->step[i].note[k] = 0;
     }
-    s->run = s->edit;
+}
+
+void seq_init(seq *s)
+{
+    seq_pattern_empty(&s->edit);
+    s->run = s->stored = s->edit;
+    s->next_pending = s->next_taken = s->next_taken_seen = 0;
     s->editing = 0;
     s->edits = s->edits_seen = 0;
     s->ask_play = s->ask_stop = s->play_seen = s->stop_seen = 0;
     s->want = 0;
+    s->transpose = s->run_transpose = 0;
     s->pos = s->acc = s->gated = 0;
     s->n_sounding = 0;
     s->playing = 0;
@@ -102,6 +109,17 @@ void seq_toggle_tie(seq *s, uint32_t i)
     edit_end(s);
 }
 
+void seq_set_transpose(seq *s, int32_t semis)
+{
+    s->transpose = semis < -SEQ_TRANSPOSE_MAX ? -SEQ_TRANSPOSE_MAX
+                   : semis > SEQ_TRANSPOSE_MAX ? SEQ_TRANSPOSE_MAX : semis;
+}
+
+int32_t seq_transpose(const seq *s)
+{
+    return s->transpose;
+}
+
 uint32_t seq_tempo(const seq *s)
 {
     return s->edit.tempo;
@@ -141,6 +159,83 @@ void seq_stop(seq *s)
     s->want = 0;
     BARRIER();
     s->ask_stop++;
+    (void)seq_main_tick(s);                     /* (one the interrupt took already) */
+    if (s->next_pending) {                      /* stopping with one queued: it loads at once */
+        s->next_pending = 0;
+        BARRIER();
+        edit_begin(s);
+        s->edit = s->next;
+        edit_end(s);
+        s->stored = s->next;
+    }
+}
+
+void seq_load_pattern(seq *s, const seq_pattern *p)
+{
+    (void)seq_main_tick(s);
+    if (s->want && s->playing) {                /* playing: queued for the end of the pass */
+        s->next_pending = 0;                    /* (the interrupt leaves `next` alone while it's written) */
+        BARRIER();
+        s->next = *p;
+        BARRIER();
+        s->next_pending = 1;
+        return;
+    }
+    s->next_pending = 0;
+    edit_begin(s);
+    s->edit = *p;
+    edit_end(s);
+    s->stored = *p;
+}
+
+uint32_t seq_next_queued(const seq *s)
+{
+    return s->next_pending;
+}
+
+void seq_cancel_next(seq *s)
+{
+    s->next_pending = 0;
+}
+
+uint32_t seq_main_tick(seq *s)
+{
+    if (s->next_taken == s->next_taken_seen)
+        return 0;
+    s->next_taken_seen = s->next_taken;
+    edit_begin(s);
+    s->edit = s->next;                          /* what the interrupt took */
+    edit_end(s);
+    s->stored = s->next;
+    return 1;
+}
+
+/* the same pattern, as played: settings, and each step's kind, velocity and the notes it has */
+static int same_pattern(const seq_pattern *a, const seq_pattern *b)
+{
+    uint32_t i, k;
+    if (a->length != b->length || a->tempo != b->tempo || a->swing_pct != b->swing_pct ||
+        a->gate_pct != b->gate_pct)
+        return 0;
+    for (i = 0; i < SEQ_STEPS; i++) {
+        const seq_step *x = &a->step[i], *y = &b->step[i];
+        if (x->kind != y->kind || x->n != y->n || x->vel != y->vel)
+            return 0;
+        for (k = 0; k < x->n && k < SEQ_NOTES; k++)
+            if (x->note[k] != y->note[k])
+                return 0;
+    }
+    return 1;
+}
+
+uint32_t seq_edited(const seq *s)
+{
+    return !same_pattern(&s->edit, &s->stored);
+}
+
+void seq_mark_saved(seq *s)
+{
+    s->stored = s->edit;
 }
 
 uint32_t seq_playing(const seq *s)
@@ -159,6 +254,14 @@ uint32_t seq_steps(const seq *s)
 }
 
 /* ---- the audio interrupt ---- */
+
+/* the step playing's length in clock units: a step is fs x 600, and with swing the steps pair up, the
+ * first of a pair (pos 0, 2, ...) 2 x swing % of a step long, the second the rest */
+static uint32_t step_len(const seq *s, uint32_t fs)
+{
+    uint32_t first = fs * 12u * s->run.swing_pct;
+    return s->pos & 1u ? fs * 1200u - first : first;
+}
 
 static uint32_t put(seq_event *ev, uint32_t cnt, uint32_t at, uint32_t note, uint32_t vel)
 {
@@ -190,16 +293,26 @@ static uint32_t start_step(seq *s, seq_event *ev, uint32_t cnt, uint32_t at, uin
         s->run = s->edit;
         s->edits_seen = s->edits;
     }
-    if (s->pos >= s->run.length)
+    if (s->pos >= s->run.length) {             /* the end of a pass */
         s->pos = 0;
+        if (s->next_pending) {                  /* the queued pattern takes over (#40) */
+            s->run = s->next;
+            s->edits_seen = s->edits;           /* (an edit to the old one is dropped with it) */
+            s->next_pending = 0;
+            s->next_taken++;
+        }
+    }
+    s->run_transpose = s->transpose;            /* (a transpose plays from a step's start) */
     st = &s->run.step[s->pos];
     if (st->kind != SEQ_TIE)
         cnt = let_go(s, ev, cnt, at);           /* (offs before ons, at the same frame) */
     if (st->kind == SEQ_NOTES_ON) {
-        n = st->n < voices ? st->n : voices;
-        for (k = 0; k < n; k++) {
-            cnt = put(ev, cnt, at, st->note[k], st->vel);
-            s->sounding[k] = st->note[k];
+        for (k = n = 0; k < st->n && n < voices; k++) {
+            int32_t note = (int32_t)st->note[k] + s->run_transpose;
+            if (note < 0 || note > 127)
+                continue;                       /* pushed out of range: left out */
+            cnt = put(ev, cnt, at, (uint32_t)note, st->vel);
+            s->sounding[n++] = (uint8_t)note;   /* as played: its off matches */
         }
         s->n_sounding = (uint8_t)n;
     }
@@ -211,7 +324,7 @@ static uint32_t start_step(seq *s, seq_event *ev, uint32_t cnt, uint32_t at, uin
 
 uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event *ev)
 {
-    uint32_t cnt = 0, t = 0, thr = fs * 600u, inc, gate, target, j, next;
+    uint32_t cnt = 0, t = 0, thr, inc, gate, target, j, next;
     if (s->ask_play != s->play_seen || s->ask_stop != s->stop_seen) {
         s->play_seen = s->ask_play;             /* the latest ask wins: play (again, from step 1) or stop */
         s->stop_seen = s->ask_stop;
@@ -229,6 +342,7 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
         return cnt;
     while (t < n) {
         inc = (uint32_t)s->run.tempo * SEQ_PPQ;
+        thr = step_len(s, fs);                  /* (at 50 % swing, fs x 600: every step alike) */
         gate = thr / 100u * s->run.gate_pct;
         next = s->run.step[s->pos + 1u < s->run.length ? s->pos + 1u : 0].kind;
         target = !s->gated && s->n_sounding && gate < thr && next != SEQ_TIE ? gate : thr;

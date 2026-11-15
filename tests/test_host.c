@@ -597,7 +597,7 @@ TT_TEST(render_plays_a_pattern_to_a_wav)
     uint32_t frames, rate, i, step = 0, peak_on = 0;
     int16_t *pcm;
     printf("    (a pattern: 2 loops of C4 then a rest, 120 BPM)\n");
-    TT_CHECK_EQ(render_pattern("60;-", "build/pattern.wav", &o, 1200, 50, 2), 0);
+    TT_CHECK_EQ(render_pattern("60;-", "build/pattern.wav", &o, 1200, 50, 50, 2), 0);
     pcm = read_wav_pcm("build/pattern.wav", &frames, &rate);
     TT_CHECK(pcm != NULL);
     step = 44100u * 600u / (1200u * 4u);       /* 5512.5: 4 steps, 22050 frames */
@@ -606,7 +606,24 @@ TT_TEST(render_plays_a_pattern_to_a_wav)
         peak_on = (uint32_t)(abs(pcm[2 * i]) > (int)peak_on ? abs(pcm[2 * i]) : (int)peak_on);
     free(pcm);
     TT_CHECK(peak_on > 1000u);
-    TT_CHECK(render_pattern("x", "build/pattern.wav", &o, 1200, 50, 2) != 0);
+    TT_CHECK(render_pattern("x", "build/pattern.wav", &o, 1200, 50, 50, 2) != 0);
+}
+
+/* -w: swing moves the even steps late (75 %: by half a step), and the pattern's length stays the same. */
+TT_TEST(render_swings_a_pattern)
+{
+    render_opts o = { .sample_rate = 44100, .tail_ms = 0, .voice_count = 4 };
+    uint32_t frames, rate, i, onset = 0;
+    int16_t *pcm;
+    TT_CHECK_EQ(render_pattern("-;60", "build/swing.wav", &o, 1200, 50, 75, 1), 0);
+    pcm = read_wav_pcm("build/swing.wav", &frames, &rate);
+    TT_CHECK(pcm != NULL);
+    TT_CHECK_EQ(frames, 11025u);                /* 2 steps at 120 BPM, swung or not */
+    for (i = 0; i < frames && !onset; i++)
+        if (abs(pcm[2 * i]) > 200)
+            onset = i;
+    free(pcm);
+    TT_CHECK(onset >= 8268u && onset < 8268u + 200u);   /* 1.5 steps in: 5512.5 x 1.5 */
 }
 
 static void run_host_tests(void)
@@ -637,4 +654,5 @@ static void run_host_tests(void)
     TT_RUN(render_parses_a_pattern);
     TT_RUN(render_rejects_a_bad_pattern);
     TT_RUN(render_plays_a_pattern_to_a_wav);
+    TT_RUN(render_swings_a_pattern);
 }

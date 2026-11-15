@@ -36,11 +36,13 @@
 #include "test_dyna.c"
 #include "test_glide.c"
 #include "test_patch_store.c"
+#include "test_pattern_store.c"
 #include "test_ui_save.c"
 #include "test_settings_store.c"
 #include "test_ui_reach.c"
 #include "test_seq.c"
 #include "test_seq_play.c"
+#include "test_play_patterns.c"
 
 int main(void)
 {
@@ -66,10 +68,12 @@ int main(void)
     run_dyna_tests();
     run_glide_tests();
     run_patch_store_tests();
+    run_pattern_store_tests();
     run_ui_save_tests();
     run_settings_store_tests();
     run_ui_reach_tests();
     run_seq_tests();
     run_seq_play_tests();
+    run_play_patterns_tests();
     return tt_report();
 }

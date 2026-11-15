@@ -345,6 +345,218 @@ TT_TEST(seq_busiest_block_fits)
     TT_CHECK((uint64_t)192000u * 600u + (uint64_t)SEQ_TEMPO_MAX * SEQ_PPQ * SEQ_BLOCK < 0x100000000ull);
 }
 
+/* step k's start with swing (pct): steps pair up, the first of a pair fs x 12 x swing long, the second
+ * the rest of fs x 1200; closed form, 64-bit in the test only */
+static uint32_t seq_swing_start_at(uint32_t k, uint32_t fs, uint32_t tempo, uint32_t swing)
+{
+    uint64_t pair = (uint64_t)fs * 1200u, first = (uint64_t)fs * 12u * swing, inc = (uint64_t)tempo * SEQ_PPQ;
+    uint64_t at = (k / 2u) * pair + (k % 2u) * first;
+    return (uint32_t)((at + inc - 1u) / inc);
+}
+static uint32_t seq_swing_gate_at(uint32_t k, uint32_t fs, uint32_t tempo, uint32_t swing, uint32_t gate)
+{
+    uint64_t pair = (uint64_t)fs * 1200u, first = (uint64_t)fs * 12u * swing, inc = (uint64_t)tempo * SEQ_PPQ;
+    uint64_t len = k % 2u ? pair - first : first;
+    uint64_t at = (k / 2u) * pair + (k % 2u) * first + len / 100u * gate;
+    return (uint32_t)((at + inc - 1u) / inc);
+}
+
+/* #37: swing moves the even steps (2, 4, ...) late by its amount, exactly, and each step's gate is its
+ * own length's share; the odd steps stay on the beat. */
+TT_TEST(seq_swing_moves_even_steps_exactly)
+{
+    uint32_t i, k, fs = 44100, tempo = 1373, swing = 66, gate = 40, len = 4;
+    seq_fresh();
+    seq_set_tempo(&sq, tempo);
+    seq_set_swing(&sq, swing);
+    seq_set_gate(&sq, gate);
+    seq_set_length(&sq, len);
+    for (i = 0; i < len; i++) {
+        uint8_t note = (uint8_t)(60 + i);
+        seq_set_step(&sq, i, &note, 1, 100);
+    }
+    seq_play(&sq);
+    seq_run(seq_swing_start_at(21, fs, tempo, swing) - 1u, SEQ_256, 1, fs, 6);
+    TT_CHECK_EQ(seq_logged, 2u * 21u);
+    for (k = 0; k < 21u; k++) {
+        TT_CHECK_EQ(seq_log[2u * k].t, seq_swing_start_at(k, fs, tempo, swing));
+        TT_CHECK_EQ(seq_log[2u * k + 1u].t, seq_swing_gate_at(k, fs, tempo, swing, gate));
+    }
+    TT_CHECK(seq_log[2].t > seq_start_at(1, fs, tempo));    /* step 2 late */
+    TT_CHECK_EQ(seq_log[4].t, seq_start_at(2, fs, tempo));  /* step 3 on the beat */
+}
+
+/* Swing is 50..75 % (interaction.md, S1 PATTERN); 50 is straight. */
+TT_TEST(seq_swing_is_clamped)
+{
+    seq_fresh();
+    seq_set_swing(&sq, 20);
+    TT_CHECK_EQ(sq.edit.swing_pct, 50u);
+    seq_set_swing(&sq, 90);
+    TT_CHECK_EQ(sq.edit.swing_pct, 75u);
+}
+
+/* #37: a transpose change plays from the next step; the notes sounding are let go as they were played,
+ * so nothing hangs. It is -24..+24, and a note it pushes outside 0..127 is left out. */
+TT_TEST(seq_transpose_takes_effect_at_the_next_step)
+{
+    static const uint8_t chord[2] = {60, 120};
+    uint32_t fs = 44100, tempo = 1200, i, ons = 0, offs = 0;
+    seq_fresh();
+    seq_set_tempo(&sq, tempo);
+    seq_set_gate(&sq, 100);                     /* held to the next step: the off comes with it */
+    seq_set_length(&sq, 1);
+    seq_set_step(&sq, 0, chord, 2, 100);
+    seq_play(&sq);
+    seq_run(1000, SEQ_256, 1, fs, 6);           /* step 0: 60 and 120 */
+    seq_set_transpose(&sq, 12);
+    TT_CHECK_EQ(seq_transpose(&sq), 12);
+    seq_run(seq_start_at(1, fs, tempo) + 1u - 1000u, SEQ_256, 1, fs, 6);
+    TT_CHECK_EQ(seq_logged, 2u + 2u + 1u);      /* on 60, 120; off 60, 120; on 72 (132 left out) */
+    TT_CHECK_EQ(seq_log[2].note, 60u);
+    TT_CHECK_EQ(seq_log[2].vel, 0u);
+    TT_CHECK_EQ(seq_log[3].note, 120u);
+    TT_CHECK_EQ(seq_log[3].vel, 0u);
+    TT_CHECK_EQ(seq_log[4].note, 72u);
+    TT_CHECK_EQ(seq_log[4].vel, 100u);
+    seq_set_transpose(&sq, -99);
+    TT_CHECK_EQ(seq_transpose(&sq), -24);
+    seq_set_transpose(&sq, 99);
+    TT_CHECK_EQ(seq_transpose(&sq), 24);
+    seq_stop(&sq);
+    seq_run(256, SEQ_256, 1, fs, 6);
+    for (i = 0; i < seq_logged; i++) {
+        ons += seq_log[i].vel != 0;
+        offs += seq_log[i].vel == 0;
+    }
+    TT_CHECK_EQ(ons, offs);                     /* nothing hangs */
+}
+
+/* two patterns told apart by their first note, `len` steps each, every step that note */
+static void seq_two(seq_pattern *a, seq_pattern *b, uint32_t len)
+{
+    uint32_t i;
+    seq_pattern_empty(a);
+    seq_pattern_empty(b);
+    a->length = b->length = (uint8_t)len;
+    for (i = 0; i < len; i++) {
+        a->step[i].kind = b->step[i].kind = SEQ_NOTES_ON;
+        a->step[i].n = b->step[i].n = 1;
+        a->step[i].vel = b->step[i].vel = 100;
+        a->step[i].note[0] = 60;
+        b->step[i].note[0] = 72;
+    }
+}
+
+/* #40: stopped, a pattern loads at once: the edit buffer is it, it is not edited, and play plays it. */
+TT_TEST(seq_load_stopped_loads_at_once)
+{
+    static seq_pattern a, b;
+    seq_fresh();
+    seq_two(&a, &b, 3);
+    seq_load_pattern(&sq, &b);
+    TT_CHECK_EQ(seq_length(&sq), 3u);
+    TT_CHECK_EQ(seq_get_step(&sq, 0)->note[0], 72u);
+    TT_CHECK_EQ(seq_edited(&sq), 0u);
+    TT_CHECK_EQ(seq_next_queued(&sq), 0u);
+    seq_play(&sq);
+    seq_run(256, SEQ_256, 1, 44100, 6);
+    TT_CHECK_EQ(seq_log[0].note, 72u);
+}
+
+/* #40, check 51: playing, a load waits for the running pattern's pass to end; the new pattern's step 1
+ * plays right after the running one's last step, and the main loop then has it in the edit buffer. */
+TT_TEST(seq_load_playing_takes_over_after_the_pass)
+{
+    static seq_pattern a, b;
+    uint32_t fs = 44100, tempo = 1200, i, at;
+    seq_fresh();
+    seq_two(&a, &b, 3);
+    seq_set_tempo(&sq, tempo);
+    a.tempo = b.tempo = (uint16_t)tempo;
+    seq_load_pattern(&sq, &a);
+    seq_play(&sq);
+    seq_run(1000, SEQ_256, 1, fs, 6);           /* in step 1 of a */
+    seq_load_pattern(&sq, &b);
+    TT_CHECK_EQ(seq_next_queued(&sq), 1u);
+    TT_CHECK_EQ(seq_get_step(&sq, 0)->note[0], 60u);    /* the edit buffer is still the running one */
+    seq_run(seq_start_at(4, fs, tempo) + 1u - 1000u, SEQ_256, 1, fs, 6);
+    for (at = 0, i = 0; i < seq_logged; i++)
+        if (seq_log[i].vel && seq_log[i].note == 72u) {
+            at = seq_log[i].t;
+            break;
+        }
+    TT_CHECK_EQ(at, seq_start_at(3, fs, tempo));        /* right after a's step 3 */
+    for (i = 0; i < seq_logged; i++)
+        if (seq_log[i].t < seq_start_at(3, fs, tempo) && seq_log[i].vel)
+            TT_CHECK_EQ(seq_log[i].note, 60u);          /* a's pass played whole */
+    TT_CHECK_EQ(seq_main_tick(&sq), 1u);                /* the main loop takes it */
+    TT_CHECK_EQ(seq_get_step(&sq, 0)->note[0], 72u);
+    TT_CHECK_EQ(seq_next_queued(&sq), 0u);
+    TT_CHECK_EQ(seq_edited(&sq), 0u);
+    TT_CHECK_EQ(seq_main_tick(&sq), 0u);
+}
+
+/* #40, check 52: canceling the queued pattern (turning back to the running one's number) keeps the
+ * running pattern going round. */
+TT_TEST(seq_load_queued_can_be_canceled)
+{
+    static seq_pattern a, b;
+    uint32_t fs = 44100, tempo = 1200, i;
+    seq_fresh();
+    seq_two(&a, &b, 2);
+    a.tempo = (uint16_t)tempo;
+    seq_load_pattern(&sq, &a);
+    seq_play(&sq);
+    seq_run(1000, SEQ_256, 1, fs, 6);
+    seq_load_pattern(&sq, &b);
+    seq_cancel_next(&sq);
+    TT_CHECK_EQ(seq_next_queued(&sq), 0u);
+    seq_run(seq_start_at(5, fs, tempo), SEQ_256, 1, fs, 6);
+    for (i = 0; i < seq_logged; i++)
+        TT_CHECK(!seq_log[i].vel || seq_log[i].note == 60u);
+    TT_CHECK_EQ(seq_main_tick(&sq), 0u);
+}
+
+/* #40, check 53: stopping with a pattern queued loads it at once; a second load before the pass ends
+ * replaces the first. */
+TT_TEST(seq_stop_loads_the_queued_pattern)
+{
+    static seq_pattern a, b, c;
+    seq_fresh();
+    seq_two(&a, &b, 2);
+    seq_two(&c, &c, 5);
+    seq_load_pattern(&sq, &a);
+    seq_play(&sq);
+    seq_run(1000, SEQ_256, 1, 44100, 6);
+    seq_load_pattern(&sq, &b);
+    seq_load_pattern(&sq, &c);                  /* the latest queued wins */
+    seq_stop(&sq);
+    TT_CHECK_EQ(seq_next_queued(&sq), 0u);
+    TT_CHECK_EQ(seq_length(&sq), 5u);
+    TT_CHECK_EQ(seq_get_step(&sq, 0)->note[0], 72u);
+    TT_CHECK_EQ(seq_edited(&sq), 0u);
+}
+
+/* The PATTERN EDITED marker: off after a load or a save, on after an edit. */
+TT_TEST(seq_edited_marks_an_edit_until_saved)
+{
+    static seq_pattern a, b;
+    uint8_t note = 64;
+    seq_fresh();
+    seq_two(&a, &b, 4);
+    seq_load_pattern(&sq, &a);
+    TT_CHECK_EQ(seq_edited(&sq), 0u);
+    seq_set_step(&sq, 2, &note, 1, 90);
+    TT_CHECK_EQ(seq_edited(&sq), 1u);
+    seq_mark_saved(&sq);
+    TT_CHECK_EQ(seq_edited(&sq), 0u);
+    seq_set_tempo(&sq, 1500);
+    TT_CHECK_EQ(seq_edited(&sq), 1u);
+    seq_load_pattern(&sq, &a);
+    TT_CHECK_EQ(seq_edited(&sq), 0u);
+}
+
 static void run_seq_tests(void)
 {
     TT_RUN(seq_starts_empty_and_stopped);
@@ -359,4 +571,12 @@ static void run_seq_tests(void)
     TT_RUN(seq_edits_are_taken_whole_at_a_step_start);
     TT_RUN(seq_full_gate_lets_go_before_the_next_on);
     TT_RUN(seq_busiest_block_fits);
+    TT_RUN(seq_swing_moves_even_steps_exactly);
+    TT_RUN(seq_swing_is_clamped);
+    TT_RUN(seq_transpose_takes_effect_at_the_next_step);
+    TT_RUN(seq_load_stopped_loads_at_once);
+    TT_RUN(seq_load_playing_takes_over_after_the_pass);
+    TT_RUN(seq_load_queued_can_be_canceled);
+    TT_RUN(seq_stop_loads_the_queued_pattern);
+    TT_RUN(seq_edited_marks_an_edit_until_saved);
 }

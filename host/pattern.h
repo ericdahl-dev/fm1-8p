@@ -19,11 +19,11 @@
 int pattern_parse(const char *text, seq *s);
 
 /*
- * Plays `text` `loops` times at tempo (tenths of a BPM) and gate (%) through the engine, as the FM-1
+ * Plays `text` `loops` times at tempo (tenths of a BPM), gate (%) and swing (%) through the engine, as the FM-1
  * plays it (seq_render, each note at its frame), with o's sample rate, voices and settings, then
  * o->tail_ms with the sequencer stopped, into a WAV. Returns 0, or -1 with a message on stderr.
  */
 int render_pattern(const char *text, const char *wav_path, const render_opts *o, uint32_t tempo,
-                   uint32_t gate, uint32_t loops);
+                   uint32_t gate, uint32_t swing, uint32_t loops);
 
 #endif /* PATTERN_H */
