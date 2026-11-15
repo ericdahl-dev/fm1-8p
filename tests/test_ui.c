@@ -1845,6 +1845,10 @@ TT_TEST(ui_glo_table_is_well_formed)
         const ui_glo_slot *g = &UI_GLO_SLOTS[i];
         uint32_t num = (i / 4u + 1u) * 10u + i % 4u + 1u;
         TT_CHECK_EQ(g->num, num);
+        if (num >= 42u) {                       /* (G4x: only G41 so far, the rest empty) */
+            TT_CHECK_EQ(g->kind, (uint8_t)UI_RESERVED);
+            continue;
+        }
         TT_CHECK(g->label && strlen(g->label) <= 6u && g->full && strlen(g->full) <= 20u);   /* (7 touch) */
         TT_CHECK(g->setting < UI_SETTINGS_COUNT);
         TT_CHECK_EQ(g->kind, (uint8_t)(num == 13 || num == 14 ? UI_PENDING : UI_LIVE));
@@ -1912,10 +1916,10 @@ TT_TEST(ui_glo_knobs_and_pages)
     TT_CHECK(ui_glo_reads(3, "NIGHT PANEL"));
     ui_glo_column(&ui_u, 3, n, c);
     TT_CHECK(strcmp(n, "NIGHT") == 0);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1900);       /* around */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 2, 1900);       /* around (four pages) */
     TT_CHECK_EQ(ui_u.glo_page, 0u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, -1, 2000);
-    TT_CHECK_EQ(ui_u.glo_page, 2u);
+    TT_CHECK_EQ(ui_u.glo_page, 3u);
 }
 
 /* THEME (visual.md): a turn applies 150 ms after the last change, as one full redraw; a fast turn
@@ -2585,6 +2589,66 @@ TT_TEST(ui_unsensed_keys_play_at_the_fixed_velocity)
     TT_CHECK_EQ(ui_key_velocity(&ui_u, 127), 127u);
 }
 
+/* G41 PROGRAM CHANGE (interaction.md 4): RECV (the default) or BOTH loads PC n's patch at once, edits
+ * or not; PC n is the program numbered n: 0..63 the user slots 11..88, 64 up the P patches; past the
+ * last P, nothing (cases 60, 61). OFF or SEND only take none. */
+TT_TEST(ui_program_change_in_loads_the_patch)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_u.set.prog_change, 1u);                   /* RECV */
+    ui_cc(&ui_u, 23, 10, 0);                                  /* (an edit: it goes without a warning) */
+    TT_CHECK(ui_program_change(&ui_u, 64, 100));             /* P1 */
+    TT_CHECK_EQ(play_prog(&ui_p), (uint32_t)PLAY_PROG_P);
+    TT_CHECK(!play_edited(&ui_p));
+    TT_CHECK(ui_program_change(&ui_u, 64 + 16, 200));        /* P17 */
+    TT_CHECK_EQ(play_prog(&ui_p), (uint32_t)PLAY_PROG_P + 16u);
+    TT_CHECK(!ui_program_change(&ui_u, PLAY_PROGS, 300));    /* past the last P: nothing */
+    TT_CHECK_EQ(play_prog(&ui_p), (uint32_t)PLAY_PROG_P + 16u);
+    ui_u.set.prog_change = 2;                                 /* SEND only */
+    TT_CHECK(!ui_program_change(&ui_u, 64, 400));
+    TT_CHECK_EQ(play_prog(&ui_p), (uint32_t)PLAY_PROG_P + 16u);
+    ui_u.set.prog_change = 0;                                 /* OFF */
+    TT_CHECK(!ui_program_change(&ui_u, 64, 500));
+}
+
+/* With SEND or BOTH, a patch loaded on the panel (PRESETS) goes out as its PC; RECV doesn't send, and a
+ * PC that came in isn't sent back */
+TT_TEST(ui_program_change_out_on_a_panel_load)
+{
+    uint32_t pc = 0;
+    ui_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1000);
+    TT_CHECK(!ui_pc_out(&ui_u, &pc));                        /* RECV: nothing out */
+    ui_u.set.prog_change = 3;                                 /* BOTH */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
+    TT_CHECK(ui_pc_out(&ui_u, &pc));
+    TT_CHECK_EQ(pc, play_prog(&ui_p));
+    TT_CHECK(!ui_pc_out(&ui_u, &pc));                        /* (taken) */
+    (void)ui_program_change(&ui_u, 64, 1200);
+    TT_CHECK(!ui_pc_out(&ui_u, &pc));                        /* (not echoed) */
+}
+
+/* G41 is on a fourth GLO page (Eric: CC MAP took G23); its other three knobs are empty. SELECT walks the
+ * four pages; G4x opens on G41. */
+TT_TEST(ui_glo_fourth_page_has_program_change)
+{
+    ui_setup();
+    TT_CHECK_EQ(UI_GLO_PAGES, 4u);
+    ui_tap(UI_BTN_GLO, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 3, 1100);      /* G4x */
+    TT_CHECK_EQ(ui_u.glo_page, 3u);
+    TT_CHECK_EQ(ui_glo_slot_at(&ui_u, 0)->num, 41u);
+    TT_CHECK_EQ(ui_u.focus, 0u);
+    TT_CHECK(ui_glo_reads(0, "RECV"));
+    TT_CHECK_EQ(ui_glo_slot_at(&ui_u, 1)->kind, (uint8_t)UI_RESERVED);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1200);
+    TT_CHECK_EQ(ui_u.set.prog_change, 3u);                   /* BOTH */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1300);      /* an empty knob: nothing */
+    TT_CHECK_EQ(ui_u.focus, 0u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);      /* around */
+    TT_CHECK_EQ(ui_u.glo_page, 0u);
+}
+
 /* G33 KEY LEDS: a held key's LED is lit with it ON (the default), off with it OFF; the number jump's
  * keypad glow (SEL held) shows either way */
 TT_TEST(ui_key_leds_follow_g33)
@@ -2601,6 +2665,9 @@ TT_TEST(ui_key_leds_follow_g33)
 
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_program_change_in_loads_the_patch);
+    TT_RUN(ui_program_change_out_on_a_panel_load);
+    TT_RUN(ui_glo_fourth_page_has_program_change);
     TT_RUN(ui_key_leds_follow_g33);
     TT_RUN(ui_unsensed_keys_play_at_the_fixed_velocity);
     TT_RUN(ui_midi_in_takes_its_channel);
