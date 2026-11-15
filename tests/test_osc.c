@@ -159,6 +159,45 @@ TT_TEST(pulse_peaks_at_the_saw_level_at_every_width)
         TT_CHECK_NEAR(held_peak(FM_WAVE_PULSE, widths[k]) / saw, 1.0, 0.03);
 }
 
+/*
+ * The ring leaves no DC at any level. Its x2 (a + b m1) + c m1 is
+ * asymmetric: with squares, one of its four levels reaches about -2.46
+ * at full levels (osc1 0.58, osc2 1.0, as CHURCHBELL's DCO-2 reaches with
+ * MIX ENV). The pair's sum was held to +-2.0, which cut that side alone and
+ * left an offset (+0.0246 of full, 21.75 % of samples held), which the
+ * envelopes then moved through the audio (the sub-audio CHURCHBELL had over
+ * PG-8X, #266). Held to +-4.0, nothing is cut: the mean stays under 0.001
+ * of the RMS, at every level from 0.6 to full.
+ */
+TT_TEST(ring_leaves_no_dc_at_any_level)
+{
+    static fm_osc_pair p;
+    static const int32_t l2[] = { 644245094, 858993459, 966367641, FM_OSC_LEVEL_FULL }; /* 0.6 .. 1.0 */
+    size_t k;
+    double worst = 0;
+    for (k = 0; k < sizeof l2 / sizeof l2[0]; k++) {
+        double sum = 0, sq = 0, r;
+        uint32_t i, n = 48000 * 10;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 0, FM_WAVE_SQUARE);
+        fm_osc_pair_set_wave(&p, 1, FM_WAVE_SQUARE);
+        fm_osc_pair_set_level(&p, 0, 626000000); /* 0.583 */
+        fm_osc_pair_set_level(&p, 1, l2[k]);
+        fm_osc_pair_set_tune(&p, 1, 2088, 72 << 16, 48000);
+        fm_osc_pair_set_pitch(&p, 72 << 16, 48000);
+        fm_osc_pair_set_ring(&p, 1);
+        for (i = 0; i < n; i++) {
+            double v = fm_osc_pair_next(&p);
+            sum += v;
+            sq += v * v;
+        }
+        r = fabs(sum / n) / sqrt(sq / n);
+        if (r > worst) worst = r;
+    }
+    printf("    the ring's DC, worst over its levels: %.5f of its RMS\n", worst);
+    TT_CHECK(worst < 0.001);
+}
+
 /* Octave shifts by factors of two; fine tune by 2^(cents / 1200). */
 TT_TEST(octave_and_fine_tune_shift_pitch)
 {
@@ -1772,7 +1811,7 @@ TT_TEST(synced_ring_held_at_two_has_no_dc)
     fm_osc_pair_set_sync(&p, 1);
     fm_osc_pair_set_ring(&p, 1);
     dc = pair_dc(&p, 2000, 40000);
-    printf("    synced ring held at +-2.0: DC %+.4f\n", dc);
+    printf("    synced ring held at +-4.0: DC %+.4f\n", dc);
     TT_CHECK(fabs(dc) < 0.002);
 }
 
@@ -1781,7 +1820,7 @@ TT_TEST(synced_ring_held_at_two_has_no_dc)
  * there): the ring then adds c times osc1's held sample, a constant, so the
  * cycle's sum runs on for as long as osc1 stays stopped, far past what a
  * 32-bit mean holds. Pitched back, the pair settles to no DC within ten
- * cycles of osc1, and every sample stays within +-2.0.
+ * cycles of osc1, and every sample stays within the ring's hold, +-4.0.
  */
 TT_TEST(synced_ring_settles_after_osc1_stops)
 {
@@ -1812,7 +1851,7 @@ TT_TEST(synced_ring_settles_after_osc1_stops)
     dc = pair_dc(&p, 0, 34000);
     printf("    synced ring after osc1 stopped: DC %+.4f, largest sample %.3f\n", dc, peak / 16777216.0);
     TT_CHECK(fabs(dc) < 0.002);
-    TT_CHECK(peak <= (2 << 24));
+    TT_CHECK(peak <= (4 << 24));
 }
 
 /*
@@ -1854,7 +1893,7 @@ static double ring_law_error(uint8_t w1, uint8_t w2, double a, double b, double 
         double m1 = fm_osc_pair_next(&x1) / RING_ONE * (double)FM_OSC_LEVEL_FULL / x1.level[0];
         double s2 = fm_osc_pair_next(&x2) / RING_ONE;
         double want = s2 * (a + b * m1) + c * m1, got = fm_osc_pair_next(&y) / RING_ONE;
-        want = want > 2.0 ? 2.0 : want < -2.0 ? -2.0 : want; /* ring_stays_within_two */
+        want = want > 4.0 ? 4.0 : want < -4.0 ? -4.0 : want; /* ring_stays_within_four */
         if (fabs(got - want) > worst) worst = fabs(got - want);
     }
     return worst;
@@ -1972,14 +2011,15 @@ TT_TEST(ring_rides_the_synced_osc2)
 }
 
 /*
- * The ring can reach past +-2.0 (a saw osc1 at its trough: osc2 times
- * 2.12, less 0.235 of osc1), but the pair stays inside the soft clip's
- * untouched +-2.0 that the open-filter render relies on: every wave pair,
+ * The ring reaches past +-2.0 (a saw osc1 at its trough: osc2 times 2.12,
+ * less 0.235 of osc1; squares at full: -2.46 with osc1 added), but the pair
+ * stays inside its hold, +-4.0, well inside the filter's hold (+-8.0) that
+ * the open-filter render relies on: every wave pair,
  * free and synced, osc2 at the pulse's narrowest and far up, at the
  * pitch and rate extremes, osc2 heard alone or summed with osc1 at full
  * (the mixer's sum: osc1 plus the ringed osc2 would reach 3.0).
  */
-TT_TEST(ring_stays_within_two)
+TT_TEST(ring_stays_within_four)
 {
     static const uint32_t rates[] = { 8000, 44100, 192000 };
     static const int32_t notes[] = { 0, 48, 60, 127 };
@@ -2011,7 +2051,7 @@ TT_TEST(ring_stays_within_two)
         }
     }
     printf("    ring: largest sample %.3f\n", peak / RING_ONE);
-    TT_CHECK(peak <= (2 << 24));
+    TT_CHECK(peak <= (4 << 24));
 }
 
 /*
@@ -2086,13 +2126,14 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
 
 static void run_osc_tests(void)
 {
+    TT_RUN(ring_leaves_no_dc_at_any_level);
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(ring_multiplies_osc2_by_osc1_square);
     TT_RUN(ring_depth_follows_a_saw_osc1);
     TT_RUN(ring_depth_follows_a_pulse_osc1);
     TT_RUN(ring_with_noise_osc1_is_plain_ring_modulation);
     TT_RUN(ring_rides_the_synced_osc2);
-    TT_RUN(ring_stays_within_two);
+    TT_RUN(ring_stays_within_four);
     TT_RUN(ring_is_silent_with_osc2_unheard);
     TT_RUN(osc_ring_param_rings_sounding_notes);
     TT_RUN(pitch_mod_bends_each_oscillator_by_its_own_offset);
