@@ -7,6 +7,7 @@
 #define CK_FS 44100u
 #define CK_BLOCK 256u
 static seq ck;
+#define CK_PLAY 0x01u                          /* (a ck_msg that is a PLAY press, not MIDI) */
 /* a clock event: when it arrives (s) and when the main loop stamps it (s, >= arrival) */
 typedef struct { double at, stamp; uint8_t st; } ck_msg;
 static ck_msg ck_msgs[40000];
@@ -14,6 +15,7 @@ static uint32_t ck_n_msgs;
 static double ck_on[4096];                     /* each note on's time, s from the render's start */
 static uint8_t ck_note[4096];                  /* and its note (step i plays 48 + i) */
 static uint32_t ck_n_on, ck_n_off;
+static uint32_t ck_done, ck_m;                 /* ck_run's frames rendered and messages handled so far */
 static uint32_t ck_rng = 12345u;
 static double ck_watch_from = 1e9;             /* from this time on, the tempo shown's range */
 static uint32_t ck_tempo_lo, ck_tempo_hi;
@@ -34,7 +36,7 @@ static void ck_fresh(uint32_t src)
     }
     seq_set_gate(&ck, 50);
     seq_set_clock_source(&ck, src);
-    ck_n_msgs = ck_n_on = ck_n_off = 0;
+    ck_n_msgs = ck_n_on = ck_n_off = ck_done = ck_m = 0;
     ck_rng = 12345u;
     ck_watch_from = 1e9;
     ck_tempo_lo = 0xFFFFFFFFu;
@@ -70,16 +72,24 @@ static int ck_by_stamp(const void *a, const void *b)
     double x = ((const ck_msg *)a)->stamp, y = ((const ck_msg *)b)->stamp;
     return x < y ? -1 : x > y;
 }
-/* render `secs` s: between blocks the main loop handles what has been stamped by then and polls */
+/* render on to `secs` s from the start (a later call carries on): between blocks the main loop handles
+ * what has been stamped by then, and polls */
 static void ck_run(double secs)
 {
     static seq_event ev[SEQ_EVENTS];
-    uint32_t frames = (uint32_t)(secs * CK_FS), done = 0, m = 0, k, got;
-    qsort(ck_msgs, ck_n_msgs, sizeof ck_msgs[0], ck_by_stamp);   /* as the main loop sees them */
+    uint32_t frames = (uint32_t)(secs * CK_FS), done = ck_done, m = ck_m, k, got;
+    qsort(ck_msgs + m, ck_n_msgs - m, sizeof ck_msgs[0], ck_by_stamp);   /* as the main loop sees them */
     while (done < frames) {
         double now = (double)done / CK_FS;
         while (m < ck_n_msgs && ck_msgs[m].stamp <= now) {
-            seq_clock_in(&ck, ck_msgs[m].st, ck_host(ck_msgs[m].stamp));
+            if (ck_msgs[m].st == CK_PLAY) {    /* a PLAY press, as ui_seq_transport */
+                if (ck.want)
+                    seq_stop(&ck);
+                else
+                    seq_play(&ck);
+            } else {
+                seq_clock_in(&ck, ck_msgs[m].st, ck_host(ck_msgs[m].stamp));
+            }
             m++;
         }
         seq_clock_poll(&ck, ck_host(now));
@@ -101,6 +111,8 @@ static void ck_run(double secs)
             }
         done += CK_BLOCK;
     }
+    ck_done = done;
+    ck_m = m;
 }
 /* the worst |onset - grid| over steps first..n_on-1, ms: step j on the clock's tick 6j from t0 */
 static double ck_worst_ms(double t0, double bpm, uint32_t first)
@@ -291,6 +303,82 @@ TT_TEST(clock_start_stop_and_continue)
     TT_CHECK(ck_n_on == 0u && !seq_playing(&ck));
 }
 
+/* the onsets' spacing, s: 1 when every one from `first` on is `step` apart (within 0.1 ms) */
+static int ck_spaced(uint32_t first, double step)
+{
+    uint32_t j;
+    for (j = first + 1u; j < ck_n_on; j++)
+        if (fabs(ck_on[j] - ck_on[j - 1] - step) > 0.0001)
+            return 0;
+    return ck_n_on > first + 1u;
+}
+
+/* AUTO: the clock stops coming while it plays. Within its time out (250 ms here) the transport stops as
+ * MIDI stop does (Eric), every note let go, and the clock is gone (INT, no tempo). PLAY then runs on the
+ * internal clock, at the pattern's tempo. */
+TT_TEST(clock_lost_stops_and_the_internal_clock_takes_over)
+{
+    double last;
+    uint32_t n;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_tempo(&ck, 900);                   /* the pattern's: 90 BPM */
+    ck_ticks_ramp(0.05, 120.0, 120.0, 0, 1, 24u + 6u * 8u + 1u);
+    last = ck_tick_at[24 + 6 * 8];
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_msg_at(last + 0.5, 0, CK_PLAY);         /* after it's gone */
+    ck_run(last + 0.45);
+    n = ck_n_on;
+    printf("    clock lost: %u steps, %u notes off, playing %u, source %s, tempo %u\n", n, ck_n_off,
+           seq_playing(&ck), seq_clock_external(&ck) ? "MIDI" : "INT", seq_clock_tempo(&ck));
+    TT_CHECK(n == 9u);                         /* steps 1..9, the last on the last tick */
+    TT_CHECK(!seq_playing(&ck) && ck_n_off == ck_n_on);
+    TT_CHECK(!seq_clock_external(&ck) && seq_clock_tempo(&ck) == 0u);
+    ck_run(last + 0.5 + 1.0);
+    TT_CHECK(seq_playing(&ck));
+    TT_CHECK(ck_spaced(9u, 60.0 / 90.0 / SEQ_PPQ));    /* on the internal clock: 90 BPM's steps */
+}
+
+/* G13. INT ignores the clock (and plays its own); MIDI with no clock waits on PLAY (WAITING FOR CLOCK,
+ * nothing plays) and starts on MIDI start; AUTO waits too while a clock comes, and plays its own when
+ * none does; a second PLAY while waiting disarms. */
+TT_TEST(clock_source_int_midi_and_auto)
+{
+    ck_fresh(SEQ_CLK_INT);                     /* INT: a clock and a start do nothing */
+    ck_ticks_ramp(0.05, 100.0, 100.0, 0, 1, 24u * 8u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_run(1.0);
+    TT_CHECK(ck_n_on == 0u && !seq_clock_external(&ck));
+    ck_msg_at(1.0, 0, CK_PLAY);                /* PLAY: its own 120 BPM */
+    ck_run(3.0);
+    TT_CHECK(ck_spaced(0u, 60.0 / 120.0 / SEQ_PPQ));
+    ck_fresh(SEQ_CLK_MIDI);                    /* MIDI, no clock: PLAY waits */
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(1.0);
+    TT_CHECK(ck_n_on == 0u && seq_waiting(&ck) && seq_clock_external(&ck));
+    ck_ticks_ramp(1.0, 100.0, 100.0, 0, 1, 24u * 8u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[24 + 6 * 8] - 0.012);
+    TT_CHECK(!seq_waiting(&ck) && ck_n_on == 8u && ck_note[0] == 48u);
+    TT_CHECK(fabs(ck_on[1] - ck_tick_at[30]) < 0.001);
+    ck_fresh(SEQ_CLK_AUTO);                    /* AUTO, a clock coming: PLAY waits, a start starts */
+    ck_ticks_ramp(0.05, 100.0, 100.0, 0, 1, 24u * 8u);
+    ck_msg_at(0.3, 0, CK_PLAY);
+    ck_msg_at(ck_tick_at[48] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[47]);
+    TT_CHECK(ck_n_on == 0u && seq_waiting(&ck) && seq_clock_external(&ck));
+    ck_run(ck_tick_at[48 + 6 * 4] - 0.012);
+    TT_CHECK(ck_n_on == 4u && !seq_waiting(&ck));
+    ck_fresh(SEQ_CLK_AUTO);                    /* AUTO, no clock: its own */
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(1.2);
+    TT_CHECK(!seq_waiting(&ck) && !seq_clock_external(&ck) && ck_spaced(0u, 60.0 / 120.0 / SEQ_PPQ));
+    ck_fresh(SEQ_CLK_MIDI);                    /* a second PLAY while waiting disarms */
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_msg_at(0.2, 0, CK_PLAY);
+    ck_run(0.3);
+    TT_CHECK(!seq_waiting(&ck) && !seq_playing(&ck));
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_steps_follow_a_steady_clock);
@@ -298,4 +386,6 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_measures_the_tempo_over_its_range);
     TT_RUN(clock_follows_tempo_changes);
     TT_RUN(clock_start_stop_and_continue);
+    TT_RUN(clock_lost_stops_and_the_internal_clock_takes_over);
+    TT_RUN(clock_source_int_midi_and_auto);
 }

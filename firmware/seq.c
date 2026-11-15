@@ -178,6 +178,14 @@ void seq_set_swing(seq *s, uint32_t pct)
 
 void seq_play(seq *s)
 {
+    if (s->clk_src == SEQ_CLK_MIDI || (s->clk_src == SEQ_CLK_AUTO && s->clk_present)) {
+        s->want = 1;                            /* #38: the clock's in charge, so this arms: it starts on
+                                                 * a MIDI start or continue (the interrupt acts on asks
+                                                 * only); a second press (seq_stop) disarms */
+        s->clk_armed = 1;
+        return;
+    }
+    s->ext = 0;                                 /* (its own clock) */
     s->want = 1;
     BARRIER();                                  /* the wish before the ask: never an ask with an old one */
     s->ask_play++;
@@ -185,6 +193,8 @@ void seq_play(seq *s)
 
 void seq_stop(seq *s)
 {
+    s->clk_armed = 0;
+    s->clk_running = 0;
     s->want = 0;
     BARRIER();
     s->ask_stop++;
@@ -422,6 +432,8 @@ static void clock_tick(seq *s, uint32_t t)
         s->ext_hold = 0;                        /* (the interrupt takes the ask before it would step) */
         return;
     }
+    if (s->clk_running && !s->clk_pending)
+        s->ext_hold = 0;                        /* (a tick: on again) */
     if (s->clk_running && s->clk_dt) {          /* where the steps were at this tick, against it */
         int32_t f = frames_q8((int32_t)(t - bt), fs);
         uint32_t at = bu + (uint32_t)((f >> 8) * (int32_t)binc) + (uint32_t)(((f & 255) * (int32_t)binc) >> 8);
@@ -461,7 +473,12 @@ void seq_clock_in(seq *s, uint32_t st, uint32_t t)
 void seq_clock_poll(seq *s, uint32_t t)
 {
     uint32_t gone = 3u * s->clk_dt > CLK_GONE_MIN ? 3u * s->clk_dt : CLK_GONE_MIN;
-    if (!s->clk_present || t - s->clk_t[(s->clk_n - 1u) % SEQ_CLK_HIST] <= gone)
+    uint32_t since = t - s->clk_t[(s->clk_n - 1u) % SEQ_CLK_HIST];
+    if (!s->clk_present)
+        return;
+    if (s->clk_running && since > s->clk_dt + s->clk_dt / 2u)
+        s->ext_hold = 1;                        /* a tick late: no step past the clock's (till one comes) */
+    if (since <= gone)
         return;
     s->clk_present = 0;                         /* gone: a transport it ran stops (Eric: as MIDI stop) */
     s->clk_pending = 0;
@@ -643,7 +660,6 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             thr = step_len(s, fs);
             s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
         } else if (s->want) {
-            s->ext = 0;
             s->pos = s->acc = 0;
             s->cur_bend = s->cur_mod = 0;       /* (a first GLIDE moves from center and 0) */
             s->glide_on = 0;
@@ -676,6 +692,7 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
         if (target == thr && xi && s->ext_hold) {   /* a start is coming: wait at this step's end */
             uint32_t to = s->acc + (n - t) * inc;
             s->acc = to < thr ? to : thr - 1u;
+            s->upos -= to - s->acc;             /* (the clock waits as the step does) */
             break;
         }
         j = s->acc >= target ? 0 : (target - s->acc + inc - 1u) / inc;
