@@ -55,7 +55,7 @@ divided by 32. The 3-position ones (CHORUS, LFO WAVE) take 0..31, 32..63 and 64.
 | 17 | 22 | DCO-2 WAVEFORM | as 12 |
 | 18 | 23 | CROSS MOD | off, SYNC 1, SYNC 2, X-MOD |
 | 19 | 24 | DCO-2 TUNE | as 13 |
-| 20 | 25 | DCO-2 FINE TUNE | -50..+50 cents, 64 center |
+| 20 | 25 | DCO-2 FINE TUNE | about -53..+47 cents, 67 center (PG-8X, #256) |
 | 21 | 26 | DCO-2 LFO | depth |
 | 22 | 27 | DCO-2 ENV | depth |
 | 26 | 31 | DCO DYNAMICS | off, 1, 2, 3 |
@@ -112,8 +112,8 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | JX-8P | Engine field | Mapping |
 | --- | --- | --- |
 | RANGE + TUNE | `osc1_octave`, `osc1_coarse_semis`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; for each DCO, whole octaves of range + tune go to its octave and the rest to its coarse (#108), so every patch plays at its own pitch (before #108, DCO-1 had no coarse and MUSIC BOX played 4 semitones down, WINDCHIMES 9 down) |
-| WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse, saw. The JX-8P's pulse is PG-8X's narrow spike, `FM_WAVE_SPIKE` (#150; docs/fixed-point.md), not the engine's rectangle pulse: an impulse train through two one-poles at 3050 Hz, fitted to PG-8X's level against the square at C2..C6 and its partials at C4..C6 within 0.81 dB rms. The pulse width params stay at 50 and don't apply to it |
-| FINE TUNE | `osc2_fine_cents` | (value - 64) x 50 / 64 |
+| WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse (25 % wide, *est.*), saw |
+| FINE TUNE | `osc2_fine_cents` | (value - 67) x 100 / 127, as PG-8X plays it (#256, measured on PG-8X 3.0 against DCO-1: about 0.787 cents a step, -54.2 / -4.5 / +45.7 cents re A440 at 0 / 64 / 127, DCO-1 itself 1.5 flat there; CHURCHBELL's beat rates in the 2.0.13 reference agree). Before #256 it was (value - 64) x 50 / 64, about 3 cents sharp everywhere |
 | MIX DCO-1, DCO-2 | `osc1_level_permille`, `osc2_level_permille` | each byte over 127; the DCOs sum, as PG-8X 2.0.13's mixer does (measured, #102) |
 | VCA LEVEL | `amp_level_permille` | 0.30 dB a step below 127, linear in dB down to 0 (−38.1 dB, not silent), as PG-8X 2.0.13 plays it (measured within 0.1 dB at 127, 112, 96, 88, 64, 32, 16, 8, 4, 1, 0). It scales the whole note, read at note on with the velocity |
 | MIX ENV, MIX ENV MODE | `osc_mix_env_permille`, `osc_mix_env_source` | depth x envelope is added to DCO-2's level byte (taken away when inverted), clamped to 0..127, as PG-8X 2.0.13 plays it (measured, #102); `osc_mix_env_permille` is the depth over 127, signed. It follows envelope 2 (`osc_mix_env_source` 1) for ENV-2, else the filter envelope, which runs ENV-1's own times (#59). With the VCA on GATE envelope 2 runs apart from the VCA (#63), so this holds there too. 19 of the 32 tones use MIX ENV at full depth on ENV-1, so DCO-2 swells in with the filter envelope and holds at its own level plus the sustain's share. With DCO-1 at 0 osc1 is off |

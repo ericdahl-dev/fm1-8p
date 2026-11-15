@@ -384,6 +384,18 @@ TT_TEST(cpu_test_full_patch_that_fails_is_not_timed)
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_AMP_VELOCITY), 100);
 }
 
+/* F's highpass is the bass boost (step 4, the JX-8P's HPF 0, #93): 23 of the 32 factory tones and the boot
+ * tone play it, and it is the costliest highpass path (three multiplies a sample to the others' one), so the
+ * CPU rows time it. */
+TT_TEST(cpu_test_full_patch_plays_the_bass_boost)
+{
+    TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
+    cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+    TT_CHECK(!cpu_test_failed(&ct_a, CT_FULL));
+    TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_HIGHPASS_STEP), FM_FILTER_HIGHPASS_BOOST);
+}
+
 /* F's filter does real work, off fm_filter_run's wide-open fast path (a wire): in every voice, from the third block, the lowpass
  * is below open (fade, and with it the resonance, engaged) and the highpass is on, each on its own. */
 TT_TEST(cpu_test_full_patch_filter_is_off_the_fast_path)
@@ -428,6 +440,7 @@ static void run_cpu_test_tests(void)
 {
     TT_RUN(cpu_test_full_patch_sweeps_the_filter_through_its_fade);
     TT_RUN(cpu_test_full_patch_filter_is_off_the_fast_path);
+    TT_RUN(cpu_test_full_patch_plays_the_bass_boost);
     TT_RUN(cpu_test_full_patch_that_fails_is_not_timed);
     TT_RUN(cpu_test_full_patch_can_play_at_any_voice_count);
     TT_RUN(cpu_test_full_patch_strikes_varied_velocities);

@@ -5,8 +5,8 @@
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
-    if (k >= 4u)
-        return 0;
+    if (k >= 4u || (u->state != UI_PLAY && u->page >= UI_PAGES))
+        return 0;                               /* (no such page: no slots, not a read past UI_SLOTS) */
     return u->state == UI_PLAY ? &UI_SLOTS[UI_PLAY_SLOT[k]] : &UI_SLOTS[4u * u->page + k];
 }
 
@@ -341,8 +341,10 @@ void ui_slot_bar(const ui_slot *sl, int32_t value, int32_t w, int32_t *a, int32_
         ui_meter_bar(sl->id, value, w, a, b);
         return;
     }
+    *a = *b = 0;
+    if (!fm_param_info_get(sl->id))             /* (an unknown param: empty; on the FM-1 a NULL read faults) */
+        return;
     max = fm_param_info_get(sl->id)->max;
-    *a = 0;
     *b = value <= 0 || max <= 0 ? 0 : value >= max ? w : (2 * w * value + max) / (2 * max);
 }
 

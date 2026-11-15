@@ -69,7 +69,7 @@ typedef enum {
     /* linear cents the filter envelope adds to the cutoff at full level, before the cutoff
      * curve (#253); negative sweeps the cutoff down */
     FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
-    /* 0 (off) .. 3 (most low cut) */
+    /* 0 (off) .. 3 (most low cut); 4 is the bass boost (JX-8P HPF 0, #93) */
     FM_PARAM_HIGHPASS_STEP,
     /* -12..+12 semitones, on top of osc2's octave and fine */
     FM_PARAM_OSC2_COARSE_SEMIS,

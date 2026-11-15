@@ -36,8 +36,9 @@ stage() {
         *)    add= ;;
     esac
     if [ -n "$add" ]; then
-        grep -q '^    {FM_PARAM_HIGHPASS_STEP, 1},$' "$3/firmware/cpu_test.c" || { echo "gate_cpu: step F's patch not found" >&2; return 1; }
-        sed -i "s|^    {FM_PARAM_HIGHPASS_STEP, 1},\$|    {FM_PARAM_HIGHPASS_STEP, 1},\\n$add|" "$3/firmware/cpu_test.c"
+        # step F's highpass line, whatever its step (1 before #136, the bass boost after): the params go after it
+        grep -q '^    {FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},$' "$3/firmware/cpu_test.c" || { echo "gate_cpu: step F's patch not found" >&2; return 1; }
+        sed -i "s|^\(    {FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},\)\$|\1\\n$add|" "$3/firmware/cpu_test.c"
     fi
     if [ "$2" = pad ]; then
         cp "$ROOT/tools/gate_pad.c" "$3/engine/aa_pad.c"

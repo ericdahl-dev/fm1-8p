@@ -2762,10 +2762,71 @@ TT_TEST(ui_wheel_page_has_the_wheel_amounts)
     TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_WHEEL_PITCH_CENTS), before);
 }
 
+/* Every live knob, on every page and on PLAY, names a param the engine knows: ui_slot_bar, ui_meter and
+ * the value text all look its info up, and on the FM-1 a missing one is a bus fault, not a crash a
+ * desktop test sees (the 6840fa5 fault, 2026-11-15) */
+TT_TEST(ui_every_live_slot_names_a_known_param)
+{
+    uint32_t i, k;
+    for (i = 0; i < UI_PAGES * 4u; i++) {
+        const ui_slot *s = &UI_SLOTS[i];
+        if (s->kind != UI_LIVE)
+            continue;
+        if (!fm_param_info_get(s->id))
+            printf("    slot %u (page %u knob %u): id %u unknown\n", (unsigned)i, (unsigned)(i / 4u),
+                   (unsigned)(i % 4u), (unsigned)s->id);
+        TT_CHECK(fm_param_info_get(s->id) != 0);
+        if (s->how == UI_HOW_PAIR || s->how == UI_HOW_MODE)
+            TT_CHECK(fm_param_info_get(s->id2) != 0);
+        if (s->how == UI_HOW_MODE)
+            TT_CHECK(fm_param_info_get(s->id3) != 0);
+    }
+    for (k = 0; k < 4u; k++) {
+        const ui_slot *s = &UI_SLOTS[UI_PLAY_SLOT[k]];
+        TT_CHECK(s->kind == UI_LIVE && fm_param_info_get(s->id) != 0);
+    }
+}
+
+/* A slot naming a param the engine doesn't know draws an empty bar, not a fault (on the FM-1 the info
+ * lookup's NULL was read: a bus fault 150 ms after start, 6840fa5) */
+TT_TEST(ui_slot_bar_of_an_unknown_param_is_empty)
+{
+    ui_slot sl;
+    int32_t a = -1, b = -1;
+    memset(&sl, 0, sizeof sl);
+    sl.kind = UI_LIVE;
+    sl.how = UI_HOW_SIZE;
+    sl.id = (uint16_t)(FM_PARAM_COUNT + 45u);
+    ui_slot_bar(&sl, 100, 44, &a, &b);
+    TT_CHECK_EQ(a, 0);
+    TT_CHECK_EQ(b, 0);
+    sl.how = UI_HOW_PLAIN;
+    a = b = -1;
+    ui_slot_bar(&sl, 100, 44, &a, &b);
+    TT_CHECK_EQ(a, 0);
+    TT_CHECK_EQ(b, 0);
+}
+
+/* A page past the last (a corrupted or never-set page) has no slots: NULL, which every caller takes as
+ * an empty column, rather than a read past UI_SLOTS */
+TT_TEST(ui_page_slot_past_the_pages_is_none)
+{
+    ui_setup();
+    ui_tap(UI_BTN_ENV, 1000);                                 /* EDIT */
+    TT_CHECK(ui_page_slot(&ui_u, 0) != 0);
+    ui_u.page = UI_PAGES;
+    TT_CHECK(ui_page_slot(&ui_u, 0) == 0);
+    ui_u.page = 0xFFFFFFFFu;
+    TT_CHECK(ui_page_slot(&ui_u, 3) == 0);
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_wave_names_list_the_spike_last);
     TT_RUN(ui_spike_draws_as_a_narrow_peak);
+    TT_RUN(ui_every_live_slot_names_a_known_param);
+    TT_RUN(ui_slot_bar_of_an_unknown_param_is_empty);
+    TT_RUN(ui_page_slot_past_the_pages_is_none);
     TT_RUN(ui_wheel_page_has_the_wheel_amounts);
     TT_RUN(ui_velocity_curve_scales_the_hosts);
     TT_RUN(ui_program_change_in_loads_the_patch);

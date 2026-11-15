@@ -453,10 +453,9 @@ def filter_env_cents(v):
 
 def hpf_step(v):
     """HPF, 0..127 (four positions), as the engine's highpass step, as PG-8X 2.0.13 plays it
-    (docs/patches.md): 1 is flat and 2 and 3 are the engine's steps 2 and 3. 0 is a bass boost
-    the engine lacks, so it is flat too for now (#93)."""
-    pos = switch(v)
-    return 0 if pos < 2 else pos
+    (docs/patches.md): 0 is a bass boost, the engine's step 4 (#93); 1 is flat, step 0; 2 and 3
+    are the engine's steps 2 and 3. The engine's step 1 (100 Hz) is no JX-8P position."""
+    return (4, 0, 2, 3)[switch(v)]
 
 
 def tune_semis(v):
@@ -495,7 +494,9 @@ def to_engine(tone):
     # each DCO plays its own range and tune: octave plus coarse semitones (#108)
     e["OSC1_OCTAVE"], e["OSC1_COARSE_SEMIS"] = octave_and_semis(pitch_semis(p[DCO1_RANGE], p[DCO1_TUNE]))
     e["OSC2_OCTAVE"], e["OSC2_COARSE_SEMIS"] = octave_and_semis(pitch_semis(p[DCO2_RANGE], p[DCO2_TUNE]))
-    e["OSC2_FINE_CENTS"] = max(-50, min(50, rnd((p[DCO2_FINE] - 64) * 50 / 64)))
+    # PG-8X centers FINE at 67, about 100 cents over 0..127 (#256, measured on PG-8X 3.0: -54.2 at 0,
+    # -4.5 at 64, +45.7 at 127 re A440, with DCO-1 itself 1.5 flat there)
+    e["OSC2_FINE_CENTS"] = rnd((p[DCO2_FINE] - 67) * 100 / 127)
     # The mixer sums the DCOs, each at its level byte over 127. MIX ENV adds depth x envelope to
     # DCO-2's byte (inverted: takes it away), clamped to 0..127: PG-8X 2.0.13, measured (#102).
     l1, l2 = p[MIX_DCO1], p[MIX_DCO2]
