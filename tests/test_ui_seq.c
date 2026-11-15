@@ -649,6 +649,26 @@ TT_TEST(seq_roll_stop_clears_the_playhead)
     TT_CHECK(ui_seq_roll_take(&ui_u) & (1u << 2));
 }
 
+/* A queued pattern taking over at the pass's end redraws the whole roll and the readout */
+TT_TEST(seq_roll_redraws_whole_when_the_next_pattern_takes_over)
+{
+    uint32_t d;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_tap(UI_BTN_PLAY, 1100);
+    seq_render_to(0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1200);    /* NEXT PATTERN 12 */
+    seq_render_to(15);
+    (void)ui_take(&ui_u, 1300);
+    (void)ui_seq_roll_take(&ui_u);
+    seq_render_to(0);                                         /* the pass ends: 12 plays */
+    play_pattern_tick(&ui_p);                                 /* (the module's main loop) */
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    d = ui_take(&ui_u, 1400);
+    TT_CHECK(d & UI_D_FOCUS);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -666,6 +686,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_redraws_whole_on_a_pattern_load);
     TT_RUN(seq_roll_redraws_whole_on_length_tie_and_rest);
     TT_RUN(seq_roll_stop_clears_the_playhead);
+    TT_RUN(seq_roll_redraws_whole_when_the_next_pattern_takes_over);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);

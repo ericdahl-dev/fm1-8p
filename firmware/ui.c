@@ -1312,6 +1312,8 @@ uint32_t ui_take(ui *u, uint32_t ms)
         uint32_t f = play_pattern_prog(u->p) | (uint32_t)(play_pattern_next(u->p) + 1) << 8 |
                      seq_edited(play_seq(u->p)) << 16;
         if (f != u->shown_ptn) {
+            if ((f ^ u->shown_ptn) & 0xFFu)     /* another pattern plays (a queued one took over): all of it */
+                u->dirty |= UI_D_FOCUS | UI_D_SLOT, u->roll_dirty = 0xFFFFu;
             u->shown_ptn = f;
             u->dirty |= UI_D_FOOT;
         }
