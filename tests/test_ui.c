@@ -2585,8 +2585,23 @@ TT_TEST(ui_unsensed_keys_play_at_the_fixed_velocity)
     TT_CHECK_EQ(ui_key_velocity(&ui_u, 127), 127u);
 }
 
+/* G31 VELOCITY CURVE scales the host's velocity curve for force-sensed keys (fm1-dock sense_set's
+ * curve, the exponent x 100): 100 %, the default, is the host's own 70; 50 % is 35, 200 % is 140 */
+TT_TEST(ui_velocity_curve_scales_the_hosts)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_u.set.vel_curve_pct, 100u);
+    TT_CHECK_EQ(ui_sense_curve(&ui_u), UI_SENSE_CURVE_HOST);
+    TT_CHECK_EQ(UI_SENSE_CURVE_HOST, 70u);
+    ui_u.set.vel_curve_pct = 50;
+    TT_CHECK_EQ(ui_sense_curve(&ui_u), 35u);
+    ui_u.set.vel_curve_pct = 200;
+    TT_CHECK_EQ(ui_sense_curve(&ui_u), 140u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_velocity_curve_scales_the_hosts);
     TT_RUN(ui_unsensed_keys_play_at_the_fixed_velocity);
     TT_RUN(ui_midi_in_takes_its_channel);
     TT_RUN(ui_midi_out_is_on_its_channel);

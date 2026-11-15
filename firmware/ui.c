@@ -1060,6 +1060,11 @@ uint32_t ui_key_velocity(const ui *u, int32_t host_vel)
     return host_vel > 0 ? (uint32_t)(host_vel > 127 ? 127 : host_vel) : u->set.fixed_vel;
 }
 
+uint32_t ui_sense_curve(const ui *u)
+{
+    return (UI_SENSE_CURVE_HOST * u->set.vel_curve_pct + 50u) / 100u;
+}
+
 int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
 {
     const ui_slot *s = cc_slot(u->set.cc_map, cc);

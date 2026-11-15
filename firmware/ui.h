@@ -210,6 +210,12 @@ int ui_midi_in(const ui *u, uint32_t st);
 uint32_t ui_midi_out(const ui *u, uint32_t st);
 /* G32 FIXED VELOCITY: a key's velocity, the host's (1..127), or G32's for a key with no force sensing (0) */
 uint32_t ui_key_velocity(const ui *u, int32_t host_vel);
+/* G31 VELOCITY CURVE: the host's velocity curve for force-sensed keys (fm1-dock's sense_set curve, the
+ * exponent x 100), G31's % of the host's own (UI_SENSE_CURVE_HOST, fm1-dock dock.c sense_defaults) */
+#define UI_SENSE_CURVE_HOST 70u
+#define UI_SENSE_DRIVE_HOST 2u
+#define UI_SENSE_CEIL_HOST 1000u
+uint32_t ui_sense_curve(const ui *u);
 /* a MIDI control change, cc 0..127 at value 0..127 (#49, interaction.md 8): the parameter on cc (the
  * CC map) takes the value across its knob's range, as a knob would set it. 1: taken (G21 ON and cc on
  * the map), so the engine needn't have it; 0: the module passes it on (sustain, all notes off ...). */
