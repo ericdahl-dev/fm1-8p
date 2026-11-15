@@ -131,7 +131,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 3)
+        self.assertEqual(row["schema"], 5)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -151,7 +151,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (3, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (5, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -318,12 +318,23 @@ class ScoreMidiTest(unittest.TestCase):
         want = {"chord": (60, 100), "v110": (67, 110), "v60": (72, 60), "v90": (71, 90), "v40": (69, 40),
                 "low": (36, 100), "high": (84, 100)}
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "scorecard.py")).read()
-        for name, (a, b) in {"chord": (0.55, 3.15), "v110": (4.28, 4.65), "v60": (4.78, 5.15), "v90": (5.28, 5.55),
-                             "v40": (5.68, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}.items():
+        for name, (a, b) in {"chord": (0.55, 3.15), "v110": (4.38, 4.65), "v60": (4.88, 5.15), "v90": (5.38, 5.55),
+                             "v40": (5.78, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}.items():
             self.assertIn(f'"{name}": ({a}, {b})', src)
             note, vel = want[name]
             self.assertTrue(any(n == note and v == vel and s <= a and b <= e + 0.001 for n, s, e, v in notes),
                             (name, a, b))
+
+    @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
+    def test_each_section_starts_past_pg8xs_onset_thump(self):
+        """PG-8X 2.0.13 and 3.0.0 put a sub-230 Hz thump near -32 dBFS on every note on, a voice's first or
+        not, that dies down over about 120 ms (#146, measured again 2026-11-15): no section reads it."""
+        import gate_midi
+        import scorecard as sc
+        want = {"chord": 60, "v110": 67, "v60": 72, "v90": 71, "v40": 69, "low": 36, "high": 84}
+        for name, (a, b) in sc.SECTIONS.items():
+            on = max(s for n, s, e, _ in gate_midi.score() if n == want[name] and s <= a < e)
+            self.assertGreaterEqual(round(a - on, 3), 0.13, name)
 
 
 if __name__ == "__main__":
