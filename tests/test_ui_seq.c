@@ -857,6 +857,37 @@ TT_TEST(seq_rec_fx_steps_back)
     TT_CHECK(ui_u.seq_rec);
 }
 
+/* A REC tap disarms, and so does leaving SEQ view (SEQ, HOME, EDIT, GLO); a step part-built then is
+ * dropped: nothing is written */
+TT_TEST(seq_rec_disarms_and_drops_the_step_being_built)
+{
+    static const uint32_t OUT[4] = {UI_BTN_SEQ, UI_BTN_HOME, UI_BTN_EDIT, UI_BTN_GLO};
+    uint32_t i;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    seq_note(5, 60, 90, 1, 1100);                             /* held */
+    ui_tap(UI_BTN_REC, 1200);                                 /* disarmed */
+    seq_note(5, 60, 0, 0, 1300);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 0)->kind, SEQ_REST);
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+    for (i = 0; i < 4u; i++) {
+        uint32_t t = 2000u + 1000u * i;
+        if (ui_u.state != UI_SEQ)
+            ui_tap(UI_BTN_SEQ, t);
+        ui_tap(UI_BTN_REC, t + 100);
+        TT_CHECK(ui_u.seq_rec);
+        seq_note(5, 60, 90, 1, t + 200);
+        ui_tap(OUT[i], t + 300);
+        TT_CHECK(ui_u.state != UI_SEQ);
+        TT_CHECK(!ui_u.seq_rec);
+        seq_note(5, 60, 0, 0, t + 400);
+        TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 0)->kind, SEQ_REST);
+        if (ui_u.state == UI_GLO)
+            ui_tap(UI_BTN_GLO, t + 500);
+    }
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -868,6 +899,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_takes_midi_notes);
     TT_RUN(seq_rec_sel_and_env_write_and_move_on);
     TT_RUN(seq_rec_fx_steps_back);
+    TT_RUN(seq_rec_disarms_and_drops_the_step_being_built);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);

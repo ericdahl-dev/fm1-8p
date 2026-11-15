@@ -1183,7 +1183,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && u->state == UI_SEQ) {
-        u->seq_armed = u->built_n = 0;
+        u->seq_armed = u->built_n = u->seq_rec = 0;
         u->glo_from = UI_SEQ;                   /* GLO from SEQ view, and back to it */
         u->state = UI_GLO;
         u->readout = 0;

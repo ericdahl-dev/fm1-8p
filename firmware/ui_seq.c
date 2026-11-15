@@ -106,6 +106,8 @@ void ui_seq_open(ui *u)
 void ui_seq_rec(ui *u)
 {
     u->seq_rec = !u->seq_rec;
+    u->built_n = 0;                             /* (a step part-built when it disarms: dropped) */
+    roll(u, ROLL_AT(u->seq_cursor));
     u->dirty |= UI_D_HEAD | UI_D_FOCUS;
 }
 
@@ -239,13 +241,15 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SEQ) && tap) {          /* back, on the page it left */
-        u->seq_armed = u->built_n = 0;
+        u->seq_armed = u->built_n = u->seq_rec = 0;
         u->state = u->seq_from;
         u->dirty |= UI_D_FULL;
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap) {
+        u->seq_armed = u->built_n = u->seq_rec = 0;
         u->state = UI_PLAY;
         u->dirty |= UI_D_FULL;
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap) {  /* the last edit page */
+        u->seq_armed = u->built_n = u->seq_rec = 0;
         u->state = UI_EDIT;
         u->dirty |= UI_D_FULL;
     } else if (u->seq_rec && tap && ev == (UI_EV_BTN_UP | UI_BTN_FX)) {   /* REC: back one, nothing written */
