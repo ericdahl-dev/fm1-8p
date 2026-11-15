@@ -106,13 +106,15 @@ static inline int fm_filter_is_wire(const fm_filter *f)
 }
 
 /* The ladder's input, and so every state and the output, is held to
- * +-FM_FILTER_HOLD (Q8.24 8.0; engine/filter.c, loop_in). */
-#define FM_FILTER_HOLD (8 << 24)
+ * +-FM_FILTER_HOLD (Q8.24 16.0; engine/filter.c, loop_in): past anything the
+ * pair plays (3.503) through the bass boost (2.28 x) at the largest input
+ * level (1.733), 13.8, so with no resonance the lowpass is linear. */
+#define FM_FILTER_HOLD (16 << 24)
 
 /*
  * fm_filter_process with its wide-open case inline, for the render loop:
  * open (fade 0) with the highpass off, the filter is a wire for any input
- * within its hold (+-8.0), and keeps only the last sample as its state.
+ * within its hold (+-16.0), and keeps only the last sample as its state.
  * Exactly the same output and state as the call.
  */
 static inline int32_t fm_filter_run(fm_filter *f, int32_t in)

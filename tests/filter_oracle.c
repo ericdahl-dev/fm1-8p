@@ -1,7 +1,7 @@
 /*
  * filter_oracle.c - the filter's per-sample processing as merged in #25 (engine/filter.c at
  * 7af3bd1), with the soft clip on the resonance's feedback alone and the ladder's input held to
- * +-8.0 (the feedback clip, which keeps the lowpass linear with no resonance), kept as a test-only
+ * +-16.0 (the feedback clip; past anything the pair plays through the bass boost), kept as a test-only
  * reference: its lowpass, soft clip and highpass with every sum in 64 bits, plus the resonance's bass shelf on the output (#98), and the bass boost that highpass step 4 added later (#93). It runs on the engine's own fm_filter, set up by the engine's own setters (the
  * coefficients are not what is under test), and is never built into the engine. Tests hold the
  * engine's fm_filter_process to it (test_filter_oracle.c), so the engine can change its arithmetic
@@ -21,10 +21,10 @@ static int32_t oracle_soft_clip(int64_t u)
     return u < 0 ? -m : m;
 }
 
-/* The ladder's input held to +-8.0 (the feedback clip). */
+/* The ladder's input held to +-FM_FILTER_HOLD, 16.0 (the feedback clip). */
 static int64_t oracle_hold(int64_t u)
 {
-    return u > (8 << 24) ? (8 << 24) : u < -(8 << 24) ? -(8 << 24) : u;
+    return u > FM_FILTER_HOLD ? FM_FILTER_HOLD : u < -FM_FILTER_HOLD ? -FM_FILTER_HOLD : u;
 }
 
 static int32_t oracle_mul_q30(int32_t a, int32_t b)

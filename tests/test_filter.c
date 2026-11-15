@@ -2645,8 +2645,35 @@ TT_TEST(lowpass_without_resonance_is_linear_past_two)
     TT_CHECK(worst <= 64.0);
 }
 
+/* The hold is past anything the pair can play (its peak 3.503, #267) through the bass boost (step 4:
+ * 2.28 x at low frequencies) at no resonance's input level (1.41): up to 11.3. A 20 Hz square at
+ * +-3.503 never reaches it, at cutoffs from 6000 to 12000 cents, so the hold leaves it alone (what
+ * shapes it at that level is the resonance's soft clip: at resonance 0 its k is 0.45, the knee's). */
+TT_TEST(the_hold_is_past_the_pair_through_the_bass_boost)
+{
+    static const int32_t cuts[] = { 6000, 9000, 12000 };
+    static fm_filter f;
+    int32_t rate = fm_filter_rate_cents(FRATE), peak = 0;
+    size_t c, i;
+    for (c = 0; c < sizeof cuts / sizeof cuts[0]; c++) {
+        fm_filter_reset(&f);
+        fm_filter_set_highpass(&f, 4, rate);
+        fm_filter_set_cutoff(&f, cuts[c], rate);
+        for (i = 0; i < FRATE; i++) {
+            int32_t x = (i / (FRATE / 40u)) % 2u ? (int32_t)(3.503 * 16777216.0) : -(int32_t)(3.503 * 16777216.0);
+            int32_t a = fm_filter_run(&f, x);
+            a = a < 0 ? -a : a;
+            peak = a > peak ? a : peak;
+        }
+    }
+    printf("    no resonance, bass boost, a +-3.503 square: largest %.2f, the hold %.1f\n", peak / 16777216.0,
+           FM_FILTER_HOLD / 16777216.0);
+    TT_CHECK(peak < FM_FILTER_HOLD - (1 << 24));
+}
+
 static void run_filter_tests(void)
 {
+    TT_RUN(the_hold_is_past_the_pair_through_the_bass_boost);
     TT_RUN(lowpass_without_resonance_is_linear_past_two);
     TT_RUN(cutoff_curve_holds_its_values_at_the_range_edges);
     TT_RUN(linear_cents_holds_its_values_at_the_range_edges);

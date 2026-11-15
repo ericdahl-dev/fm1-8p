@@ -453,9 +453,9 @@ static int32_t hold(int32_t u)
 
 static int32_t loop_in(int32_t x, int32_t s3, int32_t k)
 {
-    /* s3 within 8.0 and k within 4.2: fb within 33.6, and x (within
-     * 64.0 x LEVEL_MAX, 110.9) less the clipped fb (within 4.0) within
-     * 114.9, so the sum fits 32 bits */
+    /* s3 within 16.0 and k within 4.2: fb within 67.2 (soft_clip takes any
+     * int32), and x (within 64.0 x LEVEL_MAX, 110.9) less the clipped fb
+     * (within 4.0) within 114.9, so the sum fits 32 bits */
     int32_t u = x - soft_clip((int32_t)(((int64_t)s3 * k) >> 28));
     return hold(u);
 }
@@ -471,7 +471,7 @@ static int32_t loop_in(int32_t x, int32_t s3, int32_t k)
  * - Louder, the highpass runs in 64 bits and its output is clamped to
  *   +-IN_MAX (64.0). That changes nothing: a clamped value times the
  *   least input level (LEVEL_MIN, 0.66) less the largest clipped feedback
- *   is still past the ladder's hold (U_MAX, 8.0) with the same sign, as
+ *   is still past the ladder's hold (U_MAX, 16.0) with the same sign, as
  *   the unclamped one is. With the highpass off the input is clamped the
  *   same way.
  * - The bass boost (step 4) is at most 2.28 times the larger of the input
@@ -484,11 +484,11 @@ static int32_t loop_in(int32_t x, int32_t s3, int32_t k)
 #define IN_MAX ((1 << 30) - 1)
 /* In units of 1/8192: 64 x the largest level, plus the clipped feedback
  * (4.0), stays under 128.0; 64 x the least level, less that, is past the
- * hold (8.0). */
+ * hold (16.0). */
 typedef char fm_require_level_sum_fits[
     (int64_t)LEVEL_MAX * 64 + 4 * 8192 < 128 * 8192 ? 1 : -1];
 typedef char fm_require_clamp_still_holds[
-    (int64_t)LEVEL_MIN * 64 - 4 * 8192 > 8 * 8192 ? 1 : -1];
+    (int64_t)LEVEL_MIN * 64 - 4 * 8192 > (FM_FILTER_HOLD >> 11) ? 1 : -1];
 #define WITHIN_32(v) ((uint32_t)(v) + (1u << 29) < (1u << 30)) /* -32.0 <= v < 32.0 */
 #define WITHIN_16(v) ((uint32_t)(v) + (1u << 28) < (1u << 29)) /* -16.0 <= v < 16.0 */
 
