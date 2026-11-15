@@ -208,7 +208,7 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on);
 /* key k's LED as the keypad has it: UI_LED_GLOW for a digit key while SEL is held, else UI_LED_OFF */
 uint32_t ui_keypad_led(const ui *u, uint32_t k);
 /* key k's LED, down or not (interaction.md 5, Key LEDs): SEQ view's step and chord keys; outside it the
- * playhead's key while playing, the keypad's glow while SEL is held, and a held key lit */
+ * playhead's key while playing, the keypad's glow while SEL is held, and a held key lit with G33 ON */
 uint32_t ui_key_led(const ui *u, uint32_t k, int down);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
