@@ -405,6 +405,8 @@ TT_TEST(seq_presets_queues_the_next_pattern_while_playing)
     TT_CHECK_EQ(play_pattern_next(&ui_p), 2);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 1400);   /* back to the running one: none */
     TT_CHECK_EQ(play_pattern_next(&ui_p), -1);
+}
+
 /* The host's picker opens on HOME held alone 1.5 s, and the module sees HOME let go then (fm1-dock
  * dock.c: "the module saw it let go"): the sequencer stops, in every state (interaction.md case 62). A
  * HOME tap doesn't stop it. */
