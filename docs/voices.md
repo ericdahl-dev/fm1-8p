@@ -7,8 +7,10 @@ number formats are in [fixed-point.md](fixed-point.md).
 ## Voice count
 
 `fm_engine_init(e, sample_rate, voice_count)` sets the voice count, 1 to
-`FM_MAX_VOICES` (8). The FM-1 target is 6, with 4 as the fallback if the CPU
-test says 6 don't fit. The desktop render tool takes `-v VOICES` (default 6)
+`FM_MAX_VOICES` (8). The FM-1 plays 4 voices (`PLAY_VOICES` in `firmware/play.h`):
+Eric's decision on 2026-11-15, final. 6 voices are not being pursued. The device
+measurements behind it are in [device-test.md](device-test.md#results-13). The
+desktop render tool takes `-v VOICES` (default 6)
 and plays one MIDI channel, `-c CHANNEL` (default: the channel of the first
 note on); the engine itself has no notion of channels.
 All voice state is in the caller's `fm_engine`; nothing is allocated.

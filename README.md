@@ -240,7 +240,8 @@ the device (#13).
 2. **Desktop build** (`host/`): renders the engine to WAV or plays it live on Linux and macOS,
    for listening tests against reference recordings.
 3. **CPU spike on the device**: one voice with filter and chorus on the FM-1 to measure load
-   and decide the voice count (target 6, fallback 4).
+   and decide the voice count: 4 voices, final (Eric, 2026-11-15; the measurements are in
+   [docs/device-test.md](docs/device-test.md#results-13)).
 4. **FM-1 firmware** (`fw/`): built on JieLi's Linux toolchain and AC79 SDK, the same way as
    [fm1-dock](https://github.com/joakimeriksson/fm1-dock), released through
    [zvenson/fm1-build](https://github.com/zvenson/fm1-build) for The Firmware Hub.

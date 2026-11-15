@@ -557,9 +557,16 @@ on a held C3 saw (level, L/R correlation and sweep rate).
 - The FM-1 runs at 44.1 kHz with 256-frame blocks, so the host and the tests
   default to 44100 Hz. One block is 5.8 ms of audio, and all the voices plus
   the chorus have to render within that.
+- **Confirmed on the device (#13):** 44.1 kHz, measured on the device at
+  44117.6 Hz against the 24 MHz tick, ±0.06 % (one block). An FM1_DEBUG build
+  counts the frames it renders over about 10 s against `H->ticks()` and logs
+  them once (`fm1-8p RATE`): 441088 frames (1723 blocks) in 239951881 ticks
+  after a clean start. fm1-dock sets the rate in its source (`FS 44100u`,
+  platform.c), and the codec's clock comes from register settings, so the
+  measurement is what confirms it. fm1-emu gives the same count within 100
+  ticks.
 - The sample rate is an argument to `fm_engine_init` (8 kHz to 192 kHz; it
-  returns `FM_ERR_ARG` outside that) and is never hardcoded, because the
-  FM-1's real rate still has to be confirmed. Below 8 kHz the chorus LFO
+  returns `FM_ERR_ARG` outside that) and is never hardcoded. Below 8 kHz the chorus LFO
   increment and the millisecond conversions lose too much precision to be
   worth supporting. Most tests run at 44.1 kHz; the edge-case tests also use
   8 kHz, 11.025 kHz and 192 kHz.
