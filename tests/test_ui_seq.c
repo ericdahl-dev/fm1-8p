@@ -819,6 +819,28 @@ TT_TEST(seq_rec_takes_midi_notes)
     TT_CHECK_EQ(ui_u.seq_cursor, 1u);
 }
 
+/* In REC, SEL writes a rest and ENV a tie at the cursor, each moving on (outside REC they act on the
+ * cursor step and stay) */
+TT_TEST(seq_rec_sel_and_env_write_and_move_on)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C, 1, 100);
+    seq_set_step(s, 1, C, 1, 100);
+    ui_tap(UI_BTN_REC, 1000);
+    ui_tap(UI_BTN_SEL, 1100);                                 /* step 1: a rest */
+    TT_CHECK_EQ(seq_get_step(s, 0)->kind, SEQ_REST);
+    TT_CHECK_EQ(ui_u.seq_cursor, 1u);
+    ui_tap(UI_BTN_ENV, 1200);                                 /* step 2: a tie */
+    TT_CHECK_EQ(seq_get_step(s, 1)->kind, SEQ_TIE);
+    TT_CHECK_EQ(ui_u.seq_cursor, 2u);
+    ui_tap(UI_BTN_ENV, 1300);                                 /* step 3: a tie, not a toggle back */
+    TT_CHECK_EQ(seq_get_step(s, 2)->kind, SEQ_TIE);
+    TT_CHECK_EQ(ui_u.seq_cursor, 3u);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
@@ -828,6 +850,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_rec_writes_a_step_and_moves_on);
     TT_RUN(seq_rec_wraps_at_the_length);
     TT_RUN(seq_rec_takes_midi_notes);
+    TT_RUN(seq_rec_sel_and_env_write_and_move_on);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);

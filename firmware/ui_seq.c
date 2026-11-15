@@ -248,6 +248,15 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap) {  /* the last edit page */
         u->state = UI_EDIT;
         u->dirty |= UI_D_FULL;
+    } else if (u->seq_rec && tap && (ev == (UI_EV_BTN_UP | UI_BTN_SEL) || ev == (UI_EV_BTN_UP | UI_BTN_ENV))) {
+        if (id == UI_BTN_SEL)                   /* REC: a rest or a tie at the cursor, then on (interaction.md 5) */
+            seq_clear_step(s, u->seq_cursor);
+        else if (seq_get_step(s, u->seq_cursor)->kind != SEQ_TIE)
+            seq_toggle_tie(s, u->seq_cursor);
+        u->built_n = 0;
+        u->seq_cursor = (u->seq_cursor + 1u) % seq_length(s);
+        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        roll(u, ROLL_ALL);
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL)) {
         if (ms - u->down_ms[UI_BTN_SEL] >= UI_SEQ_CLEAR_MS) {   /* held: the whole pattern */
             for (i = 0; i < SEQ_STEPS; i++)
