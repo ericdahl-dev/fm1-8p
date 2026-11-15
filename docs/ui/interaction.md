@@ -631,7 +631,8 @@ What the white-key steps add to #53:
   (#53's `HELD` line).
 - **The armed step** (new with tap-then-play; #53 has no armed state): its
   cursor frame thickens to 2 px and blinks, and the notes being played appear
-  in its column at 45 % as they go down, in full once written (open question).
+  in its column at 45 % as they go down, in full once written (Eric, 2026-11-15,
+  having seen #53's mockup: "I like it. Carry on.").
 
 ### Writing steps
 
