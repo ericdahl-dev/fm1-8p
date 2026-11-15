@@ -88,8 +88,8 @@ typedef struct {
     uint32_t sp_kq;
     uint32_t sp_ar;
     uint32_t sp_g[2];
-    int32_t sp_p1[2];
-    int32_t sp_zc[2];
+    int32_t sp_p1[2];                   /* the spike's slope on u / tau (log2), Q26: KA ln2 / (1 - q) */
+    int32_t sp_zc[2];                   /* and its constant, Q22: KA (T / tau) q / (1 - q)^2 */
     int32_t sp_mean[2];
 } fm_osc_pair;
 

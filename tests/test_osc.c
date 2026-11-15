@@ -179,6 +179,73 @@ static double held_rms(uint8_t wave, uint8_t note)
 }
 
 /*
+ * The spike against its closed form in double (#150's model: an impulse of
+ * area A through two one-poles at 3050 Hz, steady state, less its mean),
+ * osc1 alone at full, notes 24..108 at 48 kHz and 120..132 at 192 kHz: the
+ * largest error is under -58 dB of the spike's peak at 48 kHz (-45 dB at
+ * 192 kHz's high notes), so a cheaper way to the same form stays as close to
+ * the fit (0.81 dB rms) as the closed form itself. Past about 27 kHz (notes
+ * 144..168 at 192 kHz, to its pitch limit) it keeps that pitch's shape, so
+ * it stays within the spike's own peak (2.3) and never runs away.
+ */
+static double spike_ref(double u, double T)
+{
+    const double A = 2.9317e-4, tau = 1.0 / (2.0 * AN_PI * 3050.0);
+    double q = exp(-T / tau);
+    return A / tau * exp(-u / tau) * (u / tau / (1 - q) + T / tau * q / ((1 - q) * (1 - q))) - A / T;
+}
+
+TT_TEST(spike_matches_its_closed_form)
+{
+    static fm_osc_pair p;
+    static const struct { int32_t note; uint32_t rate; } at[] = {
+        { 24, 48000 }, { 48, 48000 }, { 60, 48000 }, { 72, 48000 }, { 84, 48000 }, { 96, 48000 },
+        { 108, 48000 }, { 120, 192000 }, { 132, 192000 }
+    };
+    static const int32_t past[] = { 144, 156, 160, 168 };
+    double worst = -1e9;
+    size_t n, k;
+    for (n = 0; n < sizeof at / sizeof at[0]; n++) {
+        int32_t pitch = at[n].note << 16;
+        uint32_t rate = at[n].rate;
+        double peak = 0, err0 = 0, err1 = 0, g, T;
+        uint32_t inc, t;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 0, FM_WAVE_SPIKE);
+        fm_osc_pair_set_pitch(&p, pitch, rate);
+        fm_osc_pair_set_level(&p, 0, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_level(&p, 1, 0);
+        inc = p.osc[0].inc;
+        T = 4294967296.0 / inc / rate;
+        g = (double)p.level[0] / (1 << 30);
+        for (k = 0, t = 0; k < rate; k++, t += inc) {
+            double v = fm_osc_pair_next(&p) / 16777216.0;
+            double r0 = g * spike_ref((double)t / 4294967296.0 * T, T);
+            double r1 = g * spike_ref((double)(uint32_t)(t + inc) / 4294967296.0 * T, T);
+            peak = fmax(peak, fabs(r0));
+            err0 = fmax(err0, fabs(v - r0));
+            err1 = fmax(err1, fabs(v - r1));
+        }
+        worst = fmax(worst, 20 * log10(fmin(err0, err1) / peak) - (rate > 48000 ? 13.0 : 0.0));
+    }
+    printf("    spike against its closed form: worst %.1f dB of its peak (192 kHz's high notes 13 dB looser)\n",
+           worst);
+    TT_CHECK(worst < -58.0);
+    for (n = 0; n < sizeof past / sizeof past[0]; n++) {
+        double big = 0;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 0, FM_WAVE_SPIKE);
+        fm_osc_pair_set_pitch(&p, past[n] << 16, 192000);
+        fm_osc_pair_set_level(&p, 0, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_level(&p, 1, 0);
+        for (k = 0; k < 192000; k++)
+            big = fmax(big, fabs(fm_osc_pair_next(&p) / 16777216.0));
+        printf("    spike at note %d, 192 kHz: largest %.3f\n", (int)past[n], big);
+        TT_CHECK(big < 2.3);
+    }
+}
+
+/*
  * PG-8X 2.0.13's PULSE is a narrow spike of fixed length, not a fixed
  * duty (#150): its level against the square rises about 2.8 dB an octave
  * with pitch. DCO-1 alone, steady RMS, PG-8X: pulse minus square -12.9 dB
@@ -2304,6 +2371,7 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
 static void run_osc_tests(void)
 {
     TT_RUN(synced_spike_restart_inside_the_spike_has_low_aliasing);
+    TT_RUN(spike_matches_its_closed_form);
     TT_RUN(spike_level_rises_with_pitch_as_pg8x);
     TT_RUN(spike_partials_follow_pg8x);
     TT_RUN(dco2_spike_sits_3_6_db_under_dco1s);
