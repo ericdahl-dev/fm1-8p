@@ -1314,10 +1314,10 @@ uint32_t ui_take(ui *u, uint32_t ms)
         uint32_t f = play_pattern_prog(u->p) | (uint32_t)(play_pattern_next(u->p) + 1) << 8 |
                      seq_edited(play_seq(u->p)) << 16;
         const seq *q = play_seq(u->p);
-        uint32_t c = seq_clock_external(q) | seq_waiting(q) << 1 | seq_clock_tempo(q) << 2;
-        if (c != u->shown_clock) {              /* the clock (#38): TEMPO, the header, the footer */
+        uint32_t c = seq_clock_external(q) | seq_waiting(q) << 1 | ui_seq_tempo_shown(u) << 2;
+        if (c != u->shown_clock) {              /* the clock as shown (#38): the footer, and TEMPO on S1 */
             u->shown_clock = c;
-            u->dirty |= UI_D_FOOT | UI_D_HEAD | UI_D_COL(0);
+            u->dirty |= UI_D_FOOT | (u->seq_page == 0u ? UI_D_COL(0) : 0u);
         }
         if (f != u->shown_ptn) {
             u->shown_ptn = f;

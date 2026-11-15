@@ -41,6 +41,9 @@ void ui_seq_footer_text(const ui *u, char *left, char *right);
 /* The transport's clock (interaction.md 7): "INT", "MIDI", or "WAITING FOR CLOCK" while PLAY waits for
  * the clock's start. s: UI_SEQ_TEXT_LEN */
 void ui_seq_clock_text(const ui *u, char *s);
+/* The tempo SEQ view shows, tenths of a BPM: the clock's in whole BPM when it runs the steps or they're
+ * stopped (#38), else the pattern's */
+uint32_t ui_seq_tempo_shown(const ui *u);
 /* SEQ view: a step key (0..15) down or up */
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* An event while SEQ view is open. */
