@@ -26,8 +26,25 @@ static play P;                                  /* static: the engine's 5 KiB mu
 static ui U;
 static uint8_t out_st[PLAY_KEYS];               /* each held key's note-off status: its note-on's channel */
 
+#ifdef FM1_DEBUG
+/* #13: the audio rate as the device runs it: the frames rendered over about 10 s against the 24 MHz
+ * counter, from the first block (counted here in the audio interrupt, logged by draw()) */
+static volatile uint32_t rate_frames, rate_t0, rate_dt, rate_done;
+#endif
+
 static void render(int32_t *out, uint32_t n)
 {
+#ifdef FM1_DEBUG
+    if (!rate_done) {
+        uint32_t t = H->ticks();
+        if (!rate_frames)
+            rate_t0 = t;
+        else if (rate_frames >= 441000u)        /* (frames before this block, over t - t0) */
+            rate_dt = t - rate_t0, rate_done = 1;
+        if (!rate_done)
+            rate_frames += n;
+    }
+#endif
     seq_block_time(play_seq(&P), H->ticks());   /* (#38: where the block starts, for the MIDI clock) */
     play_render(&P, out, n);
 }
@@ -186,6 +203,13 @@ static const settings_io SETTINGS = { set_load, set_save, 0 };
 /* The host calls draw() from its main loop: the LEDs on a full redraw, then the screen (draw.c) */
 static void draw(uint32_t full)
 {
+#ifdef FM1_DEBUG
+    if (rate_done == 1u) {                      /* #13: Hz = frames x 24000000 / ticks */
+        rate_done = 2u;
+        H->log_u32("fm1-8p RATE frames", rate_frames);
+        H->log_u32("fm1-8p RATE ticks (24 MHz)", rate_dt);
+    }
+#endif
     if (!set_loaded) {                          /* the first: GLO's settings (the boot screen's THEME too) */
         settings_load(&U.set, &SETTINGS);
         U.shown_theme = U.set.theme;            /* (shown at once: the boot draws in it, no switch after) */

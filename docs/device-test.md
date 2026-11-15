@@ -208,3 +208,29 @@ try again.
 
 The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `d5ee372` (#25's filter), with row F
 playing the filter on 6 voices. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+
+## Results (#13)
+
+The runs posted in #13, all on the same FM-1 with fm1-dock 0.8 (FM-1_921), route A. Each figure is the worst
+render time in a 256-frame block, as % of the block. Step F is the full patch: 6 voices in runs 2-6 (with the
+filter, #57), 8 voices with no filter in run 1.
+
+| run | fm1-8p | Bluetooth | 1v | 8v | U | F | device / emu |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | c04f731 | off | 5.8 | 31.7 | 38.3 | 70.7 (8v, no filter) | 1.13-1.17 |
+| 2 | 7af3bd1 (#57) | off | - | 31.6 | 38.3 | 86.5 | 1.12 |
+| 3 | 9b4b979 (#66, -O2) | off | 5.2 | 27.3 | 33.2 | 72.2 | 1.13 |
+| 5 | 3b5da6e | off | 5.6 | 27.5 | 33.5 | 66.6 | 1.127 |
+| 6 | 6754821 (#82) | off | 5.3 | 24.8 | 30.8 | 64.4 | 1.14 |
+
+- 0 overruns in every run.
+- Run 4 measured with Bluetooth on, which adds about 10 points to the worst block and varies from sweep to
+  sweep: the C66 control read 82.0 % F with it on, 71.9 % with it off. CPU runs are made with Bluetooth off
+  (section 4).
+- fm1-emu in strict mode reads low by a steady factor, about 1.13 (1.12-1.17), so the emulator's rows predict
+  the device. The 1-voice row carries the fixed cost and reads up to 1.38.
+- Run 1 per step (per mille, 1 to 8 voices): 58, 88, 126, 164, 202, 240, 279, 317.
+- Run 3 per step: 52, 77, 109, 142, 175, 207, 240, 273.
+- **The voice count:** 4 voices, final (Eric, 2026-11-15). Step F at 6 voices reached 64.4 % on the device
+  (run 6), under the 70 % goal from #34; the device has played 4 since, and Eric decided 4 is fine. 6 voices
+  are not being pursued.
