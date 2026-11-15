@@ -34,7 +34,7 @@
 
 typedef enum { UI_PLAY, UI_EDIT, UI_SAVE, UI_GLO, UI_SEQ } ui_state;
 #define UI_CHORD_MAX 16u                /* notes held at once that a chord keeps track of */
-#define UI_STEP_KEYS 16u                /* SEQ view: keys 0-15 (F3..G#4) are the steps */
+#define UI_STEP_KEYS 16u                /* SEQ view: the 16 white keys F3..G5 are the steps (Eric) */
 
 
 typedef struct {
@@ -97,6 +97,11 @@ typedef struct {
     uint8_t chord[UI_CHORD_MAX];        /* the notes held now (chord keys and MIDI in), in press order */
     uint8_t chord_vel[UI_CHORD_MAX];
     uint32_t chord_n;
+    uint32_t seq_armed;                 /* SEQ view: a step tapped; the notes played next go to it */
+    uint32_t seq_arm_ms;                /* when */
+    uint8_t built[UI_CHORD_MAX];        /* the notes played since, in press order, and their velocities */
+    uint8_t built_vel[UI_CHORD_MAX];
+    uint32_t built_n;
     char seq_msg[16];                   /* "MAX 4 NOTES", the banner */
     uint32_t shown_steps;               /* seq_steps as SEQ view's strip last drew it */
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */

@@ -369,6 +369,8 @@ void ui_init(ui *u, play *p)
     u->seq_page = 0;
     u->seq_keys = 0;
     u->chord_n = 0;
+    u->seq_armed = 0;
+    u->built_n = 0;
     u->seq_msg[0] = 0;
     u->pc_out = -1;
     u->cc_out_at = 0;
@@ -849,16 +851,16 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
 int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
 {
     int32_t d = key_digit(k);
-    if (!down && k < UI_STEP_KEYS && u->seq_keys >> k & 1u) {   /* a step's up: SEQ view's, wherever we are */
+    if (!down && k < 32u && u->seq_keys >> k & 1u) {   /* a key SEQ view took: its up too, wherever we are */
         u->seq_keys &= ~(1u << k);
         ui_seq_step_key(u, k, 0, ms);
         return 1;
     }
-    if (down && u->state == UI_SEQ && k < UI_STEP_KEYS) {   /* SEQ view: a step, no sound */
+    if (down && u->state == UI_SEQ && !u->seq_armed && k < 32u) {   /* SEQ view: a step or nothing; no sound */
         u->seq_keys |= 1u << k;
         ui_seq_step_key(u, k, 1, ms);
         return 1;
-    }
+    }                                           /* (armed: every key plays, ui_chord_note collects it) */
     if (!down) {                                /* an up goes where its down went */
         if (!(u->jump_keys >> k & 1u))
             return 0;
@@ -1167,6 +1169,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && u->state == UI_SEQ) {
+        u->seq_armed = u->built_n = 0;
         u->glo_from = UI_SEQ;                   /* GLO from SEQ view, and back to it */
         u->state = UI_GLO;
         u->readout = 0;
@@ -1284,6 +1287,10 @@ uint32_t ui_take(ui *u, uint32_t ms)
     if (play_edited(u->p) != u->shown_edited) {  /* the footer's `*` */
         u->shown_edited = play_edited(u->p);
         u->dirty |= UI_D_FOOT;
+    }
+    if (u->seq_armed && !u->built_n && ms - u->seq_arm_ms >= UI_SEQ_ARM_MS) {
+        u->seq_armed = 0;                       /* a tapped step, nothing played: steps again */
+        u->dirty |= UI_D_FOCUS;
     }
     if (u->state == UI_SEQ && seq_steps(play_seq(u->p)) != u->shown_steps) {
         u->shown_steps = seq_steps(play_seq(u->p));

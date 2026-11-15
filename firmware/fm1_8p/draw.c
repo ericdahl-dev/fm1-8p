@@ -869,11 +869,11 @@ static void seq_focus(void)
         CV_TEXT(240 - M - TEXT_W(0, n) - TEXT_W(0, "VEL") - 4, 0, 0, "VEL", C_DIM);
     }
     ui_seq_chord_text(U, t);
-    if (*t) {                                   /* the chord a step key would write */
-        CV_TEXT(M, 17, 0, "HELD", C_DIM);
-        CV_TEXT(M + TEXT_W(0, "HELD") + 6, 17, 0, t, C_TEXT);
+    if (U->seq_armed) {                         /* a step tapped: play its notes (all the keys play now) */
+        CV_TEXT(M, 17, 0, "PLAY", led_of(C_PLAY));
+        CV_TEXT(M + TEXT_W(0, "PLAY") + 6, 17, 0, *t ? t : "NOTES FOR THE STEP", *t ? C_TEXT : C_DIM);
     } else {
-        CV_TEXT(M, 17, 0, "HOLD A CHORD, PRESS A STEP", C_DIM);
+        CV_TEXT(M, 17, 0, "TAP A STEP, THEN PLAY", C_DIM);
     }
     CV_TEXT(M, 33, 0, "SEL REST  ENV TIE", C_DIM);
     if (seq_transpose(sq)) {
@@ -926,7 +926,7 @@ static void seq_strip(void)
         if ((int32_t)i == at)                   /* the playhead */
             H->cv_rect(x, y + h + 4, w, 4, C_TEXT);
     }
-    text_c(0, 240, 44, 0, "F3-G#4 STEPS  A4-G5 PLAY", C_DIM);
+    text_c(0, 240, 44, 0, "WHITE KEYS: STEPS 1-16", C_DIM);
     blit(0, 78, 240, 60);
 }
 
