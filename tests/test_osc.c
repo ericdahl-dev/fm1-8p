@@ -1313,6 +1313,31 @@ TT_TEST(synced_osc2_has_low_aliasing)
 }
 
 /*
+ * A synced spike (#150, #260): osc1 restarts osc2 inside the spike's body,
+ * where the wave is far from where a restart starts it again, so each
+ * restart is a step. osc2 a little over an octave up (+12 semitones +40
+ * cents, C5) meets each restart about 0.05 into its cycle, inside the
+ * spike; held to ALIAS_LIMIT_DB like the other synced waves.
+ */
+TT_TEST(synced_spike_restart_inside_the_spike_has_low_aliasing)
+{
+    static const int32_t fines[] = { 40, 20, 70 };
+    size_t k;
+    for (k = 0; k < sizeof fines / sizeof fines[0]; k++) {
+        double db;
+        slave_init(RATE, FM_WAVE_SPIKE);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 12);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, fines[k]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, 1);
+        fm_engine_note_on(&eng, 72, 100);
+        fm_engine_render(&eng, buf, 4800 + 32768);
+        db = aliasing_db(buf + 2 * 4800, 32768, 0, note_hz(72), RATE, 6);
+        printf("    aliasing for a synced spike +12 st %+d cents at note 72: %.1f dB\n", (int)fines[k], db);
+        TT_CHECK(db < ALIAS_LIMIT_DB);
+    }
+}
+
+/*
  * osc2 an octave less 2 cents up (a ratio just under 2) meets each
  * restart about 0.998 into its cycle, within one increment of its own wrap:
  * the polyBLEP it would put on that wrap must not add to the restart's.
@@ -2278,6 +2303,7 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
 
 static void run_osc_tests(void)
 {
+    TT_RUN(synced_spike_restart_inside_the_spike_has_low_aliasing);
     TT_RUN(spike_level_rises_with_pitch_as_pg8x);
     TT_RUN(spike_partials_follow_pg8x);
     TT_RUN(dco2_spike_sits_3_6_db_under_dco1s);
