@@ -2315,8 +2315,8 @@ TT_TEST(open_filter_without_envelope_matches_the_full_render)
  * The same with osc2 synced and cross-modulated hard (and both
  * oscillators heard, on a pulse and a saw): the render's cheapest path
  * passes the pair's output straight through, which needs the pair to stay
- * inside the soft clip's untouched +-2.0 (max_xmod_and_sync_stay_in_range
- * holds it at 1.0), so it must match the full path bit for bit.
+ * inside the filter's hold, +-8.0 (max_xmod_and_sync_stay_in_range holds
+ * it at 1.0), so it must match the full path bit for bit.
  */
 TT_TEST(open_filter_with_sync_and_xmod_matches_the_full_render)
 {
@@ -2357,8 +2357,9 @@ TT_TEST(open_filter_with_sync_and_xmod_matches_the_full_render)
 /*
  * The same with the ring on (SYNC 2: a saw osc1 ringing a synced square,
  * mixed alone, where the ring peaks highest): the cheapest path passes it
- * straight through, which needs it inside the soft clip's untouched +-2.0
- * (ring_stays_within_two), so it must match the full path bit for bit.
+ * straight through, which needs it inside the filter's hold, +-8.0 (the
+ * ring's is +-4.0, ring_stays_within_four), so it must match the full path
+ * bit for bit.
  */
 TT_TEST(open_filter_with_the_ring_matches_the_full_render)
 {
@@ -2645,9 +2646,9 @@ TT_TEST(lowpass_without_resonance_is_linear_past_two)
     TT_CHECK(worst <= 64.0);
 }
 
-/* The hold is past anything the pair can play (its peak 3.503, #267) through the bass boost (step 4:
- * 2.28 x at low frequencies) at no resonance's input level (1.41): up to 11.3. A 20 Hz square at
- * +-3.503 never reaches it, at cutoffs from 6000 to 12000 cents, so the hold leaves it alone (what
+/* The hold is past anything the pair can play (its peak 3.855, a ringed spike: ring_stays_within_four)
+ * through the bass boost (step 4: 2.28 x at low frequencies) at no resonance's input level (1.41): up
+ * to 12.4 (15.2 at the largest, 1.733). A 20 Hz square at +-3.855 never reaches it, at cutoffs from 6000 to 12000 cents, so the hold leaves it alone (what
  * shapes it at that level is the resonance's soft clip: at resonance 0 its k is 0.45, the knee's). */
 TT_TEST(the_hold_is_past_the_pair_through_the_bass_boost)
 {
@@ -2660,13 +2661,13 @@ TT_TEST(the_hold_is_past_the_pair_through_the_bass_boost)
         fm_filter_set_highpass(&f, 4, rate);
         fm_filter_set_cutoff(&f, cuts[c], rate);
         for (i = 0; i < FRATE; i++) {
-            int32_t x = (i / (FRATE / 40u)) % 2u ? (int32_t)(3.503 * 16777216.0) : -(int32_t)(3.503 * 16777216.0);
+            int32_t x = (i / (FRATE / 40u)) % 2u ? (int32_t)(3.855 * 16777216.0) : -(int32_t)(3.855 * 16777216.0);
             int32_t a = fm_filter_run(&f, x);
             a = a < 0 ? -a : a;
             peak = a > peak ? a : peak;
         }
     }
-    printf("    no resonance, bass boost, a +-3.503 square: largest %.2f, the hold %.1f\n", peak / 16777216.0,
+    printf("    no resonance, bass boost, a +-3.855 square: largest %.2f, the hold %.1f\n", peak / 16777216.0,
            FM_FILTER_HOLD / 16777216.0);
     TT_CHECK(peak < FM_FILTER_HOLD - (1 << 24));
 }

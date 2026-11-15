@@ -817,10 +817,14 @@ static const int32_t ring_c[FM_WAVE_COUNT] = { 3942615, 2516582, 3523215, 0, 297
 
 /*
  * osc2's sample x ringed by osc1's sample m: x (a + b m) + c m, Q8.24,
- * held to +-2.0. It reaches past that only where both waves are near
- * their extremes at once (a saw osc1 at its trough: 1.97 x less 0.235);
- * the pair stays inside the soft clip's untouched +-2.0, which the
- * open-filter render passes straight through.
+ * held to +-4.0. The law is asymmetric: with squares at full levels one of
+ * its four levels reaches about -2.46 with osc1 added, and a hold at
+ * +-2.0 cut that side alone, which left a DC offset the envelopes then
+ * moved through the audio (CHURCHBELL's sub-audio, #266). Its widest
+ * reach (a pulse osc1: osc2 times 2.66, plus 0.15 of osc1, plus osc1 at
+ * full) is under 4.0, so the hold only guards the sums. It stays inside
+ * the filter's hold (+-8.0, FM_FILTER_HOLD), which the open-filter render
+ * passes straight through.
  */
 /* The ring's a and b for osc1's wave, times osc2's wave level: osc2's
  * sample at its level against the saw, before the ring; the c term (osc1
@@ -833,7 +837,7 @@ static void ring_coef(fm_osc_pair *p)
     p->ring_ab[1] = g == 1 << 30 ? ring_b[w] : (int32_t)(((int64_t)ring_b[w] * g) >> 30);
 }
 
-#define RING_MAX (2 << 24)
+#define RING_MAX (4 << 24)
 static int32_t ring(const fm_osc_pair *p, int32_t x, int32_t m)
 {
     uint8_t w = p->wave[0];
@@ -846,13 +850,16 @@ static int32_t ring(const fm_osc_pair *p, int32_t x, int32_t m)
  * A synced pair's sample v with the DC taken off (#139): a synced osc2
  * restarts part way through its cycle, so the pair repeats every osc1
  * cycle with that cycle's mean in it. Each sample leaves less the offset,
- * held to +-2.0, and goes into the cycle's sum; where osc1 wraps, the sum
+ * held to +-4.0, and goes into the cycle's sum; where osc1 wraps, the sum
  * times osc1's increment (1 / the cycle's length in samples, Q0.32) is the
  * mean the offset left in, and the offset moves by it. Summing what
  * leaves, not what came in, takes off the DC the hold adds when the
- * offset shifts the wave into it (a ringed osc2 runs into +-2.0). The
+ * offset shifts the wave into it (a ringed osc2 runs into +-4.0). The
  * offset needs no hold of its own: past the wave's range every sample
- * leaves at the hold and pulls it back, so it stays within about +-4.0.
+ * leaves at the hold and pulls it back, so it stays within about +-4.0
+ * (+-8.0 at worst, where a cycle's mean overshoots after osc1 is pitched
+ * up mid-cycle and cycle_mean holds it at +-4.0; v less it then fits
+ * 32 bits with room).
  */
 static int32_t cycle_mean(int64_t sum, uint32_t inc)
 {
@@ -905,7 +912,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
     b = osc2_at(p);
     b += advance(p);
     p->osc[1].inc = inc;
-    if (p->ring) { /* osc1 plus the ringed osc2 could reach 3.0: the pair stays in +-2.0 */
+    if (p->ring) { /* osc1 plus the ringed osc2: the pair stays in +-4.0 */
         int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->req[1]);
         b = v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
     } else {
@@ -1032,7 +1039,7 @@ static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b);
 
 /*
  * sync_dc over a run of `n` samples in out[] with no wrap of osc1 in it:
- * each less the offset, held to +-2.0, into the cycle's sum.
+ * each less the offset, held to +-4.0, into the cycle's sum.
  */
 static void sync_dc_run(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
@@ -1138,7 +1145,7 @@ static void sync_run(fm_osc_pair *p, int32_t *out, uint32_t n)
 
 /*
  * osc1's raw sample a and osc2's b as next_special sums a ring pair: osc1
- * at its level plus the ringed osc2 at its own, held to +-2.0.
+ * at its level plus the ringed osc2 at its own, held to +-4.0.
  */
 static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b)
 {

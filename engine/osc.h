@@ -140,7 +140,8 @@ void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth);
  * with `on`, osc2's signal becomes x2 (a + b m1) + c m1 before its level,
  * m1 being osc1's sample (peak 1.0) and b near -1: osc2 at nearly full
  * amplitude modulation by an inverted osc1, with a little of osc1 on top.
- * A product, so no pitch moves. The pair's sum is held to +-2.0.
+ * A product, so no pitch moves. The pair's sum is held to +-4.0 (the law
+ * is asymmetric: a hold at +-2.0 cut one side and left DC, #266).
  * docs/patches.md has a, b and c.
  */
 void fm_osc_pair_set_ring(fm_osc_pair *p, uint8_t on);
