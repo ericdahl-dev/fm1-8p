@@ -2680,8 +2680,23 @@ TT_TEST(ui_key_leds_follow_g33)
     TT_CHECK_EQ(ui_key_led(&ui_u, 0, 1), (uint32_t)UI_LED_GLOW);
 }
 
+/* G31 VELOCITY CURVE scales the host's velocity curve for force-sensed keys (fm1-dock sense_set's
+ * curve, the exponent x 100): 100 %, the default, is the host's own 70; 50 % is 35, 200 % is 140 */
+TT_TEST(ui_velocity_curve_scales_the_hosts)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_u.set.vel_curve_pct, 100u);
+    TT_CHECK_EQ(ui_sense_curve(&ui_u), UI_SENSE_CURVE_HOST);
+    TT_CHECK_EQ(UI_SENSE_CURVE_HOST, 70u);
+    ui_u.set.vel_curve_pct = 50;
+    TT_CHECK_EQ(ui_sense_curve(&ui_u), 35u);
+    ui_u.set.vel_curve_pct = 200;
+    TT_CHECK_EQ(ui_sense_curve(&ui_u), 140u);
+}
+
 static void run_ui_tests(void)
 {
+    TT_RUN(ui_velocity_curve_scales_the_hosts);
     TT_RUN(ui_program_change_in_loads_the_patch);
     TT_RUN(ui_program_change_out_on_a_panel_load);
     TT_RUN(ui_glo_fourth_page_has_program_change);
