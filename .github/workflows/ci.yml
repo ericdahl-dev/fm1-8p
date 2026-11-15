@@ -51,6 +51,8 @@ jobs:
 
       - name: Factory patch converter (and firmware/patches.c up to date)
         run: make check-patches
+      - name: Display font (generated, unedited, within 6 KB; #55)
+        run: make check-font
 
       - name: Sample render
         run: |

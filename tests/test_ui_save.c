@@ -452,6 +452,53 @@ TT_TEST(save_waits_while_the_sequencer_runs)
     TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED 11") == 0);
 }
 
+/* #201: PLAY armed and waiting for MIDI clock (G13 MIDI) counts as running: a start could come mid-write,
+ * so a SAVE waits; PLAY again (disarmed) lets it write */
+TT_TEST(save_waits_while_play_waits_for_the_clock)
+{
+    save_setup();
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    save_tap(UI_BTN_PLAY, 900);
+    TT_CHECK(seq_waiting(play_seq(&ui_p)));
+    save_render(4);
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 1200);
+    (void)ui_take(&ui_u, 2000);
+    TT_CHECK_EQ(store_flash.saves, 0u);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVING 11 WHEN SILENT") == 0);
+    save_tap(UI_BTN_PLAY, 2100);                /* disarmed */
+    TT_CHECK(!seq_waiting(play_seq(&ui_p)));
+    save_render(4);
+    (void)ui_take(&ui_u, 2500);
+    TT_CHECK_EQ(store_flash.saves, 1u);
+}
+
+/* #201: with the sequencer playing, holding SAVE 1 s still forces the waiting write (Q5), and HOME still
+ * cancels one */
+TT_TEST(save_force_and_cancel_work_while_the_sequencer_runs)
+{
+    save_setup();
+    seq_play(play_seq(&ui_p));
+    save_render(4);
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 1200);
+    (void)ui_take(&ui_u, 1300);
+    TT_CHECK(ui_u.save_waiting);
+    save_tap(UI_BTN_HOME, 1400);                /* HOME asks, */
+    TT_CHECK(ui_u.save_waiting);
+    save_tap(UI_BTN_HOME, 1600);                /* and again cancels */
+    TT_CHECK(!ui_u.save_waiting);
+    TT_CHECK_EQ(store_flash.saves, 0u);
+    save_tap(UI_BTN_SAVE, 2000);
+    save_tap(UI_BTN_SAVE, 2200);
+    (void)ui_take(&ui_u, 2300);
+    TT_CHECK(ui_u.save_waiting);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SAVE, 0, 2400);
+    (void)ui_take(&ui_u, 3500);                 /* held 1.1 s: forced */
+    TT_CHECK_EQ(store_flash.saves, 1u);
+    TT_CHECK(seq_playing(play_seq(&ui_p)));
+}
+
 /* ---- SAVE in SEQ view: the pattern (interaction.md, SAVE; S6) ---- */
 
 static pat_lib save_plib;
@@ -595,6 +642,8 @@ static void run_ui_save_tests(void)
     TT_RUN(save_has_the_screen_and_takes_the_jump_down);
     TT_RUN(save_without_a_store_says_save_failed);
     TT_RUN(save_waits_while_the_sequencer_runs);
+    TT_RUN(save_waits_while_play_waits_for_the_clock);
+    TT_RUN(save_force_and_cancel_work_while_the_sequencer_runs);
     TT_RUN(save_in_seq_view_writes_the_pattern);
     TT_RUN(save_in_seq_view_picks_pattern_slots);
     TT_RUN(save_in_seq_view_waits_for_the_stop);
