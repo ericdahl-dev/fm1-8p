@@ -99,6 +99,7 @@ typedef struct {
     uint32_t chord_n;
     char seq_msg[16];                   /* "MAX 4 NOTES", the banner */
     uint32_t shown_steps;               /* seq_steps as SEQ view's strip last drew it */
+    uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */

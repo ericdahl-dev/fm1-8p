@@ -31,6 +31,9 @@ void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit);
 #define UI_SEQ_TEXT_LEN 40u
 void ui_seq_step_text(const ui *u, uint32_t i, char *s);
 void ui_seq_chord_text(const ui *u, char *s);
+/* SEQ view's footer: left the pattern playing ("PTN 11 NIGHT DRIVE*", `*` edited), right "NEXT 12"
+ * while one is queued, else "" (each UI_SEQ_TEXT_LEN) */
+void ui_seq_footer_text(const ui *u, char *left, char *right);
 /* SEQ view: a step key (0..15) down or up */
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* An event while SEQ view is open. */

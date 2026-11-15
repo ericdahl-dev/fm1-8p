@@ -342,6 +342,26 @@ TT_TEST(seq_view_redraws_and_edit_hold)
     ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2600);
 }
 
+/* SEQ view's footer (visual.md): the pattern playing, PTN 11 on a fresh FM-1, its name, `*` once
+ * edited; and NEXT nn while one is queued (PRESETS while playing) */
+TT_TEST(seq_footer_says_the_pattern)
+{
+    static const uint8_t C[1] = {60};
+    char left[UI_SEQ_TEXT_LEN], right[UI_SEQ_TEXT_LEN];
+    ui_setup();
+    ui_seq_footer_text(&ui_u, left, right);
+    TT_CHECK(strcmp(left, "PTN 11") == 0);
+    TT_CHECK(strcmp(right, "") == 0);
+    seq_set_step(play_seq(&ui_p), 0, C, 1, 100);
+    ui_seq_footer_text(&ui_u, left, right);
+    TT_CHECK(strcmp(left, "PTN 11*") == 0);
+    seq_play(play_seq(&ui_p));
+    seq_render_to(0);
+    play_load_pattern(&ui_p, 1);                              /* queued: 12 */
+    ui_seq_footer_text(&ui_u, left, right);
+    TT_CHECK(strcmp(right, "NEXT 12") == 0);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -356,4 +376,5 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_key_leds);
     TT_RUN(seq_texts);
     TT_RUN(seq_view_redraws_and_edit_hold);
+    TT_RUN(seq_footer_says_the_pattern);
 }

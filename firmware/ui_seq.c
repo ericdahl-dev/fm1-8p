@@ -288,3 +288,30 @@ void ui_seq_chord_text(const ui *u, char *s)
 {
     note_names(u->chord, u->chord_n < PLAY_VOICES ? u->chord_n : PLAY_VOICES, s);
 }
+
+/* a pattern slot (0..63) as the panel numbers it, 11..88 */
+static char *put_slot(char *s, uint32_t q)
+{
+    *s++ = (char)('1' + q / 8u % 8u);
+    *s++ = (char)('1' + q % 8u);
+    *s = 0;
+    return s;
+}
+
+void ui_seq_footer_text(const ui *u, char *left, char *right)
+{
+    char name[STORE_NAME_LEN + 1u];
+    char *s = put_s(left, "PTN ");
+    int32_t next = play_pattern_next(u->p);
+    s = put_slot(s, play_pattern_prog(u->p));
+    play_pattern_name(u->p, name);
+    if (*name) {
+        s = put_s(s, " ");
+        s = put_s(s, name);
+    }
+    if (seq_edited(play_seq(u->p)))
+        put_s(s, "*");
+    *right = 0;
+    if (next >= 0)
+        put_slot(put_s(right, "NEXT "), (uint32_t)next);
+}

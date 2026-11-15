@@ -1258,6 +1258,14 @@ uint32_t ui_take(ui *u, uint32_t ms)
         u->shown_steps = seq_steps(play_seq(u->p));
         u->dirty |= UI_D_SLOT;                  /* SEQ view: the playhead moved on */
     }
+    if (u->state == UI_SEQ) {                   /* its footer: the pattern, the next one, edited */
+        uint32_t f = play_pattern_prog(u->p) | (uint32_t)(play_pattern_next(u->p) + 1) << 8 |
+                     seq_edited(play_seq(u->p)) << 16;
+        if (f != u->shown_ptn) {
+            u->shown_ptn = f;
+            u->dirty |= UI_D_FOOT;
+        }
+    }
     if (u->held >> UI_BTN_EDIT & 1u && !u->comparing && (u->state == UI_PLAY || u->state == UI_EDIT) &&
         ms - u->down_ms[UI_BTN_EDIT] >= UI_TAP_MS) {
         if (play_edited(u->p)) {                /* an EDIT hold: compare */

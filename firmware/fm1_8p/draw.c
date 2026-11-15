@@ -814,9 +814,15 @@ static void seq_footer(void)
     if (*b) {
         text_c(0, 240, 2, 0, b, C_PLAY);
     } else {
-        CV_TEXT(M, 2, 0, "PTN --", C_DIM);      /* (the pattern slots: S6) */
-        seq_tempo_text(t);
-        CV_TEXT(240 - M - TEXT_W(0, t), 2, 0, t, C_DIM);
+        char left[UI_SEQ_TEXT_LEN], right[UI_SEQ_TEXT_LEN];
+        ui_seq_footer_text(U, left, right);     /* the pattern, and NEXT nn or the tempo */
+        CV_TEXT(M, 2, 0, left, C_TEXT);
+        if (*right) {
+            CV_TEXT(240 - M - TEXT_W(0, right), 2, 0, right, led_of(C_PLAY));
+        } else {
+            seq_tempo_text(t);
+            CV_TEXT(240 - M - TEXT_W(0, t), 2, 0, t, C_DIM);
+        }
     }
     blit(0, 222, 240, 18);
 }
