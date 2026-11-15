@@ -442,6 +442,35 @@ TT_TEST(clock_rides_out_a_burst_of_late_ticks)
     TT_CHECK(ck_worst_ticks_ms(24u, 22u, 48u) < 1.0);
 }
 
+/* Edits under the clock act as on the internal one: a pattern loaded while playing takes over after
+ * the pass's last step, on its tick; LENGTH 4 wraps there; a transpose plays from the next step. */
+TT_TEST(clock_edits_act_as_on_the_internal_clock)
+{
+    seq_pattern p;
+    uint8_t n = 72;
+    uint32_t i;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 120.0, 120.0, 0, 1, 24u + 24u * 12u + 1u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[24 + 6 * 4] - 0.003);    /* steps 1..4 played */
+    seq_pattern_empty(&p);
+    for (i = 0; i < SEQ_STEPS; i++)
+        p.step[i].kind = SEQ_NOTES_ON, p.step[i].n = 1, p.step[i].note[0] = n;
+    seq_load_pattern(&ck, &p);                 /* queued: after step 16 */
+    ck_run(ck_tick_at[24 + 6 * 20] - 0.003);   /* to step 21 */
+    TT_CHECK(ck_n_on == 20u && ck_note[15] == 48u + 15u && ck_note[16] == 72u);
+    TT_CHECK(fabs(ck_on[16] - ck_tick_at[24 + 6 * 16]) < 0.0005);
+    TT_CHECK(seq_main_tick(&ck));              /* (the main loop, each draw: it's the edit buffer now) */
+    seq_set_length(&ck, 4);
+    seq_set_transpose(&ck, 2);
+    ck_run(ck_tick_at[24 + 6 * 32] - 0.012);
+    printf("    edits under clock: %u steps, a loaded pattern from step 17 (%u), transposed to %u\n", ck_n_on,
+           ck_note[16], ck_note[ck_n_on - 1]);
+    TT_CHECK(ck_n_on == 32u && ck_note[ck_n_on - 1] == 74u);
+    TT_CHECK(seq_step_now(&ck) < 4);
+    TT_CHECK(fabs(ck_on[31] - ck_tick_at[24 + 6 * 31]) < 0.0005);
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_steps_follow_a_steady_clock);
@@ -453,4 +482,5 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_source_int_midi_and_auto);
     TT_RUN(clock_swing_and_gate_follow_the_clock);
     TT_RUN(clock_rides_out_a_burst_of_late_ticks);
+    TT_RUN(clock_edits_act_as_on_the_internal_clock);
 }
