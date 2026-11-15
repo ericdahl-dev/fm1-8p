@@ -57,6 +57,7 @@ typedef struct {
     pat_lib *plib;
     pat_lib *plib_attached;
     uint32_t store_bank;                /* main loop: the next bank the first draws read (one a draw) */
+    uint32_t store_read;                /* main loop: the banks read so far, all kinds (the boot's bar) */
     uint32_t pat_prog;
     int32_t pat_next;
     char pat_name[STORE_NAME_LEN + 1u];
@@ -97,6 +98,10 @@ int32_t play_pattern_next(const play *p);
 void play_load_pattern(play *p, uint32_t q);
 /* Each draw: a queued pattern that has taken over (or that a stop loaded) becomes the slot playing. */
 void play_pattern_tick(play *p);
+/* the flash banks the first draws read: the user slots' and the pattern slots', and how many are read so
+ * far (the boot screen's load bar, #50) */
+#define PLAY_STORE_BANKS (STORE_USER_SLOTS / STORE_BANK_SLOTS + PAT_SLOTS / STORE_BANK_SLOTS)
+uint32_t play_store_progress(const play *p);
 /* The edit buffer, for a save that waits (SAVE: the snapshot is what is written). */
 void play_pattern_snapshot(const play *p, seq_pattern *snap);
 /* snap, named `name`, into pattern slot dest and its bank to flash: 0, or -1 when the write failed.

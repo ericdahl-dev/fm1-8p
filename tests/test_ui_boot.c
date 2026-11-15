@@ -108,6 +108,23 @@ TT_TEST(boot_text_names_the_device)
     }
 }
 
+/* The load bar: the flash banks read so far, 0 to all four (2 of patches, 2 of patterns), one a draw */
+TT_TEST(boot_progress_follows_the_banks)
+{
+    static pat_lib plib;
+    uint32_t n = 0;
+    store_flash_blank();
+    (void)play_init(&ui_p);
+    play_attach_store(&ui_p, &store_lib_a, &store_fake_io);
+    play_attach_patterns(&ui_p, &plib);
+    TT_CHECK_EQ(play_store_progress(&ui_p), 0u);
+    TT_CHECK_EQ(PLAY_STORE_BANKS, 4u);
+    while (play_store_tick(&ui_p))
+        TT_CHECK_EQ(play_store_progress(&ui_p), ++n);
+    TT_CHECK_EQ(n, PLAY_STORE_BANKS);
+    TT_CHECK_EQ(play_store_progress(&ui_p), PLAY_STORE_BANKS);
+}
+
 static void run_ui_boot_tests(void)
 {
     TT_RUN(boot_shows_at_least_1_5_s);
@@ -115,4 +132,5 @@ static void run_ui_boot_tests(void)
     TT_RUN(boot_any_control_skips_it);
     TT_RUN(boot_sweeps_the_key_leds_once);
     TT_RUN(boot_text_names_the_device);
+    TT_RUN(boot_progress_follows_the_banks);
 }

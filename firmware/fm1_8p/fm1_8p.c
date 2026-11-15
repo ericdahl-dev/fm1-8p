@@ -186,19 +186,23 @@ static const settings_io SETTINGS = { set_load, set_save, 0 };
 /* The host calls draw() from its main loop: the LEDs on a full redraw, then the screen (draw.c) */
 static void draw(uint32_t full)
 {
-    static uint32_t full_held;                  /* a full redraw asked for while the banks load */
-    if (play_store_tick(&P)) {                  /* the first draws: a flash bank each, nothing else */
-        full_held |= full;
-        return;
-    }
-    full |= full_held;
-    full_held = 0;
-    play_pattern_tick(&P);                      /* a queued pattern that took over (#40) */
-    if (!set_loaded) {                          /* the first: GLO's settings (a THEME switches itself) */
+    if (!set_loaded) {                          /* the first: GLO's settings (the boot screen's THEME too) */
         settings_load(&U.set, &SETTINGS);
         seq_set_clock_source(play_seq(&P), U.set.clock_src);   /* (G13, #38) */
         set_loaded = 1;
     }
+    if (P.lib_attached || (P.plib_attached && P.io)) {   /* the first draws: the boot screen, and between */
+        if (!full && ui_draw_idle()) {          /* its parts a flash bank each (#50) */
+            (void)play_store_tick(&P);
+            U.dirty |= UI_D_FOOT;               /* (its load bar) */
+        } else {
+            ui_draw_frame(full);
+        }
+        key_leds(0);                            /* (the boot's sweep) */
+        return;
+    }
+    ui_boot_loaded(&U);                         /* (all read: the boot screen may end) */
+    play_pattern_tick(&P);                      /* a queued pattern that took over (#40) */
     seq_clock_poll(play_seq(&P), H->ticks());   /* a MIDI clock gone stops what it ran (#38) */
     (void)settings_tick(&U.set, &U.set_dirty, U.set_changed_ms, H->ms(), play_silent(&P), &SETTINGS);
     sense_curve();                              /* (G31, loaded or turned) */
@@ -244,6 +248,7 @@ static int init(const hb_host_t *h)
         play_attach_patterns(&P, &PLIB);
     }
     ui_init(&U, &P);
+    ui_boot_begin(&U);                          /* the boot screen first (#50) */
     octave_shown();
     page_leds(1);
     key_leds(1);
