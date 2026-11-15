@@ -121,8 +121,11 @@ typedef struct {
     uint32_t clk_t[SEQ_CLK_HIST];       /* the last ticks' times, a ring (clk_n is the next slot) */
     uint32_t clk_n;                     /* ticks since the clock appeared */
     uint32_t clk_dt;                    /* a tick's length now, host counts (0: not measured yet) */
-    uint32_t clk_shown;                 /* the tick length the tempo shows (smoothed more) */
-    uint32_t clk_target;                /* the units the latest tick should be at, from tick 0 */
+    uint32_t clk_shown;                 /* the tick length, smoothed, Q4 (the rate's) */
+    uint32_t clk_view;                  /* smoothed again, Q4: the tempo shown */
+    uint32_t clk_freq;                  /* the loop's frequency, units a frame, Q4 (0: from clk_dt) */
+    uint32_t clk_target;
+    uint32_t clk_k;                     /* ticks since the start's tick 0 */                /* the units the latest tick should be at, from tick 0 */
     /* main loop writes, interrupt reads: follow the clock at ext_inc units a frame, a start's
      * first tick at host time ext_t0 */
     volatile uint32_t ext;

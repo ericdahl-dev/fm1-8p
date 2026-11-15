@@ -61,7 +61,7 @@ void seq_init(seq *s)
     s->steps = 0;
     s->clk_src = SEQ_CLK_AUTO;
     s->clk_present = s->clk_pending = s->clk_running = s->clk_armed = 0;
-    s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = 0;
+    s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = s->clk_freq = s->clk_k = s->clk_view = 0;
     s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = 0;
     s->blk_seq = s->blk_t = s->blk_u = s->blk_inc = s->blk_fs = 0;
     s->upos = s->fs = 0;
@@ -293,7 +293,10 @@ uint32_t seq_steps(const seq *s)
  * 100 x SEQ_CLK_HZ / dt units a frame (fs drops out). */
 #define CLK_UNITS_HZ (100u * SEQ_CLK_HZ)       /* 2.4e9: a tick's units a frame are this / dt */
 #define CLK_TENTHS_COUNTS (600u * (SEQ_CLK_HZ / SEQ_CLK_PPQN))   /* 6e8: a tick's counts x tempo in tenths */
-#define CLK_PULL 24u                           /* ticks to make up a distance in */
+#define CLK_SMOOTH 8u                          /* ticks the length is smoothed over (with the beat) */
+#define CLK_VIEW 16u                           /* the tempo shown: the length smoothed again */
+#define CLK_PULL 24u
+#define CLK_PULL_MIN 4u                           /* ticks to make up a distance in */
 #define CLK_GONE_MIN (SEQ_CLK_HZ / 4u)         /* gone: no tick for 250 ms, or 3 ticks if longer */
 
 void seq_set_clock_source(seq *s, uint32_t src)
@@ -325,12 +328,23 @@ static int32_t frames_q8(int32_t counts, uint32_t fs)
     return c < 0 ? -(int32_t)(((uint32_t)-c << 8) / per) : (int32_t)(((uint32_t)c << 8) / per);
 }
 
-/* the clock's rate now: a tick of dt units a frame, plus the distance e (units: ahead of the steps,
- * positive) made up over CLK_PULL ticks */
-static void set_rate(seq *s, int32_t e, uint32_t fs)
+/* the clock's rate, a second-order loop: the frequency (clk_freq, units a frame, Q4) follows the
+ * distance e (units the ticks are ahead of the steps) at 1 / (4 CLK_PULL^2) a tick, and the rate is it
+ * plus e made up over CLK_PULL ticks (critically damped). A new tempo (the length past 2 %) or a start
+ * sets the frequency from the length outright. */
+static void set_rate(seq *s, int32_t e, uint32_t fs, int fresh)
 {
-    int32_t inc = (int32_t)(CLK_UNITS_HZ / s->clk_dt), frames = frames_q8((int32_t)s->clk_dt, fs) * (int32_t)CLK_PULL / 256;
-    inc += frames > 0 ? e / frames : 0;
+    int32_t fpt = frames_q8((int32_t)s->clk_dt, fs) >> 8, inc;   /* frames a tick */
+    int32_t pull = (int32_t)(s->clk_k / 2u);    /* from a start, tighter: tick 0's own jitter is gone in
+                                                 * a beat, then the loop widens to ride the jitter */
+    pull = pull < (int32_t)CLK_PULL_MIN ? (int32_t)CLK_PULL_MIN : pull > (int32_t)CLK_PULL ? (int32_t)CLK_PULL : pull;
+    e = e > (1 << 23) ? (1 << 23) : e < -(1 << 23) ? -(1 << 23) : e;
+    if (fresh || !s->clk_freq || s->clk_k < SEQ_CLK_PPQN)   /* (the first beat: the length's, while
+                                                              * the loop pulls tick 0's jitter out) */
+        s->clk_freq = (CLK_UNITS_HZ / s->clk_dt) << 4;
+    else if (fpt > 0)
+        s->clk_freq += (uint32_t)(e * 16 / (4 * pull * pull) / fpt);
+    inc = (int32_t)(s->clk_freq >> 4) + (fpt > 0 ? e / (pull * fpt) : 0);
     s->ext_inc = (uint32_t)(inc < 1 ? 1 : inc);
 }
 
@@ -345,18 +359,31 @@ static void clock_tick(seq *s, uint32_t t)
     s->clk_t[s->clk_n % SEQ_CLK_HIST] = t;
     s->clk_n++;
     m = s->clk_n - 1u < SEQ_CLK_HIST - 1u ? s->clk_n - 1u : SEQ_CLK_HIST - 1u;
-    if (m)
-        s->clk_dt = (t - s->clk_t[(s->clk_n - 1u - m) % SEQ_CLK_HIST]) / m;
+    if (m) {                                    /* the length over the last beat (or what's come) */
+        uint32_t d = (t - s->clk_t[(s->clk_n - 1u - m) % SEQ_CLK_HIST]) / m;
+        /* smoothed (1/CLK_SMOOTH a tick, Q4), except a change past 2 %: a new tempo, taken at once */
+        if (!s->clk_shown || d * 50u > (s->clk_shown >> 4) * 51u || d * 51u < (s->clk_shown >> 4) * 50u) {
+            s->clk_shown = s->clk_view = d << 4;
+            s->clk_freq = 0;                    /* (the loop starts again from it) */
+        }
+        else
+            s->clk_shown += (uint32_t)((int32_t)((d << 4) - s->clk_shown) / (int32_t)CLK_SMOOTH);
+        s->clk_dt = (s->clk_shown + 8u) >> 4;
+        s->clk_view += (uint32_t)((int32_t)(s->clk_shown - s->clk_view) / (int32_t)CLK_VIEW);   /* calmer, to read */
+    }
     block_read(s, &bt, &bu, &binc, &fs);
     if (s->clk_pending) {                       /* (a clock that starts with the start: its length is
                                                  * the pattern's tempo's until a second tick) */
-        if (!s->clk_dt)
-            s->clk_dt = CLK_TENTHS_COUNTS / s->edit.tempo;                       /* the start's tick 0 */
+        if (!s->clk_dt) {
+            s->clk_dt = CLK_TENTHS_COUNTS / s->edit.tempo;
+            s->clk_shown = 0;                   /* (the second tick measures it outright) */
+        }                       /* the start's tick 0 */
         s->ext_cont = s->clk_pending == 2u;
         s->clk_pending = 0;
         s->clk_target = 0;
+        s->clk_k = 0;
         s->ext_t0 = t;
-        set_rate(s, 0, fs);
+        set_rate(s, 0, fs, 1);
         s->ext = 1;
         s->clk_running = 1;
         s->clk_armed = 0;
@@ -369,7 +396,8 @@ static void clock_tick(seq *s, uint32_t t)
         int32_t f = frames_q8((int32_t)(t - bt), fs);
         uint32_t at = bu + (uint32_t)((f >> 8) * (int32_t)binc) + (uint32_t)(((f & 255) * (int32_t)binc) >> 8);
         s->clk_target += fs * 100u;
-        set_rate(s, (int32_t)(s->clk_target - at), fs);
+        s->clk_k++;
+        set_rate(s, (int32_t)(s->clk_target - at), fs, 0);
     }
 }
 
@@ -416,7 +444,7 @@ uint32_t seq_clock_external(const seq *s)
 
 uint32_t seq_clock_tempo(const seq *s)
 {
-    return s->clk_present && s->clk_dt ? CLK_TENTHS_COUNTS / s->clk_dt : 0;
+    return s->clk_present && s->clk_view ? CLK_TENTHS_COUNTS / ((s->clk_view + 8u) >> 4) : 0;
 }
 
 uint32_t seq_waiting(const seq *s)
