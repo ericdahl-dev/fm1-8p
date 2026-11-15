@@ -19,6 +19,9 @@
 #define UI_BTN_EDIT    6u
 #define UI_BTN_GLO     7u
 #define UI_BTN_HOME    8u
+#define UI_BTN_SEQ     11u
+#define UI_BTN_PLAY    12u
+#define UI_BTN_REC     13u
 #define UI_BTN_SAVE    9u
 #define UI_BUTTONS     14u                /* button ids 0..13 */
 #define UI_ENC_SELECT  0u
@@ -29,7 +32,9 @@
 #define UI_ENC_KNOB4   5u
 #define UI_ENC_PRESETS 6u
 
-typedef enum { UI_PLAY, UI_EDIT, UI_SAVE, UI_GLO } ui_state;
+typedef enum { UI_PLAY, UI_EDIT, UI_SAVE, UI_GLO, UI_SEQ } ui_state;
+#define UI_CHORD_MAX 16u                /* notes held at once that a chord keeps track of */
+#define UI_STEP_KEYS 16u                /* SEQ view: the 16 white keys F3..G5 are the steps (Eric) */
 
 
 typedef struct {
@@ -53,6 +58,7 @@ typedef struct {
     uint32_t shown_edited;              /* the footer's `*` as drawn: play_edited then */
     /* SAVE (ui_save.c) */
     ui_state save_from;                 /* the state SAVE goes back to */
+    uint32_t save_pattern;              /* 1: SAVE opened in SEQ view, for the pattern (pattern slots) */
     uint32_t save_dest;                 /* the destination user slot, 0..63 (11..88) */
     char save_name[STORE_NAME_LEN + 1u];
     char save_msg[32];                  /* the banner SAVE leaves (SAVED 23, ...), or its prompt */
@@ -85,6 +91,21 @@ typedef struct {
     uint32_t cc_out_ms;                 /* when the last CC went out */
     uint8_t cc_out_at;                  /* the slot it was (the next goes round from it) */
     uint8_t cc_sent_cc, cc_sent_v;      /* what it was, so the same isn't sent twice (0xFF: none) */
+    ui_state seq_from;                  /* SEQ view: the state it goes back to */
+    uint32_t seq_cursor;                /* the step cursor, 0..15 */
+    uint32_t seq_page;                  /* the SEQ page: 0 S1 PATTERN, 1 S2 STEP, 2 S3 PLAY */
+    uint32_t seq_keys;                  /* step keys taken by SEQ view (bit k), so their ups go there too */
+    uint8_t chord[UI_CHORD_MAX];        /* the notes held now (chord keys and MIDI in), in press order */
+    uint8_t chord_vel[UI_CHORD_MAX];
+    uint32_t chord_n;
+    uint32_t seq_armed;                 /* SEQ view: a step tapped; the notes played next go to it */
+    uint32_t seq_arm_ms;                /* when */
+    uint8_t built[UI_CHORD_MAX];        /* the notes played since, in press order, and their velocities */
+    uint8_t built_vel[UI_CHORD_MAX];
+    uint32_t built_n;
+    char seq_msg[16];                   /* "MAX 4 NOTES", the banner */
+    uint32_t shown_steps;               /* seq_steps as SEQ view's strip last drew it */
+    uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
     int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
@@ -96,6 +117,7 @@ typedef struct {
 enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
 enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
 #define UI_SAVE_NO_DRAFT 0xFFFFFFFFu
+#define UI_SAVE_PATTERN_DRAFT 0x100u    /* save_draft_prog: this bit on, a pattern slot's draft */
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
 #define UI_D_FOCUS  0x02u               /* the focus row */
 #define UI_D_SLOT   0x04u               /* the slot (the filter curve) */
@@ -105,6 +127,7 @@ enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
 #define UI_D_ALL    0xF7u               /* all of it */
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
 #define UI_BLINK_MS 250u                /* the EDIT LED's blink during compare: on, then off */
+#define UI_PICKER_MS 1500u              /* HOME held alone this long: the host's picker opens (fm1-dock) */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
 #define UI_FORCE_MS 1000u               /* SAVE held this long writes a waiting save at once */
 #define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
@@ -171,7 +194,7 @@ int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* which screen shows (draw.c branches on it for every band): PLAY, an edit page, or the number jump's
  * (up from 400 ms into a SEL hold, or a first digit, until a jump is done or SEL comes up) */
-enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO };
+enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO, UI_SCREEN_SEQ };
 uint32_t ui_screen(const ui *u);
 /* GLO: the slot on knob k (0..3) of the GLO page shown; its value as the focus row reads it (the
  * number or name into num, the unit into unit, UI_VALUE_LEN each; "--" while it waits), and as a
@@ -188,9 +211,13 @@ void ui_jump_digits(const ui *u, char *s);
 /* a key (0..PLAY_KEYS-1) going down or up: 1 when the UI takes it (SEL held: the number jump's keypad,
  * and the key makes no sound), 0 when it plays */
 int ui_key(ui *u, uint32_t k, int down, uint32_t ms);
+/* a note held or let go (a key that played, or MIDI in), at velocity vel: the chord SEQ view writes
+ * with a step key (interaction.md 5, Writing steps) */
+void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on);
 /* key k's LED as the keypad has it: UI_LED_GLOW for a digit key while SEL is held, else UI_LED_OFF */
 uint32_t ui_keypad_led(const ui *u, uint32_t k);
-/* key k's LED, down or not: the keypad's glow while SEL is held, else lit while down with G33 KEY LEDS ON */
+/* key k's LED, down or not (interaction.md 5, Key LEDs): SEQ view's step and chord keys; outside it the
+ * playhead's key while playing, the keypad's glow while SEL is held, and a held key lit with G33 ON */
 uint32_t ui_key_led(const ui *u, uint32_t k, int down);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);

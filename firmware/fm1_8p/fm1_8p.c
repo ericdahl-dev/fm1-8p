@@ -50,6 +50,8 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
 {
     if (!ui_midi_in(&U, st))
         return;                                 /* G11: another channel's */
+    if ((st & 0xF0u) == 0x90u || (st & 0xF0u) == 0x80u)  /* MIDI notes held count as chord keys (SEQ view) */
+        ui_chord_note(&U, d1, d2, (st & 0xF0u) == 0x90u && d2);
     if ((st & 0xF0u) == 0xB0u && ui_cc(&U, d1, d2, H->ms()))
         return;
     if ((st & 0xF0u) == 0xC0u) {                /* G41: a program change loads the patch */
@@ -73,7 +75,8 @@ static void octave_shown(void)
 static uint8_t led_sent[16];
 static void page_leds(uint32_t all)
 {
-    static const uint8_t BTN[] = {HB_BTN_SEL, HB_BTN_ENV, HB_BTN_LFO, HB_BTN_FX, HB_BTN_EDIT, HB_BTN_GLO};
+    static const uint8_t BTN[] = {HB_BTN_SEL, HB_BTN_ENV, HB_BTN_LFO, HB_BTN_FX, HB_BTN_EDIT, HB_BTN_GLO,
+                                  HB_BTN_SEQ, HB_BTN_PLAY, HB_BTN_REC};
     uint32_t i;
     for (i = 0; i < sizeof BTN; i++) {
         uint32_t v = ui_led(&U, BTN[i]);
@@ -84,13 +87,20 @@ static void page_leds(uint32_t all)
     }
 }
 
-/* the keys' LEDs: the keypad's glow while SEL is held, else lit while a key is held */
+/* the keys' LEDs, as ui_key_led says (SEQ view's steps, the playhead, the keypad, held keys): sent when
+ * one changes, and all on draw(full) */
 static uint32_t keys_down;                      /* bit k: key k is down (and playing) */
-static void keypad_leds(void)
+static uint8_t key_sent[PLAY_KEYS];
+static void key_leds(uint32_t all)
 {
     uint32_t k;
-    for (k = 0; k < PLAY_KEYS; k++)
-        H->led(HB_LED_KEY(k), ui_key_led(&U, k, (int)(keys_down >> k & 1u)));
+    for (k = 0; k < PLAY_KEYS; k++) {
+        uint32_t v = ui_key_led(&U, k, (int)(keys_down >> k & 1u));
+        if (all || key_sent[k] != v) {
+            key_sent[k] = (uint8_t)v;
+            H->led(HB_LED_KEY(k), v);
+        }
+    }
 }
 
 static void ui_ev(uint32_t ev, int32_t arg)
@@ -98,20 +108,24 @@ static void ui_ev(uint32_t ev, int32_t arg)
     uint32_t id = HB_EV_ID(ev), kind = HB_EV_KIND(ev);
     if ((kind == HB_EV_KEY_DOWN || kind == HB_EV_KEY_UP) && id >= PLAY_KEYS)
         return;
-    if ((kind == HB_EV_KEY_DOWN || kind == HB_EV_KEY_UP) && ui_key(&U, id, kind == HB_EV_KEY_DOWN, H->ms()))
-        return;                                 /* the number jump's keypad (SEL held): no sound */
+    if ((kind == HB_EV_KEY_DOWN || kind == HB_EV_KEY_UP) && ui_key(&U, id, kind == HB_EV_KEY_DOWN, H->ms())) {
+        key_leds(0);                            /* the keypad (SEL held), or a step key (SEQ view): no sound */
+        return;
+    }
     switch (kind) {
     case HB_EV_KEY_DOWN:                        /* arg: the velocity, 0 an unsensed key (G32's, then) */
         play_key_down(&P, id, ui_key_velocity(&U, arg));
         keys_down |= 1u << id;
-        H->led(HB_LED_KEY(id), ui_key_led(&U, id, 1));   /* (G33 OFF: dark) */
+        ui_chord_note(&U, P.held[id], ui_key_velocity(&U, arg), 1);   /* (a chord for SEQ view) */
+        key_leds(0);
         out_st[id] = (uint8_t)ui_midi_out(&U, 0x80u);   /* (its note-off on the same channel, G12 changed or not) */
         H->midi_send(ui_midi_out(&U, 0x90u), P.held[id], ui_key_velocity(&U, arg));
         return;
     case HB_EV_KEY_UP:
         play_key_up(&P, id);
         keys_down &= ~(1u << id);
-        H->led(HB_LED_KEY(id), ui_key_led(&U, id, 0));
+        ui_chord_note(&U, P.held[id], 0, 0);
+        key_leds(0);
         H->midi_send(out_st[id] ? out_st[id] : ui_midi_out(&U, 0x80u), P.held[id], 0);
         return;
     case HB_EV_BTN_DOWN:
@@ -132,8 +146,7 @@ static void ui_ev(uint32_t ev, int32_t arg)
     ui_event(&U, ev, arg, H->ms());             /* pages and knobs */
     cc_send();
     page_leds(0);
-    if (id == HB_BTN_SEL && (kind == HB_EV_BTN_DOWN || kind == HB_EV_BTN_UP))
-        keypad_leds();                          /* the keypad glows while SEL is held */
+    key_leds(0);                                /* (the keypad while SEL is held, SEQ view's steps) */
 }
 
 /* GLO's settings (settings_store.c): the host's settings record for this module, which the host
@@ -186,7 +199,8 @@ static void draw(uint32_t full)
     ui_draw_frame(full);
     cc_send();
     if (!full)
-        page_leds(0);                           /* a change ui_take made: compare, the EDIT blink */
+        page_leds(0);                           /* a change ui_take made: compare, the EDIT blink, PLAY's beat */
+    key_leds(full);                             /* (the playhead, the blinks) */
 }
 
 /* The user slots (patch_store.c): fm1-dock's banks 1 and 2, found by this module's name. */
@@ -222,6 +236,7 @@ static int init(const hb_host_t *h)
     ui_init(&U, &P);
     octave_shown();
     page_leds(1);
+    key_leds(1);
     H->log_u32("fm1-8p: ready, voices", PLAY_VOICES);
     return 0;
 }
@@ -230,7 +245,8 @@ static int init(const hb_host_t *h)
 _Static_assert(UI_EV_BTN_DOWN == HB_EV_BTN_DOWN && UI_EV_BTN_UP == HB_EV_BTN_UP && UI_EV_ENC == HB_EV_ENC,
                "ui.h's events are hb_module.h's");
 _Static_assert(UI_BTN_FX == HB_BTN_FX && UI_BTN_SEL == HB_BTN_SEL && UI_BTN_ENV == HB_BTN_ENV &&
-               UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_GLO == HB_BTN_GLO && UI_BTN_HOME == HB_BTN_HOME && UI_BTN_SAVE == HB_BTN_SAVE,
+               UI_BTN_LFO == HB_BTN_LFO && UI_BTN_EDIT == HB_BTN_EDIT && UI_BTN_GLO == HB_BTN_GLO && UI_BTN_HOME == HB_BTN_HOME && UI_BTN_SAVE == HB_BTN_SAVE &&
+               UI_BTN_SEQ == HB_BTN_SEQ && UI_BTN_PLAY == HB_BTN_PLAY && UI_BTN_REC == HB_BTN_REC,
                "ui.h's buttons are hb_module.h's");
 _Static_assert(UI_ENC_SELECT == HB_ENC_SELECT && UI_ENC_ALGORITHM == HB_ENC_ALGORITHM &&
                UI_ENC_KNOB1 == HB_ENC_KNOB1 && UI_ENC_KNOB2 == HB_ENC_KNOB2 &&
@@ -238,5 +254,8 @@ _Static_assert(UI_ENC_SELECT == HB_ENC_SELECT && UI_ENC_ALGORITHM == HB_ENC_ALGO
                UI_ENC_PRESETS == HB_ENC_PRESETS,
                "ui.h's encoders are hb_module.h's");
 
-/* no release(): init() starts afresh; no cc(): midi() takes every channel message */
-HB_DESC = {HB_ABI, "FM1-8P", init, 0, note, 0, render, ui_ev, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL, midi};
+/* the host switches to another module: the sequencer stops (init() starts afresh when it comes back) */
+static void release(void) { seq_stop(play_seq(&P)); }
+
+/* no cc(): midi() takes every channel message */
+HB_DESC = {HB_ABI, "FM1-8P", init, release, note, 0, render, ui_ev, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL, midi};

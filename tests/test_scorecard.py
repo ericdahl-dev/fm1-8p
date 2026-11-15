@@ -131,7 +131,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 5)
+        self.assertEqual(row["schema"], 7)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -151,7 +151,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (5, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (7, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -268,6 +268,37 @@ class RunTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.sc.run(self.repo, "deadbee", ref, hist, work=os.path.join(self.tmp.name, "w5"),
                         bank=bank, bank_name="other")
+
+    def test_a_reference_with_pg8xs_self_noise_on_is_refused(self):
+        """Since v5 (#247) the reference has PG-8X's SELFNOISE at 0: its analog noise floor, under every
+        sounding voice, read as a 27 dB gap in the lows that isn't timbre. A manifest that doesn't say
+        selfnoise 0 (v4 and older say nothing; 0.5 is PG-8X's default) is refused."""
+        import json
+        import shutil
+        for say in (None, 0.5):
+            ref = os.path.join(self.tmp.name, f"noisyref-{say}")
+            shutil.copytree(self.ref, ref)
+            with open(os.path.join(ref, "manifest.json")) as fh:
+                man = json.load(fh)
+            man.pop("selfnoise", None)
+            if say is not None:
+                man["selfnoise"] = say
+            with open(os.path.join(ref, "manifest.json"), "w") as fh:
+                json.dump(man, fh)
+            with self.assertRaises(SystemExit) as e:
+                self.sc.run(self.repo, "deadbee", ref, self.hist, work=os.path.join(self.tmp.name, f"wn-{say}"))
+            self.assertIn("SELFNOISE", str(e.exception))
+
+    def test_scorecard_sh_defaults_to_v5_under_fm1_ref(self):
+        """With no SCORECARD_REF, tools/scorecard.sh takes FM1_REF's pg8x/scorecard/v5 (the factory
+        reference since #247), and says which folder it wanted when it isn't there."""
+        import subprocess
+        env = {k: v for k, v in os.environ.items() if k != "SCORECARD_REF"}
+        env["FM1_REF"] = os.path.join(self.tmp.name, "no-such-ref")
+        r = subprocess.run(["sh", os.path.join(self.repo, "tools", "scorecard.sh"), "HEAD"], env=env,
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn(os.path.join(env["FM1_REF"], "pg8x", "scorecard", "v5"), r.stderr)
 
     def test_a_reference_made_from_other_midi_is_refused(self):
         import json

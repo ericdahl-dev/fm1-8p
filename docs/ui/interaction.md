@@ -216,6 +216,17 @@ settings.
 | 07 | K3 | `voice_mode` (*ours*) | VOICE | POLY, UNISON | 1 / 1 |
 | 08 | K4 | `unison_detune_cents` (*ours*) | DETUNE | 0..100 ct (inactive in POLY) | 1 / 10 |
 
+### 0C WHEEL (page 0C)
+
+The mod wheel's amounts (#41), on a third page of section 0 (Eric: 0B had no free knob). They have no
+PG-800 number and no CC, so they show as W1 and W2; the number jump's two digits can't reach them,
+but LFO's ring and SELECT do. The LED window shows only the digit (a 7-segment W can't be drawn).
+
+| No. | Knob | Engine parameter | Label | Shown as | Step / fast |
+| --- | --- | --- | --- | --- | --- |
+| W1 | K1 | `wheel_pitch_cents`: the wheel at full adds this to the vibrato depth | PITCH | 0..1200 ct | 1 / 10 |
+| W2 | K2 | `wheel_pw_pct`: the wheel at full adds this to the PW depth | PW | 0..49 % | 1 / 5 |
+
 ### Units and value tables
 
 - **Time:** the engine stores ms. The screen shows `0 ms` .. `999 ms`, then
@@ -255,7 +266,7 @@ settings.
 The SELECT encoder walks the pages in number order, section 1 to 9 then 0, and
 wraps at both ends:
 
-`1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B` (18 pages)
+`1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B, 0C` (19 pages)
 
 **Pages with nothing live are skipped.** The SELECT walk and the section
 button rings skip a page whose slots are all pending or reserved, and the page
@@ -278,7 +289,7 @@ is shown, and glows otherwise.
 | SEL | 1A, 1B DCO-1; 2A, 2B DCO-2; 3A DCO ENV; 4A, 4B MIXER | the sources: "select the source" |
 | ENV | 5A, 5B VCF; 8A, 8B ENV-1; 9A, 9B ENV-2 | the filter, with the envelopes |
 | FX | 6A, 6B VCA and CHORUS | the output end |
-| LFO | 7A LFO; 0A, 0B AFTERTOUCH and CONTROL | modulation and performance |
+| LFO | 7A LFO; 0A, 0B AFTERTOUCH and CONTROL; 0C WHEEL | modulation and performance |
 
 The FM-1 has four section buttons for the panel's ten sections, so each
 button holds the sections that sit together on the panel. VCF is the
@@ -513,26 +524,27 @@ This follows #35-#42: 16 steps, and each step holds a note, a chord (up to the
 voice count), a tie or a rest. Each step also has a velocity, a bend and mod
 value, and a jump or glide move.
 
-### The split keyboard (decision Q1)
+### The keyboard in SEQ view (Eric, 2026-11-15, over decision Q1)
 
-**Outside SEQ view, all 27 keys play notes.** In SEQ view the keyboard splits:
+**Outside SEQ view, all 27 keys play notes.** In SEQ view:
 
 | Keys | In SEQ view |
 | --- | --- |
-| 0-15, F3..G#4 (black and white, in a row) | **step keys**, steps 1-16. They make no sound. |
-| 16-26, A4..G5 (11 keys) | **chord keys**. They play notes, as do MIDI notes in. |
+| the 16 white keys, F3..G5 | **step keys**: F3 is step 1, G3 step 2 ... G5 step 16. They make no sound. |
+| the 11 black keys | **nothing**: silent, LEDs dark. |
 
-- **Chord keys follow the octave:** OCT- and OCT+ shift them as usual. With
-  the octave at -2, they play A2..G3, so chords in any register are reachable.
-- **MIDI notes in count as held chord keys.** A chord can come from a MIDI
-  keyboard as well as the top 11 keys.
+- **Tap a step, then play** (see [Writing steps](#writing-steps)): a step key
+  arms that step, and then all 27 keys play notes until the step is written.
+- **The octave applies** to the notes played: OCT- and OCT+ shift them as
+  usual, so any register is reachable.
+- **MIDI notes in** play and write the same way as the keys.
 - **Every key remembers how it started.** A key held when SEQ view opens or
   closes still releases the way it began (see
   [Keys that change meaning while held](#keys-that-change-meaning-while-held)).
 
 ### Key LEDs
 
-Step keys 0-15 in SEQ view:
+The white keys in SEQ view, while no step is armed (steps 1-16):
 
 | Step | LED |
 | --- | --- |
@@ -540,17 +552,15 @@ Step keys 0-15 in SEQ view:
 | rest or empty, within the length | glow |
 | note or chord | lit |
 | tie | lit, with a short off blink every 500 ms |
-| cursor (stopped, or in REC) | blinks between lit and glow at 4 Hz |
+| cursor (stopped, or in REC) | blinks between lit and glow at 4 Hz; 8 Hz while armed |
 | playhead (playing) | the step's state inverted for the step's length: lit becomes off, glow or off becomes lit |
 
-Chord keys 16-26 in SEQ view:
-
-- **Glow:** the play zone, so the split is visible.
-- **Lit:** while the key is held.
+The black keys in SEQ view are dark. While a step is armed, any key held is
+lit.
 
 Outside SEQ view:
 
-- **While the sequencer plays:** only the playhead step's key (0-15) is lit.
+- **While the sequencer plays:** only the playhead step's white key is lit.
   Held notes are also lit if G33 is on.
 - **When stopped:** held notes are lit if G33 is on, and everything else is
   off.
@@ -608,8 +618,8 @@ pressed from. In SEQ view:
 
 ### Writing steps
 
-There are two ways to write a step. Both use a **chord**: the chord keys and
-MIDI notes held at that moment, with the octave applied. In both:
+There are two ways to write a step. Both write the notes played (keys or MIDI
+in, with the octave applied). In both:
 
 - **Note count:** only as many notes as the voice count are kept, the first
   ones pressed. The rest are dropped, and the screen shows `MAX n NOTES`, where
@@ -619,14 +629,21 @@ MIDI notes held at that moment, with the octave applied. In both:
 - **Bend and mod:** the live MIDI-in pitch bend and CC1 at the moment of
   writing (#42). With no MIDI controller, these are center and 0.
 
-**1. Chord + step key (any time in SEQ view, playing or stopped):**
+**1. Tap a step, then play (any time in SEQ view, playing or stopped; Eric):**
 
-1. Hold a chord on the chord keys, or over MIDI. It sounds.
-2. Press a step key. The chord is written to that step and the cursor moves
-   there.
-3. Still holding the chord, more step keys write the same chord to those steps
-   too, which is quick for repeated chords.
-4. Releasing the chord writes nothing more.
+1. Tap a white key. The cursor moves to that step and the step is **armed**:
+   its key blinks at 8 Hz, and the screen says `PLAY`.
+2. Now all 27 keys play notes (the step key too, as a note), and so do MIDI
+   notes in. The notes played join the step being written.
+3. When every key and MIDI note is let go, the notes are written to the step,
+   the cursor moves to the next step (around at the length), and the white
+   keys are steps again.
+4. **Nothing played:** a tapped step with no note only moves the cursor. It
+   stops being armed after 3 s with no note, or at once on any other control
+   (a knob, an encoder or a button), and the white keys are steps again. Once
+   a note is down there is no time limit: the step is written when it's let go.
+5. Tapping the armed step's key again plays its note (it isn't a way out), so
+   a step can hold the note of its own key.
 
 **2. Step record (REC, while stopped):**
 
@@ -634,14 +651,13 @@ MIDI notes held at that moment, with the octave applied. In both:
    view, it goes there. The cursor stays where it is, and the REC LED is lit.
    While playing, REC does nothing but show `STOP TO RECORD` (decision Q3), and
    its LED is off.
-2. **Building a step:** play a note or chord on the chord keys or over MIDI.
+2. **Building a step:** play a note or chord on the keys or over MIDI.
    Each key down sounds and joins the step being built.
-3. **Writing:** when the last held chord key or MIDI note is released, the
+3. **Writing:** when the last held key or MIDI note is released, the
    step is written at the cursor and the cursor advances (and wraps at the
    length).
-4. **Moving the cursor:** a step key with no chord held moves it, without
-   writing or auditioning. A step key with a chord held writes the chord there
-   at once, as in way 1, and the cursor then advances past it.
+4. **Moving the cursor:** with the white keys taken by way 1 (tap a step, then
+   play), how REC moves the cursor is settled with S5.
 5. **Rests, ties and going back:** SEL writes a rest, ENV writes a tie, and FX
    steps back.
 6. **Leaving:** REC tap disarms.
@@ -666,9 +682,10 @@ Patterns have their own slots, separate from patches (decision Q2).
   - It survives power-off the same way (decision Q4).
 - **Browsing:** PRESETS in SEQ view.
   - **Stopped:** each click loads the next or previous pattern at once. With
-    PATTERN EDITED, the first event warns that the pattern is edited (wording
-    pending: decided when SEQ is built, to fit the footer's 28 characters), per
-    event as for patches.
+    PATTERN EDITED, the first event warns `PTN EDITED - TURN TO DISCARD`
+    (28 characters, the footer's room; Eric, 2026-11-15), and another
+    the same way within 1.5 s discards and loads, as for patches. A fast turn
+    moves a row (8 slots).
   - **Playing:** the pattern doesn't change mid-pass. Clicks pick the **next
     pattern**, shown as `NEXT PATTERN 23`. It takes over when the running
     pattern ends its pass (after its last step).
@@ -702,7 +719,8 @@ Patterns have their own slots, separate from patches (decision Q2).
     the next step (#37). The result is clamped to -24..+24.
   - **The reference C:**
     - outside SEQ view, C4 for panel keys;
-    - in SEQ view, C5 (the only C among the chord keys) for panel keys;
+    - in SEQ view, the panel keys are steps (or armed for a step), so KEY
+      TRANSPOSE takes MIDI notes only there (settled with S3's KEY TRANSPOSE);
     - for MIDI notes in, MIDI note 60 (C4), in any view.
 
     Panel keys use their pitch before the octave shift.
@@ -755,7 +773,8 @@ Everywhere, unless the state says otherwise:
 - **Must:** a banner line for short messages, shown 1.5 s:
   - `SAVED 23`, `SAVED PATTERN 23`
   - `EDITED - TURN TO DISCARD`
-  - the pattern-edited warning (wording pending, decided when SEQ is built)
+  - `PTN EDITED - TURN TO DISCARD` (the pattern-edited warning; Eric, 2026-11-15)
+  - `NEXT PATTERN 23`
   - `MAX n NOTES` (n = the build's voice count)
   - `SAVE CANCELED`
   - `STOP TO RECORD`
@@ -842,9 +861,9 @@ Everywhere, unless the state says otherwise:
 - **Must:** the SEQ page (S1, S2 or S3) and its four knob values.
 - **Must:** step record armed or not. While armed, the notes held so far for
   the step being built.
-- **Must:** the chord held now on the chord keys and MIDI in, by note name,
-  since pressing a step key writes it there.
-- **Must:** that the keyboard is split: F3..G#4 are steps, A4..G5 play.
+- **Must:** while a step is armed, that it is (`PLAY`) and the notes played for
+  it so far, by note name.
+- **Must:** that the white keys are the steps (`WHITE KEYS: STEPS 1-16`).
 - **Must:** the meaning of SEL, ENV, LFO and FX in SEQ view (REST, TIE, MOVE,
   BACK), since it differs from the other states.
 - **Must:** the transpose, when it isn't 0.
@@ -853,8 +872,14 @@ Everywhere, unless the state says otherwise:
 ### Back from the host's picker
 
 `draw(full)` redraws the whole state, and every LED is sent again. The state
-is the one fm1-8p was in when it was left, but the sequencer is stopped:
-`release()` cuts notes.
+is the one fm1-8p was in when it was left, but the sequencer is stopped.
+
+fm1-dock doesn't call `release()` for the picker: the module keeps running
+under it. It opens on HOME held alone 1.5 s, and then hands the module HOME's
+release (fm1-dock `dock.c`, "HOME held alone: the picker; the module saw it let
+go"). So a HOME release after a 1.5 s hold stops the sequencer, in every state.
+`release()` (the host switching to another module) stops it too, and `init()`
+starts afresh when the module comes back.
 
 ## 7. Navigation states
 
@@ -878,6 +903,12 @@ stateDiagram-v2
     EDIT --> GLO: GLO tap
     SEQ --> GLO: GLO tap
     GLO --> Previous: GLO tap / HOME tap
+    state SEQ {
+        [*] --> Steps
+        Steps --> Armed: white key tap (that step)
+        Armed --> Steps: every note let go (written, cursor +1)
+        Armed --> Steps: 3 s with no note / any other control
+    }
     state EDIT {
         [*] --> Page
         Page --> Compare: EDIT held 400 ms
@@ -895,8 +926,9 @@ stateDiagram-v2
 
 - **Previous** means the state that SEQ, SAVE or GLO was entered from.
 - **Compare and number jump** also exist in PLAY, and work the same there.
-- **The keyboard split** applies only in SEQ view: there, keys F3..G#4 are step
-  keys and A4..G5 play. In every other state all keys play.
+- **The step keys** apply only in SEQ view: there, the white keys F3..G5 are
+  steps (until one is armed) and the black keys do nothing. In every other
+  state all keys play.
 - **The transport** runs alongside every state: STOPPED, PLAYING, or
   WAITING-FOR-CLOCK. PLAY toggles it from any state.
 - **HOME held 1.5 s** leaves fm1-8p for the host's picker from any state.
@@ -917,10 +949,10 @@ stateDiagram-v2
 | PLAY | start/stop | start/stop | start/stop | start/stop | start/stop |
 | REC | stopped: arm, go to SEQ; playing: `STOP TO RECORD` | same as PLAY | stopped: arm or disarm; playing: `STOP TO RECORD` | - | - |
 | HOME tap | - (a waiting save: asks, then cancels) | PLAY (or a waiting save: asks, then cancels) | PLAY (or a waiting save: asks, then cancels) | cancel | back (or a waiting save: asks, then cancels) |
-| OCT-/+ | octave | octave | octave (chord keys) | octave | octave |
+| OCT-/+ | octave | octave | octave (the notes played) | octave | octave |
 | PRESETS | patch | patch | pattern (queued while playing) | slot | patch |
-| Keys F3..G#4 | notes | notes | step keys | notes | notes |
-| Keys A4..G5 | notes | notes | chord keys | notes | notes |
+| White keys F3..G5 | notes | notes | step keys; armed: notes | notes | notes |
+| Black keys | notes | notes | nothing; armed: notes | notes | notes |
 
 "-" means the button does nothing in that state, and its LED is off. A button
 that does something glows, unless it is lit for its own reason.
@@ -1086,8 +1118,8 @@ See [Editing during playback](#editing-during-playback). Also:
 
 ### Keys that change meaning while held
 
-- Each held key remembers how it started: a played note, a chord key, a step
-  key, a number digit or a transpose.
+- Each held key remembers how it started: a played note, a step key (or a silent black
+  key in SEQ view), a number digit or a transpose.
 - Its release is handled the same way, even if the state changed in between.
   For example, a note held on F3 when SEQ view opens still gets its note-off
   when F3 comes up, and a step key held when SEQ view closes makes no sound
@@ -1129,7 +1161,7 @@ test.
    and back to 5A.
 2. From page 7A, SEL tap shows 1A, the first page of SEL's ring, not the next
    page.
-3. SELECT +1 from 0B shows 1A, and SELECT -1 from 1A shows 0B. A page whose
+3. SELECT +1 from 0B shows 0C, SELECT +1 from 0C shows 1A, and SELECT -1 from 1A shows 0C. A page whose
    slots are all pending or reserved is skipped (0A while 01-04 have only
    04 GLIDE live is not skipped).
 4. ALGORITHM +1 from 4B shows 5A, the next section's page A, and ALGORITHM +1
@@ -1195,9 +1227,9 @@ test.
 
 29. PLAY sends the sequencer start on press, from every state. PLAY again
     stops it, and every note it started gets a note-off.
-30. In REC, holding chord keys C5 and E5, then releasing both, writes one step
+30. In REC, holding keys C5 and E5, then releasing both, writes one step
     with those two notes at the cursor, and the cursor moves +1.
-31. In REC with a voice count of n, holding n + 2 chord keys writes the first
+31. In REC with a voice count of n, holding n + 2 keys writes the first
     n pressed and shows `MAX n NOTES`, with n from the build (run for n = 6 and
     one other count).
 32. In REC, SEL writes a rest and ENV writes a tie, and each advances the
@@ -1209,29 +1241,32 @@ test.
 35. PLAY while REC is armed starts playback and disarms REC.
 36. REC tap while playing, in any state, does not arm, and shows
     `STOP TO RECORD`.
-37. In SEQ view with no chord held, pressing key 5 sends no note-on for
-    A#3 and moves the cursor to step 6. Stopped and not in REC, it auditions
-    step 6's notes; in REC it plays nothing.
-38. In SEQ view, holding chord keys A4 and C5 and pressing key 2 writes that
-    chord to step 3. Pressing key 7 while still holding writes it to step 8
-    too. Releasing the chord writes nothing more.
+37. In SEQ view, pressing white key C4 (key 7) sends no note-on, moves the
+    cursor to step 5 and arms it. Black key A#3 (key 5) sends nothing and
+    changes nothing.
+38. In SEQ view, tapping D4 (step 6), then holding C4, C#4 and E4 and letting
+    them go writes C4 C#4 E4 to step 6 at the highest velocity, moves the
+    cursor to step 7, and the white keys are steps again. MIDI notes 60 and 64
+    played after tapping a step write that step the same way.
 39. Outside SEQ view, key 0 (F3) sends a note-on for F3.
 40. A note held on F3 when SEQ view opens gets its note-off when F3 is
     released.
-41. Chord + step key works while playing; the step plays the new chord the
-    next time it comes round.
+41. Tap a step, then play works while playing; the step plays the new notes
+    the next time it comes round. A tapped step with no note played is steps
+    again after 3 s, or at once at a knob turn, and nothing is written.
 42. Key LEDs in SEQ view, for a 12-step pattern with notes on 1 and 5 and a
-    tie on 6: key 0 lit, key 4 lit, key 5 tie-blink, keys 1-3 and 6-11 glow,
-    keys 12-15 off, keys 16-26 glow, and a held chord key lit.
+    tie on 6: F3 (step 1) lit, C4 (step 5) lit, D4 (step 6) tie-blink, the
+    other white keys of steps 2-12 glow, those of steps 13-16 off, and every
+    black key dark. With a step armed, its key blinks at 8 Hz and a held key
+    is lit.
 43. While playing, the playhead key's LED is inverted for exactly its step, and
     the other keys keep their states.
 44. With KEY TRANSPOSE on and playing, outside SEQ view pressing D4 sends no
-    note-on and sets transpose +2 from the next step. In SEQ view, pressing
-    and releasing chord key D5 does the same.
-45. With KEY TRANSPOSE on and playing in SEQ view, holding chord keys E5 and
-    G5, pressing step key 3 and releasing all writes E5 G5 to step 4 and leaves
-    the transpose unchanged. Holding E5 and G5 with no step key and releasing
-    sets the transpose to +4 (the lowest, E5, minus C5).
+    note-on and sets transpose +2 from the next step. In SEQ view the panel
+    keys are steps, so only MIDI notes transpose there (settled with S3's KEY
+    TRANSPOSE).
+45. With KEY TRANSPOSE on and playing in SEQ view, notes played for an armed
+    step write it and leave the transpose unchanged.
 46. With KEY TRANSPOSE on and playing, MIDI note 62 sets +2, and MIDI note 96
     sets +24 (clamped).
 47. With G13 = MIDI and no clock, PLAY sets WAITING FOR CLOCK and sends no
@@ -1268,8 +1303,8 @@ test.
     edited buffer. PC 8 loads slot 21, PC 63 loads slot 88, and PC 64 loads P1.
     A PC past the last P patch changes nothing.
 61. With G41 SEND or BOTH, loading slot 21 on the panel sends PC 8.
-62. After `release()`, then `draw(full)`, every LED is sent again and the
-    transport is STOPPED.
+62. HOME held 1.5 s (the host's picker opens), then `draw(full)`: every LED is
+    sent again and the transport is STOPPED.
 63. With G24 = PICKUP and cutoff at 64 (CC scale), CC 52 = 20 is ignored, and
     CC 52 = 63, 64 or 65 takes over. After that, CC 52 = 20 sets the value.
 64. With G24 = JUMP, CC 52 = 20 sets cutoff at once.

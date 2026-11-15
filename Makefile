@@ -21,7 +21,8 @@
 #   make check-gate         test the gate itself (renders: minutes, so not part of make check)
 #   make scorecard COMMIT=<commit> [BASE=<commit>]
 #                           how close COMMIT's 32 factory tones are to PG-8X (tools/scorecard.sh: needs
-#                           SCORECARD_REF, the reference renders, and a Python with numpy and scipy);
+#                           SCORECARD_REF, the reference renders (default $FM1_REF/pg8x/scorecard/v5),
+#                           and a Python with numpy and scipy);
 #                           appends to a JSONL history and prints the worst 5 and the tones moved
 #   make check-scorecard    test the scorecard (SCORECARD_PYTHON: a Python with numpy and scipy)
 #
@@ -46,8 +47,8 @@ HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c host/pattern.c
 BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
-FW_SRC     = firmware/cpu_test.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/pattern_store.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c
-FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/seq.h firmware/pattern_store.h firmware/settings_store.h firmware/ui_save.h
+FW_SRC     = firmware/cpu_test.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/pattern_store.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c firmware/ui_seq.c
+FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/seq.h firmware/pattern_store.h firmware/settings_store.h firmware/ui_save.h firmware/ui_seq.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
@@ -93,7 +94,7 @@ test: $(BUILD)/run-tests
 # engine sources) must make the same check fail.
 check-float-free:
 	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-engine $(ENGINE_SRC)
-	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/pattern_store.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c
+	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/pattern_store.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c firmware/ui_seq.c
 	@for c in $(CANARIES); do \
 		if CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-canary \
 			$(ENGINE_SRC) $$c >/dev/null 2>&1; then \

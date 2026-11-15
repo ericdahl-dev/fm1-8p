@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui.h"
 #include "ui_save.h"
+#include "ui_seq.h"
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
@@ -98,8 +99,11 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             *num++ = value < 0 ? '-' : '+';
         num = put_u(num, (uint32_t)(value < 0 ? -value : value));
         u = id == FM_PARAM_OSC2_COARSE_SEMIS || id == FM_PARAM_OSC1_COARSE_SEMIS ? "st" : "ct";
-    } else if (id == FM_PARAM_OSC1_PULSE_WIDTH_PCT || id == FM_PARAM_OSC2_PULSE_WIDTH_PCT) {
+    } else if (id == FM_PARAM_OSC1_PULSE_WIDTH_PCT || id == FM_PARAM_OSC2_PULSE_WIDTH_PCT ||
+               id == FM_PARAM_WHEEL_PW_PCT) {
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
+    } else if (id == FM_PARAM_WHEEL_PITCH_CENTS) {   /* 0C WHEEL: the wheel at full adds this */
+        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "ct";
     } else if (id == FM_PARAM_PITCH_ENV_DYNA || id == FM_PARAM_OSC_MIX_ENV_DYNA ||
                id == FM_PARAM_FILTER_ENV_DYNA || id == FM_PARAM_AMP_DYNA) {    /* DYNAMICS */
         if (value <= 0)
@@ -363,6 +367,14 @@ void ui_init(ui *u, play *p)
     for (i = 0; i < sizeof u->cc_out / sizeof u->cc_out[0]; i++)
         u->cc_out[i] = 0;
     u->cc_out_ms = 0;
+    u->seq_from = UI_PLAY;
+    u->seq_cursor = 0;
+    u->seq_page = 0;
+    u->seq_keys = 0;
+    u->chord_n = 0;
+    u->seq_armed = 0;
+    u->built_n = 0;
+    u->seq_msg[0] = 0;
     u->pc_out = -1;
     u->cc_out_at = 0;
     u->cc_sent_cc = u->cc_sent_v = 0xFFu;
@@ -842,6 +854,16 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
 int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
 {
     int32_t d = key_digit(k);
+    if (!down && k < 32u && u->seq_keys >> k & 1u) {   /* a key SEQ view took: its up too, wherever we are */
+        u->seq_keys &= ~(1u << k);
+        ui_seq_step_key(u, k, 0, ms);
+        return 1;
+    }
+    if (down && u->state == UI_SEQ && !u->seq_armed && k < 32u) {   /* SEQ view: a step or nothing; no sound */
+        u->seq_keys |= 1u << k;
+        ui_seq_step_key(u, k, 1, ms);
+        return 1;
+    }                                           /* (armed: every key plays, ui_chord_note collects it) */
     if (!down) {                                /* an up goes where its down went */
         if (!(u->jump_keys >> k & 1u))
             return 0;
@@ -873,17 +895,12 @@ uint32_t ui_keypad_led(const ui *u, uint32_t k)
     return u->jump >= 0 && key_digit(k) >= 0 ? UI_LED_GLOW : UI_LED_OFF;
 }
 
-uint32_t ui_key_led(const ui *u, uint32_t k, int down)
-{
-    if (ui_keypad_led(u, k) == UI_LED_GLOW)
-        return UI_LED_GLOW;
-    return down && u->set.key_leds ? UI_LED_LIT : UI_LED_OFF;
-}
-
 /* the slot a CC sets (the CC map): its number is the slot's, NULL for none */
 uint32_t ui_cc_of(uint32_t map, uint32_t num)
 {
     uint32_t i;
+    if (num >= UI_SLOT_W1)                      /* (0C WHEEL: none) */
+        return UI_CC_NONE;
     if (map == UI_CC_MAP_STANDARD) {
         for (i = 0; i < UI_CC_STANDARD_COUNT; i++)
             if (UI_CC_STANDARD[i].pg800 == num)
@@ -923,7 +940,7 @@ static const ui_slot *cc_slot(uint32_t map, uint32_t cc)
     if (num == UI_CC_NONE)
         return 0;
     for (i = 0; i < UI_PAGES * 4u; i++)
-        if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == num)
+        if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].num == num && num < UI_SLOT_W1)
             return &UI_SLOTS[i];
     return 0;
 }
@@ -1128,6 +1145,13 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     }
     if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS)
         u->held &= ~(1u << id);
+    if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && ms - u->down_ms[UI_BTN_HOME] >= UI_PICKER_MS &&
+        play_seq(u->p)->want)
+        seq_stop(play_seq(u->p));               /* the host's picker: the sequencer stops (case 62) */
+    if (ev == (UI_EV_BTN_DOWN | UI_BTN_PLAY)) { /* PLAY: start / stop, in every state (interaction.md) */
+        ui_seq_transport(u);
+        return;
+    }
     if (u->state == UI_SAVE) {                  /* SAVE takes the controls while it is open */
         ui_save_event(u, ev, arg, ms);
         return;
@@ -1147,6 +1171,27 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         } else if ((ev == (UI_EV_ENC | UI_ENC_SELECT) || ev == (UI_EV_ENC | UI_ENC_ALGORITHM)) && arg) {
             glo_walk(u, arg);
         }
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && u->state == UI_SEQ) {
+        u->seq_armed = u->built_n = 0;
+        u->glo_from = UI_SEQ;                   /* GLO from SEQ view, and back to it */
+        u->state = UI_GLO;
+        u->readout = 0;
+        glo_show(u);
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && u->state == UI_SEQ && !u->save_waiting) {
+        ui_save_open(u, ms);                    /* SAVE in SEQ view: the pattern (interaction.md, SAVE) */
+        return;
+    }
+    if (u->state == UI_SEQ) {                   /* SEQ view takes the controls (interaction.md 5) */
+        ui_seq_event(u, ev, arg, ms);
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_SEQ) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
+        !u->comparing && !(u->jump_screen & UI_JS_UP)) {
+        ui_seq_open(u);
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
@@ -1227,6 +1272,8 @@ uint32_t ui_screen(const ui *u)
         return UI_SCREEN_SAVE;
     if (u->state == UI_GLO)
         return UI_SCREEN_GLO;
+    if (u->state == UI_SEQ)
+        return UI_SCREEN_SEQ;
     return u->jump_screen & UI_JS_UP ? UI_SCREEN_JUMP : u->state == UI_EDIT ? UI_SCREEN_PAGE : UI_SCREEN_PLAY;
 }
 
@@ -1250,7 +1297,23 @@ uint32_t ui_take(ui *u, uint32_t ms)
         u->shown_edited = play_edited(u->p);
         u->dirty |= UI_D_FOOT;
     }
-    if (u->held >> UI_BTN_EDIT & 1u && !u->comparing && u->state != UI_GLO &&
+    if (u->seq_armed && !u->built_n && ms - u->seq_arm_ms >= UI_SEQ_ARM_MS) {
+        u->seq_armed = 0;                       /* a tapped step, nothing played: steps again */
+        u->dirty |= UI_D_FOCUS;
+    }
+    if (u->state == UI_SEQ && seq_steps(play_seq(u->p)) != u->shown_steps) {
+        u->shown_steps = seq_steps(play_seq(u->p));
+        u->dirty |= UI_D_SLOT;                  /* SEQ view: the playhead moved on */
+    }
+    if (u->state == UI_SEQ) {                   /* its footer: the pattern, the next one, edited */
+        uint32_t f = play_pattern_prog(u->p) | (uint32_t)(play_pattern_next(u->p) + 1) << 8 |
+                     seq_edited(play_seq(u->p)) << 16;
+        if (f != u->shown_ptn) {
+            u->shown_ptn = f;
+            u->dirty |= UI_D_FOOT;
+        }
+    }
+    if (u->held >> UI_BTN_EDIT & 1u && !u->comparing && (u->state == UI_PLAY || u->state == UI_EDIT) &&
         ms - u->down_ms[UI_BTN_EDIT] >= UI_TAP_MS) {
         if (play_edited(u->p)) {                /* an EDIT hold: compare */
             u->comparing = UI_COMPARE_ON;
@@ -1294,6 +1357,8 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_ENV:
     case UI_BTN_FX:
     case UI_BTN_LFO:                            /* lit while a page of its ring shows */
+        if (u->state == UI_SEQ)                 /* SEQ view: REST and TIE; MOVE (#42) and BACK (REC) wait */
+            return button == UI_BTN_SEL || button == UI_BTN_ENV ? UI_LED_GLOW : UI_LED_OFF;
         if (u->state == UI_SAVE || u->state == UI_GLO)   /* they do nothing there: off (interaction.md) */
             return UI_LED_OFF;
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
@@ -1305,7 +1370,17 @@ uint32_t ui_led(const ui *u, uint32_t button)
         if (u->comparing == UI_COMPARE_ON)      /* blinking during compare */
             return u->now_ms / UI_BLINK_MS & 1u ? UI_LED_OFF : UI_LED_LIT;
         return play_edited(u->p) ? UI_LED_LIT : UI_LED_GLOW;
-    default:
+    case UI_BTN_SEQ:                            /* lit in SEQ view; it glows where a tap opens it */
+        return u->state == UI_SEQ ? UI_LED_LIT : u->state == UI_PLAY || u->state == UI_EDIT ? UI_LED_GLOW
+                                                                                              : UI_LED_OFF;
+    case UI_BTN_PLAY: {                         /* lit while playing, dark on each beat's first step */
+        const seq *s = play_seq(u->p);
+        int32_t at = seq_step_now(s);
+        if (!s->want)
+            return UI_LED_GLOW;
+        return at >= 0 && at % (int32_t)SEQ_PPQ == 0 ? UI_LED_OFF : UI_LED_LIT;
+    }
+    default:                                    /* (REC: step record is S5) */
         return UI_LED_OFF;
     }
 }
@@ -1353,6 +1428,10 @@ void ui_octave_label(int32_t oct, char *s)
 
 void ui_slot_number(const ui_slot *sl, char *s)
 {
+    if (sl->num >= UI_SLOT_W1) {                /* 0C WHEEL: W1, W2 */
+        s[0] = 'W', s[1] = (char)('1' + sl->num - UI_SLOT_W1), s[2] = 0;
+        return;
+    }
     s[0] = (char)('0' + sl->num / 10u);
     s[1] = (char)('0' + sl->num % 10u);
     s[2] = 0;
