@@ -139,6 +139,17 @@ static void ui_ev(uint32_t ev, int32_t arg)
 /* GLO's settings (settings_store.c): the host's settings record for this module, which the host
  * writes to flash itself (2 s after the last change, no key held, no note in) */
 static uint32_t set_loaded;
+/* G31 VELOCITY CURVE: the host's sensing at its own defaults (fm1-dock dock.c sense_defaults: on,
+ * DRIVE 2, ceiling 1000) but the curve, sent when it changes; a host before sense_set: nothing */
+static uint32_t curve_sent;
+static void sense_curve(void)
+{
+    uint32_t c = ui_sense_curve(&U);
+    if (c == curve_sent || !HB_HOST_HAS(H, sense_set) || !H->sense_set)
+        return;
+    curve_sent = c;
+    H->sense_set(1, UI_SENSE_DRIVE_HOST, c, UI_SENSE_CEIL_HOST);
+}
 static int set_load(void *ctx, void *p, uint32_t n)
 {
     (void)ctx;
@@ -167,6 +178,7 @@ static void draw(uint32_t full)
         set_loaded = 1;
     }
     (void)settings_tick(&U.set, &U.set_dirty, U.set_changed_ms, H->ms(), play_silent(&P), &SETTINGS);
+    sense_curve();                              /* (G31, loaded or turned) */
     if (full) {
         octave_shown();                         /* (back from the picker, which had the LEDs) */
         page_leds(1);
@@ -197,6 +209,7 @@ static int init(const hb_host_t *h)
     H = h;
     keys_down = 0;
     set_loaded = 0;                             /* read on the first draw, as the slots */
+    curve_sent = UI_SENSE_CURVE_HOST;           /* (the host starts each module at its own curve) */
     ui_draw_init(h, &P, &U);
     if (play_init(&P) != 0) {
         H->log("fm1-8p: engine init failed");
