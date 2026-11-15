@@ -242,12 +242,16 @@ static int32_t coef_for(int32_t cents, int32_t rate_cents)
 #define CURVE_ZERO (-1474)  /* linear cents at knob step 0 */
 #define CURVE_A_Q32 32070   /* 0.0988 / 115.03^2 in Q32 */
 
-/* The curve itself: rising, for the inverse below. */
+/* The curve itself: rising, for the inverse below. u is under twice
+ * open there (and under open on a voice's path), so d is under 30275 and
+ * d * d fits 32 bits: one 32 x 32 -> 64 multiply. */
 static int32_t curve_of(int32_t u)
 {
-    int64_t d = (int64_t)u - CURVE_ZERO;
-    if (d <= 0) return u;
-    return u + (int32_t)((d * d * CURVE_A_Q32 + (1ll << 31)) >> 32);
+    uint32_t d, d2;
+    if (u <= CURVE_ZERO) return u;
+    d = (uint32_t)(u - CURVE_ZERO);
+    d2 = d * d;
+    return u + (int32_t)(((uint64_t)d2 * CURVE_A_Q32 + (1ull << 31)) >> 32);
 }
 
 /* The curve for a voice: open stays open without the multiply. */

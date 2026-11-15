@@ -2462,8 +2462,25 @@ TT_TEST(linear_cents_holds_its_values_at_the_range_edges)
         TT_CHECK_EQ(fm_filter_linear_cents(in[i]), want[i]);
 }
 
+/*
+ * The cutoff curve a voice plays, pinned at the edges of its range against
+ * C(u) = u + A (u + 1474)^2 worked in floating point (A = 0.0988 /
+ * 115.03^2), rounded: nothing added at or below knob step 0, the curve up
+ * to just under open (the largest square on a voice's path), and an open
+ * sum passed as it is (#253).
+ */
+TT_TEST(cutoff_curve_holds_its_values_at_the_range_edges)
+{
+    static const int32_t in[] = { -5000, -1474, -1473, 0, 6433, 12864, 14399, 14400, 20000 };
+    static const int32_t want[] = { -5000, -1474, -1473, 16, 6900, 14399, 16280, 14400, 20000 };
+    size_t i;
+    for (i = 0; i < sizeof in / sizeof in[0]; i++)
+        TT_CHECK_EQ(fm_filter_voice_cents(in[i], 0, 60, 0), want[i]);
+}
+
 static void run_filter_tests(void)
 {
+    TT_RUN(cutoff_curve_holds_its_values_at_the_range_edges);
     TT_RUN(linear_cents_holds_its_values_at_the_range_edges);
     TT_RUN(cutoff_sources_add_in_knob_steps_on_pg8x_curve);
     TT_RUN(cutoff_setting_round_trips_through_linear_cents);
