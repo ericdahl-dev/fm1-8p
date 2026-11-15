@@ -100,7 +100,11 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     if (!UI_SEQ_SLOTS[u->seq_page][k].live)
         return;
     switch (u->seq_page * 4u + k) {
-    case 0: v += clicks * (fast ? 100 : 10); seq_set_tempo(s, (uint32_t)(v < 0 ? 0 : v)); break;
+    case 0:                                     /* (the footer shows it too) */
+        v += clicks * (fast ? 100 : 10);
+        seq_set_tempo(s, (uint32_t)(v < 0 ? 0 : v));
+        u->dirty |= UI_D_FOOT;
+        break;
     case 1: v += clicks; seq_set_length(s, (uint32_t)(v < 1 ? 1 : v)); break;
     case 2: v += clicks * (fast ? 5 : 1); seq_set_swing(s, (uint32_t)(v < 0 ? 0 : v)); break;
     case 3: v += clicks * (fast ? 5 : 1); seq_set_gate(s, (uint32_t)(v < 0 ? 0 : v)); break;

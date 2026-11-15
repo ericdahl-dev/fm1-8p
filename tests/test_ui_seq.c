@@ -126,8 +126,10 @@ TT_TEST(seq_select_and_the_pattern_page)
     TT_CHECK_EQ(ui_u.seq_cursor, 1u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, -2, 1300);
     TT_CHECK_EQ(ui_u.seq_cursor, 3u);
+    (void)ui_take(&ui_u, 1350);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1400);      /* 120.0 + 1 BPM */
     TT_CHECK_EQ(seq_tempo(s), SEQ_TEMPO_DEF + 10u);
+    TT_CHECK(ui_take(&ui_u, 1450) & UI_D_FOOT);              /* (the footer has the tempo) */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 3, 1500);      /* fast: 10 BPM a click */
     TT_CHECK_EQ(seq_tempo(s), SEQ_TEMPO_DEF + 10u + 300u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 100, 1600);    /* SWING to its top */
