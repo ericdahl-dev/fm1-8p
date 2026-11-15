@@ -601,6 +601,19 @@ TT_TEST(seq_roll_fits_an_armed_note)
     TT_CHECK(ui_u.roll_lo <= 30u);
 }
 
+/* A pattern loaded from PRESETS redraws every column of the roll */
+TT_TEST(seq_roll_redraws_whole_on_a_pattern_load)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1050);
+    (void)ui_seq_roll_take(&ui_u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    (void)ui_take(&ui_u, 1110);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -615,6 +628,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_chord_names);
     TT_RUN(seq_roll_blink_redraws_the_armed_column);
     TT_RUN(seq_roll_fits_an_armed_note);
+    TT_RUN(seq_roll_redraws_whole_on_a_pattern_load);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
