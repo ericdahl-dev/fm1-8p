@@ -435,8 +435,11 @@ int ui_seq_roll_fit(ui *u)
     uint32_t lo, hi, span, pps, rows, from;
     if (!roll_notes(u, &lo, &hi))
         lo = hi = 60u;                          /* (none: an octave around C4) */
-    if (u->roll_pps && lo >= u->roll_lo && hi < u->roll_lo + UI_ROLL_H / u->roll_pps)
-        return 0;                               /* all inside: no jump */
+    if (u->roll_pps && ((lo >= u->roll_lo && hi < u->roll_lo + UI_ROLL_H / u->roll_pps) ||
+                        (lo >= u->roll_seen_lo && hi <= u->roll_seen_hi)))
+        return 0;                               /* all inside, or no wider than it was fitted to: no jump */
+    u->roll_seen_lo = lo;
+    u->roll_seen_hi = hi;
     span = hi - lo + 1u;
     span = span < 13u ? 13u : span;             /* at least an octave */
     pps = span <= UI_ROLL_H / 3u ? 3u : 2u;

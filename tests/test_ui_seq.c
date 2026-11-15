@@ -679,6 +679,23 @@ TT_TEST(seq_tempo_turn_redraws_the_header)
     TT_CHECK(ui_take(&ui_u, 1110) & UI_D_HEAD);
 }
 
+/* Notes wider than the roll (over 36 semitones): it fits once, then stays put; a refit would redraw
+ * every column on every step */
+TT_TEST(seq_roll_wide_span_fits_once)
+{
+    static const uint8_t LOW[1] = {30}, HIGH[1] = {90}, MID[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, LOW, 1, 100);
+    seq_set_step(s, 1, HIGH, 1, 100);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK(ui_seq_roll_fit(&ui_u));
+    TT_CHECK(!ui_seq_roll_fit(&ui_u));
+    seq_set_step(s, 2, MID, 1, 100);                          /* within what it saw: still put */
+    TT_CHECK(!ui_seq_roll_fit(&ui_u));
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -698,6 +715,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_stop_clears_the_playhead);
     TT_RUN(seq_roll_redraws_whole_when_the_next_pattern_takes_over);
     TT_RUN(seq_tempo_turn_redraws_the_header);
+    TT_RUN(seq_roll_wide_span_fits_once);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);

@@ -377,6 +377,7 @@ void ui_init(ui *u, play *p)
     u->roll_dirty = 0;
     u->roll_lo = 0;
     u->roll_pps = 0;
+    u->roll_seen_lo = u->roll_seen_hi = 0;
     u->shown_playhead = -1;
     u->shown_blink = 0;
     u->seq_msg[0] = 0;
