@@ -809,9 +809,7 @@ static void glo_part(uint32_t b, uint32_t part)
 #define C_SEQ (T->section[UI_SEC_SEQ])
 static void seq_tempo_text(char *s)
 {
-    const seq *q = play_seq(P);
-    uint32_t t = seq_clock_external(q) && seq_clock_tempo(q) && (q->clk_running || !q->want) ? seq_clock_tempo(q)
-                 : seq_tempo(q), n = 0;         /* (#38: the clock's, when it runs the steps or they're stopped) */
+    uint32_t t = ui_seq_tempo_shown(U), n = 0; /* (#38: the clock's, when it runs the steps or they're stopped) */
     char d[6];
     uint32_t v = t / 10u;
     do {
@@ -839,7 +837,8 @@ static void seq_header(void)
     const seq *sq = play_seq(P);
     int32_t at = sq->want ? seq_step_now(sq) : -1;
     char t[20];
-    uint32_t n = 0, bpm = seq_tempo(sq) / 10u, i;
+    uint32_t n = 0, bpm = ui_seq_tempo_shown(U) / 10u, i;
+    const char *src = seq_waiting(sq) ? "WAIT" : seq_clock_external(sq) ? "MIDI" : "INT";   /* (#38) */
     char d[4];
     t[n++] = at >= 0 ? (char)('0' + (uint32_t)(at + 1) / 10u) : '-';
     t[n++] = at >= 0 ? (char)('0' + (uint32_t)(at + 1) % 10u) : '-';
@@ -851,7 +850,10 @@ static void seq_header(void)
     } while (bpm);
     while (i)
         t[n++] = d[--i];
-    t[n++] = ' ', t[n++] = 'I', t[n++] = 'N', t[n++] = 'T', t[n] = 0;   /* (MIDI clock: #38) */
+    t[n++] = ' ';
+    for (i = 0; src[i]; i++)
+        t[n++] = src[i];
+    t[n] = 0;
     head_right = t;
     head_mark = sq->want ? 1 : 2;
     header(U->seq_rec ? "REC" : "SEQ", C_SEQ, "", UI_SEQ_PAGE_NAME[U->seq_page], "", -1, 8);   /* (REC: step record) */
@@ -981,7 +983,10 @@ static void seq_cell(uint32_t k)
     H->cv_begin(cw, 32, C_BG);
     H->cv_rect(x, 0, COL_W, 32, act ? C_SURFHI : C_SURF);
     if (sl->label) {
-        text_c(x, COL_W, 0, 0, sl->label, act ? C_TEXT : C_DIM);
+        if (U->seq_page == 0u && k == 0u && seq_clock_external(play_seq(P)))   /* TEMPO under the clock (#38) */
+            text_c(x, COL_W, 0, 0, TEXT_W(0, "MIDI CLK") <= COL_W - 2 ? "MIDI CLK" : "MIDI", led_of(C_PLAY));
+        else
+            text_c(x, COL_W, 0, 0, sl->label, act ? C_TEXT : C_DIM);
         ui_seq_column(U, k, val, unit);
         if (*unit && TEXT_W(0, val) + TEXT_W(0, unit) + 2 <= COL_W - 2) {
             uint32_t n = 0, j;
@@ -1021,12 +1026,21 @@ static void seq_bottom(void)
         text_c(0, 240, 35, 0, b, C_PLAY);
     } else {
         ui_seq_footer_text(U, left, right);
+        if (seq_waiting(play_seq(P)))
+            left[6] = 0;                        /* (waiting: the pattern's number alone, "PTN 11") */
         CV_TEXT(M, 35, 0, left, C_TEXT);
-        if (*right) {
+        if (seq_waiting(play_seq(P))) {         /* WAITING FOR CLOCK always shows (interaction.md 7) */
+            char c[UI_SEQ_TEXT_LEN];
+            ui_seq_clock_text(U, c);
+            CV_TEXT(240 - M - TEXT_W(0, c), 35, 0, c, led_of(C_PLAY));
+        } else if (*right) {
             CV_TEXT(240 - M - TEXT_W(0, right), 35, 0, right, led_of(C_PLAY));
-        } else {
+        } else {                                /* the tempo and the clock: 120 BPM INT, or MIDI */
+            char c[UI_SEQ_TEXT_LEN];
+            ui_seq_clock_text(U, c);
             seq_tempo_text(t);
-            CV_TEXT(240 - M - TEXT_W(0, t), 35, 0, t, C_DIM);
+            CV_TEXT(240 - M - TEXT_W(0, c), 35, 0, c, C_DIM);
+            CV_TEXT(240 - M - TEXT_W(0, c) - 6 - TEXT_W(0, t), 35, 0, t, C_DIM);
         }
     }
     blit(0, 188, 240, 52);

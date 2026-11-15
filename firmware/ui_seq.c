@@ -140,7 +140,7 @@ int32_t ui_seq_value(const ui *u, uint32_t k)
     seq *s = play_seq(u->p);
     const seq_step *st = seq_get_step(s, u->seq_cursor);
     switch (u->seq_page * 4u + k) {
-    case 0: return (int32_t)seq_tempo(s);
+    case 0: return (int32_t)ui_seq_tempo_shown(u);
     case 1: return (int32_t)seq_length(s);
     case 2: return s->edit.swing_pct;
     case 3: return s->edit.gate_pct;
@@ -162,6 +162,10 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         return;
     switch (u->seq_page * 4u + k) {
     case 0:                                     /* (the header and the footer show it too) */
+        if (seq_clock_external(s)) {            /* the clock sets it: nothing, and why (case 48) */
+            banner(u, "TEMPO FOLLOWS MIDI CLOCK", u->now_ms);
+            break;
+        }
         v += clicks * (fast ? 100 : 10);
         seq_set_tempo(s, (uint32_t)(v < 0 ? 0 : v));
         u->dirty |= UI_D_FOOT | UI_D_HEAD;
@@ -382,7 +386,7 @@ void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit)
         n = put_u(n, (uint32_t)v / 10u);
         if (v % 10)
             *n++ = '.', put_u(n, (uint32_t)v % 10u);
-        put_s(unit, "BPM");
+        put_s(unit, seq_clock_external(play_seq(u->p)) ? "MIDI CLOCK" : "BPM");   /* (under the clock: its tempo) */
         break;
     case 2:
     case 3:
@@ -562,4 +566,18 @@ void ui_seq_chord_name(const uint8_t *note, uint32_t n, char *s)
                 return;
             }
     }
+}
+
+void ui_seq_clock_text(const ui *u, char *s)
+{
+    const seq *q = play_seq(u->p);
+    put_s(s, seq_waiting(q) ? "WAITING FOR CLOCK" : seq_clock_external(q) ? "MIDI" : "INT");
+}
+
+uint32_t ui_seq_tempo_shown(const ui *u)
+{
+    const seq *s = play_seq(u->p);
+    if (seq_clock_external(s) && seq_clock_tempo(s) && (s->clk_running || !s->want))
+        return (seq_clock_tempo(s) + 5u) / 10u * 10u;   /* the clock's, in whole BPM: its jitter doesn't show */
+    return seq_tempo(s);                        /* (before the clock, or on INT: the pattern's) */
 }

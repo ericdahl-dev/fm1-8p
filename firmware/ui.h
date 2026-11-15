@@ -112,6 +112,7 @@ typedef struct {
     int32_t shown_playhead;             /* the playhead as the roll last drew it (-1 none) */
     uint32_t shown_blink;               /* the armed step's blink phase as drawn */
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
+    uint32_t shown_clock;               /* SEQ view: the clock as drawn (external, waiting, tempo) */
     int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
