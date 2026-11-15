@@ -185,5 +185,5 @@ A patch the user saves is a record of at most 248 bytes (`STORE_SLOT_BYTES`), so
 - **Damaged:** a wrong version, a length that disagrees with the count, or a record longer than the
   bytes read is an empty slot.
 <!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
-- **Room:** 53 params take 174 bytes; a slot has room for 77.
+- **Room:** 55 params take 180 bytes; a slot has room for 77.
 <!-- end generated -->

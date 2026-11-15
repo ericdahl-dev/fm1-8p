@@ -2030,6 +2030,21 @@ TT_TEST(ui_cc_sets_its_parameter)
     TT_CHECK(mid > in->min + (in->max - in->min) * 2 / 5 && mid < in->min + (in->max - in->min) * 3 / 5);
 }
 
+/* The mod wheel (#41): neither CC map takes CC1 (JX moves the 0x section away, STANDARD has none), so
+ * it goes on to the engine, where it moves the LFO's depths (play_midi, then fm_engine_controller). */
+TT_TEST(ui_cc_leaves_the_mod_wheel_to_the_engine)
+{
+    uint32_t k;
+    ui_setup();
+    for (k = 0; k < 2u; k++) {
+        ui_u.set.cc_map = (uint8_t)(k ? UI_CC_MAP_STANDARD : UI_CC_MAP_JX);
+        TT_CHECK_EQ(ui_cc(&ui_u, 1, 127, 1000), 0);
+    }
+    play_midi(&ui_p, 0xB0, 1, 127);
+    ui_settle();
+    TT_CHECK_EQ(ui_p.engine.wheel_to, 127 << 8);
+}
+
 /* A CC to a parameter on the page shown redraws its column (and the curve, as a knob does); the focus
  * stays where it was (interaction.md 8, case 13). A CC to a parameter off the page redraws nothing.
  * With G21 CC receive OFF, a CC changes nothing. */
@@ -2546,6 +2561,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs);
     TT_RUN(ui_cc_lands_where_a_knob_does);
     TT_RUN(ui_cc_map_doc_matches_the_code);
+    TT_RUN(ui_cc_leaves_the_mod_wheel_to_the_engine);
     TT_RUN(ui_cc_redraws_the_sections_picture_and_followers);
     TT_RUN(ui_cc_pickup_banner_leaves_the_warnings_up);
     TT_RUN(ui_theme_applies_after_its_debounce);
