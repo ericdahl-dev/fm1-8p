@@ -497,9 +497,9 @@ TT_TEST(seq_load_playing_takes_over_after_the_pass)
     TT_CHECK_EQ(seq_main_tick(&sq), 0u);
 }
 
-/* #40, check 52: cancelling the queued pattern (turning back to the running one's number) keeps the
+/* #40, check 52: canceling the queued pattern (turning back to the running one's number) keeps the
  * running pattern going round. */
-TT_TEST(seq_load_queued_can_be_cancelled)
+TT_TEST(seq_load_queued_can_be_canceled)
 {
     static seq_pattern a, b;
     uint32_t fs = 44100, tempo = 1200, i;
@@ -576,7 +576,7 @@ static void run_seq_tests(void)
     TT_RUN(seq_transpose_takes_effect_at_the_next_step);
     TT_RUN(seq_load_stopped_loads_at_once);
     TT_RUN(seq_load_playing_takes_over_after_the_pass);
-    TT_RUN(seq_load_queued_can_be_cancelled);
+    TT_RUN(seq_load_queued_can_be_canceled);
     TT_RUN(seq_stop_loads_the_queued_pattern);
     TT_RUN(seq_edited_marks_an_edit_until_saved);
 }
