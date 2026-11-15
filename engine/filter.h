@@ -15,6 +15,11 @@
 
 #include <stdint.h>
 
+/* PROTOTYPE switch (not for merge): the two-section SVF core instead of the ladder (engine/filter.c) */
+#ifndef FM_FILTER_LADDER
+#define FM_FILTER_SVF
+#endif
+
 /* At or above this cutoff the lowpass is fully open: a plain wire. */
 #define FM_FILTER_OPEN_CENTS 14400
 
@@ -38,6 +43,9 @@ typedef struct {
     int32_t lp;   /* the shelf's lowpass state, Q8.24 */
     int32_t a;    /* input level, Q1.30: the resonance's passband level */
     int32_t h;    /* shelf * (1 - g), Q1.30 (0 .. 0.57) */
+#ifdef FM_SVF_EF
+    int32_t c[4]; /* PROTOTYPE: the SVF's carried remainders */
+#endif
     int16_t res;  /* resonance as set, per mille */
     int16_t cut;  /* lowpass cutoff as set (clamped), cents */
     int16_t rate; /* rate_cents it was set with (0: not yet) */

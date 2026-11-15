@@ -44,6 +44,7 @@
 #include "test_seq.c"
 #include "test_seq_play.c"
 #include "test_play_patterns.c"
+#include "test_svf_proto.c"
 
 int main(void)
 {
@@ -77,5 +78,6 @@ int main(void)
     run_seq_tests();
     run_seq_play_tests();
     run_play_patterns_tests();
+    run_svf_proto_tests();
     return tt_report();
 }

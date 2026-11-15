@@ -27,6 +27,11 @@
  * (loop_in). See docs/fixed-point.md for the formats and the measured
  * response.
  */
+#ifdef FM_FILTER_SVF /* PROTOTYPE: the ladder's tables and helpers are left in, unused */
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#endif
 #include "filter.h"
 
 /* Tables from tools/gen_filter_tables.py. */
@@ -314,6 +319,9 @@ void fm_filter_clear(fm_filter *f)
     f->x1 = 0;
     f->hp = 0;
     f->lp = 0;
+#ifdef FM_SVF_EF
+    for (i = 0; i < 4; i++) f->c[i] = 0;
+#endif
 }
 
 void fm_filter_reset(fm_filter *f)
@@ -362,6 +370,132 @@ static int32_t grid_lookup(const int16_t *tab, int32_t d)
     return tab[i] + (tab[i + 1] - tab[i]) * r / WARP_STEP;
 }
 
+
+#ifdef FM_FILTER_SVF
+/*
+ * PROTOTYPE (#162/#width, not for merge): the lowpass as PG-8X 2.0.13's two equal resonant 2-pole
+ * sections (fitted within 0.1-0.5 dB, ~/fm1-8p-ref/lvl/res/qtable_final.txt), each a Simper TPT
+ * state-variable filter in Q9.23 (the second section reaches past 128 at the top resonance), the second with its zeros at the origin (lp + 2 t bp + t^2 hp =
+ * v2 + 3 (v2 - ic2) - t ic1: the analog prototype's top end, not the bilinear notch). Coefficients
+ * at control rate: t = tan(pi fc / fs) from a semitone table, a1 = 1 / (1 + t (t + k)) by a 32-bit
+ * divide, a2 = t a1, a3 = t a2; k = 1 / Q from PG's table over resonance; the level k Q0. Fields
+ * reused: s[0..3] the states (ic1, ic2 of each section), g a1, k a2, x1 a3, h t (Q5.27).
+ * FM_SVF_EF: each state's two products summed in 64 bits with the remainder carried (exact at 20 Hz);
+ * else rounded.
+ */
+#define SVF_F0_OFFSET (-180)                    /* PG's f0 under our cutoff: -174 (F49) .. -248 (F80) */
+#define SVF_D_MAX (-1383)                       /* fc / fs at most 0.45 */
+static const int32_t svf_tan[132] = {           /* tan(pi 2^(d / 1200)), d = -14400 .. -1300 by 100, Q8.24 */
+12868, 13633, 14444, 15303, 16213, 17177, 18198, 19280,
+    20427, 21641, 22928, 24291, 25736, 27266, 28888, 30605,
+    32425, 34353, 36396, 38560, 40853, 43283, 45856, 48583,
+    51472, 54533, 57775, 61211, 64851, 68707, 72793, 77121,
+    81707, 86566, 91713, 97167, 102945, 109067, 115552, 122424,
+    129704, 137416, 145588, 154246, 163418, 173136, 183432, 194341,
+    205898, 218142, 231115, 244860, 259423, 274851, 291198, 308517,
+    326867, 346309, 366908, 388733, 411858, 436359, 462319, 489825,
+    518969, 549850, 582572, 617243, 653983, 692914, 734167, 777884,
+    824212, 873308, 925340, 980485, 1038933, 1100883, 1166550, 1236160,
+    1309956, 1388195, 1471152, 1559120, 1652412, 1751361, 1856327, 1967691,
+    2085864, 2211287, 2344434, 2485815, 2635982, 2795529, 2965103, 3145404,
+    3337196, 3541313, 3758669, 3990269, 4237223, 4500761, 4782251, 5083223,
+    5405400, 5750724, 6121407, 6519979, 6949350, 7412901, 7914580, 8459042,
+    9051823, 9699569, 10410345, 11194051, 12062991, 13032672, 14122945, 15359671,
+    16777216, 18422308, 20360203, 22684962, 25537419, 29138558, 33856232, 40351946,
+    49947770, 65727022, 96936891, 189806513
+};
+/* 1 / Q by resonance per mille (PG-8X 2.0.13, F49/F64 means), Q30; past 935 (beyond the JX) to Q 8 */
+static const int16_t svf_pm[14] = { 0, 290, 395, 400, 500, 575, 690, 756, 828, 860, 900, 925, 935, 1000 };
+static const int32_t svf_k[14] = { 1555853578, 1107028459, 921274491, 913757962, 780616755, 677527015, 537944002,
+                                   458487882, 365072384, 319976243, 248034877, 194877760, 159987123, 134217728 };
+#define SVF_Q0_Q30 740881793                    /* Q at resonance 0: 0.69 */
+
+static int32_t svf_k_of(int32_t pm)
+{
+    int i;
+    for (i = 0; i < 13 && pm > svf_pm[i + 1]; i++) {}
+    if (i == 13) return svf_k[13];
+    return svf_k[i] + (int32_t)(((int64_t)(svf_k[i + 1] - svf_k[i]) * (pm - svf_pm[i])) / (svf_pm[i + 1] - svf_pm[i]));
+}
+
+static void apply(fm_filter *f)
+{
+    int32_t d = f->cut + SVF_F0_OFFSET - f->rate, i, r, t, k, a1, a2, a3, den;
+    int was_open = fm_filter_is_wire(f);
+    if (d > SVF_D_MAX) d = SVF_D_MAX;
+    if (d < -14400) d = -14400;
+    i = (d + 14400) / 100;
+    r = (d + 14400) % 100;
+    t = svf_tan[i] + (int32_t)(((int64_t)(svf_tan[i + 1] - svf_tan[i]) * r) / 100);   /* Q8.24 */
+    k = svf_k_of(f->res);                                                          /* Q30 */
+    den = (1 << 24) + (int32_t)(((int64_t)t * (t + (k >> 6))) >> 24);              /* 1 + t (t + k), Q8.24 */
+    a1 = (int32_t)((0x80000000u / (uint32_t)(den >> 8)) << 15);                    /* 2^31 / Q16: Q15, to Q30 */
+    a2 = (int32_t)(((int64_t)a1 * t) >> 24);
+    a3 = (int32_t)(((int64_t)a2 * t) >> 24);
+    f->g = a1;
+    f->k = a2;
+    f->x1 = a3;
+    f->h = t << 3;                                                                 /* Q5.27 */
+    f->a = (int32_t)(((int64_t)k * SVF_Q0_Q30) >> 30);                             /* the level, k Q0 */
+    f->fade = f->cut >= FM_FILTER_OPEN_CENTS ? 0 : ONE_Q30;
+    if (was_open && !fm_filter_is_wire(f)) {                                       /* from the wire's last */
+        f->s[1] = f->s[3] = (f->s[3] > FM_FILTER_HOLD ? FM_FILTER_HOLD : f->s[3] < -FM_FILTER_HOLD ? -FM_FILTER_HOLD : f->s[3]) >> 1;
+        f->s[0] = f->s[2] = 0;
+    }
+}
+
+static inline int32_t svf_mq(int32_t a, int32_t b)
+{
+    return (int32_t)(((int64_t)a * b + (1 << 29)) >> 30);
+}
+
+/* the two sections on x (Q8.24), the output Q8.24 */
+static int32_t svf_run(fm_filter *f, int32_t x)
+{
+    int32_t a1 = f->g, a2 = f->k, a3 = f->x1, v1, v2, v3, out, i1, i2;
+    x = (x > FM_FILTER_HOLD ? FM_FILTER_HOLD : x < -FM_FILTER_HOLD ? -FM_FILTER_HOLD : x) >> 1;                        /* Q9.23 */
+    i1 = f->s[0];
+    i2 = f->s[1];
+    v3 = x - i2;
+#ifdef FM_SVF_EF
+    {
+        int64_t p = (int64_t)a1 * i1 + (int64_t)a2 * v3 + f->c[0];
+        v1 = (int32_t)(p >> 30);
+        f->c[0] = (int32_t)(p & 0x3FFFFFFF);
+        p = (int64_t)a2 * i1 + (int64_t)a3 * v3 + f->c[1];
+        v2 = i2 + (int32_t)(p >> 30);
+        f->c[1] = (int32_t)(p & 0x3FFFFFFF);
+    }
+#else
+    v1 = svf_mq(a1, i1) + svf_mq(a2, v3);
+    v2 = i2 + svf_mq(a2, i1) + svf_mq(a3, v3);
+#endif
+    f->s[0] = 2 * v1 - i1;
+    f->s[1] = 2 * v2 - i2;
+    i1 = f->s[2];
+    i2 = f->s[3];
+    v3 = v2 - i2;
+#ifdef FM_SVF_EF
+    {
+        int64_t p = (int64_t)a1 * i1 + (int64_t)a2 * v3 + f->c[2];
+        v1 = (int32_t)(p >> 30);
+        f->c[2] = (int32_t)(p & 0x3FFFFFFF);
+        p = (int64_t)a2 * i1 + (int64_t)a3 * v3 + f->c[3];
+        v2 = i2 + (int32_t)(p >> 30);
+        f->c[3] = (int32_t)(p & 0x3FFFFFFF);
+    }
+#else
+    v1 = svf_mq(a1, i1) + svf_mq(a2, v3);
+    v2 = i2 + svf_mq(a2, i1) + svf_mq(a3, v3);
+#endif
+    out = v2 + 3 * (v2 - i2) - (int32_t)(((int64_t)f->h * i1) >> 27);
+    f->s[2] = 2 * v1 - i1;
+    f->s[3] = 2 * v2 - i2;
+    out = out > (FM_FILTER_HOLD >> 1) ? (FM_FILTER_HOLD >> 1) : out < -(FM_FILTER_HOLD >> 1) ? -(FM_FILTER_HOLD >> 1) : out;
+    out *= 2;                                                                      /* Q8.24 */
+    return out;
+}
+#else
 /* The coefficients from the cutoff, rate and resonance as set. */
 static void apply(fm_filter *f)
 {
@@ -393,6 +527,8 @@ static void apply(fm_filter *f)
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }
 
+#endif
+
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                           int32_t rate_cents)
 {
@@ -408,10 +544,14 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
     if (permille < 0) permille = 0;
     if (permille > 1000) permille = 1000;
     f->res = (int16_t)permille;
+#ifdef FM_FILTER_SVF
+    if (f->rate) apply(f);
+#else
     if (f->rate) /* the retune moves the coefficient */
         apply(f);
     else
         f->k = mul_q30(res_lookup(kres_tab, permille) * K_PER_MILLE, f->fade);
+#endif
 }
 
 /*
@@ -581,6 +721,10 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         }
     }
     if (f->a != ONE_Q30) x = mul_q30(x, f->a);
+#ifdef FM_FILTER_SVF
+    (void)u; (void)p0; (void)p1; (void)p2;
+    return svf_run(f, x);
+#endif
     u = loop_in(x, f->s[3], f->k);
     /* each stage after the first takes the one before it, now and as it
      * was one sample ago */
