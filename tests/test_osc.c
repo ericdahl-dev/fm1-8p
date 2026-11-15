@@ -2237,9 +2237,44 @@ TT_TEST(blep_reciprocal_is_the_divide_exactly)
     TT_CHECK_EQ(off, 0u);
 }
 
+/* The same through cross-mod and sync with osc2 heard (its bent increment, its restarts): a pair whose
+ * reciprocals are cleared (rcp 0: every polyBLEP divides) is the reference, bit for bit. Saw and square,
+ * over pitches and depths. */
+TT_TEST(blep_reciprocal_under_cross_mod_and_sync_is_the_divide)
+{
+    static fm_osc_pair a, b;
+    static const uint8_t waves[] = { FM_WAVE_SAW, FM_WAVE_SQUARE };
+    static const int32_t notes[] = { 36, 60, 84, 108 };
+    uint32_t off = 0, k, w, n, i, mode;
+    for (mode = 0; mode < 3; mode++)          /* cross-mod, sync, both */
+    for (w = 0; w < 2; w++)
+    for (n = 0; n < 4; n++)
+    for (k = 0; k < 3; k++) {
+        fm_osc_pair *q[2] = { &a, &b };
+        uint32_t j;
+        for (j = 0; j < 2; j++) {
+            fm_osc_pair_reset(q[j], 1);
+            fm_osc_pair_set_wave(q[j], 0, waves[w]);
+            fm_osc_pair_set_wave(q[j], 1, waves[1 - w]);
+            fm_osc_pair_set_tune(q[j], 1, 702 + 300 * (int32_t)k, notes[n] << 16, 48000);
+            fm_osc_pair_set_pitch(q[j], notes[n] << 16, 48000);
+            fm_osc_pair_set_level(q[j], 0, FM_OSC_LEVEL_FULL / 2);
+            fm_osc_pair_set_level(q[j], 1, FM_OSC_LEVEL_FULL);
+            if (mode != 1) fm_osc_pair_set_xmod(q[j], FM_OSC_LEVEL_FULL / 3 * (int32_t)(k + 1));
+            if (mode != 0) fm_osc_pair_set_sync(q[j], 1);
+        }
+        b.osc[0].rcp = b.osc[1].rcp = 0;       /* the reference divides */
+        for (i = 0; i < 8000; i++)
+            off += fm_osc_pair_next(&a) != fm_osc_pair_next(&b);
+    }
+    printf("    polyBLEP under cross-mod and sync: %u samples off the divide's\n", off);
+    TT_CHECK_EQ(off, 0u);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(blep_reciprocal_is_the_divide_exactly);
+    TT_RUN(blep_reciprocal_under_cross_mod_and_sync_is_the_divide);
     TT_RUN(saw_polyblep_matches_its_double_precision_model);
     TT_RUN(saw_polyblep_follows_pitch_mod_and_cross_mod);
     TT_RUN(each_wave_renders_at_note_pitch);

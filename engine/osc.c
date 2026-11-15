@@ -121,22 +121,25 @@ void fm_osc_set_inc(fm_osc *o, uint32_t inc)
     o->rsh = (uint8_t)(46 - s);
 }
 
-/* d / dt in Q16 (d < dt: under 1.0), exactly the divide's floor: by o's reciprocal when dt is its
- * increment (one correction: the estimate is within 1), else (a synced restart's, cross-mod's bent
- * increment) the divide. Only in a polyBLEP's few samples a cycle. */
+/* d / dt in Q16 (d < dt: under 1.0), exactly the divide's floor. By o's reciprocal when dt is its
+ * increment: the estimate is within 1 below for the increment the reciprocal was made from, so one
+ * correction, then a check that it is the floor; if not (cross-mod's bent increment, which next_special
+ * writes into inc itself, or a restart's dt), the divide. Only in a polyBLEP's few samples a cycle. */
 static uint32_t blep_x(uint32_t d, uint32_t dt, const fm_osc *o)
 {
+    uint64_t n = (uint64_t)d << 16;
     if (dt == o->inc && o->rcp) {
-        uint64_t n = (uint64_t)d << 16, x = ((uint64_t)d * o->rcp) >> o->rsh, f;
+        uint64_t x = ((uint64_t)d * o->rcp) >> o->rsh, f;
         x = x > 65535u ? 65535u : x;
         f = x * dt;
         if (f > n)
-            x--;
+            x--, f -= dt;
         else if (f + dt <= n)
-            x++;
-        return (uint32_t)x;
+            x++, f += dt;
+        if (f <= n && n < f + dt)
+            return (uint32_t)x;
     }
-    return (uint32_t)(((uint64_t)d << 16) / dt);
+    return (uint32_t)(n / dt);
 }
 
 /* polyBLEP saw at phase t with increment dt (o's, its reciprocal's, when dt is o's increment), Q8.24. */
