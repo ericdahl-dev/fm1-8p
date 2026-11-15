@@ -90,10 +90,12 @@ class MapTest(unittest.TestCase):
         self.assertEqual(sounding(patch("MUSIC BOX")), (28, 32))      # DCO-1 2' +4, DCO-2 2' +8
         self.assertEqual(sounding(patch("WINDCHIMES")), (21, 36))     # DCO-1 2' -3, DCO-2 2' +12
 
-    def test_dco2_fine_tune_is_plus_minus_50_cents_around_64(self):
-        self.assertEqual(patch("HI STRINGS")["OSC2_FINE_CENTS"], 15)    # 83
-        self.assertEqual(patch("SOUNDTRACK")["OSC2_FINE_CENTS"], -13)   # 48
-        self.assertEqual(patch("PIANO 3")["OSC2_FINE_CENTS"], -33)      # 22
+    def test_dco2_fine_tune_is_100_cents_around_67(self):
+        # PG-8X centers FINE at 67, 100 cents over 0..127 (#256)
+        self.assertEqual(patch("HI STRINGS")["OSC2_FINE_CENTS"], 13)    # 83
+        self.assertEqual(patch("SOUNDTRACK")["OSC2_FINE_CENTS"], -15)   # 48
+        self.assertEqual(patch("PIANO 3")["OSC2_FINE_CENTS"], -35)      # 22
+        self.assertEqual(patch("CHURCHBELL")["OSC2_FINE_CENTS"], -12)   # 52: its beat rates on PG-8X
 
     # PG-8X 2.0.13 sums the DCOs, each at its level byte over 127 (measured, #102)
     def test_each_dco_level_is_its_byte_over_127(self):
