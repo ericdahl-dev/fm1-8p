@@ -363,6 +363,7 @@ void ui_init(ui *u, play *p)
     for (i = 0; i < sizeof u->cc_out / sizeof u->cc_out[0]; i++)
         u->cc_out[i] = 0;
     u->cc_out_ms = 0;
+    u->pc_out = -1;
     u->cc_out_at = 0;
     u->cc_sent_cc = u->cc_sent_v = 0xFFu;
     u->focus = 1;
@@ -830,7 +831,8 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     u->banner = "";                             /* the warning goes with the edits */
     if (clicks >= 3 || clicks <= -3)          /* a fast turn: 8, a row of slots (11 to 21) */
         clicks = clicks > 0 ? 8 : -8;
-    (void)play_load_prog(u->p, play_prog_step(u->p, play_prog(u->p), clicks));
+    if (play_load_prog(u->p, play_prog_step(u->p, play_prog(u->p), clicks)) == 0 && u->set.prog_change & 2u)
+        u->pc_out = (int32_t)play_prog(u->p);   /* G41 SEND or BOTH: out as its PC */
     u->inv = 0;                                 /* the ENV MODEs are the new patch's signs */
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;   /* the page and focus stay; its values change */
 }
@@ -1058,6 +1060,27 @@ uint32_t ui_midi_out(const ui *u, uint32_t st)
 uint32_t ui_key_velocity(const ui *u, int32_t host_vel)
 {
     return host_vel > 0 ? (uint32_t)(host_vel > 127 ? 127 : host_vel) : u->set.fixed_vel;
+}
+
+int ui_program_change(ui *u, uint32_t pc, uint32_t ms)
+{
+    (void)ms;
+    if (!(u->set.prog_change & 1u) || pc >= PLAY_PROGS)
+        return 0;                               /* OFF or SEND only; past the last P: ignored */
+    (void)play_load_prog(u->p, pc);             /* a remote asked: no PRESETS warning (interaction.md) */
+    u->inv = 0;
+    u->warned = 0;
+    u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;
+    return 1;
+}
+
+int ui_pc_out(ui *u, uint32_t *pc)
+{
+    if (u->pc_out < 0)
+        return 0;
+    *pc = (uint32_t)u->pc_out;
+    u->pc_out = -1;
+    return 1;
 }
 
 int ui_cc(ui *u, uint32_t cc, uint32_t value, uint32_t ms)
