@@ -170,8 +170,86 @@ TT_TEST(clock_steps_ride_out_a_jittery_clock)
     TT_CHECK(lo >= 1198u && hi <= 1202u);
 }
 
+/* 30..300 BPM (TEMPO's range), steady: the tempo reads within 0.1 BPM a beat after the clock came, and
+ * the steps are on the grid (0.5 ms) with one per 6 ticks */
+TT_TEST(clock_measures_the_tempo_over_its_range)
+{
+    static const double bpm[] = {30.0, 60.0, 200.0, 300.0};
+    uint32_t i;
+    for (i = 0; i < 4; i++) {
+        double dt = 60.0 / bpm[i] / SEQ_CLK_PPQN, t0 = 0.05 + 24 * dt;
+        uint32_t beats = bpm[i] < 100 ? 8u : 40u, tp;
+        ck_fresh(SEQ_CLK_MIDI);
+        ck_msg_at(t0 - dt / 2, 0, 0xFAu);
+        (void)ck_ticks(0.05, bpm[i], 24u + 24u * beats, 0);
+        ck_watch_from = 0.05 + 25 * dt;
+        ck_run(t0 + beats * 24 * dt - 0.012);
+        tp = seq_clock_tempo(&ck);
+        printf("    %.0f BPM: reads %.1f (%.1f..%.1f after a beat), %u steps for %u, worst %.3f ms off the grid\n",
+               bpm[i], tp / 10.0, ck_tempo_lo / 10.0, ck_tempo_hi / 10.0, ck_n_on, 4u * beats,
+               ck_worst_ms(t0, bpm[i], 1));
+        TT_CHECK(fabs(ck_tempo_lo / 10.0 - bpm[i]) <= 0.1 && fabs(ck_tempo_hi / 10.0 - bpm[i]) <= 0.1);
+        TT_CHECK(ck_n_on == 4u * beats);
+        TT_CHECK(ck_worst_ms(t0, bpm[i], 1) < 0.5);
+    }
+}
+
+/* a clock of n ticks from `from`, its tempo going from bpm0 to bpm1 linearly over ticks a..b (bpm0
+ * before, bpm1 after); each tick's true time into ck_tick_at */
+static double ck_tick_at[8192];
+static void ck_ticks_ramp(double from, double bpm0, double bpm1, uint32_t a, uint32_t b, uint32_t n)
+{
+    double t = from;
+    uint32_t i;
+    for (i = 0; i < n; i++) {
+        double bpm = i <= a ? bpm0 : i >= b ? bpm1 : bpm0 + (bpm1 - bpm0) * (i - a) / (double)(b - a);
+        ck_tick_at[i] = t;
+        ck_msg_at(t, 0, 0xF8u);
+        t += 60.0 / bpm / SEQ_CLK_PPQN;
+    }
+}
+/* worst |onset j - tick (k0 + 6j)'s time|, steps first..last-1, ms */
+static double ck_worst_ticks_ms(uint32_t k0, uint32_t first, uint32_t last)
+{
+    double worst = 0;
+    uint32_t j;
+    for (j = first; j < last && j < ck_n_on; j++) {
+        double d = fabs(ck_on[j] - ck_tick_at[k0 + 6u * j]) * 1000.0;
+        worst = d > worst ? d : worst;
+    }
+    return worst;
+}
+
+/* The tempo changes under a playing pattern: a jump, 120 to 140 BPM, is back on the grid (1 ms) within
+ * 2 beats; a ramp, 100 to 160 BPM over 16 beats (8 s), stays within 3 ms of it; neither loses or adds a
+ * step. */
+TT_TEST(clock_follows_tempo_changes)
+{
+    double after_jump, during_ramp;
+    uint32_t n_jump, n_ramp;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 120.0, 140.0, 24u + 8u * 24u, 24u + 8u * 24u + 1u, 24u + 16u * 24u + 1u);
+    ck_msg_at(ck_tick_at[24] - 0.001, 0, 0xFAu);
+    ck_run(ck_tick_at[24u + 16u * 24u] - 0.012);
+    after_jump = ck_worst_ticks_ms(24u, 32u + 8u, 64u);  /* (the jump at step 32; 2 beats on) */
+    n_jump = ck_n_on;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 100.0, 160.0, 24u + 4u * 24u, 24u + 20u * 24u, 24u + 24u * 24u + 1u);
+    ck_msg_at(ck_tick_at[24] - 0.001, 0, 0xFAu);
+    ck_run(ck_tick_at[24u + 24u * 24u] - 0.012);
+    during_ramp = ck_worst_ticks_ms(24u, 1u, 96u);
+    n_ramp = ck_n_on;
+    printf("    120 -> 140 BPM: %.3f ms off from 2 beats on (%u steps); 100 -> 160 ramp: %.3f ms (%u steps)\n",
+           after_jump, n_jump, during_ramp, n_ramp);
+    TT_CHECK(n_jump == 64u && n_ramp == 96u);
+    TT_CHECK(after_jump < 1.0);
+    TT_CHECK(during_ramp < 3.0);
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_steps_follow_a_steady_clock);
     TT_RUN(clock_steps_ride_out_a_jittery_clock);
+    TT_RUN(clock_measures_the_tempo_over_its_range);
+    TT_RUN(clock_follows_tempo_changes);
 }
