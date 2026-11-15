@@ -669,6 +669,16 @@ TT_TEST(seq_roll_redraws_whole_when_the_next_pattern_takes_over)
     TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
 }
 
+/* The header shows the tempo (>07 120 INT): a TEMPO turn redraws it, stopped or playing */
+TT_TEST(seq_tempo_turn_redraws_the_header)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1050);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1100);      /* 121 BPM */
+    TT_CHECK(ui_take(&ui_u, 1110) & UI_D_HEAD);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -687,6 +697,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_redraws_whole_on_length_tie_and_rest);
     TT_RUN(seq_roll_stop_clears_the_playhead);
     TT_RUN(seq_roll_redraws_whole_when_the_next_pattern_takes_over);
+    TT_RUN(seq_tempo_turn_redraws_the_header);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
