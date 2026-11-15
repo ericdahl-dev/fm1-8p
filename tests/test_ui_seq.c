@@ -362,6 +362,30 @@ TT_TEST(seq_footer_says_the_pattern)
     TT_CHECK(strcmp(right, "NEXT 12") == 0);
 }
 
+/* The host's picker opens on HOME held alone 1.5 s, and the module sees HOME let go then (fm1-dock
+ * dock.c: "the module saw it let go"): the sequencer stops, in every state (interaction.md case 62). A
+ * HOME tap doesn't stop it. */
+TT_TEST(seq_stops_when_the_picker_opens)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_PLAY, 1000);
+    ui_tap(UI_BTN_HOME, 1200);                                /* a tap: plays on */
+    TT_CHECK(s->want);
+    ui_tap(UI_BTN_SEQ, 1300);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_HOME, 0, 2000);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_HOME, 0, 3500);    /* held 1.5 s: the picker */
+    TT_CHECK(!s->want);
+    ui_tap(UI_BTN_PLAY, 4000);                                /* from GLO too */
+    ui_tap(UI_BTN_SEQ, 4100);
+    ui_tap(UI_BTN_GLO, 4200);
+    TT_CHECK_EQ(ui_u.state, UI_GLO);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_HOME, 0, 5000);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_HOME, 0, 6600);
+    TT_CHECK(!s->want);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -377,4 +401,5 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_texts);
     TT_RUN(seq_view_redraws_and_edit_hold);
     TT_RUN(seq_footer_says_the_pattern);
+    TT_RUN(seq_stops_when_the_picker_opens);
 }

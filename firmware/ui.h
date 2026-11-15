@@ -119,6 +119,7 @@ enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
 #define UI_D_ALL    0xF7u               /* all of it */
 #define UI_D_NOTE   UI_D_COL(0)         /* PLAY: the last note's strip */
 #define UI_BLINK_MS 250u                /* the EDIT LED's blink during compare: on, then off */
+#define UI_PICKER_MS 1500u              /* HOME held alone this long: the host's picker opens (fm1-dock) */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
 #define UI_FORCE_MS 1000u               /* SAVE held this long writes a waiting save at once */
 #define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
