@@ -224,8 +224,8 @@ but LFO's ring and SELECT do. The LED window shows only the digit (a 7-segment W
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| W1 | K1 | `wheel_pitch_cents`: the wheel at full adds this to the vibrato depth | W PITCH | 0..1200 ct | 1 / 10 |
-| W2 | K2 | `wheel_pw_pct`: the wheel at full adds this to the PW depth | W PW | 0..49 % | 1 / 5 |
+| W1 | K1 | `wheel_pitch_cents`: the wheel at full adds this to the vibrato depth | PITCH | 0..1200 ct | 1 / 10 |
+| W2 | K2 | `wheel_pw_pct`: the wheel at full adds this to the PW depth | PW | 0..49 % | 1 / 5 |
 
 ### Units and value tables
 
