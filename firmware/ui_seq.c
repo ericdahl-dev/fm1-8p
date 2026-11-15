@@ -21,6 +21,8 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on)
             u->chord[j] = u->chord[j + 1u], u->chord_vel[j] = u->chord_vel[j + 1u];
         u->chord_n--;
     }
+    if (u->state == UI_SEQ)
+        u->dirty |= UI_D_FOCUS;                 /* (the chord held, on the screen) */
 }
 
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms)

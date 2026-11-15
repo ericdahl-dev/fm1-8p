@@ -1254,7 +1254,11 @@ uint32_t ui_take(ui *u, uint32_t ms)
         u->shown_edited = play_edited(u->p);
         u->dirty |= UI_D_FOOT;
     }
-    if (u->held >> UI_BTN_EDIT & 1u && !u->comparing && u->state != UI_GLO &&
+    if (u->state == UI_SEQ && seq_steps(play_seq(u->p)) != u->shown_steps) {
+        u->shown_steps = seq_steps(play_seq(u->p));
+        u->dirty |= UI_D_SLOT;                  /* SEQ view: the playhead moved on */
+    }
+    if (u->held >> UI_BTN_EDIT & 1u && !u->comparing && (u->state == UI_PLAY || u->state == UI_EDIT) &&
         ms - u->down_ms[UI_BTN_EDIT] >= UI_TAP_MS) {
         if (play_edited(u->p)) {                /* an EDIT hold: compare */
             u->comparing = UI_COMPARE_ON;

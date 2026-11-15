@@ -314,6 +314,32 @@ TT_TEST(seq_texts)
     TT_CHECK(strcmp(t, "A3 C#4") == 0);
 }
 
+/* SEQ view redraws its step strip on each step played and its focus row when the chord held changes;
+ * an EDIT hold there is no compare (EDIT's tap leaves SEQ view) */
+TT_TEST(seq_view_redraws_and_edit_hold)
+{
+    static const uint8_t C[1] = {60};
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1100);
+    ui_tap(UI_BTN_PLAY, 1200);
+    (void)ui_take(&ui_u, 1300);
+    seq_render_to(1);
+    TT_CHECK(ui_take(&ui_u, 1400) & UI_D_SLOT);
+    TT_CHECK_EQ(ui_take(&ui_u, 1500) & UI_D_SLOT, 0u);
+    ui_chord_note(&ui_u, 60, 100, 1);
+    TT_CHECK(ui_take(&ui_u, 1600) & UI_D_FOCUS);
+    ui_chord_note(&ui_u, 60, 0, 0);
+    ui_tap(UI_BTN_PLAY, 1700);                                /* stop; an edit, then EDIT held */
+    seq_set_step(play_seq(&ui_p), 0, C, 1, 100);
+    ui_cc(&ui_u, 23, 10, 1800);                               /* (a patch edit: compare would have one) */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 2000);
+    (void)ui_take(&ui_u, 2500);
+    TT_CHECK(!ui_u.comparing);
+    TT_CHECK(!ui_p.comparing);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 2600);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_tap_opens_and_goes_back);
@@ -327,4 +353,5 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_button_leds);
     TT_RUN(seq_key_leds);
     TT_RUN(seq_texts);
+    TT_RUN(seq_view_redraws_and_edit_hold);
 }
