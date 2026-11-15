@@ -144,6 +144,35 @@ TT_TEST(seq_play_same_note_as_a_key)
     TT_CHECK_EQ(sp_a.sounding, 0u);             /* the stop let the key's note go too */
 }
 
+/* #37: a step's velocity reaches the engine: a loud step and a soft one, the soft one quieter. */
+TT_TEST(seq_play_step_velocity_sets_the_level)
+{
+    uint8_t note = 57;
+    uint32_t k, i;
+    int32_t peak[2] = {0, 0};
+    seq *s;
+    (void)play_init(&sp_a);
+    play_set_param(&sp_a, FM_PARAM_AMP_VELOCITY, 100);
+    play_set_param(&sp_a, FM_PARAM_AMP_RELEASE_MS, 5);   /* (no tail into the next step) */
+    s = play_seq(&sp_a);
+    seq_set_tempo(s, 600);                      /* a step 11025 frames: 43 blocks */
+    seq_set_gate(s, 50);
+    seq_set_length(s, 2);
+    seq_set_step(s, 0, &note, 1, 127);
+    seq_set_step(s, 1, &note, 1, 40);
+    seq_play(s);
+    for (k = 0; k < 86u; k++) {
+        sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
+        if (k % 43u > 8u && k % 43u < 20u)      /* each step's held part */
+            for (i = 0; i < 2u * PLAY_BLOCK; i++) {
+                int32_t v = sp_out_a[i] < 0 ? -sp_out_a[i] : sp_out_a[i];
+                peak[k / 43u] = v > peak[k / 43u] ? v : peak[k / 43u];
+            }
+    }
+    TT_CHECK(peak[0] > 0);
+    TT_CHECK(peak[1] < peak[0] / 2);
+}
+
 static void run_seq_play_tests(void)
 {
     TT_RUN(seq_play_note_lands_on_its_frame);
@@ -151,4 +180,5 @@ static void run_seq_play_tests(void)
     TT_RUN(seq_play_stop_goes_silent);
     TT_RUN(seq_play_survives_a_patch_load);
     TT_RUN(seq_play_same_note_as_a_key);
+    TT_RUN(seq_play_step_velocity_sets_the_level);
 }

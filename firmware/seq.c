@@ -41,6 +41,7 @@ void seq_init(seq *s)
     s->edits = s->edits_seen = 0;
     s->ask_play = s->ask_stop = s->play_seen = s->stop_seen = 0;
     s->want = 0;
+    s->transpose = s->run_transpose = 0;
     s->pos = s->acc = s->gated = 0;
     s->n_sounding = 0;
     s->playing = 0;
@@ -102,6 +103,17 @@ void seq_toggle_tie(seq *s, uint32_t i)
     edit_end(s);
 }
 
+void seq_set_transpose(seq *s, int32_t semis)
+{
+    s->transpose = semis < -SEQ_TRANSPOSE_MAX ? -SEQ_TRANSPOSE_MAX
+                   : semis > SEQ_TRANSPOSE_MAX ? SEQ_TRANSPOSE_MAX : semis;
+}
+
+int32_t seq_transpose(const seq *s)
+{
+    return s->transpose;
+}
+
 uint32_t seq_tempo(const seq *s)
 {
     return s->edit.tempo;
@@ -160,6 +172,14 @@ uint32_t seq_steps(const seq *s)
 
 /* ---- the audio interrupt ---- */
 
+/* the step playing's length in clock units: a step is fs x 600, and with swing the steps pair up, the
+ * first of a pair (pos 0, 2, ...) 2 x swing % of a step long, the second the rest */
+static uint32_t step_len(const seq *s, uint32_t fs)
+{
+    uint32_t first = fs * 12u * s->run.swing_pct;
+    return s->pos & 1u ? fs * 1200u - first : first;
+}
+
 static uint32_t put(seq_event *ev, uint32_t cnt, uint32_t at, uint32_t note, uint32_t vel)
 {
     if (cnt < SEQ_EVENTS) {
@@ -192,14 +212,17 @@ static uint32_t start_step(seq *s, seq_event *ev, uint32_t cnt, uint32_t at, uin
     }
     if (s->pos >= s->run.length)
         s->pos = 0;
+    s->run_transpose = s->transpose;            /* (a transpose plays from a step's start) */
     st = &s->run.step[s->pos];
     if (st->kind != SEQ_TIE)
         cnt = let_go(s, ev, cnt, at);           /* (offs before ons, at the same frame) */
     if (st->kind == SEQ_NOTES_ON) {
-        n = st->n < voices ? st->n : voices;
-        for (k = 0; k < n; k++) {
-            cnt = put(ev, cnt, at, st->note[k], st->vel);
-            s->sounding[k] = st->note[k];
+        for (k = n = 0; k < st->n && n < voices; k++) {
+            int32_t note = (int32_t)st->note[k] + s->run_transpose;
+            if (note < 0 || note > 127)
+                continue;                       /* pushed out of range: left out */
+            cnt = put(ev, cnt, at, (uint32_t)note, st->vel);
+            s->sounding[n++] = (uint8_t)note;   /* as played: its off matches */
         }
         s->n_sounding = (uint8_t)n;
     }
@@ -211,7 +234,7 @@ static uint32_t start_step(seq *s, seq_event *ev, uint32_t cnt, uint32_t at, uin
 
 uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event *ev)
 {
-    uint32_t cnt = 0, t = 0, thr = fs * 600u, inc, gate, target, j, next;
+    uint32_t cnt = 0, t = 0, thr, inc, gate, target, j, next;
     if (s->ask_play != s->play_seen || s->ask_stop != s->stop_seen) {
         s->play_seen = s->ask_play;             /* the latest ask wins: play (again, from step 1) or stop */
         s->stop_seen = s->ask_stop;
@@ -229,6 +252,7 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
         return cnt;
     while (t < n) {
         inc = (uint32_t)s->run.tempo * SEQ_PPQ;
+        thr = step_len(s, fs);                  /* (at 50 % swing, fs x 600: every step alike) */
         gate = thr / 100u * s->run.gate_pct;
         next = s->run.step[s->pos + 1u < s->run.length ? s->pos + 1u : 0].kind;
         target = !s->gated && s->n_sounding && gate < thr && next != SEQ_TIE ? gate : thr;

@@ -25,7 +25,8 @@
 #define SEQ_TEMPO_DEF 1200u             /* 120.0 BPM */
 #define SEQ_GATE_MIN 5u                 /* gate, % of a step: 5..100 (interaction.md, S1 PATTERN) */
 #define SEQ_GATE_DEF 50u
-#define SEQ_SWING_DEF 50u               /* swing, % (S3: 50 none .. 75) */
+#define SEQ_SWING_DEF 50u               /* swing, %: 50 straight .. 75 (the even steps late by half a step) */
+#define SEQ_TRANSPOSE_MAX 24            /* transpose, semitones: -24..+24 (interaction.md, S3 PLAY) */
 #define SEQ_VEL_DEF 100u
 
 /* What a step plays. */
@@ -70,7 +71,9 @@ typedef struct {
     volatile uint32_t ask_play;         /* +1 per play asked */
     volatile uint32_t ask_stop;         /* +1 per stop asked */
     volatile uint32_t want;             /* main loop writes (1 from seq_play to seq_stop), ISR reads */
+    volatile int32_t transpose;         /* main loop writes: semitones, taken at a step's start */
     /* interrupt only */
+    int32_t run_transpose;              /* the transpose playing */
     seq_pattern run;                    /* the pattern playing, taken from edit at a step's start */
     uint32_t edits_seen, play_seen, stop_seen;
     uint32_t pos;                       /* the step playing */
@@ -95,10 +98,14 @@ const seq_step *seq_get_step(const seq *s, uint32_t i);   /* the edited pattern'
 void seq_set_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel);
 void seq_clear_step(seq *s, uint32_t i);               /* a rest */
 void seq_toggle_tie(seq *s, uint32_t i);               /* a tie, or back to a rest */
+/* main loop: the transpose (a performance setting, not part of the pattern), -24..+24 semitones,
+ * from the next step; a note it puts outside 0..127 is left out */
+void seq_set_transpose(seq *s, int32_t semis);
+int32_t seq_transpose(const seq *s);
 uint32_t seq_tempo(const seq *s);
 void seq_set_tempo(seq *s, uint32_t tenths_bpm);       /* clamped to SEQ_TEMPO_MIN..MAX */
 void seq_set_gate(seq *s, uint32_t pct);               /* clamped to SEQ_GATE_MIN..100 */
-void seq_set_swing(seq *s, uint32_t pct);              /* (S3; stored, not yet used) */
+void seq_set_swing(seq *s, uint32_t pct);              /* clamped to 50..75 */
 
 /* main loop: the transport. play starts at step 1; stop lets go of every note the sequencer started. */
 void seq_play(seq *s);
