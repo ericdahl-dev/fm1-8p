@@ -552,7 +552,7 @@ The white keys in SEQ view, while no step is armed (steps 1-16):
 | rest or empty, within the length | glow |
 | note or chord | lit |
 | tie | lit, with a short off blink every 500 ms |
-| cursor (stopped, or in REC) | blinks between lit and glow at 4 Hz; 8 Hz while armed |
+| cursor (stopped) | blinks between lit and glow at 4 Hz; 8 Hz while armed or in REC (Eric, 2026-11-15) |
 | playhead (playing) | the step's state inverted for the step's length: lit becomes off, glow or off becomes lit |
 
 The black keys in SEQ view are dark. While a step is armed, any key held is
@@ -696,7 +696,8 @@ without tapping each step first.
    and each advances it (outside REC they act on the cursor step without
    advancing).
 6. **Leaving:** REC tap disarms, as does leaving SEQ view (SEQ, HOME, EDIT or
-   GLO). A step being built when REC disarms is dropped (nothing is written).
+   GLO) or opening SAVE (Eric, 2026-11-15). A step being built when REC
+   disarms is dropped (nothing is written).
 7. **PLAY while armed:** the sequencer starts and REC disarms, so a performance
    doesn't record over the pattern. There is no live recording while playing in
    this version (decision Q3).
