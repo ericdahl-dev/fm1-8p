@@ -81,7 +81,7 @@ static void keypad_leds(void)
 {
     uint32_t k;
     for (k = 0; k < PLAY_KEYS; k++)
-        H->led(HB_LED_KEY(k), ui_keypad_led(&U, k) == UI_LED_GLOW ? UI_LED_GLOW : keys_down >> k & 1u);
+        H->led(HB_LED_KEY(k), ui_key_led(&U, k, (int)(keys_down >> k & 1u)));
 }
 
 static void ui_ev(uint32_t ev, int32_t arg)
@@ -95,13 +95,13 @@ static void ui_ev(uint32_t ev, int32_t arg)
     case HB_EV_KEY_DOWN:                        /* arg: the velocity, 0 an unsensed key */
         play_key_down(&P, id, (uint32_t)arg);
         keys_down |= 1u << id;
-        H->led(HB_LED_KEY(id), 1);
+        H->led(HB_LED_KEY(id), ui_key_led(&U, id, 1));   /* (G33 OFF: dark) */
         H->midi_send(0x90u, P.held[id], arg > 0 ? (uint32_t)arg : 100u);
         return;
     case HB_EV_KEY_UP:
         play_key_up(&P, id);
         keys_down &= ~(1u << id);
-        H->led(HB_LED_KEY(id), 0);
+        H->led(HB_LED_KEY(id), ui_key_led(&U, id, 0));
         H->midi_send(0x80u, P.held[id], 0);
         return;
     case HB_EV_BTN_DOWN:

@@ -449,6 +449,9 @@ is sounding, as fm1-dock's rules ask.
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
 | G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | MEMBRANE |
 
+**Key LEDs (G33):** ON lights a panel key's LED while it is held, OFF leaves it dark. The number
+jump's keypad glow (SEL held) shows either way, and so will the sequencer's step keys in SEQ view.
+
 Program change, G23 before CC MAP took its place (Eric), moves to G41 on a fourth page when it is
 built: OFF, RECV, SEND, BOTH, default RECV.
 
