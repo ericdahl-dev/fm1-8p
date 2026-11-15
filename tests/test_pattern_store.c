@@ -29,6 +29,12 @@ static void pat_sample(seq_pattern *p)
     p->step[11].note[0] = 127;
     p->step[11].note[1] = 60;
     p->step[11].vel = 64;
+    p->step[0].bend = -8192;                    /* #42: bend, mod and move */
+    p->step[0].mod = 127;
+    p->step[0].glide = 1;
+    p->step[3].bend = 4097;
+    p->step[3].mod = 33;
+    p->step[11].bend = 8191;
 }
 
 static int pat_same(const seq_pattern *a, const seq_pattern *b)
@@ -37,7 +43,8 @@ static int pat_same(const seq_pattern *a, const seq_pattern *b)
                           a->gate_pct == b->gate_pct;
     for (i = 0; i < SEQ_STEPS; i++) {
         same &= a->step[i].kind == b->step[i].kind && a->step[i].n == b->step[i].n &&
-                a->step[i].vel == b->step[i].vel;
+                a->step[i].vel == b->step[i].vel && a->step[i].bend == b->step[i].bend &&
+                a->step[i].mod == b->step[i].mod && a->step[i].glide == b->step[i].glide;
         for (k = 0; k < a->step[i].n && k < SEQ_NOTES; k++)
             same &= a->step[i].note[k] == b->step[i].note[k];
     }
@@ -118,37 +125,49 @@ TT_TEST(pattern_damaged_record_is_empty)
     rec[0]++;
     TT_CHECK_EQ(pat_decode(rec, STORE_SLOT_BYTES, &out, name), -1);
     (void)pat_encode(&in, "A", rec);
-    rec[20] = 8;                                /* step size under v1's 9 */
+    rec[20] = 8;                                /* steps under v1's 9 bytes */
     TT_CHECK_EQ(pat_decode(rec, STORE_SLOT_BYTES, &out, name), -1);
     (void)pat_encode(&in, "A", rec);
     TT_CHECK_EQ(pat_decode(rec, 30, &out, name), -1);   /* longer than the bytes read */
 }
 
-/* A newer record with wider steps (#42 appends bend and mod to each) still loads its notes here: each
- * step's first 9 bytes are v1's. */
-TT_TEST(pattern_newer_record_with_wider_steps_loads)
+/* A version-1 record from before #42 (9-byte steps) loads, its steps at center, 0 and JUMP; a newer
+ * record with wider steps (14 bytes: the most 16 steps can have in a slot) still loads what this firmware
+ * knows of each. */
+TT_TEST(pattern_older_and_newer_steps_load)
 {
-    static uint8_t v1[STORE_SLOT_BYTES], wide[STORE_SLOT_BYTES];
-    static seq_pattern in, out;
+    static uint8_t now[STORE_SLOT_BYTES], other[STORE_SLOT_BYTES];
+    static seq_pattern in, out, expect;
     char name[STORE_NAME_LEN + 1u];
-    uint32_t i, k, n = 21, size = 13;
+    uint32_t i, k, n, size;
     pat_sample(&in);
-    (void)pat_encode(&in, "WIDE", v1);
-    for (i = 0; i < 21u; i++)
-        wide[i] = v1[i];
-    wide[20] = (uint8_t)size;
-    for (i = 0; i < SEQ_STEPS; i++) {
-        for (k = 0; k < 9u; k++)
-            wide[n + k] = v1[21u + 9u * i + k];
-        for (; k < size; k++)
-            wide[n + k] = 0xA5;                 /* the newer firmware's fields */
-        n += size;
+    TT_CHECK_EQ(pat_encode(&in, "STEPS", now), 21u + 13u * SEQ_STEPS);
+    for (size = 9; size <= 14u; size += 5) {
+        for (i = 0; i < 21u; i++)
+            other[i] = now[i];
+        other[20] = (uint8_t)size;
+        n = 21;
+        TT_CHECK(21u + size * SEQ_STEPS <= STORE_SLOT_BYTES);   /* (before writing them) */
+        for (i = 0; i < SEQ_STEPS; i++) {
+            for (k = 0; k < size && k < 13u; k++)
+                other[n + k] = now[21u + 13u * i + k];
+            for (; k < size; k++)
+                other[n + k] = 0xA5;            /* a newer firmware's fields */
+            n += size;
+        }
+        TT_CHECK(n <= STORE_SLOT_BYTES);
+        other[0] = (uint8_t)n;
+        TT_CHECK_EQ(pat_decode(other, STORE_SLOT_BYTES, &out, name), 0);
+        expect = in;
+        if (size == 9u)
+            for (i = 0; i < SEQ_STEPS; i++) {
+                expect.step[i].bend = 0;
+                expect.step[i].mod = 0;
+                expect.step[i].glide = 0;
+            }
+        TT_CHECK(pat_same(&expect, &out));
+        TT_CHECK(strcmp(name, "STEPS") == 0);
     }
-    wide[0] = (uint8_t)n;
-    TT_CHECK(n <= STORE_SLOT_BYTES);
-    TT_CHECK_EQ(pat_decode(wide, STORE_SLOT_BYTES, &out, name), 0);
-    TT_CHECK(pat_same(&in, &out));
-    TT_CHECK(strcmp(name, "WIDE") == 0);
 }
 
 /* Out-of-range values load clamped: length 1..16, the tempo, swing and gate ranges, a step's note count
@@ -166,10 +185,13 @@ TT_TEST(pattern_out_of_range_values_load_clamped)
     rec[17] = 99;                               /* swing */
     rec[18] = 0;                                /* gate */
     rec[21] = 9;                                /* step 1's kind */
-    rec[21 + 9 + 1] = 0;                        /* (step 2: a tie, no notes) */
-    rec[21 + 9 * 3 + 1] = 200;                  /* step 4's note count */
-    rec[21 + 9 * 3 + 2] = 0;                    /* its velocity */
-    rec[21 + 9 * 3 + 3] = 200;                  /* its first note */
+    rec[21 + 13 + 1] = 0;                       /* (step 2: a tie, no notes) */
+    rec[21 + 13 * 3 + 1] = 200;                 /* step 4's note count */
+    rec[21 + 13 * 3 + 2] = 0;                   /* its velocity */
+    rec[21 + 13 * 3 + 3] = 200;                 /* its first note */
+    rec[21 + 13 * 3 + 9] = 0xFF;                /* its bend: 32767 */
+    rec[21 + 13 * 3 + 10] = 0x7F;
+    rec[21 + 13 * 3 + 11] = 200;                /* its mod */
     TT_CHECK_EQ(pat_decode(rec, STORE_SLOT_BYTES, &out, name), 0);
     TT_CHECK_EQ(out.length, SEQ_STEPS);
     TT_CHECK_EQ(out.tempo, SEQ_TEMPO_MAX);
@@ -179,6 +201,8 @@ TT_TEST(pattern_out_of_range_values_load_clamped)
     TT_CHECK_EQ(out.step[3].n, SEQ_NOTES);
     TT_CHECK_EQ(out.step[3].vel, 1u);
     TT_CHECK_EQ(out.step[3].note[0], 127u);
+    TT_CHECK_EQ(out.step[3].bend, 8191);
+    TT_CHECK_EQ(out.step[3].mod, 127u);
 }
 
 static void run_pattern_store_tests(void)
@@ -187,6 +211,6 @@ static void run_pattern_store_tests(void)
     TT_RUN(pattern_empty_slot_loads_the_empty_pattern);
     TT_RUN(pattern_failed_write_leaves_the_slot);
     TT_RUN(pattern_damaged_record_is_empty);
-    TT_RUN(pattern_newer_record_with_wider_steps_loads);
+    TT_RUN(pattern_older_and_newer_steps_load);
     TT_RUN(pattern_out_of_range_values_load_clamped);
 }

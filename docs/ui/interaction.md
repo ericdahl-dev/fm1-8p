@@ -444,7 +444,7 @@ is sounding, as fm1-dock's rules ask.
 | G22 | K2 | CC send (knob moves go out as CC) | OFF, ON | OFF |
 | G23 | K3 | CC map (see [the CC map](#the-cc-map)) | JX, STANDARD | STANDARD |
 | G24 | K4 | External CC response | JUMP, PICKUP | JUMP (decision Q6) |
-| G31 | K1 | Velocity curve (the host's `sense_set` curve) | 50..200 % | the host's |
+| G31 | K1 | Velocity curve (the host's `sense_set` curve) | 50..200 % | 100 % (the host's own) |
 | G32 | K2 | Fixed velocity, for keys with no force sensing | 1..127 | 100 |
 | G33 | K3 | Key LEDs follow played notes | OFF, ON | ON |
 | G34 | K4 | Theme | MEMBRANE, NIGHT PANEL | MEMBRANE |
@@ -457,6 +457,14 @@ channel its note-on went on, even if G12 changed while it was held. The host has
 option, which passes only that channel on, as channel 1 (fm1-dock `dock.c`, "MIDI CH"). With it
 set, leave G11 at ALL (or 1).
 
+**Velocity curve (G31):** force-sensed keys' velocity is the host's: 1 + 126 (1 - t)^curve, t the
+press's force (fm1-dock `sense.c`). G31 sets that curve as a % of the host's own exponent, 0.70: 100 %
+(the default) is the host's, 50 % (0.35) gives higher velocities for the same press, 200 % (1.40)
+lower ones. The module sends it with fm1-dock's `sense_set`, its other settings at the host's own
+defaults: on, DRIVE 2, ceiling 1000 (`dock.c` `sense_defaults`, "CS-1's defaults at DRIVE 2; a module
+may set its own while it runs"). The host has no user setting for DRIVE or the ceiling and starts
+every module at those defaults, so G31 changes only the curve. A host before `sense_set` ignores G31.
+Keys with no force sensing play at G32.
 **Key LEDs (G33):** ON lights a panel key's LED while it is held, OFF leaves it dark. The number
 jump's keypad glow (SEL held) shows either way, and so will the sequencer's step keys in SEQ view.
 
