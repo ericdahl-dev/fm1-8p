@@ -14,6 +14,9 @@ void ui_seq_transport(ui *u);
  * waits on its slice and shows --; a NULL label: nothing on that knob) */
 #define UI_SEQ_PAGES 3u
 #define UI_SEQ_CLEAR_MS 1500u           /* SEL held this long in SEQ view clears the pattern */
+#define UI_SEQ_ARM_MS 3000u             /* a tapped step with no note played this long: steps again */
+/* SEQ view's step of key k (0..26 from F3): the white keys F3..G5 are steps 0..15, a black key -1 */
+int32_t ui_seq_step_of_key(uint32_t k);
 typedef struct {
     const char *label, *full;
     uint8_t live;
@@ -26,7 +29,8 @@ int32_t ui_seq_value(const ui *u, uint32_t k);
 /* knob k's value as its column reads it: the number into num, a short unit into unit (UI_VALUE_LEN
  * each): TEMPO 120 / 123.5 BPM, LENGTH 16, SWING and GATE 50 %, VEL 100, TRANSPOSE +3 st; -- waits */
 void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit);
-/* step i as notes by name ("C4 E4 G4"), REST or TIE; the chord held now by name ("" none); s:
+/* step i as notes by name ("C4 E4 G4"), REST or TIE; while a step is armed, the notes played for it so
+ * far by name ("" none); s:
  * UI_SEQ_TEXT_LEN */
 #define UI_SEQ_TEXT_LEN 40u
 void ui_seq_step_text(const ui *u, uint32_t i, char *s);
