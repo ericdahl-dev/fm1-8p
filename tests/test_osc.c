@@ -877,6 +877,34 @@ TT_TEST(noise_is_bounded_and_not_periodic)
 }
 
 /*
+ * Above an eighth of the sample rate the 2-point polyBLEP lets a saw's
+ * harmonics fold back loudly: C9 (8372 Hz) at 44.1 kHz read -19 dB of
+ * aliasing at 48 kHz on the scorecard, where PG-8X 2.0.13's is under -46
+ * dB. A wider BLEP there keeps the folded energy at least 40 dB under the
+ * note, for a saw, a square and a pulse, through the top of the range.
+ */
+#define HIGH_ALIAS_LIMIT_DB (-40.0)
+
+TT_TEST(saw_above_an_eighth_of_the_rate_keeps_aliasing_low)
+{
+    static const uint8_t notes[] = { 115, 118, 120 };
+    static const uint8_t waves[] = { FM_WAVE_SAW, FM_WAVE_SQUARE, FM_WAVE_PULSE };
+    size_t k, w;
+    for (w = 0; w < sizeof waves; w++)
+        for (k = 0; k < sizeof notes; k++) {
+            double db;
+            osc_init();
+            fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, waves[w]);
+            fm_engine_note_on(&eng, notes[k], 100);
+            fm_engine_render(&eng, buf, 4800 + 32768);
+            db = aliasing_db(buf + 2 * 4800, 32768, 0, note_hz(notes[k]), RATE, 6);
+            printf("    aliasing for wave %u at note %u (%.0f Hz): %.1f dB\n", waves[w], notes[k],
+                   note_hz(notes[k]), db);
+            TT_CHECK(db < HIGH_ALIAS_LIMIT_DB);
+        }
+}
+
+/*
  * Pulse and square aliasing, measured exactly as
  * high_saw_note_has_low_aliasing measures the saw (C7 at 44.1 kHz,
  * 32768-point Blackman-Harris FFT, energy more than 6 bins from a
@@ -2086,6 +2114,7 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
 
 static void run_osc_tests(void)
 {
+    TT_RUN(saw_above_an_eighth_of_the_rate_keeps_aliasing_low);
     TT_RUN(each_wave_renders_at_note_pitch);
     TT_RUN(ring_multiplies_osc2_by_osc1_square);
     TT_RUN(ring_depth_follows_a_saw_osc1);

@@ -84,13 +84,51 @@ void fm_osc_set_inc(fm_osc *o, uint32_t inc)
     o->inc = inc > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : inc;
 }
 
+/*
+ * Above an eighth of the sample rate (dt over 2^29) the 2-point polyBLEP
+ * leaves a saw's upper harmonics folding back loudly. There the step is
+ * smoothed by an integrated cubic B-spline instead, 2 samples either side
+ * of it: its residual against the naive step, for a unit step at u = 0 and
+ * u >= 0 samples after it, is r(u) = -(1/2 + (-4u + 2u^3 - 3u^4/4) / 6) on
+ * [0, 1) and -(2 - u)^4 / 24 on [1, 2), and -r(-u) before it. x is u in
+ * Q16; returns r(x) in Q16.
+ */
+#define BLEP4_DT (1u << 29)
+
+static int64_t blep4_after(int64_t x)
+{
+    if (x < 65536) {
+        int64_t x2 = (x * x) >> 16, x3 = (x2 * x) >> 16, x4 = (x2 * x2) >> 16;
+        return -(32768 + (-4 * x + 2 * x3 - ((3 * x4) >> 2)) / 6);
+    } else {
+        int64_t y = 131072 - x, y2 = (y * y) >> 16;
+        return -(((y2 * y2) >> 16) / 24);
+    }
+}
+
+/* The 4-point BLEP's correction at phase t, increment dt (> BLEP4_DT),
+ * Q16 of the saw's -2 step: the last wrap's and the next one's, each when
+ * it is within 2 samples. */
+static int64_t blep4(uint32_t t, uint32_t dt)
+{
+    int64_t blep = 0;
+    uint64_t span = 2ull * dt;
+    if ((uint64_t)t < span)
+        blep += 2 * blep4_after((int64_t)(((uint64_t)t << 16) / dt));
+    if ((1ull << 32) - t < span)
+        blep -= 2 * blep4_after((int64_t)((((1ull << 32) - t) << 16) / dt));
+    return blep;
+}
+
 /* polyBLEP saw at phase t with increment dt, Q8.24. */
 static int32_t saw_at(uint32_t t, uint32_t dt)
 {
     /* naive saw 2t - 1 as Q0.31: -1.0 at t = 0, rising to +1.0 */
     int64_t v = (int32_t)(t ^ 0x80000000u);
 
-    if (dt) {
+    if (dt > BLEP4_DT) {
+        v -= blep4(t, dt) * 32768;
+    } else if (dt) {
         int64_t blep = 0; /* Q16 */
         if (t < dt) { /* just after the wrap: x = t/dt in [0, 1) */
             int64_t x = (int64_t)(((uint64_t)t << 16) / dt);
