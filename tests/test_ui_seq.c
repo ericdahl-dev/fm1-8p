@@ -736,10 +736,26 @@ TT_TEST(seq_cursor_stays_inside_the_length)
     TT_CHECK_EQ(ui_u.seq_cursor, 9u);
 }
 
+/* While playing, REC does nothing but say STOP TO RECORD (decision Q3), in SEQ view or out of it */
+TT_TEST(seq_rec_while_playing_says_stop_to_record)
+{
+    ui_setup();
+    ui_tap(UI_BTN_PLAY, 1000);
+    ui_tap(UI_BTN_REC, 1100);                                 /* from PLAY */
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "STOP TO RECORD") == 0);
+    ui_tap(UI_BTN_SEQ, 1200);
+    ui_tap(UI_BTN_REC, 1300);                                 /* in SEQ view */
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "STOP TO RECORD") == 0);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_cursor_stays_inside_the_length);
     TT_RUN(seq_rec_tap_arms_and_opens_seq_view);
+    TT_RUN(seq_rec_while_playing_says_stop_to_record);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);

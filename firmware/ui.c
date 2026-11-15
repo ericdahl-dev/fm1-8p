@@ -1205,6 +1205,10 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_REC) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
         !u->comparing && !(u->jump_screen & UI_JS_UP)) {
+        if (play_seq(u->p)->want) {             /* playing: no recording (decision Q3) */
+            show_banner(u, "STOP TO RECORD", ms);
+            return;
+        }
         ui_seq_open(u);                         /* REC: SEQ view, step record armed (interaction.md 5) */
         ui_seq_rec(u);
         return;

@@ -232,7 +232,10 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         roll(u, ROLL_AT(u->seq_cursor));
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_REC) && tap) {          /* step record: armed or not */
-        ui_seq_rec(u);
+        if (s->want)
+            banner(u, "STOP TO RECORD", ms);    /* (playing: no recording, decision Q3) */
+        else
+            ui_seq_rec(u);
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SEQ) && tap) {          /* back, on the page it left */
