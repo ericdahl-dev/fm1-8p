@@ -2649,11 +2649,26 @@ TT_TEST(ui_glo_fourth_page_has_program_change)
     TT_CHECK_EQ(ui_u.glo_page, 0u);
 }
 
+/* G33 KEY LEDS: a held key's LED is lit with it ON (the default), off with it OFF; the number jump's
+ * keypad glow (SEL held) shows either way */
+TT_TEST(ui_key_leds_follow_g33)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_key_led(&ui_u, 4, 1), (uint32_t)UI_LED_LIT);
+    TT_CHECK_EQ(ui_key_led(&ui_u, 4, 0), (uint32_t)UI_LED_OFF);
+    ui_u.set.key_leds = 0;
+    TT_CHECK_EQ(ui_key_led(&ui_u, 4, 1), (uint32_t)UI_LED_OFF);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1000);   /* the keypad: F3 (key 0) is digit 1 */
+    TT_CHECK_EQ(ui_key_led(&ui_u, 0, 0), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_key_led(&ui_u, 0, 1), (uint32_t)UI_LED_GLOW);
+}
+
 static void run_ui_tests(void)
 {
     TT_RUN(ui_program_change_in_loads_the_patch);
     TT_RUN(ui_program_change_out_on_a_panel_load);
     TT_RUN(ui_glo_fourth_page_has_program_change);
+    TT_RUN(ui_key_leds_follow_g33);
     TT_RUN(ui_unsensed_keys_play_at_the_fixed_velocity);
     TT_RUN(ui_midi_in_takes_its_channel);
     TT_RUN(ui_midi_out_is_on_its_channel);

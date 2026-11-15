@@ -457,6 +457,9 @@ channel its note-on went on, even if G12 changed while it was held. The host has
 option, which passes only that channel on, as channel 1 (fm1-dock `dock.c`, "MIDI CH"). With it
 set, leave G11 at ALL (or 1).
 
+**Key LEDs (G33):** ON lights a panel key's LED while it is held, OFF leaves it dark. The number
+jump's keypad glow (SEL held) shows either way, and so will the sequencer's step keys in SEQ view.
+
 Program change is G41, on a fourth page (Eric: CC MAP took G23). G42-G44 are empty for now.
 
 Until their features land, G13 and G14 (clock, #38) show `--` and their

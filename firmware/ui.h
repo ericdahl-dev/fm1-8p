@@ -190,6 +190,8 @@ void ui_jump_digits(const ui *u, char *s);
 int ui_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* key k's LED as the keypad has it: UI_LED_GLOW for a digit key while SEL is held, else UI_LED_OFF */
 uint32_t ui_keypad_led(const ui *u, uint32_t k);
+/* key k's LED, down or not: the keypad's glow while SEL is held, else lit while down with G33 KEY LEDS ON */
+uint32_t ui_key_led(const ui *u, uint32_t k, int down);
 /* a panel event (UI_EV_* | id, the encoder's clicks) at `ms` (the host's ms()) */
 void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms);
 #define UI_CC_NONE 0xFFu
