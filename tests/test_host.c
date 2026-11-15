@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "../host/args.h"
+#include "../host/pattern.h"
 #include "../host/render.h"
 #include "../host/smf.h"
 #include "../host/wav.h"
@@ -561,6 +562,53 @@ TT_TEST(render_rejects_a_bad_voice_count)
     TT_CHECK(render_midi_file("build/one-note.mid", "build/x.wav", &o) != 0);
 }
 
+/* -p: a pattern's text into a sequencer pattern: steps split by ';', each notes ("60,64,67"), "-" a
+ * rest or "_" a tie. */
+TT_TEST(render_parses_a_pattern)
+{
+    static seq s;
+    TT_CHECK_EQ(pattern_parse("60,64,67;_;-;62", &s), 0);
+    TT_CHECK_EQ(seq_length(&s), 4u);
+    TT_CHECK_EQ(seq_get_step(&s, 0)->kind, SEQ_NOTES_ON);
+    TT_CHECK_EQ(seq_get_step(&s, 0)->n, 3u);
+    TT_CHECK_EQ(seq_get_step(&s, 0)->note[2], 67u);
+    TT_CHECK_EQ(seq_get_step(&s, 1)->kind, SEQ_TIE);
+    TT_CHECK_EQ(seq_get_step(&s, 2)->kind, SEQ_REST);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->note[0], 62u);
+}
+
+TT_TEST(render_rejects_a_bad_pattern)
+{
+    static seq s;
+    printf("    (expected error messages follow)\n");
+    TT_CHECK(pattern_parse("", &s) != 0);
+    TT_CHECK(pattern_parse("60;x", &s) != 0);
+    TT_CHECK(pattern_parse("60;128", &s) != 0);
+    TT_CHECK(pattern_parse("60,61,62,63,64,65,66", &s) != 0);              /* 7 notes */
+    TT_CHECK(pattern_parse("-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-;-", &s) != 0);   /* 17 steps */
+    TT_CHECK(pattern_parse("60;;62", &s) != 0);
+}
+
+/* A pattern renders to a WAV: loops x length steps long (and the tail), sounding in its note's step and
+ * silent in its rest once the gate's release has died away. */
+TT_TEST(render_plays_a_pattern_to_a_wav)
+{
+    render_opts o = { .sample_rate = 44100, .tail_ms = 0, .voice_count = 4 };
+    uint32_t frames, rate, i, step = 0, peak_on = 0;
+    int16_t *pcm;
+    printf("    (a pattern: 2 loops of C4 then a rest, 120 BPM)\n");
+    TT_CHECK_EQ(render_pattern("60;-", "build/pattern.wav", &o, 1200, 50, 2), 0);
+    pcm = read_wav_pcm("build/pattern.wav", &frames, &rate);
+    TT_CHECK(pcm != NULL);
+    step = 44100u * 600u / (1200u * 4u);       /* 5512.5: 4 steps, 22050 frames */
+    TT_CHECK_EQ(frames, 22050u);
+    for (i = 0; i < step; i++)
+        peak_on = (uint32_t)(abs(pcm[2 * i]) > (int)peak_on ? abs(pcm[2 * i]) : (int)peak_on);
+    free(pcm);
+    TT_CHECK(peak_on > 1000u);
+    TT_CHECK(render_pattern("x", "build/pattern.wav", &o, 1200, 50, 2) != 0);
+}
+
 static void run_host_tests(void)
 {
     TT_RUN(slurp_fails_cleanly_on_missing_and_empty_files);
@@ -586,4 +634,7 @@ static void run_host_tests(void)
     TT_RUN(render_rejects_a_bad_voice_count);
     TT_RUN(render_plays_one_midi_channel);
     TT_RUN(render_reports_voice_count_channel_and_level);
+    TT_RUN(render_parses_a_pattern);
+    TT_RUN(render_rejects_a_bad_pattern);
+    TT_RUN(render_plays_a_pattern_to_a_wav);
 }

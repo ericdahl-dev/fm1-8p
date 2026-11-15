@@ -14,6 +14,7 @@ static const uint8_t TAG_OFFSET[] = {
     SET_NO_TAG,
     T(midi_in), T(midi_out), T(clock_src), T(clock_out), T(cc_recv), T(cc_send),   /* 1..6 */
     T(prog_change), T(ext_cc), T(vel_curve_pct), T(fixed_vel), T(key_leds), T(theme),   /* 7..12 */
+    T(cc_map),                                                                          /* 13 */
 };
 #define TAGS (uint32_t)(sizeof TAG_OFFSET / sizeof TAG_OFFSET[0])
 typedef char set_require_a_tag_for_every_setting[(TAGS - 1u == UI_SETTINGS_COUNT) ? 1 : -1];

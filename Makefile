@@ -42,12 +42,12 @@ PYTHON  = python3 -B -X pycache_prefix=$(CURDIR)/$(BUILD)/no-pycache
 
 ENGINE_SRC = $(wildcard engine/*.c)
 ENGINE_HDR = $(wildcard engine/*.h)
-HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c
+HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c host/pattern.c
 BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
-FW_SRC     = firmware/cpu_test.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c
-FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/settings_store.h firmware/ui_save.h
+FW_SRC     = firmware/cpu_test.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c
+FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/seq.h firmware/settings_store.h firmware/ui_save.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
@@ -68,8 +68,8 @@ $(BUILD)/%.o: %.c $(ENGINE_HDR) $(HOST_HDR) $(FW_HDR)
 	@mkdir -p $(dir $@)
 	$(CC) $(STD) $(WARN) $(CFLAGS) -c $< -o $@.tmp && mv $@.tmp $@
 
-$(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ)
-	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) -lm -o $@.tmp && mv $@.tmp $@
+$(RENDER): host/main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BUILD)/firmware/seq.o
+	$(CC) $(STD) $(WARN) $(CFLAGS) host/main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BUILD)/firmware/seq.o -lm -o $@.tmp && mv $@.tmp $@
 
 $(BENCH): host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
 	$(CC) $(STD) $(WARN) $(CFLAGS) host/bench_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@.tmp && mv $@.tmp $@
@@ -93,7 +93,7 @@ test: $(BUILD)/run-tests
 # engine sources) must make the same check fail.
 check-float-free:
 	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-engine $(ENGINE_SRC)
-	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c
+	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c
 	@for c in $(CANARIES); do \
 		if CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-canary \
 			$(ENGINE_SRC) $$c >/dev/null 2>&1; then \
