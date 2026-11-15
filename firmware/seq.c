@@ -41,7 +41,8 @@ void seq_pattern_empty(seq_pattern *p)
 void seq_init(seq *s)
 {
     seq_pattern_empty(&s->edit);
-    s->run = s->edit;
+    s->run = s->stored = s->edit;
+    s->next_pending = s->next_taken = s->next_taken_seen = 0;
     s->editing = 0;
     s->edits = s->edits_seen = 0;
     s->ask_play = s->ask_stop = s->play_seen = s->stop_seen = 0;
@@ -158,6 +159,83 @@ void seq_stop(seq *s)
     s->want = 0;
     BARRIER();
     s->ask_stop++;
+    (void)seq_main_tick(s);                     /* (one the interrupt took already) */
+    if (s->next_pending) {                      /* stopping with one queued: it loads at once */
+        s->next_pending = 0;
+        BARRIER();
+        edit_begin(s);
+        s->edit = s->next;
+        edit_end(s);
+        s->stored = s->next;
+    }
+}
+
+void seq_load_pattern(seq *s, const seq_pattern *p)
+{
+    (void)seq_main_tick(s);
+    if (s->want && s->playing) {                /* playing: queued for the end of the pass */
+        s->next_pending = 0;                    /* (the interrupt leaves `next` alone while it's written) */
+        BARRIER();
+        s->next = *p;
+        BARRIER();
+        s->next_pending = 1;
+        return;
+    }
+    s->next_pending = 0;
+    edit_begin(s);
+    s->edit = *p;
+    edit_end(s);
+    s->stored = *p;
+}
+
+uint32_t seq_next_queued(const seq *s)
+{
+    return s->next_pending;
+}
+
+void seq_cancel_next(seq *s)
+{
+    s->next_pending = 0;
+}
+
+uint32_t seq_main_tick(seq *s)
+{
+    if (s->next_taken == s->next_taken_seen)
+        return 0;
+    s->next_taken_seen = s->next_taken;
+    edit_begin(s);
+    s->edit = s->next;                          /* what the interrupt took */
+    edit_end(s);
+    s->stored = s->next;
+    return 1;
+}
+
+/* the same pattern, as played: settings, and each step's kind, velocity and the notes it has */
+static int same_pattern(const seq_pattern *a, const seq_pattern *b)
+{
+    uint32_t i, k;
+    if (a->length != b->length || a->tempo != b->tempo || a->swing_pct != b->swing_pct ||
+        a->gate_pct != b->gate_pct)
+        return 0;
+    for (i = 0; i < SEQ_STEPS; i++) {
+        const seq_step *x = &a->step[i], *y = &b->step[i];
+        if (x->kind != y->kind || x->n != y->n || x->vel != y->vel)
+            return 0;
+        for (k = 0; k < x->n && k < SEQ_NOTES; k++)
+            if (x->note[k] != y->note[k])
+                return 0;
+    }
+    return 1;
+}
+
+uint32_t seq_edited(const seq *s)
+{
+    return !same_pattern(&s->edit, &s->stored);
+}
+
+void seq_mark_saved(seq *s)
+{
+    s->stored = s->edit;
 }
 
 uint32_t seq_playing(const seq *s)
@@ -215,8 +293,15 @@ static uint32_t start_step(seq *s, seq_event *ev, uint32_t cnt, uint32_t at, uin
         s->run = s->edit;
         s->edits_seen = s->edits;
     }
-    if (s->pos >= s->run.length)
+    if (s->pos >= s->run.length) {             /* the end of a pass */
         s->pos = 0;
+        if (s->next_pending) {                  /* the queued pattern takes over (#40) */
+            s->run = s->next;
+            s->edits_seen = s->edits;           /* (an edit to the old one is dropped with it) */
+            s->next_pending = 0;
+            s->next_taken++;
+        }
+    }
     s->run_transpose = s->transpose;            /* (a transpose plays from a step's start) */
     st = &s->run.step[s->pos];
     if (st->kind != SEQ_TIE)

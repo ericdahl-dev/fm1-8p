@@ -72,6 +72,14 @@ typedef struct {
     volatile uint32_t ask_stop;         /* +1 per stop asked */
     volatile uint32_t want;             /* main loop writes (1 from seq_play to seq_stop), ISR reads */
     volatile int32_t transpose;         /* main loop writes: semitones, taken at a step's start */
+    /* pattern loads (#40): the copy last loaded or saved (main loop: seq_edited), and the next pattern,
+     * queued while playing: the main loop writes it, then sets next_pending; the interrupt takes it in
+     * place of the running pattern after the pass's last step, and counts next_taken */
+    seq_pattern stored;
+    seq_pattern next;
+    volatile uint32_t next_pending;
+    volatile uint32_t next_taken;
+    uint32_t next_taken_seen;           /* main loop: the last next_taken it adopted */
     /* interrupt only */
     int32_t run_transpose;              /* the transpose playing */
     seq_pattern run;                    /* the pattern playing, taken from edit at a step's start */
@@ -100,6 +108,18 @@ const seq_step *seq_get_step(const seq *s, uint32_t i);   /* the edited pattern'
 void seq_set_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel);
 void seq_clear_step(seq *s, uint32_t i);               /* a rest */
 void seq_toggle_tie(seq *s, uint32_t i);               /* a tie, or back to a rest */
+/* main loop: load a pattern (#40). Stopped (or before play has started), it loads at once. Playing, it
+ * is queued: it takes over after the running pattern's last step (seq_main_tick then has it in the edit
+ * buffer); a later load replaces the queued one. Either way it is not edited (seq_edited 0). */
+void seq_load_pattern(seq *s, const seq_pattern *p);
+uint32_t seq_next_queued(const seq *s);                 /* 1 while a loaded pattern waits for the pass */
+void seq_cancel_next(seq *s);                           /* the running pattern goes on round */
+/* main loop, each draw: 1 when the queued pattern has taken over since the last call (the edit buffer is
+ * it now) */
+uint32_t seq_main_tick(seq *s);
+/* PATTERN EDITED: 1 when the edit buffer differs from the pattern last loaded or saved */
+uint32_t seq_edited(const seq *s);
+void seq_mark_saved(seq *s);                            /* (after a SAVE: not edited) */
 /* main loop: the transpose (a performance setting, not part of the pattern), -24..+24 semitones,
  * from the next step; a note it puts outside 0..127 is left out */
 void seq_set_transpose(seq *s, int32_t semis);
@@ -109,7 +129,8 @@ void seq_set_tempo(seq *s, uint32_t tenths_bpm);       /* clamped to SEQ_TEMPO_M
 void seq_set_gate(seq *s, uint32_t pct);               /* clamped to SEQ_GATE_MIN..100 */
 void seq_set_swing(seq *s, uint32_t pct);              /* clamped to 50..75 */
 
-/* main loop: the transport. play starts at step 1; stop lets go of every note the sequencer started. */
+/* main loop: the transport. play starts at step 1; stop lets go of every note the sequencer started, and
+ * loads a queued pattern at once. */
 void seq_play(seq *s);
 void seq_stop(seq *s);
 /* 1 from seq_play until the stop has let every note go: play_silent's too (#201), so a SAVE waits */
