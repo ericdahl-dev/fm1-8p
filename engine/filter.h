@@ -48,14 +48,27 @@ typedef struct {
 int32_t fm_filter_rate_cents(uint32_t sample_rate);
 
 /*
- * Cutoff of a voice, in cents: the base cutoff, plus key tracking (per
- * mille of the note's distance from middle C, note 60), plus `mod_cents`,
- * the voice's modulation of the cutoff (the filter envelope and every
- * other source routed there, summed in engine/mod.h; may be negative).
- * Unclamped; fm_filter_set_cutoff clamps.
+ * Cutoff of a voice, in cents (#253). Its sources add in linear cents, as
+ * PG-8X 2.0.13 adds VCF ENV and KEY to VCF FREQ in knob steps:
+ * `cutoff_linear` (the base, from fm_filter_linear_cents), key tracking
+ * (per mille of the note's distance from middle C, note 60, in linear
+ * cents), and `mod_cents`, the voice's modulation of the cutoff (the
+ * filter envelope and every other source routed there, summed in
+ * engine/mod.h; may be negative). The sum is then bent once onto
+ * PG-8X's cutoff curve (engine/filter.c, cutoff_curve). Unclamped;
+ * fm_filter_set_cutoff clamps.
  */
-int32_t fm_filter_voice_cents(int32_t cutoff_cents, int32_t track_permille,
+int32_t fm_filter_voice_cents(int32_t cutoff_linear, int32_t track_permille,
                               uint8_t note, int32_t mod_cents);
+
+/*
+ * The linear cents whose curve value is nearest `cents`: the base the cutoff
+ * setting gives fm_filter_voice_cents, so that a voice at note 60 with
+ * no modulation plays the setting within a cent (exactly, for a cutoff
+ * that is itself on the curve). Event rate: an integer square root and a
+ * divide.
+ */
+int32_t fm_filter_linear_cents(int32_t cents);
 
 /* Clears the state and opens the filter (no resonance, no highpass). */
 void fm_filter_reset(fm_filter *f);

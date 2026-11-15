@@ -413,23 +413,41 @@ def env_mode(v):
 
 
 def cutoff_cents(v):
-    """VCF FREQ, 0..127, as the engine's cutoff in cents from MIDI note 0: 0.0988 v^2 + 115.03 v - 1474,
-    fitted so the engine's resonant peak lands on PG-8X 2.0.13's (VCF RES 96-127, no key follow, C4;
-    within 0.45 semitone over 48..112; docs/patches.md). Below 13 it is under the engine's lowest
-    cutoff, note 0 (8.2 Hz), and clamps there."""
+    """VCF FREQ, 0..127 (or a knob-step sum, fractional), as the engine's cutoff in cents from MIDI
+    note 0: 0.0988 v^2 + 115.03 v - 1474, fitted so the engine's resonant peak lands on PG-8X 2.0.13's
+    (VCF RES 96-127, no key follow, C4; within 0.45 semitone over 48..112; docs/patches.md). Below 13
+    it is under the engine's lowest cutoff, note 0 (8.2 Hz), and clamps there. The engine plays its
+    cutoff sources' sum through the same curve (engine/filter.c, cutoff_curve, #253)."""
     return max(0, rnd(0.0988 * v * v + 115.03 * v - 1474))
 
 
+# PG-8X 2.0.13 adds VCF ENV and VCF KEY to VCF FREQ in knob steps, then plays the sum through
+# cutoff_cents's curve (#253, measured on PG-8X 3.0: ENV 100 at sustain 65 adds 50.2-50.7 steps at FREQ
+# 19, 30, 40 and 56 alike; KEY 73 at C6 adds 27.8-28.2 at FREQ 40 and 70). The engine adds them in
+# linear cents, LINEAR_CENTS_PER_STEP a knob step, and bends the sum once onto the curve.
+LINEAR_CENTS_PER_STEP = 115.03
+# VCF KEY's knob steps an octave above C2, per KEY unit: 0.0955 (KEY 127 adds 47.9-48.2 at C6, 4
+# octaves up; 73 adds 27.8-28.2), the same as the 1.29 octaves an octave match.py measured at KEY 127
+# (#95) on the curve's slope there
+KEY_STEPS_PER_OCTAVE = 0.0955
+
+
+def key_steps(v):
+    """VCF KEY, 0..127, as the knob steps it adds an octave above C2."""
+    return KEY_STEPS_PER_OCTAVE * v
+
+
 def key_track_permille(v):
-    """VCF KEY, 0..127, as the engine's key track: up to 1.29 octaves an octave at 127, as PG-8X
-    2.0.13 (match.py --param VCF_KEY, #95)."""
-    return rnd(1290 * v / 127)
+    """VCF KEY, 0..127, as the engine's key track: per mille of linear cents an octave, key_steps(v)
+    knob steps at LINEAR_CENTS_PER_STEP (1163 at 127)."""
+    return rnd(1000 * LINEAR_CENTS_PER_STEP * key_steps(v) / 1200)
 
 
 def filter_env_cents(v):
-    """VCF ENV, 0..127, as the filter envelope's depth in cents: 129 a step, fitted to PG-8X 2.0.13
-    (within 5 % over 8..48; docs/patches.md). 127 is 16383 cents."""
-    return 129 * v
+    """VCF ENV, 0..127, as the filter envelope's depth in linear cents: one knob step a step at full
+    envelope, LINEAR_CENTS_PER_STEP linear cents each (127 is 14609). The cents it moves the cutoff by
+    depend on where on the curve it starts, as on PG-8X (#253)."""
+    return rnd(LINEAR_CENTS_PER_STEP * v)
 
 
 def hpf_step(v):
@@ -489,13 +507,11 @@ def to_engine(tone):
     e["XMOD_AM"] = 1 if xmod in (2, 3) else 0
     e["HIGHPASS_STEP"] = hpf_step(p[HPF])
     e["SETTING_GLIDE"] = 1                  # levels, filter and LFO depths glide as PG-8X's (#146)
-    e["FILTER_CUTOFF_CENTS"] = cutoff_cents(p[VCF_FREQ])
+    # PG-8X's key follow pivots at C2 and the engine's at C4: the cutoff setting is FREQ plus the
+    # key's knob steps from C2 to C4, on the curve, so every note gets PG-8X's cutoff (#95, #253)
+    e["FILTER_CUTOFF_CENTS"] = cutoff_cents(p[VCF_FREQ] + 2 * key_steps(p[VCF_KEY]))
     e["FILTER_RESONANCE_PERMILLE"] = resonance_permille(p[VCF_RES])
-    # PG-8X's key follow pivots at C2 and the engine's at C4: the track's rise from C2 to C4 moves
-    # the cutoff, so every note gets PG-8X's cutoff (#95)
-    track = key_track_permille(p[VCF_KEY])
-    e["FILTER_KEY_TRACK_PERMILLE"] = track
-    e["FILTER_CUTOFF_CENTS"] += track * 24 // 10
+    e["FILTER_KEY_TRACK_PERMILLE"] = key_track_permille(p[VCF_KEY])
     # the amp settings run ENV-2; VCA MODE GATE (0-63) makes the VCA the engine's gate (#63: up in
     # 1 ms, down on PG-8X's 0.6 ms), and envelope 2 then runs apart from it for what names it
     a, d, s, r = env(p, ENV2)

@@ -136,8 +136,8 @@ on its own, its level its share), both set at the
 `pitch_env_source` picks, times the DYNAMICS share at the note's velocity
 when `pitch_env_dyna` is on, set every control tick); the destinations are each oscillator's pitch
 (`FM_MOD_PITCH1` and `FM_MOD_PITCH2`), pulse width, level
-(the amp envelope's peak, from velocity at full depth), cutoff (cents,
-from envelope 1, or envelope 2 when `filter_env_source` is 1, at
+(the amp envelope's peak, from velocity at full depth), cutoff (linear cents,
+summed before the cutoff curve, #253, docs/fixed-point.md; from envelope 1, or envelope 2 when `filter_env_source` is 1, at
 `filter_env_amount_cents`: a negative amount is the inverted mode,
 closing the filter at full envelope) and mix (Q1.30 added to
 osc2's level, `osc2_level_permille`, from envelope 1 or 2 as `osc_mix_env_source` picks, at
