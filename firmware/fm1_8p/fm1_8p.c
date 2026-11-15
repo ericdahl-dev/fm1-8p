@@ -5,8 +5,8 @@
  *          key while it is held and sends the keys' notes out on G12's MIDI channel
  *   MIDI   whatever the host takes in (USB, Bluetooth or the jack) comes through midi(), all alike:
  *          note on and off, sustain (CC 64), all sound / notes off (CC 120 / 123), pitch bend, and
- *          every parameter on its CC (the CC map, docs/ui/interaction.md); on G11's channel. With LOCAL OFF
- *          the host plays the keys through note(), on its own octave.
+ *          every parameter on its CC (the CC map, docs/ui/interaction.md), and program change (G41);
+ *          on G11's channel. With LOCAL OFF the host plays the keys through note(), on its own octave.
  *   pages  ENV opens page 5A VCF (docs/ui/interaction.md), HPF, CUTOFF, RES and LFO on KNOB1-4, and
  *          again 5B, ENV, KEY, DYNAMICS and MODE; a tap of EDIT or HOME goes back to PLAY. The keys
  *          play on every page.
@@ -38,9 +38,11 @@ static void note(uint32_t ch, uint32_t key, uint32_t vel)
  * asked after each event and each draw, so the last value of a fast turn still goes */
 static void cc_send(void)
 {
-    uint32_t cc, v;
+    uint32_t cc, v, pc;
     if (ui_cc_out(&U, H->ms(), &cc, &v))
         H->midi_send(ui_midi_out(&U, 0xB0u), cc, v);
+    if (ui_pc_out(&U, &pc))                     /* G41 SEND or BOTH: a panel load as its PC */
+        H->midi_send(ui_midi_out(&U, 0xC0u), pc, 0);
 }
 
 /* a CC on the map sets its parameter as a knob would (firmware/ui.c, #49); the rest reaches the engine */
@@ -50,6 +52,10 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
         return;                                 /* G11: another channel's */
     if ((st & 0xF0u) == 0xB0u && ui_cc(&U, d1, d2, H->ms()))
         return;
+    if ((st & 0xF0u) == 0xC0u) {                /* G41: a program change loads the patch */
+        (void)ui_program_change(&U, d1, H->ms());
+        return;
+    }
     play_midi(&P, st, d1, d2);
 }
 
@@ -84,7 +90,7 @@ static void keypad_leds(void)
 {
     uint32_t k;
     for (k = 0; k < PLAY_KEYS; k++)
-        H->led(HB_LED_KEY(k), ui_keypad_led(&U, k) == UI_LED_GLOW ? UI_LED_GLOW : keys_down >> k & 1u);
+        H->led(HB_LED_KEY(k), ui_key_led(&U, k, (int)(keys_down >> k & 1u)));
 }
 
 static void ui_ev(uint32_t ev, int32_t arg)
@@ -98,14 +104,14 @@ static void ui_ev(uint32_t ev, int32_t arg)
     case HB_EV_KEY_DOWN:                        /* arg: the velocity, 0 an unsensed key (G32's, then) */
         play_key_down(&P, id, ui_key_velocity(&U, arg));
         keys_down |= 1u << id;
-        H->led(HB_LED_KEY(id), 1);
+        H->led(HB_LED_KEY(id), ui_key_led(&U, id, 1));   /* (G33 OFF: dark) */
         out_st[id] = (uint8_t)ui_midi_out(&U, 0x80u);   /* (its note-off on the same channel, G12 changed or not) */
         H->midi_send(ui_midi_out(&U, 0x90u), P.held[id], ui_key_velocity(&U, arg));
         return;
     case HB_EV_KEY_UP:
         play_key_up(&P, id);
         keys_down &= ~(1u << id);
-        H->led(HB_LED_KEY(id), 0);
+        H->led(HB_LED_KEY(id), ui_key_led(&U, id, 0));
         H->midi_send(out_st[id] ? out_st[id] : ui_midi_out(&U, 0x80u), P.held[id], 0);
         return;
     case HB_EV_BTN_DOWN:
