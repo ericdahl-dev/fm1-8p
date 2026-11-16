@@ -147,5 +147,9 @@ static inline void fm_env_skip(fm_env *e, uint32_t n)
 
 /* The level now: caught up first. */
 int32_t fm_env_level(fm_env *e);
+/* Catches up now. Needed only before writing settings the envelope
+ * shares with others (fm_env_settings): caught up after, it would step
+ * the samples before the write on the new value. */
+void fm_env_catch_up(fm_env *e);
 
 #endif /* FM_ENV_H */

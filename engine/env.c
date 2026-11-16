@@ -377,3 +377,8 @@ void fm_env_skip_far(fm_env *e, uint32_t n)
 {
     fm_env_advance(e, n);
 }
+
+void fm_env_catch_up(fm_env *e)
+{
+    catch_up(e);
+}

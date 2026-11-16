@@ -146,6 +146,15 @@ static uint32_t amp_attack_floor(const fm_engine *e)
     return e->sample_rate * AMP_ATTACK_FLOOR_TENTHS_MS / 10000u;
 }
 
+/* Voice i's envelope on the filter settings (`filter`) or the amp ones:
+ * with the gate (#63) the amp settings run env2. */
+static fm_env *set_env(fm_engine *e, uint8_t i, int filter)
+{
+    fm_voice *vc = &e->voices[i];
+    return filter ? &vc->filter_env
+           : e->params[FM_PARAM_AMP_GATE] ? &vc->env2 : &vc->amp_env;
+}
+
 /*
  * An envelope time or sustain: written once into the settings every
  * voice's envelope of that kind shares (#19), then each running one is
@@ -185,19 +194,17 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
     default:
         return 0;
     }
-    if (filter || e->params[FM_PARAM_AMP_GATE]) /* each voice's envelope
-                                                 * current before it changes */
-        for (i = 0; i < e->voice_count; i++)
-            fm_voice_sync_filter_env(&e->voices[i]);
+    /* catch up before writing shared settings, or the lag steps the past
+     * on the new value: every voice's envelope on them (filter_env and,
+     * with the gate, env2 are lazy; amp_env is stepped, never behind) */
+    for (i = 0; i < e->voice_count; i++)
+        fm_env_catch_up(set_env(e, i, filter));
     if (time) {
         *time = fm_ms_to_samples(v, e->sample_rate);
     } else
         *sustain = fm_permille_to_q30(v);
     for (i = 0; i < e->voice_count; i++) {
-        /* the amp settings run env2 with the gate (#63), caught up above */
-        fm_env *env = filter ? &e->voices[i].filter_env
-                      : e->params[FM_PARAM_AMP_GATE] ? &e->voices[i].env2
-                                                     : &e->voices[i].amp_env;
+        fm_env *env = set_env(e, i, filter);
         /* an idle one leaves IDLE only by fm_env_gate_on, which reads
          * the settings and recomputes sus_level itself */
         if (env->stage != FM_ENV_IDLE)
@@ -502,8 +509,6 @@ static void apply_param(fm_engine *e, uint16_t id)
         v = fm_filter_linear_cents(v);
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *vc = &e->voices[i];
-        if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS)
-            fm_voice_sync_filter_env(vc); /* current before it changes */
         switch (id) {
         case FM_PARAM_FILTER_CUTOFF_CENTS:
             vc->cutoff_cents = v;

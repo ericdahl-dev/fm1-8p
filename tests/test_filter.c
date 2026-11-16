@@ -1175,7 +1175,7 @@ TT_TEST(filter_envelope_follows_the_key)
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_KEY_FOLLOW, 520);
     fm_engine_note_on(&feng, 60, 100);
     fm_engine_render(&feng, fbuf_a, 1 + (uint32_t)(FRATE * tau / 1000.0));
-    fm_voice_sync_filter_env(&feng.voices[0]);
+    fm_env_catch_up(&feng.voices[0].filter_env);
     left = (double)feng.voices[0].filter_env.level / FM_ENV_FULL;
     printf("    filter env, C4, follow 520: %.4f of full after tau (%.1f ms)\n", left, tau);
     TT_CHECK_NEAR(left, 0.368, 0.01);
@@ -2092,8 +2092,8 @@ static int filter_envs_match(fm_engine *a, fm_engine *b)
 {
     uint8_t i;
     for (i = 0; i < FM_MAX_VOICES; i++) {
-        fm_voice_sync_filter_env(&a->voices[i]);
-        fm_voice_sync_filter_env(&b->voices[i]);
+        fm_env_catch_up(&a->voices[i].filter_env);
+        fm_env_catch_up(&b->voices[i].filter_env);
         if (a->voices[i].filter_env.level != b->voices[i].filter_env.level ||
             a->voices[i].filter_env.stage != b->voices[i].filter_env.stage)
             return 0;
@@ -2178,8 +2178,8 @@ static void render_beside(fm_engine *e, fm_env *ref, uint32_t frames)
 static int fenv_matches(const fm_engine *e, const fm_env *ref)
 {
     fm_voice v = e->voices[0];
-    int near = v.fenv_lag < 16;
-    fm_voice_sync_filter_env(&v);
+    int near = v.filter_env.lag < 16;
+    fm_env_catch_up(&v.filter_env);
     return near && v.filter_env.level == ref->level && v.filter_env.stage == ref->stage;
 }
 
@@ -2207,9 +2207,66 @@ TT_TEST(filter_envelope_setting_change_spares_the_samples_before_it)
     fm_env_retime(&ref);
     fm_engine_render(&b, fbuf_b, 500);
     for (n = 0; n < 500; n++) fm_env_next(&ref);
-    fm_voice_sync_filter_env(&b.voices[0]);
+    fm_env_catch_up(&b.voices[0].filter_env);
     TT_CHECK_EQ(b.voices[0].filter_env.stage, FM_ENV_DECAY);
     TT_CHECK_EQ(b.voices[0].filter_env.level, ref.level);
+}
+
+/*
+ * The same for a sustain written while the envelope lags mid-decay: the
+ * decay before the write heads to the old sustain, after it to the new.
+ */
+TT_TEST(filter_envelope_sustain_change_spares_the_samples_before_it)
+{
+    static fm_engine b;
+    fm_env ref;
+    uint32_t n;
+    fm_engine_init(&b, FRATE, 2);
+    lag_patch(&b, 0);
+    fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_DECAY_MS, 400);
+    fm_engine_note_on(&b, 60, 100);
+    ref_beside(&ref, &b, 1); /* gated on, not yet stepped */
+    fm_engine_render(&b, fbuf_b, 3001); /* mid-decay, mid control period */
+    for (n = 0; n < 3001; n++) fm_env_next(&ref);
+    fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_SUSTAIN, 900);
+    ref_settings(&b, 1);
+    fm_env_retime(&ref);
+    fm_engine_render(&b, fbuf_b, 500);
+    for (n = 0; n < 500; n++) fm_env_next(&ref);
+    TT_CHECK_EQ(fm_env_level(&b.voices[0].filter_env), ref.level);
+    TT_CHECK_EQ(b.voices[0].filter_env.stage, ref.stage);
+}
+
+/*
+ * With the gate (#63) the amp settings run envelope 2, lazy as the filter
+ * envelope (read only where it is routed: here nowhere). An amp decay
+ * written while it lags spares the samples before the write too, against
+ * an envelope stepped every sample with its own copy of the settings.
+ */
+TT_TEST(gate_envelope_2_setting_change_spares_the_samples_before_it)
+{
+    static fm_engine b;
+    fm_env ref;
+    uint32_t n;
+    fm_engine_init(&b, FRATE, 2);
+    fm_engine_set_param(&b, FM_PARAM_AMP_GATE, 1);
+    fm_engine_set_param(&b, FM_PARAM_AMP_ATTACK_MS, 30);
+    fm_engine_set_param(&b, FM_PARAM_AMP_DECAY_MS, 70);
+    fm_engine_set_param(&b, FM_PARAM_AMP_SUSTAIN, 400);
+    fm_engine_note_on(&b, 60, 100);
+    ref = b.voices[0].env2; /* gated on, not yet stepped */
+    ref_settings(&b, 0);
+    ref.set = &ref_set;
+    fm_engine_render(&b, fbuf_b, 2000); /* the 30 ms attack ends at 1323 */
+    for (n = 0; n < 2000; n++) fm_env_next(&ref);
+    TT_CHECK(b.voices[0].env2.lag > 0); /* lagging when the write comes */
+    fm_engine_set_param(&b, FM_PARAM_AMP_DECAY_MS, 5000);
+    ref_settings(&b, 0);
+    fm_env_retime(&ref);
+    fm_engine_render(&b, fbuf_b, 500);
+    for (n = 0; n < 500; n++) fm_env_next(&ref);
+    TT_CHECK_EQ(fm_env_level(&b.voices[0].env2), ref.level);
+    TT_CHECK_EQ(b.voices[0].env2.stage, FM_ENV_DECAY);
 }
 
 /*
@@ -2240,19 +2297,19 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
     ref_beside(&ref, &feng, 1); /* gated on, not yet stepped */
     render_beside(&feng, &ref, 23); /* in the attack */
     ok &= fenv_matches(&feng, &ref);
-    lagged |= feng.voices[0].fenv_lag != 0;
+    lagged |= feng.voices[0].filter_env.lag != 0;
     fm_engine_note_off(&feng, 48); /* release from the attack */
     fm_env_gate_off(&ref);
     render_beside(&feng, &ref, 501);
     ok &= fenv_matches(&feng, &ref);
-    lagged |= feng.voices[0].fenv_lag != 0;
+    lagged |= feng.voices[0].filter_env.lag != 0;
     fm_engine_note_on(&feng, 48, 100); /* retrigger from the release */
     fm_env_gate_on(&ref);
     render_beside(&feng, &ref, 3007); /* in the decay, mid segment */
     ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_DECAY;
     render_beside(&feng, &ref, 13001); /* to sustain: within -80 dB of it */
     ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_SUSTAIN;
-    lagged |= feng.voices[0].fenv_lag != 0;
+    lagged |= feng.voices[0].filter_env.lag != 0;
     fm_engine_note_on(&feng, 48, 100); /* retrigger from the sustain */
     fm_env_gate_on(&ref);
     render_beside(&feng, &ref, 211);
@@ -2955,6 +3012,8 @@ static void run_filter_tests(void)
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
     TT_RUN(amp_envelope_in_the_render_matches_env_next_every_sample);
     TT_RUN(filter_envelope_setting_change_spares_the_samples_before_it);
+    TT_RUN(filter_envelope_sustain_change_spares_the_samples_before_it);
+    TT_RUN(gate_envelope_2_setting_change_spares_the_samples_before_it);
     TT_RUN(filter_envelope_runs_at_the_control_rate_and_stays_exact);
     TT_RUN(legato_note_change_reads_the_current_filter_envelope);
     TT_RUN(filter_envelope_for_the_mix_alone_stays_exact);
