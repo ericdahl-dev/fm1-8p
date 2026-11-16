@@ -178,17 +178,6 @@ void fm_env_key(fm_env *e, uint8_t note)
     e->ks = f ? exp2_cents(-f * ((int32_t)note - KEY_CENTER) / 10) : (uint32_t)1 << 16;
 }
 
-void fm_env_gate_on(fm_env *e)
-{
-#ifdef FM_CHECK_ENGINE /* debug builds: started with fm_env_init */
-    assert(e->set);
-#endif
-    e->stage = FM_ENV_ATTACK;
-    e->seg = 0; /* the next call starts the first segment */
-    e->ramp = (uint8_t)RAMP_SEGS;
-    sustain_level(e);
-}
-
 /* Steps the samples fm_env_skip counted, exactly: before any read or
  * change, so a lazy envelope is never stale. */
 static void catch_up(fm_env *e)
@@ -198,6 +187,18 @@ static void catch_up(fm_env *e)
         e->lag = 0;
         fm_env_advance(e, n);
     }
+}
+
+void fm_env_gate_on(fm_env *e)
+{
+#ifdef FM_CHECK_ENGINE /* debug builds: started with fm_env_init */
+    assert(e->set);
+#endif
+    catch_up(e);
+    e->stage = FM_ENV_ATTACK;
+    e->seg = 0; /* the next call starts the first segment */
+    e->ramp = (uint8_t)RAMP_SEGS;
+    sustain_level(e);
 }
 
 void fm_env_gate_off(fm_env *e)
