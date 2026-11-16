@@ -139,8 +139,8 @@ void fm_env_skip_far(fm_env *e, uint32_t n);
 /*
  * The lazy envelope: `n` samples pass without stepping it. It catches up
  * by itself, exactly (as fm_env_advance), when its level is read
- * (fm_env_level) or it is changed (gate on, gate off, fade, retime,
- * advance), so a caller never syncs it. An envelope is either stepped
+ * (fm_env_level) or it is changed (key, gate on, gate off, fade,
+ * retime, advance), so a caller never syncs it. An envelope is either stepped
  * (fm_env_step, fm_env_next: they do not catch up) or skipped, not both.
  */
 static inline void fm_env_skip(fm_env *e, uint32_t n)

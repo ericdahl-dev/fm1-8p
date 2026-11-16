@@ -1554,6 +1554,47 @@ TT_TEST(env_skip_then_level_matches_stepping)
     TT_CHECK(rising_high > 0);
 }
 
+/*
+ * A skip through the attack's ease-in (#274: its first segments short, at
+ * a fraction of the curve's step) lands where stepping does, whether it
+ * crosses the ramp's segment edges at once or in pieces: every length 0
+ * to 24 from a gate on, from 0 and from a retrigger mid-way, for a few
+ * attack times and peaks.
+ */
+TT_TEST(env_skip_through_the_attack_ramp_matches_stepping)
+{
+    static const uint32_t attack[] = { 1, 7, 66, 500, 30000 };
+    static const int32_t from[] = { 0, FM_ENV_FULL / 5 };
+    static fm_env a, b, c;
+    uint32_t t, f, n, k;
+    int mismatches = 0;
+    for (t = 0; t < sizeof attack / sizeof attack[0]; t++)
+        for (f = 0; f < sizeof from / sizeof from[0]; f++)
+            for (n = 0; n <= 24; n++) {
+                env_set.attack_samples = attack[t];
+                env_set.decay_samples = 1000;
+                env_set.release_samples = 1000;
+                env_set.sustain = FM_ENV_FULL / 2;
+                fm_env_init(&a, &env_set);
+                a.level = from[f]; /* a retrigger's start, as stepping left it */
+                a.peak = FM_ENV_FULL - (int32_t)(t << 20);
+                fm_env_gate_on(&a);
+                b = c = a;
+                fm_env_skip(&a, n); /* at once */
+                for (k = 0; k < n; k++) fm_env_skip(&c, 1); /* in pieces */
+                for (k = 0; k < n; k++) fm_env_next(&b);
+                if (fm_env_level(&a) != b.level || a.stage != b.stage ||
+                    a.ramp != b.ramp || fm_env_level(&c) != b.level ||
+                    c.ramp != b.ramp)
+                    mismatches++;
+                for (k = 0; k < 64; k++) /* and on from there */
+                    if (fm_env_next(&a) != fm_env_next(&b) ||
+                        fm_env_next(&c) != b.level)
+                        mismatches++;
+            }
+    TT_CHECK_EQ(mismatches, 0);
+}
+
 /* What a lazy-envelope test does right after the skip, to `a` (skipped)
  * and `b` (stepped), with no read between. */
 typedef void (*env_change_fn)(fm_env *e, uint32_t *seed);
@@ -1636,6 +1677,21 @@ static void env_change_fade(fm_env *e, uint32_t *seed)
 TT_TEST(env_skip_then_fade_matches_stepping)
 {
     TT_CHECK_EQ(env_skip_then_change(env_change_fade, 70705), 0);
+}
+
+static void env_change_key(fm_env *e, uint32_t *seed)
+{
+    env_set.key_follow = 1000; /* read by fm_env_key alone */
+    fm_env_key(e, (uint8_t)(env_rand(seed) % 128));
+}
+
+/* A new note's time scale (key follow) after a skip: the samples before
+ * it step at the old note's scale, as a retrigger of a sounding note
+ * needs. */
+TT_TEST(env_skip_then_key_matches_stepping)
+{
+    TT_CHECK_EQ(env_skip_then_change(env_change_key, 70710), 0);
+    env_set.key_follow = 0;
 }
 
 /* A skip of 0 changes nothing: level, stage, step and every sample after
@@ -2231,6 +2287,37 @@ TT_TEST(filter_envelope_sustain_change_spares_the_samples_before_it)
     fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_SUSTAIN, 900);
     ref_settings(&b, 1);
     fm_env_retime(&ref);
+    fm_engine_render(&b, fbuf_b, 500);
+    for (n = 0; n < 500; n++) fm_env_next(&ref);
+    TT_CHECK_EQ(fm_env_level(&b.voices[0].filter_env), ref.level);
+    TT_CHECK_EQ(b.voices[0].filter_env.stage, ref.stage);
+}
+
+/*
+ * A sounding voice retriggered to another note (unison) with filter
+ * envelope key follow: the samples before the retrigger run at the old
+ * note's time scale, the ones after at the new note's. Against an
+ * envelope stepped every sample, keyed and gated on at the same sample.
+ */
+TT_TEST(filter_envelope_retrigger_with_key_follow_spares_the_samples_before_it)
+{
+    static fm_engine b;
+    fm_env ref;
+    uint32_t n;
+    fm_engine_init(&b, FRATE, 1);
+    lag_patch(&b, 0);
+    fm_engine_set_param(&b, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&b, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_ATTACK_MS, 300);
+    fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_KEY_FOLLOW, 1000);
+    fm_engine_note_on(&b, 36, 100);
+    ref_beside(&ref, &b, 1); /* keyed and gated on, not yet stepped */
+    ref_set.key_follow = 1000;
+    fm_engine_render(&b, fbuf_b, 1237); /* mid-attack, mid control period */
+    for (n = 0; n < 1237; n++) fm_env_next(&ref);
+    fm_engine_note_on(&b, 84, 100); /* the same voice, 4 octaves up */
+    fm_env_key(&ref, 84);
+    fm_env_gate_on(&ref);
     fm_engine_render(&b, fbuf_b, 500);
     for (n = 0; n < 500; n++) fm_env_next(&ref);
     TT_CHECK_EQ(fm_env_level(&b.voices[0].filter_env), ref.level);
@@ -2989,10 +3076,12 @@ static void run_filter_tests(void)
     TT_RUN(unison_note_change_keeps_the_control_cadence);
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
     TT_RUN(env_skip_then_level_matches_stepping);
+    TT_RUN(env_skip_through_the_attack_ramp_matches_stepping);
     TT_RUN(env_skip_then_gate_off_matches_stepping);
     TT_RUN(env_skip_then_gate_on_matches_stepping);
     TT_RUN(env_skip_then_retime_matches_stepping);
     TT_RUN(env_skip_then_fade_matches_stepping);
+    TT_RUN(env_skip_then_key_matches_stepping);
     TT_RUN(env_skip_zero_is_a_no_op);
     TT_RUN(env_reset_drops_a_skip);
     TT_RUN(env_idle_skipped_stays_idle);
@@ -3013,6 +3102,7 @@ static void run_filter_tests(void)
     TT_RUN(amp_envelope_in_the_render_matches_env_next_every_sample);
     TT_RUN(filter_envelope_setting_change_spares_the_samples_before_it);
     TT_RUN(filter_envelope_sustain_change_spares_the_samples_before_it);
+    TT_RUN(filter_envelope_retrigger_with_key_follow_spares_the_samples_before_it);
     TT_RUN(gate_envelope_2_setting_change_spares_the_samples_before_it);
     TT_RUN(filter_envelope_runs_at_the_control_rate_and_stays_exact);
     TT_RUN(legato_note_change_reads_the_current_filter_envelope);

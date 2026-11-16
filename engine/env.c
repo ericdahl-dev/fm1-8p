@@ -173,9 +173,12 @@ static uint32_t exp2_cents(int32_t cents)
     return k >= 0 ? v << k : v >> -k;
 }
 
+static void catch_up(fm_env *e);
+
 void fm_env_key(fm_env *e, uint8_t note)
 {
     int32_t f = e->set->key_follow;
+    catch_up(e); /* the samples so far at the old note's scale */
     e->ks = f ? exp2_cents(-f * ((int32_t)note - KEY_CENTER) / 10) : (uint32_t)1 << 16;
 }
 
