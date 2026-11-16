@@ -52,7 +52,7 @@ typedef struct {
     uint8_t next_velocity;  /* `note`'s, kept beside next_peak */
     /* filter: settings copied from the engine's parameters, and state */
     fm_filter filter;
-    fm_env filter_env;
+    fm_env filter_env;      /* lazy (fm_env_skip): read at the control rate */
     int32_t rate_cents;     /* fm_filter_rate_cents(sample rate) */
     int32_t cutoff_cents;   /* base cutoff, linear cents (fm_filter_linear_cents) */
     int32_t key_track;      /* per mille */
@@ -86,7 +86,6 @@ typedef struct {
  * (shared by every voice, owned by the engine; kept by pointer). */
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
                     const fm_env_settings *amp, const fm_env_settings *filter);
-
 
 /* Sounding: attack through release, or fading out after a steal. */
 int fm_voice_active(const fm_voice *v);

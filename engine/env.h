@@ -118,25 +118,25 @@ static inline int32_t fm_env_step(fm_env *e)
  * Advances `n` samples at once: exactly `n` calls of fm_env_next, in a
  * few operations per segment crossed instead of
  * `n` steps. For an envelope that only needs to be current at times, not
- * every sample. Returns the level.
+ * every sample. Catches up a skip first. Returns the level.
  */
 int32_t fm_env_advance(fm_env *e, uint32_t n);
 
-/*
- * The lazy envelope: `n` samples pass without stepping it. It catches up
- * by itself, exactly (as fm_env_advance), when its level is read
- * (fm_env_level) or it is changed, so a caller never syncs it. An
- * envelope is either stepped (fm_env_step, fm_env_next) or skipped, not
- * both.
- */
-/* The most samples a skip leaves uncaught: a catch-up is then at most
- * this and the one skip that reached it, so its cost is bounded (a
- * segment crosses up to 64 samples in a few operations). */
+/* The most samples a skip leaves uncaught: one catch-up steps fewer than
+ * this plus the skip that reached it, so its cost is bounded (a segment
+ * crosses up to 64 samples in a few operations). */
 #define FM_ENV_LAG_MAX (1u << 12)
 
 /* Catches up the lag, then steps `n`: a skip that reaches FM_ENV_LAG_MAX. */
 void fm_env_skip_far(fm_env *e, uint32_t n);
 
+/*
+ * The lazy envelope: `n` samples pass without stepping it. It catches up
+ * by itself, exactly (as fm_env_advance), when its level is read
+ * (fm_env_level) or it is changed (gate on, gate off, fade, retime,
+ * advance), so a caller never syncs it. An envelope is either stepped
+ * (fm_env_step, fm_env_next: they do not catch up) or skipped, not both.
+ */
 static inline void fm_env_skip(fm_env *e, uint32_t n)
 {
     if (n >= FM_ENV_LAG_MAX - e->lag) /* lag < FM_ENV_LAG_MAX */
