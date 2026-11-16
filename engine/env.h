@@ -74,6 +74,8 @@ typedef struct {
     int32_t sus_level; /* sustain * peak, set at gate on and retime */
     const fm_env_settings *set; /* the shared settings (fm_env_init) */
     uint32_t ks; /* this note's time scale, Q16.16 (key follow; 1.0 at 0) */
+    uint32_t lag; /* samples passed but not yet stepped (fm_env_skip):
+                   * caught up when the level is read or changed */
 } fm_env;
 
 /* Starts an envelope, idle, on `set`: the only way to give it settings,
@@ -119,5 +121,20 @@ static inline int32_t fm_env_step(fm_env *e)
  * every sample. Returns the level.
  */
 int32_t fm_env_advance(fm_env *e, uint32_t n);
+
+/*
+ * The lazy envelope: `n` samples pass without stepping it. It catches up
+ * by itself, exactly (as fm_env_advance), when its level is read
+ * (fm_env_level) or it is changed, so a caller never syncs it. An
+ * envelope is either stepped (fm_env_step, fm_env_next) or skipped, not
+ * both.
+ */
+static inline void fm_env_skip(fm_env *e, uint32_t n)
+{
+    e->lag += n;
+}
+
+/* The level now: caught up first. */
+int32_t fm_env_level(fm_env *e);
 
 #endif /* FM_ENV_H */

@@ -189,8 +189,20 @@ void fm_env_gate_on(fm_env *e)
     sustain_level(e);
 }
 
+/* Steps the samples fm_env_skip counted, exactly: before any read or
+ * change, so a lazy envelope is never stale. */
+static void catch_up(fm_env *e)
+{
+    if (e->lag) {
+        uint32_t n = e->lag;
+        e->lag = 0;
+        fm_env_advance(e, n);
+    }
+}
+
 void fm_env_gate_off(fm_env *e)
 {
+    catch_up(e);
     if (e->stage == FM_ENV_IDLE) return;
     e->stage = FM_ENV_RELEASE;
     e->seg = 0;
@@ -338,5 +350,11 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
             n--;
         }
     }
+    return e->level;
+}
+
+int32_t fm_env_level(fm_env *e)
+{
+    catch_up(e);
     return e->level;
 }

@@ -1521,6 +1521,85 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
 }
 
 /*
+ * An envelope told that n samples passed (fm_env_skip) reads the level
+ * that n calls of fm_env_next would leave (fm_env_level), with the same
+ * stage and step after: random envelopes through every stage, the skip
+ * crossing segment and stage edges, against stepping one sample at a
+ * time. Each event (gate on, gate off, fade, retime) comes after a read,
+ * so this checks the skip and the read alone. The count in a hold (step
+ * 0) is not compared: fm_env_advance leaves it, and every way out of a
+ * hold restarts it.
+ */
+TT_TEST(env_skip_then_level_matches_stepping)
+{
+    static fm_env a, b;
+    uint32_t seed = 70701;
+    int trial, op, mismatches = 0, rising_high = 0;
+    for (trial = 0; trial < 300; trial++) {
+        env_random_pair(&a, &b, &seed);
+        for (op = 0; op < 40; op++) {
+            uint32_t n, k;
+            int32_t got, last;
+            rising_high += env_random_op(&a, &b, &seed, &n);
+            fm_env_skip(&a, n);
+            got = fm_env_level(&a);
+            last = b.level;
+            for (k = 0; k < n; k++) last = fm_env_next(&b);
+            if (got != last || a.level != b.level || a.stage != b.stage ||
+                a.step != b.step || (a.step && a.seg != b.seg))
+                mismatches++;
+        }
+    }
+    TT_CHECK_EQ(mismatches, 0);
+    TT_CHECK(rising_high > 0);
+}
+
+/* What a lazy-envelope test does right after the skip, to `a` (skipped)
+ * and `b` (stepped), with no read between. */
+typedef void (*env_change_fn)(fm_env *e, uint32_t *seed);
+
+/*
+ * Random envelopes through every stage: `a` skips n samples and gets
+ * `change` with no read first, `b` steps them and gets the same. Then
+ * both run 400 samples (a read, then stepping) and must match on every
+ * one. Returns the mismatches.
+ */
+static int env_skip_then_change(env_change_fn change, uint32_t seed)
+{
+    static fm_env a, b;
+    int trial, op, mismatches = 0;
+    for (trial = 0; trial < 200; trial++) {
+        env_random_pair(&a, &b, &seed);
+        for (op = 0; op < 20; op++) {
+            uint32_t n, k, sa = seed, sb = seed;
+            env_random_op(&a, &b, &seed, &n);
+            fm_env_skip(&a, n);
+            for (k = 0; k < n; k++) fm_env_next(&b);
+            change(&a, &sa);
+            change(&b, &sb);
+            seed = sa;
+            if (fm_env_level(&a) != b.level) mismatches++;
+            for (k = 0; k < 400; k++)
+                if (fm_env_next(&a) != fm_env_next(&b) || a.stage != b.stage)
+                    mismatches++;
+        }
+    }
+    return mismatches;
+}
+
+static void env_change_gate_off(fm_env *e, uint32_t *seed)
+{
+    (void)seed;
+    fm_env_gate_off(e);
+}
+
+/* Gate off after a skip releases from the caught-up level. */
+TT_TEST(env_skip_then_gate_off_matches_stepping)
+{
+    TT_CHECK_EQ(env_skip_then_change(env_change_gate_off, 70702), 0);
+}
+
+/*
  * fm_env_step (inline, for the render loop) is fm_env_next: the same level,
  * stage and step after every sample, through random envelopes in every
  * stage (gate on at a random peak, retime, gate off, fade), with the
@@ -2731,6 +2810,8 @@ static void run_filter_tests(void)
     TT_RUN(leaving_the_open_filter_continues_from_a_consistent_state);
     TT_RUN(unison_note_change_keeps_the_control_cadence);
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
+    TT_RUN(env_skip_then_level_matches_stepping);
+    TT_RUN(env_skip_then_gate_off_matches_stepping);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);
