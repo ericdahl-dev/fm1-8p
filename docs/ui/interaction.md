@@ -570,6 +570,10 @@ The white keys in SEQ view, while no step is armed (steps 1-16):
 The black keys in SEQ view are dark. While a step is armed, any key held is
 lit.
 
+In REC (step record, S5): every key plays, so a key held is lit; the cursor
+step's white key blinks at 8 Hz (where the next step lands), and the other
+white keys keep showing their steps, dimmed, as a map (Eric, R2).
+
 Outside SEQ view:
 
 - **While the sequencer plays:** only the playhead step's white key is lit.
@@ -582,7 +586,9 @@ Button LEDs:
 - **SEQ:** lit in SEQ view, and glows otherwise.
 - **PLAY:** lit while playing, with a short dark flash on each beat. Glows
   when stopped. Blinks when it is waiting for external clock.
-- **REC:** lit while step record is armed, and glows otherwise.
+- **REC:** lit while step record is armed, and glows otherwise (stopped). While
+  playing it's off: REC does nothing then but say `STOP TO RECORD`.
+- **FX in SEQ view:** glows in REC (BACK), off otherwise.
 
 ### SEQ view
 
@@ -595,10 +601,10 @@ pressed from. In SEQ view:
 
 - **SELECT** moves the step cursor (1..length, wraps), and the screen shows
   that step.
-- **A step key with no chord held** moves the cursor to that step. While
-  stopped and not in REC, it also plays the step's notes once, as an audition.
-- **A step key with a chord held** writes the chord to that step and moves the
-  cursor there (see [Writing steps](#writing-steps)).
+- **A step key** (a white key) moves the cursor to that step and arms it: the
+  notes played next are written there (see [Writing steps](#writing-steps)).
+  It plays nothing itself; there is no audition of the step's old notes
+  (Eric, R4: the roll shows them).
 - **PRESETS** browses patterns (see [Pattern slots](#pattern-slots)).
 - **SAVE** saves the pattern.
 - **ALGORITHM** picks the SEQ page:
@@ -627,6 +633,29 @@ pressed from. In SEQ view:
 | ENV | toggle TIE on the cursor step | write a TIE, advance |
 | LFO | toggle JUMP or GLIDE on the cursor step | same |
 | FX | unassigned | step back one step, without writing |
+
+### The piano roll (S5, spec draft)
+
+SEQ view's screen is visual.md's piano roll (PR #53): the layout, the grid,
+how a note, chord, tie, rest, past-length step, the cursor and the playhead
+look, and the per-column redraw are as visual.md has them, in step entry, in
+REC and while playing. It replaces S2's 16-step strip. Eric's "I would prefer a
+piano style sequencer" (2026-11-15) is this plan; the input stays as it is.
+
+**The roll doesn't depend on REC,** so it lands first, as its own PR (S5a,
+after Eric's #250 report), and REC follows (S5b).
+
+What the white-key steps add to #53:
+
+- **The 27-key strip** underlines the 16 white keys as the steps and the black
+  keys dim (visual.md, updated).
+- **The readout's last line** is `PLAY` (or `REC`) with the notes played so
+  far while a step is armed or REC builds one, else `TAP STEP, THEN PLAY`
+  (#53's `HELD` line).
+- **The armed step** (new with tap-then-play; #53 has no armed state): its
+  cursor frame thickens to 2 px and blinks, and the notes being played appear
+  in its column at 45 % as they go down, in full once written (Eric, 2026-11-15,
+  having seen #53's mockup: "I like it. Carry on.").
 
 ### Writing steps
 
@@ -657,25 +686,34 @@ in, with the octave applied). In both:
 5. Tapping the armed step's key again plays its note (it isn't a way out), so
    a step can hold the note of its own key.
 
-**2. Step record (REC, while stopped):**
+**2. Step record (REC, while stopped; S5, spec draft):**
+
+Step record is way 1 kept armed: you play a line of steps one after another,
+without tapping each step first.
 
 1. **Arming:** REC tap while stopped arms step record. If you are not in SEQ
-   view, it goes there. The cursor stays where it is, and the REC LED is lit.
-   While playing, REC does nothing but show `STOP TO RECORD` (decision Q3), and
-   its LED is off.
-2. **Building a step:** play a note or chord on the keys or over MIDI.
-   Each key down sounds and joins the step being built.
-3. **Writing:** when the last held key or MIDI note is released, the
-   step is written at the cursor and the cursor advances (and wraps at the
-   length).
-4. **Moving the cursor:** with the white keys taken by way 1 (tap a step, then
-   play), how REC moves the cursor is settled with S5.
-5. **Rests, ties and going back:** SEL writes a rest, ENV writes a tie, and FX
-   steps back.
-6. **Leaving:** REC tap disarms.
+   view, it goes there. The cursor stays where it is, the REC LED is lit, and
+   the header's chip reads `REC`. While playing, REC does nothing but show
+   `STOP TO RECORD` (decision Q3), and its LED is off.
+2. **The keyboard in REC:** all 27 keys play notes (Eric, R1); none is a step
+   key. MIDI notes in play too.
+3. **Building and writing a step:** each key down sounds and joins the step
+   being built. When every key and MIDI note is let go, the step is written at
+   the cursor (the first voice-count notes, at the highest velocity, as in
+   way 1) and the cursor advances, around at the length. Recording goes on at
+   the new cursor: there is no time-out in REC.
+4. **Moving the cursor:** SELECT moves it, as outside REC. FX steps back one
+   step without writing.
+5. **Rests and ties:** SEL writes a rest and ENV writes a tie at the cursor,
+   and each advances it (outside REC they act on the cursor step without
+   advancing).
+6. **Leaving:** REC tap disarms, as does leaving SEQ view (SEQ, HOME, EDIT or
+   GLO). A step being built when REC disarms is dropped (nothing is written).
 7. **PLAY while armed:** the sequencer starts and REC disarms, so a performance
    doesn't record over the pattern. There is no live recording while playing in
    this version (decision Q3).
+8. **Bend and mod** (#42, S7): the live MIDI-in bend and CC1 when a step is
+   written; until S7, steps hold none.
 
 ### Pattern slots
 
@@ -783,7 +821,8 @@ Everywhere, unless the state says otherwise:
 - **Must:** the current pattern number (`PATTERN 41`), with a PATTERN EDITED
   marker. While a next pattern is queued, also `NEXT PATTERN 23`.
 - **Must:** a transport indicator: STOPPED, PLAYING with the step number, or
-  WAITING FOR CLOCK. Also the clock source in use, INT or MIDI, and the tempo.
+  WAITING FOR CLOCK. Also the clock source in use, INT or MIDI, and the tempo:
+  the header's `▶07 112 INT` (R5; `INT` until #38 brings MIDI clock).
 - **Must:** a banner line for short messages, shown 1.5 s:
   - `SAVED 23`, `SAVED PATTERN 23`
   - `EDITED - TURN TO DISCARD`
@@ -922,7 +961,12 @@ stateDiagram-v2
         Steps --> Armed: white key tap (that step)
         Armed --> Steps: every note let go (written, cursor +1)
         Armed --> Steps: 3 s with no note / any other control
+        Steps --> Rec: REC tap (stopped)
+        Rec --> Rec: every note let go (written, cursor +1) / SEL rest / ENV tie / FX back
+        Rec --> Steps: REC tap / PLAY (starts, disarms)
     }
+    PLAY --> Rec: REC tap (stopped)
+    EDIT --> Rec: REC tap (stopped)
     state EDIT {
         [*] --> Page
         Page --> Compare: EDIT held 400 ms

@@ -25,7 +25,7 @@ What each control does is the interaction model's job, in [`interaction.md`](int
 - the section names (DCO-1, DCO-2, MIX, VCF, VCF ENV, VCA, LFO, CTRL);
 - the two-digit parameter numbers, where the tens digit is the section (VCF is 41-44);
 - the 12-page order;
-- the split keyboard in SEQ view (F3..G#4 are the 16 step keys, and A4..G5 play chords);
+- the keyboard in SEQ view (the 16 white keys F3..G5 are the steps; tap one, then play its notes);
 - the separate pattern slots;
 - the key LED rules;
 - the per-state screen content of its section 6.
@@ -267,10 +267,10 @@ The SEQ view follows `interaction.md`'s SEQ list, top to bottom:
 | --- | --- |
 | 0-23 | `SEQ`, the SEQ page (`S2 STEP`), the transport |
 | 26-97 | the roll: 16 step columns of 14 px, pitch upward. The range fits the pattern's notes, at least an octave. Alternate groups of 4 steps are shaded as beats, with C lines. |
-| 101-153 | the cursor step: its number in the LED window, the chord name in D20 (`C MIN7`), the notes in Terminus (`C3 Eb3 G3 Bb3`), `TIE > 6`, and `HELD` with the chord held now |
+| 101-153 | the cursor step: its number in the LED window, the chord name in D20 (`C MIN7`), the notes in Terminus (`C3 Eb3 G3 Bb3`), `TIE > 6`, and, while a step is armed or REC builds one, `PLAY` (`REC`) with the notes played so far (else `TAP STEP, THEN PLAY`) |
 | 156-187 | the S1, S2 or S3 page's four knob values, one cell per knob |
 | 191-206 | what the section buttons mean here: `SEL REST`, `ENV TIE`, `LFO MOVE`, and `FX BACK` in REC (`--` otherwise) |
-| 208-222 | the 27-key strip (rows 208-219, its 2 px underline at 221-222, clear of the footer's rule at 223), mirroring the key LEDs. The step keys F3..G#4 are underlined in the SEQ color and the chord keys A4..G5 in dim, so the split is visible. |
+| 208-222 | the 27-key strip (rows 208-219, its 2 px underline at 221-222, clear of the footer's rule at 223), mirroring the key LEDs. The 16 white keys (the steps, F3..G5) are underlined in the SEQ color and the black keys in dim (Eric's white-key steps, #250; the mockup still draws the earlier split). |
 | 224-239 | the pattern number and name with `*`, and `NEXT 42` while a pattern is queued |
 
 The steps are drawn like this:

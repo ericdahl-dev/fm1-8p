@@ -105,10 +105,16 @@ typedef struct {
     uint32_t built_n;
     char seq_msg[16];                   /* "MAX 4 NOTES", the banner */
     uint32_t shown_steps;               /* seq_steps as SEQ view's strip last drew it */
+    uint32_t roll_dirty;                /* the piano roll's columns to redraw (bit i: step i) */
+    uint32_t roll_lo, roll_pps;         /* its pitch range: the lowest note, px a semitone (0: fit anew) */
+    uint32_t roll_seen_lo, roll_seen_hi; /* the notes it was fitted to: within them, no refit */
+    int32_t shown_playhead;             /* the playhead as the roll last drew it (-1 none) */
+    uint32_t shown_blink;               /* the armed step's blink phase as drawn */
     uint32_t boot;                      /* the boot screen (#50): 1 while it shows, 2 begun, 0 done */
     uint32_t boot_ms, boot_loaded;      /* when it began (its first ui_take); the flash banks read */
     uint32_t boot_btns;                 /* buttons that skipped it: their releases do nothing either */
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
+    uint32_t shown_clock;               /* SEQ view: the clock as drawn (external, waiting, tempo) */
     int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */

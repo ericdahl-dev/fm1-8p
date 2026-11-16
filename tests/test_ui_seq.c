@@ -499,8 +499,352 @@ TT_TEST(seq_key_leds)
     TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[2], 1), (uint32_t)UI_LED_LIT);    /* a held key */
 }
 
+/* The piano roll's pitch range (visual.md, S5a): it fits the pattern's notes, at least an octave; 3 px a
+ * semitone up to 24 rows, 2 px up to 36; it refits only when a note falls outside, so it doesn't jump */
+TT_TEST(seq_roll_fits_the_notes)
+{
+    static const uint8_t LOW[1] = {48}, HIGH[1] = {72}, MID[1] = {60}, TOP[1] = {90};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_seq_roll_fit(&ui_u);                             /* empty: an octave around C4 */
+    TT_CHECK_EQ(ui_u.roll_pps, 3u);
+    TT_CHECK(ui_u.roll_lo <= 60u && 60u < ui_u.roll_lo + 72u / 3u);
+    seq_set_step(s, 0, LOW, 1, 100);
+    seq_set_step(s, 1, HIGH, 1, 100);                         /* 48..72: 25 rows, 2 px */
+    TT_CHECK(ui_seq_roll_fit(&ui_u));
+    TT_CHECK_EQ(ui_u.roll_pps, 2u);
+    TT_CHECK(ui_u.roll_lo <= 48u && 72u < ui_u.roll_lo + 72u / 2u);
+    seq_set_step(s, 2, MID, 1, 100);                          /* inside: no refit */
+    TT_CHECK(!ui_seq_roll_fit(&ui_u));
+    seq_set_step(s, 3, TOP, 1, 100);                          /* 48..90: wider than 36, centered */
+    TT_CHECK(ui_seq_roll_fit(&ui_u));
+    TT_CHECK_EQ(ui_u.roll_pps, 2u);
+}
+
+/* The roll redraws column by column (visual.md: never whole while it plays): a cursor move marks the
+ * old and new columns, an edit its column, a playhead move the old and new, opening SEQ view all 16 */
+TT_TEST(seq_roll_redraws_only_what_changed)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);            /* all of it */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 3, 1100);      /* cursor 0 -> 3 */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), (1u << 0) | (1u << 3));
+    ui_tap(UI_BTN_ENV, 1200);                                 /* a tie on step 4 */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u) & (1u << 3), 1u << 3);
+    seq_set_step(s, 0, C, 1, 100);
+    (void)ui_seq_roll_take(&ui_u);
+    ui_tap(UI_BTN_PLAY, 1300);
+    seq_render_to(1);
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK(ui_seq_roll_take(&ui_u) & (1u << 1));            /* the playhead's new column */
+    seq_render_to(2);
+    (void)ui_take(&ui_u, 1500);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u) & ((1u << 1) | (1u << 2)), (1u << 1) | (1u << 2));
+}
+
+/* The readout names a step's chord when it's a common triad or seventh (Eric, R3), from any voicing and
+ * inversion; otherwise "" (the notes show alone) */
+TT_TEST(seq_chord_names)
+{
+    static const struct { uint8_t n, note[4]; const char *name; } C[] = {
+        {3, {60, 64, 67}, "C MAJ"}, {3, {57, 60, 64}, "A MIN"}, {3, {64, 67, 72}, "C MAJ"},
+        {3, {59, 62, 65}, "B DIM"}, {3, {60, 64, 68}, "C AUG"}, {3, {62, 64, 69}, "D SUS2"},
+        {3, {62, 67, 69}, "D SUS4"}, {4, {55, 59, 62, 65}, "G 7"}, {4, {53, 57, 60, 64}, "F MAJ7"},
+        {4, {48, 51, 55, 58}, "C MIN7"}, {4, {61, 65, 68, 72}, "C# MAJ7"}, {1, {60}, ""},
+        {2, {60, 67}, ""}, {3, {60, 61, 62}, ""},
+    };
+    char name[UI_SEQ_TEXT_LEN];
+    uint32_t i;
+    for (i = 0; i < sizeof C / sizeof C[0]; i++) {
+        ui_seq_chord_name(C[i].note, C[i].n, name);
+        if (strcmp(name, C[i].name) != 0)
+            printf("    chord %u: \"%s\", not \"%s\"\n", (unsigned)i, name, C[i].name);
+        TT_CHECK(strcmp(name, C[i].name) == 0);
+    }
+}
+
+/* An armed step's frame blinks at 8 Hz: each flip redraws its column alone, and nothing else in the roll */
+TT_TEST(seq_roll_blink_redraws_the_armed_column)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[3], 1, 1100), 1);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[3], 0, 1110), 1);       /* armed on step 4 */
+    (void)ui_take(&ui_u, 1120);
+    (void)ui_seq_roll_take(&ui_u);
+    (void)ui_take(&ui_u, 1130);                               /* a flip (125 ms a phase) */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 1u << 3);
+    (void)ui_take(&ui_u, 1140);                               /* none */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0u);
+    (void)ui_take(&ui_u, 1250);                               /* the next flip */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 1u << 3);
+}
+
+/* An armed step's notes count toward the range as they go down: one below it refits the roll */
+TT_TEST(seq_roll_fits_an_armed_note)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_seq_roll_fit(&ui_u);                             /* empty: around C4 */
+    TT_CHECK(ui_u.roll_lo > 30u);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[0], 1, 1100), 1);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[0], 0, 1110), 1);       /* armed on step 1 */
+    seq_note(5, 30, 100, 1, 1200);                            /* F#1, held */
+    TT_CHECK(ui_seq_roll_fit(&ui_u));
+    TT_CHECK(ui_u.roll_lo <= 30u);
+}
+
+/* A pattern loaded from PRESETS redraws every column of the roll */
+TT_TEST(seq_roll_redraws_whole_on_a_pattern_load)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1050);
+    (void)ui_seq_roll_take(&ui_u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    (void)ui_take(&ui_u, 1110);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+}
+
+/* LENGTH, a tie and a rest change what the steps after the cursor hold (a tie runs on until a rest),
+ * so each redraws every column */
+TT_TEST(seq_roll_redraws_whole_on_length_tie_and_rest)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1050);
+    (void)ui_seq_roll_take(&ui_u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -4, 1100);     /* LENGTH 12 */
+    (void)ui_take(&ui_u, 1110);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+    ui_tap(UI_BTN_ENV, 1200);                                 /* a tie */
+    (void)ui_take(&ui_u, 1310);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+    ui_tap(UI_BTN_SEL, 1400);                                 /* a rest */
+    (void)ui_take(&ui_u, 1510);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+}
+
+/* Stopping takes the playhead off: its last column redraws */
+TT_TEST(seq_roll_stop_clears_the_playhead)
+{
+    static const uint8_t C[1] = {60};
+    ui_setup();
+    seq_set_step(play_seq(&ui_p), 0, C, 1, 100);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_tap(UI_BTN_PLAY, 1100);
+    seq_render_to(2);
+    (void)ui_take(&ui_u, 1200);
+    (void)ui_seq_roll_take(&ui_u);
+    ui_tap(UI_BTN_PLAY, 1300);                                /* stop */
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK(ui_seq_roll_take(&ui_u) & (1u << 2));
+}
+
+/* A queued pattern taking over at the pass's end redraws the whole roll and the readout */
+TT_TEST(seq_roll_redraws_whole_when_the_next_pattern_takes_over)
+{
+    uint32_t d;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_tap(UI_BTN_PLAY, 1100);
+    seq_render_to(0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1200);    /* NEXT PATTERN 12 */
+    seq_render_to(15);
+    (void)ui_take(&ui_u, 1300);
+    (void)ui_seq_roll_take(&ui_u);
+    seq_render_to(0);                                         /* the pass ends: 12 plays */
+    play_pattern_tick(&ui_p);                                 /* (the module's main loop) */
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    d = ui_take(&ui_u, 1400);
+    TT_CHECK(d & UI_D_FOCUS);
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+}
+
+/* The header shows the tempo (>07 120 INT): a TEMPO turn redraws it, stopped or playing */
+TT_TEST(seq_tempo_turn_redraws_the_header)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1050);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1100);      /* 121 BPM */
+    TT_CHECK(ui_take(&ui_u, 1110) & UI_D_HEAD);
+}
+
+/* Notes wider than the roll (over 36 semitones): it fits once, then stays put; a refit would redraw
+ * every column on every step */
+TT_TEST(seq_roll_wide_span_fits_once)
+{
+    static const uint8_t LOW[1] = {30}, HIGH[1] = {90}, MID[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, LOW, 1, 100);
+    seq_set_step(s, 1, HIGH, 1, 100);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK(ui_seq_roll_fit(&ui_u));
+    TT_CHECK(!ui_seq_roll_fit(&ui_u));
+    seq_set_step(s, 2, MID, 1, 100);                          /* within what it saw: still put */
+    TT_CHECK(!ui_seq_roll_fit(&ui_u));
+}
+
+/* MIDI clock in at 120 BPM: n ticks, from host time 0 (24 MHz, 500000 counts a tick) */
+static void seq_clock_ticks(uint32_t n)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        seq_clock_in(play_seq(&ui_p), 0xF8u, i * (SEQ_CLK_HZ / 48u));
+}
+
+/* Under external clock, TEMPO shows the clock's tempo and MIDI CLOCK (interaction.md 5); on INT, the
+ * pattern's tempo in BPM */
+TT_TEST(seq_tempo_shows_the_midi_clock)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN], want[UI_VALUE_LEN];
+    uint32_t t;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(unit, "BPM") == 0);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    seq_clock_ticks(96);
+    t = seq_clock_tempo(play_seq(&ui_p));
+    TT_CHECK(t >= 1190u && t <= 1210u);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(unit, "MIDI CLOCK") == 0);
+    snprintf(want, sizeof want, "%u", (unsigned)(t / 10u));
+    TT_CHECK(strncmp(num, want, strlen(want)) == 0);
+}
+
+/* A TEMPO turn under external clock changes nothing and says TEMPO FOLLOWS MIDI CLOCK (case 48) */
+TT_TEST(seq_tempo_turn_under_the_clock_says_so)
+{
+    uint32_t before;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    seq_clock_ticks(96);
+    before = seq_tempo(play_seq(&ui_p));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 5, 1100);
+    TT_CHECK_EQ(seq_tempo(play_seq(&ui_p)), before);
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+    TT_CHECK(strcmp(ui_banner(&ui_u), "TEMPO FOLLOWS MIDI CLOCK") == 0);
+    TT_CHECK(strlen(ui_banner(&ui_u)) <= 28u);
+}
+
+/* The transport's clock (interaction.md 7): INT, MIDI, or WAITING FOR CLOCK while PLAY waits (case 47) */
+TT_TEST(seq_clock_text_names_the_source)
+{
+    char t[UI_SEQ_TEXT_LEN];
+    ui_setup();
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "INT") == 0);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);      /* G13 MIDI, no clock yet */
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "MIDI") == 0);
+    ui_tap(UI_BTN_PLAY, 1000);
+    TT_CHECK(seq_waiting(play_seq(&ui_p)));
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "WAITING FOR CLOCK") == 0);
+}
+
+/* The clock changes with no input (it starts, its tempo moves, PLAY waits): SEQ view's TEMPO, header and
+ * footer redraw by themselves; with nothing changed, none of them */
+TT_TEST(seq_clock_changes_redraw_by_themselves)
+{
+    uint32_t d, i;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1100);
+    TT_CHECK_EQ(ui_take(&ui_u, 1200) & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), 0u);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);      /* INT to MIDI */
+    d = ui_take(&ui_u, 1300);
+    TT_CHECK_EQ(d & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), UI_D_FOOT | UI_D_HEAD | UI_D_COL(0));   /* (the roll's
+                                                                                   header: >07 120 MIDI) */
+    seq_clock_ticks(96);                                      /* 120 BPM: as shown already, so nothing */
+    (void)ui_take(&ui_u, 1400);
+    TT_CHECK_EQ(ui_take(&ui_u, 1500) & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), 0u);
+    for (i = 96; i < 192; i++)                                /* faster: 140 BPM */
+        seq_clock_in(play_seq(&ui_p), 0xF8u, 96u * (SEQ_CLK_HZ / 48u) + (i - 96u) * (SEQ_CLK_HZ / 56u));
+    TT_CHECK(ui_take(&ui_u, 1600) & UI_D_COL(0));
+}
+
+/* G13 MIDI before any clock comes in: TEMPO shows the pattern's tempo (the clock has none yet), still
+ * marked MIDI CLOCK; a turn still says the clock sets it */
+TT_TEST(seq_tempo_before_the_clock_comes_in)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(num, "120") == 0);
+    TT_CHECK(strcmp(unit, "MIDI CLOCK") == 0);
+}
+
+/* A 120 BPM clock with +-1.5 ms of jitter: once it has settled, TEMPO shows 120 and the screen doesn't
+ * redraw for the clock's small moves (the firmware review: the raw tempo redrew at frame rate) */
+TT_TEST(seq_jittery_clock_settles_on_the_screen)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    uint32_t i, r = 777u, redraws = 0, ms = 1000;
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, ms);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    for (i = 0; i < 960u; i++) {                              /* 40 beats */
+        r = r * 1103515245u + 12345u;
+        seq_clock_in(play_seq(&ui_p), 0xF8u, 1000000u + i * (SEQ_CLK_HZ / 48u) + (r >> 16) % 72000u - 36000u);
+        if (i % 4u == 0) {                                    /* a frame each 4 ticks (about 30 a second) */
+            ms += 40u;
+            if (i >= 480u && ui_take(&ui_u, ms) & (UI_D_FOOT | UI_D_COL(0)))
+                redraws++;
+            else if (i < 480u)
+                (void)ui_take(&ui_u, ms);
+        }
+    }
+    ui_seq_column(&ui_u, 0, num, unit);
+    TT_CHECK(strcmp(num, "120") == 0);
+    TT_CHECK_EQ(redraws, 0u);
+}
+
+/* A clock's first two ticks a hair apart read as a huge tempo for a moment: the tempo SEQ view shows stays
+ * three digits (999 BPM at most), so no text runs past its digits (the firmware review: 39761 BPM wrote
+ * past the header's buffer) */
+TT_TEST(seq_clock_burst_shows_at_most_three_digits)
+{
+    uint32_t i, worst = 0;
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_clock_source(s, SEQ_CLK_MIDI);
+    seq_clock_in(s, 0xF8u, 1000u);
+    seq_clock_in(s, 0xF8u, 1010u);                            /* 10 counts apart */
+    for (i = 0; i < 48u; i++) {
+        uint32_t t;
+        seq_clock_in(s, 0xF8u, 1010u + (i + 1u) * (SEQ_CLK_HZ / 48u));
+        t = ui_seq_tempo_shown(&ui_u);
+        worst = t > worst ? t : worst;
+    }
+    TT_CHECK(worst <= 9990u);
+}
+
 static void run_ui_seq_tests(void)
 {
+    TT_RUN(seq_tempo_shows_the_midi_clock);
+    TT_RUN(seq_tempo_turn_under_the_clock_says_so);
+    TT_RUN(seq_clock_text_names_the_source);
+    TT_RUN(seq_clock_changes_redraw_by_themselves);
+    TT_RUN(seq_tempo_before_the_clock_comes_in);
+    TT_RUN(seq_jittery_clock_settles_on_the_screen);
+    TT_RUN(seq_clock_burst_shows_at_most_three_digits);
     TT_RUN(seq_tap_opens_and_goes_back);
     TT_RUN(seq_play_starts_and_stops_anywhere);
     TT_RUN(seq_white_keys_are_steps_and_black_keys_nothing);
@@ -508,6 +852,17 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_step_keeps_the_first_voices_notes_and_wraps);
     TT_RUN(seq_armed_step_lets_go_without_a_note);
     TT_RUN(seq_key_leds);
+    TT_RUN(seq_roll_fits_the_notes);
+    TT_RUN(seq_roll_redraws_only_what_changed);
+    TT_RUN(seq_chord_names);
+    TT_RUN(seq_roll_blink_redraws_the_armed_column);
+    TT_RUN(seq_roll_fits_an_armed_note);
+    TT_RUN(seq_roll_redraws_whole_on_a_pattern_load);
+    TT_RUN(seq_roll_redraws_whole_on_length_tie_and_rest);
+    TT_RUN(seq_roll_stop_clears_the_playhead);
+    TT_RUN(seq_roll_redraws_whole_when_the_next_pattern_takes_over);
+    TT_RUN(seq_tempo_turn_redraws_the_header);
+    TT_RUN(seq_roll_wide_span_fits_once);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
     TT_RUN(seq_section_buttons_and_the_way_out);
