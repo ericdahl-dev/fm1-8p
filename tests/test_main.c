@@ -48,6 +48,7 @@
 #include "test_svf.c"
 #include "test_dfont.c"
 #include "test_ui_boot.c"
+#include "test_ui_format.c"
 
 int main(void)
 {
@@ -85,5 +86,6 @@ int main(void)
     run_svf_tests();
     run_dfont_tests();
     run_ui_boot_tests();
+    run_ui_format_tests();
     return tt_report();
 }
