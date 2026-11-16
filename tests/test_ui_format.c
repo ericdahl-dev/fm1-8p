@@ -24,7 +24,13 @@ TT_TEST(ui_format_every_value_reads_as_the_golden)
 {
     uint32_t i, moved = 0;
     for (i = 0; i < UFW_GOLDEN_N; i++) {        /* (every param that moved is named, not only the first) */
-        uint32_t points, h = ufw_hash(UFW_GOLDEN[i].id, &points);
+        uint32_t points, h;
+        if (!fm_param_info_get(UFW_GOLDEN[i].id)) {   /* a param gone: named, not walked */
+            printf("    %s: no such param now (make ui-golden)\n", UFW_GOLDEN[i].name);
+            moved++;
+            continue;
+        }
+        h = ufw_hash(UFW_GOLDEN[i].id, &points);
         if (h != UFW_GOLDEN[i].hash || points != UFW_GOLDEN[i].points) {
             printf("    %s: its walk differs from the golden (make ui-golden shows how)\n", UFW_GOLDEN[i].name);
             moved++;
