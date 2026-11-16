@@ -226,14 +226,15 @@ TT_TEST(amp_attack_runs_to_25_seconds)
 }
 
 /* Samples from note on until the voice's amp envelope first reaches its peak (0 if the engine won't start). */
-static uint32_t samples_to_peak(uint32_t rate, int32_t attack_ms, int gate)
+static uint32_t samples_to_peak_at(uint32_t rate, int32_t attack_ms, int gate, uint8_t note, int32_t follow)
 {
     uint32_t n = 0;
     if (fm_engine_init(&eng, rate, 1) != FM_OK) return 0;
     fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, attack_ms);
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_KEY_FOLLOW, follow);
     if (gate) fm_engine_set_param(&eng, FM_PARAM_AMP_GATE, 1);
-    fm_engine_note_on(&eng, 60, 127);
+    fm_engine_note_on(&eng, note, 127);
     while (eng.voices[0].amp_env.level < eng.voices[0].amp_env.peak && n < rate) {
         fm_engine_render(&eng, buf, 1);
         n++;
@@ -241,8 +242,13 @@ static uint32_t samples_to_peak(uint32_t rate, int32_t attack_ms, int gate)
     return n;
 }
 
+static uint32_t samples_to_peak(uint32_t rate, int32_t attack_ms, int gate)
+{
+    return samples_to_peak_at(rate, attack_ms, gate, 60, 0);
+}
+
 /* PG-8X 2.0.13's fastest amp attack (ENV-2 ATTACK 0) reaches full in about 1.5 ms, from a slow start; a shorter
- * one starts a note on a step heard as a click (#274). So an amp attack under 1.5 ms plays as 1.5 ms, from any
+ * one starts a note on a step heard as a click (#274). So an amp attack under 1.4 ms plays as 1.4 ms, from any
  * source (a patch, a live edit, MIDI CC): 0 and 1 ms take at least 1.4 ms to the peak, the same as each other,
  * and 2 ms is left as it was, later. */
 TT_TEST(amp_attack_is_at_least_pg8x_fastest)
@@ -258,6 +264,19 @@ TT_TEST(amp_attack_is_at_least_pg8x_fastest)
         TT_CHECK_EQ(at0, at1);
         TT_CHECK(at2 > at1);
     }
+}
+
+/* PG-8X keeps that fastest attack on every key: at ENV-2 ATTACK 0 its onset is the same at C2, C4, C6 and C7 with
+ * ENV-2 KEY at any position (measured, #274 review). Key follow shortens the attack above C2, so the floor holds
+ * after it: C6 at 520 and C7 at 780 take as long to the peak as C4 with no key follow. */
+TT_TEST(amp_attack_floor_holds_on_high_keys)
+{
+    uint32_t c4 = samples_to_peak_at(RATE, 0, 0, 60, 0), c6 = samples_to_peak_at(RATE, 0, 0, 84, 520),
+             c7 = samples_to_peak_at(RATE, 0, 0, 96, 780);
+    printf("    attack 0 to peak: C4 %u, C6 at 520 %u, C7 at 780 %u samples\n", (unsigned)c4, (unsigned)c6,
+           (unsigned)c7);
+    TT_CHECK_EQ(c6, c4);
+    TT_CHECK_EQ(c7, c4);
 }
 
 /* PG-8X's amp onset starts with no slope: at ENV-2 ATTACK 0 it is at 0.02 of full 0.1 ms after note on and 0.17 at
@@ -728,6 +747,7 @@ static void run_engine_tests(void)
     TT_RUN(amp_envelope_follows_adsr_settings);
     TT_RUN(amp_attack_runs_to_25_seconds);
     TT_RUN(amp_attack_is_at_least_pg8x_fastest);
+    TT_RUN(amp_attack_floor_holds_on_high_keys);
     TT_RUN(gate_mode_opens_at_pg8x_fastest_attack);
     TT_RUN(amp_attack_eases_in_from_zero);
     TT_RUN(amp_dyna_sets_the_level_by_the_dynamics_curve);

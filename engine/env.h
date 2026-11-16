@@ -52,6 +52,8 @@ typedef struct {
     int32_t sustain;
     int32_t key_follow; /* per mille: the times x 2^(-this x octaves above
                          * C2) for the note (fm_env_key) */
+    uint32_t attack_min; /* the shortest attack, in samples, after key
+                          * follow (the amp's, #274); 0 for none */
 } fm_env_settings;
 
 typedef struct {
@@ -60,12 +62,13 @@ typedef struct {
     int32_t step;  /* per-sample change in this segment, signed */
     uint8_t stage; /* fm_env_stage */
     uint8_t seg;   /* calls left in this straight segment (attack, decay,
-                    * release) or hold (sustain, idle, step 0); 0: the next
+                    * release) or hold (sustain, idle); 0: the next
                     * call starts one, or lands */
     uint8_t frac;  /* the fraction of an LSB the last segment's span left
                     * over, Q8, carried into the next */
     uint8_t ramp;  /* attack segments still easing in (#274): the step at
-                    * 2^-ramp of the curve's, each RAMP_SAMPLES long */
+                    * 2^-ramp of the curve's, each at most RAMP_SAMPLES
+                    * long */
     int32_t peak;  /* level the attack rises to (velocity), Q1.30; the
                     * sustain level is scaled by it too */
     int32_t sus_level; /* sustain * peak, set at gate on and retime */

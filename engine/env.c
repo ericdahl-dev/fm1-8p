@@ -95,10 +95,13 @@ static int attack_segment(fm_env *e)
 {
     int32_t d = e->peak - e->level, rem;
     uint32_t t = scaled(e, e->set->attack_samples), k;
+    if (t < e->set->attack_min) t = e->set->attack_min; /* after key follow */
     if (d <= 0 || t == 0) return 0;
     rem = start_segment(e, d + e->peak / 5 * 3,
                         (uint32_t)(((uint64_t)t * 66817u) >> 16));
-    if (e->ramp) { /* easing in: a short segment at a fraction of the curve's slope, off it */
+    if (e->ramp) { /* easing in: a short segment at a fraction of the curve's slope, off it; the
+                    * fraction start_segment carried (frac) is from the full span, not played,
+                    * a sub-LSB difference */
         if (e->seg > RAMP_SAMPLES) e->seg = RAMP_SAMPLES;
         e->step >>= e->ramp;
         e->ramp--;
@@ -315,7 +318,9 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
     while (n > 0) {
         if (e->seg) { /* no segment lands inside itself */
             uint32_t m = n < e->seg ? n : e->seg;
-            if (e->step == 0) return e->level; /* a hold: sustain or idle */
+            if (e->step == 0 && (e->stage == FM_ENV_SUSTAIN || e->stage == FM_ENV_IDLE))
+                return e->level; /* a hold; a moving segment's step can be 0 too
+                                  * (a quiet, slow attack, eased in) */
             e->level += (int32_t)m * e->step;
             e->seg = (uint8_t)(e->seg - m);
             n -= m;

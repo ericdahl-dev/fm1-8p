@@ -607,7 +607,7 @@ TT_TEST(filter_envelope_dynamics_scale_the_depth_by_velocity)
  * follows: from envelope 2 (the amp envelope) the depth scales the same,
  * as PG-8X's does (0.299, 0.486 and 0.986 at velocities 40, 64, 127).
  * Within 8 LSB of each other rather than bit for bit: envelope 2's attack
- * takes at least 1.5 ms (#274), and on the way up the two depths round
+ * takes at least 1.4 ms (#274), and on the way up the two depths round
  * apart, which the resonant filter carries on (6 LSB, -70 dB of the
  * peak). */
 TT_TEST(filter_envelope_dynamics_scale_envelope_2_too)
@@ -1565,6 +1565,7 @@ TT_TEST(env_step_matches_env_next_for_every_short_tau)
             sa.attack_samples = sb.attack_samples = 0;
             sa.decay_samples = sb.decay_samples = tau;
             sa.release_samples = sb.release_samples = tau;
+            sa.attack_min = sb.attack_min = 0;
             sa.sustain = sb.sustain = sus[i];
             fm_env_init(&a, &sa);
             fm_env_init(&b, &sb);
@@ -1627,7 +1628,7 @@ TT_TEST(env_settings_are_shared_by_every_envelope)
  */
 static double release_error_db(uint32_t tau)
 {
-    fm_env_settings set = { 0, 0, 0, FM_ENV_FULL, 0 };
+    fm_env_settings set = { 0, 0, 0, FM_ENV_FULL, 0, 0 };
     fm_env e;
     double worst = 0;
     uint32_t t;
@@ -1667,7 +1668,7 @@ TT_TEST(exponential_release_stays_on_its_curve)
  */
 TT_TEST(sustain_changed_mid_decay_heads_there_at_once)
 {
-    fm_env_settings set = { 0, 4800, 0, 0, 0 }; /* decay tau 4800 samples, to 0 */
+    fm_env_settings set = { 0, 4800, 0, 0, 0, 0 }; /* decay tau 4800 samples, to 0 */
     fm_env e;
     int32_t before, moved, want;
     uint32_t i;
@@ -1691,7 +1692,7 @@ TT_TEST(sustain_changed_mid_decay_heads_there_at_once)
  */
 TT_TEST(attack_charges_toward_1_6_peak_and_stops_on_it)
 {
-    fm_env_settings set = { 4800, 0, 0, FM_ENV_FULL, 0 }; /* attack 4800 samples */
+    fm_env_settings set = { 4800, 0, 0, FM_ENV_FULL, 0, 0 }; /* attack 4800 samples */
     fm_env e;
     const double tau = 4800 / log(1.6 / 0.6);
     uint32_t t, landed = 0;
@@ -1781,6 +1782,32 @@ TT_TEST(env_advance_attack_rises_to_a_soft_peak)
     fm_env_advance(&a, m);
     TT_CHECK_EQ(a.level, b.level);
     TT_CHECK_EQ(a.stage, b.stage);
+}
+
+/*
+ * A very quiet note on a long attack climbs by less than 1 LSB a sample at
+ * first (more so in the ease-in, whose segments run at a fraction of the
+ * slope), so a segment can have a step of 0 while the attack still moves.
+ * Advancing through it in control-rate chunks lands where stepping does: it
+ * is not a hold (#274 review).
+ */
+TT_TEST(env_advance_quiet_long_attack_matches_stepping)
+{
+    static fm_env a, b;
+    uint32_t k, j;
+    int mismatches = 0;
+    soft_env(&b, 1 << 20, 1 << 19);
+    env_set.attack_samples = 1536000; /* 32 s */
+    fm_env_gate_on(&b);
+    a = b;
+    for (k = 0; k < 4800; k += 64) {
+        fm_env_advance(&a, 64);
+        for (j = 0; j < 64; j++) fm_env_next(&b);
+        if (a.level != b.level || a.stage != b.stage || a.seg != b.seg) mismatches++;
+    }
+    printf("    peak 2^20, 32 s attack: level %ld stepped, %ld advanced after 0.1 s\n", (long)b.level,
+           (long)a.level);
+    TT_CHECK_EQ(mismatches, 0);
 }
 
 /*
@@ -2713,6 +2740,7 @@ static void run_filter_tests(void)
     TT_RUN(attack_charges_toward_1_6_peak_and_stops_on_it);
     TT_RUN(env_long_quiet_attack_lands_on_time);
     TT_RUN(env_advance_attack_rises_to_a_soft_peak);
+    TT_RUN(env_advance_quiet_long_attack_matches_stepping);
     TT_RUN(env_advance_decays_to_a_soft_notes_sustain);
     TT_RUN(env_advance_retrigger_above_a_soft_peak_goes_to_decay);
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);

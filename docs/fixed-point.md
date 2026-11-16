@@ -257,7 +257,8 @@ resonant 4-pole (24 dB/octave) lowpass.
   attack time, 0.98 of its tau. It eases in first, as PG-8X's onset does (#274):
   four 2-sample segments at 1/16, 1/8, 1/4 and 1/2 of the curve's slope, which
   add about 6 samples to the time to the peak. The amp attack is at least
-  1.4 ms (at full by about 1.5 ms with the ease-in). Decay (toward sustain) and
+  1.4 ms on every key, after key follow (at full by about 1.5 ms with the
+  ease-in). Decay (toward sustain) and
   release (toward 0) are exponential, the time setting being the time
   constant tau, drawn as straight segments of at most 64 samples (tau / 8 when
   shorter), each ending on the curve: within 0.02 dB of e^(-t / tau) down to

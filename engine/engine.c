@@ -136,6 +136,16 @@ static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
     }
 }
 
+/* PG-8X 2.0.13's fastest amp attack, ENV-2 ATTACK 0, reaches full in about 1.5 ms from a slow start, on every key
+ * and at every ENV-2 KEY position; a shorter attack starts the note on a step heard as a click (#274). Every amp
+ * attack, from any source and after key follow (the settings' attack_min), is at least this: 1.4 ms, which with
+ * the envelope's ease-in (engine/env.c) is at full by about 1.5 ms, as PG-8X's. */
+#define AMP_ATTACK_FLOOR_TENTHS_MS 14u
+static uint32_t amp_attack_floor(const fm_engine *e)
+{
+    return e->sample_rate * AMP_ATTACK_FLOOR_TENTHS_MS / 10000u;
+}
+
 /*
  * An envelope time or sustain: written once into the settings every
  * voice's envelope of that kind shares (#19), then each running one is
@@ -143,15 +153,6 @@ static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
  * from its level. An idle envelope needs no retime: its next gate on
  * reads the settings. Returns 0 for any other parameter.
  */
-/* PG-8X 2.0.13's fastest amp attack, ENV-2 ATTACK 0, reaches full in about 1.5 ms from a slow start; a shorter
- * attack starts the note on a step heard as a click (#274). Every amp attack, from any source, is at least this:
- * 1.4 ms, which with the envelope's ease-in (engine/env.c) is at full by about 1.5 ms, as PG-8X's. */
-#define AMP_ATTACK_FLOOR_TENTHS_MS 14u
-static uint32_t amp_attack_floor(const fm_engine *e)
-{
-    return e->sample_rate * AMP_ATTACK_FLOOR_TENTHS_MS / 10000u;
-}
-
 static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
 {
     uint32_t *time = 0; /* the setting: a time in samples, */
@@ -190,8 +191,6 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
             fm_voice_sync_filter_env(&e->voices[i]);
     if (time) {
         *time = fm_ms_to_samples(v, e->sample_rate);
-        if (id == FM_PARAM_AMP_ATTACK_MS && *time < amp_attack_floor(e))
-            *time = amp_attack_floor(e); /* PG-8X's fastest (#274) */
     } else
         *sustain = fm_permille_to_q30(v);
     for (i = 0; i < e->voice_count; i++) {
@@ -588,7 +587,10 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     /* the gate (#63): up as fast as PG-8X's fastest attack (about 1.5 ms,
      * as its GATE opens, #274), held at full, down with a 0.6 ms time constant, as
      * PG-8X 2.0.13's GATE falls 20 / 40 dB in 1.4 / 2.6 ms */
-    e->gate_set.attack_samples = amp_attack_floor(e);
+    e->gate_set.attack_samples = 0;
+    e->gate_set.attack_min = amp_attack_floor(e);
+    e->amp_set.attack_min = amp_attack_floor(e);
+    e->filter_set.attack_min = 0;
     e->gate_set.decay_samples = 0;
     e->gate_set.sustain = fm_permille_to_q30(1000);
     e->gate_set.release_samples = e->sample_rate * GATE_RELEASE_TENTHS_MS / 10000u;
