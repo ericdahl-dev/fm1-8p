@@ -1626,6 +1626,18 @@ TT_TEST(env_skip_then_retime_matches_stepping)
     TT_CHECK_EQ(env_skip_then_change(env_change_retime, 70704), 0);
 }
 
+static void env_change_fade(fm_env *e, uint32_t *seed)
+{
+    fm_env_fade(e, env_rand(seed) % 400);
+}
+
+/* A fade after a skip falls from the caught-up level, its step taken from
+ * that level. */
+TT_TEST(env_skip_then_fade_matches_stepping)
+{
+    TT_CHECK_EQ(env_skip_then_change(env_change_fade, 70705), 0);
+}
+
 /*
  * fm_env_step (inline, for the render loop) is fm_env_next: the same level,
  * stage and step after every sample, through random envelopes in every
@@ -2841,6 +2853,7 @@ static void run_filter_tests(void)
     TT_RUN(env_skip_then_gate_off_matches_stepping);
     TT_RUN(env_skip_then_gate_on_matches_stepping);
     TT_RUN(env_skip_then_retime_matches_stepping);
+    TT_RUN(env_skip_then_fade_matches_stepping);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);

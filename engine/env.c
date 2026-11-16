@@ -211,6 +211,7 @@ void fm_env_gate_off(fm_env *e)
 
 void fm_env_fade(fm_env *e, uint32_t samples)
 {
+    catch_up(e);
     if (e->stage == FM_ENV_IDLE) return;
     e->stage = FM_ENV_FADE;
     e->seg = 0;
