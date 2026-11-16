@@ -225,6 +225,50 @@ TT_TEST(amp_attack_runs_to_25_seconds)
              eng.voices[0].amp_env.level < peak / 100 * 63);
 }
 
+/* Samples from note on until the voice's amp envelope first reaches its peak (0 if the engine won't start). */
+static uint32_t samples_to_peak(uint32_t rate, int32_t attack_ms, int gate)
+{
+    uint32_t n = 0;
+    if (fm_engine_init(&eng, rate, 1) != FM_OK) return 0;
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, attack_ms);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    if (gate) fm_engine_set_param(&eng, FM_PARAM_AMP_GATE, 1);
+    fm_engine_note_on(&eng, 60, 127);
+    while (eng.voices[0].amp_env.level < eng.voices[0].amp_env.peak && n < rate) {
+        fm_engine_render(&eng, buf, 1);
+        n++;
+    }
+    return n;
+}
+
+/* PG-8X 2.0.13's fastest amp attack (ENV-2 ATTACK 0) reaches full in about 1.5 ms, from a slow start; a shorter
+ * one starts a note on a step heard as a click (#274). So an amp attack under 1.5 ms plays as 1.5 ms, from any
+ * source (a patch, a live edit, MIDI CC): 0 and 1 ms take at least 1.4 ms to the peak, the same as each other,
+ * and 2 ms is left as it was, later. */
+TT_TEST(amp_attack_is_at_least_pg8x_fastest)
+{
+    static const uint32_t rates[] = { 44100, 48000 };
+    size_t r;
+    for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
+        uint32_t at0 = samples_to_peak(rates[r], 0, 0), at1 = samples_to_peak(rates[r], 1, 0),
+                 at2 = samples_to_peak(rates[r], 2, 0);
+        printf("    amp attack to peak at %u Hz: 0 ms %u, 1 ms %u, 2 ms %u samples\n", (unsigned)rates[r],
+               (unsigned)at0, (unsigned)at1, (unsigned)at2);
+        TT_CHECK(at0 * 10000u >= rates[r] * 14u);          /* at least 1.4 ms */
+        TT_CHECK_EQ(at0, at1);
+        TT_CHECK(at2 > at1);
+    }
+}
+
+/* PG-8X's VCA on GATE opens as fast as its ENV-2 ATTACK 0 (the same onset, measured, #274): the gate's attack
+ * takes the floor too, the same samples to the peak as an amp attack of 0. */
+TT_TEST(gate_mode_opens_at_pg8x_fastest_attack)
+{
+    uint32_t gate = samples_to_peak(RATE, 0, 1), att0 = samples_to_peak(RATE, 0, 0);
+    printf("    gate opens in %u samples, attack 0 in %u\n", (unsigned)gate, (unsigned)att0);
+    TT_CHECK_EQ(gate, att0);
+}
+
 /* The attack follows the key as well: at 260, C6 (four octaves above C2)
  * reaches its peak at 1 s x 2^-1.04, 486 ms; still short of it at 95 % of
  * that, on it by 105 %. */
@@ -657,6 +701,8 @@ static void run_engine_tests(void)
     TT_RUN(high_saw_note_has_low_aliasing);
     TT_RUN(amp_envelope_follows_adsr_settings);
     TT_RUN(amp_attack_runs_to_25_seconds);
+    TT_RUN(amp_attack_is_at_least_pg8x_fastest);
+    TT_RUN(gate_mode_opens_at_pg8x_fastest_attack);
     TT_RUN(amp_dyna_sets_the_level_by_the_dynamics_curve);
     TT_RUN(mix_env_dyna_scales_the_mix_envelope_by_the_dynamics_curve);
     TT_RUN(a_saw_voice_plays_at_pg8x_level);

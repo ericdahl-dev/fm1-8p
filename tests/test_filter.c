@@ -646,12 +646,24 @@ TT_TEST(filter_envelope_dynamics_scale_the_depth_by_velocity)
 
 /* The JX-8P has one DYNAMICS switch for the VCF whichever envelope it
  * follows: from envelope 2 (the amp envelope) the depth scales the same,
- * as PG-8X's does (0.299, 0.486 and 0.986 at velocities 40, 64, 127). */
+ * as PG-8X's does (0.299, 0.486 and 0.986 at velocities 40, 64, 127).
+ * Within 8 LSB of each other rather than bit for bit: envelope 2's attack
+ * takes at least 1.5 ms (#274), and on the way up the two depths round
+ * apart, which the resonant filter carries on (6 LSB, -70 dB of the
+ * peak). */
 TT_TEST(filter_envelope_dynamics_scale_envelope_2_too)
 {
+    size_t i;
+    int worst = 0;
     play_filter_dyna(fbuf_a, 4800, 2, 64, 1);
     play_filter_dyna(fbuf_b, 2359, 0, 64, 1);
-    TT_CHECK(memcmp(fbuf_a, fbuf_b, FRATE * 2) == 0);
+    for (i = 0; i < FRATE; i++) {
+        int d = fbuf_a[i] - fbuf_b[i];
+        if (d < 0) d = -d;
+        if (d > worst) worst = d;
+    }
+    printf("    envelope 2 dynamics against the same depth in cents: worst %d LSB\n", worst);
+    TT_CHECK(worst <= 8);
 }
 
 /* Each position plays its own row of the curve: position 3 at velocity
@@ -1606,7 +1618,7 @@ TT_TEST(env_step_matches_env_next_for_every_short_tau)
  * Every voice's envelope reads its times and sustain from one settings
  * struct the engine owns (#19): a setting changed once reaches every
  * sounding voice, and an idle one stays idle. Two notes in a 1 s attack,
- * the attack cut to 1 ms (44 samples): within 44 more samples both are
+ * the attack cut to 2 ms (88 samples): within 88 more samples both are
  * past the peak, in the decay; the third voice never started.
  */
 TT_TEST(env_settings_are_shared_by_every_envelope)
@@ -1618,8 +1630,8 @@ TT_TEST(env_settings_are_shared_by_every_envelope)
     fm_engine_note_on(&e, 60, 127);
     fm_engine_note_on(&e, 64, 127);
     fm_engine_render(&e, fbuf_a, 100);
-    fm_engine_set_param(&e, FM_PARAM_AMP_ATTACK_MS, 1);
-    fm_engine_render(&e, fbuf_a, 44);
+    fm_engine_set_param(&e, FM_PARAM_AMP_ATTACK_MS, 2);
+    fm_engine_render(&e, fbuf_a, 88);
     for (i = 0; i < 3; i++) {
         uint8_t st = e.voices[i].amp_env.stage;
         if (st == FM_ENV_IDLE) {

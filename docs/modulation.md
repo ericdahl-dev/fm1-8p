@@ -18,7 +18,7 @@ in [fixed-point.md](fixed-point.md); voices, stealing and unison in
 | `pitch_env_dyna` | 0..3 | 0 | DYNAMICS: 0 off, 1..3 scale the depth by velocity (`engine/dyna.c`) |
 | `lfo_pw_pct` | 0..49 | 0 | pulse width depth at full LFO, in percent of a cycle, each way |
 | `amp_velocity_pct` | 0..100 | 0 | how much velocity sets the level: 0 ignores it, 100 follows the full curve |
-| `amp_gate` | 0..1 | 0 | 1: the VCA is a gate (VCA MODE GATE, #63), up in 1 ms and down with a 0.6 ms time constant; the `amp_*` settings then run envelope 2 apart from it |
+| `amp_gate` | 0..1 | 0 | 1: the VCA is a gate (VCA MODE GATE, #63), up in 1.5 ms (PG-8X's fastest attack, #274) and down with a 0.6 ms time constant; the `amp_*` settings then run envelope 2 apart from it |
 
 Every depth defaults to 0 and so does `amp_velocity_pct`, so a patch that
 does not set them renders byte-identical to an engine without this module
