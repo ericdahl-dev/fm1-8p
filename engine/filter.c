@@ -558,12 +558,10 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         v3 = (mul_q30(x, f->a) >> 1) - f->s[1];  /* its level (at most 1.2: 19.2 at most), Q9.23 */
         i1 = f->s[0];
         i2 = f->s[1];
-        p = (int64_t)a1 * i1 + (int64_t)a2 * v3 + f->c[0];
+        p = (int64_t)a1 * i1 + (int64_t)a2 * v3;
         v1 = (int32_t)(p >> 30);
-        f->c[0] = (int32_t)(p & 0x3FFFFFFF);
-        p = (int64_t)a2 * i1 + (int64_t)a3 * v3 + f->c[1];
+        p = (int64_t)a2 * i1 + (int64_t)a3 * v3;
         dv = (int32_t)(p >> 30);                 /* v2 - i2 */
-        f->c[1] = (int32_t)(p & 0x3FFFFFFF);
         f->s[0] = 2 * v1 - i1;
         f->s[1] = i2 + 2 * dv;
         /* section 1's output with its zeros z1 of the way to the origin: v2 + z1 (3 (v2 - i2) - t i1),
@@ -572,12 +570,10 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         i1 = f->s[2];                            /* section 2, on section 1's */
         i2 = f->s[3];
         v3 = u - i2;
-        p = (int64_t)a1 * i1 + (int64_t)a2 * v3 + f->c[2];
+        p = (int64_t)a1 * i1 + (int64_t)a2 * v3;
         v1 = (int32_t)(p >> 30);
-        f->c[2] = (int32_t)(p & 0x3FFFFFFF);
-        p = (int64_t)a2 * i1 + (int64_t)a3 * v3 + f->c[3];
+        p = (int64_t)a2 * i1 + (int64_t)a3 * v3;
         dv = (int32_t)(p >> 30);
-        f->c[3] = (int32_t)(p & 0x3FFFFFFF);
         /* zeros at the origin, v2 + 3 (v2 - i2) - t i1, in Q10.22: within 32 + 1.5 dv + 2.1 * 32 there,
          * under 512 */
         p = (int64_t)(i2 + dv) + 3 * (int64_t)dv - (((int64_t)f->t * i1) >> 27);
