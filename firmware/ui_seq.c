@@ -320,6 +320,11 @@ uint32_t ui_key_led(const ui *u, uint32_t k, int down)
     int32_t at = seq_step_now(s);
     uint32_t led;
     int32_t step = ui_seq_step_of_key(k);
+    if (u->boot) {                              /* the boot screen (#50): one sweep, left to right, in 500 ms */
+        uint32_t t = u->now_ms - u->boot_ms;
+        return u->boot == 2u && t < UI_BOOT_SWEEP_MS && t * PLAY_KEYS / UI_BOOT_SWEEP_MS == k ? UI_LED_LIT
+                                                                                             : UI_LED_OFF;
+    }
     if (u->state != UI_SEQ) {                   /* the playhead's key while playing; the keypad; held keys */
         if (ui_keypad_led(u, k) == UI_LED_GLOW)
             return UI_LED_GLOW;
