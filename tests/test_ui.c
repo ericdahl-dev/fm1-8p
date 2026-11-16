@@ -1822,9 +1822,10 @@ TT_TEST(ui_themes_meet_their_contrast_rules)
     }
 }
 
-/* Each theme gives every color its own look draws with (#54): nothing is left at 0, which would draw
- * black. What a theme draws with depends on its switches: the LED color only without led_section, the
- * sun's grid and horizon only with the sun, the meter track only with a fill_only section. */
+/* Each theme gives every color its own look draws with (#54): none is left at 0, an unset field (both
+ * themes' darkest colors, the LED windows, are just off black). What a theme draws with depends on its
+ * switches: the LED color only without led_section, the sun's grid and horizon only with the sun, the
+ * meter track only with a fill_only section. ghost, focus and hatch are amounts, where 0 means none. */
 TT_TEST(ui_themes_set_every_color_they_draw_with)
 {
     const ui_theme *TH[2] = {&UI_MEMBRANE, &UI_NIGHT_PANEL};
@@ -1839,8 +1840,6 @@ TT_TEST(ui_themes_set_every_color_they_draw_with)
             TT_CHECK(t->section[i] != 0u);
         for (i = 0; i < 6u; i++)
             TT_CHECK(t->sun[i] != 0u);
-        TT_CHECK(t->ghost != 0u);
-        TT_CHECK(t->focus[0] != 0u);            /* the frame's outer ring, both looks */
         if (!t->led_section)
             TT_CHECK(t->led != 0u);
         if (t->art == UI_ART_SUN)
