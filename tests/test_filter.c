@@ -1016,8 +1016,8 @@ TT_TEST(new_note_gets_its_cutoff_from_the_first_sample)
     fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
     fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
     fm_engine_note_on(&feng, 60, 100);
-    fm_engine_render(&feng, fbuf_a, 5); /* 5 of 16 samples into a period */
-    TT_CHECK(peak_abs(fbuf_a, 0, 5) > 1000); /* open */
+    fm_engine_render(&feng, fbuf_a, 101); /* 5 of 16 samples into a period, the attack (eased in, #274) at full */
+    TT_CHECK(peak_abs(fbuf_a, 96, 101) > 1000); /* open */
     fm_engine_controller(&feng, 120, 0);
     fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 0);
     fm_engine_note_on(&feng, 60, 100);
@@ -1734,7 +1734,8 @@ TT_TEST(env_long_quiet_attack_lands_on_time)
 }
 
 /* fm_env_init starts an envelope on the settings it is given: a
- * 100-sample attack reaches the peak in 100 samples. */
+ * 100-sample attack reaches the peak in 106 samples (100, and 6 for its
+ * ease-in, #274). */
 TT_TEST(env_init_gives_an_envelope_its_settings)
 {
     static fm_env_settings s;
@@ -1747,7 +1748,7 @@ TT_TEST(env_init_gives_an_envelope_its_settings)
     fm_env_init(&e, &s);
     TT_CHECK_EQ(e.stage, FM_ENV_IDLE);
     fm_env_gate_on(&e);
-    for (n = 0; n < 99; n++) fm_env_next(&e);
+    for (n = 0; n < 105; n++) fm_env_next(&e);
     TT_CHECK_EQ(e.stage, FM_ENV_ATTACK);
     fm_env_next(&e);
     TT_CHECK_EQ(e.stage, FM_ENV_DECAY);
@@ -2456,12 +2457,13 @@ static uint32_t golden_engine_hash(int step)
  * (#93): retaken on af3712b (#255's cutoff curve) with main's engine/filter.c and filter.h, as on
  * dc9d495 before; first taken on 38bfa6d. Steps 0..3 retaken again with the feedback clip (#266: only
  * the resonance's feedback saturates, busy_filter_patch is resonant), and with the two-section
- * lowpass (#162) and its cheaper per-sample form; the default patch, a wire, is unchanged.
+ * lowpass (#162) and its cheaper per-sample form; the default patch, a wire, is unchanged. All five
+ * retaken when every amp attack began to ease in (#274: the first few samples of each note).
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {
-    static const uint32_t golden[5] = { 0x4DFCDF8Du, 0x949C0D25u, 0x96D53165u, 0x5E3A23F1u,
-                                        0x761C931Du };
+    static const uint32_t golden[5] = { 0x09352421u, 0x67B55C35u, 0x1DD66D2Du, 0x0A7FBA15u,
+                                        0xC28DCC29u };
     int step, same = 1;
     for (step = -1; step < 4; step++) {
         uint32_t h = golden_engine_hash(step);

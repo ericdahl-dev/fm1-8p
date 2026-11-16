@@ -64,6 +64,8 @@ typedef struct {
                     * call starts one, or lands */
     uint8_t frac;  /* the fraction of an LSB the last segment's span left
                     * over, Q8, carried into the next */
+    uint8_t ramp;  /* attack segments still easing in (#274): the step at
+                    * 2^-ramp of the curve's, each RAMP_SAMPLES long */
     int32_t peak;  /* level the attack rises to (velocity), Q1.30; the
                     * sustain level is scaled by it too */
     int32_t sus_level; /* sustain * peak, set at gate on and retime */

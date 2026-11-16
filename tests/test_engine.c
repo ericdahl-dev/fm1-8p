@@ -260,6 +260,32 @@ TT_TEST(amp_attack_is_at_least_pg8x_fastest)
     }
 }
 
+/* PG-8X's amp onset starts with no slope: at ENV-2 ATTACK 0 it is at 0.02 of full 0.1 ms after note on and 0.17 at
+ * 0.2 ms, where an RC charge from 0 is already at its steepest (ours was at 0.10 at 0.1 ms: the corner heard as the
+ * click left after the floor, #274). So every attack eases in: at 0.1 ms the envelope is at most 0.04 of its peak,
+ * and it still reaches the peak by 1.6 ms. */
+TT_TEST(amp_attack_eases_in_from_zero)
+{
+    static const uint32_t rates[] = { 44100, 48000 };
+    size_t r;
+    for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
+        uint32_t at01 = rates[r] / 10000u, n;
+        int32_t peak, lvl;
+        TT_CHECK_EQ(fm_engine_init(&eng, rates[r], 1), FM_OK);
+        fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+        fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+        fm_engine_note_on(&eng, 60, 127);
+        peak = eng.voices[0].amp_env.peak;
+        fm_engine_render(&eng, buf, at01);
+        lvl = eng.voices[0].amp_env.level;
+        n = samples_to_peak(rates[r], 0, 0);
+        printf("    attack 0 at %u Hz: %.3f of the peak at 0.1 ms, the peak at %.2f ms\n", (unsigned)rates[r],
+               (double)lvl / peak, 1000.0 * n / rates[r]);
+        TT_CHECK(lvl <= peak / 25);
+        TT_CHECK(n * 10000u <= rates[r] * 16u);
+    }
+}
+
 /* PG-8X's VCA on GATE opens as fast as its ENV-2 ATTACK 0 (the same onset, measured, #274): the gate's attack
  * takes the floor too, the same samples to the peak as an amp attack of 0. */
 TT_TEST(gate_mode_opens_at_pg8x_fastest_attack)
@@ -703,6 +729,7 @@ static void run_engine_tests(void)
     TT_RUN(amp_attack_runs_to_25_seconds);
     TT_RUN(amp_attack_is_at_least_pg8x_fastest);
     TT_RUN(gate_mode_opens_at_pg8x_fastest_attack);
+    TT_RUN(amp_attack_eases_in_from_zero);
     TT_RUN(amp_dyna_sets_the_level_by_the_dynamics_curve);
     TT_RUN(mix_env_dyna_scales_the_mix_envelope_by_the_dynamics_curve);
     TT_RUN(a_saw_voice_plays_at_pg8x_level);

@@ -144,8 +144,9 @@ static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
  * reads the settings. Returns 0 for any other parameter.
  */
 /* PG-8X 2.0.13's fastest amp attack, ENV-2 ATTACK 0, reaches full in about 1.5 ms from a slow start; a shorter
- * attack starts the note on a step heard as a click (#274). Every amp attack, from any source, is at least this. */
-#define AMP_ATTACK_FLOOR_TENTHS_MS 15u
+ * attack starts the note on a step heard as a click (#274). Every amp attack, from any source, is at least this:
+ * 1.4 ms, which with the envelope's ease-in (engine/env.c) is at full by about 1.5 ms, as PG-8X's. */
+#define AMP_ATTACK_FLOOR_TENTHS_MS 14u
 static uint32_t amp_attack_floor(const fm_engine *e)
 {
     return e->sample_rate * AMP_ATTACK_FLOOR_TENTHS_MS / 10000u;
@@ -584,8 +585,8 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend_value = 0;
     unison_reset(e);
     e->fade_samples = fm_ms_to_samples(STEAL_FADE_MS, e->sample_rate);
-    /* the gate (#63): up as fast as PG-8X's fastest attack (1.5 ms, as its
-     * GATE opens, #274), held at full, down with a 0.6 ms time constant, as
+    /* the gate (#63): up as fast as PG-8X's fastest attack (about 1.5 ms,
+     * as its GATE opens, #274), held at full, down with a 0.6 ms time constant, as
      * PG-8X 2.0.13's GATE falls 20 / 40 dB in 1.4 / 2.6 ms */
     e->gate_set.attack_samples = amp_attack_floor(e);
     e->gate_set.decay_samples = 0;

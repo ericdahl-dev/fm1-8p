@@ -359,7 +359,8 @@ def resonance_permille(v):
 def env(p, base):
     """The envelope at base (ENV1 or ENV2) as engine attack ms, decay ms, sustain per mille and
     release ms. Attack is the time to the peak of PG-8X 2.0.13's RC charge (attack_ms), 1 ms to
-    about 33.5 s; the engine plays an amp attack under 1.5 ms as 1.5 ms (#274). Decay and release are exponential on both, and their engine times are the time
+    about 33.5 s; the engine plays an amp attack under 1.4 ms as 1.4 ms,
+    eased in, at full by about 1.5 ms (#274). Decay and release are exponential on both, and their engine times are the time
     constant (decay_ms, release_ms)."""
     a, d, s, r = p[base:base + 4]
     return attack_ms(a), decay_ms(d), permille(s), release_ms(r)
