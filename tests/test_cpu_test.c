@@ -415,7 +415,7 @@ TT_TEST(cpu_test_full_patch_filter_is_off_the_fast_path)
         for (i = 0; i < ct_a.engine.voice_count; i++) {
             const fm_filter *f = &ct_a.engine.voices[i].filter;
             TT_CHECK(f->fade != 0);                             /* the lowpass */
-            TT_CHECK(f->k != 0);                                /* its resonance */
+            TT_CHECK(f->res != 0);                              /* its resonance */
             TT_CHECK(f->hp_g != 0);                             /* the highpass */
         }
     }
