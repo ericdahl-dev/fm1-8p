@@ -38,6 +38,26 @@ void ui_seq_chord_text(const ui *u, char *s);
 /* SEQ view's footer: left the pattern playing ("PTN 11 NIGHT DRIVE*", `*` edited), right "NEXT 12"
  * while one is queued, else "" (each UI_SEQ_TEXT_LEN) */
 void ui_seq_footer_text(const ui *u, char *left, char *right);
+/* The piano roll (visual.md, S5a): its pitch range fitted to the pattern's notes (and an armed step's
+ * notes so far), at least an octave, UI_ROLL_H px tall: 3 px a semitone up to 24 rows, 2 px up to 36,
+ * wider centered on the cursor step. It refits only when a note falls outside; 1 when it did (then
+ * every column redraws). And the columns to redraw (bit i: step i), taken. */
+#define UI_ROLL_H 72u
+int ui_seq_roll_fit(ui *u);
+uint32_t ui_seq_roll_take(ui *u);
+/* From ui_take, in SEQ view: the playhead's columns, the armed step's blink, the header and key strip */
+void ui_seq_tick(ui *u, uint32_t ms);
+/* notes' chord name when they're a common triad or seventh (Eric, R3: MAJ, MIN, DIM, AUG, SUS2, SUS4, 7,
+ * MAJ7, MIN7), "C MIN7"; else "". s: UI_SEQ_TEXT_LEN */
+void ui_seq_chord_name(const uint8_t *note, uint32_t n, char *s);
+/* A REC tap in SEQ view (or just opened by one): step record armed, or disarmed when it was */
+void ui_seq_rec(ui *u);
+/* The transport's clock (interaction.md 7): "INT", "MIDI", or "WAITING FOR CLOCK" while PLAY waits for
+ * the clock's start. s: UI_SEQ_TEXT_LEN */
+void ui_seq_clock_text(const ui *u, char *s);
+/* The tempo SEQ view shows, tenths of a BPM: the clock's in whole BPM when it runs the steps or they're
+ * stopped (#38), else the pattern's */
+uint32_t ui_seq_tempo_shown(const ui *u);
 /* SEQ view: a step key (0..15) down or up */
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* An event while SEQ view is open. */

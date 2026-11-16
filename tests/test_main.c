@@ -47,6 +47,7 @@
 #include "test_play_patterns.c"
 #include "test_svf.c"
 #include "test_dfont.c"
+#include "test_ui_boot.c"
 
 int main(void)
 {
@@ -83,5 +84,6 @@ int main(void)
     run_play_patterns_tests();
     run_svf_tests();
     run_dfont_tests();
+    run_ui_boot_tests();
     return tt_report();
 }

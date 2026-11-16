@@ -8,6 +8,15 @@ static void banner(ui *u, const char *s, uint32_t ms)
     u->dirty |= UI_D_FOOT;
 }
 
+/* the roll's columns in mask redraw (with the slot band they're in) */
+static void roll(ui *u, uint32_t mask)
+{
+    u->roll_dirty |= mask & 0xFFFFu;
+    u->dirty |= UI_D_SLOT;
+}
+#define ROLL_ALL 0xFFFFu
+#define ROLL_AT(i) (1u << ((i) & 15u))
+
 /* the notes played since the step was tapped, into the cursor step (the first PLAY_VOICES pressed, at the
  * highest velocity; MAX n NOTES when more were); the cursor on to the next, and disarmed */
 static void write_step(ui *u)
@@ -27,6 +36,7 @@ static void write_step(ui *u)
     u->seq_cursor = (u->seq_cursor + 1u) % seq_length(s);
     u->seq_armed = 0;
     u->built_n = 0;
+    roll(u, ROLL_ALL);                          /* (a written step can change the ties after it) */
     u->dirty |= UI_D_SLOT | UI_D_FOCUS | UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3);
 }
 
@@ -43,12 +53,13 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on)
             u->chord[j] = u->chord[j + 1u], u->chord_vel[j] = u->chord_vel[j + 1u];
         u->chord_n--;
     }
-    if (u->state == UI_SEQ && u->seq_armed) {   /* armed: the notes played go to the cursor step */
+    if (u->state == UI_SEQ && (u->seq_armed || u->seq_rec)) {   /* armed or REC: to the cursor step */
         for (i = 0; i < u->built_n && u->built[i] != note; i++)
             ;
         if (on && i == u->built_n && u->built_n < UI_CHORD_MAX) {
             u->built[u->built_n] = (uint8_t)note;
             u->built_vel[u->built_n++] = (uint8_t)vel;
+            roll(u, ROLL_AT(u->seq_cursor));    /* (the note shows at 45 % as it goes down) */
         } else if (!on && !u->chord_n && u->built_n) {
             write_step(u);                      /* all let go: written, on to the next step */
         }
@@ -67,8 +78,9 @@ int32_t ui_seq_step_of_key(uint32_t k)
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms)
 {
     int32_t st = ui_seq_step_of_key(k);
-    if (!down || st < 0)                        /* (a black key: nothing) */
-        return;
+    if (!down || st < 0 || (uint32_t)st >= seq_length(play_seq(u->p)))
+        return;                                 /* (a black key, or a step past the length: nothing) */
+    roll(u, ROLL_AT(u->seq_cursor) | ROLL_AT(st));
     u->seq_cursor = (uint32_t)st;               /* the cursor there, armed: the notes played next go to it */
     u->seq_armed = 1;
     u->seq_arm_ms = ms;
@@ -81,10 +93,23 @@ void ui_seq_open(ui *u)
     u->seq_from = u->state;
     u->state = UI_SEQ;
     u->seq_armed = u->built_n = 0;
+    u->seq_rec = 0;
+    u->roll_pps = 0;                            /* (fitted anew) */
+    u->roll_dirty = ROLL_ALL;
+    u->shown_playhead = -1;
     u->readout = 0;
     u->warned = 0;
     u->focus = 4u;
     u->dirty |= UI_D_FULL;
+}
+
+void ui_seq_rec(ui *u)
+{
+    u->seq_rec = !u->seq_rec;
+    u->seq_armed = 0;                           /* (one arming at a time: REC takes over from a tapped step) */
+    u->built_n = 0;                             /* (a step part-built when it disarms: dropped) */
+    roll(u, ROLL_AT(u->seq_cursor));
+    u->dirty |= UI_D_HEAD | UI_D_FOCUS | UI_D_FOOT;   /* (the chip, the readout, the legend and key map) */
 }
 
 void ui_seq_transport(ui *u)
@@ -94,6 +119,12 @@ void ui_seq_transport(ui *u)
         seq_stop(s);
     else
         seq_play(s);
+    if (u->seq_rec) {                           /* PLAY in REC: it plays, and REC disarms (interaction.md 5) */
+        u->seq_rec = 0;
+        u->built_n = 0;
+        u->dirty |= UI_D_FOCUS | UI_D_FOOT;
+        roll(u, ROLL_AT(u->seq_cursor));
+    }
     u->dirty |= UI_D_HEAD;
 }
 
@@ -109,7 +140,7 @@ int32_t ui_seq_value(const ui *u, uint32_t k)
     seq *s = play_seq(u->p);
     const seq_step *st = seq_get_step(s, u->seq_cursor);
     switch (u->seq_page * 4u + k) {
-    case 0: return (int32_t)seq_tempo(s);
+    case 0: return (int32_t)ui_seq_tempo_shown(u);
     case 1: return (int32_t)seq_length(s);
     case 2: return s->edit.swing_pct;
     case 3: return s->edit.gate_pct;
@@ -130,12 +161,22 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     if (!UI_SEQ_SLOTS[u->seq_page][k].live)
         return;
     switch (u->seq_page * 4u + k) {
-    case 0:                                     /* (the footer shows it too) */
+    case 0:                                     /* (the header and the footer show it too) */
+        if (seq_clock_external(s)) {            /* the clock sets it: nothing, and why (case 48) */
+            banner(u, "TEMPO FOLLOWS MIDI CLOCK", u->now_ms);
+            break;
+        }
         v += clicks * (fast ? 100 : 10);
         seq_set_tempo(s, (uint32_t)(v < 0 ? 0 : v));
-        u->dirty |= UI_D_FOOT;
+        u->dirty |= UI_D_FOOT | UI_D_HEAD;
         break;
-    case 1: v += clicks; seq_set_length(s, (uint32_t)(v < 1 ? 1 : v)); break;
+    case 1:
+        v += clicks;
+        seq_set_length(s, (uint32_t)(v < 1 ? 1 : v));
+        if (u->seq_cursor >= seq_length(s))     /* (the cursor stays inside the pattern) */
+            u->seq_cursor = seq_length(s) - 1u;
+        roll(u, ROLL_ALL);
+        break;
     case 2: v += clicks * (fast ? 5 : 1); seq_set_swing(s, (uint32_t)(v < 0 ? 0 : v)); break;
     case 3: v += clicks * (fast ? 5 : 1); seq_set_gate(s, (uint32_t)(v < 0 ? 0 : v)); break;
     case 4:                                     /* the cursor step's velocity: a note or chord only */
@@ -146,6 +187,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
             notes[i] = st->note[i];
         v += clicks * (fast ? 10 : 1);
         seq_set_step(s, u->seq_cursor, notes, st->n, (uint32_t)(v < 1 ? 1 : v > 127 ? 127 : v));
+        roll(u, ROLL_AT(u->seq_cursor));
         break;
     case 8: v += clicks; seq_set_transpose(s, v); break;
     default: return;
@@ -188,6 +230,8 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     }
     if (u->seq_cursor >= seq_length(s))
         u->seq_cursor = 0;
+    u->built_n = 0;                             /* (a step part-built in REC: dropped with the old pattern) */
+    roll(u, ROLL_ALL);
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;
 }
 
@@ -198,18 +242,45 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     int tap = (ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS && ms - u->down_ms[id] < UI_TAP_MS;
     if (u->seq_armed && !u->built_n) {          /* a tapped step, nothing played: any control lets go of it */
         u->seq_armed = 0;
-        u->dirty |= UI_D_FOCUS | UI_D_SLOT;
+        u->dirty |= UI_D_FOCUS;
+        roll(u, ROLL_AT(u->seq_cursor));
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_REC) && tap) {          /* step record: armed or not */
+        if (s->want)
+            banner(u, "STOP TO RECORD", ms);    /* (playing: no recording, decision Q3) */
+        else
+            ui_seq_rec(u);
+        return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SEQ) && tap) {          /* back, on the page it left */
-        u->seq_armed = u->built_n = 0;
+        u->seq_armed = u->built_n = u->seq_rec = 0;
         u->state = u->seq_from;
         u->dirty |= UI_D_FULL;
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap) {
+        u->seq_armed = u->built_n = u->seq_rec = 0;
         u->state = UI_PLAY;
         u->dirty |= UI_D_FULL;
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_EDIT) && tap) {  /* the last edit page */
+        u->seq_armed = u->built_n = u->seq_rec = 0;
         u->state = UI_EDIT;
         u->dirty |= UI_D_FULL;
+    } else if (u->seq_rec && tap && ev == (UI_EV_BTN_UP | UI_BTN_FX)) {   /* REC: back one, nothing written */
+        roll(u, ROLL_AT(u->seq_cursor));
+        u->built_n = 0;
+        u->seq_cursor = (u->seq_cursor + seq_length(s) - 1u) % seq_length(s);
+        roll(u, ROLL_AT(u->seq_cursor));
+        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+    } else if (u->seq_rec && tap && (ev == (UI_EV_BTN_UP | UI_BTN_SEL) || ev == (UI_EV_BTN_UP | UI_BTN_ENV))) {
+        if (id == UI_BTN_SEL)                   /* REC: a rest or a tie at the cursor, then on (interaction.md 5) */
+            seq_clear_step(s, u->seq_cursor);
+        else if (seq_get_step(s, u->seq_cursor)->kind != SEQ_TIE)
+            seq_toggle_tie(s, u->seq_cursor);
+        u->built_n = 0;
+        u->seq_cursor = (u->seq_cursor + 1u) % seq_length(s);
+        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        roll(u, ROLL_ALL);
+    } else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && u->seq_rec) {
+        /* REC: SEL held does nothing (interaction.md's table) */
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL)) {
         if (ms - u->down_ms[UI_BTN_SEL] >= UI_SEQ_CLEAR_MS) {   /* held: the whole pattern */
             for (i = 0; i < SEQ_STEPS; i++)
@@ -217,15 +288,19 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         } else if (tap) {
             seq_clear_step(s, u->seq_cursor);   /* the cursor step: a rest */
         }
-        u->dirty |= UI_D_SLOT | UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        roll(u, ROLL_ALL);                      /* (a rest ends the ties after it) */
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_ENV) && tap) {
         seq_toggle_tie(s, u->seq_cursor);
-        u->dirty |= UI_D_SLOT | UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        roll(u, ROLL_ALL);
     } else if (ev == (UI_EV_ENC | UI_ENC_SELECT) && arg) {  /* the cursor, around the length */
         len = seq_length(s);
+        roll(u, ROLL_AT(u->seq_cursor));
         u->seq_cursor = (uint32_t)(((int32_t)(u->seq_cursor % len) + arg % (int32_t)len + (int32_t)len) %
                                    (int32_t)len);
-        u->dirty |= UI_D_SLOT | UI_D_FOCUS | UI_D_COL(0);
+        roll(u, ROLL_AT(u->seq_cursor));
+        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
     } else if (ev == (UI_EV_ENC | UI_ENC_ALGORITHM) && arg) {   /* the SEQ page, around */
         u->seq_page = (uint32_t)(((int32_t)u->seq_page + arg % (int32_t)UI_SEQ_PAGES + (int32_t)UI_SEQ_PAGES) %
                                  (int32_t)UI_SEQ_PAGES);
@@ -245,18 +320,26 @@ uint32_t ui_key_led(const ui *u, uint32_t k, int down)
     int32_t at = seq_step_now(s);
     uint32_t led;
     int32_t step = ui_seq_step_of_key(k);
+    if (u->boot) {                              /* the boot screen (#50): one sweep, left to right, in 500 ms */
+        uint32_t t = u->now_ms - u->boot_ms;
+        return u->boot == 2u && t < UI_BOOT_SWEEP_MS && t * PLAY_KEYS / UI_BOOT_SWEEP_MS == k ? UI_LED_LIT
+                                                                                             : UI_LED_OFF;
+    }
     if (u->state != UI_SEQ) {                   /* the playhead's key while playing; the keypad; held keys */
         if (ui_keypad_led(u, k) == UI_LED_GLOW)
             return UI_LED_GLOW;
         return (down && u->set.key_leds) || (s->want && at >= 0 && step == at) ? UI_LED_LIT
                                                                                : UI_LED_OFF;   /* (G33) */
     }
-    if (u->seq_armed && down)                   /* armed: every key plays, lit while held */
+    if ((u->seq_armed || u->seq_rec) && down)   /* armed or REC: every key plays, lit while held */
         return UI_LED_LIT;
     if (step < 0 || (uint32_t)step >= seq_length(s))   /* a black key; a step past the length */
         return UI_LED_OFF;
     k = (uint32_t)step;
     st = seq_get_step(s, k);
+    if (u->seq_rec)                             /* REC (Eric, R2): the cursor at 8 Hz, the rest a dim map */
+        return k == u->seq_cursor ? (u->now_ms / 63u & 1u ? UI_LED_GLOW : UI_LED_LIT)
+                                  : st->kind == SEQ_REST ? UI_LED_OFF : UI_LED_GLOW;
     led = st->kind == SEQ_REST ? UI_LED_GLOW : UI_LED_LIT;
     if (st->kind == SEQ_TIE && u->now_ms % 500u >= 400u)    /* a tie: a short dark blink every 500 ms */
         led = UI_LED_OFF;
@@ -308,7 +391,7 @@ void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit)
         n = put_u(n, (uint32_t)v / 10u);
         if (v % 10)
             *n++ = '.', put_u(n, (uint32_t)v % 10u);
-        put_s(unit, "BPM");
+        put_s(unit, seq_clock_external(play_seq(u->p)) ? "MIDI CLOCK" : "BPM");   /* (under the clock: its tempo) */
         break;
     case 2:
     case 3:
@@ -361,7 +444,7 @@ void ui_seq_step_text(const ui *u, uint32_t i, char *s)
 
 void ui_seq_chord_text(const ui *u, char *s)
 {
-    note_names(u->built, u->seq_armed ? (u->built_n < PLAY_VOICES ? u->built_n : PLAY_VOICES) : 0u, s);
+    note_names(u->built, u->seq_armed || u->seq_rec ? (u->built_n < PLAY_VOICES ? u->built_n : PLAY_VOICES) : 0u, s);
 }
 
 /* a pattern slot (0..63) as the panel numbers it, 11..88 */
@@ -389,4 +472,119 @@ void ui_seq_footer_text(const ui *u, char *left, char *right)
     *right = 0;
     if (next >= 0)
         put_slot(put_s(right, "NEXT "), (uint32_t)next);
+}
+
+/* every note of the pattern's steps (within its length) and an armed step's notes so far, into *lo, *hi;
+ * 0 when there's none */
+static int roll_notes(const ui *u, uint32_t *lo, uint32_t *hi)
+{
+    const seq *s = play_seq(u->p);
+    uint32_t i, j, len = seq_length(s), any = 0;
+    *lo = 127u, *hi = 0u;
+    for (i = 0; i < len; i++) {
+        const seq_step *st = seq_get_step(s, i);
+        for (j = 0; st->kind == SEQ_NOTES_ON && j < st->n; j++, any = 1)
+            *lo = st->note[j] < *lo ? st->note[j] : *lo, *hi = st->note[j] > *hi ? st->note[j] : *hi;
+    }
+    for (j = 0; (u->seq_armed || u->seq_rec) && j < u->built_n; j++, any = 1)
+        *lo = u->built[j] < *lo ? u->built[j] : *lo, *hi = u->built[j] > *hi ? u->built[j] : *hi;
+    return (int)any;
+}
+
+int ui_seq_roll_fit(ui *u)
+{
+    uint32_t lo, hi, span, pps, rows, from;
+    if (!roll_notes(u, &lo, &hi))
+        lo = hi = 60u;                          /* (none: an octave around C4) */
+    if (u->roll_pps && ((lo >= u->roll_lo && hi < u->roll_lo + UI_ROLL_H / u->roll_pps) ||
+                        (lo >= u->roll_seen_lo && hi <= u->roll_seen_hi)))
+        return 0;                               /* all inside, or no wider than it was fitted to: no jump */
+    u->roll_seen_lo = lo;
+    u->roll_seen_hi = hi;
+    span = hi - lo + 1u;
+    span = span < 13u ? 13u : span;             /* at least an octave */
+    pps = span <= UI_ROLL_H / 3u ? 3u : 2u;
+    rows = UI_ROLL_H / pps;
+    if (hi - lo + 1u <= rows) {                 /* it fits: centered */
+        from = (lo + hi + 1u) / 2u;
+        from = from > rows / 2u ? from - rows / 2u : 0u;
+        from = from < lo && hi - from + 1u > rows ? lo : from;
+    } else {                                    /* wider: centered on the cursor step's notes */
+        const seq_step *st = seq_get_step(play_seq(u->p), u->seq_cursor);
+        uint32_t mid = st->kind == SEQ_NOTES_ON && st->n ? st->note[0] : (lo + hi) / 2u;
+        from = mid > rows / 2u ? mid - rows / 2u : 0u;
+    }
+    from = from + rows > 128u ? 128u - rows : from;
+    u->roll_lo = from;
+    u->roll_pps = pps;
+    u->roll_dirty = ROLL_ALL;
+    return 1;
+}
+
+uint32_t ui_seq_roll_take(ui *u)
+{
+    uint32_t d = u->roll_dirty;
+    u->roll_dirty = 0;
+    return d;
+}
+
+void ui_seq_tick(ui *u, uint32_t ms)
+{
+    const seq *s = play_seq(u->p);
+    int32_t at = s->want ? seq_step_now(s) : -1;
+    uint32_t blink = u->seq_armed || u->seq_rec ? ms / 125u & 1u : 0u;
+    if (at != u->shown_playhead) {              /* the playhead: its old and new columns, the header's step */
+        if (u->shown_playhead >= 0)
+            roll(u, ROLL_AT((uint32_t)u->shown_playhead));
+        if (at >= 0)
+            roll(u, ROLL_AT((uint32_t)at));
+        u->shown_playhead = at;
+        u->dirty |= UI_D_HEAD | UI_D_FOOT;      /* (the transport's step, the key strip) */
+    }
+    if (blink != u->shown_blink) {              /* the armed step's frame blinks */
+        u->shown_blink = blink;
+        roll(u, ROLL_AT(u->seq_cursor));
+        u->dirty |= UI_D_FOOT;
+    }
+}
+
+void ui_seq_chord_name(const uint8_t *note, uint32_t n, char *s)
+{
+    static const struct { uint16_t set; const char *name; } Q[9] = {
+        {0x091u, "MAJ"}, {0x089u, "MIN"}, {0x049u, "DIM"}, {0x111u, "AUG"}, {0x085u, "SUS2"},
+        {0x0A1u, "SUS4"}, {0x491u, "7"}, {0x891u, "MAJ7"}, {0x489u, "MIN7"},
+    };   /* pitch classes from the root, bit k: k semitones up (C E G: 0, 4, 7) */
+    static const char *const ROOT[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    uint32_t pcs = 0, i, r, q, rot;
+    *s = 0;
+    for (i = 0; i < n; i++)
+        pcs |= 1u << (note[i] % 12u);
+    for (r = 0; r < 12u; r++) {                 /* each pitch class held as the root */
+        if (!(pcs >> r & 1u))
+            continue;
+        rot = ((pcs >> r) | (pcs << (12u - r))) & 0xFFFu;
+        for (q = 0; q < 9u; q++)
+            if (rot == Q[q].set) {
+                s = put_s(s, ROOT[r]);
+                s = put_s(s, " ");
+                put_s(s, Q[q].name);
+                return;
+            }
+    }
+}
+
+void ui_seq_clock_text(const ui *u, char *s)
+{
+    const seq *q = play_seq(u->p);
+    put_s(s, seq_waiting(q) ? "WAITING FOR CLOCK" : seq_clock_external(q) ? "MIDI" : "INT");
+}
+
+uint32_t ui_seq_tempo_shown(const ui *u)
+{
+    const seq *s = play_seq(u->p);
+    if (seq_clock_external(s) && seq_clock_tempo(s) && (s->clk_running || !s->want)) {
+        uint32_t t = (seq_clock_tempo(s) + 5u) / 10u * 10u;   /* the clock's, in whole BPM: its jitter doesn't show */
+        return t > 9990u ? 9990u : t;           /* (three digits at most: a start's first ticks can read far higher) */
+    }
+    return seq_tempo(s);                        /* (before the clock, or on INT: the pattern's) */
 }
