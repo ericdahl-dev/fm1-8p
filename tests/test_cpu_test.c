@@ -2,6 +2,9 @@
 #include "../firmware/cpu_test.h"
 #include "../firmware/play.h"
 
+/* F plays the device's polyphony (#269): a build-time tie, cpu_test.h can't see play.h (its patches.h) */
+typedef char ct_full_voices_is_play_voices[CT_FULL_VOICES == PLAY_VOICES ? 1 : -1];
+
 static cpu_test ct_a, ct_b;
 static int32_t ct_out[2 * CT_BLOCK];
 

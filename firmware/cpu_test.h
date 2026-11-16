@@ -30,7 +30,8 @@
  * depth at 0 the LFO costs nothing and an open filter is a wire, so steps 1..8 and U never measure them;
  * F does. */
 #define CT_FULL (CT_BURST + 1u)
-#define CT_FULL_VOICES 4u              /* F's voices: PLAY_VOICES (play.h), the device's polyphony (#13; 6 until #269) */
+/* F's voices: PLAY_VOICES (play.h), the device's polyphony (#13; 6 until #269; tests/test_cpu_test.c ties them) */
+#define CT_FULL_VOICES 4u
 #define CT_LAST CT_FULL                 /* the sweep's last step: counts run 1..CT_LAST */
 
 /* One param of a patch: fm_param_id and its value. */

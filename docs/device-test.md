@@ -37,8 +37,9 @@ below that say 6 voices were taken then), not 8, because fm1-dock stops a module
 that renders slower than real time (section 2). `make bench-full` times the same patch on the desktop at every voice
 count up to 8.
 
-What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.1 % per voice, 25.8 % at
-8 voices, 31.4 % for U, 77.3 % for F (6 voices). On the device, expect roughly 1.15 times those. A big difference from that is a finding in
+What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 1.5 % per voice, 12.9 % at
+8 voices, 21.4 % for U, 37.7 % for F (4 voices; it was 6 before #269, with higher figures). On the device, expect
+roughly 1.08 to 1.15 times those. A big difference from that is a finding in
 itself: note it.
 
 ## 1. What you need
@@ -128,7 +129,7 @@ as ours: on 2026-11-10 it lifted the run-3 build's F from 72 % to 82 % and made 
    `4   11.5 %`. The current step's row is white, the others gray. **Write down all 10 rows** once `F` has run its
    5 s.
 4. Listen while it runs: a chord that gets richer for 40 s, then a fast-retriggered 8-voice unison note for 5 s, then
-   a 6-note chord with the filter sweeping open and closing to a resonant tone, vibrato and chorus, its notes at
+   a 4-note chord with the filter sweeping open and closing to a resonant tone, vibrato and chorus, its notes at
    different loudness. Clicks, dropouts or the sine taking
    over mean an overrun: note at which step.
 
@@ -190,16 +191,16 @@ try again.
 
 | step | screen (worst %) | log (per mille) | fm1-emu strict (%) | device / emu |
 | --- | --- | --- | --- | --- |
-| 1 | | | 4.4 | |
-| 2 | | | 7.3 | |
-| 3 | | | 10.3 | |
-| 4 | | | 13.4 | |
-| 5 | | | 16.5 | |
-| 6 | | | 19.6 | |
-| 7 | | | 22.7 | |
-| 8 | | | 25.8 | |
-| U (unison burst) | | | 31.4 | |
-| F (full patch) | | | 77.3 | |
+| 1 | | | 4.1 | |
+| 2 | | | 4.2 | |
+| 3 | | | 5.6 | |
+| 4 | | | 7.1 | |
+| 5 | | | 8.5 | |
+| 6 | | | 10.0 | |
+| 7 | | | 11.4 | |
+| 8 | | | 12.9 | |
+| U (unison burst) | | | 21.4 | |
+| F (full patch) | | | 37.7 | |
 
 - `dock.py modules`: render worst __ % of a block, __ overruns
 - Heard any clicks, dropouts or the sine taking over? At which step?
@@ -207,8 +208,8 @@ try again.
   if it worked)
 ```
 
-The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `d5ee372` (#25's filter), with row F
-playing the filter on 6 voices. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `54dd680`, with row F playing the full
+patch on 4 voices (#269; before it, F played 6). If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
 
 ## Results (#13)
 
