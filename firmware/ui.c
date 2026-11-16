@@ -379,6 +379,7 @@ void ui_init(ui *u, play *p)
     u->seq_armed = 0;
     u->built_n = 0;
     u->roll_dirty = 0;
+    u->seq_rec = 0;
     u->roll_lo = 0;
     u->roll_pps = 0;
     u->roll_seen_lo = u->roll_seen_hi = 0;
@@ -877,11 +878,11 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
         ui_seq_step_key(u, k, 0, ms);
         return 1;
     }
-    if (down && u->state == UI_SEQ && !u->seq_armed && k < 32u) {   /* SEQ view: a step or nothing; no sound */
+    if (down && u->state == UI_SEQ && !u->seq_armed && !u->seq_rec && k < 32u) {   /* SEQ view: a step or nothing */
         u->seq_keys |= 1u << k;
         ui_seq_step_key(u, k, 1, ms);
         return 1;
-    }                                           /* (armed: every key plays, ui_chord_note collects it) */
+    }                                           /* (armed or REC: every key plays, ui_chord_note collects it) */
     if (!down) {                                /* an up goes where its down went */
         if (!(u->jump_keys >> k & 1u))
             return 0;
@@ -1205,7 +1206,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && u->state == UI_SEQ) {
-        u->seq_armed = u->built_n = 0;
+        u->seq_armed = u->built_n = u->seq_rec = 0;
         u->glo_from = UI_SEQ;                   /* GLO from SEQ view, and back to it */
         u->state = UI_GLO;
         u->readout = 0;
@@ -1213,6 +1214,7 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap && u->state == UI_SEQ && !u->save_waiting) {
+        u->seq_armed = u->built_n = u->seq_rec = 0;   /* (SAVE takes the screen: REC and a step part-built end) */
         ui_save_open(u, ms);                    /* SAVE in SEQ view: the pattern (interaction.md, SAVE) */
         return;
     }
@@ -1223,6 +1225,16 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     if (ev == (UI_EV_BTN_UP | UI_BTN_SEQ) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
         !u->comparing && !(u->jump_screen & UI_JS_UP)) {
         ui_seq_open(u);
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_REC) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
+        !u->comparing && !(u->jump_screen & UI_JS_UP)) {
+        if (play_seq(u->p)->want) {             /* playing: no recording (decision Q3) */
+            show_banner(u, "STOP TO RECORD", ms);
+            return;
+        }
+        ui_seq_open(u);                         /* REC: SEQ view, step record armed (interaction.md 5) */
+        ui_seq_rec(u);
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_GLO) && tap && (u->state == UI_PLAY || u->state == UI_EDIT) &&
@@ -1427,8 +1439,9 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_ENV:
     case UI_BTN_FX:
     case UI_BTN_LFO:                            /* lit while a page of its ring shows */
-        if (u->state == UI_SEQ)                 /* SEQ view: REST and TIE; MOVE (#42) and BACK (REC) wait */
-            return button == UI_BTN_SEL || button == UI_BTN_ENV ? UI_LED_GLOW : UI_LED_OFF;
+        if (u->state == UI_SEQ)                 /* SEQ view: REST, TIE, and BACK in REC; MOVE (#42) waits */
+            return button == UI_BTN_SEL || button == UI_BTN_ENV || (button == UI_BTN_FX && u->seq_rec)
+                       ? UI_LED_GLOW : UI_LED_OFF;
         if (u->state == UI_SAVE || u->state == UI_GLO)   /* they do nothing there: off (interaction.md) */
             return UI_LED_OFF;
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
@@ -1452,7 +1465,12 @@ uint32_t ui_led(const ui *u, uint32_t button)
             return u->now_ms / UI_BLINK_MS & 1u ? UI_LED_OFF : UI_LED_LIT;
         return at >= 0 && at % (int32_t)SEQ_PPQ == 0 ? UI_LED_OFF : UI_LED_LIT;
     }
-    default:                                    /* (REC: step record is S5) */
+    case UI_BTN_REC:                            /* lit armed; glows where a tap arms it; off playing */
+        if (play_seq(u->p)->want)
+            return UI_LED_OFF;
+        return u->seq_rec ? UI_LED_LIT : u->state == UI_PLAY || u->state == UI_EDIT || u->state == UI_SEQ
+                                             ? UI_LED_GLOW : UI_LED_OFF;
+    default:
         return UI_LED_OFF;
     }
 }

@@ -105,6 +105,7 @@ typedef struct {
     uint32_t built_n;
     char seq_msg[16];                   /* "MAX 4 NOTES", the banner */
     uint32_t shown_steps;               /* seq_steps as SEQ view's strip last drew it */
+    uint32_t seq_rec;                   /* step record (REC) armed */
     uint32_t roll_dirty;                /* the piano roll's columns to redraw (bit i: step i) */
     uint32_t roll_lo, roll_pps;         /* its pitch range: the lowest note, px a semitone (0: fit anew) */
     uint32_t roll_seen_lo, roll_seen_hi; /* the notes it was fitted to: within them, no refit */

@@ -813,7 +813,7 @@ static void seq_header(void)
     t[n] = 0;
     head_right = t;
     head_mark = sq->want ? 1 : 2;
-    header("SEQ", C_SEQ, "", UI_SEQ_PAGE_NAME[U->seq_page], "", -1, 8);
+    header(U->seq_rec ? "REC" : "SEQ", C_SEQ, "", UI_SEQ_PAGE_NAME[U->seq_page], "", -1, 8);   /* (REC: step record) */
     head_right = 0;
 }
 
@@ -871,12 +871,12 @@ static void roll_column(uint32_t i)
             for (j = 0; j < src->n; j++)        /* the held notes run on, at 45 % */
                 roll_note(ox, nx && nx->kind == SEQ_TIE ? ROLL_W : ROLL_W - 2, src->note[j], tie);
         }
-        if (U->seq_armed && i == U->seq_cursor)  /* an armed step: the notes played so far, at 45 % */
+        if ((U->seq_armed || U->seq_rec) && i == U->seq_cursor)  /* armed or REC: the notes so far, 45 % */
             for (j = 0; j < U->built_n; j++)
                 roll_note(ox, ROLL_W - 2, U->built[j], tie);
     }
     if (i == U->seq_cursor) {                   /* the cursor; armed, 2 px and blinking */
-        if (!U->seq_armed)
+        if (!U->seq_armed && !U->seq_rec)
             frame(ox, 0, ROLL_W - 2, UI_ROLL_H, C_TEXT);
         else if (!U->shown_blink)
             frame(ox, 0, ROLL_W - 2, UI_ROLL_H, C_TEXT), frame(ox + 1, 1, ROLL_W - 4, UI_ROLL_H - 2, C_TEXT);
@@ -918,9 +918,10 @@ static void seq_readout(void)
         CV_TEXT(240 - M - TEXT_W(0, tie), 26, 0, tie, sec_text(UI_SEC_SEQ));
     }
     ui_seq_chord_text(U, t);
-    if (U->seq_armed) {
-        CV_TEXT(x, 40, 0, "PLAY", led_of(C_PLAY));
-        CV_TEXT(x + TEXT_W(0, "PLAY") + 6, 40, 0, *t ? t : "ITS NOTES", *t ? C_TEXT : C_DIM);
+    if (U->seq_armed || U->seq_rec) {           /* PLAY (a tapped step) or REC, and the notes so far */
+        const char *w = U->seq_rec ? "REC" : "PLAY";
+        CV_TEXT(x, 40, 0, w, led_of(C_PLAY));
+        CV_TEXT(x + TEXT_W(0, w) + 6, 40, 0, *t ? t : "ITS NOTES", *t ? C_TEXT : C_DIM);
     } else {
         CV_TEXT(x, 40, 0, "TAP STEP, THEN PLAY", C_DIM);
     }
@@ -969,7 +970,7 @@ static void seq_bottom(void)
     const char *b = ui_banner(U);
     uint32_t k;
     H->cv_begin(240, 52, C_BG);
-    CV_TEXT(M, 0, 0, "SEL REST  ENV TIE  LFO --", C_DIM);
+    CV_TEXT(M, 0, 0, U->seq_rec ? "SEL REST  ENV TIE  FX BACK" : "SEL REST  ENV TIE  LFO --", C_DIM);
     for (k = 0; k < PLAY_KEYS; k++) {           /* 8 px a key, as the LEDs show */
         uint32_t led = ui_key_led(U, k, 0);
         int32_t x = ROLL_X0 + (int32_t)k * 8, white = ui_seq_step_of_key(k) >= 0;

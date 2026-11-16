@@ -148,14 +148,13 @@ static void seq_render_to(int32_t want)
 }
 
 /* The button LEDs (interaction.md 5): SEQ lit in SEQ view and glowing elsewhere; PLAY glowing when
- * stopped, lit while playing with a dark flash on each beat's first step; REC off until step record
- * (S5). In SEQ view SEL (rest) and ENV (tie) glow, LFO (MOVE, #42) and FX (BACK, in REC) are off. */
+ * stopped, lit while playing with a dark flash on each beat's first step; REC (seq_rec_button_leds). In
+ * SEQ view SEL (rest) and ENV (tie) glow, LFO (MOVE, #42) and FX (BACK, in REC) are off. */
 TT_TEST(seq_button_leds)
 {
     ui_setup();
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEQ), (uint32_t)UI_LED_GLOW);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_PLAY), (uint32_t)UI_LED_GLOW);
-    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_OFF);
     ui_tap(UI_BTN_SEQ, 1000);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEQ), (uint32_t)UI_LED_LIT);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), (uint32_t)UI_LED_GLOW);
@@ -696,6 +695,328 @@ TT_TEST(seq_roll_wide_span_fits_once)
     TT_CHECK(!ui_seq_roll_fit(&ui_u));
 }
 
+/* Step record (interaction.md 5, way 2): a REC tap while stopped arms it and opens SEQ view, from PLAY
+ * or EDIT; in SEQ view it arms where the cursor is */
+TT_TEST(seq_rec_tap_arms_and_opens_seq_view)
+{
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);                                 /* from PLAY */
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    TT_CHECK(ui_u.seq_rec);
+    ui_tap(UI_BTN_REC, 1100);                                 /* disarms (9 has the rest) */
+    TT_CHECK(!ui_u.seq_rec);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 3, 1200);      /* cursor on step 4 */
+    ui_tap(UI_BTN_REC, 1300);
+    TT_CHECK(ui_u.seq_rec);
+    TT_CHECK_EQ(ui_u.seq_cursor, 3u);
+    ui_tap(UI_BTN_SEQ, 1400);                                 /* out of SEQ view */
+    ui_tap(UI_BTN_ENV, 1500);                                 /* EDIT */
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    ui_tap(UI_BTN_REC, 1600);                                 /* from EDIT */
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    TT_CHECK(ui_u.seq_rec);
+}
+
+/* The cursor stays inside the pattern: a white key for a step past the length arms nothing, and LENGTH
+ * turned below the cursor brings it to the last step (found by the hammer) */
+TT_TEST(seq_cursor_stays_inside_the_length)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -8, 1100);     /* LENGTH 8 */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[12], 1, 1200), 1);      /* step 13: past it */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[12], 0, 1210), 1);
+    TT_CHECK(!ui_u.seq_armed);
+    TT_CHECK(ui_u.seq_cursor < 8u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 8, 1300);      /* LENGTH 16 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 13, 1400);     /* cursor on step 14 */
+    TT_CHECK_EQ(ui_u.seq_cursor, 13u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -6, 1500);     /* LENGTH 10 */
+    TT_CHECK_EQ(ui_u.seq_cursor, 9u);
+}
+
+/* While playing, REC does nothing but say STOP TO RECORD (decision Q3), in SEQ view or out of it */
+TT_TEST(seq_rec_while_playing_says_stop_to_record)
+{
+    ui_setup();
+    ui_tap(UI_BTN_PLAY, 1000);
+    ui_tap(UI_BTN_REC, 1100);                                 /* from PLAY */
+    TT_CHECK_EQ(ui_u.state, UI_PLAY);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "STOP TO RECORD") == 0);
+    ui_tap(UI_BTN_SEQ, 1200);
+    ui_tap(UI_BTN_REC, 1300);                                 /* in SEQ view */
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "STOP TO RECORD") == 0);
+}
+
+/* In REC every key plays (Eric, R1): no white key is a step key, no black key is silent */
+TT_TEST(seq_rec_every_key_plays)
+{
+    uint32_t k;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    for (k = 0; k < PLAY_KEYS; k++) {
+        TT_CHECK_EQ(ui_key(&ui_u, k, 1, 1100 + 20 * k), 0);
+        TT_CHECK_EQ(ui_key(&ui_u, k, 0, 1110 + 20 * k), 0);
+    }
+    TT_CHECK(!ui_u.seq_armed);                                /* (no step tapped) */
+}
+
+/* In REC, the keys held make a step; when all are let go it is written at the cursor and the cursor
+ * moves on, still recording: no time-out */
+TT_TEST(seq_rec_writes_a_step_and_moves_on)
+{
+    const seq_step *st;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    seq_note(5, 60, 90, 1, 1100);
+    seq_note(9, 64, 110, 1, 1110);
+    seq_note(5, 60, 0, 0, 1200);
+    seq_note(9, 64, 0, 0, 1210);
+    st = seq_get_step(play_seq(&ui_p), 0);
+    TT_CHECK_EQ(st->kind, SEQ_NOTES_ON);
+    TT_CHECK_EQ(st->n, 2u);
+    TT_CHECK_EQ(st->vel, 110u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 1u);
+    (void)ui_take(&ui_u, 9000);                               /* long after: still recording */
+    TT_CHECK(ui_u.seq_rec);
+    seq_note(7, 62, 100, 1, 9100);
+    seq_note(7, 62, 0, 0, 9200);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 1)->note[0], 62u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 2u);
+}
+
+/* In REC the cursor goes around at the length */
+TT_TEST(seq_rec_wraps_at_the_length)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -12, 1100);    /* LENGTH 4 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 3, 1200);      /* step 4, the last */
+    ui_tap(UI_BTN_REC, 1300);
+    seq_note(5, 60, 90, 1, 1400);
+    seq_note(5, 60, 0, 0, 1500);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 3)->kind, SEQ_NOTES_ON);
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+    TT_CHECK(ui_u.seq_rec);
+}
+
+/* In REC, MIDI notes join the step as keys do */
+TT_TEST(seq_rec_takes_midi_notes)
+{
+    const seq_step *st;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    ui_chord_note(&ui_u, 48, 100, 1);
+    ui_chord_note(&ui_u, 55, 100, 1);
+    ui_chord_note(&ui_u, 48, 0, 0);
+    ui_chord_note(&ui_u, 55, 0, 0);
+    st = seq_get_step(play_seq(&ui_p), 0);
+    TT_CHECK_EQ(st->kind, SEQ_NOTES_ON);
+    TT_CHECK_EQ(st->n, 2u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 1u);
+}
+
+/* In REC, SEL writes a rest and ENV a tie at the cursor, each moving on (outside REC they act on the
+ * cursor step and stay) */
+TT_TEST(seq_rec_sel_and_env_write_and_move_on)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C, 1, 100);
+    seq_set_step(s, 1, C, 1, 100);
+    ui_tap(UI_BTN_REC, 1000);
+    ui_tap(UI_BTN_SEL, 1100);                                 /* step 1: a rest */
+    TT_CHECK_EQ(seq_get_step(s, 0)->kind, SEQ_REST);
+    TT_CHECK_EQ(ui_u.seq_cursor, 1u);
+    ui_tap(UI_BTN_ENV, 1200);                                 /* step 2: a tie */
+    TT_CHECK_EQ(seq_get_step(s, 1)->kind, SEQ_TIE);
+    TT_CHECK_EQ(ui_u.seq_cursor, 2u);
+    ui_tap(UI_BTN_ENV, 1300);                                 /* step 3: a tie, not a toggle back */
+    TT_CHECK_EQ(seq_get_step(s, 2)->kind, SEQ_TIE);
+    TT_CHECK_EQ(ui_u.seq_cursor, 3u);
+}
+
+/* In REC, FX steps back one step, around, without writing; outside REC it does nothing */
+TT_TEST(seq_rec_fx_steps_back)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_tap(UI_BTN_FX, 1100);                                  /* not in REC: nothing */
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+    ui_tap(UI_BTN_REC, 1200);
+    ui_tap(UI_BTN_FX, 1300);                                  /* around: the last step */
+    TT_CHECK_EQ(ui_u.seq_cursor, 15u);
+    ui_tap(UI_BTN_FX, 1400);
+    TT_CHECK_EQ(ui_u.seq_cursor, 14u);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 15)->kind, SEQ_REST);
+    TT_CHECK(ui_u.seq_rec);
+}
+
+/* A REC tap disarms, and so does leaving SEQ view (SEQ, HOME, EDIT, GLO); a step part-built then is
+ * dropped: nothing is written */
+TT_TEST(seq_rec_disarms_and_drops_the_step_being_built)
+{
+    static const uint32_t OUT[4] = {UI_BTN_SEQ, UI_BTN_HOME, UI_BTN_EDIT, UI_BTN_GLO};
+    uint32_t i;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    seq_note(5, 60, 90, 1, 1100);                             /* held */
+    ui_tap(UI_BTN_REC, 1200);                                 /* disarmed */
+    seq_note(5, 60, 0, 0, 1300);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 0)->kind, SEQ_REST);
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+    for (i = 0; i < 4u; i++) {
+        uint32_t t = 2000u + 1000u * i;
+        if (ui_u.state != UI_SEQ)
+            ui_tap(UI_BTN_SEQ, t);
+        ui_tap(UI_BTN_REC, t + 100);
+        TT_CHECK(ui_u.seq_rec);
+        seq_note(5, 60, 90, 1, t + 200);
+        ui_tap(OUT[i], t + 300);
+        TT_CHECK(ui_u.state != UI_SEQ);
+        TT_CHECK(!ui_u.seq_rec);
+        seq_note(5, 60, 0, 0, t + 400);
+        TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 0)->kind, SEQ_REST);
+        if (ui_u.state == UI_GLO)
+            ui_tap(UI_BTN_GLO, t + 500);
+    }
+}
+
+/* PLAY in REC starts the sequencer and disarms, so a performance doesn't record over the pattern */
+TT_TEST(seq_rec_play_starts_and_disarms)
+{
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    ui_tap(UI_BTN_PLAY, 1100);
+    TT_CHECK(play_seq(&ui_p)->want);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+}
+
+/* REC's LED: lit while step record is armed, glowing when stopped, off while playing (REC does nothing
+ * then); FX glows in REC, where it steps back, and is off otherwise */
+TT_TEST(seq_rec_button_leds)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_GLOW);
+    ui_tap(UI_BTN_REC, 1000);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_LIT);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_FX), (uint32_t)UI_LED_GLOW);
+    ui_tap(UI_BTN_REC, 1100);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_FX), (uint32_t)UI_LED_OFF);
+    ui_tap(UI_BTN_PLAY, 1200);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_OFF);
+}
+
+/* Key LEDs in REC (Eric, R2): a key held is lit; the cursor's white key blinks at 8 Hz; the other white
+ * keys keep their steps as a dim map (a note or tie glows, a rest is off) */
+TT_TEST(seq_rec_key_leds)
+{
+    static const uint8_t C[1] = {60};
+    ui_setup();
+    seq_set_step(play_seq(&ui_p), 2, C, 1, 100);
+    ui_tap(UI_BTN_REC, 1000);
+    (void)ui_take(&ui_u, 1008);                               /* 1008 / 63: even */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[0], 0), (uint32_t)UI_LED_LIT);
+    (void)ui_take(&ui_u, 1071);                               /* odd */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[0], 0), (uint32_t)UI_LED_GLOW);
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[2], 0), (uint32_t)UI_LED_GLOW);   /* a note: dim */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[3], 0), (uint32_t)UI_LED_OFF);    /* a rest */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_BK[0], 0), (uint32_t)UI_LED_OFF);
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_BK[0], 1), (uint32_t)UI_LED_LIT);    /* held */
+    TT_CHECK_EQ(ui_key_led(&ui_u, SEQ_WK[3], 1), (uint32_t)UI_LED_LIT);
+}
+
+/* In REC the cursor column has the armed look: it blinks (its column redraws on each flip), the notes
+ * going down show there and in the readout's line */
+TT_TEST(seq_rec_cursor_has_the_armed_look)
+{
+    char t[UI_SEQ_TEXT_LEN];
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    (void)ui_take(&ui_u, 1001);                               /* phase 8: even */
+    (void)ui_seq_roll_take(&ui_u);
+    (void)ui_take(&ui_u, 1130);                               /* phase 9: a flip */
+    TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 1u << 0);
+    seq_note(5, 60, 90, 1, 1140);
+    TT_CHECK(ui_seq_roll_take(&ui_u) & 1u);
+    ui_seq_chord_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "C4") == 0);
+}
+
+/* In REC, SEL held does nothing (interaction.md's table: "-"); outside REC it clears the pattern */
+TT_TEST(seq_rec_sel_held_keeps_the_pattern)
+{
+    static const uint8_t C[1] = {60};
+    ui_setup();
+    seq_set_step(play_seq(&ui_p), 5, C, 1, 100);
+    ui_tap(UI_BTN_REC, 1000);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3000);     /* held 1.9 s */
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 5)->kind, SEQ_NOTES_ON);
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+}
+
+/* Arming or disarming REC redraws the bottom strip (its legend and key map change), PLAY's disarm too;
+ * and REC takes over from a tapped step (way 1): one arming at a time */
+TT_TEST(seq_rec_toggle_redraws_the_strip_and_ends_a_tapped_step)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    (void)ui_take(&ui_u, 1001);
+    ui_tap(UI_BTN_REC, 1100);
+    TT_CHECK(ui_take(&ui_u, 1101) & UI_D_FOOT);
+    ui_tap(UI_BTN_REC, 1200);
+    TT_CHECK(ui_take(&ui_u, 1201) & UI_D_FOOT);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 1, 1300), 1);       /* a step tapped: way 1 */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 0, 1310), 1);
+    TT_CHECK(ui_u.seq_armed);
+    ui_tap(UI_BTN_REC, 1400);
+    TT_CHECK(ui_u.seq_rec);
+    TT_CHECK(!ui_u.seq_armed);
+    (void)ui_take(&ui_u, 1401);
+    ui_tap(UI_BTN_PLAY, 1500);                                /* starts, disarms */
+    TT_CHECK(ui_take(&ui_u, 1501) & UI_D_FOOT);
+}
+
+/* A step part-built in REC is dropped when SAVE opens (REC disarms: SAVE takes the screen) or a pattern
+ * loads from PRESETS: notes let go later write nothing, and the next step starts empty */
+TT_TEST(seq_rec_save_and_pattern_load_drop_the_step_being_built)
+{
+    const seq_step *st;
+    ui_setup();
+    ui_tap(UI_BTN_REC, 1000);
+    seq_note(5, 60, 90, 1, 1100);                             /* held */
+    ui_tap(UI_BTN_SAVE, 1200);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_REC), (uint32_t)UI_LED_OFF);
+    seq_note(5, 60, 0, 0, 1300);
+    ui_tap(UI_BTN_HOME, 1400);                                /* SAVE: cancel */
+    ui_tap(UI_BTN_HOME, 1500);
+    if (ui_u.state != UI_SEQ)
+        ui_tap(UI_BTN_SEQ, 1600);
+    ui_tap(UI_BTN_REC, 1700);
+    seq_note(9, 64, 90, 1, 1800);
+    seq_note(9, 64, 0, 0, 1900);
+    st = seq_get_step(play_seq(&ui_p), 0);
+    TT_CHECK_EQ(st->n, 1u);                                   /* E4 alone, no stale C4 */
+    TT_CHECK_EQ(st->note[0], 64u);
+    seq_note(5, 60, 90, 1, 2000);                             /* held on step 2 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2100);    /* edited: warned */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2200);    /* loads 12 */
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    seq_note(5, 60, 0, 0, 2300);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), ui_u.seq_cursor)->kind, SEQ_REST);
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+}
+
 /* MIDI clock in at 120 BPM: n ticks, from host time 0 (24 MHz, 500000 counts a tick) */
 static void seq_clock_ticks(uint32_t n)
 {
@@ -838,6 +1159,23 @@ TT_TEST(seq_clock_burst_shows_at_most_three_digits)
 
 static void run_ui_seq_tests(void)
 {
+    TT_RUN(seq_cursor_stays_inside_the_length);
+    TT_RUN(seq_rec_tap_arms_and_opens_seq_view);
+    TT_RUN(seq_rec_while_playing_says_stop_to_record);
+    TT_RUN(seq_rec_every_key_plays);
+    TT_RUN(seq_rec_writes_a_step_and_moves_on);
+    TT_RUN(seq_rec_wraps_at_the_length);
+    TT_RUN(seq_rec_takes_midi_notes);
+    TT_RUN(seq_rec_sel_and_env_write_and_move_on);
+    TT_RUN(seq_rec_fx_steps_back);
+    TT_RUN(seq_rec_disarms_and_drops_the_step_being_built);
+    TT_RUN(seq_rec_play_starts_and_disarms);
+    TT_RUN(seq_rec_button_leds);
+    TT_RUN(seq_rec_key_leds);
+    TT_RUN(seq_rec_cursor_has_the_armed_look);
+    TT_RUN(seq_rec_sel_held_keeps_the_pattern);
+    TT_RUN(seq_rec_toggle_redraws_the_strip_and_ends_a_tapped_step);
+    TT_RUN(seq_rec_save_and_pattern_load_drop_the_step_being_built);
     TT_RUN(seq_tempo_shows_the_midi_clock);
     TT_RUN(seq_tempo_turn_under_the_clock_says_so);
     TT_RUN(seq_clock_text_names_the_source);

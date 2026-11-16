@@ -50,6 +50,8 @@ void ui_seq_tick(ui *u, uint32_t ms);
 /* notes' chord name when they're a common triad or seventh (Eric, R3: MAJ, MIN, DIM, AUG, SUS2, SUS4, 7,
  * MAJ7, MIN7), "C MIN7"; else "". s: UI_SEQ_TEXT_LEN */
 void ui_seq_chord_name(const uint8_t *note, uint32_t n, char *s);
+/* A REC tap in SEQ view (or just opened by one): step record armed, or disarmed when it was */
+void ui_seq_rec(ui *u);
 /* The transport's clock (interaction.md 7): "INT", "MIDI", or "WAITING FOR CLOCK" while PLAY waits for
  * the clock's start. s: UI_SEQ_TEXT_LEN */
 void ui_seq_clock_text(const ui *u, char *s);
