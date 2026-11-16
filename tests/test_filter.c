@@ -1638,6 +1638,67 @@ TT_TEST(env_skip_then_fade_matches_stepping)
     TT_CHECK_EQ(env_skip_then_change(env_change_fade, 70705), 0);
 }
 
+/* A skip of 0 changes nothing: level, stage, step and every sample after
+ * are an untouched twin's. */
+TT_TEST(env_skip_zero_is_a_no_op)
+{
+    static fm_env a, b;
+    uint32_t seed = 70709;
+    int trial, op, mismatches = 0;
+    for (trial = 0; trial < 100; trial++) {
+        env_random_pair(&a, &b, &seed);
+        for (op = 0; op < 20; op++) {
+            uint32_t n, k;
+            env_random_op(&a, &b, &seed, &n);
+            fm_env_skip(&a, 0);
+            if (fm_env_level(&a) != b.level || a.stage != b.stage ||
+                a.step != b.step || a.seg != b.seg)
+                mismatches++;
+            for (k = 0; k < n; k++)
+                if (fm_env_next(&a) != fm_env_next(&b)) mismatches++;
+        }
+    }
+    TT_CHECK_EQ(mismatches, 0);
+}
+
+/* Reset drops the samples a skip counted: the envelope is idle at 0 and
+ * plays its next note exactly as a fresh one. */
+TT_TEST(env_reset_drops_a_skip)
+{
+    static fm_env a, b;
+    uint32_t k;
+    int mismatches = 0;
+    env_set.attack_samples = 500;
+    env_set.decay_samples = 2000;
+    env_set.release_samples = 3000;
+    env_set.sustain = FM_ENV_FULL / 3;
+    fm_env_init(&a, &env_set);
+    fm_env_init(&b, &env_set);
+    fm_env_gate_on(&a);
+    fm_env_skip(&a, 1234);
+    fm_env_reset(&a);
+    TT_CHECK_EQ(a.lag, 0u);
+    TT_CHECK_EQ(fm_env_level(&a), 0);
+    TT_CHECK_EQ(a.stage, FM_ENV_IDLE);
+    fm_env_gate_on(&a);
+    fm_env_gate_on(&b);
+    for (k = 0; k < 10000; k++)
+        if (fm_env_next(&a) != fm_env_next(&b)) mismatches++;
+    TT_CHECK_EQ(mismatches, 0);
+}
+
+/* An idle envelope skipped (envelope 2 without the gate) stays idle at 0,
+ * however long. */
+TT_TEST(env_idle_skipped_stays_idle)
+{
+    static fm_env a;
+    fm_env_init(&a, &env_set);
+    fm_env_skip(&a, 1u << 20);
+    fm_env_skip(&a, 1u << 20);
+    TT_CHECK_EQ(fm_env_level(&a), 0);
+    TT_CHECK_EQ(a.stage, FM_ENV_IDLE);
+}
+
 /*
  * fm_env_step (inline, for the render loop) is fm_env_next: the same level,
  * stage and step after every sample, through random envelopes in every
@@ -2854,6 +2915,9 @@ static void run_filter_tests(void)
     TT_RUN(env_skip_then_gate_on_matches_stepping);
     TT_RUN(env_skip_then_retime_matches_stepping);
     TT_RUN(env_skip_then_fade_matches_stepping);
+    TT_RUN(env_skip_zero_is_a_no_op);
+    TT_RUN(env_reset_drops_a_skip);
+    TT_RUN(env_idle_skipped_stays_idle);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);

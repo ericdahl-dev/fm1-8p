@@ -135,6 +135,7 @@ void fm_env_reset(fm_env *e)
     e->stage = FM_ENV_IDLE;
     e->peak = FM_ENV_FULL;
     e->sus_level = 0;
+    e->lag = 0;
 }
 
 /* The sustain level for this note: the setting scaled by the peak
