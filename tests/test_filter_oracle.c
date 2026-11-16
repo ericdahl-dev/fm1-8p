@@ -90,7 +90,7 @@ static double oracle_ring_hz(const int32_t *y, size_t n)
     double first = -1, last = -1;
     int crossings = 0;
     size_t i;
-    for (i = 3 * (size_t)ORACLE_RATE; i < n; i++)
+    for (i = n > 3 * (size_t)ORACLE_RATE ? 3 * (size_t)ORACLE_RATE : 1; i < n; i++)
         if (y[i - 1] < 0 && y[i] >= 0) {
             double t = (double)i - 1 + (double)-y[i - 1] / ((double)y[i] - y[i - 1]);
             if (first < 0) first = t;
@@ -100,8 +100,8 @@ static double oracle_ring_hz(const int32_t *y, size_t n)
     return crossings > 1 ? ORACLE_RATE * (crossings - 1) / (last - first) : 0;
 }
 
-/* At resonance 1000 the lowpass rings on by itself after one impulse; its pitch stays within 1 cent of
- * the reference's at every cutoff. */
+/* At resonance 1000 the lowpass rings long after one impulse; its pitch stays within 1 cent of the
+ * reference's at every cutoff. */
 TT_TEST(self_oscillation_pitch_matches_the_reference)
 {
     static const int32_t cutoffs[] = { 2400, 4800, 6900, 9000, 10500, 12000, 13000 };
@@ -122,8 +122,8 @@ TT_TEST(self_oscillation_pitch_matches_the_reference)
             y[i] = fm_filter_run(&f, i == 0 ? 1 << 24 : 0);
             r[i] = oracle_filter_process(&o, i == 0 ? 1 << 24 : 0);
         }
-        hy = oracle_ring_hz(y, 4 * (size_t)ORACLE_RATE);
-        hr = oracle_ring_hz(r, 4 * (size_t)ORACLE_RATE);
+        hy = oracle_ring_hz(y, (size_t)ORACLE_RATE / 4);   /* (it rings down: its first quarter second) */
+        hr = oracle_ring_hz(r, (size_t)ORACLE_RATE / 4);
         cents = hr > 0 && hy > 0 ? 1200.0 * log2(hy / hr) : 9999.0;
         printf("    cutoff %5d: rings at %8.2f Hz, reference %8.2f Hz (%+.3f cent)\n", (int)cutoffs[c], hy, hr,
                cents);
@@ -131,8 +131,7 @@ TT_TEST(self_oscillation_pitch_matches_the_reference)
     }
 }
 
-/* 1 if every voice's filter state (the four stages and the highpass) is within the soft clip's
- * bound. */
+/* 1 if every voice's filter state (the sections' and the highpass's) is within its bound. */
 static int oracle_states_bounded(const fm_engine *e)
 {
     size_t v, i;
@@ -140,7 +139,7 @@ static int oracle_states_bounded(const fm_engine *e)
         const fm_filter *f = &e->voices[v].filter;
         if (f->hp > FILTER_BOUND || f->hp < -FILTER_BOUND) return 0;
         for (i = 0; i < 4; i++)
-            if (f->s[i] > FILTER_BOUND || f->s[i] < -FILTER_BOUND) return 0;
+            if (f->s[i] > FILTER_STATE_BOUND || f->s[i] < -FILTER_STATE_BOUND) return 0;
     }
     return 1;
 }

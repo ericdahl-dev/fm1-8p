@@ -3,29 +3,28 @@
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
- * The lowpass is four one-pole stages in series with the last stage fed
- * back to the input (times -k) for resonance. Each stage is
+ * The lowpass is PG-8X 2.0.13's (#162, the resonance's width): two equal
+ * resonant 2-pole sections in series, both at f0 with the same Q. PG-8X's
+ * response fits that within 0.01..0.66 dB at every resonance and cutoff
+ * measured, and its Q depends on the resonance alone (tests/test_svf.c's
+ * rows). Each section is a state-variable filter by Zavalishin's TPT
+ * (Andrew Simper's form): with t = tan(pi f0 / fs), k = 1 / Q and
  *
- *     m = (1 - w) * x + w * x1      (x1: the stage input one sample ago)
- *     y += g * (m - y)
+ *     a1 = 1 / (1 + t (t + k)), a2 = t a1, a3 = t a2
+ *     v3 = x - ic2, v1 = a1 ic1 + a2 v3, v2 = ic2 + a2 ic1 + a3 v3
+ *     ic1 = 2 v1 - ic1, ic2 = 2 v2 - ic2       (v2: the lowpass)
  *
- * The w = 1/4 term puts a zero at z = -1/3 in each stage. Without it, the
- * stages lag too little in phase at high cutoffs and the one-sample delay
- * in the feedback makes the loop oscillate at Nyquist; with it the loop
- * self-oscillates near the cutoff, at a feedback close to 4 (as in the
- * analog ladder), over most of the range (flat at high cutoffs; at the
- * lowest cutoffs it rings down; see docs/fixed-point.md). Across the
- * top FADE_CENTS of the cutoff range w, the feedback and 1 - g fade to
- * zero, so the fully open filter is an exact wire.
- *
- * m is a weighted average of x and x1, and y of m and the old y, so with
- * 0 <= w, g <= 1 no stage can exceed its input. The feedback goes
- * through a soft clip that never exceeds CLIP_MAX, and the ladder's
- * input (the signal less that feedback) is held to +-U_MAX, so every
- * state stays within +-U_MAX whatever the resonance or level: no
- * overflow, no runaway. With no resonance the lowpass is linear
- * (loop_in). See docs/fixed-point.md for the formats and the measured
- * response.
+ * The second section's output is lp + 2 t bp + t^2 hp, which moves its
+ * two zeros from Nyquist to the origin: the analog prototype's top end
+ * (PG-8X's), not the bilinear notch, worked out as v2 + 3 (v2 - ic2) -
+ * t ic1. Each state's two products are summed in 64 bits with the
+ * remainder carried to the next sample, so the sums are exact however
+ * small the step (a 20 Hz cutoff's a3 is 1e-6). The input level is k Q0:
+ * PG-8X's passband, Q0 / Q. The states are Q9.23 (the second section's
+ * reach past 128 at the top resonance); the second's are held to +-32.0,
+ * so nothing wraps, and that hold is past anything the output's own hold
+ * lets out. Across the top FADE_CENTS of the cutoff the output fades to
+ * the input, so the fully open filter is an exact wire.
  */
 #include "filter.h"
 
@@ -77,107 +76,10 @@ static const uint32_t h_tab[65] = {
 /* (top - cutoff) * FADE_STEP is at most FADE_CENTS * FADE_STEP <= 2^30 */
 typedef char fm_require_fade_fits_q30[
     (int64_t)FADE_CENTS * FADE_STEP <= ONE_Q30 ? 1 : -1];
-#define W_ZERO       (1 << 28)   /* 1/4, Q1.30: the zero at z = -1/3 */
-/* Feedback at resonance 1000, per mille, Q4.28: 4.2 / 1000. Just above
- * the loop's self-oscillation threshold, which in theory is about 4.0
- * over most of the range and falls to about 3.4 toward Nyquist. At the
- * lowest cutoffs (below about 15 Hz at 44.1 kHz) 4.2 is not enough. */
-#define K_PER_MILLE  1127429
 #define OCTAVE       1200
-/*
- * Resonance tables, one entry per RES_STEP per mille, read with linear
- * interpolation. Fitted to PG-8X 2.0.13's measured response (noise in,
- * VCF FREQ 64 and 80; see docs/fixed-point.md, "Resonance").
- */
-#define RES_STEP     125
-#define RES_ENTRIES  (1000 / RES_STEP + 1)
-/*
- * Feedback, per mille of K_PER_MILLE's 4.2: the resonance as the loop
- * plays it. Below 750 fitted, with the three tables after it, to PG-8X
- * 2.0.13's response at VCF FREQ 48-112, RES 0-88 (noise, re the open
- * filter; #134): k 0.45 at resonance 0, as PG-8X's knee is sharper than
- * four plain poles (-8 dB at the cutoff, not -12), up to 2.7 at 625. From
- * 750 up it is the resonance itself (#130's), and the peak's place is no
- * further from PG-8X's than #130's at any FREQ fitted.
- */
-static const int16_t kres_tab[RES_ENTRIES] = {
-    108, 158, 278, 380, 509, 643, 750, 875, 1000
-};
-/* Retune, cents: the coefficient comes from the cutoff plus this, so the
- * peak sits as far under the cutoff as PG-8X's (1.25 semitones under its
- * asymptote's cutoff at a +24 dB peak). Up to about 375 there is no peak
- * to place: there it sets the knee's corner, a semitone up at 0. */
-static const int16_t retune_tab[RES_ENTRIES] = {
-    102, 57, 113, -74, -129, -155, -177, -187, -190
-};
-/*
- * Bass shelf, Q2.13: the weight b of a one-pole lowpass of the output (at
- * the cutoff) against the output itself. (1 - b) y + b lp(y) is
- * (1 + c lp) / (1 + c) with c = b / (1 - b): the bass the feedback takes
- * (1 / (1 + k)) mostly given back, relative to the treble. With it, 2-4
- * octaves above the cutoff less the level well below it moves with
- * resonance as PG-8X's does: +0.3 dB at a +4 dB peak, +7.4 at +31 (the
- * plain ladder: 20 log10(1 + k), 7.8 and 13.7). c by entry: 0.85, 1.01,
- * 2.28, 1.14, 1.29, 0.78, 1.2, 0.8, 0.44.
- */
-static const int16_t shelf_tab[RES_ENTRIES] = {
-    3763, 4119, 5691, 4357, 4617, 3595, 4468, 3641, 2503
-};
-/*
- * Input level, Q2.13: sets the passband (1 / (1 + k) on its own) to
- * PG-8X's, -3.7 dB at a +4 dB peak and -15.1 at +24. The shelf above is
- * relative to the treble, so this is (1 + c) times PG-8X's level re the
- * ladder's: 1.41, 1.526, 1.579, 1.685, 1.733, 1.733, 1.276, 0.817, 0.658.
- * LEVEL_MAX stays under fm_require_level_sum_fits' limit (about 14230).
- * At the input it is smoothed by the stages: no step when it changes.
- */
-#define LEVEL_MIN 5390
-#define LEVEL_MAX 14200
-static const int16_t level_tab[RES_ENTRIES] = {
-    11552, 12502, 12936, 13806, LEVEL_MAX, LEVEL_MAX, 10453, 6693, LEVEL_MIN
-};
-/*
- * Warp, cents, from tools/gen_filter_tables.py: added to the lowpass
- * cutoff before its coefficient, by the cutoff's distance below the rate,
- * from WARP_FROM in WARP_STEP steps (read with linear interpolation). A
- * digital ladder's resonant peak sinks toward Nyquist (3 cents at 1 kHz,
- * 270 at 10 kHz, at 48 kHz); this keeps it as far under the cutoff as at
- * the bottom of the range, as PG-8X 2.0.13's is. It tapers to 0 at
- * Nyquist, where the corner can go no higher.
- */
-#define WARP_FROM    (-6 * OCTAVE)
-#define WARP_STEP    300
-#define WARP_ENTRIES 21
-static const int16_t warp_tab[WARP_ENTRIES] = {
-    0, 1, 3, 5, 8, 12, 18,
-    27, 39, 56, 80, 114, 163, 235,
-    201, 168, 134, 101, 67, 34, 0
-};
-/*
- * Feedback cut, Q15, from tools/gen_filter_tables.py, on warp_tab's grid by
- * the corner's distance below the rate: the feedback is k * (1 - cut). The
- * loop self-oscillates at a feedback of 4.0 well below the rate but 3.44 at
- * Nyquist; this scales k by that threshold, so a resonance sits as far from
- * self-oscillation at every cutoff as at the bottom of the range. JX-8P RES
- * 127 (935) never oscillates and resonance 1000 always does. Below
- * WARP_FROM the cut is 0, so the feedback there is exactly as before.
- */
-static const int16_t kcut_tab[WARP_ENTRIES] = {
-    0, 15, 36, 65, 104, 158, 231,
-    329, 458, 626, 840, 1107, 1429, 1804,
-    2225, 2675, 3135, 3576, 3971, 4299, 4543
-};
-/* Offset that makes pitch differences non-negative before / and %. */
 #define OCT_BIAS     32
 
 /* Resonance `permille` (0..1000) read from a RES_STEP table. */
-static int32_t res_lookup(const int16_t *tab, int32_t permille)
-{
-    int32_t i = permille / RES_STEP, r = permille % RES_STEP;
-    if (i == RES_ENTRIES - 1) return tab[i];
-    return tab[i] + (tab[i + 1] - tab[i]) * r / RES_STEP;
-}
-
 /* 2^(f / 1200) for f in 0..1199 cents, Q2.30 (1.0 .. just under 2.0). */
 static uint32_t exp2_cents(uint32_t f)
 {
@@ -310,19 +212,16 @@ int32_t fm_filter_voice_cents(int32_t cutoff_linear, int32_t track_permille,
 void fm_filter_clear(fm_filter *f)
 {
     int i;
-    for (i = 0; i < 4; i++) f->s[i] = 0;
-    f->x1 = 0;
+    for (i = 0; i < 4; i++) f->s[i] = f->c[i] = 0;
     f->hp = 0;
-    f->lp = 0;
 }
 
 void fm_filter_reset(fm_filter *f)
 {
     fm_filter_clear(f);
-    f->g = ONE_Q30;
-    f->k = 0;
+    f->a1 = ONE_Q30;
+    f->a2 = f->a3 = f->t = f->z3 = f->zt = 0;
     f->res = 0;
-    f->h = 0;
     f->a = ONE_Q30;
     f->cut = FM_FILTER_OPEN_CENTS;
     f->rate = 0;
@@ -335,61 +234,198 @@ static int32_t mul_q30(int32_t a, int32_t b)
     return (int32_t)(((int64_t)a * b) >> 30);
 }
 
+/* The output is held to +-U_MAX (FM_FILTER_HOLD, 16.0): past anything
+ * the pair plays (3.855, a ringed spike) through the bass boost (2.28 x)
+ * at a level of 1.0. */
+#define U_MAX FM_FILTER_HOLD
+
+static int32_t hold(int32_t u)
+{
+    return u > U_MAX ? U_MAX : u < -U_MAX ? -U_MAX : u;
+}
+
 /*
- * Wide open (fade 0: g = 1, w = 0, k = 0) with the highpass off, each
- * stage passes its input through exactly, so running the filter leaves
- * every stage input and output equal to the last sample. The fast path in
- * fm_filter_process skips that and keeps only the last sample, in s[3];
- * this fills in the rest when a setting change ends the fast path, so the
- * filter carries on as if it had run all along.
+ * Wide open (fade 0) with the highpass off the filter is a wire, and the
+ * fast path in fm_filter_process keeps only the last sample, in s[3]
+ * (Q8.24). This sets both lowpasses at that sample and the bandpasses at
+ * 0, so the output carries on from where the wire left it, with no step,
+ * and settles to the passband's level (Q0 / Q) at the sections' own pace.
  */
 static void leave_open(fm_filter *f)
 {
+    int32_t v = hold(f->s[3]) >> 1;                         /* Q9.23 */
     int i;
-    for (i = 0; i < 3; i++) f->s[i] = f->s[3];
-    f->x1 = f->lp = f->s[3];
+    f->s[0] = f->s[2] = 0;
+    f->s[1] = f->s[3] = v;
+    for (i = 0; i < 4; i++) f->c[i] = 0;
 }
 
-/* A warp_tab-grid table at `d` cents from the rate (init and control rate
- * only): its first entry below the grid, its last above. */
-static int32_t grid_lookup(const int16_t *tab, int32_t d)
+/*
+ * f0 under the cutoff: PG-8X 2.0.13's two sections' f0 (resonance 93,
+ * tests/test_svf.c's method) against the engine's cutoff for the same VCF
+ * FREQ, -176 cents at 6769 (F49) to -260 at 2639 (F16) and -246 at
+ * 11927 (F88; there set by PG-8X's peak, -261; and F96's peaks, -343 at
+ * 13022), every 1200 cents of the
+ * cutoff from 0, read with linear interpolation (above F88 PG-8X's f0 nears
+ * its Nyquist and goes on the slope from there).
+ */
+static const int16_t f0_off[13] = { -260, -260, -260, -237, -199, -181, -177, -188, -209, -228, -263, -357, -416 };
+/* tan(pi 2^(d / 1200)), d = -14400 .. -1300 by 100 (fc / fs from 1/4096 to 0.47), Q5.27 */
+static const int32_t tan_tab[132] = {
+    102944, 109065, 115550, 122421, 129701, 137413, 145584, 154241,
+    163413, 173130, 183425, 194332, 205888, 218130, 231101, 244843,
+    259402, 274827, 291169, 308483, 326827, 346261, 366851, 388665,
+    411776, 436262, 462203, 489688, 518806, 549657, 582341, 616969,
+    653657, 692526, 733707, 777336, 823560, 872533, 924418, 979389,
+    1037628, 1099331, 1164704, 1233965, 1307345, 1385089, 1467457, 1554724,
+    1647182, 1745139, 1848923, 1958881, 2075380, 2198811, 2329584, 2468139,
+    2614938, 2770473, 2935265, 3109866, 3294860, 3490869, 3698549, 3918597,
+    4151754, 4398802, 4660572, 4937947, 5231862, 5543308, 5873339, 6223073,
+    6593694, 6986464, 7402719, 7843881, 8311460, 8807063, 9332397, 9889280,
+    10479647, 11105560, 11769216, 12472959, 13219292, 14010890, 14850613, 15741525,
+    16686910, 17690295, 18755471, 19886522, 21087855, 22364234, 23720824, 25163231,
+    26697566, 28330501, 30069350, 31922153, 33897787, 36006088, 38258006, 40665788,
+    43243197, 46005792, 48971258, 52159828, 55594803, 59303210, 63316643, 67672340,
+    72414584, 77596550, 83282761, 89552409, 96503927, 104261375, 112983562, 122877370,
+    134217728, 147378461, 162881623, 181479693, 204299355, 233108465, 270849855, 322815567,
+    399582160, 525816175, 775495129, 1518452104
+};
+#define F0_MAX (-1480)                          /* f0 / fs at most 0.425 (20.4 kHz at 48 kHz) */
+#define D_MAX (-1383)                           /* f0 / fs at most 0.45 */
+/*
+ * k = 1 / Q by resonance per mille: PG-8X 2.0.13's (its F49 and F64 fits'
+ * mean, tests/test_svf.c), Q30, linear between. Past 935 (its RES 127,
+ * the most a JX-8P patch or CC reaches) to Q 13.4 at 1000: it rings long
+ * and decays, as PG-8X's never self-oscillates either.
+ */
+static const int16_t k_pm[14] = { 0, 290, 395, 400, 500, 575, 690, 756, 828, 860, 900, 925, 935, 1000 };
+static const int32_t k_tab[14] = { 1555853578, 1107028459, 921274491, 913757962, 780616755, 677527015,
+                                   537944002, 458487882, 365072384, 319976243, 248034877, 194877760,
+                                   159987123, 79993562 };
+/* section 1's zeros 5/8 of the way to the origin (section 2's all the way): PG-8X's top end at F80
+ * within 1.7 dB to 4 f0 (none: 8 dB under; both: 4 over). Up toward Nyquist, where the analog
+ * prototype isn't to be had and that shift only lifts the top, it tapers to none: full to t 0.4
+ * (f0 / fs 0.12), none from t 1.2 (0.28) */
+#define Z1_FULL  671088640                     /* 5/8, Q30 */
+#define Z1_T0    53687091                      /* t 0.4, Q5.27 */
+#define Z1_T1    161061274                     /* t 1.2, Q5.27 */
+#define Z1_T0R   40265318                      /* t 0.3, Q5.27: at resonance 0 */
+#define Z1_T1R   134217728                     /* t 1.0, Q5.27 */
+#define K_TOP    683920082                     /* 0.637 (2 / pi), Q30 */
+#define K_93     458487882                     /* k at RES 93 (756), where the f0 offset is measured */
+#define RATE48_CENTS 15023                     /* fm_filter_rate_cents(48000) */
+#define E_LIFT   912680550                     /* 0.85, Q30 */
+#define T2_LIFT  524288                        /* 0.0625 (F80's t^2), Q9.23 */
+#define OVER_MAX 3355443                       /* 0.4, Q9.23: no more than about 2.5 dB out (F96) */
+#define T_SHIFT  80530637                      /* 0.6, Q5.27: the f0 shift's t at most */
+typedef char t_shift_fits[T_SHIFT <= 80530637 ? 1 : -1];   /* c_t t overflows past t 0.63 */
+#define T_TRIM   40265318                      /* 0.3, Q5.27: the trim's t at most */
+#define Q0_Q30   741021855                     /* 1 / k at resonance 0 (Q 0.69): the level is k Q0, 1.0 there */
+#define K_FLOOR  21474836                      /* the level's k, at least 0.02: self-oscillation starts */
+
+/* how much k falls a per mille between the points, Q30 (no divide at control rate; as magnitudes, so
+ * no constant looks like a ROM address) */
+static const int32_t k_fall[13] = { 1547673, 1769086, 1503306, 1331413, 1374530, 1213766, 1203881,
+                                    1297438, 1409255, 1798535, 2126285, 3489064, 1230671 };
+
+static int32_t k_of(int32_t pm)
+{
+    int i;
+    if (pm >= k_pm[13]) return k_tab[13];
+    for (i = 0; pm > k_pm[i + 1]; i++) {}
+    return k_tab[i] - k_fall[i] * (pm - k_pm[i]);    /* (within 3.5e6 x 290: 32 bits) */
+}
+
+/* tan(pi f / fs), Q5.27, for f / fs in cents (held to 1/4096 .. 0.45) */
+static int32_t tan_of(int32_t d)
 {
     int32_t i, r;
-    if (d <= WARP_FROM) return tab[0];
-    if (d >= WARP_FROM + (WARP_ENTRIES - 1) * WARP_STEP) return tab[WARP_ENTRIES - 1];
-    i = (d - WARP_FROM) / WARP_STEP;
-    r = (d - WARP_FROM) % WARP_STEP;
-    return tab[i] + (tab[i + 1] - tab[i]) * r / WARP_STEP;
+    if (d > D_MAX) d = D_MAX;
+    if (d < -14400) d = -14400;
+    i = (d + 14400) / 100;
+    r = (d + 14400) % 100;
+    return tan_tab[i] + (int32_t)((((int64_t)(tan_tab[i + 1] - tan_tab[i]) * r) * 42949673) >> 32);   /* / 100 */
 }
 
-/* The coefficients from the cutoff, rate and resonance as set. */
+/* The coefficients from the cutoff, rate and resonance as set: control rate, a few 32-bit divides. */
 static void apply(fm_filter *f)
 {
-    int32_t c = f->cut + res_lookup(retune_tab, f->res), g, h, k = res_lookup(kres_tab, f->res) * K_PER_MILLE;
-    c += grid_lookup(warp_tab, c - f->rate);
-    k -= (int32_t)(((int64_t)k * grid_lookup(kcut_tab, c - f->rate)) >> 15);
-    int32_t level = res_lookup(level_tab, f->res) << 17, shelf = res_lookup(shelf_tab, f->res) << 17;
+    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, t48, tt, k, kl, trim, den, a1, w;
     int was_open = fm_filter_is_wire(f);
-    g = coef_for(c < 0 ? 0 : c, f->rate);
-    if (f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS) { /* below the fade */
-        f->fade = ONE_Q30;
-        f->g = g;
-        f->k = k;
-        f->a = level;
-        h = shelf;
-    } else { /* 1.0 at the fade, down to 0 at open */
-        f->fade = (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
-        f->g = ONE_Q30 - mul_q30(ONE_Q30 - g, f->fade);
-        f->k = mul_q30(k, f->fade);
-        f->a = ONE_Q30 + mul_q30(level - ONE_Q30, f->fade);
-        /* no shelf: up here (above Nyquist at 44.1 and 48 kHz) its weight
-         * shelf * (1 - g) is under 0.03 (0.2 dB), and the fade's stages
-         * already take four more multiplies */
-        h = 0;
+    i = c / 1200;
+    r = c % 1200;
+    d = c + (i >= 12 ? f0_off[12] + (f0_off[12] - f0_off[11]) * r / 1200
+                     : f0_off[i] + (f0_off[i + 1] - f0_off[i]) * r / 1200) - f->rate;   /* f0 / fs, cents */
+    t = tan_of(d);                                                                       /* Q5.27, <= 6.72 */
+    k = k_of(f->res);                                                                    /* Q30, <= 1.45 */
+    w = ONE_Q30 - (int32_t)(((int64_t)k * Q0_Q30) >> 30);     /* how much peak: 0 at resonance 0 */
+    w = w <= 0 ? 0 : w >= ONE_Q30 / 2 ? ONE_Q30 : 2 * w;      /* twice it, to 1 from about resonance 400 */
+    /* PG-8X's Q falls a little at high cutoffs (F80: 3..10 %, F49: none): k + K_TOP k^2 t, and its
+     * passband rises half as much (the level's k: k + half that). Fitted to F80 (t 0.25), and taken no
+     * further than t 0.3 (F82): at most 0.4 more, k within 1.85 */
+    /* PG-8X's own top: how its sections move at high f0 goes by f0's tan at 48 kHz (PG-8X's), whatever
+     * the rate here */
+    t48 = tan_of(d + f->rate - RATE48_CENTS);
+    tt = t48 < T_TRIM ? t48 : T_TRIM;
+    trim = (int32_t)(((((int64_t)k * k) >> 30) * (((int64_t)tt * K_TOP) >> 27)) >> 30);
+    kl = k + trim / 2;
+    k += trim;
+    /* and its f0 moves with the resonance there, the offset being RES 93's: up under it, down over it,
+     * by (240 + 900 t) t (k - k93) cents (F80: +150 at RES 0, -32 at 127; F64: +24; F49: +6), its t
+     * taken to 0.6 (F96; PG-8X's peaks at F88 and F96, RES 112 and 127) */
+    tt = t48 < (k > K_93 ? T_TRIM : T_SHIFT) ? t48 : (k > K_93 ? T_TRIM : T_SHIFT);   /* (up: as before, t 0.3) */
+    {
+        int64_t c_t = ((int64_t)240 << 27) + 900 * (int64_t)tt;                         /* 240 + 900 t, Q27 */
+        /* (c_t t: Q54 cents under 2^63 for t to 0.63, so T_SHIFT 0.6 at most; to Q10 under 2^19;
+         * times k - k93, within 2^31: under 2^50) */
+        int32_t shift = (int32_t)((((c_t * tt) >> 44) * ((int64_t)k - K_93)) >> 40);
+        if (d + shift > F0_MAX) shift = F0_MAX - d;   /* PG-8X's f0 goes no further (F104: 20.4..20.9 kHz) */
+        if (shift) t = tan_of(d + shift);
     }
-    h = mul_q30(h, ONE_Q30 - f->g); /* the weight of lp before its update */
-    if (h && !f->h) f->lp = f->s[3]; /* shelf on: the output carries on */
-    f->h = h;
+    den = (1 << 23) + (int32_t)(((int64_t)t * (t + (k >> 3))) >> 31);                    /* 1 + t (t + k), Q9.23 */
+    a1 = (int32_t)((0x80000000u / (uint32_t)(den >> 7)) << 15);                         /* 2^31 / Q16: Q15, to Q30 */
+    /* one Newton step, a1 (2 - den a1): 15 bits to 30, so the lowpass's DC gain is 1 (within 1e-8) */
+    a1 = (int32_t)(((int64_t)a1 * ((1ll << 31) - (((int64_t)den * a1) >> 23))) >> 30);
+    f->a1 = a1;
+    f->a2 = (int32_t)(((int64_t)a1 * t) >> 27);
+    f->a3 = (int32_t)(((int64_t)f->a2 * t) >> 27);
+    f->t = t;
+    {   /* section 1's zeros: 5/8 of the way to the origin, to none near Nyquist, from t 0.4 to 1.2 where
+         * there is a peak (PG-8X's peaks at F88..F96), from 0.3 to 1.0 at resonance 0 (its slope past f0
+         * up to F104, as match.py's VCF_FREQ reads it); between, by w (twice 1 - k Q0, to 1) */
+        int32_t zp = t <= Z1_T0 ? Z1_FULL : t >= Z1_T1 ? 0
+                   : (int32_t)(((int64_t)(Z1_T1 - t) * 25) >> 2);          /* Z1_FULL / (Z1_T1 - Z1_T0): 6.25 */
+        int32_t z0 = t <= Z1_T0R ? Z1_FULL : t >= Z1_T1R ? 0
+                   : (int32_t)(((int64_t)(Z1_T1R - t) * 479349029) >> 26);  /* Z1_FULL / 0.7: 50/7, Q26 */
+        zp = z0 + (int32_t)(((int64_t)(zp - z0) * w) >> 30);   /* z1 */
+        f->z3 = 3 * zp;                                          /* <= 1.875, Q30 */
+        f->zt = (int32_t)(((int64_t)t * zp) >> 30);              /* t z1, Q5.27 */
+    }
+    f->a = (int32_t)(((int64_t)(kl > K_FLOOR ? kl : K_FLOOR) * Q0_Q30) >> 30);            /* <= 1.0 (1.2 at the top) */
+    {   /* the zero corrections lift the resonant peak past F80 over PG-8X's (F88: 1.4 dB, F96: 4.0):
+         * the level takes out 1 + E_LIFT (t^2 - t80^2) of it (none to F80; t^2 - t80^2 held to 0.4, so
+         * 1.34 at most; t at the engine's rate, as z1: the lift is the digital sections'), by a 32-bit divide and a Newton step (it in Q9.23, 1 / it in Q30) */
+        int64_t over = (((int64_t)t * t) >> 31) - T2_LIFT;                              /* t^2 past F80's, Q9.23 */
+        int32_t e, inv;
+        over = over < 0 ? 0 : over > OVER_MAX ? OVER_MAX : over;
+        /* a lift of the peak, so as much of it as there is a peak: none at resonance 0, nearly all at 935
+         * (1 - k / k0 = 1 - k Q0: the untrimmed k, from the table) */
+        over = (over * (ONE_Q30 - (((int64_t)k_of(f->res) * Q0_Q30) >> 30))) >> 30;
+        e = (1 << 23) + (int32_t)((over * E_LIFT) >> 30);
+        inv = (int32_t)((0x80000000u / (uint32_t)(e >> 7)) << 15);
+        inv = (int32_t)(((int64_t)inv * ((1ll << 31) - (((int64_t)e * inv) >> 23))) >> 30);
+        f->a = (int32_t)(((int64_t)f->a * inv) >> 30);
+    }
+    f->fade = f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS ? ONE_Q30 : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
+    if (f->fade != ONE_Q30) {   /* toward its cube, as much as there is a peak (1 - k Q0, as the level's
+                                 * fold): the sections' peak near Nyquist (zeros at the origin) to PG-8X's
+                                 * height at F104 (+8.8..17.6 dB); the passband is the input's either way,
+                                 * and at resonance 0 the fade is as it was */
+        int32_t f1 = f->fade, f3;                       /* (w: as section 1's zeros) */
+        f3 = (int32_t)(((int64_t)f1 * f1) >> 30);
+        f3 = (int32_t)(((int64_t)f3 * f1) >> 30);
+        f->fade = f1 - (int32_t)(((int64_t)(f1 - f3) * w) >> 30);
+    }
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }
 
@@ -408,87 +444,35 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
     if (permille < 0) permille = 0;
     if (permille > 1000) permille = 1000;
     f->res = (int16_t)permille;
-    if (f->rate) /* the retune moves the coefficient */
-        apply(f);
-    else
-        f->k = mul_q30(res_lookup(kres_tab, permille) * K_PER_MILLE, f->fade);
+    apply(f);
 }
+
 
 /*
- * Soft clip, Q8.24: a wire up to +-2.0 (so a full-scale input passes
- * untouched), then a quadratic knee that flattens out at +-4.0 for
- * inputs of +-6.0 and beyond. Continuous, with a continuous slope.
- */
-#define KNEE      (2 << 24)
-#define KNEE_SPAN (4 << 24)
-#define CLIP_MAX  (4 << 24)
-
-static int32_t soft_clip(int32_t u)
-{
-    int32_t a = (u < 0 ? -u : u) - KNEE, m;
-    if (a <= 0) return u;
-    m = a >= KNEE_SPAN ? CLIP_MAX                     /* a < 2^26 below: a^2 in one 32x32->64 multiply */
-                       : KNEE + a - (int32_t)(((int64_t)a * a) >> 27); /* a - a^2/8 */
-    return u < 0 ? -m : m;
-}
-
-/*
- * The ladder's input: the signal less the resonance's feedback. Only the
- * feedback saturates (the soft clip, on k s3 in 64 bits): with no
- * resonance the input passes linearly, at any level an oscillator pair
- * reaches (a ring's peaks pass +-2.0, and bending them adds DC and
- * sub-audio PG-8X doesn't have, #136), and with a quiet input the loop
- * saturates exactly as it did, -soft(k s3) being soft(-k s3). The sum is
- * held to +-U_MAX, far past any oscillator, so every state stays within
- * it: each stage is a weighted average of its inputs, so the states, and
- * every difference a stage takes (at most 2 U_MAX), stay in Q8.24, and
- * eight voices of it sum within the mix's range.
- */
-#define U_MAX FM_FILTER_HOLD
-
-static int32_t hold(int32_t u)
-{
-    return u > U_MAX ? U_MAX : u < -U_MAX ? -U_MAX : u;
-}
-
-static int32_t loop_in(int32_t x, int32_t s3, int32_t k)
-{
-    /* s3 within 16.0 and k within 4.2: fb within 67.2 (soft_clip takes any
-     * int32), and x (within 64.0 x LEVEL_MAX, 110.9) less the clipped fb
-     * (within 4.0) within 114.9, so the sum fits 32 bits */
-    int32_t u = x - soft_clip((int32_t)(((int64_t)s3 * k) >> 28));
-    return hold(u);
-}
-
-/*
- * Every Q8.24 input (to +-128.0) gives exactly the output of the 64-bit
- * filter, with 32-bit sums on the usual path:
+ * Every Q8.24 input (to +-128.0) gives a bounded output and no overflow:
  * - The highpass state stays within the input's range. While both are
- *   within +-32.0 (an oscillator stays near +-1.0), the highpass output
- *   is within +-64.0; times the input level (at most LEVEL_MAX, 1.70) and
- *   less the clipped feedback (within +-4.0, CLIP_MAX) the ladder's input
- *   sum still fits 32 bits.
- * - Louder, the highpass runs in 64 bits and its output is clamped to
- *   +-IN_MAX (64.0). That changes nothing: a clamped value times the
- *   least input level (LEVEL_MIN, 0.66) less the largest clipped feedback
- *   is still past the ladder's hold (U_MAX, 16.0) with the same sign, as
- *   the unclamped one is. With the highpass off the input is clamped the
- *   same way.
- * - The bass boost (step 4) is at most 2.28 times the larger of the input
- *   and that state, so it takes the 32-bit path only while both are
- *   within +-16.0 (output within +-36.5, inside the +-64.0 above), and
- *   otherwise the 64-bit one with the same clamp. Within +-32.0 it could
- *   reach 73 and, times the level less the feedback, wrap 32 bits.
- * Only the products need 64 bits, and each is one 32x32->64 multiply.
+ *   within +-32.0 the highpass output is within +-64.0 (the boost's within
+ *   +-36.5 while both are within +-16.0); louder, it runs in 64 bits and
+ *   its output is clamped to +-IN_MAX (64.0). The input level is at most
+ *   1.0, so the sections' input is held to +-16.0, Q9.23's 8.0.
+ * - Section 1: its input is held to +-16.0 before and after the level, so
+ *   it is within 8.0 (Q9.23); its states, linear in it, reach at most 95
+ *   (worst-case gain over rate, cutoff and resonance: 189 at +-32.0, the
+ *   firmware review's), inside Q9.23's 256.
+ * - Section 2: its states are held to +-32.0 (SEC2_MAX). Then v3 is within
+ *   43, v1 within 32 + 0.5 x 43 = 53.5 and v2 within 32 + 16 + 43 = 91, so
+ *   2 v - ic, the next state before its hold, is within 214: inside
+ *   Q9.23's 256. The output, v2 + 3 (v2 - ic2) - t ic1, is summed in 32
+ *   bits as ic2 - t ic1 (t within 6.31, D_MAX's: 32 + 6.31 x 32 = 234,
+ *   inside Q9.23's 256), halved, plus 4 dv in Q10.22 (dv = v2 - ic2 =
+ *   a2 ic1 + a3 v3, with a2 within 0.5 and a3 under 1.0: within 16 + 43
+ *   = 59), so within 234 + 4 x 59 = 470: inside Q10.22's 512. Then it is
+ *   held to +-16.0 (U_MAX >> 2 in Q10.22).
+ * - The products: a1, a2 and a3 are within 1.0, the states within 256 and
+ *   the carries under 2^30, so each 64-bit sum is under 2^40.
  */
 #define IN_MAX ((1 << 30) - 1)
-/* In units of 1/8192: 64 x the largest level, plus the clipped feedback
- * (4.0), stays under 128.0; 64 x the least level, less that, is past the
- * hold (16.0). */
-typedef char fm_require_level_sum_fits[
-    (int64_t)LEVEL_MAX * 64 + 4 * 8192 < 128 * 8192 ? 1 : -1];
-typedef char fm_require_clamp_still_holds[
-    (int64_t)LEVEL_MIN * 64 - 4 * 8192 > (FM_FILTER_HOLD >> 11) ? 1 : -1];
+#define SEC2_MAX (32 << 23)                     /* section 2's states, Q9.23 */
 #define WITHIN_32(v) ((uint32_t)(v) + (1u << 29) < (1u << 30)) /* -32.0 <= v < 32.0 */
 #define WITHIN_16(v) ((uint32_t)(v) + (1u << 28) < (1u << 29)) /* -16.0 <= v < 16.0 */
 
@@ -530,24 +514,15 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
     if (step == FM_FILTER_HIGHPASS_BOOST) f->hp_g = -f->hp_g; /* negative: the boost */
 }
 
-/* One stage: m = x - w * (x - x1), y += g * (m - y); x1 is the stage's
- * input one sample ago. */
-static void stage(int32_t *y, int32_t x, int32_t x1, int32_t w, int32_t g)
+/* section 2's states held to +-SEC2_MAX */
+static inline int32_t sec_hold(int32_t v)
 {
-    int32_t m = x - mul_q30(x - x1, w);
-    *y += mul_q30(m - *y, g);
-}
-
-/* stage() with w = 1/4, as a shift. */
-static void stage_quarter(int32_t *y, int32_t x, int32_t x1, int32_t g)
-{
-    int32_t m = x - ((x - x1) >> 2);
-    *y += mul_q30(m - *y, g);
+    return v > SEC2_MAX ? SEC2_MAX : v < -SEC2_MAX ? -SEC2_MAX : v;
 }
 
 int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
-    int32_t x, u, p0, p1, p2;
+    int32_t x;
     if (fm_filter_is_wire(f)) { /* the default patch: a wire (see leave_open) */
         f->s[3] = hold(clamp_in(in));
         return f->s[3];
@@ -580,34 +555,52 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
             x = d > IN_MAX ? IN_MAX : d < -IN_MAX ? -IN_MAX : (int32_t)d;
         }
     }
-    if (f->a != ONE_Q30) x = mul_q30(x, f->a);
-    u = loop_in(x, f->s[3], f->k);
-    /* each stage after the first takes the one before it, now and as it
-     * was one sample ago */
-    p0 = f->s[0];
-    p1 = f->s[1];
-    p2 = f->s[2];
-    if (f->fade == ONE_Q30) { /* below the fade: w = 1/4, w * d is d >> 2 */
-        stage_quarter(&f->s[0], u, f->x1, f->g);
-        stage_quarter(&f->s[1], f->s[0], p0, f->g);
-        stage_quarter(&f->s[2], f->s[1], p1, f->g);
-        stage_quarter(&f->s[3], f->s[2], p2, f->g);
-    } else { /* w = 1/4 x fade, exactly (W_ZERO is 2^28) */
-        int32_t w = f->fade >> 2;
-        stage(&f->s[0], u, f->x1, w, f->g);
-        stage(&f->s[1], f->s[0], p0, w, f->g);
-        stage(&f->s[2], f->s[1], p1, w, f->g);
-        stage(&f->s[3], f->s[2], p2, w, f->g);
-    }
-    f->x1 = u;
-    if (!f->h) return f->s[3];
-    /* the bass shelf: lp follows the output at the cutoff, and the output
-     * is s3 + shelf * (lp - s3) after lp's update, which is s3 - shelf *
-     * (1 - g) * d with d the difference before it (two independent
-     * multiplies, much faster on the device) */
     {
-        int32_t d = f->s[3] - f->lp;
-        f->lp += mul_q30(d, f->g);
-        return f->s[3] - mul_q30(d, f->h);
+        int32_t a1 = f->a1, a2 = f->a2, a3 = f->a3, i1, i2, v1, dv, v3, y, u;
+        int64_t p;
+        x = hold(x);                             /* the input held to 16.0 (an input past it acts as it) */
+        v3 = (mul_q30(x, f->a) >> 1) - f->s[1];  /* its level (at most 1.2: 19.2 at most), Q9.23 */
+        i1 = f->s[0];
+        i2 = f->s[1];
+        p = (int64_t)a1 * i1 + (int64_t)a2 * v3 + f->c[0];
+        v1 = (int32_t)(p >> 30);
+        f->c[0] = (int32_t)(p & 0x3FFFFFFF);
+        p = (int64_t)a2 * i1 + (int64_t)a3 * v3 + f->c[1];
+        dv = (int32_t)(p >> 30);                 /* v2 - i2 */
+        f->c[1] = (int32_t)(p & 0x3FFFFFFF);
+        f->s[0] = 2 * v1 - i1;
+        f->s[1] = i2 + 2 * dv;
+        /* section 1's output with its zeros z1 of the way to the origin: v2 + z1 (3 (v2 - i2) - t i1),
+         * by 3 z1 and t z1 from apply */
+        u = i2 + dv + (int32_t)(((int64_t)dv * f->z3) >> 30) - (int32_t)(((int64_t)i1 * f->zt) >> 27);
+        i1 = f->s[2];                            /* section 2, on section 1's */
+        i2 = f->s[3];
+        v3 = u - i2;
+        p = (int64_t)a1 * i1 + (int64_t)a2 * v3 + f->c[2];
+        v1 = (int32_t)(p >> 30);
+        f->c[2] = (int32_t)(p & 0x3FFFFFFF);
+        p = (int64_t)a2 * i1 + (int64_t)a3 * v3 + f->c[3];
+        dv = (int32_t)(p >> 30);
+        f->c[3] = (int32_t)(p & 0x3FFFFFFF);
+        /* zeros at the origin, v2 + 3 (v2 - i2) - t i1 = i2 + 4 dv - t i1, in Q10.22: within 470 (above),
+         * under 512; 4 dv is even, so halving i2 - t i1 alone is exact */
+        u = ((i2 - (int32_t)(((int64_t)f->t * i1) >> 27)) >> 1) + 2 * dv;
+        v1 = 2 * v1 - i1;
+        dv = i2 + 2 * dv;
+        /* held to +-SEC2_MAX: one test for both (each within it is each + SEC2_MAX within 2 SEC2_MAX
+         * unsigned, and so is their OR; an OR past it with both within only takes the exact hold) */
+        if ((((uint32_t)v1 + SEC2_MAX) | ((uint32_t)dv + SEC2_MAX)) > 2u * SEC2_MAX) {
+            v1 = sec_hold(v1);
+            dv = sec_hold(dv);
+        }
+        f->s[2] = v1;
+        f->s[3] = dv;
+        if ((uint32_t)u + (U_MAX >> 2) <= (uint32_t)U_MAX >> 1)   /* within +-U_MAX / 4: one test */
+            y = u * 4;                                            /* Q8.24 */
+        else
+            y = u < 0 ? -U_MAX : U_MAX;
+        if (f->fade == ONE_Q30)
+            return y;
+        return x + mul_q30(y - x, f->fade);     /* (the top of the range: to the input, held as a wire's) */
     }
 }
