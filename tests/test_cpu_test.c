@@ -1,5 +1,9 @@
 /* CPU test (firmware/cpu_test.c) behavior: what the FM-1 module drives, run on the desktop. */
 #include "../firmware/cpu_test.h"
+#include "../firmware/play.h"
+
+/* F plays the device's polyphony (#269): a build-time tie, cpu_test.h can't see play.h (its patches.h) */
+typedef char ct_full_voices_is_play_voices[CT_FULL_VOICES == PLAY_VOICES ? 1 : -1];
 
 static cpu_test ct_a, ct_b;
 static int32_t ct_out[2 * CT_BLOCK];
@@ -278,16 +282,16 @@ TT_TEST(cpu_test_full_patch_ends_the_sweep_after_its_hold)
     TT_CHECK_EQ(cpu_test_take_completed(&ct_a, &v, &pm), 0);
 }
 
-/* Step F, after U: the full patch, every modulation the engine has turned on, on a 6-voice chord: F asks
- * "do 6 voices fit", so a device that can't keep up shows an overrun rather than having the module stopped
- * (the desktop bench plays it on 8). */
+/* Step F, after U: the full patch, every modulation the engine has turned on, on the device's voices
+ * (PLAY_VOICES, 4; 6 until #269): F asks "do the device's voices fit", so a device that can't keep up shows
+ * an overrun rather than having the module stopped (the desktop bench plays it on 8). */
 TT_TEST(cpu_test_full_patch_step_turns_on_every_modulation)
 {
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
     cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);
     cpu_test_render(&ct_a, ct_out, CT_BLOCK);
     TT_CHECK_EQ(cpu_test_voices(&ct_a), CT_FULL);
-    TT_CHECK_EQ(fm_engine_active_voices(&ct_a.engine), 6);
+    TT_CHECK_EQ(fm_engine_active_voices(&ct_a.engine), PLAY_VOICES);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_VOICE_MODE), FM_VOICE_MODE_POLY);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_OSC1_WAVE), FM_WAVE_PULSE);
     TT_CHECK_EQ(fm_engine_get_param(&ct_a.engine, FM_PARAM_OSC2_WAVE), FM_WAVE_SAW);
@@ -411,7 +415,7 @@ TT_TEST(cpu_test_full_patch_filter_is_off_the_fast_path)
         for (i = 0; i < ct_a.engine.voice_count; i++) {
             const fm_filter *f = &ct_a.engine.voices[i].filter;
             TT_CHECK(f->fade != 0);                             /* the lowpass */
-            TT_CHECK(f->k != 0);                                /* its resonance */
+            TT_CHECK(f->res != 0);                              /* its resonance */
             TT_CHECK(f->hp_g != 0);                             /* the highpass */
         }
     }

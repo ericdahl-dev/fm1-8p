@@ -25,19 +25,21 @@ The module `FM1-8P CPU` holds a chord and steps through 10 steps, 5 s each:
 | --- | --- |
 | 1 to 8 | 1 to 8 voices, one note each (C3 up in thirds), poly mode |
 | U | the unison burst: 8 voices in unison; in every block the 8 keys go up, go down again (each note-on retriggers every voice) and the unison detune changes |
-| F | the full patch on 6 voices, the target polyphony: the first 6 notes of the chord (poly mode) with every modulation on: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, a resonant lowpass (cutoff 10500 cents, resonance 700, its envelope sweeping it up 3600 cents into the top of its range) with the first highpass step, and the deep chorus. After its 5 s the chord rings on; the F row no longer changes |
+| F | the full patch on 4 voices, the device's polyphony (PLAY_VOICES; 6 until #269): the first 4 notes of the chord (poly mode) with every modulation on: osc1 pulse and osc2 saw mixed half and half, 30 cents of vibrato, 25 % pulse-width modulation, amp velocity at 100 % with a different velocity per note, a resonant lowpass (cutoff 10500 cents, resonance 700, its envelope sweeping it up 3600 cents into the top of its range) with the first highpass step, and the deep chorus. After its 5 s the chord rings on; the F row no longer changes |
 
 For each step it shows the **worst** render time of any block, as a percentage of one 256-frame block (5.8 ms at
 44.1 kHz). The block that starts a step (engine setup, first note-on) is not timed. Step U is the case from the #13
 comment: unison does its divides when notes and the detune change, so a burst of note-ons inside one block is its
-worst case. Step F answers "do 6 voices of a real patch fit". Its main cost is the filter: with the filter open and every
+worst case. Step F answers "do the device's 4 voices of a real patch fit". Its main cost is the filter: with the filter open and every
 depth at 0 (steps 1 to 8) the filter is a wire and the LFO costs nothing, so only F measures the filter, vibrato,
-pulse-width modulation, velocity and the chorus together. It plays 6 voices, not 8, because fm1-dock stops a module
+pulse-width modulation, velocity and the chorus together. It plays 4 voices, the device's polyphony (6 until #269: results
+below that say 6 voices were taken then), not 8, because fm1-dock stops a module
 that renders slower than real time (section 2). `make bench-full` times the same patch on the desktop at every voice
 count up to 8.
 
-What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 3.1 % per voice, 25.8 % at
-8 voices, 31.4 % for U, 77.3 % for F (6 voices). On the device, expect roughly 1.15 times those. A big difference from that is a finding in
+What to expect, from fm1-emu's strict mode (it reads about 10-15 % below the device): about 1.5 % per voice, 12.9 % at
+8 voices, 21.4 % for U, 37.7 % for F (4 voices; it was 6 before #269, with higher figures). On the device, expect
+roughly 1.08 to 1.15 times those. A big difference from that is a finding in
 itself: note it.
 
 ## 1. What you need
@@ -127,7 +129,7 @@ as ours: on 2026-11-10 it lifted the run-3 build's F from 72 % to 82 % and made 
    `4   11.5 %`. The current step's row is white, the others gray. **Write down all 10 rows** once `F` has run its
    5 s.
 4. Listen while it runs: a chord that gets richer for 40 s, then a fast-retriggered 8-voice unison note for 5 s, then
-   a 6-note chord with the filter sweeping open and closing to a resonant tone, vibrato and chorus, its notes at
+   a 4-note chord with the filter sweeping open and closing to a resonant tone, vibrato and chorus, its notes at
    different loudness. Clicks, dropouts or the sine taking
    over mean an overrun: note at which step.
 
@@ -189,16 +191,16 @@ try again.
 
 | step | screen (worst %) | log (per mille) | fm1-emu strict (%) | device / emu |
 | --- | --- | --- | --- | --- |
-| 1 | | | 4.4 | |
-| 2 | | | 7.3 | |
-| 3 | | | 10.3 | |
-| 4 | | | 13.4 | |
-| 5 | | | 16.5 | |
-| 6 | | | 19.6 | |
-| 7 | | | 22.7 | |
-| 8 | | | 25.8 | |
-| U (unison burst) | | | 31.4 | |
-| F (full patch) | | | 77.3 | |
+| 1 | | | 4.1 | |
+| 2 | | | 4.2 | |
+| 3 | | | 5.6 | |
+| 4 | | | 7.1 | |
+| 5 | | | 8.5 | |
+| 6 | | | 10.0 | |
+| 7 | | | 11.4 | |
+| 8 | | | 12.9 | |
+| U (unison burst) | | | 21.4 | |
+| F (full patch) | | | 37.7 | |
 
 - `dock.py modules`: render worst __ % of a block, __ overruns
 - Heard any clicks, dropouts or the sine taking over? At which step?
@@ -206,5 +208,31 @@ try again.
   if it worked)
 ```
 
-The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `d5ee372` (#25's filter), with row F
-playing the filter on 6 voices. If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+The emu column is from fm1-emu `5c6ed85` in strict mode with the engine at `54dd680`, with row F playing the full
+patch on 4 voices (#269; before it, F played 6). If the engine has changed since, rerun `tools/fm1-build.sh emu` and use its `build/fm1/emu-report.md`.
+
+## Results (#13)
+
+The runs posted in #13, all on the same FM-1 with fm1-dock 0.8 (FM-1_921), route A. Each figure is the worst
+render time in a 256-frame block, as % of the block. Step F is the full patch: 6 voices in runs 2-6 (with the
+filter, #57), 8 voices with no filter in run 1.
+
+| run | fm1-8p | Bluetooth | 1v | 8v | U | F | device / emu |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | c04f731 | off | 5.8 | 31.7 | 38.3 | 70.7 (8v, no filter) | 1.13-1.17 |
+| 2 | 7af3bd1 (#57) | off | - | 31.6 | 38.3 | 86.5 | 1.12 |
+| 3 | 9b4b979 (#66, -O2) | off | 5.2 | 27.3 | 33.2 | 72.2 | 1.13 |
+| 5 | 3b5da6e | off | 5.6 | 27.5 | 33.5 | 66.6 | 1.127 |
+| 6 | 6754821 (#82) | off | 5.3 | 24.8 | 30.8 | 64.4 | 1.14 |
+
+- 0 overruns in every run.
+- Run 4 measured with Bluetooth on, which adds about 10 points to the worst block and varies from sweep to
+  sweep: the C66 control read 82.0 % F with it on, 71.9 % with it off. CPU runs are made with Bluetooth off
+  (section 4).
+- fm1-emu in strict mode reads low by a steady factor, about 1.13 (1.12-1.17), so the emulator's rows predict
+  the device. The 1-voice row carries the fixed cost and reads up to 1.38.
+- Run 1 per step (per mille, 1 to 8 voices): 58, 88, 126, 164, 202, 240, 279, 317.
+- Run 3 per step: 52, 77, 109, 142, 175, 207, 240, 273.
+- **The voice count:** 4 voices, final (Eric, 2026-11-15). Step F at 6 voices reached 64.4 % on the device
+  (run 6), under the 70 % goal from #34; the device has played 4 since, and Eric decided 4 is fine. 6 voices
+  are not being pursued.
