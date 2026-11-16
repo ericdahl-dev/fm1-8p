@@ -462,8 +462,12 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
  * - Section 2: its states are held to +-32.0 (SEC2_MAX). Then v3 is within
  *   43, v1 within 32 + 0.5 x 43 = 53.5 and v2 within 32 + 16 + 43 = 91, so
  *   2 v - ic, the next state before its hold, is within 214: inside
- *   Q9.23's 256. The output, v2 + 3 (v2 - ic2) - t ic1, is within 91 +
- *   3 x 123 + 6.32 x 32 = 662: in 64 bits, then held to +-8.0 (16.0).
+ *   Q9.23's 256. The output, v2 + 3 (v2 - ic2) - t ic1, is summed in 32
+ *   bits as ic2 - t ic1 (t within 6.31, D_MAX's: 32 + 6.31 x 32 = 234,
+ *   inside Q9.23's 256), halved, plus 4 dv in Q10.22 (dv = v2 - ic2 =
+ *   a2 ic1 + a3 v3, with a2 within 0.5 and a3 under 1.0: within 16 + 43
+ *   = 59), so within 234 + 4 x 59 = 470: inside Q10.22's 512. Then it is
+ *   held to +-4.0 (16.0).
  * - The products: a1, a2 and a3 are within 1.0, the states within 256 and
  *   the carries under 2^30, so each 64-bit sum is under 2^40.
  */
@@ -578,9 +582,9 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         p = (int64_t)a2 * i1 + (int64_t)a3 * v3 + f->c[3];
         dv = (int32_t)(p >> 30);
         f->c[3] = (int32_t)(p & 0x3FFFFFFF);
-        /* zeros at the origin, v2 + 3 (v2 - i2) - t i1, in Q10.22: within 32 + 1.5 dv + 2.1 * 32 there,
-         * under 512 */
-        u = ((i2 - (int32_t)(((int64_t)f->t * i1) >> 27)) >> 1) + 2 * dv;   /* (4 dv even: exact; i2 - t i1 within 247) */
+        /* zeros at the origin, v2 + 3 (v2 - i2) - t i1 = i2 + 4 dv - t i1, in Q10.22: within 470 (above),
+         * under 512; 4 dv is even, so halving i2 - t i1 alone is exact */
+        u = ((i2 - (int32_t)(((int64_t)f->t * i1) >> 27)) >> 1) + 2 * dv;
         v1 = 2 * v1 - i1;
         dv = i2 + 2 * dv;
         /* held to +-SEC2_MAX: one test for both (each within it is each + SEC2_MAX within 2 SEC2_MAX
