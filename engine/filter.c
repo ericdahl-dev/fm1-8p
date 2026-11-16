@@ -467,7 +467,7 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
  *   inside Q9.23's 256), halved, plus 4 dv in Q10.22 (dv = v2 - ic2 =
  *   a2 ic1 + a3 v3, with a2 within 0.5 and a3 under 1.0: within 16 + 43
  *   = 59), so within 234 + 4 x 59 = 470: inside Q10.22's 512. Then it is
- *   held to +-4.0 (16.0).
+ *   held to +-16.0 (U_MAX >> 2 in Q10.22).
  * - The products: a1, a2 and a3 are within 1.0, the states within 256 and
  *   the carries under 2^30, so each 64-bit sum is under 2^40.
  */
