@@ -67,6 +67,7 @@ uint32_t play_store_tick(play *p)
 {
     if (p->lib_attached) {                      /* the user slots' banks: here, not in init (#185) */
         store_lib_load_bank(p->lib_attached, p->io, p->store_bank);
+        p->store_read++;
         if (++p->store_bank == STORE_USER_SLOTS / STORE_BANK_SLOTS) {
             p->lib = p->lib_attached;
             p->lib_attached = 0;
@@ -76,6 +77,7 @@ uint32_t play_store_tick(play *p)
     }
     if (p->plib_attached && p->io) {            /* the pattern slots', then slot 0 into the sequencer */
         pat_lib_load_bank(p->plib_attached, p->io, p->store_bank);
+        p->store_read++;
         if (++p->store_bank == PAT_SLOTS / STORE_BANK_SLOTS) {
             p->plib = p->plib_attached;
             p->plib_attached = 0;
@@ -85,6 +87,11 @@ uint32_t play_store_tick(play *p)
         return 1;
     }
     return 0;
+}
+
+uint32_t play_store_progress(const play *p)
+{
+    return p->store_read;
 }
 
 uint32_t play_pattern_prog(const play *p)
@@ -240,7 +247,7 @@ int play_init(play *p)
     p->live_mod = 0;
     seq_init(&p->seq);
     p->plib = p->plib_attached = 0;
-    p->store_bank = 0;
+    p->store_bank = p->store_read = 0;
     p->pat_prog = 0;
     p->pat_next = -1;
     p->pat_name[0] = p->pat_next_name[0] = '\0';

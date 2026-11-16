@@ -374,6 +374,7 @@ void ui_init(ui *u, play *p)
     u->seq_page = 0;
     u->seq_keys = 0;
     u->shown_clock = 0;
+    u->boot = u->boot_ms = u->boot_loaded = u->boot_btns = 0;
     u->chord_n = 0;
     u->seq_armed = 0;
     u->built_n = 0;
@@ -867,6 +868,10 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
 int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
 {
     int32_t d = key_digit(k);
+    if (down && u->boot) {                      /* a key skips the boot screen and plays (#50) */
+        u->boot = 0;
+        u->dirty |= UI_D_FULL;
+    }
     if (!down && k < 32u && u->seq_keys >> k & 1u) {   /* a key SEQ view took: its up too, wherever we are */
         u->seq_keys &= ~(1u << k);
         ui_seq_step_key(u, k, 0, ms);
@@ -1158,6 +1163,19 @@ void ui_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
     }
     if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS)
         u->held &= ~(1u << id);
+    if (u->boot && ((ev & 0xFF000000u) == UI_EV_ENC || (ev & 0xFF000000u) == UI_EV_BTN_DOWN)) {
+        u->boot = 0;                            /* the boot screen: any knob or button skips it, nothing else */
+        u->dirty |= UI_D_FULL;
+        if ((ev & 0xFF000000u) == UI_EV_BTN_DOWN && id < UI_BUTTONS) {
+            u->boot_btns |= 1u << id;           /* (and its release) */
+            u->held &= ~(1u << id);             /* (held on, it isn't a hold either) */
+        }
+        return;
+    }
+    if ((ev & 0xFF000000u) == UI_EV_BTN_UP && id < UI_BUTTONS && u->boot_btns >> id & 1u) {
+        u->boot_btns &= ~(1u << id);
+        return;
+    }
     if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && ms - u->down_ms[UI_BTN_HOME] >= UI_PICKER_MS &&
         play_seq(u->p)->want)
         seq_stop(play_seq(u->p));               /* the host's picker: the sequencer stops (case 62) */
@@ -1279,8 +1297,32 @@ int ui_play_readout(const ui *u, uint32_t ms)
     return u->readout && ms - u->readout_ms < UI_READOUT_MS;
 }
 
+void ui_boot_begin(ui *u)
+{
+    u->boot = 1u;
+    u->boot_loaded = 0;
+    u->dirty |= UI_D_FULL;
+}
+
+void ui_boot_loaded(ui *u)
+{
+    u->boot_loaded = 1u;
+}
+
+void ui_boot_text(char *line, char *ver)
+{
+    static const char L[] = "POLY SYNTH  0 VOICES";
+    uint32_t i;
+    for (i = 0; i < sizeof L; i++)
+        line[i] = L[i];
+    line[12] = (char)('0' + PLAY_VOICES % 10u);
+    ver[0] = 'V', ver[1] = (char)('0' + UI_FW_VERSION % 10u), ver[2] = 0;
+}
+
 uint32_t ui_screen(const ui *u)
 {
+    if (u->boot)
+        return UI_SCREEN_BOOT;
     if (u->state == UI_SAVE)
         return UI_SCREEN_SAVE;
     if (u->state == UI_GLO)
@@ -1305,6 +1347,13 @@ uint32_t ui_take(ui *u, uint32_t ms)
         u->dirty |= UI_D_FULL;
     }
     u->now_ms = ms;
+    if (u->boot == 1u) {                        /* the boot screen: its time starts at its first draw */
+        u->boot = 2u;
+        u->boot_ms = ms;
+    } else if (u->boot && ((ms - u->boot_ms >= UI_BOOT_MS && u->boot_loaded) || ms - u->boot_ms >= UI_BOOT_MAX_MS)) {
+        u->boot = 0;                            /* shown long enough and the banks read, or at the ceiling: PLAY */
+        u->dirty |= UI_D_FULL;
+    }
     ui_save_tick(u, ms);
     if (play_edited(u->p) != u->shown_edited) {  /* the footer's `*` */
         u->shown_edited = play_edited(u->p);

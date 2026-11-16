@@ -110,6 +110,9 @@ typedef struct {
     uint32_t roll_seen_lo, roll_seen_hi; /* the notes it was fitted to: within them, no refit */
     int32_t shown_playhead;             /* the playhead as the roll last drew it (-1 none) */
     uint32_t shown_blink;               /* the armed step's blink phase as drawn */
+    uint32_t boot;                      /* the boot screen (#50): 1 while it shows, 2 begun, 0 done */
+    uint32_t boot_ms, boot_loaded;      /* when it began (its first ui_take); the flash banks read */
+    uint32_t boot_btns;                 /* buttons that skipped it: their releases do nothing either */
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
     uint32_t shown_clock;               /* SEQ view: the clock as drawn (external, waiting, tempo) */
     int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
@@ -200,8 +203,19 @@ int32_t ui_slot_value(const ui *u, const ui_slot *sl);
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* which screen shows (draw.c branches on it for every band): PLAY, an edit page, or the number jump's
  * (up from 400 ms into a SEL hold, or a first digit, until a jump is done or SEL comes up) */
-enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO, UI_SCREEN_SEQ };
+enum { UI_SCREEN_PLAY, UI_SCREEN_PAGE, UI_SCREEN_JUMP, UI_SCREEN_SAVE, UI_SCREEN_GLO, UI_SCREEN_SEQ, UI_SCREEN_BOOT };
 uint32_t ui_screen(const ui *u);
+/* The boot screen (#50): begun by the module at init, shown from the first ui_take for at least
+ * UI_BOOT_MS and until the flash banks are read (ui_boot_loaded), at most UI_BOOT_MAX_MS; then PLAY */
+#define UI_BOOT_MS 1500u
+#define UI_BOOT_MAX_MS 5000u
+#define UI_BOOT_SWEEP_MS 500u               /* its key LED sweep, once */
+void ui_boot_begin(ui *u);
+void ui_boot_loaded(ui *u);
+/* the firmware's version, as module.cfg's `version` (a test keeps the two equal) */
+#define UI_FW_VERSION 1u
+/* the boot screen's text: "POLY SYNTH  4 VOICES" (PLAY_VOICES) into line, "V1" into ver */
+void ui_boot_text(char *line, char *ver);
 /* GLO: the slot on knob k (0..3) of the GLO page shown; its value as the focus row reads it (the
  * number or name into num, the unit into unit, UI_VALUE_LEN each; "--" while it waits), and as a
  * column reads it (a shorter name where one is too wide) */

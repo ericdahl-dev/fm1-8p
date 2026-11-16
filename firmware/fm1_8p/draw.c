@@ -1024,10 +1024,87 @@ static void seq_part(uint32_t b, uint32_t part)
     }
 }
 
+/* ---------------------------------------------------------------- the boot screen (#50, Eric's A: Horizon)
+ * render.py's scr_boot_a in integers: the theme's art over rows 0..139 (Membrane's six sunset bands, or
+ * Night Panel's striped sun r 56 on a horizon at 92 over the grid), FM1-8P in D24, the device line, the
+ * flash banks' load bar and the version. Four strips of the FULL band (a canvas is at most 240 x 96); the
+ * bar is its FOOT band, redrawn as the banks are read. Drawn once: no part is per frame. */
+#define BOOT_HZ 92
+static void boot_art(int32_t oy)               /* the art's rows that fall in a canvas whose top is oy */
+{
+    int32_t k, y;
+    if (T->chip) {                              /* Membrane: the sunset bands, a 1 px gap under the lower */
+        static const int32_t BAND[6] = {26, 26, 26, 21, 16, 9};
+        for (k = 0, y = 0; k < 6; k++) {
+            H->cv_rect(0, y - oy, 240, BAND[k], T->sun[k]);
+            y += BAND[k] + (k >= 2 ? 1 : 0);
+        }
+        return;
+    }
+    {                                           /* Night Panel: the sun r 56, centered 7 below the horizon */
+        static const int32_t GAP[5] = {6, 4, 4, 2, 2}, SOLID[5] = {6, 6, 7, 9, 11};
+        static const int32_t ROW[5] = {2, 5, 10, 18, 31};
+        const int32_t cy = BOOT_HZ + 7, r = 56, top = cy - r;
+        for (y = top; y < BOOT_HZ; y++) {
+            int32_t dx, cut = 0, at = BOOT_HZ - 1;
+            for (k = 0; k < 5; k++) {           /* the cuts: GAP rows, then SOLID, from the horizon up */
+                cut |= y <= at && y > at - GAP[k];
+                at -= GAP[k] + SOLID[k];
+            }
+            dx = (int32_t)ui_isqrt((uint32_t)(r * r - (y - cy) * (y - cy)));
+            if (cut || dx < 3)
+                continue;
+            k = (y - top) * 6 / (BOOT_HZ - top);
+            H->cv_rect(120 - dx, y - oy, 2 * dx + 1, 1, T->sun[k > 5 ? 5 : k]);
+        }
+        H->cv_rect(0, BOOT_HZ - oy, 240, 1, T->horizon);
+        for (k = -8; k <= 8; k++) {
+            int32_t x0 = 120 + 9 * k, x1 = 120 + 42 * k, y1 = 139;
+            if (x1 < 0 || x1 > 239) {           /* clipped: it ends where it leaves the screen */
+                int32_t xe = x1 < 0 ? 0 : 239;
+                y1 = BOOT_HZ + (139 - BOOT_HZ) * (xe - x0) / (x1 - x0);
+                x1 = xe;
+            }
+            H->cv_line(x0, BOOT_HZ - oy, x1, y1 - oy, T->grid);
+        }
+        for (k = 0; k < 5; k++)
+            H->cv_rect(0, BOOT_HZ + ROW[k] - oy, 240, 1, T->grid);
+    }
+}
+
+static void boot_part(uint32_t b, uint32_t part)
+{
+    static const int32_t TOP[4] = {0, 80, 140, 212}, HT[4] = {80, 60, 72, 28};
+    char line[UI_VALUE_LEN * 3u], ver[UI_VALUE_LEN];
+    int32_t oy;
+    if (b == UI_D_FOOT)
+        part = 3u;                              /* (the load bar's strip alone) */
+    else if (b != UI_D_FULL)
+        return;
+    oy = TOP[part];
+    H->cv_begin(240, HT[part], C_BG);
+    if (part < 2u) {
+        boot_art(oy);
+    } else if (part == 2u) {
+        ui_boot_text(line, ver);
+        d24((240 - d24_w("FM1-8P")) / 2, 156 - oy, "FM1-8P", C_TEXT);
+        text_c(0, 240, 186 - oy, 0, line, C_DIM);
+    } else {
+        const int32_t w = 240 - 2 * M - 40;
+        ui_boot_text(line, ver);
+        H->cv_rect(M + 20, 214 - oy, w, 2, C_LINE);
+        H->cv_rect(M + 20, 214 - oy, w * (int32_t)play_store_progress(P) / (int32_t)PLAY_STORE_BANKS, 2, C_PLAY);
+        text_c(0, 240, 222 - oy, 0, ver, C_DIM);
+    }
+    blit(0, oy, 240, HT[part]);
+}
+
 static uint32_t parts(uint32_t b)
 {
     if (b == UI_D_SLOT && ui_screen(U) == UI_SCREEN_SEQ)
         return roll_parts;                      /* a part a roll column */
+    if (b == UI_D_FULL && ui_screen(U) == UI_SCREEN_BOOT)
+        return 4u;                              /* (the boot screen's four strips) */
     return b == UI_D_FULL ? 2u : b == UI_D_SLOT && ui_screen(U) == UI_SCREEN_PAGE ? SLOT_PARTS : 1u;
 }
 
@@ -1036,6 +1113,11 @@ static uint32_t parts(uint32_t b)
 static uint32_t pending;                        /* UI_D_* bands still to draw */
 static uint32_t band, part;                     /* the band being drawn (0: none) and its next part */
 static uint32_t band_screen;                    /* the screen it was started for */
+
+uint32_t ui_draw_idle(void)
+{
+    return !band && !pending;
+}
 #ifdef FM1_DEBUG
 static uint32_t worst_call;                     /* the longest draw() call, in 24 MHz ticks */
 static uint32_t screen_key = ~0u, screen_worst; /* the screen showing (jump, state, page) and its worst call */
@@ -1104,6 +1186,9 @@ void ui_draw_frame(uint32_t full)
         break;
     case UI_SCREEN_SEQ:
         seq_part(band, part);
+        break;
+    case UI_SCREEN_BOOT:
+        boot_part(band, part);
         break;
     default:
         play_part(band, part);

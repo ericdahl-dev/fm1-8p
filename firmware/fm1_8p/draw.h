@@ -9,4 +9,6 @@
 void ui_draw_init(const hb_host_t *h, play *p, ui *u);
 /* one draw() call's worth: what ui_take says changed (full: all of it), a band part at most */
 void ui_draw_frame(uint32_t full);
+/* 1 when no band is being drawn and none is waiting: the module may read a flash bank then (the boot) */
+uint32_t ui_draw_idle(void);
 #endif
