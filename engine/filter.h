@@ -1,5 +1,5 @@
 /*
- * filter.h - per-voice filter: 4-pole lowpass and stepped highpass
+ * filter.h - per-voice filter: two-section resonant lowpass and stepped highpass
  * (internal to the engine).
  *
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
@@ -19,25 +19,22 @@
 #define FM_FILTER_OPEN_CENTS 14400
 
 typedef struct {
-    int32_t s[4];  /* lowpass stage outputs, Q8.24 */
-    /* the first stage's input one sample ago, Q8.24 (each later stage's
-     * is the stage before it one sample ago: s[i - 1] before the update) */
-    int32_t x1;
-    int32_t g;     /* lowpass stage coefficient, Q1.30 (1.0 = open) */
-    int32_t k;     /* resonance feedback in use, Q4.28 (0 .. 4.2) */
-    /* 1.0 below the top of the cutoff range, to 0 at open; a stage weighs
-     * its previous input by fade / 4 (the zero, 1/4 below the top) */
+    /* the sections' states, Q9.23: section 1's ic1 (bandpass) and ic2
+     * (lowpass), then section 2's; while the filter is a wire, s[3] keeps
+     * the last sample instead (Q8.24, fm_filter_run) */
+    int32_t s[4];
+    int32_t c[4];  /* each state's carried remainder (under 2^30) */
+    int32_t a1, a2, a3; /* the sections' coefficients, Q1.30 */
+    int32_t t;     /* tan(pi f0 / fs), Q5.27: the sections' zeros */
+    /* section 1's zeros, z1 of the way to the origin (5/8, to 0 near Nyquist): 3 z1, Q1.30, and t z1,
+     * Q5.27 */
+    int32_t z3, zt;
+    /* 1.0 below the top of the cutoff range, to 0 at open: the output's
+     * share against the input there */
     int32_t fade;
     int32_t hp;   /* highpass: its internal lowpass state, Q8.24 */
-    int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off; negative = the bass boost) */
-    /* Resonance's bass shelf: the output is s[3] + shelf * (lp - s[3]), lp
-     * a one-pole lowpass of s[3] at the cutoff (0: off, the plain ladder),
-     * a weighted average of the two, so within their range. It is worked
-     * out as s[3] - h * (s[3] - lp), lp as it was before this sample's
-     * update, with h = shelf * (1 - g). */
-    int32_t lp;   /* the shelf's lowpass state, Q8.24 */
-    int32_t a;    /* input level, Q1.30: the resonance's passband level */
-    int32_t h;    /* shelf * (1 - g), Q1.30 (0 .. 0.57) */
+    int32_t hp_g; /* highpass coefficient, Q1.30 (0 = off, < 0 the boost) */
+    int32_t a;    /* input level, Q1.30: PG-8X's passband, k Q0 */
     int16_t res;  /* resonance as set, per mille */
     int16_t cut;  /* lowpass cutoff as set (clamped), cents */
     int16_t rate; /* rate_cents it was set with (0: not yet) */
@@ -79,11 +76,10 @@ void fm_filter_clear(fm_filter *f);
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                           int32_t rate_cents);
 
-/* Resonance, per mille (0 = none, 1000 = self-oscillation 190 cents under
- * the cutoff). As on PG-8X 2.0.13 it also lowers the peak under the
- * cutoff, sets the passband level and keeps the treble-to-bass balance
- * (docs/fixed-point.md, Resonance). All of it fades out over the top 600
- * cents of cutoff. */
+/* Resonance, per mille: the sections' Q, PG-8X 2.0.13's (0.69 at 0, 6.7
+ * at 935, its RES 127), and the passband with it (Q0 / Q); past 935 on to
+ * Q 13.4 at 1000, ringing long but never self-oscillating (as PG-8X). The
+ * output fades to the input over the top 600 cents of cutoff. */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
 /* Highpass position 0..4 (higher is clamped to 4): 0 is off (a wire),
@@ -105,10 +101,9 @@ static inline int fm_filter_is_wire(const fm_filter *f)
     return f->fade == 0 && f->hp_g == 0;
 }
 
-/* The ladder's input, and so every state and the output, is held to
- * +-FM_FILTER_HOLD (Q8.24 16.0; engine/filter.c, loop_in): past anything the
- * pair plays (3.855, a ringed spike) through the bass boost (2.28 x) at the
- * largest input level (1.733), 15.2: the hold never cuts what it plays. */
+/* The sections' input and the output are held to +-FM_FILTER_HOLD (Q8.24
+ * 16.0; engine/filter.c): past anything the pair plays (3.855, a ringed
+ * spike) through the bass boost (2.28 x) at the input level's 1.0, 8.8. */
 #define FM_FILTER_HOLD (16 << 24)
 
 /*

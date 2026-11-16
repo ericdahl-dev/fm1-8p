@@ -53,6 +53,8 @@ jobs:
         run: make check-patches
       - name: Display font (generated, unedited, within 6 KB; #55)
         run: make check-font
+      - name: Draw colors (all from the theme; #54)
+        run: make check-draw-colors
 
       - name: Sample render
         run: |
