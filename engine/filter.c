@@ -580,10 +580,17 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         f->c[3] = (int32_t)(p & 0x3FFFFFFF);
         /* zeros at the origin, v2 + 3 (v2 - i2) - t i1, in Q10.22: within 32 + 1.5 dv + 2.1 * 32 there,
          * under 512 */
-        p = (int64_t)(i2 + dv) + 3 * (int64_t)dv - (((int64_t)f->t * i1) >> 27);
-        u = (int32_t)(p >> 1);
-        f->s[2] = sec_hold(2 * v1 - i1);
-        f->s[3] = sec_hold(i2 + 2 * dv);
+        u = ((i2 - (int32_t)(((int64_t)f->t * i1) >> 27)) >> 1) + 2 * dv;   /* (4 dv even: exact; i2 - t i1 within 247) */
+        v1 = 2 * v1 - i1;
+        dv = i2 + 2 * dv;
+        /* held to +-SEC2_MAX: one test for both (each within it is each + SEC2_MAX within 2 SEC2_MAX
+         * unsigned, and so is their OR; an OR past it with both within only takes the exact hold) */
+        if ((((uint32_t)v1 + SEC2_MAX) | ((uint32_t)dv + SEC2_MAX)) > 2u * SEC2_MAX) {
+            v1 = sec_hold(v1);
+            dv = sec_hold(dv);
+        }
+        f->s[2] = v1;
+        f->s[3] = dv;
         y = u > (U_MAX >> 2) ? U_MAX : u < -(U_MAX >> 2) ? -U_MAX : u * 4;   /* Q8.24 */
         if (f->fade == ONE_Q30)
             return y;
