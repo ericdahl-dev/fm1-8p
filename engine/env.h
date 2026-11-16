@@ -129,9 +129,20 @@ int32_t fm_env_advance(fm_env *e, uint32_t n);
  * envelope is either stepped (fm_env_step, fm_env_next) or skipped, not
  * both.
  */
+/* The most samples a skip leaves uncaught: a catch-up is then at most
+ * this and the one skip that reached it, so its cost is bounded (a
+ * segment crosses up to 64 samples in a few operations). */
+#define FM_ENV_LAG_MAX (1u << 12)
+
+/* Catches up the lag, then steps `n`: a skip that reaches FM_ENV_LAG_MAX. */
+void fm_env_skip_far(fm_env *e, uint32_t n);
+
 static inline void fm_env_skip(fm_env *e, uint32_t n)
 {
-    e->lag += n;
+    if (n >= FM_ENV_LAG_MAX - e->lag) /* lag < FM_ENV_LAG_MAX */
+        fm_env_skip_far(e, n);
+    else
+        e->lag += n;
 }
 
 /* The level now: caught up first. */

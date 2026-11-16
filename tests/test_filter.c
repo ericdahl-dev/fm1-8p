@@ -1699,6 +1699,27 @@ TT_TEST(env_idle_skipped_stays_idle)
     TT_CHECK_EQ(a.stage, FM_ENV_IDLE);
 }
 
+/* Skips adding past 2^32 samples never wrap: the envelope ends where
+ * fm_env_advance (stepping, at once) takes it over the same total. */
+TT_TEST(env_skip_never_wraps)
+{
+    static fm_env a, b;
+    env_set.attack_samples = 30000;
+    env_set.decay_samples = 2000;
+    env_set.release_samples = 3000;
+    env_set.sustain = FM_ENV_FULL / 3;
+    fm_env_init(&a, &env_set);
+    fm_env_init(&b, &env_set);
+    fm_env_gate_on(&a);
+    fm_env_gate_on(&b);
+    fm_env_skip(&a, 0xFFFFFFF0u);
+    fm_env_skip(&a, 0x20u);
+    fm_env_advance(&b, 0xFFFFFFF0u);
+    fm_env_advance(&b, 0x20u);
+    TT_CHECK_EQ(fm_env_level(&a), b.level);
+    TT_CHECK_EQ(a.stage, b.stage);
+}
+
 /*
  * fm_env_step (inline, for the render loop) is fm_env_next: the same level,
  * stage and step after every sample, through random envelopes in every
@@ -2918,6 +2939,7 @@ static void run_filter_tests(void)
     TT_RUN(env_skip_zero_is_a_no_op);
     TT_RUN(env_reset_drops_a_skip);
     TT_RUN(env_idle_skipped_stays_idle);
+    TT_RUN(env_skip_never_wraps);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);

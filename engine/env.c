@@ -179,6 +179,8 @@ void fm_env_key(fm_env *e, uint8_t note)
     e->ks = f ? exp2_cents(-f * ((int32_t)note - KEY_CENTER) / 10) : (uint32_t)1 << 16;
 }
 
+static int32_t advance(fm_env *e, uint32_t n);
+
 /* Steps the samples fm_env_skip counted, exactly: before any read or
  * change, so a lazy envelope is never stale. */
 static void catch_up(fm_env *e)
@@ -186,7 +188,7 @@ static void catch_up(fm_env *e)
     if (e->lag) {
         uint32_t n = e->lag;
         e->lag = 0;
-        fm_env_advance(e, n);
+        advance(e, n);
     }
 }
 
@@ -330,7 +332,8 @@ int32_t fm_env_next(fm_env *e)
     return e->level;
 }
 
-int32_t fm_env_advance(fm_env *e, uint32_t n)
+/* n calls of fm_env_next at once: a few operations per segment */
+static int32_t advance(fm_env *e, uint32_t n)
 {
     while (n > 0) {
         if (e->seg) { /* no segment lands inside itself */
@@ -362,4 +365,15 @@ int32_t fm_env_level(fm_env *e)
 {
     catch_up(e);
     return e->level;
+}
+
+int32_t fm_env_advance(fm_env *e, uint32_t n)
+{
+    catch_up(e);
+    return advance(e, n);
+}
+
+void fm_env_skip_far(fm_env *e, uint32_t n)
+{
+    fm_env_advance(e, n);
 }
