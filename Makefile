@@ -57,7 +57,7 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches check-font generate render-demo clean \
+.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches check-font check-draw-colors generate render-demo clean \
 	gate check-gate scorecard check-scorecard
 
 all: $(RENDER) $(BENCH)
@@ -123,7 +123,11 @@ check-patches:
 check-font:
 	PYTHON="$(PYTHON)" sh tests/test_display_font.sh
 
-check: test check-runner check-float-free check-fm1-build check-patches check-font
+# the screen draws only in its theme's colors (#54)
+check-draw-colors:
+	sh tests/test_draw_colors.sh
+
+check: test check-runner check-float-free check-fm1-build check-patches check-font check-draw-colors
 
 gate:
 	@test -n "$(BASE)" || { echo "usage: make gate BASE=<commit> [HEAD=<commit>]" >&2; exit 2; }
