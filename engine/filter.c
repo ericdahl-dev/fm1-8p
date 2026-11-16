@@ -591,7 +591,10 @@ int32_t fm_filter_process(fm_filter *f, int32_t in)
         }
         f->s[2] = v1;
         f->s[3] = dv;
-        y = u > (U_MAX >> 2) ? U_MAX : u < -(U_MAX >> 2) ? -U_MAX : u * 4;   /* Q8.24 */
+        if ((uint32_t)u + (U_MAX >> 2) <= (uint32_t)U_MAX >> 1)   /* within +-U_MAX / 4: one test */
+            y = u * 4;                                            /* Q8.24 */
+        else
+            y = u < 0 ? -U_MAX : U_MAX;
         if (f->fade == ONE_Q30)
             return y;
         return x + mul_q30(y - x, f->fade);     /* (the top of the range: to the input, held as a wire's) */
