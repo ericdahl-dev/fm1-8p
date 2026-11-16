@@ -1612,6 +1612,20 @@ TT_TEST(env_skip_then_gate_on_matches_stepping)
     TT_CHECK_EQ(env_skip_then_change(env_change_gate_on, 70703), 0);
 }
 
+static void env_change_retime(fm_env *e, uint32_t *seed)
+{
+    (void)seed;
+    fm_env_retime(e);
+}
+
+/* A retime after a skip acts on the caught-up level and stage (settings
+ * unchanged: a lazy envelope is caught up before its shared settings are
+ * written, env_catch_up_before_a_setting_change_matches_stepping). */
+TT_TEST(env_skip_then_retime_matches_stepping)
+{
+    TT_CHECK_EQ(env_skip_then_change(env_change_retime, 70704), 0);
+}
+
 /*
  * fm_env_step (inline, for the render loop) is fm_env_next: the same level,
  * stage and step after every sample, through random envelopes in every
@@ -2826,6 +2840,7 @@ static void run_filter_tests(void)
     TT_RUN(env_skip_then_level_matches_stepping);
     TT_RUN(env_skip_then_gate_off_matches_stepping);
     TT_RUN(env_skip_then_gate_on_matches_stepping);
+    TT_RUN(env_skip_then_retime_matches_stepping);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);

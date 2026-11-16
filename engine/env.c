@@ -231,7 +231,9 @@ static void enter_decay(fm_env *e)
 
 void fm_env_retime(fm_env *e)
 {
-    int32_t old_sus = e->sus_level;
+    int32_t old_sus;
+    catch_up(e);
+    old_sus = e->sus_level;
     sustain_level(e);
     switch (e->stage) {
     case FM_ENV_ATTACK: /* a new segment on the new time at once: from the
