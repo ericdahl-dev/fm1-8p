@@ -626,9 +626,36 @@ TT_TEST(svf_top_slope_is_pg8x_at_resonance_0)
     TT_CHECK(worst < 0.5);
 }
 
+/* The SVF's output, bit for bit, at cutoffs on both sides of Z1_T1 (section 1's zeros on, and gone at the top
+ * of the range where F's sweep spends its time) and at resonances 0, 756 and 935: a speed cut must leave it as
+ * it is. One hash over golden_input (tests/test_filter.c) through each setting; taken on 2fc0c99. */
+TT_TEST(svf_output_holds_bit_for_bit)
+{
+    static const int16_t cuts[] = { 6769, 8717, 10844, 12500, 13600, 14100 };
+    static const int16_t res[] = { 0, 756, 935 };
+    static fm_filter f;
+    int32_t rate = fm_filter_rate_cents(SVF_RATE);
+    uint32_t h = 2166136261u, seed;
+    size_t c, r, i;
+    for (c = 0; c < sizeof cuts / sizeof cuts[0]; c++)
+        for (r = 0; r < sizeof res / sizeof res[0]; r++) {
+            fm_filter_reset(&f);
+            fm_filter_set_resonance(&f, res[r]);
+            fm_filter_set_cutoff(&f, cuts[c], rate);
+            seed = 7;
+            for (i = 0; i < 8192; i++) {
+                int32_t y = fm_filter_run(&f, golden_input(i, &seed));
+                h = fnv1a(h, &y, sizeof y);
+            }
+        }
+    printf("    svf output hash 0x%08Xu\n", (unsigned)h);
+    TT_CHECK_EQ(h, 0xED82D709u);
+}
+
 static void run_svf_tests(void)
 {
     TT_RUN(svf_lowpass_is_pg8x_two_sections);
+    TT_RUN(svf_output_holds_bit_for_bit);
     TT_RUN(svf_peak_follows_pg8x_f0_up_the_range);
     TT_RUN(svf_top_end_is_pg8x_at_f80);
     TT_RUN(svf_is_linear_at_jx_resonances);
