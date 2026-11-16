@@ -27,6 +27,9 @@
 #define FM_ENV_H
 
 #include <stdint.h>
+#ifdef FM_CHECK_ENGINE
+#include <assert.h>
+#endif
 
 #define FM_ENV_FULL (1 << 30)
 /* -80 dB of full: a release below it goes idle, a decay this close to its
@@ -107,6 +110,9 @@ int32_t fm_env_next(fm_env *e);
  */
 static inline int32_t fm_env_step(fm_env *e)
 {
+#ifdef FM_CHECK_ENGINE /* debug builds: a stepped envelope is never skipped */
+    assert(e->lag == 0);
+#endif
     if (e->seg) {
         e->seg--;
         return e->level += e->step;

@@ -265,6 +265,9 @@ void fm_env_retime(fm_env *e)
 int32_t fm_env_next(fm_env *e)
 {
     int32_t s, d, rem;
+#ifdef FM_CHECK_ENGINE /* debug builds: a stepped envelope is never skipped */
+    assert(e->lag == 0);
+#endif
     if (e->seg) { /* inside a segment or a hold: the count alone */
         e->seg--;
         return e->level += e->step;
