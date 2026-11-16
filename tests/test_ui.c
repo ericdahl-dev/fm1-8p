@@ -1822,6 +1822,33 @@ TT_TEST(ui_themes_meet_their_contrast_rules)
     }
 }
 
+/* Each theme gives every color its own look draws with (#54): none is left at 0, an unset field (both
+ * themes' darkest colors, the LED windows, are just off black). What a theme draws with depends on its
+ * switches: the LED color only without led_section, the sun's grid and horizon only with the sun, the
+ * meter track only with a fill_only section. ghost, focus and hatch are amounts, where 0 means none. */
+TT_TEST(ui_themes_set_every_color_they_draw_with)
+{
+    const ui_theme *TH[2] = {&UI_MEMBRANE, &UI_NIGHT_PANEL};
+    uint32_t n, i;
+    for (n = 0; n < 2u; n++) {
+        const ui_theme *t = TH[n];
+        const uint16_t base[8] = {t->bg, t->surface, t->surface_hi, t->line, t->text, t->dim, t->ink,
+                                  t->window};
+        for (i = 0; i < 8u; i++)
+            TT_CHECK(base[i] != 0u);
+        for (i = 0; i < UI_SECTIONS; i++)
+            TT_CHECK(t->section[i] != 0u);
+        for (i = 0; i < 6u; i++)
+            TT_CHECK(t->sun[i] != 0u);
+        if (!t->led_section)
+            TT_CHECK(t->led != 0u);
+        if (t->art == UI_ART_SUN)
+            TT_CHECK(t->grid != 0u && t->horizon != 0u);
+        if (t->fill_only)
+            TT_CHECK(t->fill_track != 0u);
+    }
+}
+
 /* GLO (interaction.md 4, 7): a GLO tap opens it from PLAY or EDIT, and a GLO or HOME tap goes back
  * to the state it came from, on the same page. */
 static void ui_tap(uint32_t b, uint32_t ms)
@@ -2889,6 +2916,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_glo_holds_the_patch_controls);
     TT_RUN(ui_glo_opens_and_goes_back);
     TT_RUN(ui_themes_meet_their_contrast_rules);
+    TT_RUN(ui_themes_set_every_color_they_draw_with);
     TT_RUN(ui_membrane_red_is_the_panels_red);
     TT_RUN(ui_fill_only_meters_have_a_dark_track);
     TT_RUN(ui_isqrt_is_the_floor);

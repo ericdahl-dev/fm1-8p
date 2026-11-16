@@ -494,7 +494,7 @@ static void save_part(uint32_t b, uint32_t part)
         ui_prog_number(U->save_dest, s);
         H->cv_begin(240, 50, C_BG);
         CV_TEXT(M, 18, 0, "TO", C_DIM);
-        CV_TEXT(M + 28, 6, 1, s, HB_RGB(255, 176, 64));
+        CV_TEXT(M + 28, 6, 1, s, led_of(C_PLAY));
         if (ui_save_edited(U))                  /* a rename saves the edits too: say so */
             CV_TEXT(M + 28 + TEXT_W(1, s) + 6, 18, 0, "+ EDITS", C_TEXT);
         {                                       /* what is there now, at the right (+ EDITS has the middle) */
