@@ -263,6 +263,29 @@ TT_TEST(seq_s2_vel_keeps_the_step_and_the_others)
             TT_CHECK(memcmp(seq_get_step(s, i), &before[i], sizeof before[i]) == 0);
 }
 
+/* Every S2 column shows the cursor step, so all four redraw when the cursor moves or the step turns into
+ * a rest or a tie: SELECT, SEL, ENV, and in REC SEL, ENV and FX (the review of f5a1471) */
+TT_TEST(seq_s2_columns_follow_the_cursor_step)
+{
+    const uint32_t ALL = UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3);
+    (void)s2_setup(3);
+    (void)ui_take_full(&ui_u, 1250);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1300);
+    TT_CHECK_EQ(ui_take(&ui_u, 1310) & ALL, ALL);
+    ui_tap(UI_BTN_SEL, 1400);
+    TT_CHECK_EQ(ui_take(&ui_u, 1510) & ALL, ALL);
+    ui_tap(UI_BTN_ENV, 1600);
+    TT_CHECK_EQ(ui_take(&ui_u, 1710) & ALL, ALL);
+    ui_tap(UI_BTN_REC, 1800);
+    (void)ui_take_full(&ui_u, 1910);
+    ui_tap(UI_BTN_SEL, 2000);
+    TT_CHECK_EQ(ui_take(&ui_u, 2110) & ALL, ALL);
+    ui_tap(UI_BTN_ENV, 2200);
+    TT_CHECK_EQ(ui_take(&ui_u, 2310) & ALL, ALL);
+    ui_tap(UI_BTN_FX, 2400);
+    TT_CHECK_EQ(ui_take(&ui_u, 2510) & ALL, ALL);
+}
+
 /* The section buttons in SEQ view (not in REC): SEL clears the cursor step, held 1.5 s the whole
  * pattern; ENV toggles TIE on it. EDIT goes to the last edit page, HOME to PLAY, GLO to GLO and back
  * to SEQ view; PRESETS browses patterns there, never patches, and SAVE opens SAVE for the pattern. */
@@ -1379,6 +1402,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_s2_move_and_lfo_switch_jump_and_glide);
     TT_RUN(seq_s2_on_a_rest_or_tie_shows_and_keeps);
     TT_RUN(seq_s2_vel_keeps_the_step_and_the_others);
+    TT_RUN(seq_s2_columns_follow_the_cursor_step);
     TT_RUN(seq_section_buttons_and_the_way_out);
     TT_RUN(seq_button_leds);
     TT_RUN(seq_texts);

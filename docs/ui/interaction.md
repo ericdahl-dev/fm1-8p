@@ -624,7 +624,9 @@ pressed from. In SEQ view:
   nothing.
 - **On a rest step,** S2 shows that step's values but marks them inactive.
   Rests and ties keep the bend and mod they had (#42). On a tie too, and
-  neither the knobs nor LFO change them there.
+  neither the knobs nor LFO change them there. A step written again (notes
+  played into it) takes the live bend and mod instead, as any written step
+  does (see [Writing steps](#writing-steps)).
 - **BEND's semitones:** while BEND has the focus, the readout's last line
   shows its percent and the semitones it gives at BEND RANGE now
   (`BEND +50 % = +1.0 st`). A VEL turn changes only the velocity.

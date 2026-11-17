@@ -266,6 +266,9 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;
 }
 
+/* the knob columns: S2's four show the cursor step, so a new cursor step or kind redraws them all */
+#define STEP_COLS (UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3))
+
 void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 {
     seq *s = play_seq(u->p);
@@ -300,7 +303,7 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->built_n = 0;
         u->seq_cursor = (u->seq_cursor + seq_length(s) - 1u) % seq_length(s);
         roll(u, ROLL_AT(u->seq_cursor));
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
     } else if (u->seq_rec && tap && (ev == (UI_EV_BTN_UP | UI_BTN_SEL) || ev == (UI_EV_BTN_UP | UI_BTN_ENV))) {
         if (id == UI_BTN_SEL)                   /* REC: a rest or a tie at the cursor, then on (interaction.md 5) */
             seq_clear_step(s, u->seq_cursor);
@@ -308,7 +311,7 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             seq_toggle_tie(s, u->seq_cursor);
         u->built_n = 0;
         u->seq_cursor = (u->seq_cursor + 1u) % seq_length(s);
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
         roll(u, ROLL_ALL);
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && u->seq_rec) {
         /* REC: SEL held does nothing (interaction.md's table) */
@@ -319,7 +322,7 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         } else if (tap) {
             seq_clear_step(s, u->seq_cursor);   /* the cursor step: a rest */
         }
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
         roll(u, ROLL_ALL);                      /* (a rest ends the ties after it) */
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_LFO) && tap) {   /* MOVE on the cursor step, in REC too (#42) */
         const seq_step *st = seq_get_step(s, u->seq_cursor);
@@ -328,7 +331,7 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->dirty |= UI_D_FOCUS | UI_D_COL(3);   /* (MOVE's column, if S2 shows) */
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_ENV) && tap) {
         seq_toggle_tie(s, u->seq_cursor);
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
         roll(u, ROLL_ALL);
     } else if (ev == (UI_EV_ENC | UI_ENC_SELECT) && arg) {  /* the cursor, around the length */
         len = seq_length(s);
@@ -336,7 +339,7 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->seq_cursor = (uint32_t)(((int32_t)(u->seq_cursor % len) + arg % (int32_t)len + (int32_t)len) %
                                    (int32_t)len);
         roll(u, ROLL_AT(u->seq_cursor));
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
     } else if (ev == (UI_EV_ENC | UI_ENC_ALGORITHM) && arg) {   /* the SEQ page, around */
         u->seq_page = (uint32_t)(((int32_t)u->seq_page + arg % (int32_t)UI_SEQ_PAGES + (int32_t)UI_SEQ_PAGES) %
                                  (int32_t)UI_SEQ_PAGES);
@@ -472,13 +475,14 @@ int ui_seq_active(const ui *u, uint32_t k)
 
 void ui_seq_detail(const ui *u, uint32_t k, char *s)
 {
-    int32_t v = ui_seq_value(u, k), a = v < 0 ? -v : v;
+    int32_t v = ui_seq_value(u, k), a = v < 0 ? -v : v, r;
     uint32_t t;
     char *n = s;
     *s = 0;
     if (u->seq_page * 4u + k != 5u)
         return;
-    t = ((uint32_t)a * (uint32_t)play_get_param(u->p, FM_PARAM_BEND_RANGE) + 5u) / 10u;  /* semitones, tenths */
+    r = play_get_param(u->p, FM_PARAM_BEND_RANGE);
+    t = ((uint32_t)a * (uint32_t)(r < 0 ? 0 : r > 24 ? 24 : r) + 5u) / 10u;  /* semitones, tenths */
     if (v)
         *n++ = v < 0 ? '-' : '+';
     n = put_s(put_u(n, (uint32_t)a), " % = ");
