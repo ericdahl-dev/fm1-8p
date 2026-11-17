@@ -2,6 +2,7 @@
 #include "ui.h"
 #include "ui_save.h"
 #include "ui_seq.h"
+#include "ui_params.h"
 
 const ui_slot *ui_page_slot(const ui *u, uint32_t k)
 {
@@ -59,110 +60,102 @@ static char *put_3(char *s, uint32_t milli)
     return put_u(s, d % 10u);
 }
 
-/* ui_value; returns the end of num (the loop to find it would be strlen, which the firmware lacks) */
+/* ui_value; returns the end of num (the loop to find it would be strlen, which the firmware lacks). How a
+ * param shows is its kind, unit and names from tools/params.py (DISPLAY, generated as UI_DISPLAY). */
 static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
 {
-    const char *u = "";
-    if (id == FM_PARAM_FILTER_CUTOFF_CENTS) {
+    const fm_param_info *in = fm_param_info_get(id);
+    const ui_display *d;
+    const char *u;
+    uint32_t a = value < 0 ? 0u - (uint32_t)value : (uint32_t)value, p = value < 0 ? 0u : (uint32_t)value;
+    if (!in) {                                  /* (an unknown param: nothing; on the FM-1 a NULL read faults) */
+        *num = 0;
+        *unit = 0;
+        return num;
+    }
+    d = &UI_DISPLAY[id];
+    u = d->unit;
+    switch (d->kind) {
+    case UI_SHOW_CUTOFF: {
         uint32_t mhz = cutoff_mhz(value);
         if (value >= FM_FILTER_OPEN_CENTS)
-            num = put_str(num, "OPEN");
+            num = put_str(num, "OPEN"), u = "";
         else if (mhz >= 999500u)
             num = put_3(num, (mhz + 500u) / 1000u), u = "kHz";
         else
             num = put_3(num, mhz), u = "Hz";
-    } else if (id == FM_PARAM_FILTER_RESONANCE) {
+        break;
+    }
+    case UI_SHOW_TENTHS:
         num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);
-    } else if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS) {     /* its size (58 MODE: the sign) */
-        num = put_u(num, ((uint32_t)(value < 0 ? -value : value) + 50u) / 100u), u = "st";
-    } else if (id == FM_PARAM_FILTER_KEY_TRACK) {
-        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
-    } else if (id == FM_PARAM_OSC1_OCTAVE || id == FM_PARAM_OSC2_OCTAVE) {    /* RANGE in feet */
-        static const char *const FEET[5] = {"32", "16", "8", "4", "2"};
-        num = put_str(num, FEET[value < -2 ? 0 : value > 2 ? 4 : value + 2]), u = "'";
-    } else if (id == FM_PARAM_OSC1_WAVE || id == FM_PARAM_OSC2_WAVE) {
-        static const char *const WAVE[FM_WAVE_COUNT] = {"SAW", "PULSE", "SQUARE", "NOISE", "SPIKE"};
-        num = put_str(num, WAVE[value < 0 ? 0 : value > FM_WAVE_COUNT - 1 ? FM_WAVE_COUNT - 1 : value]);
-    } else if (id == FM_PARAM_LFO_PITCH_CENTS || id == FM_PARAM_LFO_PITCH_OSC2_CENTS) {
-        if (value < 0)                          /* DCO-2's -1: DCO-1's depth */
-            num = put_str(num, "D1");
-        else
-            num = put_u(num, (uint32_t)value), u = "ct";
-    } else if (id == FM_PARAM_PITCH_ENV_OSC1_CENTS || id == FM_PARAM_PITCH_ENV_OSC2_CENTS) {
-        uint32_t t = ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u;    /* its size (32 MODE: the sign) */
+        break;
+    case UI_SHOW_ABS_TENTHS:
+        num = put_u(num, (a + 5u) / 10u);
+        break;
+    case UI_SHOW_ABS_HUNDREDTHS:
+        num = put_u(num, (a + 50u) / 100u);
+        break;
+    case UI_SHOW_TENTH_SEMIS: {
+        uint32_t t = (a + 5u) / 10u;
         num = put_u(num, t / 10u);
         *num++ = '.';
-        num = put_u(num, t % 10u), u = "st";
-    } else if (id == FM_PARAM_OSC1_FINE_CENTS || id == FM_PARAM_OSC2_FINE_CENTS ||
-               id == FM_PARAM_OSC2_COARSE_SEMIS || id == FM_PARAM_OSC1_COARSE_SEMIS) {
+        num = put_u(num, t % 10u);
+        break;
+    }
+    case UI_SHOW_SIGNED:
         if (value)
             *num++ = value < 0 ? '-' : '+';
-        num = put_u(num, (uint32_t)(value < 0 ? -value : value));
-        u = id == FM_PARAM_OSC2_COARSE_SEMIS || id == FM_PARAM_OSC1_COARSE_SEMIS ? "st" : "ct";
-    } else if (id == FM_PARAM_OSC1_PULSE_WIDTH_PCT || id == FM_PARAM_OSC2_PULSE_WIDTH_PCT ||
-               id == FM_PARAM_WHEEL_PW_PCT) {
-        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
-    } else if (id == FM_PARAM_WHEEL_PITCH_CENTS) {   /* 0C WHEEL: the wheel at full adds this */
-        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "ct";
-    } else if (id == FM_PARAM_PITCH_ENV_DYNA || id == FM_PARAM_OSC_MIX_ENV_DYNA ||
-               id == FM_PARAM_FILTER_ENV_DYNA || id == FM_PARAM_AMP_DYNA) {    /* DYNAMICS */
+        num = put_u(num, a);
+        break;
+    case UI_SHOW_PLAIN:
+        num = put_u(num, p);
+        break;
+    case UI_SHOW_NEG_NAME:                      /* (DCO-2's LFO depth at -1: DCO-1's) */
+        if (value < 0)
+            num = put_str(num, d->names[0]), u = "";
+        else
+            num = put_u(num, p);
+        break;
+    case UI_SHOW_OFF_OR_N:
         if (value <= 0)
-            num = put_str(num, "OFF");
+            num = put_str(num, d->names[0]);
         else
-            num = put_u(num, (uint32_t)value);
-    } else if (id == FM_PARAM_OSC1_LEVEL || id == FM_PARAM_OSC2_LEVEL || id == FM_PARAM_OSC_MIX_ENV) {
-        num = put_u(num, ((uint32_t)(value < 0 ? -value : value) + 5u) / 10u);    /* 0..100 */
-    } else if (id == FM_PARAM_AMP_ATTACK_MS || id == FM_PARAM_AMP_DECAY_MS || id == FM_PARAM_AMP_RELEASE_MS ||
-               id == FM_PARAM_FILTER_ENV_ATTACK_MS || id == FM_PARAM_FILTER_ENV_DECAY_MS ||
-               id == FM_PARAM_FILTER_ENV_RELEASE_MS || id == FM_PARAM_LFO_DELAY_MS) {
-        uint32_t ms = (uint32_t)(value < 0 ? 0 : value);   /* 999 ms, 1.25 s, 12.5 s */
-        if (ms < 1000u)
-            num = put_u(num, ms), u = "ms";
-        else
-            num = put_3(num, ms), u = "s";
-    } else if (id == FM_PARAM_AMP_SUSTAIN || id == FM_PARAM_FILTER_ENV_SUSTAIN || id == FM_PARAM_AMP_LEVEL) {
-        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u);     /* 0..100 */
-    } else if (id == FM_PARAM_AMP_KEY_FOLLOW || id == FM_PARAM_FILTER_ENV_KEY_FOLLOW) {
-        uint32_t k = (uint32_t)(value < 0 ? 0 : value + 130) / 260u;      /* the JX's positions */
+            num = put_u(num, p);
+        break;
+    case UI_SHOW_KEY_POS: {
+        uint32_t k = (p + 130u) / 260u;         /* the JX's positions */
         if (k)
             num = put_u(num, k > 3u ? 3u : k);
         else
-            num = put_str(num, "OFF");
-    } else if (id == FM_PARAM_LFO_WAVE) {
-        static const char *const LW[4] = {"TRI", "SAW", "SQUARE", "RANDOM"};
-        num = put_str(num, LW[value < 0 ? 0 : value > 3 ? 3 : value]);
-    } else if (id == FM_PARAM_LFO_RATE_CENTIHZ) {                       /* 0.01 .. 30.0 Hz */
-        num = put_3(num, 10u * (uint32_t)(value < 1 ? 1 : value)), u = "Hz";
-    } else if (id == FM_PARAM_LFO_PW_PCT) {
-        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
-    } else if (id == FM_PARAM_SETTING_GLIDE) {
-        num = put_str(num, value ? "ON" : "OFF");
-    } else if (id == FM_PARAM_VOICE_MODE) {
-        num = put_str(num, value ? "UNISON" : "POLY");
-    } else if (id == FM_PARAM_BEND_RANGE) {
-        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "st";
-    } else if (id == FM_PARAM_UNISON_DETUNE_CENTS) {
-        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "ct";
-    } else if (id == FM_PARAM_AMP_GATE) {
-        num = put_str(num, value ? "GATE" : "ENV2");
-    } else if (id == FM_PARAM_CHORUS_MODE) {
-        static const char *const CH[4] = {"OFF", "I", "II", "FAST"};
-        num = put_str(num, CH[value < 0 ? 0 : value > 3 ? 3 : value]);
-    } else if (id == FM_PARAM_AMP_VELOCITY) {
-        num = put_u(num, (uint32_t)(value < 0 ? 0 : value)), u = "%";
-    } else if (id == FM_PARAM_OSC_XMOD) {
-        num = put_u(num, (uint32_t)(value < 0 ? 0 : value + 5) / 10u), u = "%";
-    } else if (id == FM_PARAM_PITCH_ENV_SOURCE || id == FM_PARAM_OSC_MIX_ENV_SOURCE ||
-               id == FM_PARAM_FILTER_ENV_SOURCE) {   /* an ENV MODE: source | inverted << 1 */
-        static const char *const MODE[4] = {"ENV1", "ENV2", "ENV1 INV", "ENV2 INV"};
-        num = put_str(num, MODE[value & 3]);
-    } else if (id == FM_PARAM_OSC_SYNC) {       /* 23 X-MOD's sync | ring << 1 (CROSS MOD) */
-        static const char *const XMOD[4] = {"OFF", "SYNC 1", "X-MOD", "SYNC 2"};
-        num = put_str(num, XMOD[value & 3]);
-    } else if (id == FM_PARAM_HIGHPASS_STEP) {  /* the JX positions; step 1 is the engine's own */
-        static const char *const HPF[5] = {"FLAT", "100", "240", "560", "BOOST"};
-        num = put_str(num, HPF[value < 0 ? 0 : value > 4 ? 4 : value]);
-        u = value == 0 || value >= 4 ? "" : "Hz";
+            num = put_str(num, d->names[0]);
+        break;
+    }
+    case UI_SHOW_MS_S:                          /* 999 ms, 1.25 s, 12.5 s */
+        if (p < 1000u)
+            num = put_u(num, p), u = "ms";
+        else
+            num = put_3(num, p), u = "s";
+        break;
+    case UI_SHOW_RATE:                          /* 0.01 .. 30.0 Hz */
+        num = put_3(num, 10u * (uint32_t)(value < 1 ? 1 : value));
+        break;
+    case UI_SHOW_NAMES:
+    case UI_SHOW_NAMES_INNER_UNIT: {            /* held to the ends; HPF: Hz only between them */
+        uint32_t i = value <= in->min ? 0u : value >= in->max ? d->n - 1u : (uint32_t)(value - in->min);
+        num = put_str(num, d->names[i]);
+        if (d->kind == UI_SHOW_NAMES_INNER_UNIT && (value == in->min || value >= in->max))
+            u = "";
+        break;
+    }
+    case UI_SHOW_NONZERO:
+        num = put_str(num, d->names[value ? 1 : 0]);
+        break;
+    case UI_SHOW_MASK3:                         /* an ENV MODE: source | inverted << 1; X-MOD: sync | ring << 1 */
+        num = put_str(num, d->names[(uint32_t)value & 3u]);
+        break;
+    default:                                    /* UI_SHOW_NONE */
+        u = "";
+        break;
     }
     *num = 0;
     *put_str(unit, u) = 0;

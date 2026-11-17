@@ -241,11 +241,65 @@ def emit_patches_md():
     return out
 
 
+def emit_ui_params_h():
+    """firmware/ui_params.h: how the screen shows each param (params.DISPLAY), by fm_param_id."""
+    one_name = ('NEG_NAME', 'OFF_OR_N', 'KEY_POS')
+    names_c, rows = {}, []
+    for p in params.PARAMS:
+        d = params.DISPLAY.get(p.enum)
+        if d is None:
+            raise ValueError("%s: no display in tools/params.py DISPLAY" % p.enum)
+        if d.kind not in params.DISPLAY_KINDS:
+            raise ValueError("%s: display kind %r is not one of DISPLAY_KINDS" % (p.enum, d.kind))
+        lo, hi, _ = params.values(p, ROOT)
+        want = {'NAMES': hi - lo + 1, 'NAMES_INNER_UNIT': hi - lo + 1, 'NONZERO': 2, 'MASK3': 4}.get(
+            d.kind, 1 if d.kind in one_name else 0)
+        if len(d.names) != want:
+            raise ValueError("%s: %s takes %d names, not %d (%s..%s)" % (p.enum, d.kind, want, len(d.names), lo, hi))
+        if len(d.names) > 255:                  # (ui_display's n is a uint8_t)
+            raise ValueError("%s: %d names; at most 255" % (p.enum, len(d.names)))
+        for n in d.names + (d.unit,):
+            if len(n) > 11:                     # (UI_VALUE_LEN 12, with its end)
+                raise ValueError("%s: %r is longer than the screen's 11 characters" % (p.enum, n))
+            if '"' in n or '\\' in n:
+                raise ValueError("%s: %r: no quote or backslash in a name or unit" % (p.enum, n))
+        if d.names and d.names not in names_c:  # (one array for each set of names, shared)
+            names_c[d.names] = "UI_NAMES_%d" % len(names_c)
+        rows.append("    [FM_PARAM_%s] = {UI_SHOW_%s, %d, \"%s\", %s}," % (
+            p.enum, d.kind, len(d.names), d.unit, names_c.get(d.names, "0")))
+    out = ["/* fm1-8p UI: how the screen shows each param, by fm_param_id (#196). GENERATED from tools/params.py",
+           " * (DISPLAY) by tools/jx8p.py (make generate): edit the list, not this file. Include it from ui.c",
+           " * only (its value_parts formats a value by its kind): the tables are static, one copy a file. */",
+           "#ifndef UI_PARAMS_H",
+           "#define UI_PARAMS_H",
+           "#include <stdint.h>",
+           "#include \"../engine/fm1_8p.h\"",
+           "",
+           "typedef enum {"]
+    out += ["    UI_SHOW_%s," % k for k in params.DISPLAY_KINDS]
+    out += ["} ui_show;",
+            "",
+            "typedef struct {",
+            "    uint8_t kind;                       /* ui_show */",
+            "    uint8_t n;                          /* names: how many */",
+            "    const char *unit;",
+            "    const char *const *names;",
+            "} ui_display;",
+            ""]
+    for names, cname in names_c.items():
+        out.append("static const char *const %s[] = {%s};" % (cname, ", ".join('"%s"' % n for n in names)))
+    out += ["", "static const ui_display UI_DISPLAY[FM_PARAM_COUNT] = {"]
+    out += rows
+    out += ["};", "", "#endif", ""]
+    return "\n".join(out)
+
+
 def generated_params():
     """The files the param list makes, by path from the repository root."""
     return {"engine/fm1_8p_params.h": emit_params_h(), "engine/params.c": emit_params_c(),
             "firmware/patch_fields.h": emit_patch_fields_h(),
             "firmware/patch_store_tags.h": emit_store_tags_h(),
+            "firmware/ui_params.h": emit_ui_params_h(),
             "docs/patches.md": emit_patches_md()}
 
 

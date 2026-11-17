@@ -81,6 +81,45 @@ class PatchFieldTest(unittest.TestCase):
         self.assertEqual(named, {f.name for f in params.PATCH_FIELDS if f.waits})
 
 
+class DisplayTest(unittest.TestCase):
+    # every param says how the screen shows it (#196): a new param fails here until it does
+    def test_every_param_has_a_display_kind(self):
+        self.assertEqual(sorted(params.DISPLAY), sorted(p.enum for p in params.PARAMS))
+        for enum, d in params.DISPLAY.items():
+            self.assertIn(d.kind, params.DISPLAY_KINDS, enum)
+
+    # a choice's names are one a value of its range: a wave or mode added to the engine without its
+    # name fails make generate, not the screen (the WAVE[] and FM_WAVE_COUNT case of #261)
+    def test_a_choice_without_a_name_for_each_value_does_not_generate(self):
+        jx8p.emit_ui_params_h()                 # the list as it is generates
+        saved = params.DISPLAY['OSC1_WAVE']
+        try:
+            params.DISPLAY['OSC1_WAVE'] = saved._replace(names=saved.names[:-1])
+            with self.assertRaisesRegex(ValueError, "OSC1_WAVE"):
+                jx8p.emit_ui_params_h()
+            params.DISPLAY['OSC1_WAVE'] = saved._replace(kind='NOT_A_KIND')
+            with self.assertRaisesRegex(ValueError, "OSC1_WAVE"):
+                jx8p.emit_ui_params_h()
+        finally:
+            params.DISPLAY['OSC1_WAVE'] = saved
+
+    # each kind that shows names has as many as it reads: NONZERO 2, MASK3 4, one for the ones that
+    # name only their zero or below; a quote or backslash would break the C string
+    def test_each_named_kind_has_the_names_it_reads(self):
+        for enum, cut in (('VOICE_MODE', 1), ('OSC_SYNC', 1), ('LFO_PITCH_CENTS', 1), ('AMP_DYNA', 1),
+                          ('AMP_KEY_FOLLOW', 1)):
+            saved = params.DISPLAY[enum]
+            try:
+                params.DISPLAY[enum] = saved._replace(names=saved.names[:-cut])
+                with self.assertRaisesRegex(ValueError, enum):
+                    jx8p.emit_ui_params_h()
+                params.DISPLAY[enum] = saved._replace(unit='"')
+                with self.assertRaisesRegex(ValueError, enum):
+                    jx8p.emit_ui_params_h()
+            finally:
+                params.DISPLAY[enum] = saved
+
+
 class GeneratedTest(unittest.TestCase):
     # the generated files are checked in: they must be what the list makes now
     def test_generated_files_are_current(self):
