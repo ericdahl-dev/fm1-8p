@@ -1682,7 +1682,9 @@ TT_TEST(env_skip_then_fade_matches_stepping)
 static void env_change_key(fm_env *e, uint32_t *seed)
 {
     env_set.key_follow = 1000; /* read by fm_env_key alone */
-    fm_env_key(e, (uint8_t)(env_rand(seed) % 128));
+    /* C2 and below: key follow only lengthens these times (a high note
+     * can scale a short one to 0 samples, a case of its own) */
+    fm_env_key(e, (uint8_t)(env_rand(seed) % 37));
 }
 
 /* A new note's time scale (key follow) after a skip: the samples before
