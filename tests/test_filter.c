@@ -1779,6 +1779,35 @@ TT_TEST(env_skip_never_wraps)
 }
 
 /*
+ * A lazy envelope owes at most one FM-1 render block (256 frames): its
+ * catch-up then steps no more than a block's worth of segments. Voices that
+ * start together catch up in the same block, so a larger bound lets every
+ * voice's catch-up land on one block (#70: 4096 samples took the 8-voice
+ * CPU row from 12.9 to 23.3 % of a block). Eight voices, the filter envelope
+ * and envelope 2 both lazy, rendered a block at a time for a second.
+ */
+TT_TEST(lazy_envelopes_owe_at_most_one_block)
+{
+    uint32_t b, i, worst = 0;
+    fm_engine_init(&feng, FRATE, 8);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_GATE, 1); /* envelope 2 runs apart, lazy */
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 2000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_DECAY_MS, 2000);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 0);
+    for (i = 0; i < 8; i++) fm_engine_note_on(&feng, (uint8_t)(48 + 3 * i), 100);
+    for (b = 0; b < FRATE / 256u; b++) {
+        fm_engine_render(&feng, fbuf_a, 256);
+        for (i = 0; i < 8; i++) {
+            if (feng.voices[i].filter_env.lag > worst) worst = feng.voices[i].filter_env.lag;
+            if (feng.voices[i].env2.lag > worst) worst = feng.voices[i].env2.lag;
+        }
+    }
+    printf("    most samples a lazy envelope owed after a block: %u\n", (unsigned)worst);
+    TT_CHECK(worst < 256u);
+}
+
+/*
  * fm_env_step (inline, for the render loop) is fm_env_next: the same level,
  * stage and step after every sample, through random envelopes in every
  * stage (gate on at a random peak, retime, gate off, fade), with the
@@ -3088,6 +3117,7 @@ static void run_filter_tests(void)
     TT_RUN(env_reset_drops_a_skip);
     TT_RUN(env_idle_skipped_stays_idle);
     TT_RUN(env_skip_never_wraps);
+    TT_RUN(lazy_envelopes_owe_at_most_one_block);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);
