@@ -48,7 +48,7 @@ BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
 FW_SRC     = firmware/cpu_test.c firmware/dfont.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/pattern_store.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c firmware/ui_seq.c
-FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/seq.h firmware/pattern_store.h firmware/settings_store.h firmware/ui_save.h firmware/ui_seq.h
+FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/ui_params.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/seq.h firmware/pattern_store.h firmware/settings_store.h firmware/ui_save.h firmware/ui_seq.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)

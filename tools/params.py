@@ -204,6 +204,105 @@ PATCH_FIELDS = [
 ]
 
 
+# How the screen shows each param (#196): firmware/ui.c formats a value by its kind, with the unit and
+# names given here. tools/jx8p.py writes firmware/ui_params.h from it (make generate). Every param has
+# one; a new param fails test_params.py until it does.
+#   kind   one of DISPLAY_KINDS (what each does: firmware/ui.c, value_parts)
+#   unit   the unit after the number ("" none)
+#   names  the names a choice shows, from its min (NAMES, NAMES_INNER_UNIT: one a value; NONZERO: 0 and
+#          not 0; MASK3: by value & 3, 4 of them); NEG_NAME, OFF_OR_N, KEY_POS: the name for below
+#          or at zero
+DISPLAY_KINDS = (
+    'NONE',             # nothing: the param shows through another (osc_ring through 23 X-MOD's pair)
+    'CUTOFF',           # Hz, kHz, OPEN at the top
+    'TENTHS',           # value / 10, rounded; below 0 is 0
+    'ABS_TENTHS',       # |value| / 10, rounded (a signed depth's size)
+    'ABS_HUNDREDTHS',   # |value| / 100, rounded (cents to semitones, the sign shown elsewhere)
+    'TENTH_SEMIS',      # |value| in cents as semitones to a tenth: 1.5
+    'SIGNED',           # +5, -5, 0
+    'PLAIN',            # value; below 0 is 0
+    'NEG_NAME',         # below 0: names[0]; else the value
+    'OFF_OR_N',         # 0 or below: names[0]; else the value
+    'KEY_POS',          # the JX's key follow positions, 260 per mille each: names[0] for none, 1..3
+    'MS_S',             # milliseconds: 999 ms, then 1.25 s, 12.5 s
+    'RATE',             # hundredths of a hertz as Hz to three digits; below 1 is 1
+    'NAMES',            # names[value - min], held to the ends; the unit always
+    'NAMES_INNER_UNIT', # as NAMES, with the unit only for values strictly between min and max
+    'NONZERO',          # names[1] for any value but 0, else names[0]
+    'MASK3',            # names[value & 3]: a source and its sign, or a pair (sync | ring << 1)
+)
+
+Display = namedtuple("Display", "kind unit names")
+
+
+def D(kind, unit='', names=()):
+    return Display(kind, unit, tuple(names))
+
+
+DCO_FEET = ('32', '16', '8', '4', '2')
+WAVES = ('SAW', 'PULSE', 'SQUARE', 'NOISE', 'SPIKE')
+ENV_MODES = ('ENV1', 'ENV2', 'ENV1 INV', 'ENV2 INV')
+
+DISPLAY = {
+    'AMP_ATTACK_MS': D('MS_S'),
+    'AMP_DECAY_MS': D('MS_S'),
+    'AMP_SUSTAIN': D('TENTHS'),
+    'AMP_RELEASE_MS': D('MS_S'),
+    'BEND_RANGE': D('PLAIN', 'st'),
+    'VOICE_MODE': D('NONZERO', '', ('POLY', 'UNISON')),
+    'UNISON_DETUNE_CENTS': D('PLAIN', 'ct'),
+    'OSC1_WAVE': D('NAMES', '', WAVES),
+    'OSC1_PULSE_WIDTH_PCT': D('PLAIN', '%'),
+    'OSC1_OCTAVE': D('NAMES', "'", DCO_FEET),
+    'OSC1_FINE_CENTS': D('SIGNED', 'ct'),
+    'OSC2_WAVE': D('NAMES', '', WAVES),
+    'OSC2_PULSE_WIDTH_PCT': D('PLAIN', '%'),
+    'OSC2_OCTAVE': D('NAMES', "'", DCO_FEET),
+    'OSC2_FINE_CENTS': D('SIGNED', 'ct'),
+    'OSC2_LEVEL': D('ABS_TENTHS'),
+    'CHORUS_MODE': D('NAMES', '', ('OFF', 'I', 'II', 'FAST')),
+    'LFO_WAVE': D('NAMES', '', ('TRI', 'SAW', 'SQUARE', 'RANDOM')),
+    'LFO_RATE_CENTIHZ': D('RATE', 'Hz'),
+    'LFO_DELAY_MS': D('MS_S'),
+    'LFO_PITCH_CENTS': D('NEG_NAME', 'ct', ('D1',)),
+    'AMP_VELOCITY': D('PLAIN', '%'),
+    'LFO_PW_PCT': D('PLAIN', '%'),
+    'OSC_SYNC': D('MASK3', '', ('OFF', 'SYNC 1', 'X-MOD', 'SYNC 2')),
+    'OSC_XMOD': D('TENTHS', '%'),
+    'FILTER_CUTOFF_CENTS': D('CUTOFF'),
+    'FILTER_RESONANCE': D('TENTHS'),
+    'FILTER_ENV_AMOUNT_CENTS': D('ABS_HUNDREDTHS', 'st'),
+    'FILTER_KEY_TRACK': D('TENTHS', '%'),
+    'FILTER_ENV_ATTACK_MS': D('MS_S'),
+    'FILTER_ENV_DECAY_MS': D('MS_S'),
+    'FILTER_ENV_SUSTAIN': D('TENTHS'),
+    'FILTER_ENV_RELEASE_MS': D('MS_S'),
+    'HIGHPASS_STEP': D('NAMES_INNER_UNIT', 'Hz', ('FLAT', '100', '240', '560', 'BOOST')),
+    'OSC2_COARSE_SEMIS': D('SIGNED', 'st'),
+    'OSC_MIX_ENV': D('ABS_TENTHS'),
+    'OSC_MIX_ENV_SOURCE': D('MASK3', '', ENV_MODES),
+    'FILTER_ENV_SOURCE': D('MASK3', '', ENV_MODES),
+    'LFO_PITCH_OSC2_CENTS': D('NEG_NAME', 'ct', ('D1',)),
+    'PITCH_ENV_OSC1_CENTS': D('TENTH_SEMIS', 'st'),
+    'PITCH_ENV_OSC2_CENTS': D('TENTH_SEMIS', 'st'),
+    'PITCH_ENV_SOURCE': D('MASK3', '', ENV_MODES),
+    'PITCH_ENV_DYNA': D('OFF_OR_N', '', ('OFF',)),
+    'OSC1_LEVEL': D('ABS_TENTHS'),
+    'OSC_RING': D('NONE'),
+    'FILTER_ENV_DYNA': D('OFF_OR_N', '', ('OFF',)),
+    'AMP_KEY_FOLLOW': D('KEY_POS', '', ('OFF',)),
+    'FILTER_ENV_KEY_FOLLOW': D('KEY_POS', '', ('OFF',)),
+    'AMP_DYNA': D('OFF_OR_N', '', ('OFF',)),
+    'OSC_MIX_ENV_DYNA': D('OFF_OR_N', '', ('OFF',)),
+    'AMP_LEVEL': D('TENTHS'),
+    'SETTING_GLIDE': D('NONZERO', '', ('OFF', 'ON')),
+    'AMP_GATE': D('NONZERO', '', ('ENV2', 'GATE')),
+    'WHEEL_PITCH_CENTS': D('PLAIN', 'ct'),
+    'WHEEL_PW_PCT': D('PLAIN', '%'),
+    'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
+}
+
+
 def jx(p):
     """Param p's JX-8P SysEx numbers: its patch field's, or () when no JX-8P byte sets it."""
     for f in PATCH_FIELDS:
