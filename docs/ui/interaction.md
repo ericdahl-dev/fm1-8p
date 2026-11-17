@@ -589,6 +589,7 @@ Button LEDs:
 - **REC:** lit while step record is armed, and glows otherwise (stopped). While
   playing it's off: REC does nothing then but say `STOP TO RECORD`.
 - **FX in SEQ view:** glows in REC (BACK), off otherwise.
+- **LFO in SEQ view:** glows (MOVE: JUMP or GLIDE on the cursor step, #42).
 
 ### SEQ view
 
@@ -622,7 +623,11 @@ pressed from. In SEQ view:
   `MIDI CLOCK`. Turning it shows `TEMPO FOLLOWS MIDI CLOCK` and changes
   nothing.
 - **On a rest step,** S2 shows that step's values but marks them inactive.
-  Rests and ties keep the bend and mod they had (#42).
+  Rests and ties keep the bend and mod they had (#42). On a tie too, and
+  neither the knobs nor LFO change them there.
+- **BEND's semitones:** while BEND has the focus, the readout's last line
+  shows its percent and the semitones it gives at BEND RANGE now
+  (`BEND +50 % = +1.0 st`). A VEL turn changes only the velocity.
 - **Section buttons mean something else in SEQ view.** They are steps, not
   sections, and the screen labels them:
 

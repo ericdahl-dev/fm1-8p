@@ -29,6 +29,12 @@ int32_t ui_seq_value(const ui *u, uint32_t k);
 /* knob k's value as its column reads it: the number into num, a short unit into unit (UI_VALUE_LEN
  * each): TEMPO 120 / 123.5 BPM, LENGTH 16, SWING and GATE 50 %, VEL 100, TRANSPOSE +3 st; -- waits */
 void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit);
+/* knob k's value in full, for the readout's last line while it has the focus: S2's BEND as the percent
+ * and the semitones it gives at BEND RANGE now ("+52 % = +1.0 st"); "" for the others. s: UI_SEQ_TEXT_LEN */
+void ui_seq_detail(const ui *u, uint32_t k, char *s);
+/* 0 when knob k shows a value it can't change now: S2's knobs on a rest or a tie, which keep their bend,
+ * mod and move (#42) but have no notes to play them with; the screen dims it */
+int ui_seq_active(const ui *u, uint32_t k);
 /* step i as notes by name ("C4 E4 G4"), REST or TIE; while a step is armed, the notes played for it so
  * far by name ("" none); s:
  * UI_SEQ_TEXT_LEN */

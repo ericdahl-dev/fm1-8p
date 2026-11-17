@@ -105,6 +105,15 @@ void seq_set_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t
     edit_end(s);
 }
 
+void seq_set_step_vel(seq *s, uint32_t i, uint32_t vel)
+{
+    if (i >= SEQ_STEPS || s->edit.step[i].kind != SEQ_NOTES_ON)
+        return;
+    edit_begin(s);
+    s->edit.step[i].vel = (uint8_t)(vel < 1u ? 1u : vel > 127u ? 127u : vel);
+    edit_end(s);
+}
+
 void seq_set_step_bend_mod(seq *s, uint32_t i, int32_t bend, int32_t mod, uint32_t glide)
 {
     seq_step *st;

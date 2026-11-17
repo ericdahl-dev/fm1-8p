@@ -922,6 +922,9 @@ static void seq_readout(void)
         const char *w = U->seq_rec ? "REC" : "PLAY";
         CV_TEXT(x, 40, 0, w, led_of(C_PLAY));
         CV_TEXT(x + TEXT_W(0, w) + 6, 40, 0, *t ? t : "ITS NOTES", *t ? C_TEXT : C_DIM);
+    } else if (U->focus < 4u && (ui_seq_detail(U, U->focus, t), *t)) {   /* S2 BEND: the semitones it gives */
+        CV_TEXT(x, 40, 0, "BEND", ui_seq_active(U, U->focus) ? sec_text(UI_SEC_SEQ) : C_DIM);
+        CV_TEXT(x + TEXT_W(0, "BEND") + 6, 40, 0, t, ui_seq_active(U, U->focus) ? C_TEXT : C_DIM);
     } else {
         CV_TEXT(x, 40, 0, "TAP STEP, THEN PLAY", C_DIM);
     }
@@ -954,7 +957,7 @@ static void seq_cell(uint32_t k)
                 val[n + 1u + j] = unit[j];
             val[n + 1u + j] = 0;
         }
-        text_c(x, COL_W, 16, 0, val, sl->live ? (act ? C_TEXT : C_DIM) : mix(C_SURF, C_DIM, 128));
+        text_c(x, COL_W, 16, 0, val, sl->live && ui_seq_active(U, k) ? (act ? C_TEXT : C_DIM) : mix(C_SURF, C_DIM, 128));
         if (act)
             frame(x, 0, COL_W, 32, C_SEQ);
     }
