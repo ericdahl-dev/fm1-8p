@@ -67,7 +67,7 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
     const fm_param_info *in = fm_param_info_get(id);
     const ui_display *d;
     const char *u;
-    uint32_t a = (uint32_t)(value < 0 ? -value : value), p = (uint32_t)(value < 0 ? 0 : value);
+    uint32_t a = value < 0 ? 0u - (uint32_t)value : (uint32_t)value, p = value < 0 ? 0u : (uint32_t)value;
     if (!in) {                                  /* (an unknown param: nothing; on the FM-1 a NULL read faults) */
         *num = 0;
         *unit = 0;
@@ -141,8 +141,8 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
         break;
     case UI_SHOW_NAMES:
     case UI_SHOW_NAMES_INNER_UNIT: {            /* held to the ends; HPF: Hz only between them */
-        int32_t i = value - in->min;
-        num = put_str(num, d->names[i < 0 ? 0 : i > (int32_t)d->n - 1 ? (int32_t)d->n - 1 : i]);
+        uint32_t i = value <= in->min ? 0u : value >= in->max ? d->n - 1u : (uint32_t)(value - in->min);
+        num = put_str(num, d->names[i]);
         if (d->kind == UI_SHOW_NAMES_INNER_UNIT && (value == in->min || value >= in->max))
             u = "";
         break;

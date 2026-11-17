@@ -103,6 +103,22 @@ class DisplayTest(unittest.TestCase):
         finally:
             params.DISPLAY['OSC1_WAVE'] = saved
 
+    # each kind that shows names has as many as it reads: NONZERO 2, MASK3 4, one for the ones that
+    # name only their zero or below; a quote or backslash would break the C string
+    def test_each_named_kind_has_the_names_it_reads(self):
+        for enum, cut in (('VOICE_MODE', 1), ('OSC_SYNC', 1), ('LFO_PITCH_CENTS', 1), ('AMP_DYNA', 1),
+                          ('AMP_KEY_FOLLOW', 1)):
+            saved = params.DISPLAY[enum]
+            try:
+                params.DISPLAY[enum] = saved._replace(names=saved.names[:-cut])
+                with self.assertRaisesRegex(ValueError, enum):
+                    jx8p.emit_ui_params_h()
+                params.DISPLAY[enum] = saved._replace(unit='"')
+                with self.assertRaisesRegex(ValueError, enum):
+                    jx8p.emit_ui_params_h()
+            finally:
+                params.DISPLAY[enum] = saved
+
 
 class GeneratedTest(unittest.TestCase):
     # the generated files are checked in: they must be what the list makes now

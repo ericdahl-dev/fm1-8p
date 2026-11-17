@@ -256,18 +256,24 @@ def emit_ui_params_h():
             d.kind, 1 if d.kind in one_name else 0)
         if len(d.names) != want:
             raise ValueError("%s: %s takes %d names, not %d (%s..%s)" % (p.enum, d.kind, want, len(d.names), lo, hi))
+        if len(d.names) > 255:                  # (ui_display's n is a uint8_t)
+            raise ValueError("%s: %d names; at most 255" % (p.enum, len(d.names)))
         for n in d.names + (d.unit,):
             if len(n) > 11:                     # (UI_VALUE_LEN 12, with its end)
                 raise ValueError("%s: %r is longer than the screen's 11 characters" % (p.enum, n))
-        if d.names and d.names not in names_c:
-            names_c[d.names] = "UI_NAMES_%s" % p.enum
-        rows.append("    {UI_SHOW_%s, %d, \"%s\", %s},   /* %s */" % (
-            d.kind, len(d.names), d.unit, names_c.get(d.names, "0"), p.enum))
+            if '"' in n or '\\' in n:
+                raise ValueError("%s: %r: no quote or backslash in a name or unit" % (p.enum, n))
+        if d.names and d.names not in names_c:  # (one array for each set of names, shared)
+            names_c[d.names] = "UI_NAMES_%d" % len(names_c)
+        rows.append("    [FM_PARAM_%s] = {UI_SHOW_%s, %d, \"%s\", %s}," % (
+            p.enum, d.kind, len(d.names), d.unit, names_c.get(d.names, "0")))
     out = ["/* fm1-8p UI: how the screen shows each param, by fm_param_id (#196). GENERATED from tools/params.py",
-           " * (DISPLAY) by tools/jx8p.py (make generate): edit the list, not this file. Included by ui.c,",
-           " * whose value_parts formats a value by its kind. */",
+           " * (DISPLAY) by tools/jx8p.py (make generate): edit the list, not this file. Include it from ui.c",
+           " * only (its value_parts formats a value by its kind): the tables are static, one copy a file. */",
            "#ifndef UI_PARAMS_H",
            "#define UI_PARAMS_H",
+           "#include <stdint.h>",
+           "#include \"../engine/fm1_8p.h\"",
            "",
            "typedef enum {"]
     out += ["    UI_SHOW_%s," % k for k in params.DISPLAY_KINDS]
