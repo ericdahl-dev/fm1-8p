@@ -96,40 +96,6 @@ int fm_voice_active(const fm_voice *v)
     return v->amp_env.stage != FM_ENV_IDLE || v->pending;
 }
 
-fm_voice_hold fm_voice_holding(const fm_voice *v)
-{
-    if (!fm_voice_active(v)) return FM_VOICE_FREE;
-    if (v->key_down) return FM_VOICE_HELD;
-    if (v->sustained) return FM_VOICE_PEDAL;
-    return FM_VOICE_RELEASING;
-}
-
-int fm_voice_plays(const fm_voice *v, uint8_t note)
-{
-    return v->note == note && fm_voice_active(v);
-}
-
-int fm_voice_key_holds(const fm_voice *v, uint8_t note)
-{
-    return v->key_down && v->note == note;
-}
-
-int fm_voice_fading(const fm_voice *v, uint8_t note)
-{
-    return v->pending && v->old_note == note;
-}
-
-fm_voice_waiting fm_voice_waiting_note(const fm_voice *v)
-{
-    fm_voice_waiting w;
-    w.note = v->note;
-    w.velocity = v->next_velocity;
-    w.key_down = v->key_down;
-    w.sustained = v->sustained;
-    w.peak = v->next_peak;
-    return w;
-}
-
 /* Samples between cutoff updates (control rate: 2756 Hz at 44.1 kHz). */
 #define FILTER_CTRL_SAMPLES 16
 
@@ -376,16 +342,6 @@ void fm_voice_release(fm_voice *v)
         fm_env_gate_off(&v->amp_env);
         filter_env_gate_off(v); /* and env2 */
     }
-}
-
-void fm_voice_age(fm_voice *v, uint32_t stamp)
-{
-    v->stamp = stamp;
-}
-
-uint32_t fm_voice_stamp(const fm_voice *v)
-{
-    return v->stamp;
 }
 
 void fm_voice_let_go(fm_voice *v)

@@ -99,16 +99,31 @@ typedef enum {
     FM_VOICE_HELD
 } fm_voice_hold;
 
-fm_voice_hold fm_voice_holding(const fm_voice *v);
+static inline fm_voice_hold fm_voice_holding(const fm_voice *v)
+{
+    if (!fm_voice_active(v)) return FM_VOICE_FREE;
+    if (v->key_down) return FM_VOICE_HELD;
+    if (v->sustained) return FM_VOICE_PEDAL;
+    return FM_VOICE_RELEASING;
+}
 
 /* Sounding `note` (a voice-mode switch's leftover plays no note). */
-int fm_voice_plays(const fm_voice *v, uint8_t note);
+static inline int fm_voice_plays(const fm_voice *v, uint8_t note)
+{
+    return v->note == note && fm_voice_active(v);
+}
 
 /* Its key is down on `note` (a note off for `note` lets it go). */
-int fm_voice_key_holds(const fm_voice *v, uint8_t note);
+static inline int fm_voice_key_holds(const fm_voice *v, uint8_t note)
+{
+    return v->key_down && v->note == note;
+}
 
 /* Fading `note` out after a steal, its new note waiting. */
-int fm_voice_fading(const fm_voice *v, uint8_t note);
+static inline int fm_voice_fading(const fm_voice *v, uint8_t note)
+{
+    return v->pending && v->old_note == note;
+}
 
 /* The note a steal left waiting on a voice (or the note it plays): its
  * peak and velocity as struck, and whether its key or the pedal holds it. */
@@ -117,7 +132,16 @@ typedef struct {
     int32_t peak;
 } fm_voice_waiting;
 
-fm_voice_waiting fm_voice_waiting_note(const fm_voice *v);
+static inline fm_voice_waiting fm_voice_waiting_note(const fm_voice *v)
+{
+    fm_voice_waiting w;
+    w.note = v->note;
+    w.velocity = v->next_velocity;
+    w.key_down = v->key_down;
+    w.sustained = v->sustained;
+    w.peak = v->next_peak;
+    return w;
+}
 
 /*
  * `now` in the calls below is the number of the next control tick: a
@@ -179,8 +203,15 @@ void fm_voice_let_go(fm_voice *v);
 
 /* The voice's age for allocation: the engine's event count at its last note
  * on or off, which the engine sets and compares (as a wrapping difference). */
-void fm_voice_age(fm_voice *v, uint32_t stamp);
-uint32_t fm_voice_stamp(const fm_voice *v);
+static inline void fm_voice_age(fm_voice *v, uint32_t stamp)
+{
+    v->stamp = stamp;
+}
+
+static inline uint32_t fm_voice_stamp(const fm_voice *v)
+{
+    return v->stamp;
+}
 
 /* Silences the voice at once (all sound off). */
 void fm_voice_silence(fm_voice *v);
