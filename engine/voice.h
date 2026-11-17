@@ -90,6 +90,35 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
 /* Sounding: attack through release, or fading out after a steal. */
 int fm_voice_active(const fm_voice *v);
 
+/* What keeps a voice, in the order the engine steals: a free voice first,
+ * then one releasing, then one the pedal holds, then one its key holds. */
+typedef enum {
+    FM_VOICE_FREE,
+    FM_VOICE_RELEASING,
+    FM_VOICE_PEDAL,
+    FM_VOICE_HELD
+} fm_voice_hold;
+
+fm_voice_hold fm_voice_holding(const fm_voice *v);
+
+/* Sounding `note` (a voice-mode switch's leftover plays no note). */
+int fm_voice_plays(const fm_voice *v, uint8_t note);
+
+/* Its key is down on `note` (a note off for `note` lets it go). */
+int fm_voice_key_holds(const fm_voice *v, uint8_t note);
+
+/* Fading `note` out after a steal, its new note waiting. */
+int fm_voice_fading(const fm_voice *v, uint8_t note);
+
+/* The note a steal left waiting on a voice (or the note it plays): its
+ * peak and velocity as struck, and whether its key or the pedal holds it. */
+typedef struct {
+    uint8_t note, velocity, key_down, sustained;
+    int32_t peak;
+} fm_voice_waiting;
+
+fm_voice_waiting fm_voice_waiting_note(const fm_voice *v);
+
 /*
  * `now` in the calls below is the number of the next control tick: a
  * note that starts from silence counts its LFO delay from it.
@@ -142,6 +171,16 @@ void fm_voice_key_up(fm_voice *v, int pedal_down);
 
 /* Releases the note whatever holds it (pedal up, all notes off). */
 void fm_voice_release(fm_voice *v);
+
+/* Lets go of the voice before a voice-mode switch: releases its note if a
+ * key or the pedal holds it, and a sounding voice then belongs to no note
+ * (FM_VOICE_NO_NOTE), finishing at its pitch. */
+void fm_voice_let_go(fm_voice *v);
+
+/* The voice's age for allocation: the engine's event count at its last note
+ * on or off, which the engine sets and compares (as a wrapping difference). */
+void fm_voice_age(fm_voice *v, uint32_t stamp);
+uint32_t fm_voice_stamp(const fm_voice *v);
 
 /* Silences the voice at once (all sound off). */
 void fm_voice_silence(fm_voice *v);
