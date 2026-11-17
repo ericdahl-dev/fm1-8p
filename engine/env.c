@@ -77,6 +77,12 @@ static uint32_t scaled(const fm_env *e, uint32_t t)
     return s > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)s;
 }
 
+/* PG-8X's amp onset starts with no slope (0.02 of full 0.1 ms after note on, #274), where an RC charge from 0 is at
+ * its steepest: so an attack eases in, RAMP_SEGS segments of RAMP_SAMPLES at 1/16, 1/8, 1/4 and 1/2 of the curve's
+ * slope, then follows the curve from where it is. A few segments more a note; nothing more a sample. */
+#define RAMP_SEGS 4u
+#define RAMP_SAMPLES 2u
+
 /*
  * The attack charges like PG-8X's, an RC toward 1.6 x the peak, and stops on
  * the peak, which takes tau x ln(1.6 / 0.6) = 0.98 tau: so tau is the attack
@@ -89,9 +95,18 @@ static int attack_segment(fm_env *e)
 {
     int32_t d = e->peak - e->level, rem;
     uint32_t t = scaled(e, e->set->attack_samples), k;
+    if (t < e->set->attack_min) t = e->set->attack_min; /* after key follow */
     if (d <= 0 || t == 0) return 0;
     rem = start_segment(e, d + e->peak / 5 * 3,
                         (uint32_t)(((uint64_t)t * 66817u) >> 16));
+    if (e->ramp) { /* easing in: a short segment at a fraction of the curve's slope, off it; the
+                    * fraction start_segment carried (frac) is from the full span, not played,
+                    * a sub-LSB difference */
+        if (e->seg > RAMP_SAMPLES) e->seg = RAMP_SAMPLES;
+        e->step >>= e->ramp;
+        e->ramp--;
+        rem = 0;
+    }
     /* the calls that stay below the peak: rem + k x step < d */
     if (rem + (int32_t)e->seg * e->step >= d) {
         if (e->step == 0 || rem >= d) return 0;
@@ -116,6 +131,7 @@ void fm_env_reset(fm_env *e)
     e->step = 0;
     e->seg = 0;
     e->frac = 0;
+    e->ramp = 0;
     e->stage = FM_ENV_IDLE;
     e->peak = FM_ENV_FULL;
     e->sus_level = 0;
@@ -169,6 +185,7 @@ void fm_env_gate_on(fm_env *e)
 #endif
     e->stage = FM_ENV_ATTACK;
     e->seg = 0; /* the next call starts the first segment */
+    e->ramp = (uint8_t)RAMP_SEGS;
     sustain_level(e);
 }
 
@@ -301,7 +318,9 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
     while (n > 0) {
         if (e->seg) { /* no segment lands inside itself */
             uint32_t m = n < e->seg ? n : e->seg;
-            if (e->step == 0) return e->level; /* a hold: sustain or idle */
+            if (e->step == 0 && (e->stage == FM_ENV_SUSTAIN || e->stage == FM_ENV_IDLE))
+                return e->level; /* a hold; a moving segment's step can be 0 too
+                                  * (a quiet, slow attack, eased in) */
             e->level += (int32_t)m * e->step;
             e->seg = (uint8_t)(e->seg - m);
             n -= m;
