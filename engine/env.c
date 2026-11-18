@@ -228,12 +228,13 @@ void fm_env_retime(fm_env *e)
         break;
     case FM_ENV_DECAY:   /* a new tau: the running segment ends as it is (at
                           * most 64 samples), so setting a value again changes
-                          * nothing. A new sustain, or a time of 0, acts at
-                          * once: the segment was drawn toward the old one */
-        if (e->set->decay_samples == 0 || e->sus_level != old_sus) e->seg = 0;
+                          * nothing. A new sustain, or a time of 0 at this
+                          * note's scale, acts at once: the segment was drawn
+                          * toward the old one */
+        if (scaled(e, e->set->decay_samples) == 0 || e->sus_level != old_sus) e->seg = 0;
         break;
     case FM_ENV_RELEASE:
-        if (e->set->release_samples == 0) e->seg = 0;
+        if (scaled(e, e->set->release_samples) == 0) e->seg = 0;
         break;
     case FM_ENV_SUSTAIN:
         if (e->level != e->sus_level) enter_decay(e);
