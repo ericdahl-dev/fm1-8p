@@ -138,6 +138,10 @@ class MetricTest(unittest.TestCase):
         self.assertNotIn(25, odd)    # SYNC LEAD: ring with sync
         self.assertNotIn(1, odd)     # PIANO 1
         self.assertNotIn(22, odd)    # CLAV: sync alone
+        # a ring near unison (within 25 c of a whole-number ratio) sounds at osc1's pitch, beating
+        self.assertNotIn(19, odd)    # RES BELL: osc2 +15 c
+        self.assertNotIn(20, odd)    # WAVEAURA: osc2 -14 c
+        self.assertNotIn(32, odd)    # PSYCHMELLO: osc2 -12 c
 
 @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
 class HistoryTest(unittest.TestCase):

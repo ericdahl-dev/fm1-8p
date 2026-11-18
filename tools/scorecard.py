@@ -296,17 +296,28 @@ def tone_args(tree, bank=None):
     return out
 
 
+WHOLE_RATIO_CENTS = 25.0
+
+
 def inharmonic_tones(tree, bank=None):
-    """The tone numbers of BANK (default the factory bank) with ring or cross-mod on (XMOD_AM) and no sync:
-    they have no single pitch, so score_tone reports none for them (s8). With sync osc2 restarts every
-    osc1 cycle, so even the ring's product repeats at osc1's period and keeps a pitch."""
+    """The tone numbers of BANK (default the factory bank) with ring or cross-mod on (XMOD_AM), no sync, and
+    oscillators more than WHOLE_RATIO_CENTS from a whole-number ratio: they have no single pitch, so
+    score_tone reports none for them (s8). With sync osc2 restarts every osc1 cycle, so even the ring's
+    product repeats at osc1's period; near a whole ratio (a detuned unison) the ring sounds at its
+    pitch, beating. Both keep a pitch."""
     import sys
     sys.path.insert(0, os.path.join(tree, "tools"))
     import jx8p
     with open(bank or os.path.join(tree, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
         tones = jx8p.parse_syx(fh.read())
+    def off_whole(e):   # cents from the nearest whole-number ratio of the oscillators, either way up
+        c = (1200 * (e["OSC2_OCTAVE"] - e["OSC1_OCTAVE"]) + 100 * (e["OSC2_COARSE_SEMIS"] - e["OSC1_COARSE_SEMIS"])
+             + e.get("OSC2_FINE_CENTS", 0) - e.get("OSC1_FINE_CENTS", 0))
+        r = 2 ** (abs(c) / 1200)
+        return abs(1200 * np.log2(r / max(1, round(r))))
     engine = [jx8p.to_engine(t) for t in tones]
-    return {i for i, e in enumerate(engine, 1) if e.get("XMOD_AM") and not e.get("OSC_SYNC")}
+    return {i for i, e in enumerate(engine, 1)
+            if e.get("XMOD_AM") and not e.get("OSC_SYNC") and off_whole(e) > WHOLE_RATIO_CENTS}
 
 
 def render_tones(tree, mid, work, bank=None):
