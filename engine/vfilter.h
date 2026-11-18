@@ -50,6 +50,12 @@ void fm_vfilter_set_key_track(fm_vfilter *vf, int32_t permille);
  * the next update. */
 void fm_vfilter_set_key(fm_vfilter *vf, uint8_t note);
 
+/* Resonance, per mille: at once (fm_filter_set_resonance). */
+void fm_vfilter_set_resonance(fm_vfilter *vf, int32_t permille);
+
+/* The highpass position 0..4 (fm_filter_set_highpass): at once. */
+void fm_vfilter_set_highpass(fm_vfilter *vf, uint8_t step);
+
 /*
  * Composes the cutoff from the settings, the key and `mod_cents` (the
  * voice's modulation of the cutoff, engine/mod.h) and sets the filter to
@@ -57,6 +63,11 @@ void fm_vfilter_set_key(fm_vfilter *vf, uint8_t note);
  * filter was set, 0 if its coefficients stand.
  */
 int fm_vfilter_update(fm_vfilter *vf, int32_t mod_cents);
+
+/* Set to what its settings and key compose with no modulation: nothing
+ * left for an update to do once the voice's modulation is at rest. For
+ * checks: it composes the cutoff (fm_voice_busy_derived). */
+int fm_vfilter_at_rest(const fm_vfilter *vf);
 
 /* The cutoff the filter is set to, in cents (as composed, before the
  * filter clamps it). */

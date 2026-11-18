@@ -133,6 +133,114 @@ TT_TEST(vfilter_pass_keeps_the_last_sample_for_closing)
     TT_CHECK(same);
 }
 
+/* 8. At rest: the filter is set to what its settings and key compose with
+ * no modulation. Not before its first update, not while modulation moves
+ * it, nor after a setting or key changes until the next update. */
+TT_TEST(vfilter_at_rest_means_set_to_its_settings)
+{
+    fm_vfilter *f = vf_reset();
+    TT_CHECK(!fm_vfilter_at_rest(f));
+    fm_vfilter_update(f, 0);
+    TT_CHECK(fm_vfilter_at_rest(f));
+    fm_vfilter_set_base(f, fm_filter_linear_cents(6000));
+    TT_CHECK(!fm_vfilter_at_rest(f));
+    fm_vfilter_update(f, 500);
+    TT_CHECK(!fm_vfilter_at_rest(f));
+    fm_vfilter_update(f, 0);
+    TT_CHECK(fm_vfilter_at_rest(f));
+    fm_vfilter_set_key_track(f, 500);
+    fm_vfilter_set_key(f, 90);
+    TT_CHECK(!fm_vfilter_at_rest(f));
+    fm_vfilter_update(f, 0);
+    TT_CHECK(fm_vfilter_at_rest(f));
+}
+
+/* 9. Resonance takes effect at once, as on the filter itself; the
+ * highpass on makes the filter no wire, and off a wire again. */
+TT_TEST(vfilter_resonance_and_highpass_pass_through)
+{
+    fm_vfilter *f = vf_reset();
+    static fm_filter want;
+    int32_t rate = fm_filter_rate_cents(VF_RATE), x;
+    uint32_t i;
+    int same = 1;
+    fm_vfilter_set_base(f, fm_filter_linear_cents(6000));
+    fm_vfilter_update(f, 0);
+    fm_vfilter_set_resonance(f, 700);
+    fm_filter_reset(&want);
+    fm_filter_set_cutoff(&want, fm_vfilter_cutoff(f), rate);
+    fm_filter_set_resonance(&want, 700);
+    for (i = 0; i < 64; i++) {
+        x = (int32_t)((i * 2654435761u) >> 8) - (1 << 23);
+        same &= fm_vfilter_run(f, x) == fm_filter_run(&want, x);
+    }
+    TT_CHECK(same);
+    f = vf_reset();
+    fm_vfilter_set_highpass(f, 1);
+    TT_CHECK(!fm_vfilter_is_wire(f));
+    fm_vfilter_set_highpass(f, 0);
+    TT_CHECK(fm_vfilter_is_wire(f));
+}
+
+static fm_engine vfe;
+static int16_t vfbuf[2 * 64];
+
+/* An engine of one voice at 48 kHz, the cutoff at 6000 cents with full key
+ * tracking, playing `note`, rendered `frames` samples. */
+static fm_voice *vf_engine(uint8_t note, uint32_t frames)
+{
+    fm_engine_init(&vfe, VF_RATE, 1);
+    fm_engine_set_param(&vfe, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    fm_engine_set_param(&vfe, FM_PARAM_FILTER_KEY_TRACK, 1000);
+    fm_engine_note_on(&vfe, note, 100);
+    fm_engine_render(&vfe, vfbuf, frames);
+    return &vfe.voices[0];
+}
+
+/* 10. A legato key change (unison: the voice changes note, no new start)
+ * recomposes the cutoff at once, before the next sample runs, and the
+ * cadence carries on: the next control point comes when it would have. */
+TT_TEST(vfilter_legato_key_change_recomposes_at_once)
+{
+    fm_voice *v;
+    int32_t base = fm_filter_linear_cents(6000);
+    uint8_t phase;
+    fm_engine_init(&vfe, VF_RATE, 1);
+    fm_engine_set_param(&vfe, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&vfe, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
+    fm_engine_set_param(&vfe, FM_PARAM_FILTER_KEY_TRACK, 1000);
+    fm_engine_note_on(&vfe, 48, 100);
+    fm_engine_render(&vfe, vfbuf, 7); /* mid-cadence */
+    v = &vfe.voices[0];
+    TT_CHECK_EQ(v->cutoff_now, fm_filter_voice_cents(base, 1000, 48, 0));
+    phase = v->ctrl_phase;
+    fm_engine_note_on(&vfe, 72, 100); /* the newest note: the voice changes to it */
+    TT_CHECK_EQ(v->cutoff_now, fm_filter_voice_cents(base, 1000, 72, 0));
+    TT_CHECK_EQ(v->ctrl_phase, phase);
+}
+
+/* 11. A cutoff or key-track setting changed mid-note takes effect at the
+ * voice's next control point, not before: on the sample `phase` + 1 from
+ * now. */
+TT_TEST(vfilter_setting_takes_effect_at_the_next_control_point)
+{
+    static const uint16_t ids[2] = { FM_PARAM_FILTER_CUTOFF_CENTS, FM_PARAM_FILTER_KEY_TRACK };
+    static const int32_t vals[2] = { 5000, 500 };
+    int k;
+    for (k = 0; k < 2; k++) {
+        fm_voice *v = vf_engine(72, 21); /* mid-cadence, off the tracking pivot (C4) */
+        int32_t before = v->cutoff_now;
+        uint32_t n = 0, want = v->ctrl_phase + 1u;
+        fm_engine_set_param(&vfe, ids[k], vals[k]);
+        TT_CHECK_EQ(v->cutoff_now, before);
+        while (v->cutoff_now == before && n < 64) {
+            fm_engine_render(&vfe, vfbuf, 1);
+            n++;
+        }
+        TT_CHECK_EQ(n, want);
+    }
+}
+
 static void run_vfilter_tests(void)
 {
     TT_RUN(vfilter_reset_is_a_wire);
@@ -142,4 +250,8 @@ static void run_vfilter_tests(void)
     TT_RUN(vfilter_same_cutoff_keeps_the_coefficients);
     TT_RUN(vfilter_control_points_every_16_samples);
     TT_RUN(vfilter_pass_keeps_the_last_sample_for_closing);
+    TT_RUN(vfilter_at_rest_means_set_to_its_settings);
+    TT_RUN(vfilter_resonance_and_highpass_pass_through);
+    TT_RUN(vfilter_legato_key_change_recomposes_at_once);
+    TT_RUN(vfilter_setting_takes_effect_at_the_next_control_point);
 }

@@ -31,6 +31,21 @@ void fm_vfilter_set_key(fm_vfilter *vf, uint8_t note)
     vf->key = note;
 }
 
+void fm_vfilter_set_resonance(fm_vfilter *vf, int32_t permille)
+{
+    fm_filter_set_resonance(&vf->f, permille);
+}
+
+void fm_vfilter_set_highpass(fm_vfilter *vf, uint8_t step)
+{
+    fm_filter_set_highpass(&vf->f, step, vf->rate_cents);
+}
+
+int fm_vfilter_at_rest(const fm_vfilter *vf)
+{
+    return fm_filter_voice_cents(vf->base, vf->key_track, vf->key, 0) == vf->now;
+}
+
 int fm_vfilter_update(fm_vfilter *vf, int32_t mod_cents)
 {
     int32_t cents = fm_filter_voice_cents(vf->base, vf->key_track, vf->key, mod_cents);
