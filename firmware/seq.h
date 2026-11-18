@@ -28,6 +28,7 @@
 #define SEQ_GATE_DEF 50u
 #define SEQ_SWING_DEF 50u               /* swing, %: 50 straight .. 75 (the even steps late by half a step) */
 #define SEQ_OUT_EV 8u                   /* #286: starts and stops the main loop has yet to send */
+#define SEQ_OUT_M 16u                   /* #286: a followed clock's bytes, between two takes */
 #define SEQ_TRANSPOSE_MAX 24            /* transpose, semitones: -24..+24 (interaction.md, S3 PLAY) */
 #define SEQ_VEL_DEF 100u
 /* #38: external MIDI clock, 24 ticks a quarter note (6 a step), its times on the host's 24 MHz
@@ -165,6 +166,8 @@ typedef struct {
     struct { uint8_t st; uint32_t at; } out_ev[SEQ_OUT_EV];   /* interrupt: a start or stop, at a tick count */
     volatile uint32_t out_w;            /* interrupt: out_ev written */
     uint32_t out_r;                     /* main loop: out_ev taken */
+    uint8_t out_m[SEQ_OUT_M];           /* main loop: a followed clock's bytes to pass on (Eric, Q2) */
+    uint32_t out_mw, out_mr;
 } seq;
 
 /* At init (play_init): the empty pattern (every step a rest), length 16, the defaults; stopped. */

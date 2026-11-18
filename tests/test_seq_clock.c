@@ -809,6 +809,90 @@ TT_TEST(clock_out_follows_tempo_changes)
     TT_CHECK(j >= 60u);
 }
 
+/* the clock bytes of a kind among ck_msgs that the main loop had taken by time `to` */
+static uint32_t ck_msgs_of(uint8_t st, double from, double to)
+{
+    uint32_t i, c = 0;
+    for (i = 0; i < ck_n_msgs; i++)
+        c += ck_msgs[i].st == st && ck_msgs[i].stamp >= from && ck_msgs[i].stamp <= to;
+    return c;
+}
+
+/* Following a clock (G13 MIDI) with G14 on (Eric, Q2: pass it on): the start goes out as the transport
+ * starts on it, then each tick that comes in goes out once, at once (not timed anew, and none of its own:
+ * a tick in isn't counted twice); a stop that comes in goes out as the transport stops (#286) */
+TT_TEST(clock_out_passes_a_followed_clock_on)
+{
+    double stop;
+    uint32_t in;
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, 1);
+    ck_ticks_ramp(0.05, 133.0, 133.0, 0, 1, 24u * 6u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    stop = ck_tick_at[24 + 6 * 12] + 0.005;
+    ck_msg_at(stop, 0, 0xFCu);
+    ck_run(stop + 0.3);
+    in = ck_msgs_of(0xF8u, ck_tick_at[24] - 0.001, stop);     /* the ticks from the start's on */
+    TT_CHECK(ck_n_out > 0u && ck_out[0] == 0xFAu);
+    TT_CHECK_EQ(ck_outs(0xF8u), in);           /* one out a tick in, while it ran on them */
+    TT_CHECK_EQ(ck_outs(0xFAu), 1u);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+}
+
+/* Following, a stop that comes right after a tick (in the same block): the tick goes out before the
+ * stop, never after it; and a clock lost while running sends a stop too (#286) */
+TT_TEST(clock_out_a_followed_stop_comes_after_its_ticks)
+{
+    uint32_t i, seen_stop = 0;
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, 1);
+    ck_ticks_ramp(0.05, 133.0, 133.0, 0, 1, 24u * 4u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_msg_at(ck_tick_at[48] + 0.001, 0, 0xFCu);
+    ck_run(ck_tick_at[24 * 4 - 1] + 0.1);
+    for (i = 0; i < ck_n_out; i++) {
+        if (ck_out[i] == 0xFCu)
+            seen_stop = 1;
+        else
+            TT_CHECK(!(seen_stop && ck_out[i] == 0xF8u));
+    }
+    TT_CHECK(seen_stop);
+    ck_fresh(SEQ_CLK_AUTO);                    /* lost while running: a stop */
+    seq_set_clock_out(&ck, 1);
+    ck_ticks_ramp(0.05, 133.0, 133.0, 0, 1, 24u * 2u);
+    ck_msg_at(ck_tick_at[12] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[47] + 0.5);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+}
+
+/* AUTO playing its own clock (G14 on), then a start and a clock come in and it hands over to them: its
+ * own ticks, its stop, then the start, then the ticks passed on, one out a tick in; never two starts in a
+ * row, none of its own ticks after its stop (#286) */
+TT_TEST(clock_out_hand_over_to_a_clock)
+{
+    uint32_t i, fa = 0, fc_at = 0, fa_at = 0, in;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);                /* its own */
+    ck_ticks_ramp(1.0, 140.0, 140.0, 0, 1, 24u * 4u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);   /* (ticks before it: no start, it goes on its own) */
+    ck_run(ck_tick_at[24 * 4 - 1] - 0.01);
+    for (i = 0; i < ck_n_out; i++) {
+        if (ck_out[i] == 0xFAu && ++fa == 2u)
+            fa_at = i;
+        if (ck_out[i] == 0xFCu && !fc_at)
+            fc_at = i;
+    }
+    TT_CHECK_EQ(fa, 2u);
+    TT_CHECK(fc_at > 0u && fc_at + 1u == fa_at);   /* its stop, then the start */
+    in = ck_msgs_of(0xF8u, ck_tick_at[24] - 0.001, ck_tick_at[24 * 4 - 1] - 0.01);   /* (to where it ran) */
+    for (i = fa_at + 1u; i < ck_n_out; i++)
+        TT_CHECK_EQ(ck_out[i], 0xF8u);
+    TT_CHECK_EQ(ck_n_out - fa_at - 1u, in);    /* one out a tick in, after the start */
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_out_ticks_with_the_steps);
@@ -816,6 +900,9 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_restart_stops_first);
     TT_RUN(clock_out_off_and_changed_while_playing);
     TT_RUN(clock_out_follows_tempo_changes);
+    TT_RUN(clock_out_passes_a_followed_clock_on);
+    TT_RUN(clock_out_a_followed_stop_comes_after_its_ticks);
+    TT_RUN(clock_out_hand_over_to_a_clock);
     TT_RUN(clock_lost_while_armed_disarms);
     TT_RUN(clock_source_switched_while_armed);
     TT_RUN(clock_lost_while_armed_under_midi_waits_on);

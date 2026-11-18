@@ -69,6 +69,7 @@ void seq_init(seq *s)
     s->upos = s->fs = 0;
     s->out_want = s->out_on = 0;
     s->out_acc = s->out_ticks = s->out_sent = s->out_w = s->out_r = 0;
+    s->out_mw = s->out_mr = 0;
 }
 
 /* interrupt: a start or stop out, after the ticks counted so far */
@@ -97,6 +98,13 @@ static void out_adv(seq *s, uint32_t d, uint32_t xi)
     }
 }
 
+/* main loop: a followed clock's byte to pass on (dropped past SEQ_OUT_M untaken) */
+static void out_pass(seq *s, uint8_t st)
+{
+    if (s->out_mw - s->out_mr < SEQ_OUT_M)
+        s->out_m[s->out_mw++ % SEQ_OUT_M] = st;
+}
+
 void seq_set_clock_out(seq *s, uint32_t on)
 {
     s->out_want = (uint8_t)(on != 0);
@@ -117,6 +125,10 @@ int seq_clock_out_take(seq *s, uint8_t *st)
     if (s->out_sent != s->out_ticks) {
         *st = 0xF8u;
         s->out_sent++;
+        return 1;
+    }
+    if (s->out_mr != s->out_mw) {               /* (after its own: a followed clock's, passed on) */
+        *st = s->out_m[s->out_mr++ % SEQ_OUT_M];
         return 1;
     }
     return 0;
@@ -267,6 +279,12 @@ void seq_play(seq *s)
 
 void seq_stop(seq *s)
 {
+    if (s->out_on && s->ext) {                  /* #286: a followed run's stop goes out after the ticks passed
+                                                 * on (the main loop's queue, in order); its own run's, the
+                                                 * interrupt sends after its own ticks */
+        out_pass(s, 0xFCu);
+        s->out_on = 0;
+    }
     s->clk_armed = 0;
     s->clk_pending = 0;
     s->clk_running = 0;
@@ -573,6 +591,11 @@ static void clock_tick(seq *s, uint32_t t)
             s->clk_shown = 0;                   /* (the second tick measures it outright) */
         }                       /* the start's tick 0 */
         s->ext_cont = s->clk_pending == 2u;
+        if (s->playing && s->out_on)
+            out_pass(s, 0xFCu);                 /* #286: its own run (or the last) stops first */
+        s->out_on = s->out_want;                /* #286: G14 as it is at this start */
+        if (s->out_on)
+            out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
         s->clk_started = 1;
         s->clk_pending = 0;
         s->clk_target = 0;
@@ -610,7 +633,11 @@ void seq_clock_in(seq *s, uint32_t st, uint32_t t)
     if (s->clk_src == SEQ_CLK_INT)
         return;
     switch (st) {
-    case 0xF8u: clock_tick(s, t); break;
+    case 0xF8u:
+        clock_tick(s, t);
+        if (s->clk_running && s->out_on)
+            out_pass(s, 0xF8u);                 /* #286: passed on as it came, once (Eric, Q2) */
+        break;
     case 0xFAu:                                 /* from step 1, on the next tick */
         s->clk_pending = 1;
         s->clk_pend_t = t;
