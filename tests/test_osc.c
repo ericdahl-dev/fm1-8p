@@ -1444,6 +1444,43 @@ TT_TEST(synced_spike_restart_inside_the_spike_has_low_aliasing)
 }
 
 /*
+ * A synced pair takes each osc1 cycle's DC off at its wrap (#139). The cycle
+ * is a fractional number of samples (220 Hz at 48 kHz: 218.18), so cycles
+ * of 218 and 219 samples alternate; the DC taken off must not jump with
+ * that count, or each wrap adds a small un-band-limited step and the steps'
+ * pattern is a comb at tens of Hz (#253, CLAV: osc2 square an octave under
+ * and +22 cents). The flat stretch after each restart, cycle to cycle,
+ * moves under 1e-4 of full (-80 dB).
+ */
+TT_TEST(synced_dc_does_not_step_with_the_cycles_sample_count)
+{
+    static fm_osc_pair p;
+    uint32_t last = 0;
+    int32_t lo = INT32_MAX, hi = INT32_MIN;
+    int n, wraps = 0, since = -1;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_wave(&p, 1, FM_WAVE_SQUARE);
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, 1);
+    fm_osc_pair_set_pitch(&p, 57 << 16, 48000);
+    fm_osc_pair_set_tune(&p, 1, -1200 + 22, 57 << 16, 48000);
+    for (n = 0; n < 48000; n++) {
+        int32_t v = fm_osc_pair_next(&p);
+        if (p.osc[0].phase < last) { wraps++; since = 0; }
+        last = p.osc[0].phase;
+        if (since >= 0 && ++since == 20 && n > 4800) { /* flat: osc2 under 0.5 */
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+        }
+    }
+    printf("    synced square an octave under +22 cents, 220 Hz: flat stretch moves %ld (Q8.24) over %d cycles\n",
+           (long)(hi - lo), wraps);
+    TT_CHECK(wraps > 200);
+    TT_CHECK(hi - lo < (1 << 24) / 10000);
+}
+
+/*
  * osc2 an octave less 2 cents up (a ratio just under 2) meets each
  * restart about 0.998 into its cycle, within one increment of its own wrap:
  * the polyBLEP it would put on that wrap must not add to the restart's.
@@ -2472,6 +2509,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_has_low_aliasing);
     TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
     TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
+    TT_RUN(synced_dc_does_not_step_with_the_cycles_sample_count);
     TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
     TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
     TT_RUN(synced_osc2_has_no_dc);
