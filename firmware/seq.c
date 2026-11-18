@@ -432,15 +432,18 @@ static uint32_t mean_len(const seq *s, uint32_t t, uint32_t m)
     return (t - s->clk_t[(s->clk_n - 1u - m) % SEQ_CLK_HIST]) / m;
 }
 
-#define CLK_HOLD 8u                             /* the whole BPM shown moves when the tempo is 0.8 BPM off it */
+#define CLK_HOLD 75u                            /* the whole BPM shown moves when the tempo is 0.75 BPM off it */
 
-/* clk_whole from clk_view: rounded to a whole BPM, held while within CLK_HOLD tenths, at least 1 BPM */
+/* clk_whole from clk_view: the tempo in hundredths of a BPM (tenths would truncate, and hold 0.71 down
+ * against 0.8 up), rounded to a whole BPM, held while within CLK_HOLD hundredths of the one shown */
 static void hold_whole(seq *s)
 {
-    uint32_t v = seq_clock_tempo(s), w = (v + 5u) / 10u * 10u;
-    if (!v)
+    uint32_t d = (s->clk_view + 8u) >> 4, h, w;
+    if (!s->clk_present || !s->clk_view || !d)
         return;
-    if (!s->clk_whole || v >= s->clk_whole + CLK_HOLD || v + CLK_HOLD <= s->clk_whole)
+    h = CLK_TENTHS_COUNTS / d * 10u + CLK_TENTHS_COUNTS % d * 10u / d;
+    w = (h + 50u) / 100u * 10u;
+    if (!s->clk_whole || h >= s->clk_whole * 10u + CLK_HOLD || h + CLK_HOLD <= s->clk_whole * 10u)
         s->clk_whole = w < 10u ? 10u : w;
 }
 
@@ -601,7 +604,12 @@ void seq_clock_poll(seq *s, uint32_t t)
 
 uint32_t seq_clock_external(const seq *s)
 {
-    return s->clk_src == SEQ_CLK_MIDI || (s->clk_src == SEQ_CLK_AUTO && (s->clk_present || s->clk_running));
+    if (s->clk_src != SEQ_CLK_AUTO)
+        return s->clk_src == SEQ_CLK_MIDI;
+    if (s->want && !s->clk_running && !s->clk_armed && !s->clk_pending)
+        return 0;                               /* AUTO playing its own clock: a clock come in since doesn't take
+                                                 * over without a start, so the steps are still its own (Codex) */
+    return s->clk_present || s->clk_running;
 }
 
 uint32_t seq_clock_tempo(const seq *s)
