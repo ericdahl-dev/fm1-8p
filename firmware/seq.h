@@ -124,6 +124,8 @@ typedef struct {
     uint32_t clk_dt;                    /* a tick's length now, host counts (0: not measured yet) */
     uint32_t clk_shown;                 /* the tick length, smoothed, Q4 (the rate's) */
     uint32_t clk_view;                  /* smoothed again, Q4: the tempo shown */
+    uint32_t clk_whole;                 /* clk_view in whole BPM, tenths, held: it moves only past
+                                         * CLK_HOLD of it, so a clock's jitter can't flip the digits */
     int32_t clk_freq;                   /* the loop's integral, units a frame, Q4 */
     uint32_t clk_win;                   /* ticks in the length's window (since a tempo change) */
     uint32_t clk_target;                /* the units the latest tick should be at, from tick 0 */
@@ -210,7 +212,10 @@ void seq_clock_poll(seq *s, uint32_t t);
 uint32_t seq_clock_external(const seq *s);
 /* the clock's tempo, tenths of a BPM (0: no clock coming in) */
 uint32_t seq_clock_tempo(const seq *s);
-/* 1 while PLAY waits for the clock's start (the PLAY LED blinks) */
+/* the same to read: a whole BPM (in tenths), held against the clock's jitter, at least 1 BPM; 0: none */
+uint32_t seq_clock_tempo_whole(const seq *s);
+/* 1 while the sequencer waits for the clock: PLAY armed for its start, or a start or continue come in
+ * with no tick yet (WAITING FOR CLOCK; the PLAY LED blinks) */
 uint32_t seq_waiting(const seq *s);
 /* audio interrupt, before seq_render: the block's start, at host time t */
 void seq_block_time(seq *s, uint32_t t);

@@ -61,7 +61,7 @@ void seq_init(seq *s)
     s->steps = 0;
     s->clk_src = SEQ_CLK_AUTO;
     s->clk_present = s->clk_pending = s->clk_running = s->clk_armed = s->clk_started = 0;
-    s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = s->clk_k = s->clk_view = s->clk_win = s->clk_far = s->clk_late = s->clk_raw = 0;
+    s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = s->clk_k = s->clk_view = s->clk_whole = s->clk_win = s->clk_far = s->clk_late = s->clk_raw = 0;
     s->clk_freq = 0;
     s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = s->ext_hold = 0;
     s->blk_seq = s->blk_t = s->blk_u = s->blk_inc = s->blk_fs = 0;
@@ -334,6 +334,20 @@ uint32_t seq_steps(const seq *s)
 void seq_set_clock_source(seq *s, uint32_t src)
 {
     s->clk_src = (uint8_t)(src <= SEQ_CLK_MIDI ? src : SEQ_CLK_AUTO);
+    if (s->clk_armed && !s->clk_running && s->clk_src == SEQ_CLK_MIDI) {
+        s->clk_pending = 0;                     /* armed, now MIDI: a start or continue starts it, not a tick */
+        return;
+    }
+    if (s->clk_armed && !s->clk_running && s->clk_src == SEQ_CLK_AUTO) {
+        if (s->clk_present) {
+            s->clk_pending = 1;                 /* armed, now AUTO: on the clock's next tick, from step 1 */
+        } else {
+            s->clk_armed = 0;                   /* (AUTO with no clock coming: its own, now) */
+            s->want = 0;
+            seq_play(s);
+        }
+        return;
+    }
     if (s->clk_src != SEQ_CLK_INT)
         return;
     s->clk_pending = 0;                         /* INT: the clock is ignored from now */
@@ -408,13 +422,25 @@ static uint32_t mean_len(const seq *s, uint32_t t, uint32_t m)
     return (t - s->clk_t[(s->clk_n - 1u - m) % SEQ_CLK_HIST]) / m;
 }
 
+#define CLK_HOLD 8u                             /* the whole BPM shown moves when the tempo is 0.8 BPM off it */
+
+/* clk_whole from clk_view: rounded to a whole BPM, held while within CLK_HOLD tenths, at least 1 BPM */
+static void hold_whole(seq *s)
+{
+    uint32_t v = seq_clock_tempo(s), w = (v + 5u) / 10u * 10u;
+    if (!v)
+        return;
+    if (!s->clk_whole || v >= s->clk_whole + CLK_HOLD || v + CLK_HOLD <= s->clk_whole)
+        s->clk_whole = w < 10u ? 10u : w;
+}
+
 static void clock_tick(seq *s, uint32_t t)
 {
     uint32_t bt, bu, binc, fs, held = 0;
     if (!s->clk_present) {
         s->clk_present = 1;
         s->clk_win = 0;
-        s->clk_dt = s->clk_shown = s->clk_view = 0;
+        s->clk_dt = s->clk_shown = s->clk_view = s->clk_whole = 0;
     }
     if (!s->clk_win || !s->clk_dt)
         s->clk_raw = t;
@@ -469,6 +495,7 @@ static void clock_tick(seq *s, uint32_t t)
         if (s->clk_view < CLK_DT_MIN << 4)      /* the tempo shown too: never past 2500.0 BPM */
             s->clk_view = CLK_DT_MIN << 4;
         s->clk_view += (uint32_t)((int32_t)(s->clk_shown - s->clk_view) / (int32_t)CLK_VIEW);   /* calmer, to read */
+        hold_whole(s);
     }
     block_read(s, &bt, &bu, &binc, &fs);
     if (s->clk_pending) {                       /* (a clock that starts with the start: its length is
@@ -550,8 +577,9 @@ void seq_clock_poll(seq *s, uint32_t t)
         return;
     s->clk_present = 0;                         /* gone: a transport it ran stops (Eric: as MIDI stop) */
     s->clk_pending = 0;
-    if (s->clk_running) {
-        s->clk_running = 0;
+    if (s->clk_running || (s->clk_armed && s->clk_src == SEQ_CLK_AUTO)) {
+        s->clk_running = 0;                     /* (AUTO armed for its next tick: that won't come, so
+                                                 * disarmed as by a stop; MIDI armed waits on, by spec) */
         seq_stop(s);
     }
 }
@@ -566,9 +594,14 @@ uint32_t seq_clock_tempo(const seq *s)
     return s->clk_present && s->clk_view ? CLK_TENTHS_COUNTS / ((s->clk_view + 8u) >> 4) : 0;
 }
 
+uint32_t seq_clock_tempo_whole(const seq *s)
+{
+    return s->clk_present ? s->clk_whole : 0;
+}
+
 uint32_t seq_waiting(const seq *s)
 {
-    return s->clk_armed;
+    return s->clk_armed || (s->clk_pending && !s->clk_running);   /* (PLAY armed, or a start in with no tick) */
 }
 
 void seq_block_time(seq *s, uint32_t t)

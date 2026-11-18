@@ -515,8 +515,97 @@ TT_TEST(clock_tempo_shown_is_held_to_the_shortest_tick)
     TT_CHECK(worst <= 25000u);
 }
 
+/* AUTO, a clock coming: PLAY arms for its next tick, but the clock goes before one comes. That is the
+ * clock lost (spec: as a MIDI stop): disarmed, nothing waiting, back on INT; ticks coming again later
+ * don't start it, and the next PLAY with no clock runs on the internal clock (Codex P2-a) */
+TT_TEST(clock_lost_while_armed_disarms)
+{
+    double last;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_tempo(&ck, 900);                   /* the pattern's: 90 BPM; the clock's 140 */
+    last = ck_ticks(0.05, 140.0, 24, 0.0) - 60.0 / 140.0 / SEQ_CLK_PPQN;
+    ck_msg_at(last + 0.001, 0, CK_PLAY);       /* armed, and then no tick */
+    ck_run(last + 0.1);
+    TT_CHECK(seq_waiting(&ck) && ck.want);
+    ck_run(last + 0.6);                        /* gone (250 ms) */
+    TT_CHECK(!seq_waiting(&ck));
+    TT_CHECK(!ck.want);
+    TT_CHECK(!seq_clock_external(&ck));
+    (void)ck_ticks(2.0, 140.0, 48, 0.0);       /* ticks again: nothing starts */
+    ck_run(2.0 + 48 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.4);
+    TT_CHECK_EQ(ck_n_on, 0u);
+    ck_msg_at(3.5, 0, CK_PLAY);                /* the clock gone again: PLAY plays its own 90 BPM */
+    ck_run(5.5);
+    TT_CHECK(seq_playing(&ck) && ck_n_on >= 4u);
+    TT_CHECK(ck_spaced(0u, 60.0 / 90.0 / SEQ_PPQ));
+}
+
+/* G13 changed while PLAY waits: armed under MIDI and switched to AUTO, it starts on the clock's next
+ * tick; armed under AUTO (for its next tick) and switched to MIDI, it waits for a start again, and
+ * ticks alone don't start it (Codex P2-a) */
+TT_TEST(clock_source_switched_while_armed)
+{
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 140.0, 140.0, 0, 1, 24u * 8u);
+    ck_msg_at(ck_tick_at[10] - 0.002, 0, CK_PLAY);   /* MIDI: armed, waiting for a start */
+    ck_run(ck_tick_at[20] - 0.002);
+    TT_CHECK(seq_waiting(&ck) && ck_n_on == 0u);
+    seq_set_clock_source(&ck, SEQ_CLK_AUTO);   /* AUTO: on the next tick */
+    ck_run(ck_tick_at[20 + 6 * 3] - 0.012);
+    TT_CHECK(!seq_waiting(&ck) && ck_n_on == 3u && ck_note[0] == 48u);
+    TT_CHECK(fabs(ck_on[1] - ck_tick_at[26]) < 0.001);      /* (locked: the second step on its tick) */
+    ck_fresh(SEQ_CLK_AUTO);
+    ck_ticks_ramp(0.05, 140.0, 140.0, 0, 1, 24u * 8u);
+    ck_msg_at(ck_tick_at[10] + 0.002, 0, CK_PLAY);   /* AUTO: armed for the next tick ... */
+    ck_run(ck_tick_at[10] + 0.003);
+    seq_set_clock_source(&ck, SEQ_CLK_MIDI);   /* ... switched to MIDI before it: a start, then */
+    ck_run(ck_tick_at[40] - 0.002);
+    TT_CHECK(seq_waiting(&ck) && ck_n_on == 0u);
+    ck_msg_at(ck_tick_at[40] - 0.001, 0, 0xFAu);
+    ck_run(ck_tick_at[40 + 6 * 2] - 0.012);
+    TT_CHECK(ck_n_on == 2u && ck_note[0] == 48u);
+}
+
+/* MIDI (G13) armed when the clock goes: it waits on, as MIDI does with no clock (spec), and a later
+ * start and ticks start it from step 1 */
+TT_TEST(clock_lost_while_armed_under_midi_waits_on)
+{
+    double last;
+    ck_fresh(SEQ_CLK_MIDI);
+    last = ck_ticks(0.05, 140.0, 24, 0.0);
+    ck_msg_at(0.2, 0, CK_PLAY);
+    ck_run(last + 0.6);                        /* the clock gone */
+    TT_CHECK(seq_waiting(&ck) && ck.want && ck_n_on == 0u);
+    ck_ticks_ramp(2.0, 140.0, 140.0, 0, 1, 24u * 4u);
+    ck_msg_at(ck_tick_at[12] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[12 + 6 * 2] - 0.012);
+    TT_CHECK(!seq_waiting(&ck) && ck_n_on == 2u && ck_note[0] == 48u);
+}
+
+/* A start (or continue) that comes before any tick waits for the clock, and says so: WAITING FOR CLOCK
+ * until the first tick starts it (MIDI or AUTO; Codex P2-c) */
+TT_TEST(clock_start_before_any_tick_is_waiting)
+{
+    static const uint32_t SRC[2] = {SEQ_CLK_AUTO, SEQ_CLK_MIDI};
+    uint32_t k;
+    for (k = 0; k < 2u; k++) {
+        ck_fresh(SRC[k]);
+        ck_msg_at(0.1, 0, 0xFAu);              /* a start, no clock yet */
+        ck_run(0.2);
+        TT_CHECK(seq_waiting(&ck));
+        TT_CHECK_EQ(ck_n_on, 0u);
+        ck_ticks_ramp(0.3, 140.0, 140.0, 0, 1, 24u * 2u);
+        ck_run(ck_tick_at[6 * 2] - 0.012);
+        TT_CHECK(!seq_waiting(&ck) && ck_n_on >= 1u && ck_note[0] == 48u);
+    }
+}
+
 static void run_seq_clock_tests(void)
 {
+    TT_RUN(clock_lost_while_armed_disarms);
+    TT_RUN(clock_source_switched_while_armed);
+    TT_RUN(clock_lost_while_armed_under_midi_waits_on);
+    TT_RUN(clock_start_before_any_tick_is_waiting);
     TT_RUN(clock_steps_follow_a_steady_clock);
     TT_RUN(clock_tempo_shown_is_held_to_the_shortest_tick);
     TT_RUN(clock_steps_ride_out_a_jittery_clock);
