@@ -1394,7 +1394,8 @@ uint32_t ui_take(ui *u, uint32_t ms)
         uint32_t f = play_pattern_prog(u->p) | (uint32_t)(play_pattern_next(u->p) + 1) << 8 |
                      seq_edited(play_seq(u->p)) << 16;
         const seq *q = play_seq(u->p);
-        uint32_t c = seq_clock_external(q) | seq_waiting(q) << 1 | ui_seq_tempo_shown(u) << 2;
+        uint32_t c = seq_clock_external(q) | seq_waiting(q) << 1 | (uint32_t)ui_seq_no_clock(u) << 2 |
+                     ui_seq_tempo_shown(u) << 3;
         if (c != u->shown_clock) {              /* the clock as shown (#38): the header, the footer, TEMPO on S1 */
             u->shown_clock = c;
             u->dirty |= UI_D_HEAD | UI_D_FOOT | (u->seq_page == 0u ? UI_D_COL(0) : 0u);

@@ -805,6 +805,8 @@ static void seq_header(void)
         d[i++] = (char)('0' + bpm % 10u);
         bpm /= 10u;
     } while (bpm);
+    if (ui_seq_no_clock(U))                     /* (MIDI with no clock: no tempo) */
+        d[0] = '-', d[1] = '-', i = 2;
     while (i)
         t[n++] = d[--i];
     t[n++] = ' ';
@@ -998,9 +1000,11 @@ static void seq_bottom(void)
         } else {                                /* the tempo and the clock: 120 BPM INT, or MIDI */
             char c[UI_SEQ_TEXT_LEN];
             ui_seq_clock_text(U, c);
-            seq_tempo_text(t);
             CV_TEXT(240 - M - TEXT_W(0, c), 35, 0, c, C_DIM);
-            CV_TEXT(240 - M - TEXT_W(0, c) - 6 - TEXT_W(0, t), 35, 0, t, C_DIM);
+            if (!ui_seq_no_clock(U)) {          /* (MIDI NO CLOCK: no tempo) */
+                seq_tempo_text(t);
+                CV_TEXT(240 - M - TEXT_W(0, c) - 6 - TEXT_W(0, t), 35, 0, t, C_DIM);
+            }
         }
     }
     blit(0, 188, 240, 52);

@@ -61,6 +61,9 @@ void ui_seq_rec(ui *u);
 /* The transport's clock (interaction.md 7): "INT", "MIDI", or "WAITING FOR CLOCK" while PLAY waits for
  * the clock's start. s: UI_SEQ_TEXT_LEN */
 void ui_seq_clock_text(const ui *u, char *s);
+/* 1 when G13 is MIDI and no clock is coming in (none yet, or lost): the screen shows MIDI NO CLOCK, and
+ * no tempo (--) where the clock's would be */
+int ui_seq_no_clock(const ui *u);
 /* The tempo SEQ view shows, tenths of a BPM: the clock's in whole BPM when it runs the steps or they're
  * stopped (#38), else the pattern's */
 uint32_t ui_seq_tempo_shown(const ui *u);

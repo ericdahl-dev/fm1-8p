@@ -501,6 +501,11 @@ void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit)
     }
     switch (u->seq_page * 4u + k) {
     case 0:                                     /* tenths of a BPM: the tenth only when there is one */
+        if (ui_seq_no_clock(u)) {               /* MIDI, no clock: no tempo to show */
+            put_s(num, "--");
+            put_s(unit, "MIDI CLOCK");
+            break;
+        }
         n = put_u(n, (uint32_t)v / 10u);
         if (v % 10)
             *n++ = '.', put_u(n, (uint32_t)v % 10u);
@@ -726,17 +731,24 @@ void ui_seq_chord_name(const uint8_t *note, uint32_t n, char *s)
     }
 }
 
+int ui_seq_no_clock(const ui *u)
+{
+    const seq *q = play_seq(u->p);
+    return q->clk_src == SEQ_CLK_MIDI && !seq_clock_tempo(q);
+}
+
 void ui_seq_clock_text(const ui *u, char *s)
 {
     const seq *q = play_seq(u->p);
-    put_s(s, seq_waiting(q) ? "WAITING FOR CLOCK" : seq_clock_external(q) ? "MIDI" : "INT");
+    put_s(s, seq_waiting(q) ? "WAITING FOR CLOCK" : ui_seq_no_clock(u) ? "MIDI NO CLOCK" :
+             seq_clock_external(q) ? "MIDI" : "INT");
 }
 
 uint32_t ui_seq_tempo_shown(const ui *u)
 {
     const seq *s = play_seq(u->p);
-    if (seq_clock_external(s) && seq_clock_tempo(s) && (s->clk_running || !s->want)) {
-        uint32_t t = (seq_clock_tempo(s) + 5u) / 10u * 10u;   /* the clock's, in whole BPM: its jitter doesn't show */
+    if (seq_clock_external(s) && seq_clock_tempo_whole(s)) {  /* (armed for its next tick too: the clock's) */
+        uint32_t t = seq_clock_tempo_whole(s);  /* the clock's, in whole BPM, held: its jitter doesn't show */
         return t > 9990u ? 9990u : t;           /* (three digits at most: a start's first ticks can read far higher) */
     }
     return seq_tempo(s);                        /* (before the clock, or on INT: the pattern's) */
