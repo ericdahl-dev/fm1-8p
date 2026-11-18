@@ -117,8 +117,8 @@ typedef struct {
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
     uint32_t shown_clock;               /* SEQ view: the clock as drawn (external, waiting, tempo) */
     int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
-    int32_t live_bend;                  /* the last MIDI-in pitch bend, -8192..8191 (0 center), and CC1 */
-    uint32_t live_mod;                  /* (0..127): what a step written takes (#42 S7) */
+    int32_t live_bend;                  /* #42 S7, what a step written takes: the last MIDI-in pitch bend */
+    uint32_t live_mod;                  /* (-8192..8191, 0 center) and CC1 (0..127) */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
