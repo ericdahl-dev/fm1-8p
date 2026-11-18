@@ -1471,8 +1471,119 @@ TT_TEST(seq_tempo_shown_holds_against_jitter_and_follows_moves)
     TT_CHECK(strcmp(num, "1") == 0);
 }
 
+/* Tap a step, then play: the step written takes the live MIDI-in pitch bend and CC1 (mod wheel), the
+ * last ones that came in, as its bend and mod (#42 S7, interaction.md 5 "Writing steps") */
+TT_TEST(seq_a_tapped_step_takes_the_live_bend_and_mod)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x60);               /* bend 0x3000: +4096 from the center */
+    ui_midi_controls(&ui_u, 0xB0, 1, 77);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[4], 1, 1100), 1);       /* step 5 armed */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[4], 0, 1150), 1);
+    seq_note(10, 60, 100, 1, 1200);
+    seq_note(10, 60, 0, 0, 1300);                             /* written */
+    TT_CHECK_EQ(seq_get_step(s, 4)->kind, (uint8_t)SEQ_NOTES_ON);
+    TT_CHECK_EQ(seq_get_step(s, 4)->bend, 4096);
+    TT_CHECK_EQ(seq_get_step(s, 4)->mod, 77u);
+    TT_CHECK_EQ(seq_get_step(s, 4)->glide, 0u);               /* (a written step jumps) */
+}
+
+/* In REC each step takes the bend and mod as its first note goes down (Eric: A): moved between steps,
+ * the next one has the new values, and a move while it's held changes nothing; with none come in yet,
+ * the center and 0 (no MIDI controller) */
+TT_TEST(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_REC, 1000);
+    seq_note(5, 60, 90, 1, 1100);                             /* nothing came in: center, 0 */
+    seq_note(5, 60, 0, 0, 1200);
+    TT_CHECK_EQ(seq_get_step(s, 0)->bend, 0);
+    TT_CHECK_EQ(seq_get_step(s, 0)->mod, 0u);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x00);               /* the lowest bend */
+    ui_midi_controls(&ui_u, 0xB0, 1, 127);
+    seq_note(7, 62, 90, 1, 1300);
+    seq_note(7, 62, 0, 0, 1400);
+    TT_CHECK_EQ(seq_get_step(s, 1)->bend, -8192);
+    TT_CHECK_EQ(seq_get_step(s, 1)->mod, 127u);
+    ui_midi_controls(&ui_u, 0xE0, 0x7F, 0x7F);               /* the highest, then the note */
+    seq_note(9, 64, 90, 1, 1500);
+    ui_midi_controls(&ui_u, 0xB0, 1, 3);                      /* while it's held: not this */
+    seq_note(9, 64, 0, 0, 1600);
+    TT_CHECK_EQ(seq_get_step(s, 2)->bend, 8191);
+    TT_CHECK_EQ(seq_get_step(s, 2)->mod, 127u);
+    TT_CHECK_EQ(seq_get_step(s, 0)->bend, 0);                 /* (the steps before keep theirs) */
+    TT_CHECK_EQ(seq_get_step(s, 1)->mod, 127u);
+}
+
+/* Only what comes in counts: a pattern playing its own bends and mod doesn't change the live values a
+ * step takes; G11 keeps out another channel's; CC121 (reset all controllers) centers and zeroes them */
+TT_TEST(seq_only_midi_in_on_the_channel_sets_the_live_bend_and_mod)
+{
+    static const uint8_t C[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C, 1, 100);
+    seq_set_step_bend_mod(s, 0, 6000, 90, 0);                 /* the pattern bends and mods itself */
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(1);                                         /* played: the engine has its bend */
+    ui_tap(UI_BTN_PLAY, 1100);
+    seq_render_to(-1);
+    TT_CHECK_EQ(ui_u.live_bend, 0);
+    TT_CHECK_EQ(ui_u.live_mod, 0u);
+    ui_u.set.midi_in = 3;                                     /* G11 channel 3 */
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x60);               /* channel 1: not ours */
+    ui_midi_controls(&ui_u, 0xB0, 1, 50);
+    TT_CHECK_EQ(ui_u.live_bend, 0);
+    TT_CHECK_EQ(ui_u.live_mod, 0u);
+    ui_midi_controls(&ui_u, 0xE2, 0x00, 0x60);               /* channel 3 */
+    ui_midi_controls(&ui_u, 0xB2, 1, 50);
+    TT_CHECK_EQ(ui_u.live_bend, 4096);
+    TT_CHECK_EQ(ui_u.live_mod, 50u);
+    ui_midi_controls(&ui_u, 0xB2, 7, 20);                     /* another CC: nothing */
+    TT_CHECK_EQ(ui_u.live_mod, 50u);
+    ui_midi_controls(&ui_u, 0xB2, 121, 0);                    /* reset all controllers */
+    TT_CHECK_EQ(ui_u.live_bend, 0);
+    TT_CHECK_EQ(ui_u.live_mod, 0u);
+}
+
+/* Eric (A): a step takes the bend and mod as its first note goes down, not as the last key is let go.
+ * Bend, play a chord, let the wheel spring back to the center, let go of the keys: the step keeps the
+ * bend (and a note added after the wheel came back doesn't take the center) */
+TT_TEST(seq_a_step_keeps_the_bend_its_first_note_had)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 1, 1100), 1);       /* step 3 armed */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 0, 1150), 1);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x50);               /* bent: +2048 */
+    ui_midi_controls(&ui_u, 0xB0, 1, 40);
+    seq_note(10, 60, 100, 1, 1200);                           /* the chord */
+    seq_note(12, 64, 100, 1, 1210);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x40);               /* the wheel springs back */
+    ui_midi_controls(&ui_u, 0xB0, 1, 0);
+    seq_note(14, 67, 100, 1, 1220);                           /* (a note added now joins at the latch) */
+    seq_note(10, 60, 0, 0, 1300);
+    seq_note(12, 64, 0, 0, 1310);
+    seq_note(14, 67, 0, 0, 1320);                             /* all let go: written */
+    TT_CHECK_EQ(seq_get_step(s, 2)->n, 3u);
+    TT_CHECK_EQ(seq_get_step(s, 2)->bend, 2048);
+    TT_CHECK_EQ(seq_get_step(s, 2)->mod, 40u);
+}
+
 static void run_ui_seq_tests(void)
 {
+    TT_RUN(seq_a_tapped_step_takes_the_live_bend_and_mod);
+    TT_RUN(seq_a_step_keeps_the_bend_its_first_note_had);
+    TT_RUN(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing);
+    TT_RUN(seq_only_midi_in_on_the_channel_sets_the_live_bend_and_mod);
     TT_RUN(seq_tempo_stays_the_clocks_while_armed);
     TT_RUN(seq_midi_with_no_clock_says_so);
     TT_RUN(seq_tempo_shown_holds_against_jitter_and_follows_moves);

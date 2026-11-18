@@ -25,7 +25,8 @@ static void write_step(ui *u)
     uint32_t i, n = u->built_n < PLAY_VOICES ? u->built_n : PLAY_VOICES, vel = 0;
     for (i = 0; i < n; i++)
         vel = u->built_vel[i] > vel ? u->built_vel[i] : vel;
-    seq_set_step(s, u->seq_cursor, u->built, n, vel);
+    seq_write_step(s, u->seq_cursor, u->built, n, vel,     /* with the bend and mod of its first note (#42) */
+                   n ? u->built_bend : 0, n ? (int32_t)u->built_mod : 0, 0);
     if (u->built_n > PLAY_VOICES) {
         static const char MAX[] = "MAX 0 NOTES";    /* (the voice count: one digit) */
         for (i = 0; i < sizeof MAX; i++)
@@ -57,6 +58,8 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on)
         for (i = 0; i < u->built_n && u->built[i] != note; i++)
             ;
         if (on && i == u->built_n && u->built_n < UI_CHORD_MAX) {
+            if (!u->built_n)                    /* the first note: the bend and mod it's written with (#42) */
+                u->built_bend = u->live_bend, u->built_mod = u->live_mod;
             u->built[u->built_n] = (uint8_t)note;
             u->built_vel[u->built_n++] = (uint8_t)vel;
             roll(u, ROLL_AT(u->seq_cursor));    /* (the note shows at 45 % as it goes down) */
