@@ -133,8 +133,9 @@ int32_t fm_env_advance(fm_env *e, uint32_t n);
  * crosses up to 64 samples in a few operations). One FM-1 render block
  * (256 frames): voices started together catch up in the same block, so a
  * larger bound piles every voice's catch-up onto one block (4096 took the
- * 8-voice CPU row from 13.6 to 23.3 % of a block, #70); at a block or less
- * the worst block costs what a block of stepping does. */
+ * 8-voice CPU row from 12.9 to 23.3 % of a block, #70). At a block or less
+ * every lazy envelope catches up in every block, so in steady state each
+ * block steps one block's samples, and a stagger would not lower it. */
 #define FM_ENV_LAG_MAX (1u << 8)
 
 /* Catches up the lag, then steps `n`: a skip that reaches FM_ENV_LAG_MAX. */
