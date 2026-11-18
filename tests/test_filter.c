@@ -1196,9 +1196,11 @@ TT_TEST(stolen_voice_starts_the_filter_envelope_from_zero)
     fm_engine_render(&feng, fbuf_a, 22050); /* held at full */
     TT_CHECK_EQ(feng.voices[0].filter_env.level, FM_ENV_FULL);
     fm_engine_note_on(&feng, 70, 100); /* steals the only voice */
-    while (fm_voice_fading(&feng.voices[0], 40) && guard++ < 1000)
+    while (feng.voices[0].pending && guard++ < 1000) {
+        TT_CHECK(fm_voice_fading(&feng.voices[0], 40)); /* fading 40 throughout */
         fm_engine_render(&feng, fbuf_a, 1); /* the new note starts in it */
-    TT_CHECK(!fm_voice_fading(&feng.voices[0], 40));
+    }
+    TT_CHECK(!feng.voices[0].pending);
     fm_engine_render(&feng, fbuf_a, 2000);
 
     fm_engine_init(&fresh, FRATE, 1);
@@ -1264,14 +1266,15 @@ TT_TEST(steal_fade_keeps_the_old_notes_key_tracked_cutoff)
         fm_engine_render(&feng, fbuf_a, 4410);
         g_old = feng.voices[0].filter.t;
         fm_engine_note_on(&feng, 96, 100);
-        while (fm_voice_fading(&feng.voices[0], 36) && guard++ < 1000) {
+        while (feng.voices[0].pending && guard++ < 1000) {
+            TT_CHECK(fm_voice_fading(&feng.voices[0], 36)); /* fading 36 throughout */
             if (how == 2 && guard == 40) {
                 base = 6001;
                 fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS,
                                     base);
             }
             fm_engine_render(&feng, fbuf_a, 1);
-            if (!fm_voice_fading(&feng.voices[0], 36)) break; /* 96 has started */
+            if (!feng.voices[0].pending) break; /* 96 has started */
             if (feng.voices[0].ctrl_phase == 15) {
                 /* just updated (every 16 samples): note 36's cutoff
                  * for the setting in force */
@@ -1309,8 +1312,10 @@ TT_TEST(mode_switch_during_a_steal_fade_tracks_the_waiting_note)
     fm_engine_render(&feng, fbuf_a, 4410);
     fm_engine_note_on(&feng, 96, 100); /* steal: 96 waits for the fade */
     fm_engine_set_param(&feng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
-    while (fm_voice_fading(&feng.voices[0], 36) && guard++ < 1000)
+    while (feng.voices[0].pending && guard++ < 1000) {
+        TT_CHECK(fm_voice_fading(&feng.voices[0], 36)); /* fading 36 throughout */
         fm_engine_render(&feng, fbuf_a, 1);
+    }
     fm_engine_render(&feng, fbuf_a, 32);
     fm_filter_reset(&want);
     fm_filter_set_cutoff(&want,
