@@ -94,7 +94,8 @@ int fm_voice_active(const fm_voice *v);
  * then one releasing, then one the pedal holds, then one its key holds.
  * A key or the pedal holds only a sounding voice: a voice goes idle only
  * through a release, which lets go of both first (fm_voice_release, or a
- * queued release armed only once neither holds it). */
+ * queued release armed only once neither holds it), or through
+ * fm_voice_silence or fm_voice_reset, which clear both. */
 typedef enum {
     FM_VOICE_FREE,
     FM_VOICE_RELEASING,
