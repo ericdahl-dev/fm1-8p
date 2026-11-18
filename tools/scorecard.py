@@ -9,12 +9,13 @@ import os
 import numpy as np
 from scipy import signal
 
-SCHEMA = 7   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 8   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
              # 6: the reference has PG-8X's SELFNOISE at 0, v5, #247;
-             # 7: both 5 and 6, merged)
+             # 7: both 5 and 6, merged;
+             # 8: no pitch for a ring or cross-mod tone (it has none), #253)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = 48000
@@ -371,14 +372,15 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
 
 
 def rows_for(history, commit, ref, bank="factory"):
-    """The tone rows of COMMIT's latest run of BANK against reference REF in HISTORY, or None."""
+    """The tone rows of COMMIT's latest run of BANK against reference REF in HISTORY on this SCHEMA, or
+    None: a run on another ruler is not comparable, so it doesn't count."""
     try:
         with open(history) as fh:
             rows = [json.loads(line) for line in fh if line.strip()]
     except OSError:
         return None
     rows = [r for r in rows if r.get("kind") == "tone" and r.get("commit") == commit and r.get("ref") == ref
-            and r.get("bank", "factory") == bank]
+            and r.get("bank", "factory") == bank and r.get("schema") == SCHEMA]
     if not rows:
         return None
     last = max(r["date"] for r in rows)

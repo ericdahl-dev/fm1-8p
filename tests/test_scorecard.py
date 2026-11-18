@@ -2,6 +2,7 @@
 Needs numpy and scipy; skipped where they aren't installed (make check-scorecard runs it with
 SCORECARD_PYTHON, a Python that has them)."""
 import importlib.util
+import json
 import os
 import sys
 import unittest
@@ -151,10 +152,22 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 7)
+        self.assertEqual(row["schema"], 8)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
+
+    # A base and a head are only compared on one ruler: a commit's rows on another schema are not its rows,
+    # so a base scored before a ruler change has to be scored again (Eric's ruler rule).
+    def test_rows_for_takes_only_the_current_schemas_rows(self):
+        old = {"schema": self.sc.SCHEMA - 1, "kind": "tone", "commit": "c1", "ref": "r", "bank": "factory",
+               "date": "2026-11-18T10:00:00-05:00", "tone": 1}
+        new = dict(old, schema=self.sc.SCHEMA, date="2026-11-18T09:00:00-05:00", tone=2)
+        self.sc.append_rows(self.path, [new, old])
+        self.assertEqual([r["tone"] for r in self.sc.rows_for(self.path, "c1", "r")], [2])
+        with open(self.path, "w") as fh:
+            fh.write(json.dumps(old) + "\n")
+        self.assertIsNone(self.sc.rows_for(self.path, "c1", "r"))
 
     def test_rows_are_appended_and_old_lines_stay_as_they_were(self):
         with open(self.path, "w") as fh:
@@ -171,7 +184,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (7, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (8, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -220,7 +233,7 @@ class HistoryTest(unittest.TestCase):
                                bank="other")
         self.assertEqual(row["bank"], "other")
         self.assertEqual(self.sc.tone_row("abc", "d", 1, "T1", {}, "r1")["bank"], "factory")
-        old = {"schema": 2, "kind": "tone", "commit": "abc", "date": "2026-11-13T00:00:00-05:00", "tone": 1,
+        old = {"schema": self.sc.SCHEMA, "kind": "tone", "commit": "abc", "date": "2026-11-13T00:00:00-05:00", "tone": 1,
                "name": "T1", "ref": "r1", "spectral_db_mean": 9.0}
         self.sc.append_rows(self.path, [old, row])
         self.assertEqual([r["spectral_db_mean"] for r in self.sc.rows_for(self.path, "abc", "r1")], [9.0])
