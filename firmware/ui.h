@@ -117,6 +117,8 @@ typedef struct {
     uint32_t shown_ptn;                 /* the footer's pattern, queued one and edited mark, as last drawn */
     uint32_t shown_clock;               /* SEQ view: the clock as drawn (external, waiting, tempo) */
     int32_t pc_out;                     /* G41 SEND: the program a panel load made, to go out as PC (-1 none) */
+    int32_t live_bend;                  /* the last MIDI-in pitch bend, -8192..8191 (0 center), and CC1 */
+    uint32_t live_mod;                  /* (0..127): what a step written takes (#42 S7) */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */
@@ -258,6 +260,10 @@ uint32_t ui_cc_scale(const ui *u, const ui_slot *s);
 /* G11 MIDI CHANNEL IN: 1 when a message with status st comes in (ALL, or its channel; system messages
  * always); G12 MIDI CHANNEL OUT: status st (0x80, 0x90, 0xB0 ...) on G12's channel */
 int ui_midi_in(const ui *u, uint32_t st);
+/* main loop: a MIDI message in. A pitch bend or a CC1 (mod wheel) on G11's channel is kept as the live
+ * one, which a SEQ step written takes as its bend and mod (#42); CC121 (reset all controllers) centers
+ * the bend and zeroes the mod. Only what comes in counts: the sequencer's own bends never pass here. */
+void ui_midi_controls(ui *u, uint32_t st, uint32_t d1, uint32_t d2);
 uint32_t ui_midi_out(const ui *u, uint32_t st);
 /* G32 FIXED VELOCITY: a key's velocity, the host's (1..127), or G32's for a key with no force sensing (0) */
 uint32_t ui_key_velocity(const ui *u, int32_t host_vel);

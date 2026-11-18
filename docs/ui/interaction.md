@@ -721,7 +721,8 @@ without tapping each step first.
    doesn't record over the pattern. There is no live recording while playing in
    this version (decision Q3).
 8. **Bend and mod** (#42, S7): the live MIDI-in bend and CC1 when a step is
-   written; until S7, steps hold none.
+   written, on G11's channel (CC121 centers and zeroes them). The pattern's own
+   bends while it plays don't count. A written step's move is JUMP.
 
 ### Pattern slots
 

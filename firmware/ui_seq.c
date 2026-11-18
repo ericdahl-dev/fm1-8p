@@ -26,6 +26,8 @@ static void write_step(ui *u)
     for (i = 0; i < n; i++)
         vel = u->built_vel[i] > vel ? u->built_vel[i] : vel;
     seq_set_step(s, u->seq_cursor, u->built, n, vel);
+    if (n)                                      /* the live MIDI-in bend and mod wheel, as it was written (#42) */
+        seq_set_step_bend_mod(s, u->seq_cursor, u->live_bend, (int32_t)u->live_mod, 0);
     if (u->built_n > PLAY_VOICES) {
         static const char MAX[] = "MAX 0 NOTES";    /* (the voice count: one digit) */
         for (i = 0; i < sizeof MAX; i++)

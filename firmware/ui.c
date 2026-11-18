@@ -380,6 +380,8 @@ void ui_init(ui *u, play *p)
     u->shown_blink = 0;
     u->seq_msg[0] = 0;
     u->pc_out = -1;
+    u->live_bend = 0;
+    u->live_mod = 0;
     u->cc_out_at = 0;
     u->cc_sent_cc = u->cc_sent_v = 0xFFu;
     u->focus = 1;
@@ -1086,6 +1088,18 @@ int ui_cc_out(ui *u, uint32_t ms, uint32_t *cc, uint32_t *value)
 int ui_midi_in(const ui *u, uint32_t st)
 {
     return st >= 0xF0u || !u->set.midi_in || (st & 15u) == u->set.midi_in - 1u;
+}
+
+void ui_midi_controls(ui *u, uint32_t st, uint32_t d1, uint32_t d2)
+{
+    if (st >= 0xF0u || !ui_midi_in(u, st))
+        return;
+    if ((st & 0xF0u) == 0xE0u)
+        u->live_bend = (int32_t)((d2 & 0x7Fu) << 7 | (d1 & 0x7Fu)) - 8192;
+    else if ((st & 0xF0u) == 0xB0u && d1 == 1u)
+        u->live_mod = d2 & 0x7Fu;
+    else if ((st & 0xF0u) == 0xB0u && d1 == 121u)
+        u->live_bend = 0, u->live_mod = 0;
 }
 
 uint32_t ui_midi_out(const ui *u, uint32_t st)
