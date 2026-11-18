@@ -91,7 +91,10 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
 int fm_voice_active(const fm_voice *v);
 
 /* What keeps a voice, in the order the engine steals: a free voice first,
- * then one releasing, then one the pedal holds, then one its key holds. */
+ * then one releasing, then one the pedal holds, then one its key holds.
+ * A key or the pedal holds only a sounding voice: a voice goes idle only
+ * through a release, which lets go of both first (fm_voice_release, or a
+ * queued release armed only once neither holds it). */
 typedef enum {
     FM_VOICE_FREE,
     FM_VOICE_RELEASING,
@@ -105,6 +108,13 @@ static inline fm_voice_hold fm_voice_holding(const fm_voice *v)
     if (v->key_down) return FM_VOICE_HELD;
     if (v->sustained) return FM_VOICE_PEDAL;
     return FM_VOICE_RELEASING;
+}
+
+/* The note the voice plays, or the one a steal fade waits to start
+ * (FM_VOICE_NO_NOTE after a voice-mode switch). */
+static inline uint8_t fm_voice_note(const fm_voice *v)
+{
+    return v->note;
 }
 
 /* Sounding `note` (a voice-mode switch's leftover plays no note). */
@@ -126,7 +136,8 @@ static inline int fm_voice_fading(const fm_voice *v, uint8_t note)
 }
 
 /* The note a steal left waiting on a voice (or the note it plays): its
- * peak and velocity as struck, and whether its key or the pedal holds it. */
+ * peak and velocity as struck (next_peak, next_velocity; not the sounding
+ * note's), and whether its key or the pedal holds it. */
 typedef struct {
     uint8_t note, velocity, key_down, sustained;
     int32_t peak;
@@ -198,8 +209,9 @@ void fm_voice_release(fm_voice *v);
 
 /* Lets go of the voice before a voice-mode switch: releases its note if a
  * key or the pedal holds it, and a sounding voice then belongs to no note
- * (FM_VOICE_NO_NOTE), finishing at its pitch. */
-void fm_voice_let_go(fm_voice *v);
+ * (FM_VOICE_NO_NOTE), finishing at its pitch. Returns whether it released
+ * (the engine ages a voice it releases). */
+int fm_voice_let_go(fm_voice *v);
 
 /* The voice's age for allocation: the engine's event count at its last note
  * on or off, which the engine sets and compares (as a wrapping difference). */

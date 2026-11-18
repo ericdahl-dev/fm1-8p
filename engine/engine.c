@@ -65,7 +65,7 @@ static void retune(fm_engine *e)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) { /* idle voices get theirs at note on */
         fm_voice *v = &e->voices[i];
-        uint8_t note = fm_voice_waiting_note(v).note; /* its note, or the one a steal waits on */
+        uint8_t note = fm_voice_note(v); /* its note, or the one a steal waits to start */
         if (fm_voice_active(v) && note != FM_VOICE_NO_NOTE)
             fm_voice_set_pitch(v, voice_pitch(e, i, note), e->sample_rate);
     }
@@ -547,7 +547,7 @@ static void release(fm_engine *e, fm_voice *v)
 }
 
 /* A key or the pedal holds the voice's note. */
-static int held(const fm_voice *v)
+static int key_or_pedal(const fm_voice *v)
 {
     return fm_voice_holding(v) >= FM_VOICE_PEDAL;
 }
@@ -568,8 +568,7 @@ static void end_mode(fm_engine *e)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        if (held(v)) fm_voice_age(v, ++e->stamp);
-        fm_voice_let_go(v);
+        if (fm_voice_let_go(v)) fm_voice_age(v, ++e->stamp);
     }
     unison_reset(e);
 }
@@ -907,7 +906,7 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
             fm_voice_silence(v);
             break;
         case 123: /* all notes off: release, even notes the pedal holds */
-            if (held(v)) release(e, v);
+            if (key_or_pedal(v)) release(e, v);
             break;
         default:
             break;

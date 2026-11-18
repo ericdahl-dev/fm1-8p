@@ -139,19 +139,20 @@ TT_TEST(voice_let_go_releases_and_plays_no_note)
 {
     fm_voice *v = vl_reset();
     vl_play(v, 60);
-    fm_voice_let_go(v);
+    TT_CHECK(fm_voice_let_go(v)); /* released: the engine ages it */
     TT_CHECK_EQ(fm_voice_holding(v), FM_VOICE_RELEASING);
     TT_CHECK(!fm_voice_plays(v, 60));
     TT_CHECK(!fm_voice_key_holds(v, 60));
+    TT_CHECK(!fm_voice_let_go(v)); /* releasing already: nothing to let go */
 
     v = vl_reset();
     vl_play(v, 60);
     fm_voice_key_up(v, 1);
-    fm_voice_let_go(v);
+    TT_CHECK(fm_voice_let_go(v));
     TT_CHECK_EQ(fm_voice_holding(v), FM_VOICE_RELEASING);
 
     v = vl_reset();
-    fm_voice_let_go(v);
+    TT_CHECK(!fm_voice_let_go(v));
     TT_CHECK_EQ(fm_voice_holding(v), FM_VOICE_FREE);
 }
 
