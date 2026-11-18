@@ -127,13 +127,15 @@ class MetricTest(unittest.TestCase):
         self.assertEqual(s["pitch_cents"], {"low": None, "high": None})
         self.assertEqual(s["spectral_db_mean"], 0.0)
 
-    # Which tones get no pitch: the converted patch's ring or cross-mod (XMOD_AM). Sync alone keeps a
-    # pitch (the pair sounds at osc1's), as does a plain tone.
-    def test_ring_and_cross_mod_tones_are_the_inharmonic_ones(self):
+    # Which tones get no pitch: the converted patch's ring or cross-mod (XMOD_AM) without sync. With sync
+    # osc2 restarts every osc1 cycle, so even the ring's product repeats at osc1's period: it has a pitch.
+    def test_ring_and_cross_mod_tones_without_sync_are_the_inharmonic_ones(self):
         tree = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
         odd = self.sc.inharmonic_tones(tree)
         self.assertIn(14, odd)       # WINDCHIMES: ring
-        self.assertIn(15, odd)       # E. BASS: sync and cross-mod
+        self.assertIn(13, odd)       # MUSIC BOX: ring
+        self.assertNotIn(15, odd)    # E. BASS: ring with sync
+        self.assertNotIn(25, odd)    # SYNC LEAD: ring with sync
         self.assertNotIn(1, odd)     # PIANO 1
         self.assertNotIn(22, odd)    # CLAV: sync alone
 

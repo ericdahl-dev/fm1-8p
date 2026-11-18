@@ -15,7 +15,7 @@ SCHEMA = 8   # history rows: bump when a field changes meaning (2: timings sampl
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
              # 6: the reference has PG-8X's SELFNOISE at 0, v5, #247;
              # 7: both 5 and 6, merged;
-             # 8: no pitch for a ring or cross-mod tone (it has none), #253)
+             # 8: no pitch for a ring or cross-mod tone without sync (it has none), #253)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = 48000
@@ -297,14 +297,16 @@ def tone_args(tree, bank=None):
 
 
 def inharmonic_tones(tree, bank=None):
-    """The tone numbers of BANK (default the factory bank) with ring or cross-mod on (XMOD_AM): they have
-    no single pitch, so score_tone reports none for them (s8). Sync alone keeps one."""
+    """The tone numbers of BANK (default the factory bank) with ring or cross-mod on (XMOD_AM) and no sync:
+    they have no single pitch, so score_tone reports none for them (s8). With sync osc2 restarts every
+    osc1 cycle, so even the ring's product repeats at osc1's period and keeps a pitch."""
     import sys
     sys.path.insert(0, os.path.join(tree, "tools"))
     import jx8p
     with open(bank or os.path.join(tree, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
         tones = jx8p.parse_syx(fh.read())
-    return {i for i, t in enumerate(tones, 1) if jx8p.to_engine(t).get("XMOD_AM")}
+    engine = [jx8p.to_engine(t) for t in tones]
+    return {i for i, e in enumerate(engine, 1) if e.get("XMOD_AM") and not e.get("OSC_SYNC")}
 
 
 def render_tones(tree, mid, work, bank=None):
