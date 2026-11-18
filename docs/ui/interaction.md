@@ -674,8 +674,10 @@ in, with the octave applied). In both:
   n is the build's voice count (6 by default).
 - **Velocity:** the highest velocity among the chord's notes. A key with no
   force sensing uses G32.
-- **Bend and mod:** the live MIDI-in pitch bend and CC1 at the moment of
-  writing (#42). With no MIDI controller, these are center and 0.
+- **Bend and mod:** the live MIDI-in pitch bend and CC1 as the step's first
+  note goes down (#42; Eric, 2026-11-18). Moving the wheels while the step is
+  held changes nothing, so a bent chord keeps its bend after the pitch wheel
+  springs back. With no MIDI controller, these are center and 0.
 
 **1. Tap a step, then play (any time in SEQ view, playing or stopped; Eric):**
 
@@ -720,9 +722,10 @@ without tapping each step first.
 7. **PLAY while armed:** the sequencer starts and REC disarms, so a performance
    doesn't record over the pattern. There is no live recording while playing in
    this version (decision Q3).
-8. **Bend and mod** (#42, S7): the live MIDI-in bend and CC1 when a step is
-   written, on G11's channel (CC121 centers and zeroes them). The pattern's own
-   bends while it plays don't count. A written step's move is JUMP.
+8. **Bend and mod** (#42, S7): the live MIDI-in bend and CC1 as each step's
+   first note goes down, as in way 1, on G11's channel (CC121 centers and
+   zeroes them). The pattern's own bends while it plays don't count. A written
+   step's move is JUMP.
 
 ### Pattern slots
 

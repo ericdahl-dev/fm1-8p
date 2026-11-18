@@ -382,6 +382,8 @@ void ui_init(ui *u, play *p)
     u->pc_out = -1;
     u->live_bend = 0;
     u->live_mod = 0;
+    u->built_bend = 0;
+    u->built_mod = 0;
     u->cc_out_at = 0;
     u->cc_sent_cc = u->cc_sent_v = 0xFFu;
     u->focus = 1;
