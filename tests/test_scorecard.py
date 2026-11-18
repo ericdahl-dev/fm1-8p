@@ -2,6 +2,7 @@
 Needs numpy and scipy; skipped where they aren't installed (make check-scorecard runs it with
 SCORECARD_PYTHON, a Python that has them)."""
 import importlib.util
+import json
 import os
 import sys
 import unittest
@@ -116,6 +117,32 @@ class MetricTest(unittest.TestCase):
         self.assertTrue(all(v == 0.0 for v in s["pitch_cents"].values()))
 
 
+    # A ring or cross-mod tone has no single pitch: the correlation lines up unrelated partials (WINDCHIMES
+    # read +140 c with every partial within 6 c of PG-8X's, s7), so no pitch is reported for it.
+    def test_an_inharmonic_tone_reports_no_pitch(self):
+        np = self.np
+        rng = np.random.default_rng(3)
+        x = rng.standard_normal((13 * SR, 2)) * 0.1
+        s = self.sc.score_tone(x, x, harmonic=False)
+        self.assertEqual(s["pitch_cents"], {"low": None, "high": None})
+        self.assertEqual(s["spectral_db_mean"], 0.0)
+
+    # Which tones get no pitch: the converted patch's ring or cross-mod (XMOD_AM) without sync. With sync
+    # osc2 restarts every osc1 cycle, so even the ring's product repeats at osc1's period: it has a pitch.
+    def test_ring_and_cross_mod_tones_without_sync_are_the_inharmonic_ones(self):
+        tree = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        odd = self.sc.inharmonic_tones(tree)
+        self.assertIn(14, odd)       # WINDCHIMES: ring
+        self.assertIn(13, odd)       # MUSIC BOX: ring
+        self.assertNotIn(15, odd)    # E. BASS: ring with sync
+        self.assertNotIn(25, odd)    # SYNC LEAD: ring with sync
+        self.assertNotIn(1, odd)     # PIANO 1
+        self.assertNotIn(22, odd)    # CLAV: sync alone
+        # a ring near unison (within 25 c of a whole-number ratio) sounds at osc1's pitch, beating
+        self.assertNotIn(19, odd)    # RES BELL: osc2 +15 c
+        self.assertNotIn(20, odd)    # WAVEAURA: osc2 -14 c
+        self.assertNotIn(32, odd)    # PSYCHMELLO: osc2 -12 c
+
 @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
 class HistoryTest(unittest.TestCase):
     def setUp(self):
@@ -131,10 +158,39 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 7)
+        self.assertEqual(row["schema"], 8)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
+
+    # A base and a head are only compared on one ruler: a commit's rows on another schema are not its rows,
+    # so a base scored before a ruler change has to be scored again (Eric's ruler rule).
+    def test_rows_for_takes_only_the_current_schemas_rows(self):
+        old = {"schema": self.sc.SCHEMA - 1, "kind": "tone", "commit": "c1", "ref": "r", "bank": "factory",
+               "date": "2026-11-18T10:00:00-05:00", "tone": 1}
+        new = dict(old, schema=self.sc.SCHEMA, date="2026-11-18T09:00:00-05:00", tone=2)
+        self.sc.append_rows(self.path, [new, old])
+        self.assertEqual([r["tone"] for r in self.sc.rows_for(self.path, "c1", "r")], [2])
+        with open(self.path, "w") as fh:
+            fh.write(json.dumps(old) + "\n")
+        self.assertIsNone(self.sc.rows_for(self.path, "c1", "r"))
+
+    # The 25 c line is exact: an osc2 25 c off a whole ratio is at the line, not over it (Codex on #288).
+    def test_25_cents_off_a_whole_ratio_is_at_the_line_not_over(self):
+        for c in (25, -25, 1225, 1175, 2425):
+            self.assertLessEqual(self.sc.off_whole_ratio_cents(c), self.sc.WHOLE_RATIO_CENTS, c)
+        self.assertGreater(self.sc.off_whole_ratio_cents(26), self.sc.WHOLE_RATIO_CENTS)
+        self.assertEqual(self.sc.off_whole_ratio_cents(0), 0)
+
+    # A base with rows on an older ruler only is told to score again, not that it has none.
+    def test_a_base_on_another_schema_is_told_to_score_again(self):
+        old = {"schema": self.sc.SCHEMA - 1, "kind": "tone", "commit": "c1", "ref": "r", "bank": "factory",
+               "date": "2026-11-18T10:00:00-05:00", "tone": 1}
+        self.sc.append_rows(self.path, [old])
+        msg = self.sc.missing_base(self.path, "c1", "r")
+        self.assertIn(f"schema {self.sc.SCHEMA - 1}", msg)
+        self.assertIn("score it again", msg)
+        self.assertIn("no rows", self.sc.missing_base(self.path, "zzz", "r"))
 
     def test_rows_are_appended_and_old_lines_stay_as_they_were(self):
         with open(self.path, "w") as fh:
@@ -151,7 +207,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (7, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (8, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -200,7 +256,7 @@ class HistoryTest(unittest.TestCase):
                                bank="other")
         self.assertEqual(row["bank"], "other")
         self.assertEqual(self.sc.tone_row("abc", "d", 1, "T1", {}, "r1")["bank"], "factory")
-        old = {"schema": 2, "kind": "tone", "commit": "abc", "date": "2026-11-13T00:00:00-05:00", "tone": 1,
+        old = {"schema": self.sc.SCHEMA, "kind": "tone", "commit": "abc", "date": "2026-11-13T00:00:00-05:00", "tone": 1,
                "name": "T1", "ref": "r1", "spectral_db_mean": 9.0}
         self.sc.append_rows(self.path, [old, row])
         self.assertEqual([r["spectral_db_mean"] for r in self.sc.rows_for(self.path, "abc", "r1")], [9.0])

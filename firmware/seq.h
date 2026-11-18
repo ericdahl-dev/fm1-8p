@@ -162,8 +162,15 @@ const seq_step *seq_get_step(const seq *s, uint32_t i);   /* the edited pattern'
 /* step i plays notes[0..n-1] (n clamped to SEQ_NOTES; 0 makes it a rest) at velocity vel */
 void seq_set_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel);
 /* (seq_set_step makes its bend center, its mod 0 and its move JUMP) */
+/* step i all at once, as one edit published (#42: a step written with the live bend and mod, so the
+ * interrupt never starts it between its notes and its bend): seq_set_step, then bend, mod and move as
+ * seq_set_step_bend_mod has them */
+void seq_write_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel, int32_t bend,
+                    int32_t mod, uint32_t glide);
 /* step i's bend (clamped to -8192..8191), mod (0..127) and move (0 JUMP, else GLIDE), #42 */
 void seq_set_step_bend_mod(seq *s, uint32_t i, int32_t bend, int32_t mod, uint32_t glide);
+/* a notes step i's velocity (clamped to 1..127), nothing else of it; a rest or a tie: nothing */
+void seq_set_step_vel(seq *s, uint32_t i, uint32_t vel);
 void seq_clear_step(seq *s, uint32_t i);               /* a rest */
 void seq_toggle_tie(seq *s, uint32_t i);               /* a tie, or back to a rest */
 /* main loop: load a pattern (#40). Stopped (or before play has started), it loads at once. Playing, it

@@ -589,6 +589,7 @@ Button LEDs:
 - **REC:** lit while step record is armed, and glows otherwise (stopped). While
   playing it's off: REC does nothing then but say `STOP TO RECORD`.
 - **FX in SEQ view:** glows in REC (BACK), off otherwise.
+- **LFO in SEQ view:** glows (MOVE: JUMP or GLIDE on the cursor step, #42).
 
 ### SEQ view
 
@@ -622,7 +623,13 @@ pressed from. In SEQ view:
   `MIDI CLOCK`. Turning it shows `TEMPO FOLLOWS MIDI CLOCK` and changes
   nothing.
 - **On a rest step,** S2 shows that step's values but marks them inactive.
-  Rests and ties keep the bend and mod they had (#42).
+  Rests and ties keep the bend and mod they had (#42). On a tie too, and
+  neither the knobs nor LFO change them there. A step written again (notes
+  played into it) takes the live bend and mod instead, as any written step
+  does (see [Writing steps](#writing-steps)).
+- **BEND's semitones:** while BEND has the focus, the readout's last line
+  shows its percent and the semitones it gives at BEND RANGE now
+  (`BEND +50 % = +1.0 st`). A VEL turn changes only the velocity.
 - **Section buttons mean something else in SEQ view.** They are steps, not
   sections, and the screen labels them:
 
@@ -667,8 +674,10 @@ in, with the octave applied). In both:
   n is the build's voice count (6 by default).
 - **Velocity:** the highest velocity among the chord's notes. A key with no
   force sensing uses G32.
-- **Bend and mod:** the live MIDI-in pitch bend and CC1 at the moment of
-  writing (#42). With no MIDI controller, these are center and 0.
+- **Bend and mod:** the live MIDI-in pitch bend and CC1 as the step's first
+  note goes down (#42; Eric, 2026-11-18). Moving the wheels while the step is
+  held changes nothing, so a bent chord keeps its bend after the pitch wheel
+  springs back. With no MIDI controller, these are center and 0.
 
 **1. Tap a step, then play (any time in SEQ view, playing or stopped; Eric):**
 
@@ -713,8 +722,10 @@ without tapping each step first.
 7. **PLAY while armed:** the sequencer starts and REC disarms, so a performance
    doesn't record over the pattern. There is no live recording while playing in
    this version (decision Q3).
-8. **Bend and mod** (#42, S7): the live MIDI-in bend and CC1 when a step is
-   written; until S7, steps hold none.
+8. **Bend and mod** (#42, S7): the live MIDI-in bend and CC1 as each step's
+   first note goes down, as in way 1, on G11's channel (CC121 centers and
+   zeroes them). The pattern's own bends while it plays don't count. A written
+   step's move is JUMP.
 
 ### Pattern slots
 

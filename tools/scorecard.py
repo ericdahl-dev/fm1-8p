@@ -9,12 +9,13 @@ import os
 import numpy as np
 from scipy import signal
 
-SCHEMA = 7   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 8   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
              # 6: the reference has PG-8X's SELFNOISE at 0, v5, #247;
-             # 7: both 5 and 6, merged)
+             # 7: both 5 and 6, merged;
+             # 8: no pitch for a ring or cross-mod tone without sync (it has none), #253)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = 48000
@@ -153,12 +154,12 @@ def _gap(a, b):
     return None if a is None or b is None else a - b
 
 
-def score_tone(ours, pg):
+def score_tone(ours, pg, harmonic=True):
     """One tone, ours against PG-8X's render of the same MIDI: loudness gap (LU), spectral distance per
     section and its mean (dB), the high note's decay (to -20 dB, from 30 ms after onset) and release (to
     -40 dB after note-off) gaps (ms, ours minus PG-8X; None where either never falls that far), the
-    pitch offset of the held low and high notes (cents; harmonic tones only: an inharmonic one, a ring
-    or cross-mod, has no single pitch and reads nonsense), and the chord's air gap (dB)."""
+    pitch offset of the held low and high notes (cents; None unless `harmonic`: a ring or cross-mod tone
+    has no single pitch and reads nonsense, s8), and the chord's air gap (dB)."""
     spec = {k: round(spectral_distance(_cut(ours, *w), _cut(pg, *w)), 2) for k, w in SECTIONS.items()}
     return {
         "loudness_gap_lu": round(loudness_gap(ours, pg), 2),
@@ -168,7 +169,8 @@ def score_tone(ours, pg):
             "high_decay20": _gap(decay_ms(ours, HIGH[0], HIGH[1], HIGH[2], 20), decay_ms(pg, HIGH[0], HIGH[1], HIGH[2], 20)),
             "high_release40": _gap(release_ms(ours, HIGH[1], HIGH[1] + 2.5, HIGH[2], 40),
                                    release_ms(pg, HIGH[1], HIGH[1] + 2.5, HIGH[2], 40))},
-        "pitch_cents": {k: pitch_cents(_cut(ours, *SECTIONS[k]), _cut(pg, *SECTIONS[k])) for k in ("low", "high")},
+        "pitch_cents": {k: pitch_cents(_cut(ours, *SECTIONS[k]), _cut(pg, *SECTIONS[k])) if harmonic else None
+                        for k in ("low", "high")},
         "air_gap_db": round(air_gap(_cut(ours, *SECTIONS["chord"]), _cut(pg, *SECTIONS["chord"])), 2),
     }
 
@@ -294,6 +296,38 @@ def tone_args(tree, bank=None):
     return out
 
 
+WHOLE_RATIO_CENTS = 25.0
+
+
+def off_whole_ratio_cents(cents):
+    """How far an interval of `cents` (osc2 over osc1) is from the nearest whole-number ratio, either way
+    up, in cents: the interval less the nearest whole ratio's, both in cents, so a whole number of cents
+    off unison or an octave stays exact (25 c is at WHOLE_RATIO_CENTS, not past it)."""
+    c = abs(cents)
+    k = max(1, round(2 ** (c / 1200)))
+    return abs(c - 1200 * np.log2(k))
+
+
+def inharmonic_tones(tree, bank=None):
+    """The tone numbers of BANK (default the factory bank) with ring or cross-mod on (XMOD_AM), no sync, and
+    oscillators more than WHOLE_RATIO_CENTS from a whole-number ratio: they have no single pitch, so
+    score_tone reports none for them (s8). With sync osc2 restarts every osc1 cycle, so even the ring's
+    product repeats at osc1's period; near a whole ratio (a detuned unison) the ring sounds at its
+    pitch, beating. Both keep a pitch."""
+    import sys
+    sys.path.insert(0, os.path.join(tree, "tools"))
+    import jx8p
+    with open(bank or os.path.join(tree, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
+        tones = jx8p.parse_syx(fh.read())
+    def off_whole(e):
+        return off_whole_ratio_cents(
+            1200 * (e["OSC2_OCTAVE"] - e["OSC1_OCTAVE"]) + 100 * (e["OSC2_COARSE_SEMIS"] - e["OSC1_COARSE_SEMIS"])
+            + e.get("OSC2_FINE_CENTS", 0) - e.get("OSC1_FINE_CENTS", 0))
+    engine = [jx8p.to_engine(t) for t in tones]
+    return {i for i, e in enumerate(engine, 1)
+            if e.get("XMOD_AM") and not e.get("OSC_SYNC") and off_whole(e) > WHOLE_RATIO_CENTS}
+
+
 def render_tones(tree, mid, work, bank=None):
     """Renders the 32 tones with TREE's build/fm1-8p-render (48 kHz, 3 s tail, 6 voices); yields
     (tone number, wav path)."""
@@ -342,10 +376,11 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
     if bank and man.get("bank_sha256") != sha256(bank):
         raise SystemExit(f"scorecard: {ref} was not rendered from {bank}")
     names = {i: n for i, n, _ in tone_args(tree, bank)}
+    odd = inharmonic_tones(tree, bank)
     date, ref_id = now(), man["midi_sha256"][:12]
     rows = []
     for i, path in render_tones(tree, mid, work, bank):
-        score = score_tone(read_wav(path), read_wav(os.path.join(ref, f"{i:02d}.wav")))
+        score = score_tone(read_wav(path), read_wav(os.path.join(ref, f"{i:02d}.wav")), harmonic=i not in odd)
         rows.append(tone_row(commit, date, i, names[i], score, ref_id, bank_name))
     params = []
     if match:
@@ -357,15 +392,31 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
     return rows
 
 
+def missing_base(history, commit, ref, bank="factory"):
+    """Why rows_for found no rows for COMMIT: rows on another schema only (score it again), or none."""
+    try:
+        with open(history) as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+    except OSError:
+        rows = []
+    other = sorted({r.get("schema") for r in rows if r.get("kind") == "tone" and r.get("commit") == commit
+                    and r.get("ref") == ref and r.get("bank", "factory") == bank})
+    if other:
+        return (f"scorecard: {commit} has rows on schema {', '.join(map(str, other))} only, not {SCHEMA}: "
+                f"score it again (make scorecard COMMIT={commit}) to compare")
+    return f"scorecard: no rows for {commit} against this reference in {history}"
+
+
 def rows_for(history, commit, ref, bank="factory"):
-    """The tone rows of COMMIT's latest run of BANK against reference REF in HISTORY, or None."""
+    """The tone rows of COMMIT's latest run of BANK against reference REF in HISTORY on this SCHEMA, or
+    None: a run on another ruler is not comparable, so it doesn't count."""
     try:
         with open(history) as fh:
             rows = [json.loads(line) for line in fh if line.strip()]
     except OSError:
         return None
     rows = [r for r in rows if r.get("kind") == "tone" and r.get("commit") == commit and r.get("ref") == ref
-            and r.get("bank", "factory") == bank]
+            and r.get("bank", "factory") == bank and r.get("schema") == SCHEMA]
     if not rows:
         return None
     last = max(r["date"] for r in rows)
@@ -437,7 +488,7 @@ def main(argv=None):
         print(note)
     print(f"bank: {a.bank_name}")
     if a.base and base is None:
-        print(f"scorecard: no rows for {a.base} against this reference in {a.history}")
+        print(missing_base(a.history, a.base, rows[0]["ref"], a.bank_name))
     print(report(rows, base))
     print(f"\n{len(rows)} tone rows{' and the parameter rows' if a.match else ''} appended to {a.history}")
 

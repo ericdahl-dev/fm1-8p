@@ -25,7 +25,8 @@ static void write_step(ui *u)
     uint32_t i, n = u->built_n < PLAY_VOICES ? u->built_n : PLAY_VOICES, vel = 0;
     for (i = 0; i < n; i++)
         vel = u->built_vel[i] > vel ? u->built_vel[i] : vel;
-    seq_set_step(s, u->seq_cursor, u->built, n, vel);
+    seq_write_step(s, u->seq_cursor, u->built, n, vel,     /* with the bend and mod of its first note (#42) */
+                   n ? u->built_bend : 0, n ? (int32_t)u->built_mod : 0, 0);
     if (u->built_n > PLAY_VOICES) {
         static const char MAX[] = "MAX 0 NOTES";    /* (the voice count: one digit) */
         for (i = 0; i < sizeof MAX; i++)
@@ -57,6 +58,8 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on)
         for (i = 0; i < u->built_n && u->built[i] != note; i++)
             ;
         if (on && i == u->built_n && u->built_n < UI_CHORD_MAX) {
+            if (!u->built_n)                    /* the first note: the bend and mod it's written with (#42) */
+                u->built_bend = u->live_bend, u->built_mod = u->live_mod;
             u->built[u->built_n] = (uint8_t)note;
             u->built_vel[u->built_n++] = (uint8_t)vel;
             roll(u, ROLL_AT(u->seq_cursor));    /* (the note shows at 45 % as it goes down) */
@@ -131,9 +134,20 @@ void ui_seq_transport(ui *u)
 const char *const UI_SEQ_PAGE_NAME[UI_SEQ_PAGES] = {"S1 PATTERN", "S2 STEP", "S3 PLAY"};
 const ui_seq_slot UI_SEQ_SLOTS[UI_SEQ_PAGES][4] = {
     {{"TEMPO", "TEMPO", 1}, {"LENGTH", "LENGTH", 1}, {"SWING", "SWING", 1}, {"GATE", "GATE", 1}},
-    {{"VEL", "VELOCITY", 1}, {"BEND", "BEND", 0}, {"MOD", "MOD", 0}, {"MOVE", "MOVE", 0}},   /* (#42) */
+    {{"VEL", "VELOCITY", 1}, {"BEND", "BEND", 1}, {"MOD", "MOD", 1}, {"MOVE", "MOVE", 1}},   /* (#42) */
     {{"TRANSP", "TRANSPOSE", 1}, {"KEYTR", "KEY TRANSPOSE", 0}, {0, 0, 0}, {0, 0, 0}},
 };
+
+/* a step's bend (-8192..8191) as -100..+100 % of the bend range, and back: the ends are exact both ways */
+static int32_t bend_pct(int32_t bend)
+{
+    return bend < 0 ? -((-bend * 100 + 4096) / 8192) : (bend * 100 + 4095) / 8191;
+}
+
+static int32_t pct_bend(int32_t pct)
+{
+    return pct < 0 ? pct * 8192 / 100 : pct * 8191 / 100;
+}
 
 int32_t ui_seq_value(const ui *u, uint32_t k)
 {
@@ -145,6 +159,9 @@ int32_t ui_seq_value(const ui *u, uint32_t k)
     case 2: return s->edit.swing_pct;
     case 3: return s->edit.gate_pct;
     case 4: return st->kind == SEQ_NOTES_ON ? st->vel : 0;
+    case 5: return bend_pct(st->bend);
+    case 6: return st->mod;
+    case 7: return st->glide;
     case 8: return seq_transpose(s);
     default: return 0;
     }
@@ -156,8 +173,6 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     seq *s = play_seq(u->p);
     int32_t fast = clicks >= 3 || clicks <= -3, v = ui_seq_value(u, k);
     const seq_step *st;
-    uint8_t notes[SEQ_NOTES];
-    uint32_t i;
     if (!UI_SEQ_SLOTS[u->seq_page][k].live)
         return;
     switch (u->seq_page * 4u + k) {
@@ -179,15 +194,34 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         break;
     case 2: v += clicks * (fast ? 5 : 1); seq_set_swing(s, (uint32_t)(v < 0 ? 0 : v)); break;
     case 3: v += clicks * (fast ? 5 : 1); seq_set_gate(s, (uint32_t)(v < 0 ? 0 : v)); break;
-    case 4:                                     /* the cursor step's velocity: a note or chord only */
+    case 4:                                     /* the cursor step's velocity, only it: a note or chord only */
         st = seq_get_step(s, u->seq_cursor);
         if (st->kind != SEQ_NOTES_ON)
             return;
-        for (i = 0; i < st->n; i++)
-            notes[i] = st->note[i];
         v += clicks * (fast ? 10 : 1);
-        seq_set_step(s, u->seq_cursor, notes, st->n, (uint32_t)(v < 1 ? 1 : v > 127 ? 127 : v));
+        seq_set_step_vel(s, u->seq_cursor, (uint32_t)(v < 1 ? 1 : v));
         roll(u, ROLL_AT(u->seq_cursor));
+        break;
+    case 5:                                     /* BEND, 1 % of the range a click (#42): a note or chord only */
+        st = seq_get_step(s, u->seq_cursor);
+        if (st->kind != SEQ_NOTES_ON)
+            return;
+        v += clicks * (fast ? 10 : 1);
+        seq_set_step_bend_mod(s, u->seq_cursor, pct_bend(v < -100 ? -100 : v > 100 ? 100 : v), st->mod, st->glide);
+        break;
+    case 6:                                     /* MOD, 0..127 (#42): a note or chord only */
+        st = seq_get_step(s, u->seq_cursor);
+        if (st->kind != SEQ_NOTES_ON)
+            return;
+        v += clicks * (fast ? 10 : 1);
+        seq_set_step_bend_mod(s, u->seq_cursor, st->bend, v, st->glide);
+        break;
+    case 7:                                     /* MOVE: JUMP (0) or GLIDE (1), held at the ends */
+        st = seq_get_step(s, u->seq_cursor);
+        if (st->kind != SEQ_NOTES_ON)
+            return;
+        v += clicks;
+        seq_set_step_bend_mod(s, u->seq_cursor, st->bend, st->mod, v > 0);
         break;
     case 8: v += clicks; seq_set_transpose(s, v); break;
     default: return;
@@ -235,6 +269,9 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     u->dirty |= (UI_D_ALL & ~UI_D_FULL) | UI_D_FOOT;
 }
 
+/* the knob columns: S2's four show the cursor step, so a new cursor step or kind redraws them all */
+#define STEP_COLS (UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3))
+
 void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
 {
     seq *s = play_seq(u->p);
@@ -269,7 +306,7 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->built_n = 0;
         u->seq_cursor = (u->seq_cursor + seq_length(s) - 1u) % seq_length(s);
         roll(u, ROLL_AT(u->seq_cursor));
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
     } else if (u->seq_rec && tap && (ev == (UI_EV_BTN_UP | UI_BTN_SEL) || ev == (UI_EV_BTN_UP | UI_BTN_ENV))) {
         if (id == UI_BTN_SEL)                   /* REC: a rest or a tie at the cursor, then on (interaction.md 5) */
             seq_clear_step(s, u->seq_cursor);
@@ -277,7 +314,7 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
             seq_toggle_tie(s, u->seq_cursor);
         u->built_n = 0;
         u->seq_cursor = (u->seq_cursor + 1u) % seq_length(s);
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
         roll(u, ROLL_ALL);
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && u->seq_rec) {
         /* REC: SEL held does nothing (interaction.md's table) */
@@ -288,11 +325,16 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         } else if (tap) {
             seq_clear_step(s, u->seq_cursor);   /* the cursor step: a rest */
         }
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
         roll(u, ROLL_ALL);                      /* (a rest ends the ties after it) */
+    } else if (ev == (UI_EV_BTN_UP | UI_BTN_LFO) && tap) {   /* MOVE on the cursor step, in REC too (#42) */
+        const seq_step *st = seq_get_step(s, u->seq_cursor);
+        if (st->kind == SEQ_NOTES_ON)
+            seq_set_step_bend_mod(s, u->seq_cursor, st->bend, st->mod, !st->glide);
+        u->dirty |= UI_D_FOCUS | UI_D_COL(3);   /* (MOVE's column, if S2 shows) */
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_ENV) && tap) {
         seq_toggle_tie(s, u->seq_cursor);
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
         roll(u, ROLL_ALL);
     } else if (ev == (UI_EV_ENC | UI_ENC_SELECT) && arg) {  /* the cursor, around the length */
         len = seq_length(s);
@@ -300,7 +342,7 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->seq_cursor = (uint32_t)(((int32_t)(u->seq_cursor % len) + arg % (int32_t)len + (int32_t)len) %
                                    (int32_t)len);
         roll(u, ROLL_AT(u->seq_cursor));
-        u->dirty |= UI_D_FOCUS | UI_D_COL(0);
+        u->dirty |= UI_D_FOCUS | STEP_COLS;
     } else if (ev == (UI_EV_ENC | UI_ENC_ALGORITHM) && arg) {   /* the SEQ page, around */
         u->seq_page = (uint32_t)(((int32_t)u->seq_page + arg % (int32_t)UI_SEQ_PAGES + (int32_t)UI_SEQ_PAGES) %
                                  (int32_t)UI_SEQ_PAGES);
@@ -404,6 +446,17 @@ void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit)
         else
             put_s(n, "--");
         break;
+    case 5:                                     /* BEND: signed, in percent */
+        if (v > 0)
+            *n++ = '+';
+        else if (v < 0)
+            *n++ = '-';
+        put_u(n, (uint32_t)(v < 0 ? -v : v));
+        put_s(unit, "%");
+        break;
+    case 7:
+        put_s(n, v ? "GLIDE" : "JUMP");
+        break;
     case 8:                                     /* TRANSPOSE: signed, in semitones */
         if (v > 0)
             *n++ = '+';
@@ -415,6 +468,32 @@ void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit)
     default:
         put_u(n, (uint32_t)v);
     }
+}
+
+int ui_seq_active(const ui *u, uint32_t k)
+{
+    (void)k;                                    /* (every S2 knob is the cursor step's) */
+    return u->seq_page != 1u || seq_get_step(play_seq(u->p), u->seq_cursor)->kind == SEQ_NOTES_ON;
+}
+
+void ui_seq_detail(const ui *u, uint32_t k, char *s)
+{
+    int32_t v = ui_seq_value(u, k), a = v < 0 ? -v : v, r;
+    uint32_t t;
+    char *n = s;
+    *s = 0;
+    if (u->seq_page * 4u + k != 5u)
+        return;
+    r = play_get_param(u->p, FM_PARAM_BEND_RANGE);
+    t = ((uint32_t)a * (uint32_t)(r < 0 ? 0 : r > 24 ? 24 : r) + 5u) / 10u;  /* semitones, tenths */
+    if (v)
+        *n++ = v < 0 ? '-' : '+';
+    n = put_s(put_u(n, (uint32_t)a), " % = ");
+    if (v)
+        *n++ = v < 0 ? '-' : '+';
+    n = put_u(n, t / 10u);
+    *n++ = '.';
+    put_s(put_u(n, t % 10u), " st");
 }
 
 /* notes into s by name, a space between */

@@ -134,8 +134,11 @@ int32_t fm_env_advance(fm_env *e, uint32_t n);
  * (256 frames): voices started together catch up in the same block, so a
  * larger bound piles every voice's catch-up onto one block (4096 took the
  * 8-voice CPU row from 12.9 to 23.3 % of a block, #70). At a block or less
- * every lazy envelope catches up in every block, so in steady state each
- * block steps one block's samples, and a stagger would not lower it. */
+ * every lazy envelope catches up in every block: one catch-up steps at most
+ * FM_ENV_LAG_MAX - 1 owed plus the render chunk that reached it (up to
+ * FM_MIX_FRAMES), 319 samples, and in steady state each block steps one
+ * block's samples, which a stagger would not lower. Measured worst block,
+ * 8 voices (fm1-emu strict): 13.6 % (12.9 before the lag was bounded). */
 #define FM_ENV_LAG_MAX (1u << 8)
 
 /* Catches up the lag, then steps `n`: a skip that reaches FM_ENV_LAG_MAX. */

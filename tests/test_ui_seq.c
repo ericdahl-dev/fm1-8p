@@ -86,12 +86,204 @@ TT_TEST(seq_step_and_play_pages)
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -2, 1300);
     TT_CHECK_EQ(seq_get_step(s, 2)->vel, 98u);
     TT_CHECK_EQ(seq_get_step(s, 2)->note[0], 60u);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 1400);      /* BEND waits: nothing */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 1400);      /* BEND (seq_s2_bend_sets_the_step_bend_in_percent) */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1500);  /* S3 PLAY */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -2, 1600);
     TT_CHECK_EQ(seq_transpose(s), -2);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1700);  /* around */
     TT_CHECK_EQ(ui_u.seq_page, 0u);
+}
+
+/* SEQ view on S2 STEP with the cursor on step i, a C4 there (and an E4 on step 0, to stay as it is) */
+static seq *s2_setup(uint32_t i)
+{
+    static const uint8_t C[1] = {60}, E[1] = {64};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, E, 1, 90);
+    seq_set_step(s, i, C, 1, 100);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, (int32_t)i, 1100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1200);  /* S2 STEP */
+    return s;
+}
+
+static int s2_detail_is(const char *want)
+{
+    char t[UI_SEQ_TEXT_LEN];
+    ui_seq_detail(&ui_u, 1, t);
+    if (strcmp(t, want) != 0) {
+        printf("    BEND reads \"%s\", not \"%s\"\n", t, want);
+        return 0;
+    }
+    return 1;
+}
+
+/* S2's BEND sets the cursor step's bend in 1 % steps of the bend range (10 % a fast turn), -100 % the
+ * engine's lowest bend and +100 % its highest, 0 the center; the column reads the percent, the detail
+ * line the semitones it gives at BEND RANGE now (#42, interaction.md 5) */
+TT_TEST(seq_s2_bend_sets_the_step_bend_in_percent)
+{
+    char n[UI_VALUE_LEN], un[UI_VALUE_LEN];
+    seq *s = s2_setup(3);
+    play_set_param(&ui_p, FM_PARAM_BEND_RANGE, 2);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1300);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1310);
+    TT_CHECK_EQ(seq_get_step(s, 3)->bend, 2 * 8191 / 100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 1320);      /* fast: 10 % a click, to 52 */
+    ui_seq_column(&ui_u, 1, n, un);
+    TT_CHECK(strcmp(n, "+52") == 0 && strcmp(un, "%") == 0);
+    TT_CHECK(s2_detail_is("+52 % = +1.0 st"));
+    play_set_param(&ui_p, FM_PARAM_BEND_RANGE, 12);           /* the semitones follow BEND RANGE */
+    TT_CHECK(s2_detail_is("+52 % = +6.2 st"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 9, 1330);      /* past the top: +100 % */
+    TT_CHECK_EQ(seq_get_step(s, 3)->bend, 8191);
+    TT_CHECK(s2_detail_is("+100 % = +12.0 st"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -30, 1340);    /* past the bottom: -100 % */
+    TT_CHECK_EQ(seq_get_step(s, 3)->bend, -8192);
+    play_set_param(&ui_p, FM_PARAM_BEND_RANGE, 2);
+    TT_CHECK(s2_detail_is("-100 % = -2.0 st"));
+    ui_seq_column(&ui_u, 1, n, un);
+    TT_CHECK(strcmp(n, "-100") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 10, 1350);     /* -100 + 10 x 10: the center */
+    TT_CHECK_EQ(seq_get_step(s, 3)->bend, 0);
+    TT_CHECK(s2_detail_is("0 % = 0.0 st"));
+    TT_CHECK_EQ(seq_get_step(s, 3)->note[0], 60u);            /* the notes and velocity stay */
+    TT_CHECK_EQ(seq_get_step(s, 3)->vel, 100u);
+}
+
+/* S2's MOD sets the cursor step's mod wheel, 0..127 (10 a click fast), and keeps its bend (#42) */
+TT_TEST(seq_s2_mod_sets_the_step_mod)
+{
+    char n[UI_VALUE_LEN], un[UI_VALUE_LEN];
+    seq *s = s2_setup(3);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 1300);      /* bend +50 %, to keep */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 1310);
+    TT_CHECK_EQ(seq_get_step(s, 3)->mod, 1u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 5, 1320);      /* fast: 10 a click */
+    TT_CHECK_EQ(seq_get_step(s, 3)->mod, 51u);
+    ui_seq_column(&ui_u, 2, n, un);
+    TT_CHECK(strcmp(n, "51") == 0 && un[0] == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 20, 1330);     /* past the top */
+    TT_CHECK_EQ(seq_get_step(s, 3)->mod, 127u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, -20, 1340);    /* past the bottom */
+    TT_CHECK_EQ(seq_get_step(s, 3)->mod, 0u);
+    TT_CHECK_EQ(seq_get_step(s, 3)->bend, 50 * 8191 / 100);
+    TT_CHECK_EQ(seq_get_step(s, 3)->note[0], 60u);
+    TT_CHECK_EQ(seq_get_step(s, 3)->vel, 100u);
+}
+
+/* S2's MOVE and the LFO button, in REC too, switch the cursor step between JUMP and GLIDE, keeping its
+ * bend and mod (#42, interaction.md 5's button table) */
+TT_TEST(seq_s2_move_and_lfo_switch_jump_and_glide)
+{
+    char n[UI_VALUE_LEN], un[UI_VALUE_LEN];
+    seq *s = s2_setup(3);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 1300);      /* bend +50 % and mod 2, to keep */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 2, 1310);
+    ui_seq_column(&ui_u, 3, n, un);
+    TT_CHECK(strcmp(n, "JUMP") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1320);
+    TT_CHECK_EQ(seq_get_step(s, 3)->glide, 1u);
+    ui_seq_column(&ui_u, 3, n, un);
+    TT_CHECK(strcmp(n, "GLIDE") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1330);      /* (two values: held at the end) */
+    TT_CHECK_EQ(seq_get_step(s, 3)->glide, 1u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, -1, 1340);
+    TT_CHECK_EQ(seq_get_step(s, 3)->glide, 0u);
+    ui_tap(UI_BTN_LFO, 1400);                                 /* LFO toggles it */
+    TT_CHECK_EQ(seq_get_step(s, 3)->glide, 1u);
+    ui_tap(UI_BTN_LFO, 1500);
+    TT_CHECK_EQ(seq_get_step(s, 3)->glide, 0u);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);                          /* (and no LFO page: still SEQ view) */
+    ui_tap(UI_BTN_REC, 1600);                                 /* in REC the same, and the cursor stays */
+    TT_CHECK(ui_u.seq_rec);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_LFO), (uint32_t)UI_LED_GLOW);
+    ui_tap(UI_BTN_LFO, 1700);
+    TT_CHECK_EQ(seq_get_step(s, 3)->glide, 1u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 3u);
+    TT_CHECK_EQ(seq_get_step(s, 3)->bend, 50 * 8191 / 100);
+    TT_CHECK_EQ(seq_get_step(s, 3)->mod, 2u);
+    TT_CHECK_EQ(seq_get_step(s, 3)->note[0], 60u);
+}
+
+/* On a rest or a tie, S2 shows the step's bend, mod and move (what it keeps, #42) but marks them
+ * inactive, and its knobs and LFO change nothing; on a note or chord they're active */
+TT_TEST(seq_s2_on_a_rest_or_tie_shows_and_keeps)
+{
+    char n[UI_VALUE_LEN], un[UI_VALUE_LEN];
+    seq *s = s2_setup(3);
+    uint32_t k;
+    seq_set_step_bend_mod(s, 3, 50 * 8191 / 100, 20, 1);
+    for (k = 0; k < 4u; k++)
+        TT_CHECK(ui_seq_active(&ui_u, k));
+    seq_clear_step(s, 3);                                     /* a rest: it keeps them */
+    for (k = 0; k < 4u; k++)
+        TT_CHECK(!ui_seq_active(&ui_u, k));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 5, 1300);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 5, 1310);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, -1, 1320);
+    ui_tap(UI_BTN_LFO, 1400);
+    TT_CHECK_EQ(seq_get_step(s, 3)->bend, 50 * 8191 / 100);
+    TT_CHECK_EQ(seq_get_step(s, 3)->mod, 20u);
+    TT_CHECK_EQ(seq_get_step(s, 3)->glide, 1u);
+    ui_seq_column(&ui_u, 1, n, un);
+    TT_CHECK(strcmp(n, "+50") == 0);
+    ui_seq_column(&ui_u, 3, n, un);
+    TT_CHECK(strcmp(n, "GLIDE") == 0);
+    seq_toggle_tie(s, 3);                                     /* a tie: the same */
+    TT_CHECK(!ui_seq_active(&ui_u, 1));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -5, 1500);
+    TT_CHECK_EQ(seq_get_step(s, 3)->bend, 50 * 8191 / 100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1600);  /* S3: the knobs there aren't the step's */
+    TT_CHECK(ui_seq_active(&ui_u, 0));
+}
+
+/* S2's VEL changes only the cursor step's velocity: its notes, bend, mod and move stay, and so does
+ * every other step (#42: a VEL turn once rewrote the step and centered its bend) */
+TT_TEST(seq_s2_vel_keeps_the_step_and_the_others)
+{
+    seq *s = s2_setup(3);
+    seq_step before[SEQ_STEPS];
+    uint32_t i;
+    seq_set_step_bend_mod(s, 0, -4000, 99, 0);
+    seq_set_step_bend_mod(s, 3, 50 * 8191 / 100, 20, 1);
+    for (i = 0; i < SEQ_STEPS; i++)
+        before[i] = *seq_get_step(s, i);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, -2, 1300);
+    TT_CHECK_EQ(seq_get_step(s, 3)->vel, 98u);
+    TT_CHECK_EQ(seq_get_step(s, 3)->bend, 50 * 8191 / 100);
+    TT_CHECK_EQ(seq_get_step(s, 3)->mod, 20u);
+    TT_CHECK_EQ(seq_get_step(s, 3)->glide, 1u);
+    TT_CHECK_EQ(seq_get_step(s, 3)->n, 1u);
+    TT_CHECK_EQ(seq_get_step(s, 3)->note[0], 60u);
+    for (i = 0; i < SEQ_STEPS; i++)
+        if (i != 3u)
+            TT_CHECK(memcmp(seq_get_step(s, i), &before[i], sizeof before[i]) == 0);
+}
+
+/* Every S2 column shows the cursor step, so all four redraw when the cursor moves or the step turns into
+ * a rest or a tie: SELECT, SEL, ENV, and in REC SEL, ENV and FX (the review of f5a1471) */
+TT_TEST(seq_s2_columns_follow_the_cursor_step)
+{
+    const uint32_t ALL = UI_D_COL(0) | UI_D_COL(1) | UI_D_COL(2) | UI_D_COL(3);
+    (void)s2_setup(3);
+    (void)ui_take_full(&ui_u, 1250);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1300);
+    TT_CHECK_EQ(ui_take(&ui_u, 1310) & ALL, ALL);
+    ui_tap(UI_BTN_SEL, 1400);
+    TT_CHECK_EQ(ui_take(&ui_u, 1510) & ALL, ALL);
+    ui_tap(UI_BTN_ENV, 1600);
+    TT_CHECK_EQ(ui_take(&ui_u, 1710) & ALL, ALL);
+    ui_tap(UI_BTN_REC, 1800);
+    (void)ui_take_full(&ui_u, 1910);
+    ui_tap(UI_BTN_SEL, 2000);
+    TT_CHECK_EQ(ui_take(&ui_u, 2110) & ALL, ALL);
+    ui_tap(UI_BTN_ENV, 2200);
+    TT_CHECK_EQ(ui_take(&ui_u, 2310) & ALL, ALL);
+    ui_tap(UI_BTN_FX, 2400);
+    TT_CHECK_EQ(ui_take(&ui_u, 2510) & ALL, ALL);
 }
 
 /* The section buttons in SEQ view (not in REC): SEL clears the cursor step, held 1.5 s the whole
@@ -149,7 +341,7 @@ static void seq_render_to(int32_t want)
 
 /* The button LEDs (interaction.md 5): SEQ lit in SEQ view and glowing elsewhere; PLAY glowing when
  * stopped, lit while playing with a dark flash on each beat's first step; REC (seq_rec_button_leds). In
- * SEQ view SEL (rest) and ENV (tie) glow, LFO (MOVE, #42) and FX (BACK, in REC) are off. */
+ * SEQ view SEL (rest), ENV (tie) and LFO (MOVE, #42) glow, FX (BACK, in REC) is off. */
 TT_TEST(seq_button_leds)
 {
     ui_setup();
@@ -159,7 +351,7 @@ TT_TEST(seq_button_leds)
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEQ), (uint32_t)UI_LED_LIT);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_SEL), (uint32_t)UI_LED_GLOW);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_ENV), (uint32_t)UI_LED_GLOW);
-    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_LFO), (uint32_t)UI_LED_OFF);
+    TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_LFO), (uint32_t)UI_LED_GLOW);
     TT_CHECK_EQ(ui_led(&ui_u, UI_BTN_FX), (uint32_t)UI_LED_OFF);
     ui_tap(UI_BTN_PLAY, 1200);
     seq_render_to(0);
@@ -185,13 +377,15 @@ TT_TEST(seq_texts)
     TT_CHECK(strcmp(num, "123.5") == 0);
     ui_seq_column(&ui_u, 3, num, unit);
     TT_CHECK(strcmp(num, "50") == 0 && strcmp(unit, "%") == 0);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1100);  /* S2 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1100);  /* S2: an empty step's bend, the center */
     ui_seq_column(&ui_u, 1, num, unit);
-    TT_CHECK(strcmp(num, "--") == 0);
+    TT_CHECK(strcmp(num, "0") == 0 && strcmp(unit, "%") == 0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1200);  /* S3 */
     seq_set_transpose(s, 3);
     ui_seq_column(&ui_u, 0, num, unit);
     TT_CHECK(strcmp(num, "+3") == 0 && strcmp(unit, "st") == 0);
+    ui_seq_column(&ui_u, 1, num, unit);                      /* KEY TRANSPOSE waits */
+    TT_CHECK(strcmp(num, "--") == 0);
     seq_set_step(s, 1, CH, 3, 100);
     seq_toggle_tie(s, 2);
     ui_seq_step_text(&ui_u, 1, t);
@@ -1157,8 +1351,119 @@ TT_TEST(seq_clock_burst_shows_at_most_three_digits)
     TT_CHECK(worst <= 9990u);
 }
 
+/* Tap a step, then play: the step written takes the live MIDI-in pitch bend and CC1 (mod wheel), the
+ * last ones that came in, as its bend and mod (#42 S7, interaction.md 5 "Writing steps") */
+TT_TEST(seq_a_tapped_step_takes_the_live_bend_and_mod)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x60);               /* bend 0x3000: +4096 from the center */
+    ui_midi_controls(&ui_u, 0xB0, 1, 77);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[4], 1, 1100), 1);       /* step 5 armed */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[4], 0, 1150), 1);
+    seq_note(10, 60, 100, 1, 1200);
+    seq_note(10, 60, 0, 0, 1300);                             /* written */
+    TT_CHECK_EQ(seq_get_step(s, 4)->kind, (uint8_t)SEQ_NOTES_ON);
+    TT_CHECK_EQ(seq_get_step(s, 4)->bend, 4096);
+    TT_CHECK_EQ(seq_get_step(s, 4)->mod, 77u);
+    TT_CHECK_EQ(seq_get_step(s, 4)->glide, 0u);               /* (a written step jumps) */
+}
+
+/* In REC each step takes the bend and mod as its first note goes down (Eric: A): moved between steps,
+ * the next one has the new values, and a move while it's held changes nothing; with none come in yet,
+ * the center and 0 (no MIDI controller) */
+TT_TEST(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_REC, 1000);
+    seq_note(5, 60, 90, 1, 1100);                             /* nothing came in: center, 0 */
+    seq_note(5, 60, 0, 0, 1200);
+    TT_CHECK_EQ(seq_get_step(s, 0)->bend, 0);
+    TT_CHECK_EQ(seq_get_step(s, 0)->mod, 0u);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x00);               /* the lowest bend */
+    ui_midi_controls(&ui_u, 0xB0, 1, 127);
+    seq_note(7, 62, 90, 1, 1300);
+    seq_note(7, 62, 0, 0, 1400);
+    TT_CHECK_EQ(seq_get_step(s, 1)->bend, -8192);
+    TT_CHECK_EQ(seq_get_step(s, 1)->mod, 127u);
+    ui_midi_controls(&ui_u, 0xE0, 0x7F, 0x7F);               /* the highest, then the note */
+    seq_note(9, 64, 90, 1, 1500);
+    ui_midi_controls(&ui_u, 0xB0, 1, 3);                      /* while it's held: not this */
+    seq_note(9, 64, 0, 0, 1600);
+    TT_CHECK_EQ(seq_get_step(s, 2)->bend, 8191);
+    TT_CHECK_EQ(seq_get_step(s, 2)->mod, 127u);
+    TT_CHECK_EQ(seq_get_step(s, 0)->bend, 0);                 /* (the steps before keep theirs) */
+    TT_CHECK_EQ(seq_get_step(s, 1)->mod, 127u);
+}
+
+/* Only what comes in counts: a pattern playing its own bends and mod doesn't change the live values a
+ * step takes; G11 keeps out another channel's; CC121 (reset all controllers) centers and zeroes them */
+TT_TEST(seq_only_midi_in_on_the_channel_sets_the_live_bend_and_mod)
+{
+    static const uint8_t C[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C, 1, 100);
+    seq_set_step_bend_mod(s, 0, 6000, 90, 0);                 /* the pattern bends and mods itself */
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(1);                                         /* played: the engine has its bend */
+    ui_tap(UI_BTN_PLAY, 1100);
+    seq_render_to(-1);
+    TT_CHECK_EQ(ui_u.live_bend, 0);
+    TT_CHECK_EQ(ui_u.live_mod, 0u);
+    ui_u.set.midi_in = 3;                                     /* G11 channel 3 */
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x60);               /* channel 1: not ours */
+    ui_midi_controls(&ui_u, 0xB0, 1, 50);
+    TT_CHECK_EQ(ui_u.live_bend, 0);
+    TT_CHECK_EQ(ui_u.live_mod, 0u);
+    ui_midi_controls(&ui_u, 0xE2, 0x00, 0x60);               /* channel 3 */
+    ui_midi_controls(&ui_u, 0xB2, 1, 50);
+    TT_CHECK_EQ(ui_u.live_bend, 4096);
+    TT_CHECK_EQ(ui_u.live_mod, 50u);
+    ui_midi_controls(&ui_u, 0xB2, 7, 20);                     /* another CC: nothing */
+    TT_CHECK_EQ(ui_u.live_mod, 50u);
+    ui_midi_controls(&ui_u, 0xB2, 121, 0);                    /* reset all controllers */
+    TT_CHECK_EQ(ui_u.live_bend, 0);
+    TT_CHECK_EQ(ui_u.live_mod, 0u);
+}
+
+/* Eric (A): a step takes the bend and mod as its first note goes down, not as the last key is let go.
+ * Bend, play a chord, let the wheel spring back to the center, let go of the keys: the step keeps the
+ * bend (and a note added after the wheel came back doesn't take the center) */
+TT_TEST(seq_a_step_keeps_the_bend_its_first_note_had)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 1, 1100), 1);       /* step 3 armed */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 0, 1150), 1);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x50);               /* bent: +2048 */
+    ui_midi_controls(&ui_u, 0xB0, 1, 40);
+    seq_note(10, 60, 100, 1, 1200);                           /* the chord */
+    seq_note(12, 64, 100, 1, 1210);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x40);               /* the wheel springs back */
+    ui_midi_controls(&ui_u, 0xB0, 1, 0);
+    seq_note(14, 67, 100, 1, 1220);                           /* (a note added now joins at the latch) */
+    seq_note(10, 60, 0, 0, 1300);
+    seq_note(12, 64, 0, 0, 1310);
+    seq_note(14, 67, 0, 0, 1320);                             /* all let go: written */
+    TT_CHECK_EQ(seq_get_step(s, 2)->n, 3u);
+    TT_CHECK_EQ(seq_get_step(s, 2)->bend, 2048);
+    TT_CHECK_EQ(seq_get_step(s, 2)->mod, 40u);
+}
+
 static void run_ui_seq_tests(void)
 {
+    TT_RUN(seq_a_tapped_step_takes_the_live_bend_and_mod);
+    TT_RUN(seq_a_step_keeps_the_bend_its_first_note_had);
+    TT_RUN(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing);
+    TT_RUN(seq_only_midi_in_on_the_channel_sets_the_live_bend_and_mod);
     TT_RUN(seq_cursor_stays_inside_the_length);
     TT_RUN(seq_rec_tap_arms_and_opens_seq_view);
     TT_RUN(seq_rec_while_playing_says_stop_to_record);
@@ -1203,6 +1508,12 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_wide_span_fits_once);
     TT_RUN(seq_select_and_the_pattern_page);
     TT_RUN(seq_step_and_play_pages);
+    TT_RUN(seq_s2_bend_sets_the_step_bend_in_percent);
+    TT_RUN(seq_s2_mod_sets_the_step_mod);
+    TT_RUN(seq_s2_move_and_lfo_switch_jump_and_glide);
+    TT_RUN(seq_s2_on_a_rest_or_tie_shows_and_keeps);
+    TT_RUN(seq_s2_vel_keeps_the_step_and_the_others);
+    TT_RUN(seq_s2_columns_follow_the_cursor_step);
     TT_RUN(seq_section_buttons_and_the_way_out);
     TT_RUN(seq_button_leds);
     TT_RUN(seq_texts);
