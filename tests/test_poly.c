@@ -108,6 +108,64 @@ TT_TEST(extra_note_steals_the_oldest_released_voice_before_held_ones)
     TT_CHECK(check_sounding(ref, expect));
 }
 
+/*
+ * The steal order, rank before age (fm_voice_hold, #73): a free voice before
+ * a releasing one, a releasing one before one the pedal holds, one the pedal
+ * holds before one its key holds, each even when the other is older. Two
+ * voices, a 3 s release so a released note still sounds.
+ */
+static void init_steal_order(void)
+{
+    init_poly(2);
+    fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 3000);
+}
+
+TT_TEST(steal_takes_a_free_voice_before_a_releasing_one)
+{
+    static const int expect[8] = { 1, 1, 0, 0, 0, 0, 0, 0 };
+    double ref = solo_amp(2, 60);
+    init_steal_order();
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_off(&poly, 60); /* releasing, the other voice free */
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_on(&poly, 61, 100);
+    TT_CHECK(check_sounding(ref, expect));
+}
+
+TT_TEST(steal_takes_a_releasing_voice_before_a_pedal_held_one)
+{
+    static const int expect[8] = { 0, 1, 1, 0, 0, 0, 0, 0 };
+    double ref = solo_amp(2, 60);
+    init_steal_order();
+    fm_engine_note_on(&poly, 60, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_off(&poly, 60); /* releasing */
+    fm_engine_controller(&poly, 64, 127);
+    fm_engine_note_on(&poly, 61, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_off(&poly, 61); /* the pedal holds it */
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_on(&poly, 62, 100); /* steals 60, not 61 */
+    TT_CHECK(check_sounding(ref, expect));
+}
+
+TT_TEST(steal_takes_a_pedal_held_voice_before_a_key_held_one)
+{
+    static const int expect[8] = { 1, 0, 1, 0, 0, 0, 0, 0 };
+    double ref = solo_amp(2, 60);
+    init_steal_order();
+    fm_engine_note_on(&poly, 60, 100); /* held by its key: the oldest */
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_controller(&poly, 64, 127);
+    fm_engine_note_on(&poly, 61, 100);
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_off(&poly, 61); /* the pedal holds it */
+    fm_engine_render(&poly, pbuf, 441);
+    fm_engine_note_on(&poly, 62, 100); /* steals 61, not 60 */
+    TT_CHECK(check_sounding(ref, expect));
+}
+
 /* Largest sample-to-sample change over frames [from, to), both channels. */
 static int max_jump(const int16_t *stereo, size_t from, size_t to)
 {
@@ -503,6 +561,9 @@ static void run_poly_tests(void)
     TT_RUN(every_note_of_a_full_chord_sounds);
     TT_RUN(extra_note_steals_the_oldest_held_voice_and_sounds);
     TT_RUN(extra_note_steals_the_oldest_released_voice_before_held_ones);
+    TT_RUN(steal_takes_a_free_voice_before_a_releasing_one);
+    TT_RUN(steal_takes_a_releasing_voice_before_a_pedal_held_one);
+    TT_RUN(steal_takes_a_pedal_held_voice_before_a_key_held_one);
     TT_RUN(no_click_when_a_voice_starts_is_stolen_or_ends);
     TT_RUN(stolen_voice_fades_then_new_note_attacks_from_silence);
     TT_RUN(note_released_during_a_steal_fade_still_sounds);

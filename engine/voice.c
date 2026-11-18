@@ -344,6 +344,17 @@ void fm_voice_release(fm_voice *v)
     }
 }
 
+int fm_voice_let_go(fm_voice *v)
+{
+    int held = v->key_down || v->sustained;
+#ifdef FM_CHECK_ENGINE /* debug builds: a key or the pedal holds only a sounding voice */
+    assert(!held || fm_voice_active(v));
+#endif
+    if (held) fm_voice_release(v);
+    if (fm_voice_active(v)) v->note = FM_VOICE_NO_NOTE;
+    return held;
+}
+
 /*
  * Aims osc2's level at osc2_level plus its modulation, with envelope 1
  * (the filter envelope) at `env1` and envelope 2 (the amp envelope's share) at `env2`,
