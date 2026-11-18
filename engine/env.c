@@ -135,6 +135,7 @@ void fm_env_reset(fm_env *e)
     e->stage = FM_ENV_IDLE;
     e->peak = FM_ENV_FULL;
     e->sus_level = 0;
+    e->lag = 0;
 }
 
 /* The sustain level for this note: the setting scaled by the peak
@@ -172,10 +173,26 @@ static uint32_t exp2_cents(int32_t cents)
     return k >= 0 ? v << k : v >> -k;
 }
 
+static void catch_up(fm_env *e);
+
 void fm_env_key(fm_env *e, uint8_t note)
 {
     int32_t f = e->set->key_follow;
+    catch_up(e); /* the samples so far at the old note's scale */
     e->ks = f ? exp2_cents(-f * ((int32_t)note - KEY_CENTER) / 10) : (uint32_t)1 << 16;
+}
+
+static int32_t advance(fm_env *e, uint32_t n);
+
+/* Steps the samples fm_env_skip counted, exactly: before any read or
+ * change, so a lazy envelope is never stale. */
+static void catch_up(fm_env *e)
+{
+    if (e->lag) {
+        uint32_t n = e->lag;
+        e->lag = 0;
+        advance(e, n);
+    }
 }
 
 void fm_env_gate_on(fm_env *e)
@@ -183,6 +200,7 @@ void fm_env_gate_on(fm_env *e)
 #ifdef FM_CHECK_ENGINE /* debug builds: started with fm_env_init */
     assert(e->set);
 #endif
+    catch_up(e);
     e->stage = FM_ENV_ATTACK;
     e->seg = 0; /* the next call starts the first segment */
     e->ramp = (uint8_t)RAMP_SEGS;
@@ -191,6 +209,7 @@ void fm_env_gate_on(fm_env *e)
 
 void fm_env_gate_off(fm_env *e)
 {
+    catch_up(e);
     if (e->stage == FM_ENV_IDLE) return;
     e->stage = FM_ENV_RELEASE;
     e->seg = 0;
@@ -198,6 +217,7 @@ void fm_env_gate_off(fm_env *e)
 
 void fm_env_fade(fm_env *e, uint32_t samples)
 {
+    catch_up(e);
     if (e->stage == FM_ENV_IDLE) return;
     e->stage = FM_ENV_FADE;
     e->seg = 0;
@@ -218,7 +238,9 @@ static void enter_decay(fm_env *e)
 
 void fm_env_retime(fm_env *e)
 {
-    int32_t old_sus = e->sus_level;
+    int32_t old_sus;
+    catch_up(e);
+    old_sus = e->sus_level;
     sustain_level(e);
     switch (e->stage) {
     case FM_ENV_ATTACK: /* a new segment on the new time at once: from the
@@ -228,12 +250,13 @@ void fm_env_retime(fm_env *e)
         break;
     case FM_ENV_DECAY:   /* a new tau: the running segment ends as it is (at
                           * most 64 samples), so setting a value again changes
-                          * nothing. A new sustain, or a time of 0, acts at
-                          * once: the segment was drawn toward the old one */
-        if (e->set->decay_samples == 0 || e->sus_level != old_sus) e->seg = 0;
+                          * nothing. A new sustain, or a time of 0 at this
+                          * note's scale, acts at once: the segment was drawn
+                          * toward the old one */
+        if (scaled(e, e->set->decay_samples) == 0 || e->sus_level != old_sus) e->seg = 0;
         break;
     case FM_ENV_RELEASE:
-        if (e->set->release_samples == 0) e->seg = 0;
+        if (scaled(e, e->set->release_samples) == 0) e->seg = 0;
         break;
     case FM_ENV_SUSTAIN:
         if (e->level != e->sus_level) enter_decay(e);
@@ -246,6 +269,10 @@ void fm_env_retime(fm_env *e)
 int32_t fm_env_next(fm_env *e)
 {
     int32_t s, d, rem;
+    uint32_t t;
+#ifdef FM_CHECK_ENGINE /* debug builds: a stepped envelope is never skipped */
+    assert(e->lag == 0);
+#endif
     if (e->seg) { /* inside a segment or a hold: the count alone */
         e->seg--;
         return e->level += e->step;
@@ -267,13 +294,15 @@ int32_t fm_env_next(fm_env *e)
     case FM_ENV_DECAY: /* a segment starts, or the decay lands */
         s = e->sus_level;
         d = e->level >= s ? e->level - s : s - e->level;
-        if (d <= FM_ENV_FLOOR || e->set->decay_samples == 0) {
+        /* a time of 0, or one key follow scales under a sample, lands
+         * at once: start_segment divides by it (#284) */
+        if (d <= FM_ENV_FLOOR || (t = scaled(e, e->set->decay_samples)) == 0) {
             e->level = s;
             e->stage = FM_ENV_SUSTAIN;
             hold(e);
             break;
         }
-        rem = start_segment(e, d, scaled(e, e->set->decay_samples));
+        rem = start_segment(e, d, t);
         if (e->level > s) {
             e->step = -e->step;
             rem = -rem;
@@ -282,13 +311,13 @@ int32_t fm_env_next(fm_env *e)
         e->level += e->step + rem;
         break;
     case FM_ENV_RELEASE: /* a segment starts, or the release ends */
-        if (e->level <= FM_ENV_FLOOR || e->set->release_samples == 0) {
+        if (e->level <= FM_ENV_FLOOR || (t = scaled(e, e->set->release_samples)) == 0) {
             e->level = 0;
             e->stage = FM_ENV_IDLE;
             hold(e);
             break;
         }
-        rem = start_segment(e, e->level, scaled(e, e->set->release_samples));
+        rem = start_segment(e, e->level, t);
         e->step = -e->step;
         e->seg--;
         e->level += e->step - rem;
@@ -313,7 +342,8 @@ int32_t fm_env_next(fm_env *e)
     return e->level;
 }
 
-int32_t fm_env_advance(fm_env *e, uint32_t n)
+/* n calls of fm_env_next at once: a few operations per segment */
+static int32_t advance(fm_env *e, uint32_t n)
 {
     while (n > 0) {
         if (e->seg) { /* no segment lands inside itself */
@@ -339,4 +369,26 @@ int32_t fm_env_advance(fm_env *e, uint32_t n)
         }
     }
     return e->level;
+}
+
+int32_t fm_env_level(fm_env *e)
+{
+    catch_up(e);
+    return e->level;
+}
+
+int32_t fm_env_advance(fm_env *e, uint32_t n)
+{
+    catch_up(e);
+    return advance(e, n);
+}
+
+void fm_env_skip_far(fm_env *e, uint32_t n)
+{
+    fm_env_advance(e, n);
+}
+
+void fm_env_catch_up(fm_env *e)
+{
+    catch_up(e);
 }
