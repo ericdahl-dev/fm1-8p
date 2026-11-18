@@ -750,11 +750,72 @@ TT_TEST(clock_out_restart_stops_first)
         TT_CHECK(!(ck_out[i] == 0xFAu && ck_out[i + 1u] == 0xFAu));
 }
 
+/* G14 off: nothing goes out. A G14 change takes effect at the next PLAY (Eric, Q3): turned on while
+ * playing, nothing till then; turned off while playing, that run keeps its ticks and ends with its stop */
+TT_TEST(clock_out_off_and_changed_while_playing)
+{
+    uint32_t n;
+    ck_fresh(SEQ_CLK_AUTO);                    /* off */
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.5);
+    TT_CHECK_EQ(ck_n_out, 0u);
+    seq_set_clock_out(&ck, 1);                 /* on, while playing: nothing yet */
+    ck_run(0.8);
+    TT_CHECK_EQ(ck_n_out, 0u);
+    ck_msg_at(0.8, 0, CK_PLAY);                /* stop: nothing (it never started out) */
+    ck_msg_at(1.0, 0, CK_PLAY);                /* the next PLAY: on now */
+    ck_run(1.3);
+    TT_CHECK(ck_n_out > 0u && ck_out[0] == 0xFAu);
+    seq_set_clock_out(&ck, 0);                 /* off, while playing: this run goes on sending */
+    n = ck_outs(0xF8u);
+    ck_run(1.6);
+    TT_CHECK(ck_outs(0xF8u) > n);
+    ck_msg_at(1.6, 0, CK_PLAY);                /* and ends with its stop */
+    ck_run(1.8);
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+    n = ck_n_out;
+    ck_msg_at(1.9, 0, CK_PLAY);                /* the next run: off */
+    ck_run(2.3);
+    TT_CHECK_EQ(ck_n_out, n);
+}
+
+/* TEMPO changed while playing, many times (120, 157.3, 91.7 ... BPM, each from a step's start): the clock
+ * out follows, still 6 ticks a step, the tick on each step's start in that step's note's block, with no
+ * drift after 64 steps (#286) */
+TT_TEST(clock_out_follows_tempo_changes)
+{
+    static const uint32_t T[4] = {1200, 1573, 917, 1342};
+    uint32_t j, k, n, i;
+    double t = 0.1;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    for (i = 0; i < 16u; i++) {                /* a new tempo every 4 steps */
+        seq_set_tempo(&ck, T[i % 4u]);
+        t += 4.0 * 60.0 / (T[i % 4u] / 10.0) / SEQ_PPQ;
+        ck_run(t - 0.03);
+    }
+    TT_CHECK(ck_n_on >= 60u);
+    for (j = 0, k = 0, n = 0; k < ck_n_out && j < ck_n_on; k++) {
+        if (ck_out[k] != 0xF8u)
+            continue;
+        if (n++ == 6u * j) {                   /* tick 6j: in step j's note's block */
+            if (fabs(ck_out_t[k] - ck_on[j]) > (double)CK_BLOCK / CK_FS + 1e-9)
+                printf("    step %u: its tick %.4f s, its note %.4f s\n", j, ck_out_t[k], ck_on[j]);
+            TT_CHECK(fabs(ck_out_t[k] - ck_on[j]) <= (double)CK_BLOCK / CK_FS + 1e-9);
+            j++;
+        }
+    }
+    TT_CHECK(j >= 60u);
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_out_ticks_with_the_steps);
     TT_RUN(clock_out_start_and_stop);
     TT_RUN(clock_out_restart_stops_first);
+    TT_RUN(clock_out_off_and_changed_while_playing);
+    TT_RUN(clock_out_follows_tempo_changes);
     TT_RUN(clock_lost_while_armed_disarms);
     TT_RUN(clock_source_switched_while_armed);
     TT_RUN(clock_lost_while_armed_under_midi_waits_on);

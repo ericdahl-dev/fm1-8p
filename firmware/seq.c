@@ -82,6 +82,21 @@ static void out_put(seq *s, uint8_t st)
     s->out_w++;
 }
 
+/* interrupt: its own clock moved on by d (as acc counts it): the clock out's ticks that fell due, 24 a
+ * quarter, unswung (a step is fs x 600 of acc at 50 %: six ticks). Moved with acc, step by step, so a
+ * tempo change at a step's start can't drift it from the steps */
+static void out_adv(seq *s, uint32_t d, uint32_t xi)
+{
+    uint32_t unit = s->fs * 100u;
+    if (!s->out_on || xi)
+        return;
+    s->out_acc += d;
+    while (s->out_acc >= unit) {
+        s->out_acc -= unit;
+        s->out_ticks++;
+    }
+}
+
 void seq_set_clock_out(seq *s, uint32_t on)
 {
     s->out_want = (uint8_t)(on != 0);
@@ -854,14 +869,6 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
         return cnt;
     xi = s->ext ? s->ext_inc : 0;
     s->upos += n * xi;
-    if (s->out_on && !xi) {                     /* #286: its own clock's ticks, 24 a quarter, unswung */
-        uint32_t unit = fs * 100u;              /* (a step is fs x 600 of acc at 50 %: six ticks) */
-        s->out_acc += n * ((uint32_t)s->run.tempo * SEQ_PPQ);
-        while (s->out_acc >= unit) {
-            s->out_acc -= unit;
-            s->out_ticks++;
-        }
-    }
     while (t < n) {
         inc = xi ? xi : (uint32_t)s->run.tempo * SEQ_PPQ;
         thr = step_len(s, fs);                  /* (at 50 % swing, fs x 600: every step alike) */
@@ -881,10 +888,12 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
         j = s->acc >= target ? 0 : (target - s->acc + inc - 1u) / inc;
         if (j >= n - t) {                       /* not in this block */
             s->acc += (n - t) * inc;
+            out_adv(s, (n - t) * inc, xi);
             break;
         }
         t += j;
         s->acc += j * inc;
+        out_adv(s, j * inc, xi);
         if (target == glide && glide != thr) {  /* a GLIDE update: where the step's clock has got to */
             uint32_t q = s->acc / (thr >> 10);  /* 0..1024 of the step */
             q = q > 1024u ? 1024u : q;
