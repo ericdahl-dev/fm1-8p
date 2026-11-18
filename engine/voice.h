@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 #include "env.h"
-#include "filter.h"
+#include "vfilter.h"
 #include "lfo.h"
 #include "mod.h"
 #include "osc.h"
@@ -40,23 +40,16 @@ typedef struct {
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
-    /* the filter's byte-sized state, packed with the above */
-    uint8_t key_note;       /* the key the filter tracks: the sounding
-                             * note's, kept when a mode switch sets
-                             * FM_VOICE_NO_NOTE */
-    uint8_t next_key;       /* `note` as set, for key_note when it starts
-                             * (after a steal fade, as next_pitch) */
-    uint8_t ctrl_phase;     /* samples until the next cutoff update */
+    uint8_t next_key;       /* `note` as set, for the filter's key when it
+                             * starts (after a steal fade, as next_pitch) */
     uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
     uint8_t velocity;       /* the sounding note's MIDI velocity */
     uint8_t next_velocity;  /* `note`'s, kept beside next_peak */
-    /* filter: settings copied from the engine's parameters, and state */
-    fm_filter filter;
+    /* the filter, its cutoff and the voice's control cadence (vfilter.h);
+     * its key stays the sounding note's when a mode switch sets
+     * FM_VOICE_NO_NOTE */
+    fm_vfilter vf;
     fm_env filter_env;      /* lazy (fm_env_skip): read at the control rate */
-    int32_t rate_cents;     /* fm_filter_rate_cents(sample rate) */
-    int32_t cutoff_cents;   /* base cutoff, linear cents (fm_filter_linear_cents) */
-    int32_t key_track;      /* per mille */
-    int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
     int32_t mix_base;       /* osc2_level, Q1.30 */
     int32_t mix_step;       /* the mix's glide each sample to its next target */
     /* last: read only at control ticks and note starts, so the fields the
@@ -304,6 +297,20 @@ uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m);
 /* Sets the highpass position 0..4 of voice `v`'s filter (see
  * fm_filter_set_highpass), keeping the voice's busy word. */
 void fm_voice_set_highpass(fm_voice *v, uint8_t step);
+
+/* The filter's cutoff setting (linear cents, fm_filter_linear_cents) and
+ * key tracking (per mille): taken at the voice's next control point. */
+void fm_voice_set_cutoff(fm_voice *v, int32_t linear_cents);
+void fm_voice_set_key_track(fm_voice *v, int32_t permille);
+
+/* The filter's resonance, per mille: at once. */
+void fm_voice_set_resonance(fm_voice *v, int32_t permille);
+
+/* The voice's filter, to read (its cutoff, key and cadence: vfilter.h). */
+static inline const fm_vfilter *fm_voice_filter(const fm_voice *v)
+{
+    return &v->vf;
+}
 
 /*
  * Adds `frames` samples of the voice (Q8.24) to `mix`. `next_tick` is the

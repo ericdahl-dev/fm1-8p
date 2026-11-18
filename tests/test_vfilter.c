@@ -233,11 +233,11 @@ TT_TEST(vfilter_legato_key_change_recomposes_at_once)
     fm_engine_note_on(&vfe, 48, 100);
     fm_engine_render(&vfe, vfbuf, 7); /* mid-cadence */
     v = &vfe.voices[0];
-    TT_CHECK_EQ(v->cutoff_now, fm_filter_voice_cents(base, 1000, 48, 0));
-    phase = v->ctrl_phase;
+    TT_CHECK_EQ(fm_vfilter_cutoff(fm_voice_filter(v)), fm_filter_voice_cents(base, 1000, 48, 0));
+    phase = fm_vfilter_phase(fm_voice_filter(v));
     fm_engine_note_on(&vfe, 72, 100); /* the newest note: the voice changes to it */
-    TT_CHECK_EQ(v->cutoff_now, fm_filter_voice_cents(base, 1000, 72, 0));
-    TT_CHECK_EQ(v->ctrl_phase, phase);
+    TT_CHECK_EQ(fm_vfilter_cutoff(fm_voice_filter(v)), fm_filter_voice_cents(base, 1000, 72, 0));
+    TT_CHECK_EQ(fm_vfilter_phase(fm_voice_filter(v)), phase);
 }
 
 /* 11. A cutoff or key-track setting changed mid-note takes effect at the
@@ -250,11 +250,11 @@ TT_TEST(vfilter_setting_takes_effect_at_the_next_control_point)
     int k;
     for (k = 0; k < 2; k++) {
         fm_voice *v = vf_engine(72, 21); /* mid-cadence, off the tracking pivot (C4) */
-        int32_t before = v->cutoff_now;
-        uint32_t n = 0, want = v->ctrl_phase + 1u;
+        int32_t before = fm_vfilter_cutoff(fm_voice_filter(v));
+        uint32_t n = 0, want = fm_vfilter_phase(fm_voice_filter(v)) + 1u;
         fm_engine_set_param(&vfe, ids[k], vals[k]);
-        TT_CHECK_EQ(v->cutoff_now, before);
-        while (v->cutoff_now == before && n < 64) {
+        TT_CHECK_EQ(fm_vfilter_cutoff(fm_voice_filter(v)), before);
+        while (fm_vfilter_cutoff(fm_voice_filter(v)) == before && n < 64) {
             fm_engine_render(&vfe, vfbuf, 1);
             n++;
         }

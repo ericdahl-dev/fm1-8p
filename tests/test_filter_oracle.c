@@ -136,7 +136,7 @@ static int oracle_states_bounded(const fm_engine *e)
 {
     size_t v, i;
     for (v = 0; v < FM_MAX_VOICES; v++) {
-        const fm_filter *f = &e->voices[v].filter;
+        const fm_filter *f = fm_vfilter_filter(fm_voice_filter(&e->voices[v]));
         if (f->hp > FILTER_BOUND || f->hp < -FILTER_BOUND) return 0;
         for (i = 0; i < 4; i++)
             if (f->s[i] > FILTER_STATE_BOUND || f->s[i] < -FILTER_STATE_BOUND) return 0;

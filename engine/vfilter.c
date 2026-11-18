@@ -23,7 +23,7 @@ void fm_vfilter_set_base(fm_vfilter *vf, int32_t linear_cents)
 
 void fm_vfilter_set_key_track(fm_vfilter *vf, int32_t permille)
 {
-    vf->key_track = permille;
+    vf->key_track = (int16_t)permille; /* 0..1300 (params.c) */
 }
 
 void fm_vfilter_set_key(fm_vfilter *vf, uint8_t note)

@@ -512,15 +512,13 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_voice *vc = &e->voices[i];
         switch (id) {
         case FM_PARAM_FILTER_CUTOFF_CENTS:
-            vc->cutoff_cents = v;
-            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
+            fm_voice_set_cutoff(vc, v);
             break;
         case FM_PARAM_FILTER_RESONANCE:
-            fm_filter_set_resonance(&vc->filter, v);
+            fm_voice_set_resonance(vc, v);
             break;
         case FM_PARAM_FILTER_KEY_TRACK:
-            vc->key_track = v;
-            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
+            fm_voice_set_key_track(vc, v);
             break;
         case FM_PARAM_HIGHPASS_STEP:
             fm_voice_set_highpass(vc, (uint8_t)v);
