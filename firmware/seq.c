@@ -67,6 +67,44 @@ void seq_init(seq *s)
     s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = s->ext_hold = 0;
     s->blk_seq = s->blk_t = s->blk_u = s->blk_inc = s->blk_fs = 0;
     s->upos = s->fs = 0;
+    s->out_want = s->out_on = 0;
+    s->out_acc = s->out_ticks = s->out_sent = s->out_w = s->out_r = 0;
+}
+
+/* interrupt: a start or stop out, after the ticks counted so far */
+static void out_put(seq *s, uint8_t st)
+{
+    if (s->out_w - s->out_r >= SEQ_OUT_EV)
+        return;                                 /* (the main loop gone for 8 transport changes: dropped) */
+    s->out_ev[s->out_w % SEQ_OUT_EV].st = st;
+    s->out_ev[s->out_w % SEQ_OUT_EV].at = s->out_ticks;
+    BARRIER();
+    s->out_w++;
+}
+
+void seq_set_clock_out(seq *s, uint32_t on)
+{
+    s->out_want = (uint8_t)(on != 0);
+}
+
+int seq_clock_out_take(seq *s, uint8_t *st)
+{
+    if (s->out_r != s->out_w) {                 /* the ticks before it, then it */
+        if ((int32_t)(s->out_ev[s->out_r % SEQ_OUT_EV].at - s->out_sent) > 0) {
+            *st = 0xF8u;
+            s->out_sent++;
+            return 1;
+        }
+        *st = s->out_ev[s->out_r % SEQ_OUT_EV].st;
+        s->out_r++;
+        return 1;
+    }
+    if (s->out_sent != s->out_ticks) {
+        *st = 0xF8u;
+        s->out_sent++;
+        return 1;
+    }
+    return 0;
 }
 
 uint32_t seq_length(const seq *s)
@@ -786,12 +824,23 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             thr = step_len(s, fs);
             s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
         } else if (s->want) {
+            if (s->playing && s->out_on)
+                out_put(s, 0xFCu);              /* #286: a restart: stop, then start (never two starts) */
+            s->out_on = s->out_want;            /* #286: G14 as it is at the start */
+            if (s->out_on) {
+                out_put(s, 0xFAu);              /* start, then the first tick, with step 1 */
+                s->out_acc = 0;
+                s->out_ticks++;
+            }
             s->pos = s->acc = 0;
             s->cur_bend = s->cur_mod = 0;       /* (a first GLIDE moves from center and 0) */
             s->glide_on = 0;
             s->playing = 1;
             cnt = start_step(s, ev, cnt, 0, voices);
         } else {
+            if (s->playing && s->out_on)
+                out_put(s, 0xFCu);              /* #286: stop */
+            s->out_on = 0;
             if (s->playing) {                   /* bend to center, mod to the live wheel (#42) */
                 cnt = put_ctl(ev, cnt, 0, SEQ_EV_BEND, 0);
                 cnt = put_ctl(ev, cnt, 0, SEQ_EV_MOD, SEQ_MOD_LIVE);
@@ -805,6 +854,14 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
         return cnt;
     xi = s->ext ? s->ext_inc : 0;
     s->upos += n * xi;
+    if (s->out_on && !xi) {                     /* #286: its own clock's ticks, 24 a quarter, unswung */
+        uint32_t unit = fs * 100u;              /* (a step is fs x 600 of acc at 50 %: six ticks) */
+        s->out_acc += n * ((uint32_t)s->run.tempo * SEQ_PPQ);
+        while (s->out_acc >= unit) {
+            s->out_acc -= unit;
+            s->out_ticks++;
+        }
+    }
     while (t < n) {
         inc = xi ? xi : (uint32_t)s->run.tempo * SEQ_PPQ;
         thr = step_len(s, fs);                  /* (at 50 % swing, fs x 600: every step alike) */

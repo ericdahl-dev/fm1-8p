@@ -19,6 +19,9 @@ static uint32_t ck_n_on, ck_n_off;
 static uint32_t ck_done, ck_m;                 /* ck_run's frames rendered and messages handled so far */
 static uint32_t ck_rng = 12345u;
 static double ck_watch_from = 1e9;             /* from this time on, the tempo shown's range */
+static uint8_t ck_out[8192];                   /* MIDI real-time sent out (#286), as the main loop takes it */
+static double ck_out_t[8192];                  /* and when: the end of the block it was taken after */
+static uint32_t ck_n_out;
 static uint32_t ck_tempo_lo, ck_tempo_hi;
 
 static uint32_t ck_host(double s) { return (uint32_t)(uint64_t)llround(s * SEQ_CLK_HZ); }
@@ -37,7 +40,7 @@ static void ck_fresh(uint32_t src)
     }
     seq_set_gate(&ck, 50);
     seq_set_clock_source(&ck, src);
-    ck_n_msgs = ck_n_on = ck_n_off = ck_done = ck_m = 0;
+    ck_n_msgs = ck_n_on = ck_n_off = ck_done = ck_m = ck_n_out = 0;
     ck_rng = 12345u;
     ck_watch_from = 1e9;
     ck_tempo_lo = 0xFFFFFFFFu;
@@ -114,6 +117,13 @@ static void ck_run(double secs)
                 }
             }
         done += CK_BLOCK;
+        {                                      /* the main loop sends what's due (#286) */
+            uint8_t b;
+            while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u) {
+                ck_out[ck_n_out] = b;
+                ck_out_t[ck_n_out++] = (double)done / CK_FS;
+            }
+        }
     }
     ck_done = done;
     ck_m = m;
@@ -658,8 +668,93 @@ TT_TEST(clock_switch_to_auto_keeps_a_continue)
     TT_CHECK_EQ(ck_note[n], 48u + n);           /* the step after the last played, not step 1 */
 }
 
+/* the out bytes of kind st, how many */
+static uint32_t ck_outs(uint8_t st)
+{
+    uint32_t i, c = 0;
+    for (i = 0; i < ck_n_out; i++)
+        c += ck_out[i] == st;
+    return c;
+}
+
+/* G14 CLOCK OUT on, the sequencer on its own clock (120 BPM, a step 125 ms): a start, then 24 ticks a
+ * quarter, 6 a step, the tick on each step's start taken in the same block as its note (#286) */
+TT_TEST(clock_out_ticks_with_the_steps)
+{
+    uint32_t j, k, ticks;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.1 + 8 * 0.125 - 0.02);            /* steps 1..8 */
+    TT_CHECK(ck_n_out > 0u && ck_out[0] == 0xFAu);
+    TT_CHECK_EQ(ck_n_on, 8u);
+    ticks = ck_outs(0xF8u);
+    TT_CHECK(ticks >= 6u * 7u + 1u && ticks <= 6u * 8u);
+    for (j = 0, k = 0; k < ck_n_out && j < ck_n_on; k++) {    /* tick 6j: in step j's note's block */
+        uint32_t n, i;
+        for (i = 0, n = 0; i <= k; i++)
+            n += ck_out[i] == 0xF8u;
+        if (ck_out[k] == 0xF8u && n == 6u * j + 1u) {
+            TT_CHECK(fabs(ck_out_t[k] - ck_on[j]) <= (double)CK_BLOCK / CK_FS + 1e-9);
+            j++;
+        }
+    }
+    TT_CHECK_EQ(j, 8u);
+}
+
+/* G14 on: PLAY sends a start and STOP a stop, after the ticks before it; PLAY again, a start again. Never
+ * two starts or two stops in a row; no tick after a stop till the next start; a stop with nothing
+ * playing sends nothing (#286) */
+TT_TEST(clock_out_start_and_stop)
+{
+    uint32_t i;
+    uint8_t last = 0;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_msg_at(0.6, 0, CK_PLAY);                /* stop */
+    ck_msg_at(0.8, 0, CK_PLAY);                /* again */
+    ck_msg_at(1.2, 0, CK_PLAY);                /* stop */
+    ck_run(1.6);
+    TT_CHECK_EQ(ck_outs(0xFAu), 2u);
+    TT_CHECK_EQ(ck_outs(0xFCu), 2u);
+    TT_CHECK_EQ(ck_out[0], 0xFAu);
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);  /* (nothing after the last stop) */
+    for (i = 0; i < ck_n_out; i++) {
+        if (ck_out[i] == 0xFAu || ck_out[i] == 0xFCu) {
+            TT_CHECK(ck_out[i] != last);        /* start, stop, start, stop */
+            last = ck_out[i];
+        } else {
+            TT_CHECK_EQ(last, 0xFAu);           /* a tick only between a start and its stop */
+        }
+    }
+    seq_stop(&ck);                              /* stopped already: nothing more */
+    ck_run(1.8);
+    TT_CHECK_EQ(ck_outs(0xFCu), 2u);
+}
+
+/* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
+ * start: never two starts in a row (#286) */
+TT_TEST(clock_out_restart_stops_first)
+{
+    uint32_t i;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.4);
+    seq_play(&ck);                             /* again, playing: from step 1 */
+    ck_run(0.7);
+    TT_CHECK_EQ(ck_outs(0xFAu), 2u);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+    for (i = 0; i + 1u < ck_n_out; i++)
+        TT_CHECK(!(ck_out[i] == 0xFAu && ck_out[i + 1u] == 0xFAu));
+}
+
 static void run_seq_clock_tests(void)
 {
+    TT_RUN(clock_out_ticks_with_the_steps);
+    TT_RUN(clock_out_start_and_stop);
+    TT_RUN(clock_out_restart_stops_first);
     TT_RUN(clock_lost_while_armed_disarms);
     TT_RUN(clock_source_switched_while_armed);
     TT_RUN(clock_lost_while_armed_under_midi_waits_on);
