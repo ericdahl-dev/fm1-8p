@@ -51,6 +51,7 @@ void seq_init(seq *s)
     s->ask_play = s->ask_stop = s->play_seen = s->stop_seen = 0;
     s->want = 0;
     s->transpose = s->run_transpose = 0;
+    s->key_transpose = 0;
     s->pos = s->acc = s->gated = 0;
     s->n_sounding = 0;
     s->cur_bend = s->cur_mod = 0;
@@ -162,6 +163,16 @@ void seq_set_transpose(seq *s, int32_t semis)
 int32_t seq_transpose(const seq *s)
 {
     return s->transpose;
+}
+
+void seq_set_key_transpose(seq *s, uint32_t on)
+{
+    s->key_transpose = (uint8_t)(on != 0);
+}
+
+uint32_t seq_key_transpose(const seq *s)
+{
+    return s->key_transpose;
 }
 
 uint32_t seq_tempo(const seq *s)

@@ -64,6 +64,15 @@ void ui_seq_clock_text(const ui *u, char *s);
 /* The tempo SEQ view shows, tenths of a BPM: the clock's in whole BPM when it runs the steps or they're
  * stopped (#38), else the pattern's */
 uint32_t ui_seq_tempo_shown(const ui *u);
+/* KEY TRANSPOSE (#39, interaction.md 5): on, with the sequencer playing, outside SEQ view, a panel key k
+ * makes no sound and sets the transpose to the lowest key so held (its pitch before the octave shift)
+ * minus C4, from the next step; its up is taken too, and keeps the transpose. 1 when it took the key.
+ * A key's up goes where its down went, whatever has changed since. may: 0 while the keypad has the keys */
+int ui_seq_ktr_key(ui *u, uint32_t k, int down, int may);
+/* The same for a MIDI note in (on: a note on with a velocity), against MIDI note 60, in any view; in SEQ
+ * view not while a step is armed or REC is (then it plays that step). 1 when it took the note (it
+ * sounds nowhere, and its note off is taken too). */
+int ui_seq_ktr_note(ui *u, uint32_t note, uint32_t vel, int on);
 /* SEQ view: a step key (0..15) down or up */
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* An event while SEQ view is open. */

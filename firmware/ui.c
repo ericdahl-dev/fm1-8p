@@ -381,6 +381,8 @@ void ui_init(ui *u, play *p)
     u->seq_msg[0] = 0;
     u->pc_out = -1;
     u->live_bend = 0;
+    u->ktr_keys = 0;
+    u->ktr_notes[0] = u->ktr_notes[1] = u->ktr_notes[2] = u->ktr_notes[3] = 0;
     u->live_mod = 0;
     u->built_bend = 0;
     u->built_mod = 0;
@@ -880,6 +882,8 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
         ui_seq_step_key(u, k, 1, ms);
         return 1;
     }                                           /* (armed or REC: every key plays, ui_chord_note collects it) */
+    if (ui_seq_ktr_key(u, k, down, u->jump < 0))
+        return 1;                               /* KEY TRANSPOSE took it (or its down): no sound */
     if (!down) {                                /* an up goes where its down went */
         if (!(u->jump_keys >> k & 1u))
             return 0;
