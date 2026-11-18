@@ -434,16 +434,18 @@ static uint32_t mean_len(const seq *s, uint32_t t, uint32_t m)
 
 #define CLK_HOLD 75u                            /* the whole BPM shown moves when the tempo is 0.75 BPM off it */
 
-/* clk_whole from clk_view: the tempo in hundredths of a BPM (tenths would truncate, and hold 0.71 down
- * against 0.8 up), rounded to a whole BPM, held while within CLK_HOLD hundredths of the one shown */
+/* clk_whole from clk_view: the tempo rounded to a whole BPM, held while it is within CLK_HOLD hundredths
+ * of the one shown. The edges are compared exactly, in counts (tempo x tick length is a constant), so
+ * they are the same up and down: nothing truncated first (Codex: tenths held 0.71 down, 0.8 up) */
 static void hold_whole(seq *s)
 {
-    uint32_t d = (s->clk_view + 8u) >> 4, h, w;
+    const uint64_t k = (uint64_t)CLK_TENTHS_COUNTS * 10u;   /* hundredths of a BPM x counts a tick */
+    uint32_t d = (s->clk_view + 8u) >> 4, w;
     if (!s->clk_present || !s->clk_view || !d)
         return;
-    h = CLK_TENTHS_COUNTS / d * 10u + CLK_TENTHS_COUNTS % d * 10u / d;
-    w = (h + 50u) / 100u * 10u;
-    if (!s->clk_whole || h >= s->clk_whole * 10u + CLK_HOLD || h + CLK_HOLD <= s->clk_whole * 10u)
+    w = (uint32_t)((k + (uint64_t)d * 50u) / ((uint64_t)d * 100u)) * 10u;   /* rounded, in tenths */
+    if (!s->clk_whole || k >= (uint64_t)(s->clk_whole * 10u + CLK_HOLD) * d ||
+        k <= (uint64_t)(s->clk_whole * 10u - CLK_HOLD) * d)
         s->clk_whole = w < 10u ? 10u : w;
 }
 

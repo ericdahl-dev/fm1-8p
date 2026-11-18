@@ -1630,10 +1630,38 @@ TT_TEST(seq_tempo_shown_moves_at_three_quarters_both_ways)
     TT_CHECK_EQ(seq_shown_after(121.24, 480, &t), 121u);
 }
 
+/* the whole BPM shown, after n ticks exactly dt counts apart, on from host time *t */
+static uint32_t seq_shown_after_counts(uint32_t dt, uint32_t n, uint32_t *t)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++, *t += dt)
+        seq_clock_in(play_seq(&ui_p), 0xF8u, *t);
+    return ui_seq_tempo_shown(&ui_u) / 10u;
+}
+
+/* The 0.75 BPM edges exactly, as tick lengths (Codex on 300c4fd: a floored hundredth moved at 0.746
+ * down): at 122 shown, ticks of 494830 counts (121.2538 BPM, 0.7462 under) and 494844 (121.2503) hold,
+ * 494848 (121.2493) moves to 121; up from 122, 488800 (122.7496) holds and 488796 (122.7506) moves. (Two
+ * counts either side: the smoothed tick settles to within a count, not onto it.) */
+TT_TEST(seq_tempo_shown_edges_are_exact)
+{
+    uint32_t t = 1000000u, at122 = (uint32_t)(SEQ_CLK_HZ * 60.0 / (122.0 * SEQ_CLK_PPQN));
+    ui_setup();
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    TT_CHECK_EQ(seq_shown_after_counts(at122, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(494830u, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(494844u, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(494848u, 480, &t), 121u);
+    TT_CHECK_EQ(seq_shown_after_counts(at122, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(488800u, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(488796u, 480, &t), 123u);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_playing_its_own_clock_shows_its_own_tempo);
     TT_RUN(seq_tempo_shown_moves_at_three_quarters_both_ways);
+    TT_RUN(seq_tempo_shown_edges_are_exact);
     TT_RUN(seq_a_tapped_step_takes_the_live_bend_and_mod);
     TT_RUN(seq_a_step_keeps_the_bend_its_first_note_had);
     TT_RUN(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing);

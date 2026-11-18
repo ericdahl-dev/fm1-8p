@@ -516,12 +516,15 @@ interaction model is the same in both.
     is dropped.
   - The tempo shown is the clock's whole BPM, held against jitter: it moves
     when the clock is 0.75 BPM off it, up or down.
-  - A clock slower than 10 BPM (over 250 ms a tick) never counts as a clock:
-    it is gone before its second tick measures it.
+  - A clock that starts slower than 10 BPM (over 250 ms a tick) never counts
+    as a clock: it is gone before its second tick measures it. Once one is
+    measured, it is gone only after three of its ticks' time, so a clock
+    locked faster may slow below 10 BPM and stay.
   - While AUTO plays its own clock, a clock coming in with no start doesn't
     take over: the screen keeps INT and the pattern's tempo, and TEMPO turns.
-  - Waiting on a bare MIDI start (no clock yet), PLAY arms and a second PLAY
-    cancels, as when waiting for a start (Eric, 2026-11-18).
+  - G13 MIDI, waiting on a bare MIDI start (no clock yet): PLAY arms and a
+    second PLAY cancels, as when waiting for a start (Eric, 2026-11-18). In
+    AUTO, PLAY then plays its own clock.
 - **Under MIDI clock** (#38): 24 ticks a quarter note, 6 a step. MIDI start
   plays from step 1 and continue from the step after the last one played,
   each on the next tick. MIDI stop lets every note go. The steps start on
