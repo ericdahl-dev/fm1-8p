@@ -29,6 +29,7 @@
 #include "test_filter.c"
 #include "test_busy.c"
 #include "test_voice_life.c"
+#include "test_vfilter.c"
 #include "test_filter_oracle.c"
 #include "test_play.c"
 #include "test_ui.c"
@@ -68,6 +69,7 @@ int main(void)
     run_filter_tests();
     run_busy_tests();
     run_voice_life_tests();
+    run_vfilter_tests();
     run_filter_oracle_tests();
     run_play_tests();
     run_ui_tests();
