@@ -299,6 +299,13 @@ def tone_args(tree, bank=None):
 WHOLE_RATIO_CENTS = 25.0
 
 
+def off_whole_ratio_cents(cents):
+    """How far an interval of `cents` (osc2 over osc1) is from the nearest whole-number ratio, either way
+    up, in cents."""
+    r = 2 ** (abs(cents) / 1200)
+    return abs(1200 * np.log2(r / max(1, round(r))))
+
+
 def inharmonic_tones(tree, bank=None):
     """The tone numbers of BANK (default the factory bank) with ring or cross-mod on (XMOD_AM), no sync, and
     oscillators more than WHOLE_RATIO_CENTS from a whole-number ratio: they have no single pitch, so
@@ -310,11 +317,10 @@ def inharmonic_tones(tree, bank=None):
     import jx8p
     with open(bank or os.path.join(tree, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
         tones = jx8p.parse_syx(fh.read())
-    def off_whole(e):   # cents from the nearest whole-number ratio of the oscillators, either way up
-        c = (1200 * (e["OSC2_OCTAVE"] - e["OSC1_OCTAVE"]) + 100 * (e["OSC2_COARSE_SEMIS"] - e["OSC1_COARSE_SEMIS"])
-             + e.get("OSC2_FINE_CENTS", 0) - e.get("OSC1_FINE_CENTS", 0))
-        r = 2 ** (abs(c) / 1200)
-        return abs(1200 * np.log2(r / max(1, round(r))))
+    def off_whole(e):
+        return off_whole_ratio_cents(
+            1200 * (e["OSC2_OCTAVE"] - e["OSC1_OCTAVE"]) + 100 * (e["OSC2_COARSE_SEMIS"] - e["OSC1_COARSE_SEMIS"])
+            + e.get("OSC2_FINE_CENTS", 0) - e.get("OSC1_FINE_CENTS", 0))
     engine = [jx8p.to_engine(t) for t in tones]
     return {i for i, e in enumerate(engine, 1)
             if e.get("XMOD_AM") and not e.get("OSC_SYNC") and off_whole(e) > WHOLE_RATIO_CENTS}
