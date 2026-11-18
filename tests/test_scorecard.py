@@ -126,6 +126,16 @@ class MetricTest(unittest.TestCase):
         self.assertEqual(s["pitch_cents"], {"low": None, "high": None})
         self.assertEqual(s["spectral_db_mean"], 0.0)
 
+    # Which tones get no pitch: the converted patch's ring or cross-mod (XMOD_AM). Sync alone keeps a
+    # pitch (the pair sounds at osc1's), as does a plain tone.
+    def test_ring_and_cross_mod_tones_are_the_inharmonic_ones(self):
+        tree = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        odd = self.sc.inharmonic_tones(tree)
+        self.assertIn(14, odd)       # WINDCHIMES: ring
+        self.assertIn(15, odd)       # E. BASS: sync and cross-mod
+        self.assertNotIn(1, odd)     # PIANO 1
+        self.assertNotIn(22, odd)    # CLAV: sync alone
+
 @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
 class HistoryTest(unittest.TestCase):
     def setUp(self):

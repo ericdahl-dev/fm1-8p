@@ -295,6 +295,17 @@ def tone_args(tree, bank=None):
     return out
 
 
+def inharmonic_tones(tree, bank=None):
+    """The tone numbers of BANK (default the factory bank) with ring or cross-mod on (XMOD_AM): they have
+    no single pitch, so score_tone reports none for them (s8). Sync alone keeps one."""
+    import sys
+    sys.path.insert(0, os.path.join(tree, "tools"))
+    import jx8p
+    with open(bank or os.path.join(tree, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
+        tones = jx8p.parse_syx(fh.read())
+    return {i for i, t in enumerate(tones, 1) if jx8p.to_engine(t).get("XMOD_AM")}
+
+
 def render_tones(tree, mid, work, bank=None):
     """Renders the 32 tones with TREE's build/fm1-8p-render (48 kHz, 3 s tail, 6 voices); yields
     (tone number, wav path)."""
@@ -343,10 +354,11 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
     if bank and man.get("bank_sha256") != sha256(bank):
         raise SystemExit(f"scorecard: {ref} was not rendered from {bank}")
     names = {i: n for i, n, _ in tone_args(tree, bank)}
+    odd = inharmonic_tones(tree, bank)
     date, ref_id = now(), man["midi_sha256"][:12]
     rows = []
     for i, path in render_tones(tree, mid, work, bank):
-        score = score_tone(read_wav(path), read_wav(os.path.join(ref, f"{i:02d}.wav")))
+        score = score_tone(read_wav(path), read_wav(os.path.join(ref, f"{i:02d}.wav")), harmonic=i not in odd)
         rows.append(tone_row(commit, date, i, names[i], score, ref_id, bank_name))
     params = []
     if match:
