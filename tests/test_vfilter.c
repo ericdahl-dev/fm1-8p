@@ -182,6 +182,27 @@ TT_TEST(vfilter_resonance_and_highpass_pass_through)
     TT_CHECK(fm_vfilter_is_wire(f));
 }
 
+/* 12. Clear (all sound off): no state left to ring into the next note,
+ * the settings and the cutoff kept. A closed filter that was ringing
+ * then answers silence with silence. */
+TT_TEST(vfilter_clear_drops_the_state_keeps_the_settings)
+{
+    fm_vfilter *f = vf_reset();
+    int32_t cut;
+    uint32_t i;
+    int silent = 1;
+    fm_vfilter_set_base(f, fm_filter_linear_cents(5000));
+    fm_vfilter_set_resonance(f, 900);
+    fm_vfilter_update(f, 0);
+    cut = fm_vfilter_cutoff(f);
+    for (i = 0; i < 64; i++) fm_vfilter_run(f, (i & 8) ? 1 << 24 : -(1 << 24));
+    fm_vfilter_clear(f);
+    for (i = 0; i < 64; i++) silent &= fm_vfilter_run(f, 0) == 0;
+    TT_CHECK(silent);
+    TT_CHECK_EQ(fm_vfilter_cutoff(f), cut);
+    TT_CHECK(fm_vfilter_at_rest(f));
+}
+
 static fm_engine vfe;
 static int16_t vfbuf[2 * 64];
 
@@ -252,6 +273,7 @@ static void run_vfilter_tests(void)
     TT_RUN(vfilter_pass_keeps_the_last_sample_for_closing);
     TT_RUN(vfilter_at_rest_means_set_to_its_settings);
     TT_RUN(vfilter_resonance_and_highpass_pass_through);
+    TT_RUN(vfilter_clear_drops_the_state_keeps_the_settings);
     TT_RUN(vfilter_legato_key_change_recomposes_at_once);
     TT_RUN(vfilter_setting_takes_effect_at_the_next_control_point);
 }

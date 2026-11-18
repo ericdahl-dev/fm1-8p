@@ -31,6 +31,11 @@ void fm_vfilter_set_key(fm_vfilter *vf, uint8_t note)
     vf->key = note;
 }
 
+void fm_vfilter_clear(fm_vfilter *vf)
+{
+    fm_filter_clear(&vf->f);
+}
+
 void fm_vfilter_set_resonance(fm_vfilter *vf, int32_t permille)
 {
     fm_filter_set_resonance(&vf->f, permille);

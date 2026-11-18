@@ -50,6 +50,10 @@ void fm_vfilter_set_key_track(fm_vfilter *vf, int32_t permille);
  * the next update. */
 void fm_vfilter_set_key(fm_vfilter *vf, uint8_t note);
 
+/* Drops the filter's state (all sound off: nothing rings into the next
+ * note), keeping the settings and the cutoff. */
+void fm_vfilter_clear(fm_vfilter *vf);
+
 /* Resonance, per mille: at once (fm_filter_set_resonance). */
 void fm_vfilter_set_resonance(fm_vfilter *vf, int32_t permille);
 
