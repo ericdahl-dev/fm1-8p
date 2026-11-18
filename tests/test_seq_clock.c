@@ -600,12 +600,73 @@ TT_TEST(clock_start_before_any_tick_is_waiting)
     }
 }
 
+/* PLAY that runs on the internal clock waits for nothing, whatever start came in before: armed under MIDI
+ * with a start in and no tick, G13 to AUTO with no clock (it plays its own); or AUTO, a bare start with no
+ * clock, then PLAY. Neither shows WAITING FOR CLOCK while its own steps play (review of 921ec2d) */
+TT_TEST(clock_play_on_its_own_clock_is_not_waiting)
+{
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_msg_at(0.1, 0, CK_PLAY);                /* armed */
+    ck_msg_at(0.2, 0, 0xFAu);                  /* a start, no tick */
+    ck_run(0.3);
+    seq_set_clock_source(&ck, SEQ_CLK_AUTO);   /* AUTO, no clock: its own */
+    ck_run(1.5);
+    TT_CHECK(seq_playing(&ck) && ck_n_on >= 2u);
+    TT_CHECK(!seq_waiting(&ck));
+    ck_fresh(SEQ_CLK_AUTO);
+    ck_msg_at(0.1, 0, 0xFAu);                  /* AUTO: a bare start, no clock */
+    ck_msg_at(0.15, 0, CK_PLAY);               /* PLAY: its own */
+    ck_run(1.5);
+    TT_CHECK(seq_playing(&ck) && ck_n_on >= 2u);
+    TT_CHECK(!seq_waiting(&ck));
+}
+
+/* AUTO, a start with no clock ever after it: it waits as long as a clock takes to count as gone (250
+ * ms), then no more (AUTO with no clock is its own clock, spec). Under MIDI it waits on (review of 921ec2d) */
+TT_TEST(clock_auto_start_with_no_clock_stops_waiting)
+{
+    ck_fresh(SEQ_CLK_AUTO);
+    ck_msg_at(0.1, 0, 0xFAu);
+    ck_run(0.2);
+    TT_CHECK(seq_waiting(&ck));
+    ck_run(0.5);                               /* 400 ms on, no tick */
+    TT_CHECK(!seq_waiting(&ck));
+    TT_CHECK(!seq_playing(&ck) && ck_n_on == 0u);
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_msg_at(0.1, 0, 0xFAu);
+    ck_run(0.5);
+    TT_CHECK(seq_waiting(&ck));
+}
+
+/* Armed under MIDI, a continue comes in, and G13 goes to AUTO before the next tick: it still continues
+ * from where it stopped, not from step 1 (review of 921ec2d) */
+TT_TEST(clock_switch_to_auto_keeps_a_continue)
+{
+    uint32_t n;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 140.0, 140.0, 0, 1, 24u * 12u);
+    ck_msg_at(ck_tick_at[12] - 0.002, 0, 0xFAu);   /* played: steps 1..4 */
+    ck_msg_at(ck_tick_at[12 + 6 * 4] - 0.002, 0, 0xFCu);
+    ck_msg_at(ck_tick_at[60] - 0.002, 0, CK_PLAY);  /* armed again */
+    ck_msg_at(ck_tick_at[72] + 0.002, 0, 0xFBu);    /* a continue, then before the next tick: */
+    ck_run(ck_tick_at[72] + 0.008);
+    n = ck_n_on;                               /* (4 or 5: the stop came 2 ms before step 5's tick) */
+    TT_CHECK(n >= 4u && n <= 5u);
+    seq_set_clock_source(&ck, SEQ_CLK_AUTO);
+    ck_run(ck_tick_at[73 + 6 * 2] - 0.012);
+    TT_CHECK(ck_n_on > n);
+    TT_CHECK_EQ(ck_note[n], 48u + n);           /* the step after the last played, not step 1 */
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_lost_while_armed_disarms);
     TT_RUN(clock_source_switched_while_armed);
     TT_RUN(clock_lost_while_armed_under_midi_waits_on);
     TT_RUN(clock_start_before_any_tick_is_waiting);
+    TT_RUN(clock_play_on_its_own_clock_is_not_waiting);
+    TT_RUN(clock_auto_start_with_no_clock_stops_waiting);
+    TT_RUN(clock_switch_to_auto_keeps_a_continue);
     TT_RUN(clock_steps_follow_a_steady_clock);
     TT_RUN(clock_tempo_shown_is_held_to_the_shortest_tick);
     TT_RUN(clock_steps_ride_out_a_jittery_clock);

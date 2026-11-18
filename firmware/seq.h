@@ -124,6 +124,8 @@ typedef struct {
     uint32_t clk_dt;                    /* a tick's length now, host counts (0: not measured yet) */
     uint32_t clk_shown;                 /* the tick length, smoothed, Q4 (the rate's) */
     uint32_t clk_view;                  /* smoothed again, Q4: the tempo shown */
+    uint32_t clk_pend_t;                /* when the pending start or continue came (AUTO drops it after
+                                         * the clock's gone time with no tick) */
     uint32_t clk_whole;                 /* clk_view in whole BPM, tenths, held: it moves only past
                                          * CLK_HOLD of it, so a clock's jitter can't flip the digits */
     int32_t clk_freq;                   /* the loop's integral, units a frame, Q4 */

@@ -61,6 +61,7 @@ void seq_init(seq *s)
     s->steps = 0;
     s->clk_src = SEQ_CLK_AUTO;
     s->clk_present = s->clk_pending = s->clk_running = s->clk_armed = s->clk_started = 0;
+    s->clk_pend_t = 0;
     s->clk_n = s->clk_dt = s->clk_shown = s->clk_target = s->clk_k = s->clk_view = s->clk_whole = s->clk_win = s->clk_far = s->clk_late = s->clk_raw = 0;
     s->clk_freq = 0;
     s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = s->ext_hold = 0;
@@ -205,6 +206,7 @@ void seq_play(seq *s)
         return;
     }
     s->ext = 0;                                 /* (its own clock) */
+    s->clk_pending = 0;                         /* (a start come in with no clock: nothing to wait for) */
     s->want = 1;
     BARRIER();                                  /* the wish before the ask: never an ask with an old one */
     s->ask_play++;
@@ -341,12 +343,14 @@ void seq_set_clock_source(seq *s, uint32_t src)
 {
     s->clk_src = (uint8_t)(src <= SEQ_CLK_MIDI ? src : SEQ_CLK_AUTO);
     if (s->clk_armed && !s->clk_running && s->clk_src == SEQ_CLK_MIDI) {
-        s->clk_pending = 0;                     /* armed, now MIDI: a start or continue starts it, not a tick */
+        s->clk_pending = 0;                     /* armed, now MIDI: a start or continue starts it, not a tick
+                                                 * (one come in within the same tick is dropped: send again) */
         return;
     }
     if (s->clk_armed && !s->clk_running && s->clk_src == SEQ_CLK_AUTO) {
         if (s->clk_present) {
-            s->clk_pending = 1;                 /* armed, now AUTO: on the clock's next tick, from step 1 */
+            if (!s->clk_pending)                /* armed, now AUTO: on the clock's next tick, from step 1, */
+                s->clk_pending = 1;             /* or a start or continue come in already, as it says */
         } else {
             s->clk_armed = 0;                   /* (AUTO with no clock coming: its own, now) */
             s->want = 0;
@@ -551,13 +555,14 @@ void seq_clock_in(seq *s, uint32_t st, uint32_t t)
     case 0xF8u: clock_tick(s, t); break;
     case 0xFAu:                                 /* from step 1, on the next tick */
         s->clk_pending = 1;
+        s->clk_pend_t = t;
         if (s->clk_running)
             s->ext_hold = 1;                    /* (playing: no next step till then) */
         break;
     case 0xFBu:                                 /* on from where it stopped, on the next tick (with no
                                                  * start before it, nowhere: from step 1) */
         if (!s->clk_running)
-            s->clk_pending = s->clk_started ? 2u : 1u;
+            s->clk_pending = s->clk_started ? 2u : 1u, s->clk_pend_t = t;
         break;
     case 0xFCu:
         s->clk_pending = 0;
@@ -575,8 +580,12 @@ void seq_clock_poll(seq *s, uint32_t t)
 {
     uint32_t gone = 3u * s->clk_dt > CLK_GONE_MIN ? 3u * s->clk_dt : CLK_GONE_MIN;
     uint32_t since = t - s->clk_t[(s->clk_n - 1u) % SEQ_CLK_HIST];
-    if (!s->clk_present)
+    if (!s->clk_present) {                      /* AUTO, a start with no clock after it: given up on (no clock
+                                                 * is its own clock); MIDI waits on */
+        if (s->clk_pending && !s->clk_running && s->clk_src == SEQ_CLK_AUTO && t - s->clk_pend_t > CLK_GONE_MIN)
+            s->clk_pending = 0;
         return;
+    }
     if (s->clk_running && since > s->clk_dt + s->clk_dt / 2u)
         s->ext_hold = 1;                        /* a tick late: no step past the clock's (till one comes) */
     if (since <= gone)

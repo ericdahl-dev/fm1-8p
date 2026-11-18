@@ -504,7 +504,18 @@ interaction model is the same in both.
   internal clock (Eric).
 - **INT:** ignores MIDI clock.
 - **MIDI:** only MIDI clock. With no clock coming in, the sequencer waits. A
-  clock lost while playing stops it, as in AUTO.
+  clock lost while playing stops it, as in AUTO. With no clock there (none
+  yet, or lost), SEQ view says `MIDI NO CLOCK` and shows `--` for the tempo.
+- **Clock edges (#38):**
+  - PLAY armed in AUTO for the clock's next tick, and the clock lost first:
+    disarmed, as a stop. Under MIDI, PLAY stays armed and waits.
+  - G13 changed while PLAY waits: to AUTO, it starts on the next tick (or
+    plays its own with no clock coming); to MIDI, it waits for a start.
+  - A start or continue with no tick yet shows `WAITING FOR CLOCK` until the
+    first tick. In AUTO, one with no clock after it for the gone time (250 ms)
+    is dropped.
+  - The tempo shown is the clock's whole BPM, held against jitter: it moves
+    when the clock is 0.8 BPM off it, and is at least 1 BPM.
 - **Under MIDI clock** (#38): 24 ticks a quarter note, 6 a step. MIDI start
   plays from step 1 and continue from the step after the last one played,
   each on the next tick. MIDI stop lets every note go. The steps start on
