@@ -66,6 +66,16 @@ static void cc_send(void)
         H->midi_send(ui_midi_out(&U, 0xC0u), pc, 0);
 }
 
+/* G14 CLOCK OUT (#286): the clock, start and stop due, sent. Only the main loop may send, so this runs at
+ * the start of every pass (draw, called each one) and after a clock byte comes in (midi): a tick waits
+ * at most a pass */
+static void clock_out(void)
+{
+    uint8_t b;
+    while (seq_clock_out_take(play_seq(&P), &b))
+        H->midi_send(b, 0, 0);
+}
+
 /* a CC on the map sets its parameter as a knob would (firmware/ui.c, #49); the rest reaches the engine */
 static void midi(uint32_t st, uint32_t d1, uint32_t d2)
 {
@@ -73,6 +83,7 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
         return;                                 /* G11: another channel's */
     if (st >= 0xF8u) {                          /* clock, start, continue, stop (#38), stamped as they come */
         seq_clock_in(play_seq(&P), st, H->ticks());
+        clock_out();                            /* (G14: a tick passed on at once, #286) */
         return;
     }
     ui_midi_controls(&U, st, d1, d2);           /* the live bend and mod wheel, for a SEQ step written (#42) */
@@ -204,6 +215,7 @@ static const settings_io SETTINGS = { set_load, set_save, 0 };
 /* The host calls draw() from its main loop: the LEDs on a full redraw, then the screen (draw.c) */
 static void draw(uint32_t full)
 {
+    clock_out();                                /* (#286: first, before a draw call's time) */
 #ifdef FM1_DEBUG
     if (rate_done == 1u) {                      /* #13: Hz = frames x 24000000 / ticks */
         rate_done = 2u;
@@ -215,6 +227,7 @@ static void draw(uint32_t full)
         settings_load(&U.set, &SETTINGS);
         U.shown_theme = U.set.theme;            /* (shown at once: the boot draws in it, no switch after) */
         seq_set_clock_source(play_seq(&P), U.set.clock_src);   /* (G13, #38) */
+        seq_set_clock_out(play_seq(&P), U.set.clock_out);      /* (G14, #286) */
         set_loaded = 1;
     }
     if (P.lib_attached || (P.plib_attached && P.io)) {   /* the first draws: the boot screen, and between */

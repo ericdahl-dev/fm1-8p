@@ -820,6 +820,8 @@ static void glo_turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
             u->dirty |= UI_D_SLOT;
         if (g->setting == 2u)                   /* G13: the sequencer's clock (#38) */
             seq_set_clock_source(play_seq(u->p), (uint32_t)v);
+        if (g->setting == 3u)                   /* G14: clock out, from the next PLAY (#286) */
+            seq_set_clock_out(play_seq(u->p), (uint32_t)v);
     }
     u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
     u->focus = k;

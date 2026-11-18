@@ -2326,8 +2326,10 @@ TT_TEST(ui_glo_clock_out_turns_on_and_off)
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1100);
     TT_CHECK_EQ(ui_u.set.clock_out, 1u);
     TT_CHECK(ui_u.set_dirty);                                 /* (to be saved) */
+    TT_CHECK_EQ(play_seq(&ui_p)->out_want, 1u);               /* the sequencer has it, for its next PLAY */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, -1, 1200);
     TT_CHECK_EQ(ui_u.set.clock_out, 0u);
+    TT_CHECK_EQ(play_seq(&ui_p)->out_want, 0u);
 }
 
 /* The CC map (#49, Eric's choice A): a parameter's CC is its PG-800 number, the one on screen, except
