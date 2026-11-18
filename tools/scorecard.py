@@ -301,9 +301,11 @@ WHOLE_RATIO_CENTS = 25.0
 
 def off_whole_ratio_cents(cents):
     """How far an interval of `cents` (osc2 over osc1) is from the nearest whole-number ratio, either way
-    up, in cents."""
-    r = 2 ** (abs(cents) / 1200)
-    return abs(1200 * np.log2(r / max(1, round(r))))
+    up, in cents: the interval less the nearest whole ratio's, both in cents, so a whole number of cents
+    off unison or an octave stays exact (25 c is at WHOLE_RATIO_CENTS, not past it)."""
+    c = abs(cents)
+    k = max(1, round(2 ** (c / 1200)))
+    return abs(c - 1200 * np.log2(k))
 
 
 def inharmonic_tones(tree, bank=None):

@@ -175,6 +175,13 @@ class HistoryTest(unittest.TestCase):
             fh.write(json.dumps(old) + "\n")
         self.assertIsNone(self.sc.rows_for(self.path, "c1", "r"))
 
+    # The 25 c line is exact: an osc2 25 c off a whole ratio is at the line, not over it (Codex on #288).
+    def test_25_cents_off_a_whole_ratio_is_at_the_line_not_over(self):
+        for c in (25, -25, 1225, 1175, 2425):
+            self.assertLessEqual(self.sc.off_whole_ratio_cents(c), self.sc.WHOLE_RATIO_CENTS, c)
+        self.assertGreater(self.sc.off_whole_ratio_cents(26), self.sc.WHOLE_RATIO_CENTS)
+        self.assertEqual(self.sc.off_whole_ratio_cents(0), 0)
+
     # A base with rows on an older ruler only is told to score again, not that it has none.
     def test_a_base_on_another_schema_is_told_to_score_again(self):
         old = {"schema": self.sc.SCHEMA - 1, "kind": "tone", "commit": "c1", "ref": "r", "bank": "factory",
