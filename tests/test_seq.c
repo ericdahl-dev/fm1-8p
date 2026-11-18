@@ -685,6 +685,30 @@ TT_TEST(seq_stop_returns_bend_and_mod)
     TT_CHECK_EQ(seq_ctls[1].value, SEQ_MOD_LIVE);
 }
 
+/* A step written whole (#42 S7: notes, velocity, bend, mod and move) is one edit published, so the
+ * interrupt can't start the step between its notes and its bend and play it once centered */
+TT_TEST(seq_write_step_publishes_it_whole_once)
+{
+    static seq s;
+    static const uint8_t CH[2] = {60, 67};
+    uint32_t before;
+    seq_init(&s);
+    before = s.edits;
+    seq_write_step(&s, 3, CH, 2, 99, -3000, 64, 1);
+    TT_CHECK_EQ(s.edits, before + 1u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->kind, (uint8_t)SEQ_NOTES_ON);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->n, 2u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->note[1], 67u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->vel, 99u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->bend, -3000);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->mod, 64u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->glide, 1u);
+    seq_write_step(&s, 4, CH, 0, 99, 9000, 200, 0);           /* no notes: a rest; values clamped */
+    TT_CHECK_EQ(seq_get_step(&s, 4)->kind, (uint8_t)SEQ_REST);
+    TT_CHECK_EQ(seq_get_step(&s, 4)->bend, 8191);
+    TT_CHECK_EQ(seq_get_step(&s, 4)->mod, 127u);
+}
+
 /* Bend and mod values are clamped: -8192..8191, 0..127. */
 TT_TEST(seq_bend_and_mod_are_clamped)
 {
@@ -756,5 +780,6 @@ static void run_seq_tests(void)
     TT_RUN(seq_rests_and_ties_keep_bend_and_mod);
     TT_RUN(seq_stop_returns_bend_and_mod);
     TT_RUN(seq_bend_and_mod_are_clamped);
+    TT_RUN(seq_write_step_publishes_it_whole_once);
     TT_RUN(seq_glides_do_not_depend_on_the_block_size);
 }
