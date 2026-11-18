@@ -382,7 +382,8 @@ void ui_init(ui *u, play *p)
     u->pc_out = -1;
     u->live_bend = 0;
     u->ktr_keys = 0;
-    u->ktr_notes[0] = u->ktr_notes[1] = u->ktr_notes[2] = u->ktr_notes[3] = 0;
+    for (i = 0; i < 128u; i++)
+        u->ktr_note_n[i] = 0;
     u->live_mod = 0;
     u->built_bend = 0;
     u->built_mod = 0;
@@ -822,6 +823,8 @@ static void glo_turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
             u->dirty |= UI_D_SLOT;
         if (g->setting == 2u)                   /* G13: the sequencer's clock (#38) */
             seq_set_clock_source(play_seq(u->p), (uint32_t)v);
+        if (g->setting == 0u)                   /* G11: the old channel's offs won't come (KEY TRANSPOSE) */
+            ui_seq_ktr_all_off(u);
     }
     u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
     u->focus = k;

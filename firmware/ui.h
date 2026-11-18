@@ -122,7 +122,8 @@ typedef struct {
     int32_t built_bend;                 /* live_bend and live_mod as the step being built had its first */
     uint32_t built_mod;                 /* note down: what it's written with (Eric: A) */
     uint32_t ktr_keys;                  /* KEY TRANSPOSE (#39): the panel keys taken to set the transpose */
-    uint32_t ktr_notes[4];              /* and the MIDI notes (bit n % 32 of word n / 32): their ups too */
+    uint8_t ktr_note_n[128];            /* and each MIDI pitch: low nibble, how many are held for it (one a
+                                         * channel, G11 ALL); high nibble, how many offs it's still owed */
 } ui;
 #define UI_THEME_MS 150u                /* THEME applies this long after the last change (visual.md) */
 #define UI_READOUT_MS 3000u             /* PLAY: a turned knob's readout, then the name (interaction.md 6) */

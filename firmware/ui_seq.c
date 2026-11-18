@@ -87,7 +87,7 @@ static void ktr_set(ui *u)
         if (u->ktr_keys >> i & 1u)
             low = PLAY_KEY0 + i;
     for (i = 0; i < 128u && i < low; i++)
-        if (u->ktr_notes[i >> 5] >> (i & 31u) & 1u) {
+        if (u->ktr_note_n[i] & 15u) {
             low = i;
             break;
         }
@@ -117,27 +117,31 @@ int ui_seq_ktr_key(ui *u, uint32_t k, int down, int may)
 
 int ui_seq_ktr_note(ui *u, uint32_t note, uint32_t vel, int on)
 {
-    uint32_t *w = &u->ktr_notes[(note >> 5) & 3u], b = 1u << (note & 31u);
+    uint8_t *c;
     if (note > 127u)
         return 0;
+    c = &u->ktr_note_n[note];
     if (!on || !vel) {
-        if (!(*w & b))
-            return 0;
-        *w &= ~b;                               /* (let go: the transpose stays) */
-        return 1;
+        if (!(*c >> 4))
+            return 0;                           /* (not one of ours: to the engine) */
+        *c = (uint8_t)(*c - 16u - ((*c & 15u) ? 1u : 0u));   /* an off owed, and one held fewer */
+        return 1;                               /* (let go: the transpose stays) */
     }
     if (!ktr_active(u) || (u->state == UI_SEQ && (u->seq_armed || u->seq_rec))) {
-        *w &= ~b;                               /* (it plays: an old taken one whose off was lost lets go) */
+        *c = 0;                                 /* (it plays: an old taken one whose off was lost lets go) */
         return 0;                               /* (a step being written takes it: chord entry first) */
     }
-    *w |= b;
+    if ((*c & 15u) < 15u && (*c >> 4) < 15u)
+        *c = (uint8_t)(*c + 17u);               /* one more held, one more off owed (15 at most) */
     ktr_set(u);
     return 1;
 }
 
 void ui_seq_ktr_all_off(ui *u)
 {
-    u->ktr_notes[0] = u->ktr_notes[1] = u->ktr_notes[2] = u->ktr_notes[3] = 0;
+    uint32_t i;
+    for (i = 0; i < 128u; i++)                  /* none held for the transpose now; their offs, if they */
+        u->ktr_note_n[i] &= 0xF0u;              /* come, are still taken (the engine never had them) */
 }
 
 int32_t ui_seq_step_of_key(uint32_t k)

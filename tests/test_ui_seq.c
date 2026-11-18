@@ -1902,7 +1902,8 @@ TT_TEST(seq_key_transpose_and_rec)
 
 /* A MIDI note taken for the transpose whose note off never comes (another channel by then, a cable
  * pulled) leaves no trap: the next note on of that pitch that plays clears it, so its off reaches the
- * engine (no hung note); CC 123 / 120 clear them all (review of b614574) */
+ * engine (no hung note). CC 123 / 120 end the notes held for the transpose (the next one sets it anew)
+ * but their offs, if they come, are still taken: the engine never had them (review of b614574; Codex) */
 TT_TEST(seq_key_transpose_a_lost_note_off_hangs_nothing)
 {
     static const uint8_t C3[1] = {48};
@@ -1918,8 +1919,12 @@ TT_TEST(seq_key_transpose_a_lost_note_off_hangs_nothing)
     seq_set_key_transpose(s, 0);
     TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 100, 1), 0);      /* now it plays ... */
     TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 0, 0), 0);        /* ... and its off goes to the engine */
+    seq_set_key_transpose(s, 1);
     ui_seq_ktr_all_off(&ui_u);                                /* CC 123: all notes off */
-    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 50, 0, 0), 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 100, 1), 1);      /* E4 alone sets it: +4 (50 isn't held) */
+    TT_CHECK_EQ(seq_transpose(s), 4);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 50, 0, 0), 1);        /* 50's off still taken, silent */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 0, 0), 1);
 }
 
 /* On S3, a MIDI note that transposes redraws TRANSPOSE's column, which then reads the new transpose */
@@ -1939,6 +1944,69 @@ TT_TEST(seq_key_transpose_redraws_transpose_on_s3)
     TT_CHECK(strcmp(n, "+2") == 0 && strcmp(un, "st") == 0);
 }
 
+/* G11 changed while a MIDI note is held for the transpose: its off (on the old channel) won't come, so the
+ * notes held end there; the next note sets the transpose anew (Codex P2-1 on #294) */
+TT_TEST(seq_key_transpose_a_g11_change_ends_the_notes_held)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_u.set.midi_in = 1;                                     /* G11: channel 1 */
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 100, 1), 1);      /* C3 on ch 1: -12 */
+    TT_CHECK_EQ(seq_transpose(s), -12);
+    ui_tap(UI_BTN_GLO, 1100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1200);      /* G11 to channel 2 */
+    TT_CHECK_EQ(ui_u.set.midi_in, 2u);
+    ui_tap(UI_BTN_GLO, 1300);                                 /* (C3's off on ch 1: filtered, never here) */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 100, 1), 1);      /* E4 on ch 2: +4, C3 isn't held */
+    TT_CHECK_EQ(seq_transpose(s), 4);
+}
+
+/* CC 123 while a MIDI note is held (silent) for the transpose, then STOP, then the same pitch on a panel
+ * key (it sounds): the MIDI note's late off is still taken, so it doesn't cut the panel note (Codex P2-2) */
+TT_TEST(seq_key_transpose_an_off_after_cc123_is_still_taken)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 100, 1), 1);      /* MIDI D4, silent */
+    ui_seq_ktr_all_off(&ui_u);                                /* CC 123 */
+    ui_tap(UI_BTN_PLAY, 1100);                                /* STOP */
+    seq_render_to(-1);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1200), 0);               /* panel D4 sounds */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 0, 0), 1);        /* MIDI D4's off: taken, the panel D4 plays on */
+}
+
+/* G11 ALL: the same pitch held on two channels counts twice; one let go, the other still holds it (and
+ * its off is taken too) (Codex P2-3) */
+TT_TEST(seq_key_transpose_the_same_pitch_on_two_channels)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 60, 100, 1), 1);      /* C4 on ch 1 */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 60, 100, 1), 1);      /* C4 on ch 2 */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 60, 0, 0), 1);        /* ch 1 lets go */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 100, 1), 1);      /* E4: C4 still held, still 0 */
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 60, 0, 0), 1);        /* ch 2's off: taken too */
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_s3_key_transpose_turns_on_and_off);
@@ -1952,6 +2020,9 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_key_transpose_and_rec);
     TT_RUN(seq_key_transpose_a_lost_note_off_hangs_nothing);
     TT_RUN(seq_key_transpose_redraws_transpose_on_s3);
+    TT_RUN(seq_key_transpose_a_g11_change_ends_the_notes_held);
+    TT_RUN(seq_key_transpose_an_off_after_cc123_is_still_taken);
+    TT_RUN(seq_key_transpose_the_same_pitch_on_two_channels);
     TT_RUN(seq_playing_its_own_clock_shows_its_own_tempo);
     TT_RUN(seq_tempo_shown_moves_at_three_quarters_both_ways);
     TT_RUN(seq_tempo_shown_edges_are_exact);
