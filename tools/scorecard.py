@@ -153,12 +153,12 @@ def _gap(a, b):
     return None if a is None or b is None else a - b
 
 
-def score_tone(ours, pg):
+def score_tone(ours, pg, harmonic=True):
     """One tone, ours against PG-8X's render of the same MIDI: loudness gap (LU), spectral distance per
     section and its mean (dB), the high note's decay (to -20 dB, from 30 ms after onset) and release (to
     -40 dB after note-off) gaps (ms, ours minus PG-8X; None where either never falls that far), the
-    pitch offset of the held low and high notes (cents; harmonic tones only: an inharmonic one, a ring
-    or cross-mod, has no single pitch and reads nonsense), and the chord's air gap (dB)."""
+    pitch offset of the held low and high notes (cents; None unless `harmonic`: a ring or cross-mod tone
+    has no single pitch and reads nonsense, s8), and the chord's air gap (dB)."""
     spec = {k: round(spectral_distance(_cut(ours, *w), _cut(pg, *w)), 2) for k, w in SECTIONS.items()}
     return {
         "loudness_gap_lu": round(loudness_gap(ours, pg), 2),
@@ -168,7 +168,8 @@ def score_tone(ours, pg):
             "high_decay20": _gap(decay_ms(ours, HIGH[0], HIGH[1], HIGH[2], 20), decay_ms(pg, HIGH[0], HIGH[1], HIGH[2], 20)),
             "high_release40": _gap(release_ms(ours, HIGH[1], HIGH[1] + 2.5, HIGH[2], 40),
                                    release_ms(pg, HIGH[1], HIGH[1] + 2.5, HIGH[2], 40))},
-        "pitch_cents": {k: pitch_cents(_cut(ours, *SECTIONS[k]), _cut(pg, *SECTIONS[k])) for k in ("low", "high")},
+        "pitch_cents": {k: pitch_cents(_cut(ours, *SECTIONS[k]), _cut(pg, *SECTIONS[k])) if harmonic else None
+                        for k in ("low", "high")},
         "air_gap_db": round(air_gap(_cut(ours, *SECTIONS["chord"]), _cut(pg, *SECTIONS["chord"])), 2),
     }
 

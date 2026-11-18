@@ -116,6 +116,16 @@ class MetricTest(unittest.TestCase):
         self.assertTrue(all(v == 0.0 for v in s["pitch_cents"].values()))
 
 
+    # A ring or cross-mod tone has no single pitch: the correlation lines up unrelated partials (WINDCHIMES
+    # read +140 c with every partial within 6 c of PG-8X's, s7), so no pitch is reported for it.
+    def test_an_inharmonic_tone_reports_no_pitch(self):
+        np = self.np
+        rng = np.random.default_rng(3)
+        x = rng.standard_normal((13 * SR, 2)) * 0.1
+        s = self.sc.score_tone(x, x, harmonic=False)
+        self.assertEqual(s["pitch_cents"], {"low": None, "high": None})
+        self.assertEqual(s["spectral_db_mean"], 0.0)
+
 @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
 class HistoryTest(unittest.TestCase):
     def setUp(self):
