@@ -973,7 +973,7 @@ static void seq_bottom(void)
     const char *b = ui_banner(U);
     uint32_t k;
     H->cv_begin(240, 52, C_BG);
-    CV_TEXT(M, 0, 0, U->seq_rec ? "SEL REST  ENV TIE  FX BACK" : "SEL REST  ENV TIE  LFO --", C_DIM);
+    CV_TEXT(M, 0, 0, U->seq_rec ? "SEL REST  ENV TIE  FX BACK" : "SEL REST  ENV TIE  LFO MOVE", C_DIM);
     for (k = 0; k < PLAY_KEYS; k++) {           /* 8 px a key, as the LEDs show */
         uint32_t led = ui_key_led(U, k, 0);
         int32_t x = ROLL_X0 + (int32_t)k * 8, white = ui_seq_step_of_key(k) >= 0;
