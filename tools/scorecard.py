@@ -384,6 +384,21 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
     return rows
 
 
+def missing_base(history, commit, ref, bank="factory"):
+    """Why rows_for found no rows for COMMIT: rows on another schema only (score it again), or none."""
+    try:
+        with open(history) as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+    except OSError:
+        rows = []
+    other = sorted({r.get("schema") for r in rows if r.get("kind") == "tone" and r.get("commit") == commit
+                    and r.get("ref") == ref and r.get("bank", "factory") == bank})
+    if other:
+        return (f"scorecard: {commit} has rows on schema {', '.join(map(str, other))} only, not {SCHEMA}: "
+                f"score it again (make scorecard COMMIT={commit}) to compare")
+    return f"scorecard: no rows for {commit} against this reference in {history}"
+
+
 def rows_for(history, commit, ref, bank="factory"):
     """The tone rows of COMMIT's latest run of BANK against reference REF in HISTORY on this SCHEMA, or
     None: a run on another ruler is not comparable, so it doesn't count."""
@@ -465,7 +480,7 @@ def main(argv=None):
         print(note)
     print(f"bank: {a.bank_name}")
     if a.base and base is None:
-        print(f"scorecard: no rows for {a.base} against this reference in {a.history}")
+        print(missing_base(a.history, a.base, rows[0]["ref"], a.bank_name))
     print(report(rows, base))
     print(f"\n{len(rows)} tone rows{' and the parameter rows' if a.match else ''} appended to {a.history}")
 

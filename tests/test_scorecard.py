@@ -175,6 +175,16 @@ class HistoryTest(unittest.TestCase):
             fh.write(json.dumps(old) + "\n")
         self.assertIsNone(self.sc.rows_for(self.path, "c1", "r"))
 
+    # A base with rows on an older ruler only is told to score again, not that it has none.
+    def test_a_base_on_another_schema_is_told_to_score_again(self):
+        old = {"schema": self.sc.SCHEMA - 1, "kind": "tone", "commit": "c1", "ref": "r", "bank": "factory",
+               "date": "2026-11-18T10:00:00-05:00", "tone": 1}
+        self.sc.append_rows(self.path, [old])
+        msg = self.sc.missing_base(self.path, "c1", "r")
+        self.assertIn(f"schema {self.sc.SCHEMA - 1}", msg)
+        self.assertIn("score it again", msg)
+        self.assertIn("no rows", self.sc.missing_base(self.path, "zzz", "r"))
+
     def test_rows_are_appended_and_old_lines_stay_as_they_were(self):
         with open(self.path, "w") as fh:
             fh.write('{"schema": 1, "kind": "tone", "old": true}\n')
