@@ -246,6 +246,7 @@ void fm_env_retime(fm_env *e)
 int32_t fm_env_next(fm_env *e)
 {
     int32_t s, d, rem;
+    uint32_t t;
     if (e->seg) { /* inside a segment or a hold: the count alone */
         e->seg--;
         return e->level += e->step;
@@ -267,13 +268,15 @@ int32_t fm_env_next(fm_env *e)
     case FM_ENV_DECAY: /* a segment starts, or the decay lands */
         s = e->sus_level;
         d = e->level >= s ? e->level - s : s - e->level;
-        if (d <= FM_ENV_FLOOR || e->set->decay_samples == 0) {
+        /* a time of 0, or one key follow scales under a sample, lands
+         * at once: start_segment divides by it (#284) */
+        if (d <= FM_ENV_FLOOR || (t = scaled(e, e->set->decay_samples)) == 0) {
             e->level = s;
             e->stage = FM_ENV_SUSTAIN;
             hold(e);
             break;
         }
-        rem = start_segment(e, d, scaled(e, e->set->decay_samples));
+        rem = start_segment(e, d, t);
         if (e->level > s) {
             e->step = -e->step;
             rem = -rem;
@@ -282,13 +285,13 @@ int32_t fm_env_next(fm_env *e)
         e->level += e->step + rem;
         break;
     case FM_ENV_RELEASE: /* a segment starts, or the release ends */
-        if (e->level <= FM_ENV_FLOOR || e->set->release_samples == 0) {
+        if (e->level <= FM_ENV_FLOOR || (t = scaled(e, e->set->release_samples)) == 0) {
             e->level = 0;
             e->stage = FM_ENV_IDLE;
             hold(e);
             break;
         }
-        rem = start_segment(e, e->level, scaled(e, e->set->release_samples));
+        rem = start_segment(e, e->level, t);
         e->step = -e->step;
         e->seg--;
         e->level += e->step - rem;

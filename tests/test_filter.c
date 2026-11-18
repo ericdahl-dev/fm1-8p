@@ -1734,6 +1734,36 @@ TT_TEST(env_long_quiet_attack_lands_on_time)
     TT_CHECK(n > want - want / 50 && n < want + want / 50);
 }
 
+/*
+ * Key follow can scale a short time to 0 samples: at full follow (1000) a
+ * 1 ms time at 48 kHz is under a sample from about C7 up. Such a decay
+ * lands on the sustain and such a release on 0 at once, as a time of 0
+ * does, rather than divide by it (#284; on the FM-1 a divide by 0 gives a
+ * garbage step, on a host it traps). The attack, 1 sample, the same.
+ */
+TT_TEST(env_times_key_scaled_to_zero_land_at_once)
+{
+    static fm_env_settings set;
+    static fm_env e;
+    uint32_t k;
+    memset(&set, 0, sizeof set);
+    set.attack_samples = 1;
+    set.decay_samples = 48;   /* 1 ms at 48 kHz */
+    set.release_samples = 48;
+    set.sustain = FM_ENV_FULL / 2;
+    set.key_follow = 1000;
+    fm_env_init(&e, &set);
+    fm_env_key(&e, 127);
+    fm_env_gate_on(&e);
+    for (k = 0; k < 16 && e.stage != FM_ENV_SUSTAIN; k++) fm_env_next(&e);
+    TT_CHECK_EQ(e.stage, FM_ENV_SUSTAIN);
+    TT_CHECK_EQ(e.level, FM_ENV_FULL / 2);
+    fm_env_gate_off(&e);
+    for (k = 0; k < 16 && e.stage != FM_ENV_IDLE; k++) fm_env_next(&e);
+    TT_CHECK_EQ(e.stage, FM_ENV_IDLE);
+    TT_CHECK_EQ(e.level, 0);
+}
+
 /* fm_env_init starts an envelope on the settings it is given: a
  * 100-sample attack reaches the peak in 106 samples (100, and 6 for its
  * ease-in, #274). */
@@ -2735,6 +2765,7 @@ static void run_filter_tests(void)
     TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);
     TT_RUN(env_init_gives_an_envelope_its_settings);
+    TT_RUN(env_times_key_scaled_to_zero_land_at_once);
     TT_RUN(exponential_release_stays_on_its_curve);
     TT_RUN(sustain_changed_mid_decay_heads_there_at_once);
     TT_RUN(attack_charges_toward_1_6_peak_and_stops_on_it);
