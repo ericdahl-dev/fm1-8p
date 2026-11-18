@@ -1736,10 +1736,11 @@ TT_TEST(env_long_quiet_attack_lands_on_time)
 
 /*
  * Key follow can scale a short time to 0 samples: at full follow (1000) a
- * 1 ms time at 48 kHz is under a sample from about C7 up. Such a decay
- * lands on the sustain and such a release on 0 at once, as a time of 0
- * does, rather than divide by it (#284; on the FM-1 a divide by 0 gives a
- * garbage step, on a host it traps). The attack, 1 sample, the same.
+ * 1 ms time at 48 kHz is under a sample from note 104 (G#7) up. Such a
+ * decay lands on the sustain and such a release on 0 at once, as a time of
+ * 0 does, rather than divide by it (#284; on the FM-1 a divide by 0 gives a
+ * garbage step, on a host it traps). The attack already guarded its scaled
+ * time; it eases in as ever.
  */
 TT_TEST(env_times_key_scaled_to_zero_land_at_once)
 {
