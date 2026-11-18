@@ -1175,7 +1175,7 @@ TT_TEST(filter_envelope_follows_the_key)
     fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_KEY_FOLLOW, 520);
     fm_engine_note_on(&feng, 60, 100);
     fm_engine_render(&feng, fbuf_a, 1 + (uint32_t)(FRATE * tau / 1000.0));
-    fm_voice_sync_filter_env(&feng.voices[0]);
+    fm_env_catch_up(&feng.voices[0].filter_env);
     left = (double)feng.voices[0].filter_env.level / FM_ENV_FULL;
     printf("    filter env, C4, follow 520: %.4f of full after tau (%.1f ms)\n", left, tau);
     TT_CHECK_NEAR(left, 0.368, 0.01);
@@ -1518,6 +1518,293 @@ TT_TEST(env_advance_matches_stepping_sample_by_sample)
     }
     TT_CHECK_EQ(mismatches, 0);
     TT_CHECK(rising_high > 0);
+}
+
+/*
+ * An envelope told that n samples passed (fm_env_skip) reads the level
+ * that n calls of fm_env_next would leave (fm_env_level), with the same
+ * stage and step after: random envelopes through every stage, the skip
+ * crossing segment and stage edges, against stepping one sample at a
+ * time. Each event (gate on, gate off, fade, retime) comes after a read,
+ * so this checks the skip and the read alone. The count in a hold (step
+ * 0) is not compared: fm_env_advance leaves it, and every way out of a
+ * hold restarts it.
+ */
+TT_TEST(env_skip_then_level_matches_stepping)
+{
+    static fm_env a, b;
+    uint32_t seed = 70701;
+    int trial, op, mismatches = 0, rising_high = 0;
+    for (trial = 0; trial < 300; trial++) {
+        env_random_pair(&a, &b, &seed);
+        for (op = 0; op < 40; op++) {
+            uint32_t n, k;
+            int32_t got, last;
+            rising_high += env_random_op(&a, &b, &seed, &n);
+            fm_env_skip(&a, n);
+            got = fm_env_level(&a);
+            last = b.level;
+            for (k = 0; k < n; k++) last = fm_env_next(&b);
+            if (got != last || a.level != b.level || a.stage != b.stage ||
+                a.step != b.step || (a.step && a.seg != b.seg))
+                mismatches++;
+        }
+    }
+    TT_CHECK_EQ(mismatches, 0);
+    TT_CHECK(rising_high > 0);
+}
+
+/*
+ * A skip through the attack's ease-in (#274: its first segments short, at
+ * a fraction of the curve's step) lands where stepping does, whether it
+ * crosses the ramp's segment edges at once or in pieces: every length 0
+ * to 24 from a gate on, from 0 and from a retrigger mid-way, for a few
+ * attack times and peaks.
+ */
+TT_TEST(env_skip_through_the_attack_ramp_matches_stepping)
+{
+    static const uint32_t attack[] = { 1, 7, 66, 500, 30000 };
+    static const int32_t from[] = { 0, FM_ENV_FULL / 5 };
+    static fm_env a, b, c;
+    uint32_t t, f, n, k;
+    int mismatches = 0;
+    for (t = 0; t < sizeof attack / sizeof attack[0]; t++)
+        for (f = 0; f < sizeof from / sizeof from[0]; f++)
+            for (n = 0; n <= 24; n++) {
+                env_set.attack_samples = attack[t];
+                env_set.decay_samples = 1000;
+                env_set.release_samples = 1000;
+                env_set.sustain = FM_ENV_FULL / 2;
+                fm_env_init(&a, &env_set);
+                a.level = from[f]; /* a retrigger's start, as stepping left it */
+                a.peak = FM_ENV_FULL - (int32_t)(t << 20);
+                fm_env_gate_on(&a);
+                b = c = a;
+                fm_env_skip(&a, n); /* at once */
+                for (k = 0; k < n; k++) fm_env_skip(&c, 1); /* in pieces */
+                for (k = 0; k < n; k++) fm_env_next(&b);
+                if (fm_env_level(&a) != b.level || a.stage != b.stage ||
+                    a.ramp != b.ramp || fm_env_level(&c) != b.level ||
+                    c.ramp != b.ramp)
+                    mismatches++;
+                for (k = 0; k < 64; k++) /* and on from there */
+                    if (fm_env_next(&a) != fm_env_next(&b) ||
+                        fm_env_next(&c) != b.level)
+                        mismatches++;
+            }
+    TT_CHECK_EQ(mismatches, 0);
+}
+
+/* What a lazy-envelope test does right after the skip, to `a` (skipped)
+ * and `b` (stepped), with no read between. */
+typedef void (*env_change_fn)(fm_env *e, uint32_t *seed);
+
+/*
+ * Random envelopes through every stage: `a` skips n samples and gets
+ * `change` with no read first, `b` steps them and gets the same. Then
+ * both run 400 samples (a read, then stepping) and must match on every
+ * one. Returns the mismatches.
+ */
+static int env_skip_then_change(env_change_fn change, uint32_t seed)
+{
+    static fm_env a, b;
+    int trial, op, mismatches = 0;
+    for (trial = 0; trial < 200; trial++) {
+        env_random_pair(&a, &b, &seed);
+        for (op = 0; op < 20; op++) {
+            uint32_t n, k, sa = seed, sb = seed;
+            env_random_op(&a, &b, &seed, &n);
+            fm_env_skip(&a, n);
+            for (k = 0; k < n; k++) fm_env_next(&b);
+            change(&a, &sa);
+            change(&b, &sb);
+            seed = sa;
+            if (fm_env_level(&a) != b.level) mismatches++;
+            for (k = 0; k < 400; k++)
+                if (fm_env_next(&a) != fm_env_next(&b) || a.stage != b.stage)
+                    mismatches++;
+        }
+    }
+    return mismatches;
+}
+
+static void env_change_gate_off(fm_env *e, uint32_t *seed)
+{
+    (void)seed;
+    fm_env_gate_off(e);
+}
+
+/* Gate off after a skip releases from the caught-up level. */
+TT_TEST(env_skip_then_gate_off_matches_stepping)
+{
+    TT_CHECK_EQ(env_skip_then_change(env_change_gate_off, 70702), 0);
+}
+
+static void env_change_gate_on(fm_env *e, uint32_t *seed)
+{
+    (void)seed;
+    fm_env_gate_on(e);
+}
+
+/* A retrigger after a skip starts from the caught-up level (at the peak
+ * the last event set: a field written directly is not caught up for). */
+TT_TEST(env_skip_then_gate_on_matches_stepping)
+{
+    TT_CHECK_EQ(env_skip_then_change(env_change_gate_on, 70703), 0);
+}
+
+static void env_change_retime(fm_env *e, uint32_t *seed)
+{
+    (void)seed;
+    fm_env_retime(e);
+}
+
+/* A retime after a skip acts on the caught-up level and stage (settings
+ * unchanged: a lazy envelope is caught up before its shared settings are
+ * written, env_catch_up_before_a_setting_change_matches_stepping). */
+TT_TEST(env_skip_then_retime_matches_stepping)
+{
+    TT_CHECK_EQ(env_skip_then_change(env_change_retime, 70704), 0);
+}
+
+static void env_change_fade(fm_env *e, uint32_t *seed)
+{
+    fm_env_fade(e, env_rand(seed) % 400);
+}
+
+/* A fade after a skip falls from the caught-up level, its step taken from
+ * that level. */
+TT_TEST(env_skip_then_fade_matches_stepping)
+{
+    TT_CHECK_EQ(env_skip_then_change(env_change_fade, 70705), 0);
+}
+
+static void env_change_key(fm_env *e, uint32_t *seed)
+{
+    env_set.key_follow = 1000; /* read by fm_env_key alone */
+    /* C2 and below: key follow only lengthens these times (a high note
+     * can scale a short one to 0 samples, a case of its own) */
+    fm_env_key(e, (uint8_t)(env_rand(seed) % 37));
+}
+
+/* A new note's time scale (key follow) after a skip: the samples before
+ * it step at the old note's scale, as a retrigger of a sounding note
+ * needs. */
+TT_TEST(env_skip_then_key_matches_stepping)
+{
+    TT_CHECK_EQ(env_skip_then_change(env_change_key, 70710), 0);
+    env_set.key_follow = 0;
+}
+
+/* A skip of 0 changes nothing: level, stage, step and every sample after
+ * are an untouched twin's. */
+TT_TEST(env_skip_zero_is_a_no_op)
+{
+    static fm_env a, b;
+    uint32_t seed = 70709;
+    int trial, op, mismatches = 0;
+    for (trial = 0; trial < 100; trial++) {
+        env_random_pair(&a, &b, &seed);
+        for (op = 0; op < 20; op++) {
+            uint32_t n, k;
+            env_random_op(&a, &b, &seed, &n);
+            fm_env_skip(&a, 0);
+            if (fm_env_level(&a) != b.level || a.stage != b.stage ||
+                a.step != b.step || a.seg != b.seg)
+                mismatches++;
+            for (k = 0; k < n; k++)
+                if (fm_env_next(&a) != fm_env_next(&b)) mismatches++;
+        }
+    }
+    TT_CHECK_EQ(mismatches, 0);
+}
+
+/* Reset drops the samples a skip counted: the envelope is idle at 0 and
+ * plays its next note exactly as a fresh one. */
+TT_TEST(env_reset_drops_a_skip)
+{
+    static fm_env a, b;
+    uint32_t k;
+    int mismatches = 0;
+    env_set.attack_samples = 500;
+    env_set.decay_samples = 2000;
+    env_set.release_samples = 3000;
+    env_set.sustain = FM_ENV_FULL / 3;
+    fm_env_init(&a, &env_set);
+    fm_env_init(&b, &env_set);
+    fm_env_gate_on(&a);
+    fm_env_skip(&a, 1234);
+    fm_env_reset(&a);
+    TT_CHECK_EQ(a.lag, 0u);
+    TT_CHECK_EQ(fm_env_level(&a), 0);
+    TT_CHECK_EQ(a.stage, FM_ENV_IDLE);
+    fm_env_gate_on(&a);
+    fm_env_gate_on(&b);
+    for (k = 0; k < 10000; k++)
+        if (fm_env_next(&a) != fm_env_next(&b)) mismatches++;
+    TT_CHECK_EQ(mismatches, 0);
+}
+
+/* An idle envelope skipped (envelope 2 without the gate) stays idle at 0,
+ * however long. */
+TT_TEST(env_idle_skipped_stays_idle)
+{
+    static fm_env a;
+    fm_env_init(&a, &env_set);
+    fm_env_skip(&a, 1u << 20);
+    fm_env_skip(&a, 1u << 20);
+    TT_CHECK_EQ(fm_env_level(&a), 0);
+    TT_CHECK_EQ(a.stage, FM_ENV_IDLE);
+}
+
+/* Skips adding past 2^32 samples never wrap: the envelope ends where
+ * fm_env_advance (stepping, at once) takes it over the same total. */
+TT_TEST(env_skip_never_wraps)
+{
+    static fm_env a, b;
+    env_set.attack_samples = 30000;
+    env_set.decay_samples = 2000;
+    env_set.release_samples = 3000;
+    env_set.sustain = FM_ENV_FULL / 3;
+    fm_env_init(&a, &env_set);
+    fm_env_init(&b, &env_set);
+    fm_env_gate_on(&a);
+    fm_env_gate_on(&b);
+    fm_env_skip(&a, 0xFFFFFFF0u);
+    fm_env_skip(&a, 0x20u);
+    fm_env_advance(&b, 0xFFFFFFF0u);
+    fm_env_advance(&b, 0x20u);
+    TT_CHECK_EQ(fm_env_level(&a), b.level);
+    TT_CHECK_EQ(a.stage, b.stage);
+}
+
+/*
+ * A lazy envelope owes at most one FM-1 render block (256 frames): its
+ * catch-up then steps no more than a block's worth of segments. Voices that
+ * start together catch up in the same block, so a larger bound lets every
+ * voice's catch-up land on one block (#70: 4096 samples took the 8-voice
+ * CPU row from 12.9 to 23.3 % of a block). Eight voices, the filter envelope
+ * and envelope 2 both lazy, rendered a block at a time for a second.
+ */
+TT_TEST(lazy_envelopes_owe_at_most_one_block)
+{
+    uint32_t b, i, worst = 0;
+    fm_engine_init(&feng, FRATE, 8);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_GATE, 1); /* envelope 2 runs apart, lazy */
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_DECAY_MS, 2000);
+    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 0);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_DECAY_MS, 2000);
+    fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 0);
+    for (i = 0; i < 8; i++) fm_engine_note_on(&feng, (uint8_t)(48 + 3 * i), 100);
+    for (b = 0; b < FRATE / 256u; b++) {
+        fm_engine_render(&feng, fbuf_a, 256);
+        for (i = 0; i < 8; i++) {
+            if (feng.voices[i].filter_env.lag > worst) worst = feng.voices[i].filter_env.lag;
+            if (feng.voices[i].env2.lag > worst) worst = feng.voices[i].env2.lag;
+        }
+    }
+    printf("    most samples a lazy envelope owed after a block: %u\n", (unsigned)worst);
+    TT_CHECK(worst < 256u);
 }
 
 /*
@@ -1962,8 +2249,8 @@ static int filter_envs_match(fm_engine *a, fm_engine *b)
 {
     uint8_t i;
     for (i = 0; i < FM_MAX_VOICES; i++) {
-        fm_voice_sync_filter_env(&a->voices[i]);
-        fm_voice_sync_filter_env(&b->voices[i]);
+        fm_env_catch_up(&a->voices[i].filter_env);
+        fm_env_catch_up(&b->voices[i].filter_env);
         if (a->voices[i].filter_env.level != b->voices[i].filter_env.level ||
             a->voices[i].filter_env.stage != b->voices[i].filter_env.stage)
             return 0;
@@ -2048,8 +2335,8 @@ static void render_beside(fm_engine *e, fm_env *ref, uint32_t frames)
 static int fenv_matches(const fm_engine *e, const fm_env *ref)
 {
     fm_voice v = e->voices[0];
-    int near = v.fenv_lag < 16;
-    fm_voice_sync_filter_env(&v);
+    int near = v.filter_env.lag < 16;
+    fm_env_catch_up(&v.filter_env);
     return near && v.filter_env.level == ref->level && v.filter_env.stage == ref->stage;
 }
 
@@ -2077,9 +2364,97 @@ TT_TEST(filter_envelope_setting_change_spares_the_samples_before_it)
     fm_env_retime(&ref);
     fm_engine_render(&b, fbuf_b, 500);
     for (n = 0; n < 500; n++) fm_env_next(&ref);
-    fm_voice_sync_filter_env(&b.voices[0]);
+    fm_env_catch_up(&b.voices[0].filter_env);
     TT_CHECK_EQ(b.voices[0].filter_env.stage, FM_ENV_DECAY);
     TT_CHECK_EQ(b.voices[0].filter_env.level, ref.level);
+}
+
+/*
+ * The same for a sustain written while the envelope lags mid-decay: the
+ * decay before the write heads to the old sustain, after it to the new.
+ */
+TT_TEST(filter_envelope_sustain_change_spares_the_samples_before_it)
+{
+    static fm_engine b;
+    fm_env ref;
+    uint32_t n;
+    fm_engine_init(&b, FRATE, 2);
+    lag_patch(&b, 0);
+    fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_DECAY_MS, 400);
+    fm_engine_note_on(&b, 60, 100);
+    ref_beside(&ref, &b, 1); /* gated on, not yet stepped */
+    fm_engine_render(&b, fbuf_b, 3001); /* mid-decay, mid control period */
+    for (n = 0; n < 3001; n++) fm_env_next(&ref);
+    fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_SUSTAIN, 900);
+    ref_settings(&b, 1);
+    fm_env_retime(&ref);
+    fm_engine_render(&b, fbuf_b, 500);
+    for (n = 0; n < 500; n++) fm_env_next(&ref);
+    TT_CHECK_EQ(fm_env_level(&b.voices[0].filter_env), ref.level);
+    TT_CHECK_EQ(b.voices[0].filter_env.stage, ref.stage);
+}
+
+/*
+ * A sounding voice retriggered to another note (unison) with filter
+ * envelope key follow: the samples before the retrigger run at the old
+ * note's time scale, the ones after at the new note's. Against an
+ * envelope stepped every sample, keyed and gated on at the same sample.
+ */
+TT_TEST(filter_envelope_retrigger_with_key_follow_spares_the_samples_before_it)
+{
+    static fm_engine b;
+    fm_env ref;
+    uint32_t n;
+    fm_engine_init(&b, FRATE, 1);
+    lag_patch(&b, 0);
+    fm_engine_set_param(&b, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_set_param(&b, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_ATTACK_MS, 300);
+    fm_engine_set_param(&b, FM_PARAM_FILTER_ENV_KEY_FOLLOW, 1000);
+    fm_engine_note_on(&b, 36, 100);
+    ref_beside(&ref, &b, 1); /* keyed and gated on, not yet stepped */
+    ref_set.key_follow = 1000;
+    fm_engine_render(&b, fbuf_b, 1237); /* mid-attack, mid control period */
+    for (n = 0; n < 1237; n++) fm_env_next(&ref);
+    fm_engine_note_on(&b, 84, 100); /* the same voice, 4 octaves up */
+    fm_env_key(&ref, 84);
+    fm_env_gate_on(&ref);
+    fm_engine_render(&b, fbuf_b, 500);
+    for (n = 0; n < 500; n++) fm_env_next(&ref);
+    TT_CHECK_EQ(fm_env_level(&b.voices[0].filter_env), ref.level);
+    TT_CHECK_EQ(b.voices[0].filter_env.stage, ref.stage);
+}
+
+/*
+ * With the gate (#63) the amp settings run envelope 2, lazy as the filter
+ * envelope (read only where it is routed: here nowhere). An amp decay
+ * written while it lags spares the samples before the write too, against
+ * an envelope stepped every sample with its own copy of the settings.
+ */
+TT_TEST(gate_envelope_2_setting_change_spares_the_samples_before_it)
+{
+    static fm_engine b;
+    fm_env ref;
+    uint32_t n;
+    fm_engine_init(&b, FRATE, 2);
+    fm_engine_set_param(&b, FM_PARAM_AMP_GATE, 1);
+    fm_engine_set_param(&b, FM_PARAM_AMP_ATTACK_MS, 30);
+    fm_engine_set_param(&b, FM_PARAM_AMP_DECAY_MS, 70);
+    fm_engine_set_param(&b, FM_PARAM_AMP_SUSTAIN, 400);
+    fm_engine_note_on(&b, 60, 100);
+    ref = b.voices[0].env2; /* gated on, not yet stepped */
+    ref_settings(&b, 0);
+    ref.set = &ref_set;
+    fm_engine_render(&b, fbuf_b, 2000); /* the 30 ms attack ends at 1323 */
+    for (n = 0; n < 2000; n++) fm_env_next(&ref);
+    TT_CHECK(b.voices[0].env2.lag > 0); /* lagging when the write comes */
+    fm_engine_set_param(&b, FM_PARAM_AMP_DECAY_MS, 5000);
+    ref_settings(&b, 0);
+    fm_env_retime(&ref);
+    fm_engine_render(&b, fbuf_b, 500);
+    for (n = 0; n < 500; n++) fm_env_next(&ref);
+    TT_CHECK_EQ(fm_env_level(&b.voices[0].env2), ref.level);
+    TT_CHECK_EQ(b.voices[0].env2.stage, FM_ENV_DECAY);
 }
 
 /*
@@ -2110,19 +2485,19 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
     ref_beside(&ref, &feng, 1); /* gated on, not yet stepped */
     render_beside(&feng, &ref, 23); /* in the attack */
     ok &= fenv_matches(&feng, &ref);
-    lagged |= feng.voices[0].fenv_lag != 0;
+    lagged |= feng.voices[0].filter_env.lag != 0;
     fm_engine_note_off(&feng, 48); /* release from the attack */
     fm_env_gate_off(&ref);
     render_beside(&feng, &ref, 501);
     ok &= fenv_matches(&feng, &ref);
-    lagged |= feng.voices[0].fenv_lag != 0;
+    lagged |= feng.voices[0].filter_env.lag != 0;
     fm_engine_note_on(&feng, 48, 100); /* retrigger from the release */
     fm_env_gate_on(&ref);
     render_beside(&feng, &ref, 3007); /* in the decay, mid segment */
     ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_DECAY;
     render_beside(&feng, &ref, 13001); /* to sustain: within -80 dB of it */
     ok &= fenv_matches(&feng, &ref) && ref.stage == FM_ENV_SUSTAIN;
-    lagged |= feng.voices[0].fenv_lag != 0;
+    lagged |= feng.voices[0].filter_env.lag != 0;
     fm_engine_note_on(&feng, 48, 100); /* retrigger from the sustain */
     fm_env_gate_on(&ref);
     render_beside(&feng, &ref, 211);
@@ -2801,6 +3176,18 @@ static void run_filter_tests(void)
     TT_RUN(leaving_the_open_filter_continues_from_a_consistent_state);
     TT_RUN(unison_note_change_keeps_the_control_cadence);
     TT_RUN(env_advance_matches_stepping_sample_by_sample);
+    TT_RUN(env_skip_then_level_matches_stepping);
+    TT_RUN(env_skip_through_the_attack_ramp_matches_stepping);
+    TT_RUN(env_skip_then_gate_off_matches_stepping);
+    TT_RUN(env_skip_then_gate_on_matches_stepping);
+    TT_RUN(env_skip_then_retime_matches_stepping);
+    TT_RUN(env_skip_then_fade_matches_stepping);
+    TT_RUN(env_skip_then_key_matches_stepping);
+    TT_RUN(env_skip_zero_is_a_no_op);
+    TT_RUN(env_reset_drops_a_skip);
+    TT_RUN(env_idle_skipped_stays_idle);
+    TT_RUN(env_skip_never_wraps);
+    TT_RUN(lazy_envelopes_owe_at_most_one_block);
     TT_RUN(env_step_matches_env_next_sample_by_sample);
     TT_RUN(env_step_matches_env_next_for_every_short_tau);
     TT_RUN(env_settings_are_shared_by_every_envelope);
@@ -2818,6 +3205,9 @@ static void run_filter_tests(void)
     TT_RUN(filter_envelope_skipped_at_zero_amount_stays_in_time);
     TT_RUN(amp_envelope_in_the_render_matches_env_next_every_sample);
     TT_RUN(filter_envelope_setting_change_spares_the_samples_before_it);
+    TT_RUN(filter_envelope_sustain_change_spares_the_samples_before_it);
+    TT_RUN(filter_envelope_retrigger_with_key_follow_spares_the_samples_before_it);
+    TT_RUN(gate_envelope_2_setting_change_spares_the_samples_before_it);
     TT_RUN(filter_envelope_runs_at_the_control_rate_and_stays_exact);
     TT_RUN(legato_note_change_reads_the_current_filter_envelope);
     TT_RUN(filter_envelope_for_the_mix_alone_stays_exact);

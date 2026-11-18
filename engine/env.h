@@ -27,6 +27,9 @@
 #define FM_ENV_H
 
 #include <stdint.h>
+#ifdef FM_CHECK_ENGINE
+#include <assert.h>
+#endif
 
 #define FM_ENV_FULL (1 << 30)
 /* -80 dB of full: a release below it goes idle, a decay this close to its
@@ -74,6 +77,8 @@ typedef struct {
     int32_t sus_level; /* sustain * peak, set at gate on and retime */
     const fm_env_settings *set; /* the shared settings (fm_env_init) */
     uint32_t ks; /* this note's time scale, Q16.16 (key follow; 1.0 at 0) */
+    uint32_t lag; /* samples passed but not yet stepped (fm_env_skip):
+                   * caught up when the level is read or changed */
 } fm_env;
 
 /* Starts an envelope, idle, on `set`: the only way to give it settings,
@@ -105,6 +110,9 @@ int32_t fm_env_next(fm_env *e);
  */
 static inline int32_t fm_env_step(fm_env *e)
 {
+#ifdef FM_CHECK_ENGINE /* debug builds: a stepped envelope is never skipped */
+    assert(e->lag == 0);
+#endif
     if (e->seg) {
         e->seg--;
         return e->level += e->step;
@@ -116,8 +124,46 @@ static inline int32_t fm_env_step(fm_env *e)
  * Advances `n` samples at once: exactly `n` calls of fm_env_next, in a
  * few operations per segment crossed instead of
  * `n` steps. For an envelope that only needs to be current at times, not
- * every sample. Returns the level.
+ * every sample. Catches up a skip first. Returns the level.
  */
 int32_t fm_env_advance(fm_env *e, uint32_t n);
+
+/* The most samples a skip leaves uncaught: one catch-up steps fewer than
+ * this plus the skip that reached it, so its cost is bounded (a segment
+ * crosses up to 64 samples in a few operations). One FM-1 render block
+ * (256 frames): voices started together catch up in the same block, so a
+ * larger bound piles every voice's catch-up onto one block (4096 took the
+ * 8-voice CPU row from 12.9 to 23.3 % of a block, #70). At a block or less
+ * every lazy envelope catches up in every block: one catch-up steps at most
+ * FM_ENV_LAG_MAX - 1 owed plus the render chunk that reached it (up to
+ * FM_MIX_FRAMES), 319 samples, and in steady state each block steps one
+ * block's samples, which a stagger would not lower. Measured worst block,
+ * 8 voices (fm1-emu strict): 13.6 % (12.9 before the lag was bounded). */
+#define FM_ENV_LAG_MAX (1u << 8)
+
+/* Catches up the lag, then steps `n`: a skip that reaches FM_ENV_LAG_MAX. */
+void fm_env_skip_far(fm_env *e, uint32_t n);
+
+/*
+ * The lazy envelope: `n` samples pass without stepping it. It catches up
+ * by itself, exactly (as fm_env_advance), when its level is read
+ * (fm_env_level) or it is changed (key, gate on, gate off, fade,
+ * retime, advance), so a caller never syncs it. An envelope is either stepped
+ * (fm_env_step, fm_env_next: they do not catch up) or skipped, not both.
+ */
+static inline void fm_env_skip(fm_env *e, uint32_t n)
+{
+    if (n >= FM_ENV_LAG_MAX - e->lag) /* lag < FM_ENV_LAG_MAX */
+        fm_env_skip_far(e, n);
+    else
+        e->lag += n;
+}
+
+/* The level now: caught up first. */
+int32_t fm_env_level(fm_env *e);
+/* Catches up now. Needed only before writing settings the envelope
+ * shares with others (fm_env_settings): caught up after, it would step
+ * the samples before the write on the new value. */
+void fm_env_catch_up(fm_env *e);
 
 #endif /* FM_ENV_H */

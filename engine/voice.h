@@ -52,13 +52,11 @@ typedef struct {
     uint8_t next_velocity;  /* `note`'s, kept beside next_peak */
     /* filter: settings copied from the engine's parameters, and state */
     fm_filter filter;
-    fm_env filter_env;
+    fm_env filter_env;      /* lazy (fm_env_skip): read at the control rate */
     int32_t rate_cents;     /* fm_filter_rate_cents(sample rate) */
     int32_t cutoff_cents;   /* base cutoff, linear cents (fm_filter_linear_cents) */
     int32_t key_track;      /* per mille */
     int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
-    uint32_t fenv_lag;      /* samples filter_env is behind: it is caught
-                             * up only when read (the control rate) */
     int32_t mix_base;       /* osc2_level, Q1.30 */
     int32_t mix_step;       /* the mix's glide each sample to its next target */
     /* last: read only at control ticks and note starts, so the fields the
@@ -66,7 +64,7 @@ typedef struct {
     fm_mod mod;             /* the modulation sources and sums (mod.h) */
     /* envelope 2 apart from the VCA, with the gate (#63): amp_env runs the
      * gate then, and this the amp settings for the cutoff, pitch and mix.
-     * Caught up with filter_env (fenv_lag); idle without the gate */
+     * Lazy as filter_env (fm_env_skip); idle without the gate */
     fm_env env2;
 } fm_voice;
 
@@ -88,15 +86,6 @@ typedef struct {
  * (shared by every voice, owned by the engine; kept by pointer). */
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
                     const fm_env_settings *amp, const fm_env_settings *filter);
-
-/*
- * Brings filter_env up to date. The render does not step it every sample:
- * it counts the samples (fenv_lag) and catches it up (fm_env_advance,
- * exactly that many steps) when it reads the level, at a control point or
- * a note change, and before every gate and setting change. Call this
- * before reading or changing filter_env from outside the voice.
- */
-void fm_voice_sync_filter_env(fm_voice *v);
 
 /* Sounding: attack through release, or fading out after a steal. */
 int fm_voice_active(const fm_voice *v);

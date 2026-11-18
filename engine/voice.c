@@ -60,7 +60,6 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->cutoff_now = INT32_MIN;
     v->busy = FM_BUSY_CUTOFF;
     v->ctrl_phase = 0;
-    v->fenv_lag = 0;
 }
 
 /* With the gate (#63) the amp envelope runs the gate's settings, and
@@ -70,27 +69,24 @@ static int gated(const fm_voice *v)
     return v->amp_env.set != v->env2.set;
 }
 
-void fm_voice_sync_filter_env(fm_voice *v)
+/* `n` samples pass for the two envelopes the render does not step (lazy:
+ * each catches itself up when read or changed). envelope 2 is idle
+ * without the gate, and an idle one stays idle. */
+static inline void lazy_envs_pass(fm_voice *v, uint32_t n)
 {
-    if (v->fenv_lag) {
-        fm_env_advance(&v->filter_env, v->fenv_lag);
-        if (gated(v)) fm_env_advance(&v->env2, v->fenv_lag);
-        v->fenv_lag = 0;
-    }
+    fm_env_skip(&v->filter_env, n);
+    fm_env_skip(&v->env2, n);
 }
 
-/* The filter envelope's level now: caught up first, so never stale. The
- * only place the voice reads it (it is behind between control points). */
+/* The filter envelope's level now (it is behind between control points). */
 static int32_t filter_env_level(fm_voice *v)
 {
-    fm_voice_sync_filter_env(v);
-    return v->filter_env.level;
+    return fm_env_level(&v->filter_env);
 }
 
 /* The key is up for the filter envelope, and with the gate envelope 2. */
 static void filter_env_gate_off(fm_voice *v)
 {
-    fm_voice_sync_filter_env(v);
     fm_env_gate_off(&v->filter_env);
     if (gated(v)) fm_env_gate_off(&v->env2);
 }
@@ -106,10 +102,6 @@ int fm_voice_active(const fm_voice *v)
 /* render_plain counts the control phase down modulo this */
 typedef char fm_require_ctrl_samples_power_of_two[
     (FILTER_CTRL_SAMPLES & (FILTER_CTRL_SAMPLES - 1)) == 0 ? 1 : -1];
-
-/* A skipped filter envelope is caught up at least this often (6 minutes
- * at 44.1 kHz), so fenv_lag never wraps. */
-#define FENV_LAG_MAX (1u << 24)
 
 /* The filter's settings changed: its busy bit follows whether it is now a
  * wire. The one place that sets FM_BUSY_FILTER. */
@@ -143,8 +135,7 @@ static int32_t amp_share(const fm_voice *v, int32_t level)
 static int32_t env2_share(fm_voice *v, int32_t level)
 {
     if (!gated(v)) return amp_share(v, level);
-    fm_voice_sync_filter_env(v);
-    return v->env2.level;
+    return fm_env_level(&v->env2);
 }
 
 /* Recomputes the cutoff from the settings, the voice's note and its
@@ -186,9 +177,7 @@ static void gate_on(fm_voice *v)
     if (v->amp_env.stage == FM_ENV_IDLE) {
         fm_env_reset(&v->filter_env);
         fm_env_reset(&v->env2);
-        v->fenv_lag = 0;
     }
-    fm_voice_sync_filter_env(v);
     fm_env_key(&v->amp_env, v->note);
     fm_env_key(&v->filter_env, v->note);
     fm_env_gate_on(&v->amp_env);
@@ -386,7 +375,6 @@ void fm_voice_silence(fm_voice *v)
     fm_env_reset(&v->amp_env);
     fm_env_reset(&v->filter_env);
     fm_env_reset(&v->env2);
-    v->fenv_lag = 0;
     fm_filter_clear(&v->filter); /* no ringing left for the next note */
     v->pending = 0;
     fm_voice_mark(v, FM_BUSY_STEAL, 0);
@@ -399,7 +387,6 @@ void fm_voice_silence(fm_voice *v)
 void fm_voice_set_amp(fm_voice *v, const fm_env_settings *amp)
 {
     if (v->amp_env.set == amp) return;
-    fm_voice_sync_filter_env(v); /* env2 current while it still runs */
     v->amp_env.set = amp;
     if (v->amp_env.stage != FM_ENV_IDLE) fm_env_retime(&v->amp_env);
     if (!gated(v)) fm_env_reset(&v->env2); /* idle without the gate */
@@ -517,10 +504,9 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
         mix[i] += (int32_t)(((int64_t)last * level) >> 30);
     }
     v->filter.s[3] = last;
-    v->fenv_lag += i;
+    lazy_envs_pass(v, i);
     /* each sample: 0 -> FILTER_CTRL_SAMPLES, then down one */
     v->ctrl_phase = (uint8_t)((v->ctrl_phase - i) & (FILTER_CTRL_SAMPLES - 1));
-    if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
     return 1;
 }
 
@@ -529,7 +515,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
                          uint32_t frames, uint32_t sample_rate,
                          uint32_t next_tick, uint32_t tick_left)
 {
-    uint32_t i;
+    uint32_t i, told = 0; /* the lazy envelopes know of samples < told */
     int whole;
     if (render_plain(v, m, mix, osc, frames)) return;
     whole = osc_chunk_safe(v);
@@ -541,6 +527,8 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
              * still to come in this chunk (one at tick_left, then one
              * every FM_LFO_TICK_FRAMES) */
             uint32_t now = next_tick;
+            lazy_envs_pass(v, i - told);
+            told = i;
             if (!v->pending) return;
             if (i >= tick_left)
                 now += ((i - tick_left) >> FM_LFO_TICK_SHIFT) + 1;
@@ -549,13 +537,17 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         if (v->gate_left && --v->gate_left == 0) { /* the queued release */
             fm_voice_mark(v, FM_BUSY_GATE, 0);
             fm_env_gate_off(&v->amp_env);
+            lazy_envs_pass(v, i - told);
+            told = i;
             filter_env_gate_off(v);
         }
         level = fm_env_step(&v->amp_env);
-        /* the filter envelope is read only at the control rate: counted
-         * here, caught up exactly (fm_env_advance) when it is read */
-        v->fenv_lag++;
         if (v->ctrl_phase == 0) {
+            /* the filter envelope is read only at the control rate: told
+             * of the samples so far, this one too, and caught up exactly
+             * when read */
+            lazy_envs_pass(v, i + 1 - told);
+            told = i + 1;
             fenv = 0;
             if ((fm_voice_busy(v) & FM_BUSY_FILTER_ENV) ||
                 m->routes.depth[FM_MOD_SRC_ENV1][FM_MOD_MIX])
@@ -570,7 +562,6 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
                 update_mix(v, m, fenv,
                            m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_MIX] ?
                            env2_share(v, level) : 0);
-            if (v->fenv_lag >= FENV_LAG_MAX) fm_voice_sync_filter_env(v);
             v->ctrl_phase = FILTER_CTRL_SAMPLES;
         }
         v->ctrl_phase--;
@@ -580,4 +571,5 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
     }
+    lazy_envs_pass(v, frames - told);
 }
