@@ -75,6 +75,7 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
         seq_clock_in(play_seq(&P), st, H->ticks());
         return;
     }
+    ui_midi_controls(&U, st, d1, d2);           /* the live bend and mod wheel, for a SEQ step written (#42) */
     if ((st & 0xF0u) == 0x90u || (st & 0xF0u) == 0x80u)  /* MIDI notes held count as chord keys (SEQ view) */
         ui_chord_note(&U, d1, d2, (st & 0xF0u) == 0x90u && d2);
     if ((st & 0xF0u) == 0xB0u && ui_cc(&U, d1, d2, H->ms()))

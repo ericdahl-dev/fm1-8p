@@ -85,13 +85,14 @@ const seq_step *seq_get_step(const seq *s, uint32_t i)
     return i < SEQ_STEPS ? &s->edit.step[i] : 0;
 }
 
-void seq_set_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel)
+void seq_write_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel, int32_t bend,
+                    int32_t mod, uint32_t glide)
 {
     seq_step *st;
     uint32_t k;
     if (i >= SEQ_STEPS)
         return;
-    edit_begin(s);
+    edit_begin(s);                              /* (one publish: the interrupt takes all of it or none) */
     st = &s->edit.step[i];
     n = n > SEQ_NOTES ? SEQ_NOTES : n;
     for (k = 0; k < n; k++)
@@ -99,9 +100,23 @@ void seq_set_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t
     st->n = (uint8_t)n;
     st->vel = (uint8_t)(vel < 1u ? 1u : vel > 127u ? 127u : vel);
     st->kind = n ? SEQ_NOTES_ON : SEQ_REST;
-    st->bend = 0;
-    st->mod = 0;
-    st->glide = 0;
+    st->bend = (int16_t)(bend < -8192 ? -8192 : bend > 8191 ? 8191 : bend);
+    st->mod = (uint8_t)(mod < 0 ? 0 : mod > 127 ? 127 : mod);
+    st->glide = (uint8_t)(glide != 0);
+    edit_end(s);
+}
+
+void seq_set_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel)
+{
+    seq_write_step(s, i, notes, n, vel, 0, 0, 0);
+}
+
+void seq_set_step_vel(seq *s, uint32_t i, uint32_t vel)
+{
+    if (i >= SEQ_STEPS || s->edit.step[i].kind != SEQ_NOTES_ON)
+        return;
+    edit_begin(s);
+    s->edit.step[i].vel = (uint8_t)(vel < 1u ? 1u : vel > 127u ? 127u : vel);
     edit_end(s);
 }
 

@@ -543,6 +543,34 @@ TT_TEST(save_in_seq_view_writes_the_pattern)
     TT_CHECK_EQ(ui_u.state, UI_SEQ);
 }
 
+/* A step's bend, mod and move set on S2 are saved with the pattern and come back with it: written to
+ * the slot, then read back by browsing away and back with PRESETS (#42) */
+TT_TEST(save_keeps_a_steps_bend_mod_and_move)
+{
+    static seq_pattern out;
+    char name[STORE_NAME_LEN + 1u], n[UI_VALUE_LEN], un[UI_VALUE_LEN];
+    save_seq_setup();
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 200);   /* S2, the cursor on step 1 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -5, 300);      /* bend -50 % */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 4, 400);       /* mod 40 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 500);       /* GLIDE */
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 2000);
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 0, &out, name), 0);
+    TT_CHECK_EQ(out.step[0].bend, -50 * 8192 / 100);
+    TT_CHECK_EQ(out.step[0].mod, 40u);
+    TT_CHECK_EQ(out.step[0].glide, 1u);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 3000);    /* 12, empty: the step is a rest, centered */
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 0)->bend, 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -1, 3100);   /* back to 11 */
+    ui_seq_column(&ui_u, 1, n, un);
+    TT_CHECK(strcmp(n, "-50") == 0);
+    ui_seq_column(&ui_u, 2, n, un);
+    TT_CHECK(strcmp(n, "40") == 0);
+    ui_seq_column(&ui_u, 3, n, un);
+    TT_CHECK(strcmp(n, "GLIDE") == 0);
+}
+
 /* PRESETS and ALGORITHM pick among the pattern slots: ALGORITHM finds the next empty pattern slot,
  * whatever the patch slots hold; onto another pattern the first tap asks REPLACE 12 <ITS NAME>? */
 TT_TEST(save_in_seq_view_picks_pattern_slots)
@@ -645,6 +673,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_waits_while_play_waits_for_the_clock);
     TT_RUN(save_force_and_cancel_work_while_the_sequencer_runs);
     TT_RUN(save_in_seq_view_writes_the_pattern);
+    TT_RUN(save_keeps_a_steps_bend_mod_and_move);
     TT_RUN(save_in_seq_view_picks_pattern_slots);
     TT_RUN(save_in_seq_view_waits_for_the_stop);
     TT_RUN(save_in_seq_view_keeps_its_own_draft);

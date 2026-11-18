@@ -380,6 +380,10 @@ void ui_init(ui *u, play *p)
     u->shown_blink = 0;
     u->seq_msg[0] = 0;
     u->pc_out = -1;
+    u->live_bend = 0;
+    u->live_mod = 0;
+    u->built_bend = 0;
+    u->built_mod = 0;
     u->cc_out_at = 0;
     u->cc_sent_cc = u->cc_sent_v = 0xFFu;
     u->focus = 1;
@@ -1088,6 +1092,18 @@ int ui_midi_in(const ui *u, uint32_t st)
     return st >= 0xF0u || !u->set.midi_in || (st & 15u) == u->set.midi_in - 1u;
 }
 
+void ui_midi_controls(ui *u, uint32_t st, uint32_t d1, uint32_t d2)
+{
+    if (st >= 0xF0u || !ui_midi_in(u, st))
+        return;
+    if ((st & 0xF0u) == 0xE0u)
+        u->live_bend = (int32_t)((d2 & 0x7Fu) << 7 | (d1 & 0x7Fu)) - 8192;
+    else if ((st & 0xF0u) == 0xB0u && d1 == 1u)
+        u->live_mod = d2 & 0x7Fu;
+    else if ((st & 0xF0u) == 0xB0u && d1 == 121u)
+        u->live_bend = 0, u->live_mod = 0;
+}
+
 uint32_t ui_midi_out(const ui *u, uint32_t st)
 {
     return (st & 0xF0u) | ((u->set.midi_out - 1u) & 15u);
@@ -1432,9 +1448,8 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_ENV:
     case UI_BTN_FX:
     case UI_BTN_LFO:                            /* lit while a page of its ring shows */
-        if (u->state == UI_SEQ)                 /* SEQ view: REST, TIE, and BACK in REC; MOVE (#42) waits */
-            return button == UI_BTN_SEL || button == UI_BTN_ENV || (button == UI_BTN_FX && u->seq_rec)
-                       ? UI_LED_GLOW : UI_LED_OFF;
+        if (u->state == UI_SEQ)                 /* SEQ view: REST, TIE, MOVE (#42), and BACK in REC */
+            return button != UI_BTN_FX || u->seq_rec ? UI_LED_GLOW : UI_LED_OFF;
         if (u->state == UI_SAVE || u->state == UI_GLO)   /* they do nothing there: off (interaction.md) */
             return UI_LED_OFF;
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
