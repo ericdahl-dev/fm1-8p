@@ -1723,6 +1723,23 @@ TT_TEST(seq_key_transpose_a_lost_note_off_hangs_nothing)
     TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 50, 0, 0), 0);
 }
 
+/* On S3, a MIDI note that transposes redraws TRANSPOSE's column, which then reads the new transpose */
+TT_TEST(seq_key_transpose_redraws_transpose_on_s3)
+{
+    static const uint8_t C3[1] = {48};
+    char n[UI_VALUE_LEN], un[UI_VALUE_LEN];
+    seq *s = s3_setup();
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_render_to(0);
+    (void)ui_take_full(&ui_u, 1300);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 100, 1), 1);
+    TT_CHECK(ui_take(&ui_u, 1400) & UI_D_COL(0));
+    ui_seq_column(&ui_u, 0, n, un);
+    TT_CHECK(strcmp(n, "+2") == 0 && strcmp(un, "st") == 0);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_s3_key_transpose_turns_on_and_off);
@@ -1735,6 +1752,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_key_transpose_keys_end_as_they_began);
     TT_RUN(seq_key_transpose_and_rec);
     TT_RUN(seq_key_transpose_a_lost_note_off_hangs_nothing);
+    TT_RUN(seq_key_transpose_redraws_transpose_on_s3);
     TT_RUN(seq_a_tapped_step_takes_the_live_bend_and_mod);
     TT_RUN(seq_a_step_keeps_the_bend_its_first_note_had);
     TT_RUN(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing);

@@ -91,8 +91,11 @@ static void ktr_set(ui *u)
             low = i;
             break;
         }
-    if (low < 128u)
+    if (low < 128u) {
         seq_set_transpose(play_seq(u->p), (int32_t)low - 60);   /* (clamped there to -24..+24) */
+        if (u->state == UI_SEQ && u->seq_page == 2u)
+            u->dirty |= UI_D_COL(0);            /* (S3 shows TRANSPOSE) */
+    }
 }
 
 int ui_seq_ktr_key(ui *u, uint32_t k, int down, int may)
