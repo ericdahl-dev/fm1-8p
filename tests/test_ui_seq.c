@@ -1564,12 +1564,154 @@ TT_TEST(seq_key_transpose_a_midi_note_sets_it)
     TT_CHECK_EQ(seq_transpose(s), 24);
 }
 
+/* KEY TRANSPOSE on and playing, in SEQ view: the panel keys stay steps (a white key arms its step, none
+ * transposes); a MIDI note transposes; with a step armed, a MIDI note plays and writes that step and the
+ * transpose stays as it was (chord entry first: #39, acceptance 44 and 45) */
+TT_TEST(seq_key_transpose_in_seq_view_steps_and_chord_entry_come_first)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_SEQ, 900);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1100), 1);               /* white key D4: step 6, armed */
+    TT_CHECK(ui_u.seq_armed && ui_u.seq_cursor == 5u);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1150), 1);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 100, 1), 0);      /* armed: the note is the step's */
+    ui_chord_note(&ui_u, 64, 100, 1);
+    ui_chord_note(&ui_u, 64, 0, 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 0, 0), 0);
+    TT_CHECK_EQ(seq_get_step(s, 5)->note[0], 64u);            /* written */
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK(!ui_u.seq_armed);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 67, 100, 1), 1);      /* not armed: MIDI G4 transposes +7 */
+    TT_CHECK_EQ(seq_transpose(s), 7);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 67, 0, 0), 1);
+}
+
+/* KEY TRANSPOSE off (playing), or on but stopped: keys and MIDI notes play as ever (interaction.md 5) */
+TT_TEST(seq_key_transpose_off_or_stopped_plays)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    ui_tap(UI_BTN_PLAY, 1000);                                /* playing, KEY TRANSPOSE off */
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1100), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1150), 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 100, 1), 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 0, 0), 0);
+    ui_tap(UI_BTN_PLAY, 1200);                                /* on, stopped */
+    seq_render_to(-1);
+    seq_set_key_transpose(s, 1);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1300), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1350), 0);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    seq_set_clock_source(s, SEQ_CLK_MIDI);                    /* on, PLAY waiting for a clock: not playing */
+    ui_tap(UI_BTN_PLAY, 1400);
+    TT_CHECK(seq_waiting(s));
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1500), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1550), 0);
+}
+
+/* A key held for the transpose across the pattern's end: the transpose holds over the loop, the key
+ * sets nothing again, and a pattern loaded meanwhile changes nothing of it */
+TT_TEST(seq_key_transpose_held_across_the_loop)
+{
+    static const uint8_t C3[1] = {48};
+    static seq_pattern p;
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_length(s, 2);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 2, 1, 1100), 1);               /* G3: -5 */
+    seq_render_to(1);
+    seq_render_to(0);                                         /* round: past the end */
+    TT_CHECK_EQ(seq_transpose(s), -5);
+    TT_CHECK_EQ(s->run_transpose, -5);
+    seq_pattern_empty(&p);
+    p.length = 2;
+    seq_load_pattern(s, &p);                                  /* queued for the pass's end */
+    seq_render_to(1);
+    seq_render_to(0);
+    TT_CHECK_EQ(seq_transpose(s), -5);
+    TT_CHECK_EQ(ui_key(&ui_u, 2, 0, 1200), 1);
+    TT_CHECK_EQ(seq_transpose(s), -5);
+}
+
+/* Every key ends the way it began: one pressed while stopped (it sounds), then PLAY, lets its note go as
+ * usual (not taken: no hung note); one taken for the transpose, then STOP, is taken on its up too (no
+ * stray note off). MIDI notes alike */
+TT_TEST(seq_key_transpose_keys_end_as_they_began)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 900), 0);                /* stopped: D4 sounds */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 70, 100, 1), 0);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1100), 0);               /* its up: as it began, a note off */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 70, 0, 0), 0);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, 11, 1, 1200), 1);              /* playing: E4 taken, +4 */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 65, 100, 1), 1);      /* and MIDI F4: taken; E4 stays the lowest */
+    TT_CHECK_EQ(seq_transpose(s), 4);
+    ui_tap(UI_BTN_PLAY, 1300);                                /* STOP */
+    TT_CHECK_EQ(ui_key(&ui_u, 11, 0, 1400), 1);              /* its up: taken, silent */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 65, 0, 0), 1);
+    TT_CHECK_EQ(ui_key(&ui_u, 11, 1, 1500), 0);              /* and the next press plays */
+}
+
+/* REC arms only while stopped, so keys in REC play the step; PLAY while REC is armed starts and disarms
+ * it, and a key held then still ends as it began (a played note), transposing nothing */
+TT_TEST(seq_key_transpose_and_rec)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_REC, 1000);                                 /* armed, stopped */
+    TT_CHECK(ui_u.seq_rec);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1100), 0);               /* REC: it plays, joins the step */
+    ui_chord_note(&ui_u, 62, 100, 1);
+    ui_tap(UI_BTN_PLAY, 1200);                                /* starts, and REC disarms */
+    seq_render_to(0);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1300), 0);               /* its up: a note off, as it began */
+    ui_chord_note(&ui_u, 62, 0, 0);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);                          /* (REC opened SEQ view: keys are steps there) */
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1400), 1);               /* D4: a step key, not a transpose */
+    TT_CHECK(ui_u.seq_armed);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_s3_key_transpose_turns_on_and_off);
     TT_RUN(seq_key_transpose_a_panel_key_sets_it_from_the_next_step);
     TT_RUN(seq_key_transpose_the_lowest_key_held_sets_it);
     TT_RUN(seq_key_transpose_a_midi_note_sets_it);
+    TT_RUN(seq_key_transpose_in_seq_view_steps_and_chord_entry_come_first);
+    TT_RUN(seq_key_transpose_off_or_stopped_plays);
+    TT_RUN(seq_key_transpose_held_across_the_loop);
+    TT_RUN(seq_key_transpose_keys_end_as_they_began);
+    TT_RUN(seq_key_transpose_and_rec);
     TT_RUN(seq_a_tapped_step_takes_the_live_bend_and_mod);
     TT_RUN(seq_a_step_keeps_the_bend_its_first_note_had);
     TT_RUN(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing);

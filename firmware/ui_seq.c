@@ -75,7 +75,8 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on)
 static int ktr_active(const ui *u)
 {
     const seq *s = play_seq(u->p);
-    return seq_key_transpose(s) && seq_playing(s);
+    return seq_key_transpose(s) && s->want && s->playing;   /* (playing, not waiting for a clock; a STOP press:
+                                                             * keys play at once) */
 }
 
 /* the transpose from the lowest key or MIDI note held for it, as a pitch: C4 (60) is 0 */
