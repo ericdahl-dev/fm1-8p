@@ -496,8 +496,8 @@ at the next PLAY.
   stops (a stop that comes in, or the clock lost). A hand-over from its own
   clock to an incoming one sends its stop, then the start.
 - **Timing:** fm1-dock sends MIDI from its main loop only, so a clock goes
-  out at most one main loop pass late (about 2-3 ms). Clocks are never lost:
-  late ones go out together.
+  out at the next main loop pass (its longest part, one draw call, measured
+  2.3 ms in fm1-emu). Clocks are never lost: late ones go out together.
 - **Watch for loops:** if the device sending the FM-1 its clock also takes the
   FM-1's MIDI out back in (a DAW echoing its MIDI input to its output), the
   clock goes round. Turn G14 off, or don't route the FM-1's out back to it.
