@@ -1701,6 +1701,28 @@ TT_TEST(seq_key_transpose_and_rec)
     TT_CHECK_EQ(seq_transpose(s), 0);
 }
 
+/* A MIDI note taken for the transpose whose note off never comes (another channel by then, a cable
+ * pulled) leaves no trap: the next note on of that pitch that plays clears it, so its off reaches the
+ * engine (no hung note); CC 123 / 120 clear them all (review of b614574) */
+TT_TEST(seq_key_transpose_a_lost_note_off_hangs_nothing)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 100, 1), 1);      /* taken; its off lost */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 50, 100, 1), 1);      /* another, its off lost too */
+    seq_set_key_transpose(s, 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 100, 1), 0);      /* now it plays ... */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 0, 0), 0);        /* ... and its off goes to the engine */
+    ui_seq_ktr_all_off(&ui_u);                                /* CC 123: all notes off */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 50, 0, 0), 0);
+}
+
 static void run_ui_seq_tests(void)
 {
     TT_RUN(seq_s3_key_transpose_turns_on_and_off);
@@ -1712,6 +1734,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_key_transpose_held_across_the_loop);
     TT_RUN(seq_key_transpose_keys_end_as_they_began);
     TT_RUN(seq_key_transpose_and_rec);
+    TT_RUN(seq_key_transpose_a_lost_note_off_hangs_nothing);
     TT_RUN(seq_a_tapped_step_takes_the_live_bend_and_mod);
     TT_RUN(seq_a_step_keeps_the_bend_its_first_note_had);
     TT_RUN(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing);

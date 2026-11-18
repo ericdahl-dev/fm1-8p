@@ -73,6 +73,8 @@ int ui_seq_ktr_key(ui *u, uint32_t k, int down, int may);
  * view not while a step is armed or REC is (then it plays that step). 1 when it took the note (it
  * sounds nowhere, and its note off is taken too). */
 int ui_seq_ktr_note(ui *u, uint32_t note, uint32_t vel, int on);
+/* All notes off (CC 120 / 123) or a channel changed: no MIDI note is held for the transpose any more */
+void ui_seq_ktr_all_off(ui *u);
 /* SEQ view: a step key (0..15) down or up */
 void ui_seq_step_key(ui *u, uint32_t k, int down, uint32_t ms);
 /* An event while SEQ view is open. */

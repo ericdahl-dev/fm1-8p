@@ -82,6 +82,8 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
         return;
     }
     ui_midi_controls(&U, st, d1, d2);           /* the live bend and mod wheel, for a SEQ step written (#42) */
+    if ((st & 0xF0u) == 0xB0u && (d1 == 120u || d1 == 123u))
+        ui_seq_ktr_all_off(&U);                 /* (all off: the notes KEY TRANSPOSE held, too) */
     if (((st & 0xF0u) == 0x90u || (st & 0xF0u) == 0x80u) &&
         ui_seq_ktr_note(&U, d1, d2, (st & 0xF0u) == 0x90u))
         return;                                 /* KEY TRANSPOSE took it: no sound (#39) */

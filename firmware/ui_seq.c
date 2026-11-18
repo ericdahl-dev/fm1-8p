@@ -123,11 +123,18 @@ int ui_seq_ktr_note(ui *u, uint32_t note, uint32_t vel, int on)
         *w &= ~b;                               /* (let go: the transpose stays) */
         return 1;
     }
-    if (!ktr_active(u) || (u->state == UI_SEQ && (u->seq_armed || u->seq_rec)))
+    if (!ktr_active(u) || (u->state == UI_SEQ && (u->seq_armed || u->seq_rec))) {
+        *w &= ~b;                               /* (it plays: an old taken one whose off was lost lets go) */
         return 0;                               /* (a step being written takes it: chord entry first) */
+    }
     *w |= b;
     ktr_set(u);
     return 1;
+}
+
+void ui_seq_ktr_all_off(ui *u)
+{
+    u->ktr_notes[0] = u->ktr_notes[1] = u->ktr_notes[2] = u->ktr_notes[3] = 0;
 }
 
 int32_t ui_seq_step_of_key(uint32_t k)
