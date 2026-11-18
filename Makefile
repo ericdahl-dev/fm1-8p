@@ -48,7 +48,7 @@ BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
 FW_SRC     = firmware/cpu_test.c firmware/dfont.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/pattern_store.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c firmware/ui_seq.c
-FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/seq.h firmware/pattern_store.h firmware/settings_store.h firmware/ui_save.h firmware/ui_seq.h
+FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/ui_params.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/seq.h firmware/pattern_store.h firmware/settings_store.h firmware/ui_save.h firmware/ui_seq.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
 HOST_OBJ   = $(HOST_SRC:%.c=$(BUILD)/%.o)
@@ -57,7 +57,7 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches check-font check-draw-colors generate render-demo clean \
+.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches check-font check-draw-colors generate ui-golden render-demo clean \
 	gate check-gate scorecard check-scorecard
 
 all: $(RENDER) $(BENCH)
@@ -85,6 +85,23 @@ bench-full: $(BENCH)
 $(BUILD)/run-tests: tests/test_main.c $(wildcard tests/*.h tests/test_*.c) tests/filter_oracle.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ)
 	$(CC) $(STD) -Wall -Wextra -Werror -Wno-unused-function $(CFLAGS) \
 		tests/test_main.c $(ENGINE_OBJ) $(HOST_OBJ) $(BENCH_OBJ) $(FW_OBJ) -lm -o $@.tmp && mv $@.tmp $@
+
+# The screen's value text, pinned (#196): writes tests/ui_format_golden.h anew from the display code as
+# it is now, and prints the golden's rows that moved. With BASE=<commit>, it also lists every value whose
+# text differs from BASE's (tools/ui_golden_diff.sh), not only the golden's few readable rows. Not part
+# of check: test_ui_format.c checks the committed golden.
+include tests/ui_golden.mk
+
+ui-golden: $(BUILD)/ui-golden
+	./$(BUILD)/ui-golden > $(BUILD)/ui_format_golden.h.tmp
+	@if cmp -s tests/ui_format_golden.h $(BUILD)/ui_format_golden.h.tmp; then \
+		echo "ui-golden: no change"; \
+	else \
+		echo "ui-golden: the golden's rows that moved (- before, + now):"; \
+		diff -U0 tests/ui_format_golden.h $(BUILD)/ui_format_golden.h.tmp | grep '^[-+] ' || true; \
+	fi
+	mv $(BUILD)/ui_format_golden.h.tmp tests/ui_format_golden.h
+	@if [ -n "$(BASE)" ]; then sh tools/ui_golden_diff.sh "$(BASE)"; fi
 
 # Through tools/run-tests.sh: an empty binary, or one that reports no tests, fails.
 test: $(BUILD)/run-tests
