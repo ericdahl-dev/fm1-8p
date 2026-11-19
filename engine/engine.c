@@ -407,6 +407,21 @@ static void at_tick(fm_engine *e)
     e->at_moving = moving;
 }
 
+/* Voice `i`'s pressure goes to `p` (Q1.30): by the one-pole, or, with
+ * every depth at 0, at once (it does nothing then, so costs nothing; a
+ * depth turned up later starts from it) */
+static void at_set(fm_engine *e, uint8_t i, int32_t p)
+{
+    e->at_to[i] = p;
+    if (e->params[FM_PARAM_AT_VIB_CENTS] | e->params[FM_PARAM_AT_BRI_CENTS] |
+        e->params[FM_PARAM_AT_VOL_PCT]) {
+        e->at_moving = 1;
+        return;
+    }
+    e->at_now[i] = p;
+    fm_voice_set_pressure(&e->voices[i], &e->mod, p);
+}
+
 /* Every voice takes its aftertouch gain. */
 static void at_gains(fm_engine *e)
 {
@@ -822,11 +837,11 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
  * change, so its level and cutoff never step. */
 static void at_start(fm_engine *e, uint8_t i)
 {
-    e->at_to[i] = e->at_chan;
     if (fm_voice_active(&e->voices[i])) {
-        e->at_moving = 1;
+        at_set(e, i, e->at_chan);
         return;
     }
+    e->at_to[i] = e->at_chan;
     e->at_now[i] = e->at_chan;
     fm_voice_set_gain(&e->voices[i], at_gain(e, i));
     fm_voice_set_pressure(&e->voices[i], &e->mod, e->at_now[i]);
@@ -993,8 +1008,7 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
     }
     if (controller == 121) { /* and every pressure to 0 (#61), smoothed */
         e->at_chan = 0;
-        for (i = 0; i < e->voice_count; i++) e->at_to[i] = 0;
-        e->at_moving = 1;
+        for (i = 0; i < e->voice_count; i++) at_set(e, i, 0);
     }
     if (controller == 120 || controller == 123) unison_reset(e);
     if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
@@ -1034,8 +1048,7 @@ void fm_engine_channel_pressure(fm_engine *e, uint8_t pressure)
     uint8_t i;
     if (e->sample_rate == 0 || pressure > 127) return;
     e->at_chan = at_q30(pressure);
-    for (i = 0; i < e->voice_count; i++) e->at_to[i] = e->at_chan;
-    e->at_moving = 1;
+    for (i = 0; i < e->voice_count; i++) at_set(e, i, e->at_chan);
 }
 
 void fm_engine_poly_pressure(fm_engine *e, uint8_t note, uint8_t pressure)
@@ -1044,10 +1057,8 @@ void fm_engine_poly_pressure(fm_engine *e, uint8_t note, uint8_t pressure)
     if (e->sample_rate == 0 || note > 127 || pressure > 127) return;
     for (i = 0; i < e->voice_count; i++) {      /* in unison, every voice plays it */
         fm_voice *v = &e->voices[i];
-        if (fm_voice_active(v) && fm_voice_note(v) == note) {
-            e->at_to[i] = at_q30(pressure);
-            e->at_moving = 1;
-        }
+        if (fm_voice_active(v) && fm_voice_note(v) == note)
+            at_set(e, i, at_q30(pressure));
     }
 }
 

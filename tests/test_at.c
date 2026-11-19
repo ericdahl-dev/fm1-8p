@@ -365,6 +365,41 @@ TT_TEST(at_restruck_note_ramps_to_its_pressure)
     TT_CHECK(on / off >= 0.9);
 }
 
+/* with every depth at 0, pressure costs nothing: it is taken at once, nothing moves, so the engine renders
+ * as without it (no chunk stopping at each control tick: the FM-1's keys send each held key's pressure about
+ * 100 times a second); a depth turned up later starts from the latest pressure (FW review) */
+TT_TEST(at_pressure_with_depths_zero_moves_nothing)
+{
+    double ref, lvl;
+    uint32_t n;
+    TT_CHECK_EQ(fm_engine_init(&at_eng, AT_RATE, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_init(&at_ref, AT_RATE, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&at_eng, FM_PARAM_AMP_LEVEL, 250), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&at_ref, FM_PARAM_AMP_LEVEL, 250), FM_OK);
+    fm_engine_note_on(&at_eng, 60, 100);
+    fm_engine_note_on(&at_ref, 60, 100);
+    for (n = 0; n < 400; n++) {
+        fm_engine_render(&at_eng, at_buf, AT_RATE / 1000u);
+        fm_engine_render(&at_ref, at_rbuf, AT_RATE / 1000u);
+    }
+    fm_engine_poly_pressure(&at_eng, 60, 127);
+    fm_engine_channel_pressure(&at_eng, 127);
+    TT_CHECK_EQ(at_eng.at_moving, 0);
+    TT_CHECK_EQ(fm_engine_set_param(&at_eng, FM_PARAM_AT_VOL_PCT, 100), FM_OK);
+    lvl = at_run(100);                          /* (a 16 ms ramp from x1 would read about x1.42) */
+    {
+        double s2 = 0.0;
+        uint32_t i;
+        for (n = 0; n < 100; n++) {
+            fm_engine_render(&at_ref, at_rbuf, AT_RATE / 1000u);
+            for (i = 0; i < 2u * AT_RATE / 1000u; i++) s2 += (double)at_rbuf[i] * at_rbuf[i];
+        }
+        ref = sqrt(s2 / (200.0 * AT_RATE / 1000u));
+    }
+    if (fabs(lvl / ref - 1.5) > 0.015) printf("    AT VOL up after the pressure: x%.4f at once (want 1.5)\n", lvl / ref);
+    TT_CHECK(fabs(lvl / ref - 1.5) <= 0.015);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
@@ -380,4 +415,5 @@ static void run_at_tests(void)
     TT_RUN(at_unison_takes_the_sounding_notes_pressure);
     TT_RUN(at_bri_to_fully_open_keeps_the_busy_word_true);
     TT_RUN(at_restruck_note_ramps_to_its_pressure);
+    TT_RUN(at_pressure_with_depths_zero_moves_nothing);
 }
