@@ -2197,6 +2197,34 @@ TT_TEST(synced_osc2_settles_to_no_dc_under_the_step)
 }
 
 /*
+ * osc2 retuned mid-note under a synced C3, an octave up to a fifth up:
+ * the restart moves from osc2's own wrap into its cycle, and the pair's DC
+ * from none to -1/6. That is a real change, far past the step taken
+ * slowly (#253), so all but that step comes off at once, as on a new
+ * note: over the ten cycles from the second after the retune, under
+ * 0.004 (the step is 1 / 367 here; the slow loop alone would leave
+ * 0.135).
+ */
+TT_TEST(synced_osc2_retuned_mid_note_has_no_dc)
+{
+    static fm_osc_pair p;
+    int32_t pitch = 48 << 16;
+    double dc;
+    uint32_t i;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_tune(&p, 1, 1200, pitch, RATE);
+    fm_osc_pair_set_pitch(&p, pitch, RATE);
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, 1);
+    for (i = 0; i < 24000; i++) fm_osc_pair_next(&p);
+    fm_osc_pair_set_tune(&p, 1, 702, pitch, RATE);
+    dc = pair_dc(&p, 734, 4404); /* cycles 2 to 12 of 367 samples */
+    printf("    synced saw retuned an octave to a fifth up: DC %+.4f over the next ten cycles\n", dc);
+    TT_CHECK(fabs(dc) < 0.004);
+}
+
+/*
  * SYNC 2 with a pulse osc1 (SYNC LEAD's): the ring drives osc2 past +-2.0
  * a third of the time (inside the pair's +-4.0 hold), and taking a mean off
  * shifts the wave. The pair still plays with no DC.
@@ -2599,6 +2627,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_dc_leaves_no_comb_under_the_fundamental);
     TT_RUN(synced_dc_follows_a_sync_sweep);
     TT_RUN(synced_osc2_settles_to_no_dc_under_the_step);
+    TT_RUN(synced_osc2_retuned_mid_note_has_no_dc);
     TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
     TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
     TT_RUN(synced_osc2_has_no_dc);
