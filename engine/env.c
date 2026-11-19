@@ -304,7 +304,9 @@ int32_t fm_env_next(fm_env *e)
         d = e->level >= s ? e->level - s : s - e->level;
         /* a time of 0, or one key follow scales under a sample, lands
          * at once: start_segment divides by it (#284) */
-        if (d <= e->floor || (t = scaled(e, e->set->decay_samples)) == 0) {
+        /* the decay lands within FM_ENV_FLOOR of its sustain, not the
+         * output-relative floor: a level dip mid-note must not end it */
+        if (d <= FM_ENV_FLOOR || (t = scaled(e, e->set->decay_samples)) == 0) {
             e->level = s;
             e->stage = FM_ENV_SUSTAIN;
             hold(e);

@@ -362,6 +362,45 @@ TT_TEST(an_envelope_floor_is_at_least_minus_80_db)
     TT_CHECK_EQ(e.floor, FM_ENV_FULL);
 }
 
+/* A held note decaying (1 s, sustain 0) through a VCA LEVEL dip to `dip` for 128 samples at 100 ms and
+ * back to full, the glide off: its level relative to a note never dipped, 400 ms in. */
+static double gl_decay_after_dip(int32_t dip)
+{
+    static fm_engine ref;
+    static int16_t rbuf[2 * 4800];
+    double a, b;
+    fm_engine *e[2] = { &gl_eng, &ref };
+    int k;
+    for (k = 0; k < 2; k++) {
+        fm_engine_init(e[k], GL_RATE, 6);
+        fm_engine_set_param(e[k], FM_PARAM_AMP_ATTACK_MS, 1);
+        fm_engine_set_param(e[k], FM_PARAM_AMP_DECAY_MS, 1000);
+        fm_engine_set_param(e[k], FM_PARAM_AMP_SUSTAIN, 0);
+        fm_engine_note_on(e[k], 84, 127);
+        fm_engine_render(e[k], gl_buf, GL_RATE / 10);
+    }
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_LEVEL, dip);
+    fm_engine_render(&gl_eng, gl_buf, 128);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_LEVEL, 1000);
+    fm_engine_render(&gl_eng, gl_buf, GL_RATE * 3 / 10 - 128);
+    fm_engine_render(&ref, gl_buf_off, GL_RATE * 3 / 10);
+    fm_engine_render(&gl_eng, gl_buf, 4800);
+    fm_engine_render(&ref, rbuf, 4800);
+    a = gl_rms(gl_buf, 0, 4800);
+    b = gl_rms(rbuf, 0, 4800);
+    return b > 0 ? a / b : 0;
+}
+
+/* The output-relative floor frees a released voice; it must not end a held note's decay: a dip of the
+ * VCA LEVEL to 0 or to 1 mid-decay, then back, and the note decays on as one never dipped (within 1 %). */
+TT_TEST(a_vca_level_dip_leaves_a_held_notes_decay_running)
+{
+    double at0 = gl_decay_after_dip(0), at1 = gl_decay_after_dip(1);
+    printf("    decay 300 ms after a level dip, against no dip: to 0 %.3f, to 1 %.3f\n", at0, at1);
+    TT_CHECK(fabs(at0 - 1.0) < 0.01);
+    TT_CHECK(fabs(at1 - 1.0) < 0.01);
+}
+
 static void run_glide_tests(void)
 {
     TT_RUN(setting_the_glide_on_again_keeps_a_change_gliding);
@@ -376,4 +415,5 @@ static void run_glide_tests(void)
     TT_RUN(a_quiet_vca_level_frees_its_voice_when_its_output_is_80_db_down);
     TT_RUN(a_vca_level_gliding_to_zero_keeps_its_floor_safe);
     TT_RUN(an_envelope_floor_is_at_least_minus_80_db);
+    TT_RUN(a_vca_level_dip_leaves_a_held_notes_decay_running);
 }
