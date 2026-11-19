@@ -52,7 +52,29 @@ TT_TEST(porta_glides_exponentially_with_its_tau)
     }
 }
 
+/* a glide down ends on its note exactly, and stops (no voice left moving), at a short tau and a long one */
+static void pt_down_lands(int32_t tau_ms)
+{
+    TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 6), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, tau_ms), FM_OK);
+    fm_engine_note_on(&pt_eng, 72, 100);
+    pt_run(20);
+    fm_engine_note_off(&pt_eng, 72);
+    fm_engine_note_on(&pt_eng, 60, 100);
+    pt_run(tau_ms * 14.0);                      /* 12 octave-tau's to under 1/1000 st, and some */
+    if (pt_pitch(60) != 60.0)
+        printf("    tau %d ms: at %.6f st after 14 tau\n", (int)tau_ms, pt_pitch(60));
+    TT_CHECK(pt_pitch(60) == 60.0);
+    TT_CHECK_EQ(pt_eng.porta_moving, 0);
+}
+TT_TEST(porta_down_lands_on_its_note)
+{
+    pt_down_lands(50);
+    pt_down_lands(2000);
+}
+
 static void run_porta_tests(void)
 {
     TT_RUN(porta_glides_exponentially_with_its_tau);
+    TT_RUN(porta_down_lands_on_its_note);
 }

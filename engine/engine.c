@@ -381,13 +381,14 @@ static GLIDE_NOINLINE void glide_tick(fm_engine *e)
 }
 
 /* Recomputes the derived settings a parameter feeds. */
-/* Portamento's step a control tick: 1 - exp(-x), x = a tick / tau, Q16,
- * from its series (x is at most 0.67 at 1 ms and 48 kHz, where the fourth
- * term, dropped, is 0.008). Off (0): every glide ends where it is now. */
+/* Portamento's step a control tick: 1 - exp(-x), x = a tick / tau, Q30
+ * (Q16 is 4 at 10 s, 9% off), from its series (x is at most 0.67 at 1 ms
+ * and 48 kHz, where the fourth term, dropped, is 0.008). Off (0): every
+ * glide ends where it is now. */
 static void porta_init(fm_engine *e)
 {
     uint32_t ms = (uint32_t)e->params[FM_PARAM_PORTAMENTO_MS];
-    int32_t x, x2, x3;
+    int64_t x, x2, x3;
     uint8_t i;
     if (!ms || !e->sample_rate) {
         e->porta_k = 0;
@@ -399,21 +400,27 @@ static void porta_init(fm_engine *e)
         }
         return;
     }
-    x = (int32_t)((uint32_t)FM_LFO_TICK_FRAMES * 1000u * 65536u / (e->sample_rate * ms));
-    x2 = ((x >> 4) * (x >> 4)) >> 8;
-    x3 = ((x2 >> 4) * (x >> 4)) >> 8;
-    e->porta_k = x - x2 / 2 + x3 / 6;
+    x = ((int64_t)FM_LFO_TICK_FRAMES * 1000 << 30) / ((int64_t)e->sample_rate * ms);
+    if (x >= (int64_t)1 << 30) {                /* tau under a tick: there in one */
+        e->porta_k = 1 << 30;
+        return;
+    }
+    x2 = (x * x) >> 30;
+    x3 = (x2 * x) >> 30;
+    e->porta_k = (int32_t)(x - x2 / 2 + x3 / 6);
 }
 
 /* A control tick while a voice glides: its glide still to go falls by
- * porta_k, and it is retuned; under 1/1000 semitone it ends */
+ * porta_k (rounded up, on its size, so a glide either way always ends),
+ * and it is retuned; under 1/1000 semitone it ends */
 static void porta_tick(fm_engine *e)
 {
     uint8_t i, moving = 0;
     for (i = 0; i < e->voice_count; i++) {
-        int32_t g = e->porta[i];
+        int32_t g = e->porta[i], d;
         if (!g) continue;
-        g -= (int32_t)(((int64_t)g * e->porta_k) >> 16);
+        d = (int32_t)(((int64_t)(g < 0 ? -g : g) * e->porta_k + (1 << 30) - 1) >> 30);
+        g = g < 0 ? g + d : g - d;
         e->porta[i] = g > -66 && g < 66 ? 0 : g;
         moving |= e->porta[i] != 0;
     }
