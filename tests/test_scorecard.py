@@ -121,6 +121,48 @@ class MetricTest(unittest.TestCase):
         buzz *= np.sqrt(np.mean(x ** 2)) / np.sqrt(np.mean(buzz ** 2)) * 10 ** (-30 / 20)
         self.assertGreater(self.sc.air_gap(np.round((x + buzz) * 32767) / 32767, x), 15.0)
 
+    # The same floor in the spectral column (s10): a quiet section (WINDCHIMES' chord sits near -63 dBFS,
+    # its low note near -78) put the 16-bit floor's hiss above the bands' 60 dB floor, and read +20 to
+    # +35 dB over PG-8X at 3-8 kHz. Each section now scores against PG-8X's side at our level in int16.
+    def quiet_dark_score(self, dbfs, buzz_db=None):
+        np = self.np
+        from scipy import signal
+        b, a = signal.butter(8, 300 / (SR / 2))
+        t = np.arange(13 * SR) / SR
+        dark = signal.lfilter(b, a, 0.25 * np.sin(2 * np.pi * 110 * t) + 0.1 * np.sin(2 * np.pi * 220 * t))
+        x = dark * 10 ** (dbfs / 20) / np.sqrt(np.mean(dark ** 2))
+        ours = x
+        if buzz_db is not None:
+            hb, ha = signal.butter(4, 3000 / (SR / 2), "high")
+            buzz = signal.lfilter(hb, ha, np.random.default_rng(6).standard_normal(len(x)))
+            ours = x + buzz * np.sqrt(np.mean(x ** 2) / np.mean(buzz ** 2)) * 10 ** (buzz_db / 20)
+        as16 = np.clip(np.floor(ours * 32768), -32768, 32767) / 32768
+        return self.sc.score_tone(np.stack([as16, as16], 1), np.stack([x, x], 1), harmonic=False)
+
+    def test_a_quiet_int16_render_has_no_spectral_gap_against_its_float_self(self):
+        for dbfs in (-60, -75):
+            s = self.quiet_dark_score(dbfs)
+            self.assertLess(s["spectral_db_mean"], 0.5, (dbfs, s["spectral_db"]))
+
+    def test_a_buzz_over_the_floor_still_shows_in_a_quiet_section(self):
+        s = self.quiet_dark_score(-60, buzz_db=-25)
+        self.assertGreater(s["spectral_db_mean"], 3.0, s["spectral_db"])
+
+    # Well above the floor, s10 changes nothing: a real gap scores as spectral_distance on the raw sections.
+    def test_a_loud_spectral_gap_scores_as_before(self):
+        np = self.np
+        from scipy import signal
+        rng = np.random.default_rng(7)
+        pg = 0.05 * rng.standard_normal(13 * SR)
+        b, a = signal.butter(2, 1500 / (SR / 2))
+        ours = signal.lfilter(b, a, pg)
+        ours = np.clip(np.floor(ours * 32768), -32768, 32767) / 32768
+        s = self.sc.score_tone(np.stack([ours, ours], 1), np.stack([pg, pg], 1), harmonic=False)
+        for k, w in self.sc.SECTIONS.items():
+            raw = self.sc.spectral_distance(self.sc._cut(ours, *w), self.sc._cut(pg, *w))
+            self.assertGreater(raw, 5.0, k)
+            self.assertAlmostEqual(s["spectral_db"][k], raw, delta=0.05, msg=k)
+
     # PG-8X's side lands on our renderer's grid: engine.c to_int16 floors (an arithmetic >> 8) and clips
     # to -32768..32767, and the reader divides by 32768.
     def test_pg_at_our_level_is_floored_and_clipped_as_our_renderer(self):
@@ -130,11 +172,13 @@ class MetricTest(unittest.TestCase):
         q = self.sc.as_ours_int16(pg, ours) * 16384 * 32768
         np.testing.assert_allclose(q, [-4916, 4915, -21300, 27852, 32767, -32768, 0, 9830], atol=1e-6)
 
-    # A tone's score on the scorecard MIDI (tools/gate_midi.py score.mid): against itself, all zero.
+    # A tone's score on the scorecard MIDI (tools/gate_midi.py score.mid): against itself, all zero. On
+    # our renderer's int16 grid, as every render of ours is (s10 puts PG-8X's side on that grid).
     def test_a_render_scored_against_itself_is_all_zero(self):
         np = self.np
         rng = np.random.default_rng(2)
         x = rng.standard_normal((13 * SR, 2)) * np.exp(-np.arange(13 * SR) / SR)[:, None] * 0.1
+        x = np.floor(x * 32768) / 32768
         s = self.sc.score_tone(x, x)
         self.assertEqual(set(s), {"loudness_gap_lu", "spectral_db", "spectral_db_mean", "timing_gap_ms",
                                   "pitch_cents", "air_gap_db"})
@@ -188,7 +232,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 9)
+        self.assertEqual(row["schema"], 10)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -237,7 +281,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (9, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (10, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))

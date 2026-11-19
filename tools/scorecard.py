@@ -9,14 +9,15 @@ import os
 import numpy as np
 from scipy import signal
 
-SCHEMA = 9   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 10  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
              # 6: the reference has PG-8X's SELFNOISE at 0, v5, #247;
              # 7: both 5 and 6, merged;
              # 8: no pitch for a ring or cross-mod tone without sync (it has none), #253;
-             # 9: the air gap takes PG-8X's side at our level in int16, so our 16-bit floor isn't air, #299)
+             # 9: the air gap takes PG-8X's side at our level in int16, so our 16-bit floor isn't air, #299;
+             # 10: so does each spectral section, so the floor isn't timbre either)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = 48000
@@ -172,8 +173,13 @@ def score_tone(ours, pg, harmonic=True):
     section and its mean (dB), the high note's decay (to -20 dB, from 30 ms after onset) and release (to
     -40 dB after note-off) gaps (ms, ours minus PG-8X; None where either never falls that far), the
     pitch offset of the held low and high notes (cents; None unless `harmonic`: a ring or cross-mod tone
-    has no single pitch and reads nonsense, s8), and the chord's air gap (dB)."""
-    spec = {k: round(spectral_distance(_cut(ours, *w), _cut(pg, *w)), 2) for k, w in SECTIONS.items()}
+    has no single pitch and reads nonsense, s8), and the chord's air gap (dB). The spectral sections and
+    the air gap take PG-8X's side as it would be at our level in int16 (as_ours_int16), so a quiet
+    section's 16-bit floor isn't read as timbre (s10) or air (s9)."""
+    spec = {}
+    for k, (a, b) in SECTIONS.items():   # PG-8X's side at our level in int16, per channel (s10)
+        o, p = (np.asarray(x)[int(a * SR):int(b * SR)] for x in (ours, pg))
+        spec[k] = round(spectral_distance(o, as_ours_int16(p, o)), 2)
     return {
         "loudness_gap_lu": round(loudness_gap(ours, pg), 2),
         "spectral_db": spec,
