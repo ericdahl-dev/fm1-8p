@@ -111,14 +111,14 @@ def air_db(x):
 
 
 def as_ours_int16(pg, ours):
-    """PG-8X's float render as ours would carry it: scaled to our RMS, rounded to 16 bits per channel, and
-    scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
+    """PG-8X's float render as ours would carry it: scaled to our RMS, put on 16 bits per channel as
+    engine.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
     hiss in it; scored against this, the floor is on both sides (#299)."""
     pg = np.asarray(pg, dtype=np.float64)
     g = np.sqrt(np.mean(mono(ours) ** 2) / (np.mean(mono(pg) ** 2) + 1e-30))
     if g <= 0:
         return pg
-    return np.round(pg * g * 32767) / 32767 / g
+    return np.clip(np.floor(pg * g * 32768), -32768, 32767) / 32768 / g
 
 
 def air_gap(ours, pg):

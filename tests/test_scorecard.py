@@ -121,6 +121,15 @@ class MetricTest(unittest.TestCase):
         buzz *= np.sqrt(np.mean(x ** 2)) / np.sqrt(np.mean(buzz ** 2)) * 10 ** (-30 / 20)
         self.assertGreater(self.sc.air_gap(np.round((x + buzz) * 32767) / 32767, x), 15.0)
 
+    # PG-8X's side lands on our renderer's grid: engine.c to_int16 floors (an arithmetic >> 8) and clips
+    # to -32768..32767, and the reader divides by 32768.
+    def test_pg_at_our_level_is_floored_and_clipped_as_our_renderer(self):
+        np = self.np
+        pg = np.array([-0.3, 0.3, -1.3, 1.7, 2.2, -2.2, 0.0, 0.6]) / 32768
+        ours = pg * 16384      # same shape at 16384x: g = 16384, so the top two land past full scale
+        q = self.sc.as_ours_int16(pg, ours) * 16384 * 32768
+        np.testing.assert_allclose(q, [-4916, 4915, -21300, 27852, 32767, -32768, 0, 9830], atol=1e-6)
+
     # A tone's score on the scorecard MIDI (tools/gate_midi.py score.mid): against itself, all zero.
     def test_a_render_scored_against_itself_is_all_zero(self):
         np = self.np
