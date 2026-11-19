@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 #include "env.h"
-#include "filter.h"
+#include "vfilter.h"
 #include "lfo.h"
 #include "mod.h"
 #include "osc.h"
@@ -40,25 +40,16 @@ typedef struct {
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
     uint8_t pending;   /* fading out a stolen note; `note` starts after */
-    /* the filter's byte-sized state, packed with the above */
-    uint8_t key_note;       /* the key the filter tracks: the sounding
-                             * note's, kept when a mode switch sets
-                             * FM_VOICE_NO_NOTE */
-    uint8_t next_key;       /* `note` as set, for key_note when it starts
-                             * (after a steal fade, as next_pitch) */
-    uint8_t ctrl_phase;     /* samples until the next cutoff update */
+    uint8_t next_key;       /* `note` as set, for the filter's key when it
+                             * starts (after a steal fade, as next_pitch) */
     uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
     uint8_t velocity;       /* the sounding note's MIDI velocity */
     uint8_t next_velocity;  /* `note`'s, kept beside next_peak */
-    /* filter: settings copied from the engine's parameters, and state */
-    fm_filter filter;
-    fm_env filter_env;
-    int32_t rate_cents;     /* fm_filter_rate_cents(sample rate) */
-    int32_t cutoff_cents;   /* base cutoff, linear cents (fm_filter_linear_cents) */
-    int32_t key_track;      /* per mille */
-    int32_t cutoff_now;     /* cents the filter is set to (INT32_MIN: none) */
-    uint32_t fenv_lag;      /* samples filter_env is behind: it is caught
-                             * up only when read (the control rate) */
+    /* the filter, its cutoff and the voice's control cadence (vfilter.h);
+     * its key stays the sounding note's when a mode switch sets
+     * FM_VOICE_NO_NOTE */
+    fm_vfilter vf;
+    fm_env filter_env;      /* lazy (fm_env_skip): read at the control rate */
     int32_t mix_base;       /* osc2_level, Q1.30 */
     int32_t mix_step;       /* the mix's glide each sample to its next target */
     /* last: read only at control ticks and note starts, so the fields the
@@ -66,7 +57,7 @@ typedef struct {
     fm_mod mod;             /* the modulation sources and sums (mod.h) */
     /* envelope 2 apart from the VCA, with the gate (#63): amp_env runs the
      * gate then, and this the amp settings for the cutoff, pitch and mix.
-     * Caught up with filter_env (fenv_lag); idle without the gate */
+     * Lazy as filter_env (fm_env_skip); idle without the gate */
     fm_env env2;
 } fm_voice;
 
@@ -89,17 +80,73 @@ typedef struct {
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
                     const fm_env_settings *amp, const fm_env_settings *filter);
 
-/*
- * Brings filter_env up to date. The render does not step it every sample:
- * it counts the samples (fenv_lag) and catches it up (fm_env_advance,
- * exactly that many steps) when it reads the level, at a control point or
- * a note change, and before every gate and setting change. Call this
- * before reading or changing filter_env from outside the voice.
- */
-void fm_voice_sync_filter_env(fm_voice *v);
-
 /* Sounding: attack through release, or fading out after a steal. */
 int fm_voice_active(const fm_voice *v);
+
+/* What keeps a voice, in the order the engine steals: a free voice first,
+ * then one releasing, then one the pedal holds, then one its key holds.
+ * A key or the pedal holds only a sounding voice: a voice goes idle only
+ * through a release, which lets go of both first (fm_voice_release, or a
+ * queued release armed only once neither holds it), or through
+ * fm_voice_silence or fm_voice_reset, which clear both. */
+typedef enum {
+    FM_VOICE_FREE,
+    FM_VOICE_RELEASING,
+    FM_VOICE_PEDAL,
+    FM_VOICE_HELD
+} fm_voice_hold;
+
+static inline fm_voice_hold fm_voice_holding(const fm_voice *v)
+{
+    if (!fm_voice_active(v)) return FM_VOICE_FREE;
+    if (v->key_down) return FM_VOICE_HELD;
+    if (v->sustained) return FM_VOICE_PEDAL;
+    return FM_VOICE_RELEASING;
+}
+
+/* The note the voice plays, or the one a steal fade waits to start
+ * (FM_VOICE_NO_NOTE after a voice-mode switch). */
+static inline uint8_t fm_voice_note(const fm_voice *v)
+{
+    return v->note;
+}
+
+/* Sounding `note` (a voice-mode switch's leftover plays no note). */
+static inline int fm_voice_plays(const fm_voice *v, uint8_t note)
+{
+    return v->note == note && fm_voice_active(v);
+}
+
+/* Its key is down on `note` (a note off for `note` lets it go). */
+static inline int fm_voice_key_holds(const fm_voice *v, uint8_t note)
+{
+    return v->key_down && v->note == note;
+}
+
+/* Fading `note` out after a steal, its new note waiting. */
+static inline int fm_voice_fading(const fm_voice *v, uint8_t note)
+{
+    return v->pending && v->old_note == note;
+}
+
+/* The note a steal left waiting on a voice (or the note it plays): its
+ * peak and velocity as struck (next_peak, next_velocity; not the sounding
+ * note's), and whether its key or the pedal holds it. */
+typedef struct {
+    uint8_t note, velocity, key_down, sustained;
+    int32_t peak;
+} fm_voice_waiting;
+
+static inline fm_voice_waiting fm_voice_waiting_note(const fm_voice *v)
+{
+    fm_voice_waiting w;
+    w.note = v->note;
+    w.velocity = v->next_velocity;
+    w.key_down = v->key_down;
+    w.sustained = v->sustained;
+    w.peak = v->next_peak;
+    return w;
+}
 
 /*
  * `now` in the calls below is the number of the next control tick: a
@@ -153,6 +200,24 @@ void fm_voice_key_up(fm_voice *v, int pedal_down);
 
 /* Releases the note whatever holds it (pedal up, all notes off). */
 void fm_voice_release(fm_voice *v);
+
+/* Lets go of the voice before a voice-mode switch: releases its note if a
+ * key or the pedal holds it, and a sounding voice then belongs to no note
+ * (FM_VOICE_NO_NOTE), finishing at its pitch. Returns whether it released
+ * (the engine ages a voice it releases). */
+int fm_voice_let_go(fm_voice *v);
+
+/* The voice's age for allocation: the engine's event count at its last note
+ * on or off, which the engine sets and compares (as a wrapping difference). */
+static inline void fm_voice_age(fm_voice *v, uint32_t stamp)
+{
+    v->stamp = stamp;
+}
+
+static inline uint32_t fm_voice_stamp(const fm_voice *v)
+{
+    return v->stamp;
+}
 
 /* Silences the voice at once (all sound off). */
 void fm_voice_silence(fm_voice *v);
@@ -232,6 +297,20 @@ uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m);
 /* Sets the highpass position 0..4 of voice `v`'s filter (see
  * fm_filter_set_highpass), keeping the voice's busy word. */
 void fm_voice_set_highpass(fm_voice *v, uint8_t step);
+
+/* The filter's cutoff setting (linear cents, fm_filter_linear_cents) and
+ * key tracking (per mille): taken at the voice's next control point. */
+void fm_voice_set_cutoff_linear(fm_voice *v, int32_t linear_cents);
+void fm_voice_set_key_track(fm_voice *v, int32_t permille);
+
+/* The filter's resonance, per mille: at once. */
+void fm_voice_set_resonance(fm_voice *v, int32_t permille);
+
+/* The voice's filter, to read (its cutoff, key and cadence: vfilter.h). */
+static inline const fm_vfilter *fm_voice_filter(const fm_voice *v)
+{
+    return &v->vf;
+}
 
 /*
  * Adds `frames` samples of the voice (Q8.24) to `mix`. `next_tick` is the

@@ -612,6 +612,46 @@ TT_TEST(seq_jump_step_sets_bend_and_mod_at_its_start)
     TT_CHECK_EQ(seq_ctls[0].value, 0);
 }
 
+/* #42 and Codex's review of #289: the interrupt lands on a step's start while the main loop is part way
+ * through writing it (`editing` set, an earlier edit published and not yet taken). It leaves the edit
+ * alone and plays the step as it was, whole; the pass after, it takes the new step whole: the new note
+ * with the new bend, never one without the other. */
+TT_TEST(seq_a_step_start_mid_write_plays_the_old_step_whole)
+{
+    uint32_t fs = 44100, tempo = 1200, k, on_old = 0, on_new = 0, bend_old = 0, bend_new = 0;
+    uint8_t note = 60;
+    seq_fresh();
+    seq_set_tempo(&sq, tempo);
+    seq_set_gate(&sq, 100);
+    seq_set_length(&sq, 2);
+    seq_set_step(&sq, 0, &note, 1, 100);
+    seq_set_step(&sq, 1, &note, 1, 100);       /* step 1: C4, centered */
+    seq_play(&sq);
+    seq_run(seq_start_at(1, fs, tempo) - 256u, SEQ_256, 1, fs, 6);
+    seq_set_step_bend_mod(&sq, 1, 3000, 0, 0); /* published, not yet taken ... */
+    sq.editing = 1;                            /* ... and the write of the next one under way: */
+    sq.edit.step[1].note[0] = 72;              /* its note in, its bend not yet */
+    seq_run(256u + 64u, SEQ_256, 1, fs, 6);    /* step 1 starts in here */
+    sq.edit.step[1].bend = 5000;               /* the write ends */
+    sq.edits++;
+    sq.editing = 0;
+    seq_run(seq_start_at(3, fs, tempo) + 64u - seq_clock, SEQ_256, 1, fs, 6);   /* the next pass's step 1 */
+    for (k = 0; k < seq_logged; k++)
+        if (seq_log[k].vel && seq_log[k].t >= seq_start_at(1, fs, tempo) && seq_log[k].t < seq_start_at(2, fs, tempo))
+            on_old += seq_log[k].note == 60u, on_new += seq_log[k].note == 72u;
+    for (k = 0; k < seq_n_ctls; k++)
+        if (seq_ctls[k].kind == SEQ_EV_BEND && seq_ctls[k].t == seq_start_at(1, fs, tempo))
+            bend_old = seq_ctls[k].value == 0;
+        else if (seq_ctls[k].kind == SEQ_EV_BEND && seq_ctls[k].t == seq_start_at(3, fs, tempo))
+            bend_new = seq_ctls[k].value == 5000;
+    TT_CHECK(on_old == 1u && on_new == 0u);    /* the old step, whole: C4, centered */
+    TT_CHECK(bend_old);
+    TT_CHECK(bend_new);                        /* then the new one, whole */
+    for (k = 0, on_new = 0; k < seq_logged; k++)
+        on_new += seq_log[k].vel && seq_log[k].note == 72u && seq_log[k].t == seq_start_at(3, fs, tempo);
+    TT_CHECK_EQ(on_new, 1u);
+}
+
 /* #42: a GLIDE step ramps from the values before it to its own over its length: no stair over the set
  * size, every update toward the target, and the target exactly at the step's end. */
 TT_TEST(seq_glide_step_ramps_to_its_values)
@@ -685,6 +725,30 @@ TT_TEST(seq_stop_returns_bend_and_mod)
     TT_CHECK_EQ(seq_ctls[1].value, SEQ_MOD_LIVE);
 }
 
+/* A step written whole (#42 S7: notes, velocity, bend, mod and move) is one edit published, so the
+ * interrupt can't start the step between its notes and its bend and play it once centered */
+TT_TEST(seq_write_step_publishes_it_whole_once)
+{
+    static seq s;
+    static const uint8_t CH[2] = {60, 67};
+    uint32_t before;
+    seq_init(&s);
+    before = s.edits;
+    seq_write_step(&s, 3, CH, 2, 99, -3000, 64, 1);
+    TT_CHECK_EQ(s.edits, before + 1u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->kind, (uint8_t)SEQ_NOTES_ON);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->n, 2u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->note[1], 67u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->vel, 99u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->bend, -3000);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->mod, 64u);
+    TT_CHECK_EQ(seq_get_step(&s, 3)->glide, 1u);
+    seq_write_step(&s, 4, CH, 0, 99, 9000, 200, 0);           /* no notes: a rest; values clamped */
+    TT_CHECK_EQ(seq_get_step(&s, 4)->kind, (uint8_t)SEQ_REST);
+    TT_CHECK_EQ(seq_get_step(&s, 4)->bend, 8191);
+    TT_CHECK_EQ(seq_get_step(&s, 4)->mod, 127u);
+}
+
 /* Bend and mod values are clamped: -8192..8191, 0..127. */
 TT_TEST(seq_bend_and_mod_are_clamped)
 {
@@ -756,5 +820,7 @@ static void run_seq_tests(void)
     TT_RUN(seq_rests_and_ties_keep_bend_and_mod);
     TT_RUN(seq_stop_returns_bend_and_mod);
     TT_RUN(seq_bend_and_mod_are_clamped);
+    TT_RUN(seq_write_step_publishes_it_whole_once);
+    TT_RUN(seq_a_step_start_mid_write_plays_the_old_step_whole);
     TT_RUN(seq_glides_do_not_depend_on_the_block_size);
 }

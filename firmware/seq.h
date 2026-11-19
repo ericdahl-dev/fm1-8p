@@ -91,6 +91,7 @@ typedef struct {
     volatile uint32_t ask_stop;         /* +1 per stop asked */
     volatile uint32_t want;             /* main loop writes (1 from seq_play to seq_stop), ISR reads */
     volatile int32_t transpose;         /* main loop writes: semitones, taken at a step's start */
+    uint8_t key_transpose;              /* main loop only: KEY TRANSPOSE (S3), keys set the transpose */
     /* pattern loads (#40): the copy last loaded or saved (main loop: seq_edited), and the next pattern,
      * queued while playing: the main loop writes it, then sets next_pending; the interrupt takes it in
      * place of the running pattern after the pass's last step, and counts next_taken */
@@ -124,6 +125,10 @@ typedef struct {
     uint32_t clk_dt;                    /* a tick's length now, host counts (0: not measured yet) */
     uint32_t clk_shown;                 /* the tick length, smoothed, Q4 (the rate's) */
     uint32_t clk_view;                  /* smoothed again, Q4: the tempo shown */
+    uint32_t clk_pend_t;                /* when the pending start or continue came (AUTO drops it after
+                                         * the clock's gone time with no tick) */
+    uint32_t clk_whole;                 /* clk_view in whole BPM, tenths, held: it moves only past
+                                         * CLK_HOLD of it, so a clock's jitter can't flip the digits */
     int32_t clk_freq;                   /* the loop's integral, units a frame, Q4 */
     uint32_t clk_win;                   /* ticks in the length's window (since a tempo change) */
     uint32_t clk_target;                /* the units the latest tick should be at, from tick 0 */
@@ -162,6 +167,11 @@ const seq_step *seq_get_step(const seq *s, uint32_t i);   /* the edited pattern'
 /* step i plays notes[0..n-1] (n clamped to SEQ_NOTES; 0 makes it a rest) at velocity vel */
 void seq_set_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel);
 /* (seq_set_step makes its bend center, its mod 0 and its move JUMP) */
+/* step i all at once, as one edit published (#42: a step written with the live bend and mod, so the
+ * interrupt never starts it between its notes and its bend): seq_set_step, then bend, mod and move as
+ * seq_set_step_bend_mod has them */
+void seq_write_step(seq *s, uint32_t i, const uint8_t *notes, uint32_t n, uint32_t vel, int32_t bend,
+                    int32_t mod, uint32_t glide);
 /* step i's bend (clamped to -8192..8191), mod (0..127) and move (0 JUMP, else GLIDE), #42 */
 void seq_set_step_bend_mod(seq *s, uint32_t i, int32_t bend, int32_t mod, uint32_t glide);
 /* a notes step i's velocity (clamped to 1..127), nothing else of it; a rest or a tie: nothing */
@@ -184,6 +194,10 @@ void seq_mark_saved(seq *s);                            /* (after a SAVE: not ed
  * from the next step; a note it puts outside 0..127 is left out */
 void seq_set_transpose(seq *s, int32_t semis);
 int32_t seq_transpose(const seq *s);
+/* main loop: KEY TRANSPOSE (S3, #39), a performance setting too: 1 while played keys set the transpose
+ * (interaction.md 5); off at power-on, and a pattern loaded leaves it */
+void seq_set_key_transpose(seq *s, uint32_t on);
+uint32_t seq_key_transpose(const seq *s);
 uint32_t seq_tempo(const seq *s);
 void seq_set_tempo(seq *s, uint32_t tenths_bpm);       /* clamped to SEQ_TEMPO_MIN..MAX */
 void seq_set_gate(seq *s, uint32_t pct);               /* clamped to SEQ_GATE_MIN..100 */
@@ -210,7 +224,11 @@ void seq_clock_poll(seq *s, uint32_t t);
 uint32_t seq_clock_external(const seq *s);
 /* the clock's tempo, tenths of a BPM (0: no clock coming in) */
 uint32_t seq_clock_tempo(const seq *s);
-/* 1 while PLAY waits for the clock's start (the PLAY LED blinks) */
+/* the same to read: a whole BPM (in tenths), held against the clock's jitter (it moves when the clock is
+ * 0.75 BPM off it); 0: none */
+uint32_t seq_clock_tempo_whole(const seq *s);
+/* 1 while the sequencer waits for the clock: PLAY armed for its start, or a start or continue come in
+ * with no tick yet (WAITING FOR CLOCK; the PLAY LED blinks) */
 uint32_t seq_waiting(const seq *s);
 /* audio interrupt, before seq_render: the block's start, at host time t */
 void seq_block_time(seq *s, uint32_t t);

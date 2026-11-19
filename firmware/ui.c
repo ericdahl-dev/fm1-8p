@@ -380,6 +380,13 @@ void ui_init(ui *u, play *p)
     u->shown_blink = 0;
     u->seq_msg[0] = 0;
     u->pc_out = -1;
+    u->live_bend = 0;
+    u->ktr_keys = 0;
+    for (i = 0; i < 128u; i++)
+        u->ktr_note_n[i] = 0;
+    u->live_mod = 0;
+    u->built_bend = 0;
+    u->built_mod = 0;
     u->cc_out_at = 0;
     u->cc_sent_cc = u->cc_sent_v = 0xFFu;
     u->focus = 1;
@@ -816,6 +823,8 @@ static void glo_turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
             u->dirty |= UI_D_SLOT;
         if (g->setting == 2u)                   /* G13: the sequencer's clock (#38) */
             seq_set_clock_source(play_seq(u->p), (uint32_t)v);
+        if (g->setting == 0u)                   /* G11: the old channel's offs won't come (KEY TRANSPOSE) */
+            ui_seq_ktr_all_off(u);
     }
     u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
     u->focus = k;
@@ -876,6 +885,8 @@ int ui_key(ui *u, uint32_t k, int down, uint32_t ms)
         ui_seq_step_key(u, k, 1, ms);
         return 1;
     }                                           /* (armed or REC: every key plays, ui_chord_note collects it) */
+    if (ui_seq_ktr_key(u, k, down, u->jump < 0))
+        return 1;                               /* KEY TRANSPOSE took it (or its down): no sound */
     if (!down) {                                /* an up goes where its down went */
         if (!(u->jump_keys >> k & 1u))
             return 0;
@@ -1086,6 +1097,18 @@ int ui_cc_out(ui *u, uint32_t ms, uint32_t *cc, uint32_t *value)
 int ui_midi_in(const ui *u, uint32_t st)
 {
     return st >= 0xF0u || !u->set.midi_in || (st & 15u) == u->set.midi_in - 1u;
+}
+
+void ui_midi_controls(ui *u, uint32_t st, uint32_t d1, uint32_t d2)
+{
+    if (st >= 0xF0u || !ui_midi_in(u, st))
+        return;
+    if ((st & 0xF0u) == 0xE0u)
+        u->live_bend = (int32_t)((d2 & 0x7Fu) << 7 | (d1 & 0x7Fu)) - 8192;
+    else if ((st & 0xF0u) == 0xB0u && d1 == 1u)
+        u->live_mod = d2 & 0x7Fu;
+    else if ((st & 0xF0u) == 0xB0u && d1 == 121u)
+        u->live_bend = 0, u->live_mod = 0;
 }
 
 uint32_t ui_midi_out(const ui *u, uint32_t st)
@@ -1374,7 +1397,8 @@ uint32_t ui_take(ui *u, uint32_t ms)
         uint32_t f = play_pattern_prog(u->p) | (uint32_t)(play_pattern_next(u->p) + 1) << 8 |
                      seq_edited(play_seq(u->p)) << 16;
         const seq *q = play_seq(u->p);
-        uint32_t c = seq_clock_external(q) | seq_waiting(q) << 1 | ui_seq_tempo_shown(u) << 2;
+        uint32_t c = seq_clock_external(q) | seq_waiting(q) << 1 | (uint32_t)ui_seq_no_clock(u) << 2 |
+                     ui_seq_tempo_shown(u) << 3;
         if (c != u->shown_clock) {              /* the clock as shown (#38): the header, the footer, TEMPO on S1 */
             u->shown_clock = c;
             u->dirty |= UI_D_HEAD | UI_D_FOOT | (u->seq_page == 0u ? UI_D_COL(0) : 0u);

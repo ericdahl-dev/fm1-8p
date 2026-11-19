@@ -25,7 +25,8 @@ static void write_step(ui *u)
     uint32_t i, n = u->built_n < PLAY_VOICES ? u->built_n : PLAY_VOICES, vel = 0;
     for (i = 0; i < n; i++)
         vel = u->built_vel[i] > vel ? u->built_vel[i] : vel;
-    seq_set_step(s, u->seq_cursor, u->built, n, vel);
+    seq_write_step(s, u->seq_cursor, u->built, n, vel,     /* with the bend and mod of its first note (#42) */
+                   n ? u->built_bend : 0, n ? (int32_t)u->built_mod : 0, 0);
     if (u->built_n > PLAY_VOICES) {
         static const char MAX[] = "MAX 0 NOTES";    /* (the voice count: one digit) */
         for (i = 0; i < sizeof MAX; i++)
@@ -57,6 +58,8 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on)
         for (i = 0; i < u->built_n && u->built[i] != note; i++)
             ;
         if (on && i == u->built_n && u->built_n < UI_CHORD_MAX) {
+            if (!u->built_n)                    /* the first note: the bend and mod it's written with (#42) */
+                u->built_bend = u->live_bend, u->built_mod = u->live_mod;
             u->built[u->built_n] = (uint8_t)note;
             u->built_vel[u->built_n++] = (uint8_t)vel;
             roll(u, ROLL_AT(u->seq_cursor));    /* (the note shows at 45 % as it goes down) */
@@ -66,6 +69,79 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on)
     }
     if (u->state == UI_SEQ)
         u->dirty |= UI_D_FOCUS;                 /* (the chord held, on the screen) */
+}
+
+/* KEY TRANSPOSE taking played keys now: on, and the sequencer playing */
+static int ktr_active(const ui *u)
+{
+    const seq *s = play_seq(u->p);
+    return seq_key_transpose(s) && s->want && s->playing;   /* (playing, not waiting for a clock; a STOP press:
+                                                             * keys play at once) */
+}
+
+/* the transpose from the lowest key or MIDI note held for it, as a pitch: C4 (60) is 0 */
+static void ktr_set(ui *u)
+{
+    uint32_t i, low = 128u;
+    for (i = 0; i < PLAY_KEYS && low == 128u; i++)
+        if (u->ktr_keys >> i & 1u)
+            low = PLAY_KEY0 + i;
+    for (i = 0; i < 128u && i < low; i++)
+        if (u->ktr_note_n[i] & 15u) {
+            low = i;
+            break;
+        }
+    if (low < 128u) {
+        seq_set_transpose(play_seq(u->p), (int32_t)low - 60);   /* (clamped there to -24..+24) */
+        if (u->state == UI_SEQ && u->seq_page == 2u)
+            u->dirty |= UI_D_COL(0);            /* (S3 shows TRANSPOSE) */
+    }
+}
+
+int ui_seq_ktr_key(ui *u, uint32_t k, int down, int may)
+{
+    if (k >= PLAY_KEYS)
+        return 0;
+    if (!down) {
+        if (!(u->ktr_keys >> k & 1u))
+            return 0;
+        u->ktr_keys &= ~(1u << k);              /* (let go: the transpose stays) */
+        return 1;
+    }
+    if (!may || u->state == UI_SEQ || !ktr_active(u))
+        return 0;                               /* (SEQ view: the panel keys are steps, or play the armed step) */
+    u->ktr_keys |= 1u << k;
+    ktr_set(u);
+    return 1;
+}
+
+int ui_seq_ktr_note(ui *u, uint32_t note, uint32_t vel, int on)
+{
+    uint8_t *c;
+    if (note > 127u)
+        return 0;
+    c = &u->ktr_note_n[note];
+    if (!on || !vel) {
+        if (!(*c >> 4))
+            return 0;                           /* (not one of ours: to the engine) */
+        *c = (uint8_t)(*c - 16u - ((*c & 15u) ? 1u : 0u));   /* an off owed, and one held fewer */
+        return 1;                               /* (let go: the transpose stays) */
+    }
+    if (!ktr_active(u) || (u->state == UI_SEQ && (u->seq_armed || u->seq_rec))) {
+        *c = 0;                                 /* (it plays: an old taken one whose off was lost lets go) */
+        return 0;                               /* (a step being written takes it: chord entry first) */
+    }
+    if ((*c & 15u) < 15u && (*c >> 4) < 15u)
+        *c = (uint8_t)(*c + 17u);               /* one more held, one more off owed (15 at most) */
+    ktr_set(u);
+    return 1;
+}
+
+void ui_seq_ktr_all_off(ui *u)
+{
+    uint32_t i;
+    for (i = 0; i < 128u; i++)                  /* none held for the transpose now; their offs, if they */
+        u->ktr_note_n[i] &= 0xF0u;              /* come, are still taken (the engine never had them) */
 }
 
 int32_t ui_seq_step_of_key(uint32_t k)
@@ -132,7 +208,7 @@ const char *const UI_SEQ_PAGE_NAME[UI_SEQ_PAGES] = {"S1 PATTERN", "S2 STEP", "S3
 const ui_seq_slot UI_SEQ_SLOTS[UI_SEQ_PAGES][4] = {
     {{"TEMPO", "TEMPO", 1}, {"LENGTH", "LENGTH", 1}, {"SWING", "SWING", 1}, {"GATE", "GATE", 1}},
     {{"VEL", "VELOCITY", 1}, {"BEND", "BEND", 1}, {"MOD", "MOD", 1}, {"MOVE", "MOVE", 1}},   /* (#42) */
-    {{"TRANSP", "TRANSPOSE", 1}, {"KEYTR", "KEY TRANSPOSE", 0}, {0, 0, 0}, {0, 0, 0}},
+    {{"TRANSP", "TRANSPOSE", 1}, {"KEYTR", "KEY TRANSPOSE", 1}, {0, 0, 0}, {0, 0, 0}},
 };
 
 /* a step's bend (-8192..8191) as -100..+100 % of the bend range, and back: the ends are exact both ways */
@@ -160,6 +236,7 @@ int32_t ui_seq_value(const ui *u, uint32_t k)
     case 6: return st->mod;
     case 7: return st->glide;
     case 8: return seq_transpose(s);
+    case 9: return (int32_t)seq_key_transpose(s);
     default: return 0;
     }
 }
@@ -221,6 +298,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         seq_set_step_bend_mod(s, u->seq_cursor, st->bend, st->mod, v > 0);
         break;
     case 8: v += clicks; seq_set_transpose(s, v); break;
+    case 9: v += clicks; seq_set_key_transpose(s, v > 0); break;   /* KEY TRANSPOSE: OFF, ON (held at the ends) */
     default: return;
     }
     if (u->seq_cursor >= seq_length(s))        /* (a shorter pattern: the cursor inside it) */
@@ -427,6 +505,11 @@ void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit)
     }
     switch (u->seq_page * 4u + k) {
     case 0:                                     /* tenths of a BPM: the tenth only when there is one */
+        if (ui_seq_no_clock(u)) {               /* MIDI, no clock: no tempo to show */
+            put_s(num, "--");
+            put_s(unit, "MIDI CLOCK");
+            break;
+        }
         n = put_u(n, (uint32_t)v / 10u);
         if (v % 10)
             *n++ = '.', put_u(n, (uint32_t)v % 10u);
@@ -453,6 +536,9 @@ void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit)
         break;
     case 7:
         put_s(n, v ? "GLIDE" : "JUMP");
+        break;
+    case 9:
+        put_s(n, v ? "ON" : "OFF");
         break;
     case 8:                                     /* TRANSPOSE: signed, in semitones */
         if (v > 0)
@@ -649,17 +735,24 @@ void ui_seq_chord_name(const uint8_t *note, uint32_t n, char *s)
     }
 }
 
+int ui_seq_no_clock(const ui *u)
+{
+    const seq *q = play_seq(u->p);
+    return q->clk_src == SEQ_CLK_MIDI && !seq_clock_tempo(q);
+}
+
 void ui_seq_clock_text(const ui *u, char *s)
 {
     const seq *q = play_seq(u->p);
-    put_s(s, seq_waiting(q) ? "WAITING FOR CLOCK" : seq_clock_external(q) ? "MIDI" : "INT");
+    put_s(s, seq_waiting(q) ? "WAITING FOR CLOCK" : ui_seq_no_clock(u) ? "MIDI NO CLOCK" :
+             seq_clock_external(q) ? "MIDI" : "INT");
 }
 
 uint32_t ui_seq_tempo_shown(const ui *u)
 {
     const seq *s = play_seq(u->p);
-    if (seq_clock_external(s) && seq_clock_tempo(s) && (s->clk_running || !s->want)) {
-        uint32_t t = (seq_clock_tempo(s) + 5u) / 10u * 10u;   /* the clock's, in whole BPM: its jitter doesn't show */
+    if (seq_clock_external(s) && seq_clock_tempo_whole(s)) {  /* (armed for its next tick too: the clock's) */
+        uint32_t t = seq_clock_tempo_whole(s);  /* the clock's, in whole BPM, held: its jitter doesn't show */
         return t > 9990u ? 9990u : t;           /* (three digits at most: a start's first ticks can read far higher) */
     }
     return seq_tempo(s);                        /* (before the clock, or on INT: the pattern's) */

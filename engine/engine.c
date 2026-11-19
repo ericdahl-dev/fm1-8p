@@ -63,11 +63,12 @@ static int32_t unison_detune(const fm_engine *e, uint8_t i)
 static void retune(fm_engine *e)
 {
     uint8_t i;
-    for (i = 0; i < e->voice_count; i++) /* idle voices get theirs at note on */
-        if (fm_voice_active(&e->voices[i]) &&
-            e->voices[i].note != FM_VOICE_NO_NOTE)
-            fm_voice_set_pitch(&e->voices[i], voice_pitch(e, i, e->voices[i].note),
-                               e->sample_rate);
+    for (i = 0; i < e->voice_count; i++) { /* idle voices get theirs at note on */
+        fm_voice *v = &e->voices[i];
+        uint8_t note = fm_voice_note(v); /* its note, or the one a steal waits to start */
+        if (fm_voice_active(v) && note != FM_VOICE_NO_NOTE)
+            fm_voice_set_pitch(v, voice_pitch(e, i, note), e->sample_rate);
+    }
 }
 
 /* MIDI bend (-8192..8191 from center) to Q16.16 semitones: exact, since
@@ -146,6 +147,15 @@ static uint32_t amp_attack_floor(const fm_engine *e)
     return e->sample_rate * AMP_ATTACK_FLOOR_TENTHS_MS / 10000u;
 }
 
+/* Voice i's envelope on the filter settings (`filter`) or the amp ones:
+ * with the gate (#63) the amp settings run env2. */
+static fm_env *set_env(fm_engine *e, uint8_t i, int filter)
+{
+    fm_voice *vc = &e->voices[i];
+    return filter ? &vc->filter_env
+           : e->params[FM_PARAM_AMP_GATE] ? &vc->env2 : &vc->amp_env;
+}
+
 /*
  * An envelope time or sustain: written once into the settings every
  * voice's envelope of that kind shares (#19), then each running one is
@@ -185,19 +195,17 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
     default:
         return 0;
     }
-    if (filter || e->params[FM_PARAM_AMP_GATE]) /* each voice's envelope
-                                                 * current before it changes */
-        for (i = 0; i < e->voice_count; i++)
-            fm_voice_sync_filter_env(&e->voices[i]);
+    /* catch up before writing shared settings, or the lag steps the past
+     * on the new value: every voice's envelope on them (filter_env and,
+     * with the gate, env2 are lazy; amp_env is stepped, never behind) */
+    for (i = 0; i < e->voice_count; i++)
+        fm_env_catch_up(set_env(e, i, filter));
     if (time) {
         *time = fm_ms_to_samples(v, e->sample_rate);
     } else
         *sustain = fm_permille_to_q30(v);
     for (i = 0; i < e->voice_count; i++) {
-        /* the amp settings run env2 with the gate (#63), caught up above */
-        fm_env *env = filter ? &e->voices[i].filter_env
-                      : e->params[FM_PARAM_AMP_GATE] ? &e->voices[i].env2
-                                                     : &e->voices[i].amp_env;
+        fm_env *env = set_env(e, i, filter);
         /* an idle one leaves IDLE only by fm_env_gate_on, which reads
          * the settings and recomputes sus_level itself */
         if (env->stage != FM_ENV_IDLE)
@@ -502,19 +510,15 @@ static void apply_param(fm_engine *e, uint16_t id)
         v = fm_filter_linear_cents(v);
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *vc = &e->voices[i];
-        if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS)
-            fm_voice_sync_filter_env(vc); /* current before it changes */
         switch (id) {
         case FM_PARAM_FILTER_CUTOFF_CENTS:
-            vc->cutoff_cents = v;
-            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
+            fm_voice_set_cutoff_linear(vc, v);
             break;
         case FM_PARAM_FILTER_RESONANCE:
-            fm_filter_set_resonance(&vc->filter, v);
+            fm_voice_set_resonance(vc, v);
             break;
         case FM_PARAM_FILTER_KEY_TRACK:
-            vc->key_track = v;
-            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
+            fm_voice_set_key_track(vc, v);
             break;
         case FM_PARAM_HIGHPASS_STEP:
             fm_voice_set_highpass(vc, (uint8_t)v);
@@ -536,8 +540,14 @@ static void apply_param(fm_engine *e, uint16_t id)
 /* Releases a voice's note and ages it from now. */
 static void release(fm_engine *e, fm_voice *v)
 {
-    v->stamp = ++e->stamp;
+    fm_voice_age(v, ++e->stamp);
     fm_voice_release(v);
+}
+
+/* A key or the pedal holds the voice's note. */
+static int key_or_pedal(const fm_voice *v)
+{
+    return fm_voice_holding(v) >= FM_VOICE_PEDAL;
 }
 
 /* Unison forgets the keys it was holding. */
@@ -556,8 +566,7 @@ static void end_mode(fm_engine *e)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        if (v->key_down || v->sustained) release(e, v);
-        if (fm_voice_active(v)) v->note = FM_VOICE_NO_NOTE;
+        if (fm_voice_let_go(v)) fm_voice_age(v, ++e->stamp);
     }
     unison_reset(e);
 }
@@ -676,18 +685,9 @@ static fm_voice *find_note(fm_engine *e, uint8_t note)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        if (v->note == note && fm_voice_active(v)) return v;
+        if (fm_voice_plays(v, note)) return v;
     }
     return 0;
-}
-
-/* Steal preference: lower ranks are taken first. */
-static int voice_rank(const fm_voice *v)
-{
-    if (!fm_voice_active(v)) return 0;
-    if (v->key_down) return 3;   /* held */
-    if (v->sustained) return 2;  /* held by the pedal */
-    return 1;                    /* releasing */
 }
 
 /*
@@ -699,14 +699,14 @@ static int voice_rank(const fm_voice *v)
 static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
 {
     fm_voice *best = 0;
-    int best_rank = 0;
+    fm_voice_hold best_rank = FM_VOICE_FREE;
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        int r = voice_rank(v);
+        fm_voice_hold r = fm_voice_holding(v); /* lower is taken first */
         if (v == skip) continue;
         if (!best || r < best_rank ||
-            (r == best_rank && (int32_t)(v->stamp - best->stamp) < 0)) {
+            (r == best_rank && (int32_t)(fm_voice_stamp(v) - fm_voice_stamp(best)) < 0)) {
             best = v;
             best_rank = r;
         }
@@ -742,7 +742,7 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
                       uint8_t velocity)
 {
     uint8_t i = (uint8_t)(v - e->voices);
-    v->stamp = ++e->stamp;
+    fm_voice_age(v, ++e->stamp);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate, e->fade_samples);
 }
@@ -753,7 +753,7 @@ static fm_voice *find_fading(fm_engine *e, uint8_t note)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        if (v->pending && v->old_note == note) return v;
+        if (fm_voice_fading(v, note)) return v;
     }
     return 0;
 }
@@ -770,16 +770,16 @@ static fm_voice *find_fading(fm_engine *e, uint8_t note)
 static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak,
                       uint8_t velocity)
 {
-    uint8_t moved = f->note, key_down = f->key_down, sustained = f->sustained;
+    fm_voice_waiting moved = fm_voice_waiting_note(f);
     fm_voice *w;
     fm_voice_take_back(f, &e->mod, voice_pitch(e, (uint8_t)(f - e->voices), note),
                        peak, velocity, e->ticks + 1, e->sample_rate);
-    f->stamp = ++e->stamp;
-    if (!key_down && !sustained) return;
+    fm_voice_age(f, ++e->stamp);
+    if (!moved.key_down && !moved.sustained) return;
     w = pick_voice(e, f);
     if (!w) return;
-    poly_play(e, w, moved, f->next_peak, f->next_velocity);
-    if (!key_down) fm_voice_key_up(w, 1); /* held by the pedal */
+    poly_play(e, w, moved.note, moved.peak, moved.velocity);
+    if (!moved.key_down) fm_voice_key_up(w, 1); /* held by the pedal */
 }
 
 /* Drops `note` from the unison held-key list, if it is there. Returns
@@ -803,7 +803,7 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        v->stamp = ++e->stamp;
+        fm_voice_age(v, ++e->stamp);
         fm_voice_change_note(v, &e->mod, note, voice_pitch(e, i, note), peak,
                              velocity, e->ticks + 1, e->sample_rate, retrigger);
     }
@@ -835,8 +835,8 @@ static void unison_note_off(fm_engine *e, uint8_t note)
     }
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        if (!v->key_down) continue;
-        v->stamp = ++e->stamp;
+        if (fm_voice_holding(v) != FM_VOICE_HELD) continue;
+        fm_voice_age(v, ++e->stamp);
         fm_voice_key_up(v, e->pedal_down);
     }
 }
@@ -877,8 +877,8 @@ void fm_engine_note_off(fm_engine *e, uint8_t note)
     }
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        if (v->key_down && v->note == note) {
-            v->stamp = ++e->stamp;
+        if (fm_voice_key_holds(v, note)) {
+            fm_voice_age(v, ++e->stamp);
             fm_voice_key_up(v, e->pedal_down);
         }
     }
@@ -898,13 +898,13 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
         fm_voice *v = &e->voices[i];
         switch (controller) {
         case 64: /* sustain pedal: up lets go of the notes it held */
-            if (!e->pedal_down && v->sustained) release(e, v);
+            if (!e->pedal_down && fm_voice_holding(v) == FM_VOICE_PEDAL) release(e, v);
             break;
         case 120: /* all sound off: silent now */
             fm_voice_silence(v);
             break;
         case 123: /* all notes off: release, even notes the pedal holds */
-            if (v->key_down || v->sustained) release(e, v);
+            if (key_or_pedal(v)) release(e, v);
             break;
         default:
             break;

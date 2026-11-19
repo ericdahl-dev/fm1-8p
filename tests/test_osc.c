@@ -950,7 +950,7 @@ TT_TEST(mix_env_from_the_amp_env_leaves_the_filter_env_lazy)
     fm_engine_set_param(&eng, FM_PARAM_OSC_MIX_ENV, 1000);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, buf, 4410);
-    TT_CHECK(eng.voices[0].fenv_lag > 0);
+    TT_CHECK(eng.voices[0].filter_env.lag > 0);
 }
 
 /* Note 57, osc2 an octave up, amp at full at once, a 1 s filter envelope

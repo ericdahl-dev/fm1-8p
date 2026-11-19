@@ -384,8 +384,8 @@ TT_TEST(seq_texts)
     seq_set_transpose(s, 3);
     ui_seq_column(&ui_u, 0, num, unit);
     TT_CHECK(strcmp(num, "+3") == 0 && strcmp(unit, "st") == 0);
-    ui_seq_column(&ui_u, 1, num, unit);                      /* KEY TRANSPOSE waits */
-    TT_CHECK(strcmp(num, "--") == 0);
+    ui_seq_column(&ui_u, 1, num, unit);                      /* KEY TRANSPOSE: off */
+    TT_CHECK(strcmp(num, "OFF") == 0);
     seq_set_step(s, 1, CH, 3, 100);
     seq_toggle_tie(s, 2);
     ui_seq_step_text(&ui_u, 1, t);
@@ -1211,32 +1211,42 @@ TT_TEST(seq_rec_save_and_pattern_load_drop_the_step_being_built)
     TT_CHECK(!seq_edited(play_seq(&ui_p)));
 }
 
-/* MIDI clock in at 120 BPM: n ticks, from host time 0 (24 MHz, 500000 counts a tick) */
-static void seq_clock_ticks(uint32_t n)
+/* MIDI clock in at bpm, ticks i0 .. i0 + n - 1 (host time 24 MHz from 0) */
+static void seq_clock_at(double bpm, uint32_t i0, uint32_t n)
 {
+    double dt = SEQ_CLK_HZ * 60.0 / (bpm * SEQ_CLK_PPQN);
     uint32_t i;
-    for (i = 0; i < n; i++)
-        seq_clock_in(play_seq(&ui_p), 0xF8u, i * (SEQ_CLK_HZ / 48u));
+    for (i = i0; i < i0 + n; i++)
+        seq_clock_in(play_seq(&ui_p), 0xF8u, (uint32_t)(1000.0 + i * dt));
 }
+
+static int seq_tempo_reads(const char *want_num, const char *want_unit)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    ui_seq_column(&ui_u, 0, num, unit);
+    if (strcmp(num, want_num) != 0 || strcmp(unit, want_unit) != 0) {
+        printf("    TEMPO reads \"%s %s\", not \"%s %s\"\n", num, unit, want_num, want_unit);
+        return 0;
+    }
+    return 1;
+}
+
 
 /* Under external clock, TEMPO shows the clock's tempo and MIDI CLOCK (interaction.md 5); on INT, the
  * pattern's tempo in BPM */
 TT_TEST(seq_tempo_shows_the_midi_clock)
 {
-    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN], want[UI_VALUE_LEN];
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN];
     uint32_t t;
     ui_setup();
     ui_tap(UI_BTN_SEQ, 1000);
     ui_seq_column(&ui_u, 0, num, unit);
-    TT_CHECK(strcmp(unit, "BPM") == 0);
+    TT_CHECK(strcmp(num, "120") == 0 && strcmp(unit, "BPM") == 0);
     seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
-    seq_clock_ticks(96);
+    seq_clock_at(140.0, 0, 96);                               /* (not the pattern's 120) */
     t = seq_clock_tempo(play_seq(&ui_p));
-    TT_CHECK(t >= 1190u && t <= 1210u);
-    ui_seq_column(&ui_u, 0, num, unit);
-    TT_CHECK(strcmp(unit, "MIDI CLOCK") == 0);
-    snprintf(want, sizeof want, "%u", (unsigned)(t / 10u));
-    TT_CHECK(strncmp(num, want, strlen(want)) == 0);
+    TT_CHECK(t >= 1390u && t <= 1410u);
+    TT_CHECK(seq_tempo_reads("140", "MIDI CLOCK"));
 }
 
 /* A TEMPO turn under external clock changes nothing and says TEMPO FOLLOWS MIDI CLOCK (case 48) */
@@ -1246,7 +1256,7 @@ TT_TEST(seq_tempo_turn_under_the_clock_says_so)
     ui_setup();
     ui_tap(UI_BTN_SEQ, 1000);
     seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
-    seq_clock_ticks(96);
+    seq_clock_at(140.0, 0, 96);
     before = seq_tempo(play_seq(&ui_p));
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 5, 1100);
     TT_CHECK_EQ(seq_tempo(play_seq(&ui_p)), before);
@@ -1255,7 +1265,8 @@ TT_TEST(seq_tempo_turn_under_the_clock_says_so)
     TT_CHECK(strlen(ui_banner(&ui_u)) <= 28u);
 }
 
-/* The transport's clock (interaction.md 7): INT, MIDI, or WAITING FOR CLOCK while PLAY waits (case 47) */
+/* The transport's clock (interaction.md 7): INT; MIDI NO CLOCK with G13 MIDI and no clock coming (Codex
+ * P2-b); MIDI with one; WAITING FOR CLOCK while PLAY waits (case 47) */
 TT_TEST(seq_clock_text_names_the_source)
 {
     char t[UI_SEQ_TEXT_LEN];
@@ -1263,6 +1274,9 @@ TT_TEST(seq_clock_text_names_the_source)
     ui_seq_clock_text(&ui_u, t);
     TT_CHECK(strcmp(t, "INT") == 0);
     seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);      /* G13 MIDI, no clock yet */
+    ui_seq_clock_text(&ui_u, t);
+    TT_CHECK(strcmp(t, "MIDI NO CLOCK") == 0);
+    seq_clock_at(140.0, 0, 48);
     ui_seq_clock_text(&ui_u, t);
     TT_CHECK(strcmp(t, "MIDI") == 0);
     ui_tap(UI_BTN_PLAY, 1000);
@@ -1284,16 +1298,21 @@ TT_TEST(seq_clock_changes_redraw_by_themselves)
     d = ui_take(&ui_u, 1300);
     TT_CHECK_EQ(d & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), UI_D_FOOT | UI_D_HEAD | UI_D_COL(0));   /* (the roll's
                                                                                    header: >07 120 MIDI) */
-    seq_clock_ticks(96);                                      /* 120 BPM: as shown already, so nothing */
-    (void)ui_take(&ui_u, 1400);
+    seq_clock_at(140.0, 0, 96);                               /* a clock at 140: TEMPO, header, footer */
+    d = ui_take(&ui_u, 1400);
+    TT_CHECK_EQ(d & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), UI_D_FOOT | UI_D_HEAD | UI_D_COL(0));
+    TT_CHECK(seq_tempo_reads("140", "MIDI CLOCK"));
+    seq_clock_at(140.0, 96, 96);                              /* steady: nothing */
     TT_CHECK_EQ(ui_take(&ui_u, 1500) & (UI_D_FOOT | UI_D_HEAD | UI_D_COL(0)), 0u);
-    for (i = 96; i < 192; i++)                                /* faster: 140 BPM */
-        seq_clock_in(play_seq(&ui_p), 0xF8u, 96u * (SEQ_CLK_HZ / 48u) + (i - 96u) * (SEQ_CLK_HZ / 56u));
+    for (i = 192; i < 288; i++)                               /* faster: 150 BPM */
+        seq_clock_in(play_seq(&ui_p), 0xF8u, (uint32_t)(1000.0 + 192.0 * SEQ_CLK_HZ * 60.0 / (140.0 * 24.0) +
+                                                        (i - 192u) * (SEQ_CLK_HZ * 60.0 / (150.0 * 24.0))));
     TT_CHECK(ui_take(&ui_u, 1600) & UI_D_COL(0));
+    TT_CHECK(seq_tempo_reads("150", "MIDI CLOCK"));
 }
 
-/* G13 MIDI before any clock comes in: TEMPO shows the pattern's tempo (the clock has none yet), still
- * marked MIDI CLOCK; a turn still says the clock sets it */
+/* G13 MIDI before any clock comes in: TEMPO has no tempo to show (--), marked MIDI CLOCK, not the
+ * pattern's (Codex P2-b) */
 TT_TEST(seq_tempo_before_the_clock_comes_in)
 {
     char num[UI_VALUE_LEN], unit[UI_VALUE_LEN];
@@ -1301,7 +1320,7 @@ TT_TEST(seq_tempo_before_the_clock_comes_in)
     ui_tap(UI_BTN_SEQ, 1000);
     seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
     ui_seq_column(&ui_u, 0, num, unit);
-    TT_CHECK(strcmp(num, "120") == 0);
+    TT_CHECK(strcmp(num, "--") == 0);
     TT_CHECK(strcmp(unit, "MIDI CLOCK") == 0);
 }
 
@@ -1351,8 +1370,669 @@ TT_TEST(seq_clock_burst_shows_at_most_three_digits)
     TT_CHECK(worst <= 9990u);
 }
 
+/* AUTO, a clock at 140 coming, the pattern at 120: TEMPO reads the clock's 140 before PLAY, while PLAY
+ * is armed for its next tick, and once it runs; never the pattern's 120 between (Codex P2-d) */
+TT_TEST(seq_tempo_stays_the_clocks_while_armed)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_AUTO);
+    seq_clock_at(140.0, 0, 96);
+    TT_CHECK(seq_tempo_reads("140", "MIDI CLOCK"));
+    ui_tap(UI_BTN_PLAY, 1100);                                /* armed for the next tick */
+    TT_CHECK(seq_waiting(play_seq(&ui_p)));
+    TT_CHECK(seq_tempo_reads("140", "MIDI CLOCK"));
+    seq_clock_at(140.0, 96, 1);                               /* the tick: running */
+    TT_CHECK(!seq_waiting(play_seq(&ui_p)));
+    TT_CHECK(seq_tempo_reads("140", "MIDI CLOCK"));
+}
+
+static int seq_footer_clock_is(const char *want)
+{
+    char t[UI_SEQ_TEXT_LEN];
+    ui_seq_clock_text(&ui_u, t);
+    if (strcmp(t, want) != 0) {
+        printf("    the clock reads \"%s\", not \"%s\"\n", t, want);
+        return 0;
+    }
+    return 1;
+}
+
+/* G13 MIDI with no clock there (none yet, or lost): the footer says MIDI NO CLOCK and TEMPO has no tempo
+ * to show (--, MIDI CLOCK), not the pattern's; with ticks, the clock's tempo and MIDI; lost again, back
+ * to NO CLOCK. PLAY armed waits, and says WAITING FOR CLOCK. AUTO with no clock is INT (Codex P2-b) */
+TT_TEST(seq_midi_with_no_clock_says_so)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    seq_set_clock_source(s, SEQ_CLK_MIDI);
+    TT_CHECK(seq_footer_clock_is("MIDI NO CLOCK"));
+    TT_CHECK(seq_tempo_reads("--", "MIDI CLOCK"));
+    seq_clock_at(140.0, 0, 96);
+    TT_CHECK(seq_footer_clock_is("MIDI"));
+    TT_CHECK(seq_tempo_reads("140", "MIDI CLOCK"));
+    seq_clock_poll(s, 1000u + 96u * (SEQ_CLK_HZ * 60u / (140u * SEQ_CLK_PPQN)) + SEQ_CLK_HZ / 2u);   /* gone */
+    TT_CHECK(seq_footer_clock_is("MIDI NO CLOCK"));
+    TT_CHECK(seq_tempo_reads("--", "MIDI CLOCK"));
+    ui_tap(UI_BTN_PLAY, 1100);                                /* armed: waiting wins */
+    TT_CHECK(seq_footer_clock_is("WAITING FOR CLOCK"));
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_set_clock_source(s, SEQ_CLK_AUTO);                    /* AUTO, no clock: its own */
+    TT_CHECK(seq_footer_clock_is("INT"));
+    TT_CHECK(seq_tempo_reads("120", "BPM"));
+}
+
+/* ticks at bpm with the jittery test's +-1.5 ms, from tick i0 at host time *t, n of them (on from there) */
+static void seq_clock_jittery(double bpm, uint32_t n, double *t, uint32_t *r)
+{
+    double dt = SEQ_CLK_HZ * 60.0 / (bpm * SEQ_CLK_PPQN);
+    uint32_t i;
+    for (i = 0; i < n; i++, *t += dt) {
+        *r = *r * 1103515245u + 12345u;
+        seq_clock_in(play_seq(&ui_p), 0xF8u, (uint32_t)(*t) + (*r >> 16) % 72000u - 36000u);
+    }
+}
+
+/* The whole BPM shown holds against a clock's jitter: one hovering at 120.5 shows one value, with no
+ * flips once settled (Codex P3-a: 15). A real move shows: 120, 121, 122 each read as such. And a clock
+ * slower than 10 BPM (over 250 ms a tick) is never a clock at all: polled as the main loop does, it's
+ * gone before its second tick, so no tempo shows for it, not 0 (Codex on #293: the floor test was unreal) */
+TT_TEST(seq_tempo_shown_holds_against_jitter_and_follows_moves)
+{
+    char num[UI_VALUE_LEN], unit[UI_VALUE_LEN];
+    uint32_t r = 777u, i, shown, flips = 0;
+    double t = 1000000.0;
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_clock_source(s, SEQ_CLK_MIDI);
+    seq_clock_jittery(120.5, 480, &t, &r);                    /* settled */
+    shown = ui_seq_tempo_shown(&ui_u);
+    for (i = 0; i < 480u; i++) {
+        seq_clock_jittery(120.5, 1, &t, &r);
+        if (ui_seq_tempo_shown(&ui_u) != shown)
+            flips++, shown = ui_seq_tempo_shown(&ui_u);
+    }
+    printf("    120.5 BPM with jitter: %u flips, shows %u\n", flips, shown / 10u);
+    TT_CHECK_EQ(flips, 0u);
+    TT_CHECK(shown == 1200u || shown == 1210u);
+    seq_clock_jittery(120.0, 480, &t, &r);
+    TT_CHECK(seq_tempo_reads("120", "MIDI CLOCK"));
+    seq_clock_jittery(121.0, 480, &t, &r);
+    TT_CHECK(seq_tempo_reads("121", "MIDI CLOCK"));
+    seq_clock_jittery(122.0, 480, &t, &r);
+    TT_CHECK(seq_tempo_reads("122", "MIDI CLOCK"));
+    ui_setup();                                               /* a clock at 0.4 BPM, polled: never one */
+    s = play_seq(&ui_p);
+    seq_set_clock_source(s, SEQ_CLK_MIDI);
+    for (i = 0; i < 4u; i++) {
+        uint32_t at = 1000u + i * (uint32_t)(SEQ_CLK_HZ * 60.0 / (0.4 * SEQ_CLK_PPQN)), k;
+        seq_clock_in(s, 0xF8u, at);
+        for (k = 1; k <= 10u; k++)                            /* the main loop polls on (each 100 ms) */
+            seq_clock_poll(s, at + k * (SEQ_CLK_HZ / 10u));
+        ui_seq_column(&ui_u, 0, num, unit);
+        TT_CHECK(strcmp(num, "--") == 0);
+        TT_CHECK(seq_footer_clock_is("MIDI NO CLOCK"));
+    }
+}
+
+/* Tap a step, then play: the step written takes the live MIDI-in pitch bend and CC1 (mod wheel), the
+ * last ones that came in, as its bend and mod (#42 S7, interaction.md 5 "Writing steps") */
+TT_TEST(seq_a_tapped_step_takes_the_live_bend_and_mod)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x60);               /* bend 0x3000: +4096 from the center */
+    ui_midi_controls(&ui_u, 0xB0, 1, 77);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[4], 1, 1100), 1);       /* step 5 armed */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[4], 0, 1150), 1);
+    seq_note(10, 60, 100, 1, 1200);
+    seq_note(10, 60, 0, 0, 1300);                             /* written */
+    TT_CHECK_EQ(seq_get_step(s, 4)->kind, (uint8_t)SEQ_NOTES_ON);
+    TT_CHECK_EQ(seq_get_step(s, 4)->bend, 4096);
+    TT_CHECK_EQ(seq_get_step(s, 4)->mod, 77u);
+    TT_CHECK_EQ(seq_get_step(s, 4)->glide, 0u);               /* (a written step jumps) */
+}
+
+/* In REC each step takes the bend and mod as its first note goes down (Eric: A): moved between steps,
+ * the next one has the new values, and a move while it's held changes nothing; with none come in yet,
+ * the center and 0 (no MIDI controller) */
+TT_TEST(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_REC, 1000);
+    seq_note(5, 60, 90, 1, 1100);                             /* nothing came in: center, 0 */
+    seq_note(5, 60, 0, 0, 1200);
+    TT_CHECK_EQ(seq_get_step(s, 0)->bend, 0);
+    TT_CHECK_EQ(seq_get_step(s, 0)->mod, 0u);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x00);               /* the lowest bend */
+    ui_midi_controls(&ui_u, 0xB0, 1, 127);
+    seq_note(7, 62, 90, 1, 1300);
+    seq_note(7, 62, 0, 0, 1400);
+    TT_CHECK_EQ(seq_get_step(s, 1)->bend, -8192);
+    TT_CHECK_EQ(seq_get_step(s, 1)->mod, 127u);
+    ui_midi_controls(&ui_u, 0xE0, 0x7F, 0x7F);               /* the highest, then the note */
+    seq_note(9, 64, 90, 1, 1500);
+    ui_midi_controls(&ui_u, 0xB0, 1, 3);                      /* while it's held: not this */
+    seq_note(9, 64, 0, 0, 1600);
+    TT_CHECK_EQ(seq_get_step(s, 2)->bend, 8191);
+    TT_CHECK_EQ(seq_get_step(s, 2)->mod, 127u);
+    TT_CHECK_EQ(seq_get_step(s, 0)->bend, 0);                 /* (the steps before keep theirs) */
+    TT_CHECK_EQ(seq_get_step(s, 1)->mod, 127u);
+}
+
+/* Only what comes in counts: a pattern playing its own bends and mod doesn't change the live values a
+ * step takes; G11 keeps out another channel's; CC121 (reset all controllers) centers and zeroes them */
+TT_TEST(seq_only_midi_in_on_the_channel_sets_the_live_bend_and_mod)
+{
+    static const uint8_t C[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C, 1, 100);
+    seq_set_step_bend_mod(s, 0, 6000, 90, 0);                 /* the pattern bends and mods itself */
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(1);                                         /* played: the engine has its bend */
+    ui_tap(UI_BTN_PLAY, 1100);
+    seq_render_to(-1);
+    TT_CHECK_EQ(ui_u.live_bend, 0);
+    TT_CHECK_EQ(ui_u.live_mod, 0u);
+    ui_u.set.midi_in = 3;                                     /* G11 channel 3 */
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x60);               /* channel 1: not ours */
+    ui_midi_controls(&ui_u, 0xB0, 1, 50);
+    TT_CHECK_EQ(ui_u.live_bend, 0);
+    TT_CHECK_EQ(ui_u.live_mod, 0u);
+    ui_midi_controls(&ui_u, 0xE2, 0x00, 0x60);               /* channel 3 */
+    ui_midi_controls(&ui_u, 0xB2, 1, 50);
+    TT_CHECK_EQ(ui_u.live_bend, 4096);
+    TT_CHECK_EQ(ui_u.live_mod, 50u);
+    ui_midi_controls(&ui_u, 0xB2, 7, 20);                     /* another CC: nothing */
+    TT_CHECK_EQ(ui_u.live_mod, 50u);
+    ui_midi_controls(&ui_u, 0xB2, 121, 0);                    /* reset all controllers */
+    TT_CHECK_EQ(ui_u.live_bend, 0);
+    TT_CHECK_EQ(ui_u.live_mod, 0u);
+}
+
+/* Eric (A): a step takes the bend and mod as its first note goes down, not as the last key is let go.
+ * Bend, play a chord, let the wheel spring back to the center, let go of the keys: the step keeps the
+ * bend (and a note added after the wheel came back doesn't take the center) */
+TT_TEST(seq_a_step_keeps_the_bend_its_first_note_had)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 1, 1100), 1);       /* step 3 armed */
+    TT_CHECK_EQ(ui_key(&ui_u, SEQ_WK[2], 0, 1150), 1);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x50);               /* bent: +2048 */
+    ui_midi_controls(&ui_u, 0xB0, 1, 40);
+    seq_note(10, 60, 100, 1, 1200);                           /* the chord */
+    seq_note(12, 64, 100, 1, 1210);
+    ui_midi_controls(&ui_u, 0xE0, 0x00, 0x40);               /* the wheel springs back */
+    ui_midi_controls(&ui_u, 0xB0, 1, 0);
+    seq_note(14, 67, 100, 1, 1220);                           /* (a note added now joins at the latch) */
+    seq_note(10, 60, 0, 0, 1300);
+    seq_note(12, 64, 0, 0, 1310);
+    seq_note(14, 67, 0, 0, 1320);                             /* all let go: written */
+    TT_CHECK_EQ(seq_get_step(s, 2)->n, 3u);
+    TT_CHECK_EQ(seq_get_step(s, 2)->bend, 2048);
+    TT_CHECK_EQ(seq_get_step(s, 2)->mod, 40u);
+}
+
+/* AUTO, no clock, PLAY: it plays its own clock (the pattern's 120). A clock at 140 coming in then, with no
+ * start, doesn't take over a transport already running (seq.c starts on the clock only from a start or
+ * an armed PLAY), so the screen goes on saying INT and 120, and TEMPO can be turned (Codex on #293) */
+TT_TEST(seq_playing_its_own_clock_shows_its_own_tempo)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_tap(UI_BTN_PLAY, 1100);                                /* AUTO, no clock: its own */
+    seq_render_to(0);
+    seq_clock_at(140.0, 0, 96);                               /* a clock, no start */
+    TT_CHECK(s->want && !seq_waiting(s));
+    TT_CHECK(seq_footer_clock_is("INT"));
+    TT_CHECK(seq_tempo_reads("120", "BPM"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1200);      /* TEMPO turns: it's the steps' tempo */
+    TT_CHECK_EQ(seq_tempo(s), 1210u);
+}
+
+/* the whole BPM shown, after n steady ticks at bpm, on from host time *t */
+static uint32_t seq_shown_after(double bpm, uint32_t n, double *t)
+{
+    double dt = SEQ_CLK_HZ * 60.0 / (bpm * SEQ_CLK_PPQN);
+    uint32_t i;
+    for (i = 0; i < n; i++, *t += dt)
+        seq_clock_in(play_seq(&ui_p), 0xF8u, (uint32_t)*t);
+    return ui_seq_tempo_shown(&ui_u) / 10u;
+}
+
+/* The whole BPM shown moves when the clock is 0.75 BPM off it, the same up and down (Codex on #293: down
+ * held 0.71, up 0.8): at 121 shown, 121.74 holds and 121.76 moves to 122; at 122, 121.26 holds and 121.24
+ * moves to 121 */
+TT_TEST(seq_tempo_shown_moves_at_three_quarters_both_ways)
+{
+    double t = 1000000.0;
+    ui_setup();
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    TT_CHECK_EQ(seq_shown_after(121.0, 480, &t), 121u);
+    TT_CHECK_EQ(seq_shown_after(121.74, 480, &t), 121u);
+    TT_CHECK_EQ(seq_shown_after(121.76, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after(122.0, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after(121.26, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after(121.24, 480, &t), 121u);
+}
+
+/* the whole BPM shown, after n ticks exactly dt counts apart, on from host time *t */
+static uint32_t seq_shown_after_counts(uint32_t dt, uint32_t n, uint32_t *t)
+{
+    uint32_t i;
+    for (i = 0; i < n; i++, *t += dt)
+        seq_clock_in(play_seq(&ui_p), 0xF8u, *t);
+    return ui_seq_tempo_shown(&ui_u) / 10u;
+}
+
+/* The 0.75 BPM edges exactly, as tick lengths (Codex on 300c4fd: a floored hundredth moved at 0.746
+ * down): at 122 shown, ticks of 494830 counts (121.2538 BPM, 0.7462 under) and 494844 (121.2503) hold,
+ * 494848 (121.2493) moves to 121; up from 122, 488800 (122.7496) holds and 488796 (122.7506) moves. (Two
+ * counts either side: the smoothed tick settles to within a count, not onto it.) */
+TT_TEST(seq_tempo_shown_edges_are_exact)
+{
+    uint32_t t = 1000000u, at122 = (uint32_t)(SEQ_CLK_HZ * 60.0 / (122.0 * SEQ_CLK_PPQN));
+    ui_setup();
+    seq_set_clock_source(play_seq(&ui_p), SEQ_CLK_MIDI);
+    TT_CHECK_EQ(seq_shown_after_counts(at122, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(494830u, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(494844u, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(494848u, 480, &t), 121u);
+    TT_CHECK_EQ(seq_shown_after_counts(at122, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(488800u, 480, &t), 122u);
+    TT_CHECK_EQ(seq_shown_after_counts(488796u, 480, &t), 123u);
+}
+
+/* SEQ view on S3 PLAY */
+static seq *s3_setup(void)
+{
+    ui_setup();
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 2, 1100);  /* S3 PLAY */
+    return play_seq(&ui_p);
+}
+
+/* S3's KEY TRANSPOSE: OFF at the start, ON a click up, OFF a click down (held at the ends); a
+ * performance setting, so a pattern loaded leaves it as it is (#39, interaction.md 5) */
+TT_TEST(seq_s3_key_transpose_turns_on_and_off)
+{
+    char n[UI_VALUE_LEN], un[UI_VALUE_LEN];
+    static seq_pattern p;
+    seq *s = s3_setup();
+    ui_seq_column(&ui_u, 1, n, un);
+    TT_CHECK(strcmp(n, "OFF") == 0);
+    TT_CHECK(!seq_key_transpose(s));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1200);
+    TT_CHECK(seq_key_transpose(s));
+    ui_seq_column(&ui_u, 1, n, un);
+    TT_CHECK(strcmp(n, "ON") == 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1300);      /* (held at ON) */
+    TT_CHECK(seq_key_transpose(s));
+    seq_pattern_empty(&p);
+    seq_load_pattern(s, &p);                                  /* a pattern loaded: still ON */
+    TT_CHECK(seq_key_transpose(s));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, -1, 1400);
+    TT_CHECK(!seq_key_transpose(s));
+}
+
+/* KEY TRANSPOSE on and a pattern playing (C3 on steps 1 and 2), in PLAY: a panel key makes no sound
+ * (ui_key takes it, so the module sends no note on, nor out) and sets the transpose to its pitch before
+ * the octave shift minus C4, from the next step's start, never mid-step (#39, acceptance 44) */
+TT_TEST(seq_key_transpose_a_panel_key_sets_it_from_the_next_step)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_step(s, 1, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    play_octave(&ui_p, 1);                                  /* OCT+: the key sounds D5, it counts as D4 */
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1100), 1);               /* D4 (key 9, F3 + 9): taken */
+    TT_CHECK_EQ(seq_transpose(s), 2);
+    TT_CHECK_EQ(s->run_transpose, 0);                         /* (step 1 plays on as it was) */
+    seq_render_to(1);
+    TT_CHECK_EQ(s->run_transpose, 2);                         /* from step 2 */
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1200), 1);               /* its up: taken too, silent */
+    TT_CHECK_EQ(seq_transpose(s), 2);                         /* and the transpose stays */
+}
+
+/* KEY TRANSPOSE on and playing: with several keys held the lowest sets it; a higher one pressed later
+ * changes nothing, a lower one sets it again; letting go keeps it (interaction.md 5) */
+TT_TEST(seq_key_transpose_the_lowest_key_held_sets_it)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 11, 1, 1100), 1);              /* E4: +4 */
+    TT_CHECK_EQ(seq_transpose(s), 4);
+    TT_CHECK_EQ(ui_key(&ui_u, 14, 1, 1110), 1);              /* G4, higher: still +4 */
+    TT_CHECK_EQ(seq_transpose(s), 4);
+    TT_CHECK_EQ(ui_key(&ui_u, 4, 1, 1120), 1);               /* A3, lower: -3 */
+    TT_CHECK_EQ(seq_transpose(s), -3);
+    TT_CHECK_EQ(ui_key(&ui_u, 4, 0, 1200), 1);               /* let go, all three: -3 stays */
+    TT_CHECK_EQ(ui_key(&ui_u, 11, 0, 1210), 1);
+    TT_CHECK_EQ(ui_key(&ui_u, 14, 0, 1220), 1);
+    TT_CHECK_EQ(seq_transpose(s), -3);
+    TT_CHECK_EQ(ui_key(&ui_u, 19, 1, 1300), 1);              /* the next key alone: C5, +12 */
+    TT_CHECK_EQ(seq_transpose(s), 12);
+}
+
+/* KEY TRANSPOSE on and playing: a MIDI note in sets it the same way, against MIDI note 60, and makes no
+ * sound (ui_seq_ktr_note takes it: the module plays it nowhere); 62 is +2, 96 is +24 (held there); its
+ * note off is taken too (#39, acceptance 46) */
+TT_TEST(seq_key_transpose_a_midi_note_sets_it)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 100, 1), 0);      /* stopped: it plays */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 0, 0), 0);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 100, 1), 1);
+    TT_CHECK_EQ(seq_transpose(s), 2);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 0, 0), 1);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 96, 100, 1), 1);
+    TT_CHECK_EQ(seq_transpose(s), 24);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 96, 0, 0), 1);
+    TT_CHECK_EQ(seq_transpose(s), 24);
+}
+
+/* KEY TRANSPOSE on and playing, in SEQ view: the panel keys stay steps (a white key arms its step, none
+ * transposes); a MIDI note transposes; with a step armed, a MIDI note plays and writes that step and the
+ * transpose stays as it was (chord entry first: #39, acceptance 44 and 45) */
+TT_TEST(seq_key_transpose_in_seq_view_steps_and_chord_entry_come_first)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_SEQ, 900);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1100), 1);               /* white key D4: step 6, armed */
+    TT_CHECK(ui_u.seq_armed && ui_u.seq_cursor == 5u);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1150), 1);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 100, 1), 0);      /* armed: the note is the step's */
+    ui_chord_note(&ui_u, 64, 100, 1);
+    ui_chord_note(&ui_u, 64, 0, 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 0, 0), 0);
+    TT_CHECK_EQ(seq_get_step(s, 5)->note[0], 64u);            /* written */
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK(!ui_u.seq_armed);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 67, 100, 1), 1);      /* not armed: MIDI G4 transposes +7 */
+    TT_CHECK_EQ(seq_transpose(s), 7);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 67, 0, 0), 1);
+}
+
+/* KEY TRANSPOSE off (playing), or on but stopped: keys and MIDI notes play as ever (interaction.md 5) */
+TT_TEST(seq_key_transpose_off_or_stopped_plays)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    ui_tap(UI_BTN_PLAY, 1000);                                /* playing, KEY TRANSPOSE off */
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1100), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1150), 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 100, 1), 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 0, 0), 0);
+    ui_tap(UI_BTN_PLAY, 1200);                                /* on, stopped */
+    seq_render_to(-1);
+    seq_set_key_transpose(s, 1);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1300), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1350), 0);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    seq_set_clock_source(s, SEQ_CLK_MIDI);                    /* on, PLAY waiting for a clock: not playing */
+    ui_tap(UI_BTN_PLAY, 1400);
+    TT_CHECK(seq_waiting(s));
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1500), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1550), 0);
+}
+
+/* A key held for the transpose across the pattern's end: the transpose holds over the loop, the key
+ * sets nothing again, and a pattern loaded meanwhile changes nothing of it */
+TT_TEST(seq_key_transpose_held_across_the_loop)
+{
+    static const uint8_t C3[1] = {48};
+    static seq_pattern p;
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_length(s, 2);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 2, 1, 1100), 1);               /* G3: -5 */
+    seq_render_to(1);
+    seq_render_to(0);                                         /* round: past the end */
+    TT_CHECK_EQ(seq_transpose(s), -5);
+    TT_CHECK_EQ(s->run_transpose, -5);
+    seq_pattern_empty(&p);
+    p.length = 2;
+    seq_load_pattern(s, &p);                                  /* queued for the pass's end */
+    seq_render_to(1);
+    seq_render_to(0);
+    TT_CHECK_EQ(seq_transpose(s), -5);
+    TT_CHECK_EQ(ui_key(&ui_u, 2, 0, 1200), 1);
+    TT_CHECK_EQ(seq_transpose(s), -5);
+}
+
+/* Every key ends the way it began: one pressed while stopped (it sounds), then PLAY, lets its note go as
+ * usual (not taken: no hung note); one taken for the transpose, then STOP, is taken on its up too (no
+ * stray note off). MIDI notes alike */
+TT_TEST(seq_key_transpose_keys_end_as_they_began)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 900), 0);                /* stopped: D4 sounds */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 70, 100, 1), 0);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1100), 0);               /* its up: as it began, a note off */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 70, 0, 0), 0);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK_EQ(ui_key(&ui_u, 11, 1, 1200), 1);              /* playing: E4 taken, +4 */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 65, 100, 1), 1);      /* and MIDI F4: taken; E4 stays the lowest */
+    TT_CHECK_EQ(seq_transpose(s), 4);
+    ui_tap(UI_BTN_PLAY, 1300);                                /* STOP */
+    TT_CHECK_EQ(ui_key(&ui_u, 11, 0, 1400), 1);              /* its up: taken, silent */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 65, 0, 0), 1);
+    TT_CHECK_EQ(ui_key(&ui_u, 11, 1, 1500), 0);              /* and the next press plays */
+}
+
+/* REC arms only while stopped, so keys in REC play the step; PLAY while REC is armed starts and disarms
+ * it, and a key held then still ends as it began (a played note), transposing nothing */
+TT_TEST(seq_key_transpose_and_rec)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_REC, 1000);                                 /* armed, stopped */
+    TT_CHECK(ui_u.seq_rec);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1100), 0);               /* REC: it plays, joins the step */
+    ui_chord_note(&ui_u, 62, 100, 1);
+    ui_tap(UI_BTN_PLAY, 1200);                                /* starts, and REC disarms */
+    seq_render_to(0);
+    TT_CHECK(!ui_u.seq_rec);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 0, 1300), 0);               /* its up: a note off, as it began */
+    ui_chord_note(&ui_u, 62, 0, 0);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);                          /* (REC opened SEQ view: keys are steps there) */
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1400), 1);               /* D4: a step key, not a transpose */
+    TT_CHECK(ui_u.seq_armed);
+    TT_CHECK_EQ(seq_transpose(s), 0);
+}
+
+/* A MIDI note taken for the transpose whose note off never comes (another channel by then, a cable
+ * pulled) leaves no trap: the next note on of that pitch that plays clears it, so its off reaches the
+ * engine (no hung note). CC 123 / 120 end the notes held for the transpose (the next one sets it anew)
+ * but their offs, if they come, are still taken: the engine never had them (review of b614574; Codex) */
+TT_TEST(seq_key_transpose_a_lost_note_off_hangs_nothing)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 100, 1), 1);      /* taken; its off lost */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 50, 100, 1), 1);      /* another, its off lost too */
+    seq_set_key_transpose(s, 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 100, 1), 0);      /* now it plays ... */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 0, 0), 0);        /* ... and its off goes to the engine */
+    seq_set_key_transpose(s, 1);
+    ui_seq_ktr_all_off(&ui_u);                                /* CC 123: all notes off */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 100, 1), 1);      /* E4 alone sets it: +4 (50 isn't held) */
+    TT_CHECK_EQ(seq_transpose(s), 4);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 50, 0, 0), 1);        /* 50's off still taken, silent */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 0, 0), 1);
+}
+
+/* On S3, a MIDI note that transposes redraws TRANSPOSE's column, which then reads the new transpose */
+TT_TEST(seq_key_transpose_redraws_transpose_on_s3)
+{
+    static const uint8_t C3[1] = {48};
+    char n[UI_VALUE_LEN], un[UI_VALUE_LEN];
+    seq *s = s3_setup();
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_render_to(0);
+    (void)ui_take_full(&ui_u, 1300);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 100, 1), 1);
+    TT_CHECK(ui_take(&ui_u, 1400) & UI_D_COL(0));
+    ui_seq_column(&ui_u, 0, n, un);
+    TT_CHECK(strcmp(n, "+2") == 0 && strcmp(un, "st") == 0);
+}
+
+/* G11 changed while a MIDI note is held for the transpose: its off (on the old channel) won't come, so the
+ * notes held end there; the next note sets the transpose anew (Codex P2-1 on #294) */
+TT_TEST(seq_key_transpose_a_g11_change_ends_the_notes_held)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_u.set.midi_in = 1;                                     /* G11: channel 1 */
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 48, 100, 1), 1);      /* C3 on ch 1: -12 */
+    TT_CHECK_EQ(seq_transpose(s), -12);
+    ui_tap(UI_BTN_GLO, 1100);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 1200);      /* G11 to channel 2 */
+    TT_CHECK_EQ(ui_u.set.midi_in, 2u);
+    ui_tap(UI_BTN_GLO, 1300);                                 /* (C3's off on ch 1: filtered, never here) */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 100, 1), 1);      /* E4 on ch 2: +4, C3 isn't held */
+    TT_CHECK_EQ(seq_transpose(s), 4);
+}
+
+/* CC 123 while a MIDI note is held (silent) for the transpose, then STOP, then the same pitch on a panel
+ * key (it sounds): the MIDI note's late off is still taken, so it doesn't cut the panel note (Codex P2-2) */
+TT_TEST(seq_key_transpose_an_off_after_cc123_is_still_taken)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 100, 1), 1);      /* MIDI D4, silent */
+    ui_seq_ktr_all_off(&ui_u);                                /* CC 123 */
+    ui_tap(UI_BTN_PLAY, 1100);                                /* STOP */
+    seq_render_to(-1);
+    TT_CHECK_EQ(ui_key(&ui_u, 9, 1, 1200), 0);               /* panel D4 sounds */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 62, 0, 0), 1);        /* MIDI D4's off: taken, the panel D4 plays on */
+}
+
+/* G11 ALL: the same pitch held on two channels counts twice; one let go, the other still holds it (and
+ * its off is taken too) (Codex P2-3) */
+TT_TEST(seq_key_transpose_the_same_pitch_on_two_channels)
+{
+    static const uint8_t C3[1] = {48};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C3, 1, 100);
+    seq_set_key_transpose(s, 1);
+    ui_tap(UI_BTN_PLAY, 1000);
+    seq_render_to(0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 60, 100, 1), 1);      /* C4 on ch 1 */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 60, 100, 1), 1);      /* C4 on ch 2 */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 60, 0, 0), 1);        /* ch 1 lets go */
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 64, 100, 1), 1);      /* E4: C4 still held, still 0 */
+    TT_CHECK_EQ(seq_transpose(s), 0);
+    TT_CHECK_EQ(ui_seq_ktr_note(&ui_u, 60, 0, 0), 1);        /* ch 2's off: taken too */
+}
+
 static void run_ui_seq_tests(void)
 {
+    TT_RUN(seq_s3_key_transpose_turns_on_and_off);
+    TT_RUN(seq_key_transpose_a_panel_key_sets_it_from_the_next_step);
+    TT_RUN(seq_key_transpose_the_lowest_key_held_sets_it);
+    TT_RUN(seq_key_transpose_a_midi_note_sets_it);
+    TT_RUN(seq_key_transpose_in_seq_view_steps_and_chord_entry_come_first);
+    TT_RUN(seq_key_transpose_off_or_stopped_plays);
+    TT_RUN(seq_key_transpose_held_across_the_loop);
+    TT_RUN(seq_key_transpose_keys_end_as_they_began);
+    TT_RUN(seq_key_transpose_and_rec);
+    TT_RUN(seq_key_transpose_a_lost_note_off_hangs_nothing);
+    TT_RUN(seq_key_transpose_redraws_transpose_on_s3);
+    TT_RUN(seq_key_transpose_a_g11_change_ends_the_notes_held);
+    TT_RUN(seq_key_transpose_an_off_after_cc123_is_still_taken);
+    TT_RUN(seq_key_transpose_the_same_pitch_on_two_channels);
+    TT_RUN(seq_playing_its_own_clock_shows_its_own_tempo);
+    TT_RUN(seq_tempo_shown_moves_at_three_quarters_both_ways);
+    TT_RUN(seq_tempo_shown_edges_are_exact);
+    TT_RUN(seq_a_tapped_step_takes_the_live_bend_and_mod);
+    TT_RUN(seq_a_step_keeps_the_bend_its_first_note_had);
+    TT_RUN(seq_rec_each_step_takes_the_bend_and_mod_of_its_writing);
+    TT_RUN(seq_only_midi_in_on_the_channel_sets_the_live_bend_and_mod);
+    TT_RUN(seq_tempo_stays_the_clocks_while_armed);
+    TT_RUN(seq_midi_with_no_clock_says_so);
+    TT_RUN(seq_tempo_shown_holds_against_jitter_and_follows_moves);
     TT_RUN(seq_cursor_stays_inside_the_length);
     TT_RUN(seq_rec_tap_arms_and_opens_seq_view);
     TT_RUN(seq_rec_while_playing_says_stop_to_record);

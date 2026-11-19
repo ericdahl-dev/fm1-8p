@@ -504,7 +504,27 @@ interaction model is the same in both.
   internal clock (Eric).
 - **INT:** ignores MIDI clock.
 - **MIDI:** only MIDI clock. With no clock coming in, the sequencer waits. A
-  clock lost while playing stops it, as in AUTO.
+  clock lost while playing stops it, as in AUTO. With no clock there (none
+  yet, or lost), SEQ view says `MIDI NO CLOCK` and shows `--` for the tempo.
+- **Clock edges (#38):**
+  - PLAY armed in AUTO for the clock's next tick, and the clock lost first:
+    disarmed, as a stop. Under MIDI, PLAY stays armed and waits.
+  - G13 changed while PLAY waits: to AUTO, it starts on the next tick (or
+    plays its own with no clock coming); to MIDI, it waits for a start.
+  - A start or continue with no tick yet shows `WAITING FOR CLOCK` until the
+    first tick. In AUTO, one with no clock after it for the gone time (250 ms)
+    is dropped.
+  - The tempo shown is the clock's whole BPM, held against jitter: it moves
+    when the clock is 0.75 BPM off it, up or down.
+  - A clock that starts slower than 10 BPM (over 250 ms a tick) never counts
+    as a clock: it is gone before its second tick measures it. Once one is
+    measured, it is gone only after three of its ticks' time, so a clock
+    locked faster may slow below 10 BPM and stay.
+  - While AUTO plays its own clock, a clock coming in with no start doesn't
+    take over: the screen keeps INT and the pattern's tempo, and TEMPO turns.
+  - G13 MIDI, waiting on a bare MIDI start (no clock yet): PLAY arms and a
+    second PLAY cancels, as when waiting for a start (Eric, 2026-11-18). In
+    AUTO, PLAY then plays its own clock.
 - **Under MIDI clock** (#38): 24 ticks a quarter note, 6 a step. MIDI start
   plays from step 1 and continue from the step after the last one played,
   each on the next tick. MIDI stop lets every note go. The steps start on
@@ -674,8 +694,10 @@ in, with the octave applied). In both:
   n is the build's voice count (6 by default).
 - **Velocity:** the highest velocity among the chord's notes. A key with no
   force sensing uses G32.
-- **Bend and mod:** the live MIDI-in pitch bend and CC1 at the moment of
-  writing (#42). With no MIDI controller, these are center and 0.
+- **Bend and mod:** the live MIDI-in pitch bend and CC1 as the step's first
+  note goes down (#42; Eric, 2026-11-18). Moving the wheels while the step is
+  held changes nothing, so a bent chord keeps its bend after the pitch wheel
+  springs back. With no MIDI controller, these are center and 0.
 
 **1. Tap a step, then play (any time in SEQ view, playing or stopped; Eric):**
 
@@ -720,8 +742,10 @@ without tapping each step first.
 7. **PLAY while armed:** the sequencer starts and REC disarms, so a performance
    doesn't record over the pattern. There is no live recording while playing in
    this version (decision Q3).
-8. **Bend and mod** (#42, S7): the live MIDI-in bend and CC1 when a step is
-   written; until S7, steps hold none.
+8. **Bend and mod** (#42, S7): the live MIDI-in bend and CC1 as each step's
+   first note goes down, as in way 1, on G11's channel (CC121 centers and
+   zeroes them). The pattern's own bends while it plays don't count. A written
+   step's move is JUMP.
 
 ### Pattern slots
 
@@ -786,15 +810,23 @@ Patterns have their own slots, separate from patches (decision Q2).
     Panel keys use their pitch before the octave shift.
   - **Outside SEQ view** there are no step keys, so a key press transposes at
     once.
-  - **In SEQ view, chord entry comes first:**
-    - Chord keys and MIDI notes are held without sounding and decided when the
-      last of them is released.
-    - If a step key was pressed while any of them was held, it was chord
-      entry: the chord was written at the step key, and nothing transposes.
-    - If no step key was pressed, it is a transpose to the lowest key held,
-      applied at the next step after the release.
+  - **In SEQ view, writing a step comes first:** the panel keys stay step
+    keys and never transpose. A MIDI note transposes, unless a step is armed
+    (tap, then play) or REC is: then it plays and writes that step, and the
+    transpose stays as it was (#39).
   - Releasing the keys keeps the transpose.
-  - When stopped, keys play normally.
+  - When stopped, while PLAY waits for a clock, or with KEY TRANSPOSE off,
+    keys play normally. A STOP press lets the keys play at once.
+  - **Every key ends the way it began:** a key or MIDI note that started
+    playing (stopped, say) lets its note go even if the sequencer started
+    since; one taken for the transpose is taken on release too, even after
+    STOP, so no note hangs and none goes off twice.
+  - KEY TRANSPOSE is a performance setting: off at power-on, not saved with
+    the pattern, and a pattern loaded leaves it. Transposing keys send nothing
+    out over MIDI.
+  - **fm1-dock's LOCAL OFF:** the keys then only go out as MIDI, and the
+    module hears them only if they come back as MIDI in, so they transpose as
+    MIDI notes (against note 60).
 - **Bend and mod per step (#42):**
   - JUMP steps set their bend and mod at the step start.
   - GLIDE steps ramp from the previous step's values to their own by the step
