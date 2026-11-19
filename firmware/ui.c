@@ -823,6 +823,8 @@ static void glo_turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
             u->dirty |= UI_D_SLOT;
         if (g->setting == 2u)                   /* G13: the sequencer's clock (#38) */
             seq_set_clock_source(play_seq(u->p), (uint32_t)v);
+        if (g->setting == 3u)                   /* G14: clock out, from the next PLAY (#286) */
+            seq_set_clock_out(play_seq(u->p), (uint32_t)v);
         if (g->setting == 0u)                   /* G11: the old channel's offs won't come (KEY TRANSPOSE) */
             ui_seq_ktr_all_off(u);
     }

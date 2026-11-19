@@ -1945,7 +1945,7 @@ TT_TEST(ui_glo_table_is_well_formed)
         }
         TT_CHECK(g->label && strlen(g->label) <= 6u && g->full && strlen(g->full) <= 20u);   /* (7 touch) */
         TT_CHECK(g->setting < UI_SETTINGS_COUNT);
-        TT_CHECK_EQ(g->kind, (uint8_t)(num == 14 ? UI_PENDING : UI_LIVE));
+        TT_CHECK_EQ(g->kind, (uint8_t)UI_LIVE);   /* (G14 too: #286) */
     }
     TT_CHECK_EQ(UI_GLO_SLOTS[11].setting, 11u);                /* G34 THEME */
     TT_CHECK_EQ(UI_GLO_SLOTS[6].setting, 12u);                 /* G23 CC MAP */
@@ -1990,9 +1990,9 @@ TT_TEST(ui_glo_knobs_and_pages)
     TT_CHECK(ui_glo_reads(2, "MIDI"));
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, -2, 1320);       /* back to AUTO */
     TT_CHECK_EQ(play_seq(ui_u.p)->clk_src, (uint8_t)SEQ_CLK_AUTO);
-    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1330);        /* G14 waits */
-    TT_CHECK_EQ(ui_u.set.clock_out, 0u);
-    TT_CHECK(ui_glo_reads(3, "--"));
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1330);        /* G14 CLOCK OUT (#286) */
+    TT_CHECK_EQ(ui_u.set.clock_out, 1u);
+    TT_CHECK(ui_glo_reads(3, "ON"));
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 1400);       /* G2x: G21, G22 and G24 live (#49) */
     TT_CHECK_EQ(ui_u.glo_page, 1u);
     TT_CHECK_EQ(ui_u.focus, 1u);                                /* (knob 2: G22) */
@@ -2315,6 +2315,21 @@ TT_TEST(ui_glo_cc_settings_are_live)
             seen++;
         }
     TT_CHECK_EQ(seen, 3u);
+}
+
+/* G14 CLOCK OUT (#286): GLO's first page, KNOB4, OFF and ON; a setting, so it is kept with the others */
+TT_TEST(ui_glo_clock_out_turns_on_and_off)
+{
+    ui_setup();
+    TT_CHECK_EQ(ui_u.set.clock_out, 0u);
+    ui_tap(UI_BTN_GLO, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, 1, 1100);
+    TT_CHECK_EQ(ui_u.set.clock_out, 1u);
+    TT_CHECK(ui_u.set_dirty);                                 /* (to be saved) */
+    TT_CHECK_EQ(play_seq(&ui_p)->out_want, 1u);               /* the sequencer has it, for its next PLAY */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB4, -1, 1200);
+    TT_CHECK_EQ(ui_u.set.clock_out, 0u);
+    TT_CHECK_EQ(play_seq(&ui_p)->out_want, 0u);
 }
 
 /* The CC map (#49, Eric's choice A): a parameter's CC is its PG-800 number, the one on screen, except
@@ -2927,6 +2942,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_cc_during_compare_reaches_the_edit_buffer);
     TT_RUN(ui_cc_leaves_the_engines_ccs_to_it);
     TT_RUN(ui_glo_cc_settings_are_live);
+    TT_RUN(ui_glo_clock_out_turns_on_and_off);
     TT_RUN(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs);
     TT_RUN(ui_cc_lands_where_a_knob_does);
     TT_RUN(ui_cc_map_doc_matches_the_code);
