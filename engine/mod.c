@@ -17,6 +17,7 @@ void fm_mod_routes_reset(fm_mod_routes *r)
     unsigned s, d;
     for (s = 0; s < FM_MOD_SRC_COUNT; s++)
         for (d = 0; d < FM_MOD_DEST_COUNT; d++) r->depth[s][d] = 0;
+    r->live = 0;
 }
 
 void fm_mod_set_route(fm_mod_routes *r, unsigned src, unsigned dest,
@@ -25,5 +26,9 @@ void fm_mod_set_route(fm_mod_routes *r, unsigned src, unsigned dest,
 #ifdef FM_CHECK_ENGINE /* debug builds: a route that exists */
     assert(src < FM_MOD_SRC_COUNT && dest < FM_MOD_DEST_COUNT);
 #endif
+    unsigned d;
     r->depth[src][dest] = depth;
+    r->live &= ~(1u << src);
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++)
+        if (r->depth[src][d]) r->live |= 1u << src;
 }
