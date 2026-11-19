@@ -360,13 +360,21 @@ static void apply_pressure(play *p)
 
 void play_midi(play *p, uint32_t st, uint32_t d1, uint32_t d2)
 {
+    uint32_t i;
     switch (st & 0xF0u) {
     case 0xA0u: put_poly_pressure(p, d1, d2); break;
     case 0xD0u: put_channel_pressure(p, d1); break;
     case 0x90u:
     case 0x80u:
-    case 0xB0u:
     case 0xE0u: put(p, st & 0xF0u, d1, d2); break;
+    case 0xB0u:
+        put(p, 0xB0u, d1, d2);
+        if (d1 == 121u)                         /* reset all controllers: no pressure after it (#61) */
+            put_channel_pressure(p, 0);
+        else if (d1 == 123u)                    /* all notes off: the keys' pressure not yet applied goes */
+            for (i = 0; i < 4u; i++)
+                p->poly_new[i] = 0;
+        break;
     default: break;
     }
 }

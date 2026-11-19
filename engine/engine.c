@@ -983,6 +983,11 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
         e->wheel_to = controller == 1 ? (int32_t)(value & 127u) << 8 : 0;
         e->wheel_moving = (uint8_t)(e->wheel != e->wheel_to);
     }
+    if (controller == 121) { /* and every pressure to 0 (#61), smoothed */
+        e->at_chan = 0;
+        for (i = 0; i < e->voice_count; i++) e->at_to[i] = 0;
+        e->at_moving = 1;
+    }
     if (controller == 120 || controller == 123) unison_reset(e);
     if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
     for (i = 0; i < e->voice_count; i++) {
