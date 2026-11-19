@@ -137,6 +137,9 @@ PARAMS = [
       'the mod wheel (CC1) at full adds this to the LFO\'s pulse-width depth, at most 49 % in all (#41)'),
     P(55, 'OSC1_COARSE_SEMIS', 'osc1_coarse_semis', '-12', '12', '0', 55,
       '-12..+12 semitones, on top of osc1\'s octave and fine (DCO-1 TUNE, #108)'),
+    P(56, 'PORTAMENTO_MS', 'portamento_ms', '0', '10000', '0', 56,
+      'portamento (#62): each note glides from the last one played, the distance left falling by 1/e '
+      'every this many ms (PG-8X\'s exponential glide); 0 off'),
 ]
 
 
@@ -224,7 +227,7 @@ DISPLAY_KINDS = (
     'NEG_NAME',         # below 0: names[0]; else the value
     'OFF_OR_N',         # 0 or below: names[0]; else the value
     'KEY_POS',          # the JX's key follow positions, 260 per mille each: names[0] for none, 1..3
-    'MS_S',             # milliseconds: 999 ms, then 1.25 s, 12.5 s
+    'MS_S',             # milliseconds: 999 ms, then 1.25 s, 12.5 s; with a name, that name at 0
     'RATE',             # hundredths of a hertz as Hz to three digits; below 1 is 1
     'NAMES',            # names[value - min], held to the ends; the unit always
     'NAMES_INNER_UNIT', # as NAMES, with the unit only for values strictly between min and max
@@ -300,6 +303,7 @@ DISPLAY = {
     'WHEEL_PITCH_CENTS': D('PLAIN', 'ct'),
     'WHEEL_PW_PCT': D('PLAIN', '%'),
     'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
+    'PORTAMENTO_MS': D('MS_S', '', ('OFF',)),
 }
 
 

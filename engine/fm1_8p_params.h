@@ -120,6 +120,9 @@ typedef enum {
     FM_PARAM_WHEEL_PW_PCT,
     /* -12..+12 semitones, on top of osc1's octave and fine (DCO-1 TUNE, #108) */
     FM_PARAM_OSC1_COARSE_SEMIS,
+    /* portamento (#62): each note glides from the last one played, the distance left falling
+     * by 1/e every this many ms (PG-8X's exponential glide); 0 off */
+    FM_PARAM_PORTAMENTO_MS,
     FM_PARAM_COUNT
 } fm_param_id;
 

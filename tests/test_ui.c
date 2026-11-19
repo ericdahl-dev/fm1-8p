@@ -1331,6 +1331,14 @@ TT_TEST(ui_time_table_steps_about_7_percent)
 
 /* Times read as interaction.md has them: 0 ms .. 999 ms, 1.00 s .. 9.99 s, 10.0 s .. 32.0 s; sustain
  * 0..100; ENV KEY OFF, 1, 2, 3 (260 per mille a position). */
+/* PORTA (#62) is a time with OFF at 0 (P6: the time table with OFF) */
+TT_TEST(ui_porta_reads_off_at_zero)
+{
+    TT_CHECK(ui_shows(FM_PARAM_PORTAMENTO_MS, 0, "OFF"));
+    TT_CHECK(ui_shows(FM_PARAM_PORTAMENTO_MS, 120, "120 ms"));
+    TT_CHECK(ui_shows(FM_PARAM_PORTAMENTO_MS, 1500, "1.50 s"));
+}
+
 TT_TEST(ui_envelope_values_read_as_the_map)
 {
     TT_CHECK(ui_shows(FM_PARAM_AMP_ATTACK_MS, 0, "0 ms"));
@@ -2981,6 +2989,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_adsr_picture_follows_the_envelope);
     TT_RUN(ui_vel_is_inactive_with_dynamics);
     TT_RUN(ui_env_and_fx_rings_and_time_knobs);
+    TT_RUN(ui_porta_reads_off_at_zero);
     TT_RUN(ui_envelope_values_read_as_the_map);
     TT_RUN(ui_time_table_steps_about_7_percent);
     TT_RUN(ui_mode_column_is_short);
