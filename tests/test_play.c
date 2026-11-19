@@ -456,8 +456,34 @@ TT_TEST(play_load_patch_asks_only_for_the_params_that_change)
     TT_CHECK_EQ(pl_a.asked[FM_PARAM_FILTER_RESONANCE >> 5], 1u << (FM_PARAM_FILTER_RESONANCE & 31u));
 }
 
+/* pressure (#61) from MIDI reaches the engine at the next render, any channel: channel pressure (0xD0, one data
+ * byte) every voice, poly (0xA0) its note's */
+TT_TEST(play_midi_pressure_reaches_the_engine)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    play_midi(&pl_a, 0x90, 64, 100);
+    pl_render(&pl_a);
+    play_midi(&pl_a, 0xD5, 64, 0);
+    TT_CHECK_EQ(pl_a.engine.at_chan, 0);
+    pl_render(&pl_a);
+    TT_CHECK_EQ(pl_a.engine.at_chan, (int32_t)((64ll << 30) / 127));
+    play_midi(&pl_a, 0xA2, 64, 127);
+    pl_render(&pl_a);
+    {
+        uint32_t i, at64 = 0, at127 = 0;
+        for (i = 0; i < pl_a.engine.voice_count; i++) {
+            if (fm_voice_note(&pl_a.engine.voices[i]) == 60) at64 += pl_a.engine.at_to[i] == pl_a.engine.at_chan;
+            if (fm_voice_note(&pl_a.engine.voices[i]) == 64) at127 += pl_a.engine.at_to[i] == 1 << 30;
+        }
+        TT_CHECK_EQ(at64, 1);
+        TT_CHECK_EQ(at127, 1);
+    }
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_midi_pressure_reaches_the_engine);
     TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
     TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);
     TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);

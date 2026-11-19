@@ -29,6 +29,15 @@ typedef struct {
     volatile uint32_t tail;             /* ISR writes: events applied */
     volatile uint32_t lost;             /* main loop: +1 per event the full queue dropped */
     uint32_t lost_seen;                 /* ISR only: the last `lost` it acted on */
+    /* pressure (#61), main loop to the ISR outside the queue, so a stream of it (the FM-1's keys send each
+     * held key's about 100 times a second) never fills it: each key's latest poly pressure and a bit per key
+     * the ISR hasn't applied, and the latest channel pressure, counted. A channel pressure clears the poly
+     * bits, so per voice the latest message wins. */
+    volatile uint8_t poly_pr[128];
+    volatile uint32_t poly_new[4];
+    volatile uint32_t chan_pr;
+    volatile uint32_t chan_puts;        /* main loop: +1 per channel pressure */
+    uint32_t chan_seen;                 /* ISR only: the last `chan_puts` it applied */
     int32_t last_note;                  /* main loop: the last note on, -1 none */
     const patch *patch;                 /* the patch playing */
     int32_t oct;                        /* main loop: the keys' octave, -2..2 */

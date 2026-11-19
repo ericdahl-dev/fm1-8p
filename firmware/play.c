@@ -236,6 +236,11 @@ int play_init(play *p)
     uint32_t i;
     p->head = p->tail = 0;
     p->lost = p->lost_seen = 0;
+    for (i = 0; i < 128u; i++)
+        p->poly_pr[i] = 0;
+    for (i = 0; i < 4u; i++)
+        p->poly_new[i] = 0;
+    p->chan_pr = p->chan_puts = p->chan_seen = 0;
     p->last_note = -1;
     p->oct = 0;
     p->loading = p->loads = p->loads_seen = 0;
@@ -308,9 +313,56 @@ void play_note(play *p, uint32_t note, uint32_t vel)
     put(p, 0x90u, note, vel);
 }
 
+/* Main loop: a key's poly pressure, for the ISR's next block (the value before its bit). */
+static void put_poly_pressure(play *p, uint32_t note, uint32_t v)
+{
+    if (note > 127u || v > 127u)
+        return;
+    p->poly_pr[note] = (uint8_t)v;
+    BARRIER();
+    p->poly_new[note >> 5] = p->poly_new[note >> 5] | 1u << (note & 31u);
+}
+
+/* Main loop: the channel pressure. The poly values not yet applied are older: dropped first, then the
+ * value, then its count, so the ISR never applies an older poly value after it. */
+static void put_channel_pressure(play *p, uint32_t v)
+{
+    uint32_t i;
+    if (v > 127u)
+        return;
+    for (i = 0; i < 4u; i++)
+        p->poly_new[i] = 0;
+    p->chan_pr = v;
+    BARRIER();
+    p->chan_puts = p->chan_puts + 1u;
+}
+
+/* Audio interrupt: the pressure the main loop put since the last block, channel first. */
+static void apply_pressure(play *p)
+{
+    uint32_t w, bits, k;
+    if (p->chan_puts != p->chan_seen) {
+        p->chan_seen = p->chan_puts;
+        BARRIER();                              /* the value after its count */
+        fm_engine_channel_pressure(&p->engine, (uint8_t)p->chan_pr);
+    }
+    for (w = 0; w < 4u; w++) {
+        bits = p->poly_new[w];
+        if (!bits)
+            continue;
+        p->poly_new[w] = 0;                     /* (the main loop never runs inside this) */
+        BARRIER();
+        for (k = 0; k < 32u; k++)
+            if (bits >> k & 1u)
+                fm_engine_poly_pressure(&p->engine, (uint8_t)(w * 32u + k), p->poly_pr[w * 32u + k]);
+    }
+}
+
 void play_midi(play *p, uint32_t st, uint32_t d1, uint32_t d2)
 {
     switch (st & 0xF0u) {
+    case 0xA0u: put_poly_pressure(p, d1, d2); break;
+    case 0xD0u: put_channel_pressure(p, d1); break;
     case 0x90u:
     case 0x80u:
     case 0xB0u:
@@ -462,6 +514,7 @@ void play_render(play *p, int32_t *out, uint32_t n)
         apply(p, p->queue[t % PLAY_QUEUE]);
     BARRIER();                                  /* and done with before the tail frees them */
     p->tail = t;
+    apply_pressure(p);                          /* after the queue: its notes on have voices */
     if (p->lost != p->lost_seen) {              /* some events were dropped: back to a safe state */
         p->lost_seen = p->lost;
         fm_engine_controller(&p->engine, 64, 0);        /* a lost pedal-up would hold every note */
