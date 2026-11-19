@@ -2354,32 +2354,56 @@ TT_TEST(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs)
     TT_CHECK(!ui_cc(&ui_u, 7, 127, 0));
 }
 
-/* A CC and a knob land on the same value (#49: the knobs' path, no smoothing of its own): cutoff turned
- * all the way up on the knob and CC 52 at 127 reach the same engine value, and so do the bottom. */
+/* The knob that sets `id` on its edit page, reached from PLAY by EDIT and the SELECT encoder (0: none). */
+static uint32_t ui_goto_page_of(uint16_t id)
+{
+    uint32_t n, k;
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_EDIT, 0, 0);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_EDIT, 0, 50);
+    for (n = 0; n < 2u * UI_PAGES; n++) {
+        for (k = 0; k < 4u; k++) {
+            const ui_slot *s = ui_page_slot(&ui_u, k);
+            if (s && s->kind == UI_LIVE && s->id == id)
+                return UI_ENC_KNOB1 + k;
+        }
+        ui_event(&ui_u, UI_EV_ENC | UI_ENC_SELECT, 1, 100);
+    }
+    return 0;
+}
+
+/* A CC and a knob land on the same value (#49: the knobs' path, no smoothing of its own): cutoff and
+ * VCA LEVEL (#169, live and glided as the other levels) turned all the way up on the knob and their CC at
+ * 127 reach the same engine value, and so do the bottom. */
 TT_TEST(ui_cc_lands_where_a_knob_does)
 {
     static const int32_t WAY[2] = {1, -1};
-    uint32_t enc, i;
+    static const uint16_t ID[2] = {FM_PARAM_FILTER_CUTOFF_CENTS, FM_PARAM_AMP_LEVEL};
+    static const uint32_t NUM[2] = {52u, 61u};                /* their slots' numbers (ui_map.c) */
+    uint32_t enc, i, k, cc;
     int32_t knob;
-    for (i = 0; i < 2u; i++) {
-        ui_setup();
-    ui_u.set.cc_map = UI_CC_MAP_JX;
-        enc = ui_goto(FM_PARAM_FILTER_CUTOFF_CENTS);
-        ui_event(&ui_u, UI_EV_ENC | enc, 200 * WAY[i], 0);
+    for (k = 0; k < 2u; k++) {
+        cc = ui_cc_of(UI_CC_MAP_JX, NUM[k]);
+        TT_CHECK(cc != UI_CC_NONE);
+        for (i = 0; i < 2u; i++) {
+            ui_setup();
+            ui_u.set.cc_map = UI_CC_MAP_JX;
+            enc = ui_goto_page_of(ID[k]);
+            TT_CHECK(enc != 0);
+            ui_event(&ui_u, UI_EV_ENC | enc, 200 * WAY[i], 0);
+            ui_settle();
+            knob = fm_engine_get_param(&ui_p.engine, ID[k]);
+            ui_setup();
+            ui_u.set.cc_map = UI_CC_MAP_JX;
+            ui_cc(&ui_u, cc, i ? 0u : 127u, 0);
+            ui_settle();
+            TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, ID[k]), knob);
+        }
+        ui_setup();                                           /* inside the range: the same path */
+        ui_u.set.cc_map = UI_CC_MAP_JX;
+        ui_cc(&ui_u, cc, 64, 0);
         ui_settle();
-        knob = fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS);
-        ui_setup();
-    ui_u.set.cc_map = UI_CC_MAP_JX;
-        ui_cc(&ui_u, 52, i ? 0u : 127u, 0);
-        ui_settle();
-        TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS), knob);
+        TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, ID[k]), play_get_param(&ui_p, ID[k]));
     }
-    ui_setup();                                               /* inside the range: the same path */
-    ui_u.set.cc_map = UI_CC_MAP_JX;
-    ui_cc(&ui_u, 52, 64, 0);
-    ui_settle();
-    TT_CHECK_EQ(fm_engine_get_param(&ui_p.engine, FM_PARAM_FILTER_CUTOFF_CENTS),
-                play_get_param(&ui_p, FM_PARAM_FILTER_CUTOFF_CENTS));
 }
 
 /* docs/ui/interaction.md's CC map table is the code's: a row per slot (live or waiting), its JX CC, and

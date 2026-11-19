@@ -35,7 +35,7 @@
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
 /* settings that glide with setting_glide (#146) */
-#define FM_GLIDE_SETTINGS 8
+#define FM_GLIDE_SETTINGS 9
 /* Keys unison mode remembers for last-note priority (oldest dropped). */
 #define FM_HELD_MAX 16
 
@@ -53,8 +53,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 6612u     /* +64: a 4 B lag in each fm_env (3 a voice), less the voice's fenv_lag (#70) */
-#define FM_ENGINE_BUDGET_BASE_64 6876u     /* +12: the amp attack floor after key follow, 4 B in each envelope settings (#274) */
+#define FM_ENGINE_BUDGET_BASE_32 6620u     /* +8: VCA LEVEL glides (#169): its place (4 B) and target (2 B, padded) */
+#define FM_ENGINE_BUDGET_BASE_64 6884u     /* +8: VCA LEVEL glides (#169): its place (4 B) and target (2 B, padded) */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 

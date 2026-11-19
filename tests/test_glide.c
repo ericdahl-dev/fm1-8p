@@ -197,10 +197,118 @@ TT_TEST(setting_the_glide_on_again_keeps_a_change_gliding)
     TT_CHECK(early > 0.3);
 }
 
+/* A held note at VCA LEVEL `from`, the level set to `to` 300 ms in with the glide `glide` (on: as
+ * PG-8X, #169), rendered to 600 ms into gl_buf. */
+static void gl_level_turn(int glide, int32_t from, int32_t to)
+{
+    fm_engine_init(&gl_eng, GL_RATE, 6);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_LEVEL, from);
+    fm_engine_set_param(&gl_eng, FM_PARAM_SETTING_GLIDE, glide);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_ATTACK_MS, 1);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_note_on(&gl_eng, 84, 127);
+    fm_engine_render(&gl_eng, gl_buf, GL_RATE * 3 / 10);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_LEVEL, to);
+    fm_engine_render(&gl_eng, gl_buf + 2 * (GL_RATE * 3 / 10), GL_RATE * 3 / 10);
+}
+
+/* VCA LEVEL turned while a note is held: the note follows it, as PG-8X's does (it read the level only
+ * at note on, #169). From 1000 to 250, 12.0 dB down once it lands (within 0.3 dB). */
+TT_TEST(a_held_note_follows_a_vca_level_change)
+{
+    double before, after;
+    gl_level_turn(1, 1000, 250);
+    before = gl_rms(gl_buf, GL_RATE / 10, GL_RATE * 3 / 10);
+    after = gl_rms(gl_buf, GL_RATE / 2, GL_RATE * 6 / 10);
+    printf("    VCA LEVEL 1000 -> 250 mid-note: %.2f dB\n", 20 * log10(after / before));
+    TT_CHECK(fabs(20 * log10(after / before) + 12.04) < 0.3);
+}
+
+/* It glides there as PG-8X's settings do, a one-pole of 16 ms (PG-8X's VCA LEVEL measured 15.9 ms,
+ * #146): from 1000 to 250, 0.526 of the start level 16 ms on (0.45 to 0.62: the glide moves in 2.7 ms
+ * steps), and still near it 1 ms on. */
+TT_TEST(a_vca_level_change_glides_over_16_ms)
+{
+    double start, at1, at16;
+    gl_level_turn(1, 1000, 250);
+    start = gl_peak_at(290);
+    at1 = gl_peak_at(301);
+    at16 = gl_peak_at(316);
+    printf("    VCA LEVEL 1000 -> 250: %.3f of the start 1 ms on, %.3f 16 ms on\n", at1 / start, at16 / start);
+    TT_CHECK(at1 / start > 0.85);
+    TT_CHECK(at16 / start > 0.45 && at16 / start < 0.62);
+}
+
+/* With the glide off (the raw engine, Eric's decision on #219) a VCA LEVEL change acts at once: a
+ * quarter of the level 1 ms on. */
+TT_TEST(a_vca_level_change_without_the_glide_acts_at_once)
+{
+    double start, at1;
+    gl_level_turn(0, 1000, 250);
+    start = gl_peak_at(290);
+    at1 = gl_peak_at(301);
+    printf("    no glide, VCA LEVEL 1000 -> 250: %.3f of the start 1 ms on\n", at1 / start);
+    TT_CHECK(at1 / start > 0.2 && at1 / start < 0.3);
+}
+
+/* A patch with VCA LEVEL under full, set after init, glides in from PG-8X's power-on level (full), as
+ * its renders start: at 250, the note's first 2 ms are near full and it is down to 250 by 100 ms,
+ * 11.2 dB apart for a 16 ms one-pole (within 2 dB). */
+TT_TEST(a_patch_with_a_low_vca_level_glides_in_from_full)
+{
+    double first, later;
+    fm_engine_init(&gl_eng, GL_RATE, 6);
+    fm_engine_set_param(&gl_eng, FM_PARAM_SETTING_GLIDE, 1);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_LEVEL, 250);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_ATTACK_MS, 1);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_note_on(&gl_eng, 84, 127);
+    fm_engine_render(&gl_eng, gl_buf, GL_RATE / 5);
+    first = gl_peak_at(2);
+    later = gl_peak_at(100);
+    printf("    VCA LEVEL 250 after init: %.1f dB from 2 to 100 ms\n", 20 * log10(first / later));
+    TT_CHECK(fabs(20 * log10(first / later) - 11.2) < 2.0);
+}
+
+/* A full-range cutoff jump mid-note glides in steps no larger than PG-8X's (#219: its glide steps
+ * about every 4 ms, 22 % of the way a step at 16 ms; ours every 2.7 ms, 15 %): read every 16 samples
+ * (the voice filter's control points), no move over 20 % of the jump, and there by 100 ms. */
+TT_TEST(a_full_range_cutoff_jump_glides_in_small_steps)
+{
+    const fm_vfilter *vf;
+    int32_t from, to, last, now, big = 0;
+    uint32_t k;
+    fm_engine_init(&gl_eng, GL_RATE, 6);
+    fm_engine_set_param(&gl_eng, FM_PARAM_SETTING_GLIDE, 1);
+    fm_engine_set_param(&gl_eng, FM_PARAM_FILTER_CUTOFF_CENTS, 0);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_note_on(&gl_eng, 60, 127);
+    fm_engine_render(&gl_eng, gl_buf, GL_RATE / 2); /* landed on 0 */
+    vf = fm_voice_filter(&gl_eng.voices[0]);
+    from = last = fm_vfilter_cutoff(vf);
+    fm_engine_set_param(&gl_eng, FM_PARAM_FILTER_CUTOFF_CENTS, FM_FILTER_OPEN_CENTS);
+    for (k = 0; k < GL_RATE / 10 / 16; k++) {
+        fm_engine_render(&gl_eng, gl_buf, 16);
+        now = fm_vfilter_cutoff(vf);
+        if (now - last > big) big = now - last;
+        last = now;
+    }
+    to = last;
+    printf("    cutoff %ld -> %ld cents: the largest step %ld (%.1f %% of the jump)\n", (long)from, (long)to,
+           (long)big, 100.0 * big / (to - from));
+    TT_CHECK(to - from > 10000);
+    TT_CHECK(big * 5 <= to - from);
+}
+
 static void run_glide_tests(void)
 {
     TT_RUN(setting_the_glide_on_again_keeps_a_change_gliding);
     TT_RUN(glides_do_not_depend_on_block_size);
     TT_RUN(each_setting_glides_to_a_mid_note_change);
     TT_RUN(a_patch_set_after_init_glides_from_pg8xs_power_on_values);
+    TT_RUN(a_held_note_follows_a_vca_level_change);
+    TT_RUN(a_vca_level_change_glides_over_16_ms);
+    TT_RUN(a_vca_level_change_without_the_glide_acts_at_once);
+    TT_RUN(a_patch_with_a_low_vca_level_glides_in_from_full);
+    TT_RUN(a_full_range_cutoff_jump_glides_in_small_steps);
 }
