@@ -71,6 +71,79 @@ void ui_chord_note(ui *u, uint32_t note, uint32_t vel, int on)
         u->dirty |= UI_D_FOCUS;                 /* (the chord held, on the screen) */
 }
 
+/* KEY TRANSPOSE taking played keys now: on, and the sequencer playing */
+static int ktr_active(const ui *u)
+{
+    const seq *s = play_seq(u->p);
+    return seq_key_transpose(s) && s->want && s->playing;   /* (playing, not waiting for a clock; a STOP press:
+                                                             * keys play at once) */
+}
+
+/* the transpose from the lowest key or MIDI note held for it, as a pitch: C4 (60) is 0 */
+static void ktr_set(ui *u)
+{
+    uint32_t i, low = 128u;
+    for (i = 0; i < PLAY_KEYS && low == 128u; i++)
+        if (u->ktr_keys >> i & 1u)
+            low = PLAY_KEY0 + i;
+    for (i = 0; i < 128u && i < low; i++)
+        if (u->ktr_note_n[i] & 15u) {
+            low = i;
+            break;
+        }
+    if (low < 128u) {
+        seq_set_transpose(play_seq(u->p), (int32_t)low - 60);   /* (clamped there to -24..+24) */
+        if (u->state == UI_SEQ && u->seq_page == 2u)
+            u->dirty |= UI_D_COL(0);            /* (S3 shows TRANSPOSE) */
+    }
+}
+
+int ui_seq_ktr_key(ui *u, uint32_t k, int down, int may)
+{
+    if (k >= PLAY_KEYS)
+        return 0;
+    if (!down) {
+        if (!(u->ktr_keys >> k & 1u))
+            return 0;
+        u->ktr_keys &= ~(1u << k);              /* (let go: the transpose stays) */
+        return 1;
+    }
+    if (!may || u->state == UI_SEQ || !ktr_active(u))
+        return 0;                               /* (SEQ view: the panel keys are steps, or play the armed step) */
+    u->ktr_keys |= 1u << k;
+    ktr_set(u);
+    return 1;
+}
+
+int ui_seq_ktr_note(ui *u, uint32_t note, uint32_t vel, int on)
+{
+    uint8_t *c;
+    if (note > 127u)
+        return 0;
+    c = &u->ktr_note_n[note];
+    if (!on || !vel) {
+        if (!(*c >> 4))
+            return 0;                           /* (not one of ours: to the engine) */
+        *c = (uint8_t)(*c - 16u - ((*c & 15u) ? 1u : 0u));   /* an off owed, and one held fewer */
+        return 1;                               /* (let go: the transpose stays) */
+    }
+    if (!ktr_active(u) || (u->state == UI_SEQ && (u->seq_armed || u->seq_rec))) {
+        *c = 0;                                 /* (it plays: an old taken one whose off was lost lets go) */
+        return 0;                               /* (a step being written takes it: chord entry first) */
+    }
+    if ((*c & 15u) < 15u && (*c >> 4) < 15u)
+        *c = (uint8_t)(*c + 17u);               /* one more held, one more off owed (15 at most) */
+    ktr_set(u);
+    return 1;
+}
+
+void ui_seq_ktr_all_off(ui *u)
+{
+    uint32_t i;
+    for (i = 0; i < 128u; i++)                  /* none held for the transpose now; their offs, if they */
+        u->ktr_note_n[i] &= 0xF0u;              /* come, are still taken (the engine never had them) */
+}
+
 int32_t ui_seq_step_of_key(uint32_t k)
 {
     static const int8_t STEP[27] = {0, -1, 1, -1, 2, -1, 3, 4, -1, 5, -1, 6, 7, -1, 8, -1, 9, -1, 10, 11, -1,
@@ -135,7 +208,7 @@ const char *const UI_SEQ_PAGE_NAME[UI_SEQ_PAGES] = {"S1 PATTERN", "S2 STEP", "S3
 const ui_seq_slot UI_SEQ_SLOTS[UI_SEQ_PAGES][4] = {
     {{"TEMPO", "TEMPO", 1}, {"LENGTH", "LENGTH", 1}, {"SWING", "SWING", 1}, {"GATE", "GATE", 1}},
     {{"VEL", "VELOCITY", 1}, {"BEND", "BEND", 1}, {"MOD", "MOD", 1}, {"MOVE", "MOVE", 1}},   /* (#42) */
-    {{"TRANSP", "TRANSPOSE", 1}, {"KEYTR", "KEY TRANSPOSE", 0}, {0, 0, 0}, {0, 0, 0}},
+    {{"TRANSP", "TRANSPOSE", 1}, {"KEYTR", "KEY TRANSPOSE", 1}, {0, 0, 0}, {0, 0, 0}},
 };
 
 /* a step's bend (-8192..8191) as -100..+100 % of the bend range, and back: the ends are exact both ways */
@@ -163,6 +236,7 @@ int32_t ui_seq_value(const ui *u, uint32_t k)
     case 6: return st->mod;
     case 7: return st->glide;
     case 8: return seq_transpose(s);
+    case 9: return (int32_t)seq_key_transpose(s);
     default: return 0;
     }
 }
@@ -224,6 +298,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
         seq_set_step_bend_mod(s, u->seq_cursor, st->bend, st->mod, v > 0);
         break;
     case 8: v += clicks; seq_set_transpose(s, v); break;
+    case 9: v += clicks; seq_set_key_transpose(s, v > 0); break;   /* KEY TRANSPOSE: OFF, ON (held at the ends) */
     default: return;
     }
     if (u->seq_cursor >= seq_length(s))        /* (a shorter pattern: the cursor inside it) */
@@ -461,6 +536,9 @@ void ui_seq_column(const ui *u, uint32_t k, char *num, char *unit)
         break;
     case 7:
         put_s(n, v ? "GLIDE" : "JUMP");
+        break;
+    case 9:
+        put_s(n, v ? "ON" : "OFF");
         break;
     case 8:                                     /* TRANSPOSE: signed, in semitones */
         if (v > 0)
