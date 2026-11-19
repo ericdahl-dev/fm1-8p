@@ -68,7 +68,7 @@ void seq_init(seq *s)
     s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = s->ext_hold = 0;
     s->blk_seq = s->blk_t = s->blk_u = s->blk_inc = s->blk_fs = 0;
     s->upos = s->fs = 0;
-    s->out_want = s->out_on = 0;
+    s->out_want = s->out_on = s->out_block = 0;
     s->out_acc = s->out_ticks = s->out_sent = s->out_w = s->out_r = 0;
     s->out_mw = s->out_mr = 0;
 }
@@ -99,6 +99,10 @@ static void out_adv(seq *s, uint32_t d, uint32_t xi)
     }
 }
 
+void (*seq_test_hook)(seq *s, uint32_t point);
+
+#define TEST_POINT(s, n) do { if (seq_test_hook) seq_test_hook((s), (n)); } while (0)
+
 /* main loop: a followed clock's byte to pass on (dropped past SEQ_OUT_M untaken) */
 static void out_pass(seq *s, uint8_t st)
 {
@@ -114,6 +118,8 @@ static void out_pass(seq *s, uint8_t st)
 
 void seq_clock_out_stop(seq *s)
 {
+    s->out_block = 1;                           /* (a PLAY asked and not yet taken starts no clock out) */
+    BARRIER();
     if (!s->out_on)
         return;
     s->out_on = 0;                              /* (the interrupt counts and stops no more for this run) */
@@ -297,6 +303,7 @@ void seq_set_swing(seq *s, uint32_t pct)
 
 void seq_play(seq *s)
 {
+    s->out_block = 0;                           /* (#286: a PLAY after a let-go sends again) */
     if (s->clk_src == SEQ_CLK_MIDI || (s->clk_src == SEQ_CLK_AUTO && s->clk_present)) {
         s->want = 1;                            /* #38: the clock's in charge, so this arms (the interrupt
                                                  * acts on asks only); a second press (seq_stop) disarms.
@@ -629,8 +636,12 @@ static void clock_tick(seq *s, uint32_t t)
             s->clk_shown = 0;                   /* (the second tick measures it outright) */
         }                       /* the start's tick 0 */
         s->ext_cont = s->clk_pending == 2u;
-        if (s->playing && s->out_on)
-            out_pass(s, 0xFCu);                 /* #286: its own run (or the last) stops first */
+        if (s->playing && s->out_on) {          /* #286: its own run (or the last) stops first, and off: */
+            s->out_on = 0;                      /* a stop ask the interrupt takes now sends no second one */
+            BARRIER();
+            out_pass(s, 0xFCu);
+        }
+        TEST_POINT(s, 1);
         s->clk_started = 1;
         s->clk_pending = 0;
         s->clk_target = 0;
@@ -639,15 +650,18 @@ static void clock_tick(seq *s, uint32_t t)
         set_rate(s, 0, fs, 1);
         s->ext = 1;
         BARRIER();                              /* (following now: the interrupt counts no ticks of its own) */
-        s->out_on = s->out_want;                /* #286: G14 as it is at this start */
-        if (s->out_on)
-            out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
+        TEST_POINT(s, 2);
         s->clk_running = 1;
         s->clk_armed = 0;
         s->want = 1;
         BARRIER();                              /* the rate and tick 0 before the ask */
         s->ask_play++;
-        BARRIER();
+        TEST_POINT(s, 3);
+        BARRIER();                              /* #286: G14 latched after the ask, so a stop ask still */
+        s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* pending can't find it on and switch it off */
+        if (s->out_on)
+            out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
+        TEST_POINT(s, 4);
         s->ext_hold = 0;                        /* (the interrupt takes the ask before it would step) */
         return;
     }
@@ -907,7 +921,7 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
         } else if (s->want) {
             if (s->playing && s->out_on)
                 out_put(s, 0xFCu);              /* #286: a restart: stop, then start (never two starts) */
-            s->out_on = s->out_want;            /* #286: G14 as it is at the start */
+            s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* #286: G14 as it is at the start */
             if (s->out_on) {
                 out_put(s, 0xFAu);              /* start, then the first tick, with step 1 */
                 s->out_acc = 0;
