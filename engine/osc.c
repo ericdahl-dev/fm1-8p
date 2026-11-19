@@ -743,7 +743,8 @@ static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
  * The polyBLEP osc2's first saw put on the sample just computed at phase
  * `t` for a wrap due later in that sample, negated: a restart came first,
  * so that wrap never happens. The same sum saw_at made (one division, as
- * there), times the wave's gain.
+ * there), times the wave's gain and, for the saw, its falling sign
+ * (osc2_gain).
  */
 static int32_t unwrap_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
 {
@@ -823,6 +824,8 @@ static inline int32_t gain(int32_t x, int32_t level)
  * peaks near 2.0, the impulse response's crest) to PG-8X's products with
  * DCO-1 on PULSE (A3, DCO-2 a saw a fourth up, every line about -35 dB re
  * f2; f1 and 2f1 at -34): 1.66, -0.398, 0.177.
+ * The fits ran free, which can't tell the saw's direction; the saw's apply
+ * to the falling saw, as PG-8X's (#260), which matches its SYNC 2 spectra.
  */
 static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216, 27850179 };
 static const int32_t ring_b[FM_WAVE_COUNT] = { -14260634, -16777216, -13925089, -16777216, -6679130 };
