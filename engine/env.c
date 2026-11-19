@@ -126,8 +126,11 @@ void fm_env_init(fm_env *e, const fm_env_settings *set)
     fm_env_reset(e);
 }
 
+static void catch_up(fm_env *e);
+
 void fm_env_set_floor(fm_env *e, int32_t floor)
 {
+    catch_up(e); /* the samples owed stepped at the old floor */
     e->floor = floor < FM_ENV_FLOOR ? FM_ENV_FLOOR : floor;
 }
 
@@ -179,7 +182,6 @@ static uint32_t exp2_cents(int32_t cents)
     return k >= 0 ? v << k : v >> -k;
 }
 
-static void catch_up(fm_env *e);
 
 void fm_env_key(fm_env *e, uint8_t note)
 {

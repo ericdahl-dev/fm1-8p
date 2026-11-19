@@ -76,20 +76,21 @@ typedef struct {
     int32_t peak;  /* level the attack rises to (velocity), Q1.30; the
                     * sustain level is scaled by it too */
     int32_t sus_level; /* sustain * peak, set at gate on and retime */
+    int32_t floor;     /* a release below it goes idle, a decay this close to
+                       * its sustain lands: FM_ENV_FLOOR, or for the amp
+                       * envelope that over the output's level (fm_env_set_floor) */
     const fm_env_settings *set; /* the shared settings (fm_env_init) */
     uint32_t ks; /* this note's time scale, Q16.16 (key follow; 1.0 at 0) */
     uint32_t lag; /* samples passed but not yet stepped (fm_env_skip):
                    * caught up when the level is read or changed */
-    int32_t floor; /* a release below it goes idle, a decay this close to
-                    * its sustain lands: FM_ENV_FLOOR, or for the amp
-                    * envelope that over the output's level (fm_env_set_floor) */
 } fm_env;
 
 /* Starts an envelope, idle, on `set`: the only way to give it settings,
  * which it keeps (by pointer) from then on. */
 void fm_env_init(fm_env *e, const fm_env_settings *set);
 /* The floor (Q1.30, at least FM_ENV_FLOOR): a release below it goes idle
- * and a decay this close to its sustain lands. FM_ENV_FLOOR from init; the
+ * and a decay this close to its sustain lands. A lazy envelope is caught up
+ * first. FM_ENV_FLOOR from init; the
  * amp envelope's is 80 dB under the output, so with the VCA LEVEL after it
  * (#169) a note still frees its voice when it is 80 dB down. Kept by
  * fm_env_reset. */
@@ -115,7 +116,7 @@ int32_t fm_env_next(fm_env *e);
  * as fm_env_next; the sample that starts a segment or lands calls it.
  * Exactly the same level, stage and step. No segment lands inside itself:
  * an attack segment stops short of the peak, and a decay or release one
- * starts more than FM_ENV_FLOOR from its target and moves at most 2/3 of
+ * starts more than its floor (at least FM_ENV_FLOOR) from its target and moves at most 2/3 of
  * that.
  */
 static inline int32_t fm_env_step(fm_env *e)

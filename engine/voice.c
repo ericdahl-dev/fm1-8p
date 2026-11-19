@@ -117,8 +117,10 @@ void fm_voice_set_key_track(fm_voice *v, int32_t permille)
 
 void fm_voice_set_output_level(fm_voice *v, int32_t permille)
 {
-    /* FM_ENV_FLOOR x 1000 / level: under 2^27, a 32-bit divide; level 0 as 1 */
-    fm_env_set_floor(&v->amp_env, FM_ENV_FLOOR * 1000 / (permille > 0 ? permille : 1));
+    /* FM_ENV_FLOOR x 1000 / level: under 2^27, a 32-bit divide. At 0 the
+     * output is silent: full, so a release frees the voice at once and a
+     * decay lands, as when the level was the note's peak (0) */
+    fm_env_set_floor(&v->amp_env, permille > 0 ? FM_ENV_FLOOR * 1000 / permille : FM_ENV_FULL);
 }
 
 void fm_voice_set_resonance(fm_voice *v, int32_t permille)

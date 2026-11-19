@@ -7,6 +7,7 @@
  * public interface; setting_glide is on for every JX-8P tone.
  */
 #include "../engine/fm1_8p.h"
+#include "../engine/env.h"
 
 #define GL_RATE 48000u
 
@@ -332,7 +333,7 @@ TT_TEST(a_quiet_vca_level_frees_its_voice_when_its_output_is_80_db_down)
 }
 
 /* The VCA LEVEL gliding down to 0 on a held note (each step sets the amp envelope's floor): no divide by
- * 0 (the level is taken as 1 there), silence, and the voice frees soon after its key comes up. */
+ * 0, silence, and the voice frees as its key comes up, as main's did (the note's peak was 0 there). */
 TT_TEST(a_vca_level_gliding_to_zero_keeps_its_floor_safe)
 {
     uint32_t n = 0;
@@ -344,8 +345,21 @@ TT_TEST(a_vca_level_gliding_to_zero_keeps_its_floor_safe)
         fm_engine_render(&gl_eng, gl_buf, 1);
         n++;
     }
-    printf("    level 0: the voice free %.1f ms after key up\n", 1000.0 * n / GL_RATE);
-    TT_CHECK(n < GL_RATE / 4); /* 80 dB under a level of 1/1000: 20 dB, 2.3 tau */
+    printf("    level 0: the voice free %u samples after key up\n", (unsigned)n);
+    TT_CHECK(n <= 1);
+}
+
+/* An envelope's floor is never under FM_ENV_FLOOR (-80 dB of full): a lower one is raised to it. */
+TT_TEST(an_envelope_floor_is_at_least_minus_80_db)
+{
+    static fm_env_settings set;
+    static fm_env e;
+    fm_env_init(&e, &set);
+    TT_CHECK_EQ(e.floor, FM_ENV_FLOOR);
+    fm_env_set_floor(&e, 1);
+    TT_CHECK_EQ(e.floor, FM_ENV_FLOOR);
+    fm_env_set_floor(&e, FM_ENV_FULL);
+    TT_CHECK_EQ(e.floor, FM_ENV_FULL);
 }
 
 static void run_glide_tests(void)
@@ -361,4 +375,5 @@ static void run_glide_tests(void)
     TT_RUN(a_full_range_cutoff_jump_glides_in_small_steps);
     TT_RUN(a_quiet_vca_level_frees_its_voice_when_its_output_is_80_db_down);
     TT_RUN(a_vca_level_gliding_to_zero_keeps_its_floor_safe);
+    TT_RUN(an_envelope_floor_is_at_least_minus_80_db);
 }
