@@ -769,12 +769,38 @@ TT_TEST(save_delete_question_cancels)
     TT_CHECK_EQ(ui_u.state, UI_EDIT);
 }
 
+/* #303: deleting the slot that is loaded leaves the edit buffer as it is (what plays doesn't change), shown
+ * edited: it no longer matches a saved patch */
+TT_TEST(save_delete_of_the_loaded_slot_keeps_the_sound_edited)
+{
+    int32_t res;
+    uint32_t enc;
+    save_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 500);
+    res = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 1200);                /* saved to 11: loaded, unedited */
+    TT_CHECK_EQ(play_prog(&ui_p), 0u);
+    TT_CHECK(!play_edited(&ui_p));
+    save_tap(UI_BTN_SAVE, 2000);                /* SAVE opens on 11 */
+    TT_CHECK_EQ(ui_u.save_dest, 0u);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 2100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3700);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_DELETE);
+    save_tap(UI_BTN_SEL, 4000);
+    TT_CHECK(!store_slot_used(&store_lib_a, 0));
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), res);
+    TT_CHECK(play_edited(&ui_p));
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_sel_held_asks_to_delete);
     TT_RUN(save_sel_again_deletes_the_slot);
     TT_RUN(save_delete_waits_for_silence_and_cancels);
     TT_RUN(save_delete_question_cancels);
+    TT_RUN(save_delete_of_the_loaded_slot_keeps_the_sound_edited);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);

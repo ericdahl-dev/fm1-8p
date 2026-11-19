@@ -47,6 +47,7 @@ int play_load_prog(play *p, uint32_t q)
         p->stored[f] = s.v[f];
     load_stored(p);
     p->prog = q;
+    p->prog_gone = 0;
     set_name(p, s.name);
     play_load_end(p);
     return 0;
@@ -189,9 +190,11 @@ int play_pattern_delete(play *p, uint32_t dest)
 
 int play_delete(play *p, uint32_t dest)
 {
-    if (!p->lib || !p->io || dest >= STORE_USER_SLOTS)
+    if (!p->lib || !p->io || dest >= STORE_USER_SLOTS || store_slot_clear(p->lib, p->io, dest) != 0)
         return -1;
-    return store_slot_clear(p->lib, p->io, dest);
+    if (dest == p->prog)                        /* what plays stays, no longer a saved patch */
+        p->prog_gone = 1;
+    return 0;
 }
 
 uint32_t play_silent(const play *p)
@@ -227,6 +230,7 @@ int play_save(play *p, uint32_t dest, const store_patch *s)
         for (i = 0; i < FM_PARAM_COUNT; i++)
             p->stored[i] = s->v[i];
         p->prog = dest;
+        p->prog_gone = 0;
         set_name(p, s->name);
     }
     return 0;
@@ -269,6 +273,7 @@ int play_init(play *p)
         return -1;
     p->patch = &PATCHES[PATCH_SOUNDTRACK];
     p->prog = PLAY_PROG_P + PATCH_SOUNDTRACK;
+    p->prog_gone = 0;
     set_name(p, p->patch->name);
     patch_values(p->patch, p->stored);
     for (i = 0; i < FM_PARAM_COUNT; i++) {
@@ -414,6 +419,7 @@ void play_load_begin(play *p, uint32_t i)
     load_stored(p);
     p->patch = t;
     p->prog = PLAY_PROG_P + i % PATCH_COUNT;
+    p->prog_gone = 0;
     set_name(p, t->name);
 }
 
@@ -528,6 +534,8 @@ uint32_t play_edited(const play *p)
 {
     uint32_t i;
     const volatile int32_t *buf = p->comparing ? p->edit : p->target;   /* compare: the buffer kept */
+    if (p->prog_gone)
+        return 1;
     for (i = 0; i < FM_PARAM_COUNT; i++)
         if (buf[i] != p->stored[i])
             return 1;
