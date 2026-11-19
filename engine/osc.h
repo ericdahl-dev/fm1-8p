@@ -79,12 +79,6 @@ typedef struct {
     int32_t sync_after; /* polyBLEP terms due on osc2's sample after a restart, Q8.24 */
     int64_t dc_sum;    /* synced: the pair's samples so far in this osc1 cycle, Q8.24 */
     int32_t dc;        /* synced: the last osc1 cycle's mean, taken off this one's samples */
-    int32_t dc_x;      /* synced: how far the sample after osc1's last wrap is past it, Q16 */
-    int32_t dc_ya;     /* synced: the sample just before that wrap, DC off, Q8.24 */
-    int32_t dc_carry;  /* synced: the share of a restart's cell this cycle gets back or gives */
-    int32_t dc_to;     /* synced: where the DC glides to over this cycle */
-    int32_t dc_rate;   /* synced: its glide each sample */
-    uint8_t dc_pend;   /* synced: 1 from a wrap to the sample after it, which closes the cycle */
     /* the spike (FM_WAVE_SPIKE, #150): from the sample rate (on events),
      * the lowpass's decay per sample (Q16 log2) and the impulse area times
      * the rate (for the mean); from the pitch as played (on events and the

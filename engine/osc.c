@@ -341,12 +341,6 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->sync_pend = 0;
     p->dc_sum = 0;
     p->dc = 0;
-    p->dc_x = 0;
-    p->dc_ya = 0;
-    p->dc_carry = 0;
-    p->dc_pend = 0;
-    p->dc_to = 0;
-    p->dc_rate = 0;
     p->xmod = 0;
     p->ring = 0;
     p->special = 0;
@@ -876,36 +870,32 @@ static int32_t cycle_mean(int64_t sum, uint32_t inc)
     return m > RING_MAX ? RING_MAX : m < -RING_MAX ? -RING_MAX : (int32_t)m;
 }
 
+/*
+ * A cycle is a fractional number of samples (220 Hz at 48 kHz: 218.18),
+ * so a restart's polyBLEP blip falls on one side of the wrap or the
+ * other, and a cycle's mean jitters by up to one sample's swing over its
+ * length even when nothing changes. The offset moved by all of each
+ * mean would step with that jitter, un-band-limited, and the steps'
+ * pattern is a comb at tens of Hz (#253: CLAV, a synced square, -24 dB
+ * re f0 where PG-8X has -52). So the part of a mean within one full
+ * step (1.0) per cycle, the most the jitter reaches, moves the offset
+ * by 1/32 of it each cycle; the jitter averages out under it. Anything
+ * past that is a real change (a note's first cycle, a retune, a sweep,
+ * osc1 coming back from a stop) and moves it at once, as before. Shifts
+ * and a hold at the wrap only: nothing per sample, no state.
+ */
+#define SYNC_DC_SLOW 5 /* the jitter's share moves the offset by 1/2^5 a cycle */
 static inline int32_t sync_dc(fm_osc_pair *p, int32_t v, int wrapped)
 {
     int32_t y = v - p->dc;
     y = y > RING_MAX ? RING_MAX : y < -RING_MAX ? -RING_MAX : y;
-    p->dc += p->dc_rate;
-    if (p->dc_pend) {
-        /* The first sample after a restart: the cycle before it closes. Each
-         * sample stands for one sample of time centred on it, so the cell
-         * holding the restart is split by it, (x - 1/2) of the sample past
-         * it: the last sample before (x >= 1/2) gives that share to the next
-         * cycle, or this one (x < 1/2) lends the cycle before its share. With
-         * the share moved, a cycle's sum is its time's, whether it holds 218
-         * samples or 219 (220 Hz at 48 kHz), so the DC doesn't step with the
-         * count (#253: a comb at tens of Hz under a synced square). */
-        int32_t x = p->dc_x, end;
-        end = x >= 32768 ? -(int32_t)(((int64_t)(x - 32768) * p->dc_ya) >> 16)
-                         : (int32_t)(((int64_t)(32768 - x) * y) >> 16);
-        /* glide to the new mean over the next cycle instead of stepping */
-        p->dc = p->dc_to;
-        p->dc_to += cycle_mean(p->dc_sum + p->dc_carry + end, p->osc[0].inc);
-        p->dc_rate = (int32_t)(((int64_t)(p->dc_to - p->dc) * p->osc[0].inc) >> 32);
-        p->dc_carry = -end;
-        p->dc_sum = 0;
-        p->dc_pend = 0;
-    }
     p->dc_sum += y;
-    if (wrapped) { /* closed on the next sample, which next_special runs (sync_pend) */
-        p->dc_x = (int32_t)restart_x(p, p->osc[0].phase); /* Q16: the next sample past it */
-        p->dc_ya = y;
-        p->dc_pend = 1;
+    if (wrapped) {
+        int32_t m = cycle_mean(p->dc_sum, p->osc[0].inc);
+        int32_t jit = (int32_t)(p->osc[0].inc >> 8); /* 1.0 (Q8.24) / the cycle's length */
+        int32_t small = m > jit ? jit : m < -jit ? -jit : m;
+        p->dc += m - small + (small >> SYNC_DC_SLOW);
+        p->dc_sum = 0;
     }
     return y;
 }
@@ -1072,16 +1062,14 @@ static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b);
 static void sync_dc_run(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     int64_t sum = 0;
-    int32_t dc = p->dc, rate = p->dc_rate;
+    int32_t dc = p->dc;
     uint32_t i;
     for (i = 0; i < n; i++) {
         int32_t y = out[i] - dc;
         y = y > RING_MAX ? RING_MAX : y < -RING_MAX ? -RING_MAX : y;
-        dc += rate;
         sum += y;
         out[i] = y;
     }
-    p->dc = dc;
     p->dc_sum += sum;
 }
 
