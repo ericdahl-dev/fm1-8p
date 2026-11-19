@@ -111,9 +111,69 @@ TT_TEST(at_new_note_starts_at_the_channel_pressure)
     TT_CHECK(fabs(lvl - 1.5) <= 0.015);
 }
 
+static fm_engine at_ref;
+static int16_t at_rbuf[AT_RATE / 1000u * 2];
+
+/* C4 at AT VOL 100 on `e`, held 400 ms (into its sustain) */
+static int at_held(fm_engine *e)
+{
+    uint32_t n;
+    if (fm_engine_init(e, AT_RATE, 4) != FM_OK ||
+        fm_engine_set_param(e, FM_PARAM_AT_VOL_PCT, 100) != FM_OK)
+        return -1;
+    fm_engine_note_on(e, 60, 100);
+    for (n = 0; n < 400; n++) fm_engine_render(e, at_rbuf, AT_RATE / 1000u);
+    return 0;
+}
+
+/* a pressure step ramps as a one-pole of 16 ms, as PG-8X's (#61): channel pressure 0 -> 127 on a held
+ * note; against the same note without it, the gain goes 0.5 -> 1.5, so the output ratio 1 -> 3. No step
+ * (the first ms under 1.3), 1/e of the way left at 16 ms (+-1.5 ms), and there by 100 ms (1 %) */
+TT_TEST(at_pressure_step_ramps_in_16_ms)
+{
+    uint32_t ms, i, tau_ms = 0;
+    double first = 0.0, last = 0.0;
+    TT_CHECK_EQ(at_held(&at_eng), 0);
+    TT_CHECK_EQ(at_held(&at_ref), 0);
+    fm_engine_channel_pressure(&at_eng, 127);
+    for (ms = 1; ms <= 100; ms++) {
+        double a = 0.0, r = 0.0, ratio;
+        fm_engine_render(&at_eng, at_buf, AT_RATE / 1000u);
+        fm_engine_render(&at_ref, at_rbuf, AT_RATE / 1000u);
+        for (i = 0; i < 2u * AT_RATE / 1000u; i++) a += abs(at_buf[i]), r += abs(at_rbuf[i]);
+        ratio = a / r;
+        if (ms == 1) first = ratio;
+        if (!tau_ms && (3.0 - ratio) / 2.0 < 1.0 / 2.718281828) tau_ms = ms;
+        last = ratio;
+    }
+    if (first >= 1.3 || tau_ms < 15 || tau_ms > 18 || fabs(last - 3.0) > 0.03)
+        printf("    first ms x%.3f, 1/e left at %u ms, at 100 ms x%.4f\n", first, tau_ms, last);
+    TT_CHECK(first < 1.3);
+    TT_CHECK(tau_ms >= 15 && tau_ms <= 18);
+    TT_CHECK(fabs(last - 3.0) <= 0.03);
+}
+
+/* the ramp does not depend on the caller's block size: 1-frame and 48-frame blocks render the same */
+TT_TEST(at_ramp_does_not_depend_on_block_size)
+{
+    uint32_t i, k, same = 1;
+    TT_CHECK_EQ(at_held(&at_eng), 0);
+    TT_CHECK_EQ(at_held(&at_ref), 0);
+    fm_engine_channel_pressure(&at_eng, 127);
+    fm_engine_channel_pressure(&at_ref, 127);
+    for (k = 0; k < 50; k++) {
+        fm_engine_render(&at_eng, at_buf, AT_RATE / 1000u);
+        for (i = 0; i < AT_RATE / 1000u; i++) fm_engine_render(&at_ref, at_rbuf + 2u * i, 1);
+        for (i = 0; i < 2u * AT_RATE / 1000u; i++) same &= at_buf[i] == at_rbuf[i];
+    }
+    TT_CHECK(same);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
     TT_RUN(at_poly_pressure_reaches_only_its_key);
     TT_RUN(at_new_note_starts_at_the_channel_pressure);
+    TT_RUN(at_pressure_step_ramps_in_16_ms);
+    TT_RUN(at_ramp_does_not_depend_on_block_size);
 }

@@ -244,6 +244,7 @@ static const uint8_t glide_id[FM_GLIDE_SETTINGS] = {
  * VCF FREQ 127 (tools/jx8p.py cutoff_cents), VCA LEVEL full (#169), the
  * rest 0 */
 static const int16_t glide_power_on[FM_GLIDE_SETTINGS] = { 1000, 0, 14728, 0, 0, 0, 0, 0, 1000 };
+#define AT_TAU_MS 16  /* aftertouch's one-pole (#61): PG-8X's, as the setting glide's */
 #define GLIDE_TAU_MS 16
 /* a glide steps every 4 control ticks (2.7 ms at 48 kHz, 6 steps a tau):
  * each step re-applies the settings that moved to every voice */
@@ -377,6 +378,27 @@ static int32_t at_gain(const fm_engine *e, uint8_t i)
 {
     int64_t d = e->params[FM_PARAM_AT_VOL_PCT];
     return (int32_t)(FM_ENV_FULL + d * (2 * (int64_t)e->at_now[i] - FM_ENV_FULL) / 200);
+}
+
+/* A control tick while a pressure moves: each voice one step of its
+ * one-pole, rounded up on its size so it always lands (under 1/65536 of
+ * full: there) */
+static void at_tick(fm_engine *e)
+{
+    uint8_t i, moving = 0;
+    for (i = 0; i < e->voice_count; i++) {
+        int32_t d = e->at_to[i] - e->at_now[i];
+        if (!d) continue;
+        if (d > -(1 << 14) && d < (1 << 14))
+            e->at_now[i] = e->at_to[i];
+        else {
+            int64_t m = ((int64_t)(d < 0 ? -d : d) * e->at_k + 65535) >> 16;
+            e->at_now[i] += (int32_t)(d < 0 ? -m : m);
+            moving = 1;
+        }
+        fm_voice_set_gain(&e->voices[i], at_gain(e, i));
+    }
+    e->at_moving = moving;
 }
 
 /* Every voice takes its aftertouch gain. */
@@ -665,7 +687,13 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->wheel = e->wheel_to = 0;                 /* the mod wheel down (#41) */
     e->wheel_moving = 0;
     e->at_chan = 0;                             /* no pressure (#61) */
-    for (i = 0; i < FM_MAX_VOICES; i++) e->at_now[i] = 0;
+    for (i = 0; i < FM_MAX_VOICES; i++) e->at_now[i] = e->at_to[i] = 0;
+    e->at_moving = 0;
+    {   /* 1 - exp(-x), x one control tick over 16 ms (as glide_init's) */
+        int32_t x = (int32_t)((uint32_t)FM_LFO_TICK_FRAMES * (1000u * 65536u / AT_TAU_MS) / sample_rate);
+        int32_t x2 = (x * x) >> 16, x3 = (x2 * x) >> 16;
+        e->at_k = x - x2 / 2 + x3 / 6;
+    }
     /* all defaults first: some settings combine several parameters */
     for (id = 0; id < FM_PARAM_COUNT; id++)
         e->params[id] = fm_param_info_get(id)->def;
@@ -779,7 +807,7 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
  * no swell up from 0; a key's own poly pressure comes after its note on) */
 static void at_start(fm_engine *e, uint8_t i)
 {
-    e->at_now[i] = e->at_chan;
+    e->at_now[i] = e->at_to[i] = e->at_chan;
     fm_voice_set_gain(&e->voices[i], at_gain(e, i));
 }
 
@@ -980,8 +1008,8 @@ void fm_engine_channel_pressure(fm_engine *e, uint8_t pressure)
     uint8_t i;
     if (e->sample_rate == 0 || pressure > 127) return;
     e->at_chan = at_q30(pressure);
-    for (i = 0; i < e->voice_count; i++) e->at_now[i] = e->at_chan;
-    at_gains(e);
+    for (i = 0; i < e->voice_count; i++) e->at_to[i] = e->at_chan;
+    e->at_moving = 1;
 }
 
 void fm_engine_poly_pressure(fm_engine *e, uint8_t note, uint8_t pressure)
@@ -991,8 +1019,8 @@ void fm_engine_poly_pressure(fm_engine *e, uint8_t note, uint8_t pressure)
     for (i = 0; i < e->voice_count; i++) {      /* in unison, every voice plays it */
         fm_voice *v = &e->voices[i];
         if (fm_voice_active(v) && fm_voice_note(v) == note) {
-            e->at_now[i] = at_q30(pressure);
-            fm_voice_set_gain(v, at_gain(e, i));
+            e->at_to[i] = at_q30(pressure);
+            e->at_moving = 1;
         }
     }
 }
@@ -1093,6 +1121,7 @@ static void control_tick(fm_engine *e)
     e->tick_left = FM_LFO_TICK_FRAMES;
     if (e->glide_moving && !(e->ticks % GLIDE_TICKS)) glide_tick(e);
     if (e->wheel_moving) wheel_tick(e);
+    if (e->at_moving) at_tick(e);
     /* with every depth at 0 (after one tick that clears any offset still
      * applied) the voices have nothing to do */
     if (lfo_live(e))
@@ -1117,7 +1146,7 @@ static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    if ((lfo_live(e) || e->glide_moving || e->wheel_moving) && n > e->tick_left)
+    if ((lfo_live(e) || e->glide_moving || e->wheel_moving || e->at_moving) && n > e->tick_left)
         n = e->tick_left;
     return n;
 }

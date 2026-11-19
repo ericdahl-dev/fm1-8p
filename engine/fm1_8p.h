@@ -108,10 +108,14 @@ typedef struct {
     int32_t glide_cur[FM_GLIDE_SETTINGS];
     int16_t glide_to[FM_GLIDE_SETTINGS];
     int32_t glide_k;
-    /* aftertouch (#61): each voice's pressure, Q1.30 (p / 127), and the
-     * last channel pressure, which a new note starts at */
+    /* aftertouch (#61): each voice's pressure, Q1.30 (p / 127), where it
+     * is and where it goes (a one-pole of 16 ms, step at_k Q16 a control
+     * tick), and the last channel pressure, which a new note starts at */
     int32_t at_now[FM_MAX_VOICES];
+    int32_t at_to[FM_MAX_VOICES];
     int32_t at_chan;
+    int32_t at_k;
+    uint8_t at_moving;     /* a voice's pressure is on its way */
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
