@@ -327,6 +327,18 @@ TT_TEST(at_unison_takes_the_sounding_notes_pressure)
     TT_CHECK(fabs(sounding / none - 3.0) <= 0.03);
 }
 
+/* AT BRI that opens the filter all the way (cutoff 13000 + 2360 at full pressure, held at fully open: a wire)
+ * keeps the voice off the fast path while it is shifted, as its busy word says (debug builds check it,
+ * FM_CHECK_BUSY), and back on it when the pressure is gone */
+TT_TEST(at_bri_to_fully_open_keeps_the_busy_word_true)
+{
+    TT_CHECK(at_bright(13000, 2360, 127) > 0.0);
+    TT_CHECK(fm_voice_busy(&at_eng.voices[0]) != 0);
+    fm_engine_channel_pressure(&at_eng, 0);
+    at_run(300);
+    TT_CHECK(at_bright(13000, 2360, 0) > 0.0);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
@@ -340,4 +352,5 @@ static void run_at_tests(void)
     TT_RUN(at_latest_message_wins_per_voice);
     TT_RUN(at_vol_leaves_the_release_floor);
     TT_RUN(at_unison_takes_the_sounding_notes_pressure);
+    TT_RUN(at_bri_to_fully_open_keeps_the_busy_word_true);
 }

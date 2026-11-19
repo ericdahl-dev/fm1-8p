@@ -171,13 +171,15 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, fenv);
     if (m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF])
         fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2, env2);
+    int32_t at = m->at_bri_cents ? (int32_t)(((int64_t)v->mod.src[FM_MOD_SRC_AT] *
+                                              m->at_bri_cents) >> 30) : 0;
     if (fm_vfilter_update(&v->vf, fm_mod_update(&v->mod, &m->routes,
-                                                FM_MOD_CUTOFF),
-                          m->at_bri_cents ? (int32_t)(((int64_t)v->mod.src[FM_MOD_SRC_AT] *
-                                                       m->at_bri_cents) >> 30) : 0))
+                                                FM_MOD_CUTOFF), at))
         mark_filter(v); /* else the coefficients stand */
+    /* (aftertouch's shift, #61, too: the cutoff is away from rest, even
+     * where it holds the filter fully open, a wire) */
     fm_voice_mark(v, FM_BUSY_FILTER_ENV,
-                  !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF));
+                  !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) || at);
     fm_voice_mark(v, FM_BUSY_CUTOFF, 0);
 }
 
