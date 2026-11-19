@@ -339,6 +339,32 @@ TT_TEST(at_bri_to_fully_open_keeps_the_busy_word_true)
     TT_CHECK(at_bright(13000, 2360, 0) > 0.0);
 }
 
+/* C4 held at poly pressure 127 (AT VOL d), then struck again: the ms after it over the 2 ms before */
+static double at_restrike(int32_t d)
+{
+    double before;
+    if (fm_engine_init(&at_eng, AT_RATE, 1) != FM_OK ||
+        fm_engine_set_param(&at_eng, FM_PARAM_AT_VOL_PCT, d) != FM_OK ||
+        fm_engine_set_param(&at_eng, FM_PARAM_AMP_LEVEL, 250) != FM_OK)
+        return -1.0;
+    fm_engine_note_on(&at_eng, 60, 100);
+    fm_engine_poly_pressure(&at_eng, 60, 127);
+    at_run(400);
+    before = at_run(2);
+    fm_engine_note_on(&at_eng, 60, 100);
+    return at_run(1) / before;
+}
+
+/* a note that starts on a voice still sounding moves to its pressure as any change does, smoothly: C4 held at
+ * poly pressure 127 and struck again (the FM-1's keys send poly only, so the channel's is 0): at AT VOL 100
+ * the ms after it dips as with AT VOL off (within 10 %), not 9.5 dB more (FW review) */
+TT_TEST(at_restruck_note_ramps_to_its_pressure)
+{
+    double off = at_restrike(0), on = at_restrike(100);
+    if (on / off < 0.9) printf("    the ms after: x%.3f, x%.3f with AT VOL off\n", on, off);
+    TT_CHECK(on / off >= 0.9);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
@@ -353,4 +379,5 @@ static void run_at_tests(void)
     TT_RUN(at_vol_leaves_the_release_floor);
     TT_RUN(at_unison_takes_the_sounding_notes_pressure);
     TT_RUN(at_bri_to_fully_open_keeps_the_busy_word_true);
+    TT_RUN(at_restruck_note_ramps_to_its_pressure);
 }

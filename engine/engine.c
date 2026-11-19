@@ -815,11 +815,19 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
     return (int32_t)peak;
 }
 
-/* A note starts on voice `i`: at the last channel pressure, at once (#61:
- * no swell up from 0; a key's own poly pressure comes after its note on) */
+/* A note starts on voice `i` (before the voice is told): at the last
+ * channel pressure (#61: a key's own poly pressure comes after its note
+ * on). From silence at once, no swell up from 0; on a voice still sounding
+ * (a restrike, a steal's fade, a unison change) by the one-pole, as any
+ * change, so its level and cutoff never step. */
 static void at_start(fm_engine *e, uint8_t i)
 {
-    e->at_now[i] = e->at_to[i] = e->at_chan;
+    e->at_to[i] = e->at_chan;
+    if (fm_voice_active(&e->voices[i])) {
+        e->at_moving = 1;
+        return;
+    }
+    e->at_now[i] = e->at_chan;
     fm_voice_set_gain(&e->voices[i], at_gain(e, i));
     fm_voice_set_pressure(&e->voices[i], &e->mod, e->at_now[i]);
 }
