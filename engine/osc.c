@@ -885,8 +885,12 @@ static int32_t cycle_mean(int64_t sum, uint32_t inc)
  * a stop), or the share of a wider pair's jitter (osc1 mixed in, the
  * ring) past the step, which still leaves the comb lower than taking it
  * all. While a sweep runs, the offset trails it by up to that step (0.018
- * at A5, 0.06 an octave up). Shifts and a hold at the wrap only: nothing
- * per sample, no state.
+ * at A5, 0.06 an octave up). A vibrato on osc2 alone moves the DC by less
+ * than the step each cycle, so the offset trails it too: a wobble at the
+ * vibrato's rate, sub-audio, up to about 0.024 of full (-32 dBFS, A6,
+ * 100 cents; taking the whole mean, about 0.0013). That is accepted for the
+ * comb it takes off CLAV. Shifts and a hold at the wrap only: nothing per
+ * sample, no state.
  */
 #define SYNC_DC_SLOW 5 /* the jitter's share moves the offset by 1/2^5 a cycle */
 static inline int32_t sync_dc(fm_osc_pair *p, int32_t v, int wrapped)

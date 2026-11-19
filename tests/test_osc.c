@@ -1546,6 +1546,69 @@ TT_TEST(synced_dc_follows_a_sync_sweep)
 }
 
 /*
+ * A synced voice played: osc2's LFO vibrato alone (5.5 Hz, 30 or 100
+ * cents), then a bend of both by 2 semitones in 100 ms, then a note 5
+ * semitones up, at A5 and A6, for a saw a fifth up and CLAV's square an
+ * octave under. The slow share of the DC (#253) trails the vibrato: the
+ * mean over any 50 ms (all under 20 Hz) reaches 0.0242 at worst (A6's
+ * square at 100 cents; main's whole-mean loop 0.0013), a sub-audio wobble
+ * accepted for the comb it takes off CLAV. Held under 0.03.
+ */
+static double synced_played_worst_drift(int note, uint8_t wave2, int32_t tune, double depth)
+{
+    static fm_osc_pair p;
+    static double y[96000];
+    const int n = 96000, win = 2400;
+    double acc = 0, worst = 0;
+    int i;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_wave(&p, 1, wave2);
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, 1);
+    fm_osc_pair_set_pitch(&p, note << 16, 48000);
+    fm_osc_pair_set_tune(&p, 1, tune, note << 16, 48000);
+    for (i = 0; i < n; i++) {
+        if (i % 32 == 0) { /* at the control rate */
+            double oct1 = 0, oct2 = 0;
+            if (i >= 24000 && i < 48000)
+                oct2 = depth / 1200 * sin(2.0 * AN_PI * 5.5 * (i - 24000) / 48000.0);
+            if (i >= 48000)
+                oct1 = oct2 = 2.0 / 12 * fmin(1.0, (i - 48000) / 4800.0);
+            fm_osc_pair_set_pitch_mod(&p, (int32_t)lrint(oct1 * 65536), (int32_t)lrint(oct2 * 65536));
+        }
+        if (i == 72000) {
+            fm_osc_pair_set_pitch(&p, (note + 5) << 16, 48000);
+            fm_osc_pair_set_tune(&p, 1, tune, (note + 5) << 16, 48000);
+        }
+        y[i] = fm_osc_pair_next(&p) / 16777216.0;
+    }
+    for (i = 0; i < n; i++) {
+        acc += y[i];
+        if (i >= win) acc -= y[i - win];
+        if (i >= 12000 && fabs(acc / win) > worst) worst = fabs(acc / win);
+    }
+    return worst;
+}
+
+TT_TEST(synced_dc_drift_stays_sub_audio_and_small_when_played)
+{
+    static const int notes[] = { 81, 93 };
+    static const double depths[] = { 30, 100 };
+    double worst = 0;
+    size_t k, d;
+    for (k = 0; k < 2; k++)
+    for (d = 0; d < 2; d++) {
+        double saw = synced_played_worst_drift(notes[k], FM_WAVE_SAW, 702, depths[d]);
+        double sq = synced_played_worst_drift(notes[k], FM_WAVE_SQUARE, -1178, depths[d]);
+        if (saw > worst) worst = saw;
+        if (sq > worst) worst = sq;
+    }
+    printf("    synced, osc2 vibrato, a bend, a note change: largest 50 ms mean %.4f\n", worst);
+    TT_CHECK(worst < 0.03);
+}
+
+/*
  * osc2 an octave less 2 cents up (a ratio just under 2) meets each
  * restart about 0.998 into its cycle, within one increment of its own wrap:
  * the polyBLEP it would put on that wrap must not add to the restart's.
@@ -2665,6 +2728,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_settles_to_no_dc_under_the_step);
     TT_RUN(synced_osc2_retuned_mid_note_has_no_dc);
     TT_RUN(synced_dc_rounds_the_slow_share);
+    TT_RUN(synced_dc_drift_stays_sub_audio_and_small_when_played);
     TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
     TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
     TT_RUN(synced_osc2_has_no_dc);
