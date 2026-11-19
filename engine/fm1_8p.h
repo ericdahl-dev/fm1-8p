@@ -159,6 +159,7 @@ void fm_engine_pitch_bend(fm_engine *e, uint16_t value);
  * are ignored.
  */
 void fm_engine_channel_pressure(fm_engine *e, uint8_t pressure);
+void fm_engine_poly_pressure(fm_engine *e, uint8_t note, uint8_t pressure);
 
 /*
  * Sets a parameter; values outside its range are clamped. Returns

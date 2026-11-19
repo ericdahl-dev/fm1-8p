@@ -52,7 +52,40 @@ TT_TEST(at_vol_scales_the_level_by_channel_pressure)
     TT_CHECK(fabs(hi / off - 1.5) <= 0.015);
 }
 
+/* C4 and G4 held at AT VOL 100; `send` (if any) 100 ms in; their fundamentals' amplitudes 400 ms on */
+static void at_chord(void (*send)(void), double *c4, double *g4)
+{
+    *c4 = *g4 = -1.0;
+    if (fm_engine_init(&at_eng, AT_RATE, 4) != FM_OK ||
+        fm_engine_set_param(&at_eng, FM_PARAM_AT_VOL_PCT, 100) != FM_OK)
+        return;
+    fm_engine_note_on(&at_eng, 60, 100);
+    fm_engine_note_on(&at_eng, 67, 100);
+    at_run(100);
+    if (send) send();
+    at_run(300);
+    fm_engine_render(&at_eng, at_buf, AT_RATE / 10);
+    *c4 = tone_amp(at_buf, AT_RATE / 10, 0, note_hz(60), AT_RATE);
+    *g4 = tone_amp(at_buf, AT_RATE / 10, 0, note_hz(67), AT_RATE);
+}
+
+static void at_send_poly_c4(void) { fm_engine_poly_pressure(&at_eng, 60, 127); }
+
+/* poly pressure reaches only its key's voice: C4 at full goes x3 (0.5 -> 1.5), G4 stays (1 %) */
+TT_TEST(at_poly_pressure_reaches_only_its_key)
+{
+    double c4, g4, c4p, g4p;
+    at_chord(0, &c4, &g4);
+    at_chord(at_send_poly_c4, &c4p, &g4p);
+    TT_CHECK(c4 > 100.0 && g4 > 100.0);
+    if (fabs(c4p / c4 - 3.0) > 0.03 || fabs(g4p / g4 - 1.0) > 0.01)
+        printf("    C4 x%.4f (want 3), G4 x%.4f (want 1)\n", c4p / c4, g4p / g4);
+    TT_CHECK(fabs(c4p / c4 - 3.0) <= 0.03);
+    TT_CHECK(fabs(g4p / g4 - 1.0) <= 0.01);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
+    TT_RUN(at_poly_pressure_reaches_only_its_key);
 }

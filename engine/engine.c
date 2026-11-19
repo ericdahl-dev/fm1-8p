@@ -973,6 +973,19 @@ void fm_engine_channel_pressure(fm_engine *e, uint8_t pressure)
     at_gains(e);
 }
 
+void fm_engine_poly_pressure(fm_engine *e, uint8_t note, uint8_t pressure)
+{
+    uint8_t i;
+    if (e->sample_rate == 0 || note > 127 || pressure > 127) return;
+    for (i = 0; i < e->voice_count; i++) {      /* in unison, every voice plays it */
+        fm_voice *v = &e->voices[i];
+        if (fm_voice_active(v) && fm_voice_note(v) == note) {
+            e->at_now[i] = at_q30(pressure);
+            fm_voice_set_gain(v, at_gain(e, i));
+        }
+    }
+}
+
 uint8_t fm_engine_active_voices(const fm_engine *e)
 {
     uint8_t i, n = 0;
