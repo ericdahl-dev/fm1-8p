@@ -257,12 +257,21 @@ does (measured 2026-11-18 and -19):
   voices playing its note (in unison, every voice when it is the sounding
   note; a key held under it changes nothing). Per voice the latest message
   wins (`at_latest_message_wins_per_voice`).
-- **A new note** starts at the last channel pressure at once (0 if none), not
-  at its voice's old poly pressure (`at_new_note_starts_at_the_channel_pressure`).
-  Reset all controllers (CC 121) puts every pressure back to 0.
+- **A new note** starts at the last channel pressure (0 if none), not at its
+  voice's old poly pressure: from silence at once
+  (`at_new_note_starts_at_the_channel_pressure`), and on a voice still
+  sounding (a restrike, a steal's fade, a unison change) by the smoothing
+  below, so its level and cutoff never step (`at_restruck_note_ramps_to_its_pressure`).
+  Reset all controllers (CC 121) brings every pressure back to 0, smoothed.
 - **Smoothing:** a change moves as a one-pole of 16 ms, a step each control
   tick, as PG-8X's (`at_pressure_step_ramps_in_16_ms`); the output doesn't
-  depend on the block size.
+  depend on the block size. The gain moves once a tick (32 samples, at most
+  about 4 % on a full swing). With every depth at 0 a pressure is taken at
+  once and nothing moves, so it costs nothing
+  (`at_pressure_with_depths_zero_moves_nothing`).
+- **Notes the keys didn't play:** poly pressure reaches the voice playing
+  that note number. A note the sequencer plays transposed from a held key
+  (#39) gets none of that key's poly pressure; channel pressure reaches it.
 
 Three depths, each 0 by default; at 0 the engine renders byte for byte as
 without pressure (`at_depths_zero_is_byte_identical`):
