@@ -300,6 +300,33 @@ TT_TEST(at_vol_leaves_the_release_floor)
     TT_CHECK_EQ(on, off);
 }
 
+/* unison: C4 then E4 held (E4 sounds, on every voice), AT VOL 100; poly pressure `key` 127 100 ms in (none if
+ * 0); RMS 400 ms on */
+static double at_unison(uint8_t key)
+{
+    if (fm_engine_init(&at_eng, AT_RATE, 4) != FM_OK ||
+        fm_engine_set_param(&at_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON) != FM_OK ||
+        fm_engine_set_param(&at_eng, FM_PARAM_AT_VOL_PCT, 100) != FM_OK)
+        return -1.0;
+    fm_engine_note_on(&at_eng, 60, 100);
+    fm_engine_note_on(&at_eng, 64, 100);
+    at_run(100);
+    if (key) fm_engine_poly_pressure(&at_eng, key, 127);
+    at_run(300);
+    return at_run(100);
+}
+
+/* unison (cos): the sounding note's poly pressure reaches every voice (x3); a held key that isn't sounding
+ * changes nothing */
+TT_TEST(at_unison_takes_the_sounding_notes_pressure)
+{
+    double none = at_unison(0), held = at_unison(60), sounding = at_unison(64);
+    if (fabs(held / none - 1.0) > 0.001 || fabs(sounding / none - 3.0) > 0.03)
+        printf("    held key x%.4f (want 1), sounding x%.4f (want 3)\n", held / none, sounding / none);
+    TT_CHECK(fabs(held / none - 1.0) <= 0.001);
+    TT_CHECK(fabs(sounding / none - 3.0) <= 0.03);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
@@ -312,4 +339,5 @@ static void run_at_tests(void)
     TT_RUN(at_depths_zero_is_byte_identical);
     TT_RUN(at_latest_message_wins_per_voice);
     TT_RUN(at_vol_leaves_the_release_floor);
+    TT_RUN(at_unison_takes_the_sounding_notes_pressure);
 }
