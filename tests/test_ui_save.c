@@ -794,6 +794,22 @@ TT_TEST(save_delete_of_the_loaded_slot_keeps_the_sound_edited)
     TT_CHECK(play_edited(&ui_p));
 }
 
+/* #303: a deleted slot is an empty slot everywhere: PRESETS skips it, SAVE's ALGORITHM (next empty) finds it,
+ * and a program change to it is ignored */
+TT_TEST(save_deleted_slot_is_empty_everywhere)
+{
+    save_on_other();                            /* 12 holds OTHER */
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), 1u);   /* P32 -> 12 */
+    save_ask_delete(1200);
+    save_tap(UI_BTN_SEL, 3000);
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), PLAY_PROG_P);   /* P32 -> P1 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -1, 3200);   /* on 11 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 3300);  /* the next empty: 12 again */
+    TT_CHECK_EQ(ui_u.save_dest, 1u);
+    TT_CHECK_EQ(play_load_prog(&ui_p, 1), -1);
+    TT_CHECK_EQ(play_prog(&ui_p), PLAY_PROG_P + PATCH_SOUNDTRACK);
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_sel_held_asks_to_delete);
@@ -801,6 +817,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_delete_waits_for_silence_and_cancels);
     TT_RUN(save_delete_question_cancels);
     TT_RUN(save_delete_of_the_loaded_slot_keeps_the_sound_edited);
+    TT_RUN(save_deleted_slot_is_empty_everywhere);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);
