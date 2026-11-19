@@ -177,6 +177,24 @@ class MetricTest(unittest.TestCase):
             raw = self.sc.spectral_distance(self.sc._cut(ours, *w), self.sc._cut(pg, *w))
             self.assertAlmostEqual(s["spectral_db"][k], raw, delta=0.05, msg=k)
 
+    # Codex (s10, P3-1): PG-8X's side is scaled to our level section by section, not over the whole
+    # render. With PG-8X's quiet low section 15 dB louder than ours (the loud sections alike), a gain over
+    # the whole render leaves PG-8X's low section 15 dB over our floor and reads it as a gap.
+    def test_each_section_takes_its_own_gain(self):
+        np = self.np
+        from scipy import signal
+        b, a = signal.butter(8, 300 / (SR / 2))
+        t = np.arange(13 * SR) / SR
+        dark = signal.lfilter(b, a, 0.25 * np.sin(2 * np.pi * 110 * t) + 0.1 * np.sin(2 * np.pi * 220 * t))
+        dark /= np.sqrt(np.mean(dark ** 2))
+        lo = self.sc.SECTIONS["low"]
+        quiet = (t >= lo[0] - 0.1) & (t < lo[1] + 0.1)
+        ours = dark * np.where(quiet, 10 ** (-75 / 20), 10 ** (-20 / 20))
+        pg = dark * np.where(quiet, 10 ** (-60 / 20), 10 ** (-20 / 20))
+        ours = np.floor(ours * 32768) / 32768
+        s = self.sc.score_tone(np.stack([ours, ours], 1), np.stack([pg, pg], 1), harmonic=False)
+        self.assertLess(s["spectral_db"]["low"], 0.5, s["spectral_db"])
+
     # PG-8X's side lands on our renderer's grid: engine.c to_int16 floors (an arithmetic >> 8) and clips
     # to -32768..32767, and the reader divides by 32768.
     def test_pg_at_our_level_is_floored_and_clipped_as_our_renderer(self):

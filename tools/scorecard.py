@@ -2,7 +2,14 @@
 """scorecard.py - how close fm1-8p's 32 JX-8P factory tones are to PG-8X 2.0.13 (and, from the parameter
 match harness, every tone parameter over its range). Needs numpy and scipy.
 
-The PG-8X reference renders live outside this repo (SCORECARD_REF); nothing PG-8X is committed."""
+The PG-8X reference renders live outside this repo (SCORECARD_REF); nothing PG-8X is committed.
+
+Quiet sections (s10): our renders are int16, so each spectral section scores PG-8X's side at our level in
+int16 too, and our 16-bit floor isn't read as timbre. The other side of that: in a section under about
+-55 dBFS, a difference counts only down to that floor. A band has to stand about 10 dB over it to count
+near fully, so a low score there means a match above the floor, not in the detail under it. PG-8X's
+float tail under one step, where our idle engine reads exact 0, floors to 0 or -1 on its side. That
+reads 1.5-6 dB in bands 55-60 dB down, about 0.1 dB on the section (AGOGO BELL's chord: 1.47 s9, 1.58 s10)."""
 import json
 import os
 
