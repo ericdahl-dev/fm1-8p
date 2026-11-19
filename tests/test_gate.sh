@@ -58,6 +58,36 @@ expect_ok "the CPU modes stage without an emulator" env GATE_CPU_PREPARE_ONLY=1 
 expect_ok "SYNC 2's step F has sync then the ring" sh -c "grep -A2 '{FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},' '$T/cpu/ring/src/firmware/cpu_test.c' | tr -d '\\n ' | grep -q 'OSC_SYNC,1},{FM_PARAM_OSC_RING,1}'"
 expect_ok "plain's step F is the tree's own" cmp "$T/base/firmware/cpu_test.c" "$T/cpu/plain/src/firmware/cpu_test.c"
 expect_ok "pad links its dead code" sh -c "test -f '$T/cpu/plain-pad/src/engine/aa_pad.c' && grep -q 'fm1_8p_gate_pad(3)' '$T/cpu/plain-pad/src/firmware/fm1_8p_cpu/fm1_8p_cpu.c'"
+# The high-note rows (#269): each mode again with the chord at notes 115..125 (F plays its first four on
+# the device's voices), where the oscillators and the filter cost most, the mode's own step F otherwise;
+# unpadded, and none with GATE_CPU_HINOTE=0.
+expect_ok "every mode's high-note row has the chord at notes 115..125" sh -c "for m in plain sync xmod ring ui seq; do grep -qx 'static const uint8_t CHORD\[FM_MAX_VOICES\] = {115, 117, 119, 121, 122, 123, 124, 125};   /\* #269: the high notes \*/' '$T/cpu/'\$m'-hn/src/firmware/cpu_test.c' || exit 1; done"
+expect_fail "and none is padded" sh -c "ls -d '$T/cpu/'*-hn-pad"
+expect_ok "GATE_CPU_HINOTE=0 skips them" sh -c "env GATE_CPU_PREPARE_ONLY=1 GATE_CPU_HINOTE=0 JIELI_TOOLCHAIN='$T/fm1/tc' AC79_SDK='$T/fm1/sdk' FM1_DOCK='$T/fm1/dock' FM1_LIVE='$T/fm1/live' sh tools/gate_cpu.sh '$T/base' '$T/cpu0' && test -d '$T/cpu0/plain' && ! test -e '$T/cpu0/plain-hn'"
+expect_ok "and keeps its mode's step F (SYNC 2: sync then the ring)" sh -c "grep -A2 '{FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},' '$T/cpu/ring-hn/src/firmware/cpu_test.c' | tr -d '\\n ' | grep -q 'OSC_SYNC,1},{FM_PARAM_OSC_RING,1}'"
+chord() { grep '^static const uint8_t CHORD' "$1/firmware/cpu_test.c"; }
+expect_ok "the normal rows keep the tree's own chord" sh -c 'test -n "$1" && test "$1" = "$2"' - "$(chord "$T/base")" "$(chord "$T/cpu/sync/src")"
+# A row that can't be staged says so in its place, and any failed row fails the run.
+cp -R "$T/base" "$T/nochord" && sed -i '/^static const uint8_t CHORD/d' "$T/nochord/firmware/cpu_test.c"
+expect_fail "a failed row fails gate_cpu" env GATE_CPU_PAD=0 JIELI_TOOLCHAIN="$T/fm1/tc" AC79_SDK="$T/fm1/sdk" \
+    FM1_DOCK="$T/fm1/dock" FM1_LIVE="$T/fm1/live" sh tools/gate_cpu.sh "$T/nochord" "$T/cpu-nochord"
+expect_ok "and a row that can't be staged says so" grep -q '^plain-hn: stage failed' "$T/out.last"
+rm -rf "${T:?}/nochord" "${T:?}/cpu-nochord"
+# The gate keeps CPU rows per tree, gate_cpu.sh and its toggles, and never keeps a failed run's
+# (GATE_CPU: a stand-in for gate_cpu.sh).
+cat >"$T/cpu-stub.sh" <<'STUB'
+echo "plain      F =  1.0 %"
+[ "${GATE_CPU_HINOTE:-1}" = 0 ] || echo "plain-hn   F =  2.0 %"
+[ -z "${STUB_FAIL:-}" ] || { echo "plain-hn: stage failed"; exit 1; }
+STUB
+rm -rf "$T/gate/cpu"
+stub_gate() { env GATE_CPU="$T/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$T/fm1/dock" "$@" sh tools/gate.sh "$T/base" "$T/same"; }
+expect_ok "a failed CPU run is reported" stub_gate STUB_FAIL=1
+expect_ok "with its rows" sh -c "grep -q '^CPU rows: base failed' '$T/out.last' && grep -q '^plain-hn: stage failed' '$T/out.last'"
+expect_fail "and not kept" sh -c "ls '$T/gate/cpu/'*/rows.txt"
+expect_ok "GATE_CPU_HINOTE=0's rows are kept apart" stub_gate GATE_CPU_HINOTE=0
+expect_ok "from a default run's" stub_gate
+expect_ok "which has its high-note rows" grep -q '^plain-hn ' "$T/out.last"
 # make gate runs it: BASE is required, HEAD defaults to the commit checked out.
 expect_ok "make gate BASE=... HEAD=... runs the gate" make -s gate BASE="$T/base" HEAD="$T/same" GATE_COVERAGE=0
 expect_ok "and reports the clips compared" grep -q "^0 of [0-9]* clips differ" "$T/out.last"
