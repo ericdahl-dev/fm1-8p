@@ -161,7 +161,7 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     LIVE(3, "AT VOL", "VOLUME", FM_PARAM_AT_VOL_PCT, 1, 5),
     CHOICE(4, "GLIDE", "GLIDE", FM_PARAM_SETTING_GLIDE, TWO_ORDER), /* ours (Q4) */
     PAGE(17) LIVE(5, "BEND", "BEND RANGE", FM_PARAM_BEND_RANGE, 1, 2),
-    PEND(6, "PORTA", "PORTAMENTO"),                                        /* #62 */
+    TIME(6, "PORTA", "PORTAMENTO", FM_PARAM_PORTAMENTO_MS),                /* #62: tau, 0 off */
     CHOICE(7, "VOICE", "VOICE MODE", FM_PARAM_VOICE_MODE, TWO_ORDER),       /* ours */
     LIVE(8, "DETUNE", "DETUNE", FM_PARAM_UNISON_DETUNE_CENTS, 1, 10),   /* ours */
     PAGE(18) LIVE(UI_SLOT_W1, "PITCH", "PITCH", FM_PARAM_WHEEL_PITCH_CENTS, 1, 10),   /* #41: the wheel */

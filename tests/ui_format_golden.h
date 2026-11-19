@@ -2,7 +2,7 @@
  * tests/ui_format_walk.h: edit the display, then make it again and review the rows that moved.
  * Each param: its id, name, the values walked (min - 2 .. max + 2), their hash, then the text at
  * its min, 1/8 .. 7/8 of the way, max and default, as "focus row | knob column". */
-#define UFW_GOLDEN_N 59u
+#define UFW_GOLDEN_N 60u
 static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
     {0, "amp_attack_ms", 32005u, 0xC4FE2AF3u, {
         "0 ms | 0 ms",             /* amp_attack_ms 0 */
@@ -676,7 +676,19 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "+12 st | +12 st",         /* osc1_coarse_semis 12 */
         "0 st | 0 st",             /* osc1_coarse_semis 0, the default */
     }},
-    {56, "at_vib_cents", 545u, 0x100DA502u, {
+    {56, "portamento_ms", 10005u, 0x4A3EEA82u, {
+        "OFF | OFF",               /* portamento_ms 0 */
+        "1.25 s | 1.25 s",         /* portamento_ms 1250 */
+        "2.50 s | 2.50 s",         /* portamento_ms 2500 */
+        "3.75 s | 3.75 s",         /* portamento_ms 3750 */
+        "5.00 s | 5.00 s",         /* portamento_ms 5000 */
+        "6.25 s | 6.25 s",         /* portamento_ms 6250 */
+        "7.50 s | 7.50 s",         /* portamento_ms 7500 */
+        "8.75 s | 8.75 s",         /* portamento_ms 8750 */
+        "10.0 s | 10.0 s",         /* portamento_ms 10000 */
+        "OFF | OFF",               /* portamento_ms 0, the default */
+    }},
+    {57, "at_vib_cents", 545u, 0x100DA502u, {
         "0 ct | 0 ct",             /* at_vib_cents 0 */
         "67 ct | 67 ct",           /* at_vib_cents 67 */
         "135 ct | 135 ct",         /* at_vib_cents 135 */
@@ -688,7 +700,7 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "540 ct | 540 ct",         /* at_vib_cents 540 */
         "0 ct | 0 ct",             /* at_vib_cents 0, the default */
     }},
-    {57, "at_bri_cents", 2365u, 0x73D27918u, {
+    {58, "at_bri_cents", 2365u, 0x73D27918u, {
         "0 ct | 0 ct",             /* at_bri_cents 0 */
         "295 ct | 295 ct",         /* at_bri_cents 295 */
         "590 ct | 590 ct",         /* at_bri_cents 590 */
@@ -700,7 +712,7 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "2360 ct | 2360 ct",       /* at_bri_cents 2360 */
         "0 ct | 0 ct",             /* at_bri_cents 0, the default */
     }},
-    {58, "at_vol_pct", 105u, 0xF58CDE38u, {
+    {59, "at_vol_pct", 105u, 0xF58CDE38u, {
         "0 % | 0 %",               /* at_vol_pct 0 */
         "12 % | 12 %",             /* at_vol_pct 12 */
         "25 % | 25 %",             /* at_vol_pct 25 */

@@ -212,7 +212,7 @@ settings.
 | 03 | K3 | `at_vol_pct` (#61) | AT VOL | 0..100 % | 1 / 5 |
 | 04 | K4 | `setting_glide` (*ours*, Eric's Q4) | GLIDE | OFF, ON | 1 / 1 |
 | 05 | K1 | `bend_range_semitones` | BEND | 0..24 st | 1 / 2 |
-| 06 | K2 | portamento time (pending, #62) | PORTA | -- | - |
+| 06 | K2 | `portamento_ms` (#62: tau, 0 off) | PORTA | time, OFF at 0 | time table |
 | 07 | K3 | `voice_mode` (*ours*) | VOICE | POLY, UNISON | 1 / 1 |
 | 08 | K4 | `unison_detune_cents` (*ours*) | DETUNE | 0..100 ct (inactive in POLY) | 1 / 10 |
 
@@ -1200,7 +1200,7 @@ CC first.
 | 03 | AFTERTOUCH | VOLUME | 104 | - |
 | 04 | AFTERTOUCH | GLIDE | 105 | - |
 | 05 | CONTROL | BEND RANGE | 106 | 91 |
-| 06 | CONTROL | PORTAMENTO (when it lands) | 107 | 5 |
+| 06 | CONTROL | PORTAMENTO | 107 | 5 |
 | 07 | CONTROL | VOICE MODE | 108 | 85 |
 | 08 | CONTROL | DETUNE | 109 | 17 |
 

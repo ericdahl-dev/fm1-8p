@@ -130,8 +130,10 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             num = put_str(num, d->names[0]);
         break;
     }
-    case UI_SHOW_MS_S:                          /* 999 ms, 1.25 s, 12.5 s */
-        if (p < 1000u)
+    case UI_SHOW_MS_S:                          /* 999 ms, 1.25 s, 12.5 s; with a name, it at 0 */
+        if (p == 0u && d->n)
+            num = put_str(num, d->names[0]), u = "";
+        else if (p < 1000u)
             num = put_u(num, p), u = "ms";
         else
             num = put_3(num, p), u = "s";
