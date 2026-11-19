@@ -58,12 +58,14 @@ expect_ok "the CPU modes stage without an emulator" env GATE_CPU_PREPARE_ONLY=1 
 expect_ok "SYNC 2's step F has sync then the ring" sh -c "grep -A2 '{FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},' '$T/cpu/ring/src/firmware/cpu_test.c' | tr -d '\\n ' | grep -q 'OSC_SYNC,1},{FM_PARAM_OSC_RING,1}'"
 expect_ok "plain's step F is the tree's own" cmp "$T/base/firmware/cpu_test.c" "$T/cpu/plain/src/firmware/cpu_test.c"
 expect_ok "pad links its dead code" sh -c "test -f '$T/cpu/plain-pad/src/engine/aa_pad.c' && grep -q 'fm1_8p_gate_pad(3)' '$T/cpu/plain-pad/src/firmware/fm1_8p_cpu/fm1_8p_cpu.c'"
-# The high-note rows (#269): each mode again with step F's chord at notes 115..125, where the oscillators
-# and the filter cost most, the mode's own step F otherwise.
-expect_ok "a high-note row plays step F's chord at notes 115..125" grep -q '^static const uint8_t CHORD\[FM_MAX_VOICES\] = {115, 117, 119, 121, 122, 123, 124, 125};' "$T/cpu/plain-hn/src/firmware/cpu_test.c"
+# The high-note rows (#269): each mode again with the chord at notes 115..125 (F plays its first four on
+# the device's voices), where the oscillators and the filter cost most, the mode's own step F otherwise;
+# unpadded, and none with GATE_CPU_HINOTE=0.
+expect_ok "every mode's high-note row has the chord at notes 115..125" sh -c "for m in plain sync xmod ring ui seq; do grep -q '^static const uint8_t CHORD\[FM_MAX_VOICES\] = {115, 117, 119, 121, 122, 123, 124, 125};' '$T/cpu/'\$m'-hn/src/firmware/cpu_test.c' || exit 1; done"
+expect_fail "and none is padded" sh -c "ls -d '$T/cpu/'*-hn-pad"
+expect_ok "GATE_CPU_HINOTE=0 skips them" sh -c "env GATE_CPU_PREPARE_ONLY=1 GATE_CPU_HINOTE=0 JIELI_TOOLCHAIN='$T/fm1/tc' AC79_SDK='$T/fm1/sdk' FM1_DOCK='$T/fm1/dock' FM1_LIVE='$T/fm1/live' sh tools/gate_cpu.sh '$T/base' '$T/cpu0' && test -d '$T/cpu0/plain' && ! test -e '$T/cpu0/plain-hn'"
 expect_ok "and keeps its mode's step F (SYNC 2: sync then the ring)" sh -c "grep -A2 '{FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},' '$T/cpu/ring-hn/src/firmware/cpu_test.c' | tr -d '\\n ' | grep -q 'OSC_SYNC,1},{FM_PARAM_OSC_RING,1}'"
-expect_ok "the sequencer row has its high-note twin" grep -q '{115, 117, 119' "$T/cpu/seq-hn/src/firmware/cpu_test.c"
-expect_ok "the normal rows keep the chord" grep -q '{48, 52, 55, 59, 62, 66, 69, 72}' "$T/cpu/plain/src/firmware/cpu_test.c"
+expect_ok "the normal rows keep the tree's own chord" sh -c "grep '^static const uint8_t CHORD' '$T/base/firmware/cpu_test.c' | cmp - '$T/cpu/sync/src/firmware/cpu_test.c' >/dev/null 2>&1 || grep -qF \"\$(grep '^static const uint8_t CHORD' '$T/base/firmware/cpu_test.c')\" '$T/cpu/sync/src/firmware/cpu_test.c'"
 # make gate runs it: BASE is required, HEAD defaults to the commit checked out.
 expect_ok "make gate BASE=... HEAD=... runs the gate" make -s gate BASE="$T/base" HEAD="$T/same" GATE_COVERAGE=0
 expect_ok "and reports the clips compared" grep -q "^0 of [0-9]* clips differ" "$T/out.last"

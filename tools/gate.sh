@@ -82,9 +82,10 @@ coverage() {
 
 [ "${GATE_COVERAGE:-1}" = 0 ] || coverage "$H"
 
-# cpu DIR: the CPU rows of DIR (tools/gate_cpu.sh), kept by DIR's key like its renders
+# cpu DIR: the CPU rows of DIR (tools/gate_cpu.sh), kept by DIR's key and gate_cpu.sh's own (a row added
+# there must not come back missing for a tree measured before it)
 cpu() {
-    k=$(key "$1"); o=$G/cpu/$k
+    k=$(key "$1")-$(sha256sum "$ROOT/tools/gate_cpu.sh" | cut -c1-8); o=$G/cpu/$k
     if [ ! -f "$o/rows.txt" ]; then
         sh "$ROOT/tools/gate_cpu.sh" "$1" "$o/runs" >"$o.rows" 2>"$o.err" || { cat "$o.err" >&2; return 1; }
         mkdir -p "$o" && sort "$o.rows" >"$o/rows.txt" && rm -f "$o.rows" "$o.err"

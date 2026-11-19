@@ -5,13 +5,16 @@
 # code shows up as one; and, where TREE has it, "ui": plain with FM1-8P's VCF page redrawing every
 # frame (firmware/fm1_8p_cpu_ui, #47), the F budget with the UI drawing; and "seq": ring with step F
 # played by a running sequencer on the device's voices (firmware/fm1_8p_cpu_seq, #36). Device ~= emu x
-# 1.08 (FM-1, 2026-11-12). Each mode also runs as MODE-hn, the high-note row (#269): step F's chord at
-# notes 115..125, where the oscillators and the filter cost most (GATE_CPU_HINOTE=0 skips them).
+# 1.08 (FM-1, 2026-11-12). Each mode also runs as MODE-hn, the high-note row (#269), unpadded: the CPU
+# test's chord set to notes 115, 117, 119, 121, 122..125, where the oscillators and the filter cost most.
+# F plays its first CT_FULL_VOICES (4: 115..121; seq: its 6-note chord, 115..123, on 4 voices); the 8 and U
+# columns play all 8, so read the -hn rows' F. GATE_CPU_HINOTE=0 skips them.
 #
-# usage: tools/gate_cpu.sh TREE OUT      (prints one line per mode: 8 voices, U and F, code bytes)
+# usage: tools/gate_cpu.sh TREE OUT      (prints one line per mode, MODE-hn rows too: 8 voices, U and F, code bytes)
 # Inputs, as tools/fm1-build.sh takes them: JIELI_TOOLCHAIN, AC79_SDK, FM1_DOCK, PYTHON (fm1-dock's) and
 # FM1_LIVE; or FM1_REF, a folder holding fm1-dock, jieli/toolchain, fw-AC79_AIoT_SDK, fm1-dock-venv and
-# fm1-emu/target/release/fm1-live. GATE_CPU_PAD=0 skips the padded layout. Exit 2 when an input is missing.
+# fm1-emu/target/release/fm1-live. GATE_CPU_PAD=0 skips the padded layout, GATE_CPU_HINOTE=0 the high-note
+# rows. Exit 2 when an input is missing.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 TREE=$1 OUT=$2
@@ -27,10 +30,10 @@ done
 PY=${FM1_DOCK_PYTHON:-${PYTHON:-python3}}
 mkdir -p "$OUT" || exit 2
 
-# The high-note rows' chord (#269): step F at notes 115..125, every voice
+# The high-note rows' chord (#269): notes 115..125 (step F plays its first CT_FULL_VOICES)
 HN_CHORD='static const uint8_t CHORD[FM_MAX_VOICES] = {115, 117, 119, 121, 122, 123, 124, 125};'
 
-# stage MODE PAD DIR: a copy of TREE in DIR whose step F plays MODE (plain, sync, xmod, ring; MODE-hn its
+# stage MODE PAD DIR: a copy of TREE in DIR whose step F plays MODE (plain, sync, xmod, ring; MODE-hn: its
 # high-note row), padded or not
 stage() {
     rm -rf "$3" && mkdir -p "$3" && cp -R "$TREE/." "$3/" && rm -rf "$3/build" || return 1
@@ -59,12 +62,13 @@ stage() {
     fi
 }
 
-# run MODE PAD: one emulator run; prints "MODE[,pad]  8 = x %  U = x %  F = x %  overruns  code N B".
+# run MODE PAD: one emulator run (MODE may end in -hn); prints "MODE[,pad]  8 = x %  U = x %  F = x %
+# overruns  code N B", or why there is no row.
 # MODE ui is plain with a page of the UI redrawing every frame (emu-ui, firmware/fm1_8p_cpu_ui).
 run() {
     t=$1${2:+-$2}; d=$OUT/$t; cmd=emu; [ "${1%-hn}" = ui ] && cmd=emu-ui; [ "${1%-hn}" = seq ] && cmd=emu-seq
     if [ "${GATE_CPU_PREPARE_ONLY:-0}" = 1 ]; then stage "$1" "$2" "$d/src"; return; fi
-    stage "$1" "$2" "$d/src" || return 1
+    stage "$1" "$2" "$d/src" || { echo "$t: stage failed (see above)"; return 1; }
     rm -rf "$d/dock" && cp -a "$FM1_DOCK" "$d/dock" || return 1
     (cd "$d/src" && ulimit -n 8192 2>/dev/null; FM1_DOCK=$d/dock JIELI_TOOLCHAIN=$JIELI_TOOLCHAIN AC79_SDK=$AC79_SDK \
         PYTHON=$PY FM1_LIVE=$FM1_LIVE FM1_EMU_UNPINNED=1 tools/fm1-build.sh $cmd) >"$d/emu.log" 2>&1
