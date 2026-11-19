@@ -275,6 +275,45 @@ TT_TEST(store_failed_write_leaves_the_slot_as_it_was)
     TT_CHECK_EQ(store_slot_read(&store_lib_a, 41, &out), -1);
 }
 
+/* A delete (#303) empties the slot, in flash too: after a power cycle it still reads empty, and the
+ * other slots of its bank keep every byte (32 to a bank). */
+TT_TEST(store_slot_clear_empties_it_for_good)
+{
+    static store_patch in, out;
+    static uint8_t before[STORE_BANK_BYTES];
+    uint32_t i;
+    int same = 1;
+    store_flash_blank();
+    store_lib_load(&store_lib_a, &store_fake_io);
+    for (i = 32; i < 40; i++) {                 /* bank 2: slots 32..39 hold patches */
+        store_from_factory(i % PATCH_COUNT, &in);
+        TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, i, &in), 0);
+    }
+    memcpy(before, store_lib_a.img[1], STORE_BANK_BYTES);
+    TT_CHECK_EQ(store_slot_clear(&store_lib_a, &store_fake_io, 35), 0);
+    TT_CHECK(!store_slot_used(&store_lib_a, 35));
+    store_lib_load(&store_lib_b, &store_fake_io);
+    TT_CHECK_EQ(store_slot_read(&store_lib_b, 35, &out), -1);
+    for (i = 0; i < STORE_BANK_BYTES; i++)
+        if (i / STORE_SLOT_BYTES != 35u % STORE_BANK_SLOTS)
+            same &= store_lib_b.img[1][i] == before[i];
+    TT_CHECK(same);
+}
+
+/* A delete whose save fails leaves the slot as it was. */
+TT_TEST(store_failed_clear_leaves_the_slot_as_it_was)
+{
+    static store_patch a, out;
+    store_flash_blank();
+    store_lib_load(&store_lib_a, &store_fake_io);
+    store_from_factory(2, &a);
+    TT_CHECK_EQ(store_slot_write(&store_lib_a, &store_fake_io, 12, &a), 0);
+    store_flash.fail = 1;
+    TT_CHECK_EQ(store_slot_clear(&store_lib_a, &store_fake_io, 12), -1);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 12, &out), 0);
+    TT_CHECK(strcmp(out.name, a.name) == 0);
+}
+
 /* PRESETS goes through the user slots that hold a patch, in slot order, then P1..P32, then wraps;
  * empty slots are skipped (Eric, 2026-11-13), so a fresh unit browses P1..P32 alone. */
 TT_TEST(store_presets_ring_skips_empty_slots)
@@ -368,6 +407,8 @@ TT_TEST(store_loads_on_the_first_tick_not_at_init)
 
 static void run_patch_store_tests(void)
 {
+    TT_RUN(store_slot_clear_empties_it_for_good);
+    TT_RUN(store_failed_clear_leaves_the_slot_as_it_was);
     TT_RUN(store_slot_from_before_the_spike_keeps_its_waves);
     TT_RUN(store_record_round_trips_every_factory_patch);
     TT_RUN(store_record_from_older_firmware_loads_new_params_at_their_default);

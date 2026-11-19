@@ -59,19 +59,35 @@ int store_slot_used(const store_lib *l, uint32_t s)
                      STORE_SLOT_BYTES);
 }
 
-int store_slot_write(store_lib *l, const store_io *io, uint32_t s, const store_patch *p)
+/* User slot s becomes p's record, or (p NULL) empty: zeros, as a bank never saved reads; then its
+ * bank to flash */
+static int slot_set(store_lib *l, const store_io *io, uint32_t s, const store_patch *p)
 {
     uint32_t b = s / STORE_BANK_SLOTS, i;
     uint8_t *rec = l->img[b] + STORE_SLOT_BYTES * (s % STORE_BANK_SLOTS);
     uint8_t was[STORE_SLOT_BYTES];
     for (i = 0; i < STORE_SLOT_BYTES; i++)
         was[i] = rec[i];
-    (void)store_encode(p, rec);
+    if (p)
+        (void)store_encode(p, rec);
+    else
+        for (i = 0; i < STORE_SLOT_BYTES; i++)
+            rec[i] = 0;
     if (io->save(io->ctx, 1u + b, l->img[b], STORE_BANK_BYTES) == 0)
         return 0;
     for (i = 0; i < STORE_SLOT_BYTES; i++)      /* not written: RAM keeps what flash has */
         rec[i] = was[i];
     return -1;
+}
+
+int store_slot_write(store_lib *l, const store_io *io, uint32_t s, const store_patch *p)
+{
+    return slot_set(l, io, s, p);
+}
+
+int store_slot_clear(store_lib *l, const store_io *io, uint32_t s)
+{
+    return slot_set(l, io, s, 0);
 }
 
 uint16_t store_tag_param(uint32_t tag)
