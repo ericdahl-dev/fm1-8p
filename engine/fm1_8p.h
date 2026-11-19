@@ -53,8 +53,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 6612u     /* +64: a 4 B lag in each fm_env (3 a voice), less the voice's fenv_lag (#70) */
-#define FM_ENGINE_BUDGET_BASE_64 6876u     /* +12: the amp attack floor after key follow, 4 B in each envelope settings (#274) */
+#define FM_ENGINE_BUDGET_BASE_32 6664u     /* +52: portamento (#62): a glide a voice (8), its step, the note glided from, the newest and its tick, 2 flags */
+#define FM_ENGINE_BUDGET_BASE_64 6924u     /* +48: portamento (#62), as on 32-bit (the flags fit padding there) */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
@@ -95,8 +95,18 @@ typedef struct {
     uint8_t mod_on;      /* the last tick applied a nonzero depth */
     uint8_t glide_moving; /* setting_glide (#146): a setting is on its way */
     uint8_t wheel_moving; /* the mod wheel (#41) is on its way to wheel_to */
+    uint8_t porta_moving; /* portamento (#62): a voice is still gliding */
+    uint8_t porta_has;    /* porta_from is a note (none yet after init) */
     int32_t wheel;        /* the mod wheel (CC1) as the depths use it, 0..127 << 8 */
     int32_t wheel_to;     /* where it goes: the last CC1 << 8 */
+    /* portamento (#62): each voice's glide still to go, Q16.16 semitones (0 settled), falling by
+     * porta_k (one control tick of 1 - exp(-tick / tau), Q16) each tick; the note glided from (the last
+     * one played before this tick: a chord's notes all glide from the note before it), Q16.16; and the
+     * newest note played, with the tick it came in, which becomes porta_from at the next tick */
+    int32_t porta[FM_MAX_VOICES];
+    int32_t porta_k;
+    int32_t porta_from, porta_newest;
+    uint32_t porta_tick;
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
     /* the chorus's right side, Q8.24; before the chorus writes it, the
      * voices' scratch (each voice's oscillators for the chunk): the chorus
