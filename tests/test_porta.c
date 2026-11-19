@@ -208,7 +208,7 @@ TT_TEST(porta_unison_mid_glide_goes_on_from_where_it_is)
 
 /* a note waiting for a stolen voice keeps its glide when it moves to another voice: 2 voices, C3 then C4
  * held; C5 steals C3's voice and waits there (gliding from C4); C3 struck again takes that voice back,
- * and C5 moves to C4's voice, still gliding from C4 (Codex P3-1 on #301) */
+ * 2 ms into the steal fade, and C5 moves to C4's voice, its glide as far on as it was (Codex P3-1 on #301) */
 TT_TEST(porta_moved_waiting_note_keeps_its_glide)
 {
     double p;
@@ -219,6 +219,7 @@ TT_TEST(porta_moved_waiting_note_keeps_its_glide)
     fm_engine_note_on(&pt_eng, 60, 100);
     pt_run(10);
     fm_engine_note_on(&pt_eng, 72, 100);
+    pt_run(2);
     fm_engine_note_on(&pt_eng, 48, 100);
     pt_run(30);
     p = pt_pitch(72);
@@ -246,6 +247,45 @@ TT_TEST(porta_same_note_again_mid_glide_lands)
     TT_CHECK(p == 60.0);
 }
 
+/* a note that steals a voice glides through the steal fade: 2 voices, C3 and C4 held; C5 steals C3's
+ * voice and, once that has faded, is just above C4 (it glides from C4) */
+TT_TEST(porta_stealing_note_glides_through_the_fade)
+{
+    double p;
+    TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 2), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, 1000), FM_OK);
+    fm_engine_note_on(&pt_eng, 48, 100);
+    pt_run(10);
+    fm_engine_note_on(&pt_eng, 60, 100);
+    pt_run(10);
+    fm_engine_note_on(&pt_eng, 72, 100);
+    pt_run(10);
+    p = pt_pitch(72);
+    if (!(p > 60.0 && p < 61.0)) printf("    C5 at %.3f st 10 ms on, want just above 60\n", p);
+    TT_CHECK(p > 60.0 && p < 61.0);
+}
+
+/* the sequencer's notes and the keys share one last note played (#62): a key's C3, then a sequencer
+ * step's C4 glides from it, and a key's E4 after that from C4 */
+TT_TEST(porta_sequencer_and_keys_share_the_last_note)
+{
+    seq_event ev;
+    TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 6), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, 1000), FM_OK);
+    fm_engine_note_on(&pt_eng, 48, 100);
+    pt_run(20);
+    fm_engine_note_off(&pt_eng, 48);
+    memset(&ev, 0, sizeof ev);
+    ev.kind = SEQ_EV_NOTE;
+    ev.note = 60;
+    ev.vel = 100;
+    seq_apply_event(&pt_eng, &ev, 0);
+    TT_CHECK(fabs(pt_pitch(60) - 48.0) < 0.01);
+    pt_run(20);
+    fm_engine_note_on(&pt_eng, 64, 100);
+    TT_CHECK(fabs(pt_pitch(64) - 60.0) < 0.01);
+}
+
 static void run_porta_tests(void)
 {
     TT_RUN(porta_glides_exponentially_with_its_tau);
@@ -261,4 +301,6 @@ static void run_porta_tests(void)
     TT_RUN(porta_unison_mid_glide_goes_on_from_where_it_is);
     TT_RUN(porta_moved_waiting_note_keeps_its_glide);
     TT_RUN(porta_same_note_again_mid_glide_lands);
+    TT_RUN(porta_stealing_note_glides_through_the_fade);
+    TT_RUN(porta_sequencer_and_keys_share_the_last_note);
 }

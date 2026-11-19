@@ -125,14 +125,17 @@ control tick (32 samples) a gliding voice's offset falls by
 - **From the last note played**, also one let go (Eric's rule). Notes struck
   together each glide from the one before. The engine keeps one last note
   for everything it is sent, so sequencer notes and live keys glide from
-  each other.
+  each other (`porta_sequencer_and_keys_share_the_last_note`).
 - **The same note struck again mid-glide lands at once:** the last note
-  played is itself (`porta_same_note_again_mid_glide_lands`).
+  played is itself (`porta_same_note_again_mid_glide_lands`). A note struck
+  again while its voice fades for a steal glides from the last note too.
 - **A note waiting for a stolen voice** keeps its glide if it moves to
   another voice (`porta_moved_waiting_note_keeps_its_glide`).
 - **Unison:** the voices glide on from where they are, for a new note and
   for the legato return.
-- A voice that goes quiet stops gliding.
+- A voice that goes quiet stops gliding. A voice fading out for a steal is
+  not quiet: its waiting note's glide goes on
+  (`porta_stealing_note_glides_through_the_fade`).
 - **Unmeasured on PG-8X:** which note it glides from for a chord, or for a
   new note while two are held. The rule above covers both.
 
