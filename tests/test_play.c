@@ -481,9 +481,30 @@ TT_TEST(play_midi_pressure_reaches_the_engine)
     }
 }
 
+/* B9: a pressure flood (10 keys' poly pressure 20 times and the channel's, between two blocks: far more than
+ * the queue holds) never drops a note off or lets every note go: the queue never sees it */
+TT_TEST(play_pressure_flood_never_drops_a_note_off)
+{
+    uint32_t i, k;
+    TT_CHECK_EQ(pl_init_short_release(&pl_a), 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    play_midi(&pl_a, 0x90, 64, 100);
+    pl_render(&pl_a);
+    for (i = 0; i < 20u; i++) {
+        for (k = 0; k < 10u; k++)
+            play_midi(&pl_a, 0xA0, 60 + k, (i * 13u + k) & 127u);
+        play_midi(&pl_a, 0xD0, i * 5u, 0);
+    }
+    play_midi(&pl_a, 0x80, 60, 0);
+    pl_render_for(&pl_a, PL_RELEASED);
+    TT_CHECK_EQ(pl_a.lost, 0);
+    TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 1);   /* C4 let go, E4 still held */
+}
+
 static void run_play_tests(void)
 {
     TT_RUN(play_midi_pressure_reaches_the_engine);
+    TT_RUN(play_pressure_flood_never_drops_a_note_off);
     TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
     TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);
     TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);
