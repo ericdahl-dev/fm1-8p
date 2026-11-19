@@ -68,6 +68,104 @@ void seq_init(seq *s)
     s->ext = s->ext_inc = s->ext_t0 = s->ext_cont = s->ext_hold = 0;
     s->blk_seq = s->blk_t = s->blk_u = s->blk_inc = s->blk_fs = 0;
     s->upos = s->fs = 0;
+    s->out_want = s->out_on = s->out_block = 0;
+    s->out_acc = s->out_ticks = s->out_sent = s->out_w = s->out_r = 0;
+    s->out_mw = s->out_mr = 0;
+}
+
+/* interrupt: a start or stop out, after the ticks counted so far */
+static void out_put(seq *s, uint8_t st)
+{
+    if (s->out_w - s->out_r >= SEQ_OUT_EV)
+        return;                                 /* (the main loop gone for 8 transport changes: dropped) */
+    s->out_ev[s->out_w % SEQ_OUT_EV].st = st;
+    s->out_ev[s->out_w % SEQ_OUT_EV].at = s->out_ticks;
+    BARRIER();
+    s->out_w++;
+}
+
+/* interrupt: its own clock moved on by d (as acc counts it): the clock out's ticks that fell due, 24 a
+ * quarter, unswung (a step is fs x 600 of acc at 50 %: six ticks). Moved with acc, step by step, so a
+ * tempo change at a step's start can't drift it from the steps */
+static void out_adv(seq *s, uint32_t d, uint32_t xi)
+{
+    uint32_t unit = s->fs * 100u;
+    if (!s->out_on || xi)
+        return;
+    s->out_acc += d;
+    while (s->out_acc >= unit) {
+        s->out_acc -= unit;
+        s->out_ticks++;
+    }
+}
+
+void (*seq_test_hook)(seq *s, uint32_t point);
+
+#define TEST_POINT(s, n) do { if (seq_test_hook) seq_test_hook((s), (n)); } while (0)
+
+/* main loop: a followed clock's byte to pass on (dropped past SEQ_OUT_M untaken) */
+static void out_pass(seq *s, uint8_t st)
+{
+    uint32_t i = s->out_mw % SEQ_OUT_M;
+    if (s->out_mw - s->out_mr >= SEQ_OUT_M)
+        return;
+    s->out_m[i].t = s->out_ticks;               /* (what the interrupt had counted and put by now: those go */
+    BARRIER();                                  /* out first) */
+    s->out_m[i].w = s->out_w;
+    s->out_m[i].st = st;
+    s->out_mw++;
+}
+
+void seq_clock_out_stop(seq *s)
+{
+    s->out_block = 1;                           /* (a PLAY asked and not yet taken starts no clock out) */
+    BARRIER();
+    if (!s->out_on)
+        return;
+    s->out_on = 0;                              /* (the interrupt counts and stops no more for this run) */
+    BARRIER();
+    out_pass(s, 0xFCu);
+}
+
+void seq_set_clock_out(seq *s, uint32_t on)
+{
+    s->out_want = (uint8_t)(on != 0);
+}
+
+int seq_clock_out_take(seq *s, uint8_t *st)
+{
+    uint32_t t = s->out_ticks, w;               /* the ticks, then the events: an event put after this */
+    int m = s->out_mr != s->out_mw;             /* read is stamped at or after t, so never goes before them */
+    BARRIER();
+    w = s->out_w;
+    if (s->out_r != w && (!m || (int32_t)(s->out_r - s->out_m[s->out_mr % SEQ_OUT_M].w) < 0)) {
+        BARRIER();                              /* (the event's fields after its index) */
+        if ((int32_t)(s->out_ev[s->out_r % SEQ_OUT_EV].at - s->out_sent) > 0) {
+            *st = 0xF8u;                        /* the ticks before it, then it */
+            s->out_sent++;
+            return 1;
+        }
+        *st = s->out_ev[s->out_r % SEQ_OUT_EV].st;
+        BARRIER();
+        s->out_r++;
+        return 1;
+    }
+    if (m) {                                    /* one the main loop queued: the ticks counted before it, then it */
+        if ((int32_t)(s->out_m[s->out_mr % SEQ_OUT_M].t - s->out_sent) > 0) {
+            *st = 0xF8u;
+            s->out_sent++;
+            return 1;
+        }
+        *st = s->out_m[s->out_mr % SEQ_OUT_M].st;
+        s->out_mr++;
+        return 1;
+    }
+    if ((int32_t)(t - s->out_sent) > 0) {
+        *st = 0xF8u;
+        s->out_sent++;
+        return 1;
+    }
+    return 0;
 }
 
 uint32_t seq_length(const seq *s)
@@ -205,6 +303,7 @@ void seq_set_swing(seq *s, uint32_t pct)
 
 void seq_play(seq *s)
 {
+    s->out_block = 0;                           /* (#286: a PLAY after a let-go sends again) */
     if (s->clk_src == SEQ_CLK_MIDI || (s->clk_src == SEQ_CLK_AUTO && s->clk_present)) {
         s->want = 1;                            /* #38: the clock's in charge, so this arms (the interrupt
                                                  * acts on asks only); a second press (seq_stop) disarms.
@@ -225,6 +324,12 @@ void seq_play(seq *s)
 
 void seq_stop(seq *s)
 {
+    if (s->out_on && s->ext) {                  /* #286: a followed run's stop goes out after the ticks passed
+                                                 * on (the main loop's queue, in order); its own run's, the
+                                                 * interrupt sends after its own ticks */
+        out_pass(s, 0xFCu);
+        s->out_on = 0;
+    }
     s->clk_armed = 0;
     s->clk_pending = 0;
     s->clk_running = 0;
@@ -531,6 +636,12 @@ static void clock_tick(seq *s, uint32_t t)
             s->clk_shown = 0;                   /* (the second tick measures it outright) */
         }                       /* the start's tick 0 */
         s->ext_cont = s->clk_pending == 2u;
+        if (s->playing && s->out_on) {          /* #286: its own run (or the last) stops first, and off: */
+            s->out_on = 0;                      /* a stop ask the interrupt takes now sends no second one */
+            BARRIER();
+            out_pass(s, 0xFCu);
+        }
+        TEST_POINT(s, 1);
         s->clk_started = 1;
         s->clk_pending = 0;
         s->clk_target = 0;
@@ -538,12 +649,19 @@ static void clock_tick(seq *s, uint32_t t)
         s->ext_t0 = t;
         set_rate(s, 0, fs, 1);
         s->ext = 1;
+        BARRIER();                              /* (following now: the interrupt counts no ticks of its own) */
+        TEST_POINT(s, 2);
         s->clk_running = 1;
         s->clk_armed = 0;
         s->want = 1;
         BARRIER();                              /* the rate and tick 0 before the ask */
         s->ask_play++;
-        BARRIER();
+        TEST_POINT(s, 3);
+        BARRIER();                              /* #286: G14 latched after the ask, so a stop ask still */
+        s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* pending can't find it on and switch it off */
+        if (s->out_on)
+            out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
+        TEST_POINT(s, 4);
         s->ext_hold = 0;                        /* (the interrupt takes the ask before it would step) */
         return;
     }
@@ -568,7 +686,11 @@ void seq_clock_in(seq *s, uint32_t st, uint32_t t)
     if (s->clk_src == SEQ_CLK_INT)
         return;
     switch (st) {
-    case 0xF8u: clock_tick(s, t); break;
+    case 0xF8u:
+        clock_tick(s, t);
+        if (s->clk_running && s->out_on)
+            out_pass(s, 0xF8u);                 /* #286: passed on as it came, once (Eric, Q2) */
+        break;
     case 0xFAu:                                 /* from step 1, on the next tick */
         s->clk_pending = 1;
         s->clk_pend_t = t;
@@ -797,12 +919,23 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             thr = step_len(s, fs);
             s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
         } else if (s->want) {
+            if (s->playing && s->out_on)
+                out_put(s, 0xFCu);              /* #286: a restart: stop, then start (never two starts) */
+            s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* #286: G14 as it is at the start */
+            if (s->out_on) {
+                out_put(s, 0xFAu);              /* start, then the first tick, with step 1 */
+                s->out_acc = 0;
+                s->out_ticks++;
+            }
             s->pos = s->acc = 0;
             s->cur_bend = s->cur_mod = 0;       /* (a first GLIDE moves from center and 0) */
             s->glide_on = 0;
             s->playing = 1;
             cnt = start_step(s, ev, cnt, 0, voices);
         } else {
+            if (s->playing && s->out_on)
+                out_put(s, 0xFCu);              /* #286: stop */
+            s->out_on = 0;
             if (s->playing) {                   /* bend to center, mod to the live wheel (#42) */
                 cnt = put_ctl(ev, cnt, 0, SEQ_EV_BEND, 0);
                 cnt = put_ctl(ev, cnt, 0, SEQ_EV_MOD, SEQ_MOD_LIVE);
@@ -835,10 +968,12 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
         j = s->acc >= target ? 0 : (target - s->acc + inc - 1u) / inc;
         if (j >= n - t) {                       /* not in this block */
             s->acc += (n - t) * inc;
+            out_adv(s, (n - t) * inc, xi);
             break;
         }
         t += j;
         s->acc += j * inc;
+        out_adv(s, j * inc, xi);
         if (target == glide && glide != thr) {  /* a GLIDE update: where the step's clock has got to */
             uint32_t q = s->acc / (thr >> 10);  /* 0..1024 of the step */
             q = q > 1024u ? 1024u : q;

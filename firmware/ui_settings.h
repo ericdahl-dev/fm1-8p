@@ -10,7 +10,7 @@ typedef struct {
     uint8_t midi_in;                    /* G11: 0 ALL, 1..16 */
     uint8_t midi_out;                   /* G12: 1..16 */
     uint8_t clock_src;                  /* G13: 0 AUTO, 1 INT, 2 MIDI (waits on #38) */
-    uint8_t clock_out;                  /* G14: OFF, ON (waits on #38) */
+    uint8_t clock_out;                  /* G14: OFF, ON (#286: the next PLAY sends clock, start and stop) */
     uint8_t cc_recv;                    /* G21: OFF, ON (waits on #49) */
     uint8_t cc_send;                    /* G22: OFF, ON (waits on #49) */
     uint8_t prog_change;                /* G23: 0 OFF, 1 RECV, 2 SEND, 3 BOTH */

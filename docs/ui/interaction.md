@@ -481,8 +481,26 @@ jump's keypad glow (SEL held) shows either way, and so will the sequencer's step
 
 Program change is G41, on a fourth page (Eric: CC MAP took G23). G42-G44 are empty for now.
 
-G13 CLOCK SOURCE is live (#38). Until clock out lands, G14 shows `--` and
-its knob does nothing. G21-G24 are live (#49).
+G13 CLOCK SOURCE (#38) and G14 CLOCK OUT (#286) are live. G21-G24 are live (#49).
+
+**Clock out (G14, #286):** with it on, the sequencer sends MIDI clock, start
+and stop, only while it plays (Eric, 2026-11-18). A G14 change takes effect
+at the next PLAY.
+
+- **On its own clock:** MIDI start, then 24 clocks a quarter note at its
+  tempo, a clock on every step's start (6 a step; swing doesn't bend the
+  clock), then MIDI stop. A restart from step 1 sends a stop, then a start.
+- **Following an incoming clock (G13):** it passes the clock on: each clock
+  that comes in goes out once, as it came, and none of its own. The start
+  (or continue) goes out as the sequencer starts on it, and the stop as it
+  stops (a stop that comes in, or the clock lost). A hand-over from its own
+  clock to an incoming one sends its stop, then the start.
+- **Timing:** fm1-dock sends MIDI from its main loop only, so a clock goes
+  out at the next main loop pass (its longest part, one draw call, measured
+  2.3 ms in fm1-emu). Clocks are never lost: late ones go out together.
+- **Watch for loops:** if the device sending the FM-1 its clock also takes the
+  FM-1's MIDI out back in (a DAW echoing its MIDI input to its output), the
+  clock goes round. Turn G14 off, or don't route the FM-1's out back to it.
 
 **CC send (G22):** with it ON, a panel knob turn goes out as its parameter's CC (the CC map below),
 on G12's channel, on the scale a CC in reads, so a DAW that records it and plays it back lands on
