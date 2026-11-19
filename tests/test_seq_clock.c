@@ -1223,6 +1223,55 @@ TT_TEST(clock_out_ticks_stay_unswung)
     TT_CHECK(worst >= 0 && worst <= 0.1 + 1000.0 / CK_FS + 1e-3);
 }
 
+/* a stop mid-run is held to its own time as the start is: SEQ_OUT_LAT after the block it was taken in,
+ * after every tick before it */
+TT_TEST(clock_out_holds_a_stop_a_block)
+{
+    static seq_event ev[SEQ_EVENTS];
+    uint32_t t0, l = ck_frames_host(SEQ_OUT_LAT), n;
+    uint8_t got[64];
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.5);
+    seq_stop(&ck);
+    t0 = ck_host((double)ck_done / CK_FS);
+    seq_block_time(&ck, t0);
+    (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+    n = ck_take_all_at(t0 + l - 2u, got, 64);  /* the ticks before it may go; not the stop */
+    TT_CHECK(n == 0u || got[n - 1u] == 0xF8u);
+    TT_CHECK_EQ(ck_take_all_at(t0 + l + 1u, got, 64), 1u);
+    TT_CHECK_EQ(got[0], 0xFCu);
+}
+
+/* a hand-over from its own clock to a followed one: the stop, the start and the ticks passed on wait
+ * behind its own ticks still held, but once only, at most SEQ_OUT_LAT and a block (ck_run takes a block
+ * after a byte comes in: one block more here); then each tick in goes out at once */
+TT_TEST(clock_out_hand_over_waits_a_block_once)
+{
+    uint32_t i, k = 0, fa = 0, bad = 0;
+    double held = (double)(SEQ_OUT_LAT + 2u * CK_BLOCK) / CK_FS + 1e-6, quick = 2.0 * CK_BLOCK / CK_FS + 1e-6;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_ticks_ramp(1.0, 140.0, 140.0, 0, 1, 24u * 4u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[24 * 4 - 1] - 0.01);
+    for (i = 0; i < ck_n_out; i++) {
+        if (ck_out[i] == 0xFAu && ++fa == 2u && ck_out_t[i] - ck_tick_at[24] > held)
+            bad++;                             /* (the followed start: on tick 24) */
+        if (fa == 2u && ck_out[i] == 0xF8u) {  /* tick 24 + k passed on */
+            double late = ck_out_t[i] - ck_tick_at[24 + k];
+            if (late < 0 || late > (k < 2u ? held : quick))
+                bad++;
+            k++;
+        }
+    }
+    TT_CHECK_EQ(fa, 2u);
+    TT_CHECK(k > 60u);
+    TT_CHECK_EQ(bad, 0u);
+}
+
 /* TEMPO changed many times, 60 to 300 BPM: each tick out after the one ahead of it, never in a burst:
  * no gap under the fastest tempo's (8.33 ms) less a pass */
 TT_TEST(clock_out_tempo_changes_without_a_burst)
@@ -1295,6 +1344,8 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_ticks_on_their_own_time);
     TT_RUN(clock_out_main_loop_away);
     TT_RUN(clock_out_back_from_away_sends_what_is_due);
+    TT_RUN(clock_out_holds_a_stop_a_block);
+    TT_RUN(clock_out_hand_over_waits_a_block_once);
     TT_RUN(clock_out_ticks_stay_unswung);
     TT_RUN(clock_out_tempo_changes_without_a_burst);
     TT_RUN(clock_out_passes_on_at_once);

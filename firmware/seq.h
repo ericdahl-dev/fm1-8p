@@ -31,6 +31,7 @@
 #define SEQ_OUT_M 16u                   /* #286: a followed clock's bytes, between two takes */
 #define SEQ_OUT_LAT 256u                /* #306: frames from a clock out byte's time to its send (a block) */
 #define SEQ_OUT_T 16u                   /* #306: ticks stamped, not yet sent (past that: sent unstamped) */
+_Static_assert((SEQ_OUT_T & (SEQ_OUT_T - 1u)) == 0, "SEQ_OUT_T a power of two: out_ticks % SEQ_OUT_T across the wrap");
 #define SEQ_TRANSPOSE_MAX 24            /* transpose, semitones: -24..+24 (interaction.md, S3 PLAY) */
 #define SEQ_VEL_DEF 100u
 /* #38: external MIDI clock, 24 ticks a quarter note (6 a step), its times on the host's 24 MHz
@@ -259,7 +260,9 @@ uint32_t seq_waiting(const seq *s);
 void seq_set_clock_out(seq *s, uint32_t on);
 /* main loop: the next MIDI real-time byte to send (0xF8 clock, 0xFA start, 0xFC stop) into *st, in the
  * order they fell due, at host time now (SEQ_CLK_HZ counts, wrapping); all: everything due or not (the
- * module let go: nothing drains after). 0 when there's none. Call it often (each main loop pass) */
+ * module let go: nothing drains after). 0 when there's none. Call it often (each main loop pass). The
+ * sequencer's own bytes go SEQ_OUT_LAT after their frame (#306); a followed clock's go at once, except
+ * at a hand-over from its own clock, once: behind its own ticks still held, up to SEQ_OUT_LAT and a block */
 int seq_clock_out_take(seq *s, uint32_t now, uint32_t all, uint8_t *st);
 /* main loop: clock out stops now (the module let go, release): a stop after what's due, then nothing */
 void seq_clock_out_stop(seq *s);
