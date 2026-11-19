@@ -397,6 +397,7 @@ static void at_tick(fm_engine *e)
             moving = 1;
         }
         fm_voice_set_gain(&e->voices[i], at_gain(e, i));
+        fm_voice_set_pressure(&e->voices[i], &e->mod, e->at_now[i]);
     }
     e->at_moving = moving;
 }
@@ -565,6 +566,8 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV2, FM_MOD_CUTOFF,
                          env2 ? amount : 0);
     }
+    if (id == FM_PARAM_AT_BRI_CENTS) /* aftertouch's brilliance (#61) */
+        e->mod.at_bri_cents = v;
     if (id == FM_PARAM_FILTER_CUTOFF_CENTS) /* once for every voice (#253) */
         v = fm_filter_linear_cents(v);
     for (i = 0; i < e->voice_count; i++) {
@@ -581,6 +584,9 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_HIGHPASS_STEP:
             fm_voice_set_highpass(vc, (uint8_t)v);
+            break;
+        case FM_PARAM_AT_BRI_CENTS:
+            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
             /* busy while the envelope reaches the cutoff, and after it
@@ -809,6 +815,7 @@ static void at_start(fm_engine *e, uint8_t i)
 {
     e->at_now[i] = e->at_to[i] = e->at_chan;
     fm_voice_set_gain(&e->voices[i], at_gain(e, i));
+    fm_voice_set_pressure(&e->voices[i], &e->mod, e->at_now[i]);
 }
 
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune

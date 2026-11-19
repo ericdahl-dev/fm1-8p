@@ -169,6 +169,37 @@ TT_TEST(at_ramp_does_not_depend_on_block_size)
     TT_CHECK(same);
 }
 
+/* a held C3 through a resonant lowpass at `cutoff` cents, AT BRI `bri`, channel pressure `p` (if any) 100 ms
+ * in; the amplitude of its 6th harmonic 400 ms on */
+static double at_bright(int32_t cutoff, int32_t bri, int p)
+{
+    if (fm_engine_init(&at_eng, AT_RATE, 4) != FM_OK ||
+        fm_engine_set_param(&at_eng, FM_PARAM_FILTER_CUTOFF_CENTS, cutoff) != FM_OK ||
+        fm_engine_set_param(&at_eng, FM_PARAM_FILTER_RESONANCE, 500) != FM_OK ||
+        fm_engine_set_param(&at_eng, FM_PARAM_AT_BRI_CENTS, bri) != FM_OK)
+        return -1.0;
+    fm_engine_note_on(&at_eng, 48, 100);
+    at_run(100);
+    if (p >= 0) fm_engine_channel_pressure(&at_eng, (uint8_t)p);
+    at_run(300);
+    fm_engine_render(&at_eng, at_buf, AT_RATE / 10);
+    return tone_amp(at_buf, AT_RATE / 10, 0, 6.0 * note_hz(48), AT_RATE);
+}
+
+/* AT BRI: full pressure adds at_bri_cents to the cutoff, half pressure about half (B5): a 6th harmonic
+ * above the cutoff reads as with the cutoff that much higher (2 %) */
+TT_TEST(at_bri_raises_the_cutoff_by_its_cents)
+{
+    double base = at_bright(6000, 0, -1), up = at_bright(7200, 0, -1), half = at_bright(6600, 0, -1);
+    double full_at = at_bright(6000, 1200, 127), half_at = at_bright(6000, 1200, 64), none = at_bright(6000, 1200, 0);
+    TT_CHECK(up > base * 1.5);
+    if (fabs(full_at / up - 1.0) > 0.02 || fabs(half_at / half - 1.0) > 0.02 || fabs(none / base - 1.0) > 0.02)
+        printf("    p127 %.4f of +1200, p64 %.4f of +600, p0 %.4f of +0\n", full_at / up, half_at / half, none / base);
+    TT_CHECK(fabs(full_at / up - 1.0) <= 0.02);
+    TT_CHECK(fabs(half_at / half - 1.0) <= 0.02);
+    TT_CHECK(fabs(none / base - 1.0) <= 0.02);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
@@ -176,4 +207,5 @@ static void run_at_tests(void)
     TT_RUN(at_new_note_starts_at_the_channel_pressure);
     TT_RUN(at_pressure_step_ramps_in_16_ms);
     TT_RUN(at_ramp_does_not_depend_on_block_size);
+    TT_RUN(at_bri_raises_the_cutoff_by_its_cents);
 }

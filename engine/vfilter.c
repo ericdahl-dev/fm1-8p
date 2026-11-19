@@ -51,9 +51,13 @@ int fm_vfilter_at_rest(const fm_vfilter *vf)
     return fm_filter_voice_cents(vf->base, vf->key_track, vf->key, 0) == vf->cutoff;
 }
 
-int fm_vfilter_update(fm_vfilter *vf, int32_t mod_cents)
+int fm_vfilter_update(fm_vfilter *vf, int32_t mod_cents, int32_t add_cents)
 {
     int32_t cents = fm_filter_voice_cents(vf->base, vf->key_track, vf->key, mod_cents);
+    if (add_cents) {
+        cents += add_cents;
+        if (cents > FM_FILTER_OPEN_CENTS) cents = FM_FILTER_OPEN_CENTS;
+    }
     if (cents == vf->cutoff) return 0; /* the coefficients stand */
     vf->cutoff = cents;
     fm_filter_set_cutoff(&vf->f, cents, vf->rate_cents);

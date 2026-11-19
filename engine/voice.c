@@ -172,7 +172,9 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
     if (m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF])
         fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2, env2);
     if (fm_vfilter_update(&v->vf, fm_mod_update(&v->mod, &m->routes,
-                                                FM_MOD_CUTOFF)))
+                                                FM_MOD_CUTOFF),
+                          m->at_bri_cents ? (int32_t)(((int64_t)v->mod.src[FM_MOD_SRC_AT] *
+                                                       m->at_bri_cents) >> 30) : 0))
         mark_filter(v); /* else the coefficients stand */
     fm_voice_mark(v, FM_BUSY_FILTER_ENV,
                   !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF));
@@ -236,8 +238,10 @@ static void set_level(fm_voice *v, const fm_voice_mod *m, int32_t peak)
  */
 static void restart_lfo(fm_voice *v, uint32_t now)
 {
+    int32_t at = v->mod.src[FM_MOD_SRC_AT]; /* the engine's, for this note */
     if (v->amp_env.stage != FM_ENV_IDLE) return;
     fm_mod_reset(&v->mod);
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_AT, at);
     v->lfo_start = now;
 }
 
@@ -425,6 +429,13 @@ void fm_voice_set_gain(fm_voice *v, int32_t gain)
 {
     v->gain = gain;
     fm_voice_mark(v, FM_BUSY_GAIN, gain != FM_ENV_FULL);
+}
+
+void fm_voice_set_pressure(fm_voice *v, const fm_voice_mod *m, int32_t pressure)
+{
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_AT, pressure);
+    if (m->at_bri_cents)
+        fm_voice_mark(v, FM_BUSY_CUTOFF, 1); /* composed at the next filter step */
 }
 
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,

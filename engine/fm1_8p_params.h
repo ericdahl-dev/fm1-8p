@@ -123,7 +123,8 @@ typedef enum {
     /* aftertouch (#61): vibrato depth at full pressure, at the LFO's rate on top of its own
      * (PG-8X: 540 ct at full) */
     FM_PARAM_AT_VIB_CENTS,
-    /* aftertouch (#61): cents added to the cutoff at full pressure (PG-8X: 2280 ct at full) */
+    /* aftertouch (#61): cents added to the cutoff at full pressure, whatever its base (PG-8X:
+     * about 2360 ct at full) */
     FM_PARAM_AT_BRI_CENTS,
     /* aftertouch (#61): a voice's gain is 1 - d/2 + d x pressure/127 at d percent (PG-8X's, an
      * untouched key 6 dB down at 100) */

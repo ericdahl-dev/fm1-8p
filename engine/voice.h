@@ -73,6 +73,8 @@ typedef struct {
     uint8_t penv_dyna;    /* its DYNAMICS position (dyna.h), 0 off */
     uint8_t fenv_dyna;    /* the filter envelope's, on its cutoff depth */
     uint8_t mix_dyna;     /* the mix envelope's DYNAMICS position, 0 off */
+    int32_t at_bri_cents; /* aftertouch's brilliance (#61): cents added after
+                           * the cutoff's curve at full pressure */
 } fm_voice_mod;
 
 /* Idle, with the filter open. `seed` starts the voice's noise; give each
@@ -248,6 +250,10 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
  * level times `gain` (Q1.30, up to 1.5; FM_ENV_FULL is none). Applied
  * from the next sample rendered. */
 void fm_voice_set_gain(fm_voice *v, int32_t gain);
+
+/* The voice's aftertouch pressure (#61), Q1.30: its mod source
+ * FM_MOD_SRC_AT. A note start keeps it (the engine sets it per note). */
+void fm_voice_set_pressure(fm_voice *v, const fm_voice_mod *m, int32_t pressure);
 
 /*
  * A voice's busy word: each per-voice processor sets its bit when it leaves

@@ -688,16 +688,16 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "540 ct | 540 ct",         /* at_vib_cents 540 */
         "0 ct | 0 ct",             /* at_vib_cents 0, the default */
     }},
-    {57, "at_bri_cents", 2285u, 0xB4AC6D05u, {
+    {57, "at_bri_cents", 2365u, 0x73D27918u, {
         "0 ct | 0 ct",             /* at_bri_cents 0 */
-        "285 ct | 285 ct",         /* at_bri_cents 285 */
-        "570 ct | 570 ct",         /* at_bri_cents 570 */
-        "855 ct | 855 ct",         /* at_bri_cents 855 */
-        "1140 ct | 1140 ct",       /* at_bri_cents 1140 */
-        "1425 ct | 1425 ct",       /* at_bri_cents 1425 */
-        "1710 ct | 1710 ct",       /* at_bri_cents 1710 */
-        "1995 ct | 1995 ct",       /* at_bri_cents 1995 */
-        "2280 ct | 2280 ct",       /* at_bri_cents 2280 */
+        "295 ct | 295 ct",         /* at_bri_cents 295 */
+        "590 ct | 590 ct",         /* at_bri_cents 590 */
+        "885 ct | 885 ct",         /* at_bri_cents 885 */
+        "1180 ct | 1180 ct",       /* at_bri_cents 1180 */
+        "1475 ct | 1475 ct",       /* at_bri_cents 1475 */
+        "1770 ct | 1770 ct",       /* at_bri_cents 1770 */
+        "2065 ct | 2065 ct",       /* at_bri_cents 2065 */
+        "2360 ct | 2360 ct",       /* at_bri_cents 2360 */
         "0 ct | 0 ct",             /* at_bri_cents 0, the default */
     }},
     {58, "at_vol_pct", 105u, 0xF58CDE38u, {
