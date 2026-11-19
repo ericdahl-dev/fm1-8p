@@ -2936,7 +2936,8 @@ static uint32_t golden_engine_hash(int step)
  * the resonance's feedback saturates, busy_filter_patch is resonant), and with the two-section
  * lowpass (#162) and its cheaper per-sample form; the default patch, a wire, is unchanged. All five
  * retaken when every amp attack began to ease in (#274: the first few samples of each note), and
- * when the saw began to fall, as PG-8X's (#260: both patches play a saw, negated).
+ * when the saw began to fall, as PG-8X's (#260: both patches play a saw, negated before the output's
+ * int16 floor, so within 1-2 LSB of the old render negated).
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {

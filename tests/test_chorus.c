@@ -38,7 +38,8 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
  * sample x 1.44; the knee rose with it, so the phrase stays below it).
  * Retaken when every amp attack began to ease in (#274: each note's first
  * few samples), and when the saw began to fall, as PG-8X's (#260: the
- * phrase is the default patch's saw, so every sample is negated).
+ * phrase is the default patch's saw: each sample negated before the output's
+ * int16 floor, so within 1-2 LSB of the old one negated).
  */
 #define CH_GOLDEN_HASH 0x364E5CD9u
 
