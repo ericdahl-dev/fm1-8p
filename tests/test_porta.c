@@ -165,6 +165,47 @@ TT_TEST(porta_each_note_glides_from_the_last_played)
     TT_CHECK(fabs(pt_pitch(67) - 64.0) < 0.01);
 }
 
+/* a voice that has gone quiet stops gliding: a 10 s glide, its note let go with a short release; once the
+ * voice is idle, nothing glides (the engine stops splitting its chunks at every control tick for it) */
+TT_TEST(porta_stops_on_a_voice_gone_quiet)
+{
+    TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 6), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_AMP_RELEASE_MS, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, 10000), FM_OK);
+    fm_engine_note_on(&pt_eng, 36, 100);
+    pt_run(20);
+    fm_engine_note_off(&pt_eng, 36);
+    fm_engine_note_on(&pt_eng, 96, 100);
+    pt_run(50);
+    fm_engine_note_off(&pt_eng, 96);
+    pt_run(200);
+    TT_CHECK_EQ(fm_engine_active_voices(&pt_eng), 0);
+    TT_CHECK_EQ(pt_eng.porta_moving, 0);
+}
+
+/* unison: a note played mid-glide glides on from where the voices are, with no jump (they are the last
+ * note played, sounding) */
+TT_TEST(porta_unison_mid_glide_goes_on_from_where_it_is)
+{
+    int32_t before;
+    TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 6), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, 1000), FM_OK);
+    fm_engine_note_on(&pt_eng, 48, 100);
+    pt_run(20);
+    fm_engine_note_on(&pt_eng, 60, 100);
+    pt_run(200);
+    before = pt_eng.voices[0].pitch;
+    fm_engine_note_on(&pt_eng, 67, 100);        /* (C4 still held) */
+    if (pt_eng.voices[0].pitch != before)
+        printf("    G4 on: %.3f st -> %.3f st\n", before / 65536.0, pt_eng.voices[0].pitch / 65536.0);
+    TT_CHECK_EQ(pt_eng.voices[0].pitch, before);
+    pt_run(200);
+    before = pt_eng.voices[0].pitch;
+    fm_engine_note_off(&pt_eng, 67);            /* the legato return to C4, too */
+    TT_CHECK_EQ(pt_eng.voices[0].pitch, before);
+}
+
 static void run_porta_tests(void)
 {
     TT_RUN(porta_glides_exponentially_with_its_tau);
@@ -176,4 +217,6 @@ static void run_porta_tests(void)
     TT_RUN(porta_first_note_does_not_glide);
     TT_RUN(porta_set_to_zero_mid_glide_lands);
     TT_RUN(porta_each_note_glides_from_the_last_played);
+    TT_RUN(porta_stops_on_a_voice_gone_quiet);
+    TT_RUN(porta_unison_mid_glide_goes_on_from_where_it_is);
 }

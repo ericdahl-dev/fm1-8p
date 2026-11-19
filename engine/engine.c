@@ -378,7 +378,6 @@ static GLIDE_NOINLINE void glide_tick(fm_engine *e)
     e->glide_moving = moving;
 }
 
-/* Recomputes the derived settings a parameter feeds. */
 /* Portamento's step a control tick: 1 - exp(-x), x = a tick / tau, Q30
  * (Q16 is 4 at 10 s, 9% off), from its series (x is at most 0.67 at 1 ms
  * and 48 kHz, where the fourth term, dropped, is 0.008). Off (0): every
@@ -410,22 +409,30 @@ static void porta_init(fm_engine *e)
 
 /* A control tick while a voice glides: its glide still to go falls by
  * porta_k (rounded up, on its size, so a glide either way always ends),
- * and it is retuned; under 1/1000 semitone it ends */
+ * and that voice alone is retuned; under 1/1000 semitone it ends. A
+ * voice gone quiet stops gliding. */
 static void porta_tick(fm_engine *e)
 {
     uint8_t i, moving = 0;
     for (i = 0; i < e->voice_count; i++) {
+        fm_voice *v = &e->voices[i];
+        uint8_t note = fm_voice_note(v);
         int32_t g = e->porta[i], d;
         if (!g) continue;
+        if (!fm_voice_active(v) || note == FM_VOICE_NO_NOTE) {
+            e->porta[i] = 0;
+            continue;
+        }
         d = (int32_t)(((int64_t)(g < 0 ? -g : g) * e->porta_k + (1 << 30) - 1) >> 30);
         g = g < 0 ? g + d : g - d;
         e->porta[i] = g > -66 && g < 66 ? 0 : g;
         moving |= e->porta[i] != 0;
+        fm_voice_set_pitch(v, voice_pitch(e, i, note), e->sample_rate);
     }
     e->porta_moving = moving;
-    retune(e);
 }
 
+/* Recomputes the derived settings a parameter feeds. */
 static void apply_param(fm_engine *e, uint16_t id)
 {
     int32_t v = e->params[id];
@@ -885,8 +892,15 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
+        uint8_t was = fm_voice_note(v);
         fm_voice_age(v, ++e->stamp);
-        porta_start(e, i, note);
+        if (e->params[FM_PARAM_PORTAMENTO_MS] && fm_voice_active(v) && was != FM_VOICE_NO_NOTE) {
+            /* sounding: on from where it is (no jump mid-glide) */
+            e->porta[i] += ((int32_t)was - (int32_t)note) * 65536;
+            if (e->porta[i]) e->porta_moving = 1;
+        } else {
+            porta_start(e, i, note);
+        }
         fm_voice_change_note(v, &e->mod, note, voice_pitch(e, i, note), peak,
                              velocity, e->ticks + 1, e->sample_rate, retrigger);
     }
