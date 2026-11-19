@@ -898,7 +898,8 @@ static inline int32_t sync_dc(fm_osc_pair *p, int32_t v, int wrapped)
         int32_t m = cycle_mean(p->dc_sum, p->osc[0].inc);
         int32_t jit = (int32_t)(p->osc[0].inc >> 8); /* 1.0 (Q8.24) / the cycle's length */
         int32_t small = m > jit ? jit : m < -jit ? -jit : m;
-        p->dc += m - small + (small >> SYNC_DC_SLOW);
+        /* rounded, not floored: a floor leaves a standing DC of about +16 LSB */
+        p->dc += m - small + ((small + (1 << (SYNC_DC_SLOW - 1))) >> SYNC_DC_SLOW);
         p->dc_sum = 0;
     }
     return y;

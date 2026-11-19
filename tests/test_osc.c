@@ -2197,6 +2197,42 @@ TT_TEST(synced_osc2_settles_to_no_dc_under_the_step)
 }
 
 /*
+ * The slow share of a cycle's mean moves the offset by 1/32, rounded to
+ * the nearest LSB, not floored (#253): a floor drops toward -inf, so each
+ * cycle's jitter leaves the offset half an LSB low on average and the pair
+ * a standing DC of about +16 LSB (Q8.24). Settled, over 100 s of CLAV's
+ * synced square and a saw in its place, at A3 and A5: under 4 LSB.
+ */
+TT_TEST(synced_dc_rounds_the_slow_share)
+{
+    static const int notes[] = { 57, 81 };
+    static const uint8_t waves[] = { FM_WAVE_SQUARE, FM_WAVE_SAW };
+    static fm_osc_pair p;
+    double worst = 0;
+    size_t w, k;
+    for (w = 0; w < 2; w++)
+    for (k = 0; k < 2; k++) {
+        const uint32_t n = 4800000;
+        int64_t sum = 0;
+        uint32_t i;
+        double dc;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 1, waves[w]);
+        fm_osc_pair_set_level(&p, 0, 0);
+        fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_sync(&p, 1);
+        fm_osc_pair_set_pitch(&p, notes[k] << 16, 48000);
+        fm_osc_pair_set_tune(&p, 1, -1200 + 22, notes[k] << 16, 48000);
+        for (i = 0; i < 48000; i++) (void)fm_osc_pair_next(&p);
+        for (i = 0; i < n; i++) sum += fm_osc_pair_next(&p);
+        dc = (double)sum / n;
+        if (fabs(dc) > fabs(worst)) worst = dc;
+    }
+    printf("    synced, settled, 100 s: largest DC %+.2f LSB (Q8.24)\n", worst);
+    TT_CHECK(fabs(worst) < 4);
+}
+
+/*
  * osc2 retuned mid-note under a synced C3, an octave up to a fifth up:
  * the restart moves from osc2's own wrap into its cycle, and the pair's DC
  * from none to -1/6. That is a real change, far past the step taken
@@ -2628,6 +2664,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_dc_follows_a_sync_sweep);
     TT_RUN(synced_osc2_settles_to_no_dc_under_the_step);
     TT_RUN(synced_osc2_retuned_mid_note_has_no_dc);
+    TT_RUN(synced_dc_rounds_the_slow_share);
     TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
     TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
     TT_RUN(synced_osc2_has_no_dc);
