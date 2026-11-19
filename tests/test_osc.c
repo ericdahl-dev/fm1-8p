@@ -2175,6 +2175,28 @@ TT_TEST(synced_osc2_has_no_dc)
 }
 
 /*
+ * A mean smaller than the step sync_dc takes at once (1.0 / the cycle's
+ * length: 0.018 at A5) is still taken off, slowly (#253): settled, a
+ * synced saw a fifth up at A5 has no DC left, not one parked anywhere
+ * under that step.
+ */
+TT_TEST(synced_osc2_settles_to_no_dc_under_the_step)
+{
+    static fm_osc_pair p;
+    int32_t pitch = 81 << 16;
+    double dc;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_tune(&p, 1, 702, pitch, RATE);
+    fm_osc_pair_set_pitch(&p, pitch, RATE);
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, 1);
+    dc = pair_dc(&p, 24000, 48000);
+    printf("    synced saw a fifth up at A5, settled: DC %+.6f\n", dc);
+    TT_CHECK(fabs(dc) < 1e-4);
+}
+
+/*
  * SYNC 2 with a pulse osc1 (SYNC LEAD's): the ring drives osc2 past +-2.0
  * a third of the time (inside the pair's +-4.0 hold), and taking a mean off
  * shifts the wave. The pair still plays with no DC.
@@ -2576,6 +2598,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
     TT_RUN(synced_dc_leaves_no_comb_under_the_fundamental);
     TT_RUN(synced_dc_follows_a_sync_sweep);
+    TT_RUN(synced_osc2_settles_to_no_dc_under_the_step);
     TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
     TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
     TT_RUN(synced_osc2_has_no_dc);

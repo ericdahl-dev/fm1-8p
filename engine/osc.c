@@ -878,11 +878,15 @@ static int32_t cycle_mean(int64_t sum, uint32_t inc)
  * mean would step with that jitter, un-band-limited, and the steps'
  * pattern is a comb at tens of Hz (#253: CLAV, a synced square, -24 dB
  * re f0 where PG-8X has -52). So the part of a mean within one full
- * step (1.0) per cycle, the most the jitter reaches, moves the offset
- * by 1/32 of it each cycle; the jitter averages out under it. Anything
- * past that is a real change (a note's first cycle, a retune, a sweep,
- * osc1 coming back from a stop) and moves it at once, as before. Shifts
- * and a hold at the wrap only: nothing per sample, no state.
+ * step (1.0) per cycle, the most the jitter of one wave at full reaches,
+ * moves the offset by 1/32 of it each cycle; the jitter averages out
+ * under it. Anything past that moves it at once, as before: a real
+ * change (a note's first cycle, a retune, a sweep, osc1 coming back from
+ * a stop), or the share of a wider pair's jitter (osc1 mixed in, the
+ * ring) past the step, which still leaves the comb lower than taking it
+ * all. While a sweep runs, the offset trails it by up to that step (0.018
+ * at A5, 0.06 an octave up). Shifts and a hold at the wrap only: nothing
+ * per sample, no state.
  */
 #define SYNC_DC_SLOW 5 /* the jitter's share moves the offset by 1/2^5 a cycle */
 static inline int32_t sync_dc(fm_osc_pair *p, int32_t v, int wrapped)
