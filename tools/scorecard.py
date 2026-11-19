@@ -111,15 +111,18 @@ def air_db(x):
     return max(10 * np.log10(sp[f >= AIR_HZ].sum() / (sp.sum() + 1e-30) + 1e-30), -FLOOR_DB)
 
 
-def as_ours_int16(pg, ours):
+def as_ours_int16(pg, ours, clip=True):
     """PG-8X's float render as ours would carry it: scaled to our RMS, put on 16 bits per channel as
     engine.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
-    hiss in it; scored against this, the floor is on both sides (#299)."""
+    hiss in it; scored against this, the floor is on both sides (#299). With clip False it is floored but
+    not clipped: at our RMS PG-8X's peaks can pass full scale where ours don't, and clipped they'd gain
+    harmonics neither render has (the spectral sections, s10)."""
     pg = np.asarray(pg, dtype=np.float64)
     g = np.sqrt(np.mean(mono(ours) ** 2) / (np.mean(mono(pg) ** 2) + 1e-30))
     if g <= 0:
         return pg
-    return np.clip(np.floor(pg * g * 32768), -32768, 32767) / 32768 / g
+    q = np.floor(pg * g * 32768)
+    return (np.clip(q, -32768, 32767) if clip else q) / 32768 / g
 
 
 def air_gap(ours, pg):
@@ -179,7 +182,7 @@ def score_tone(ours, pg, harmonic=True):
     spec = {}
     for k, (a, b) in SECTIONS.items():   # PG-8X's side at our level in int16, per channel (s10)
         o, p = (np.asarray(x)[int(a * SR):int(b * SR)] for x in (ours, pg))
-        spec[k] = round(spectral_distance(o, as_ours_int16(p, o)), 2)
+        spec[k] = round(spectral_distance(o, as_ours_int16(p, o, clip=False)), 2)
     return {
         "loudness_gap_lu": round(loudness_gap(ours, pg), 2),
         "spectral_db": spec,

@@ -163,6 +163,20 @@ class MetricTest(unittest.TestCase):
             self.assertGreater(raw, 5.0, k)
             self.assertAlmostEqual(s["spectral_db"][k], raw, delta=0.05, msg=k)
 
+    # Codex (s10): PG-8X's side scaled to our RMS can pass full scale when its peaks stand higher over its
+    # RMS than ours do. Clipped, it gains harmonics neither render has; the spectral sections only want
+    # the floor, so they take PG-8X's side unclipped.
+    def test_a_loud_peaky_reference_is_not_clipped_into_a_gap(self):
+        np = self.np
+        t = np.arange(13 * SR) / SR
+        ours = 0.42 * np.sin(2 * np.pi * 200 * t)                       # -10.5 dBFS, peaks at 0.42
+        ours = np.floor(ours * 32768) / 32768
+        pg = 0.9 * np.sin(2 * np.pi * 200 * t) * ((t * 5) % 1.0 < 0.1)  # bursts: peaks 3.3x ours at our RMS
+        s = self.sc.score_tone(np.stack([ours, ours], 1), np.stack([pg, pg], 1), harmonic=False)
+        for k, w in self.sc.SECTIONS.items():
+            raw = self.sc.spectral_distance(self.sc._cut(ours, *w), self.sc._cut(pg, *w))
+            self.assertAlmostEqual(s["spectral_db"][k], raw, delta=0.05, msg=k)
+
     # PG-8X's side lands on our renderer's grid: engine.c to_int16 floors (an arithmetic >> 8) and clips
     # to -32768..32767, and the reader divides by 32768.
     def test_pg_at_our_level_is_floored_and_clipped_as_our_renderer(self):
