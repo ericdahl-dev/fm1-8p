@@ -22,9 +22,11 @@
  * the note's velocity (its amp level, velocity curve applied), envelope 1
  * (the filter envelope's level) and envelope 2 (the amp envelope's level
  * as a share of the note's peak, so velocity doesn't scale it), the pitch
- * envelope, and the voice's aftertouch pressure (#61, smoothed). */
+ * envelope, the voice's aftertouch pressure (#61, smoothed) and that
+ * pressure times the LFO (before its delay: PG-8X's aftertouch vibrato
+ * doesn't wait for it). */
 enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_ENV1, FM_MOD_SRC_ENV2,
-       FM_MOD_SRC_PENV, FM_MOD_SRC_AT, FM_MOD_SRC_COUNT };
+       FM_MOD_SRC_PENV, FM_MOD_SRC_AT, FM_MOD_SRC_ATLFO, FM_MOD_SRC_COUNT };
 
 /* Destinations, each summed in its own unit: osc 1's pitch in Q16.16
  * octaves, pulse width in Q0.32, level (the amp envelope's peak) in Q1.30,

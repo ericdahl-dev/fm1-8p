@@ -442,6 +442,10 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now)
 {
     uint32_t since;
+    if (m->routes.depth[FM_MOD_SRC_ATLFO][FM_MOD_PITCH1] |
+        m->routes.depth[FM_MOD_SRC_ATLFO][FM_MOD_PITCH2]) /* Q1.30 * Q1.30 */
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_ATLFO,
+                          (int32_t)(((int64_t)v->mod.src[FM_MOD_SRC_AT] * lfo) >> 30));
     /* zero for delay_ticks, then up by fade_step a tick to full; kept as
      * a start tick, so a tick without modulation has nothing to count */
     since = now - v->lfo_start; /* wraps after 2^32 ticks (36 days) */

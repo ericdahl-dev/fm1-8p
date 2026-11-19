@@ -200,6 +200,37 @@ TT_TEST(at_bri_raises_the_cutoff_by_its_cents)
     TT_CHECK(fabs(none / base - 1.0) <= 0.02);
 }
 
+/* a held C4 for 600 ms on `e` with `n` params; channel pressure `p` (if any) before the note */
+static void at_vib_run(fm_engine *e, const int32_t (*set)[2], uint32_t n, int p, int16_t *out)
+{
+    uint32_t i;
+    if (fm_engine_init(e, AT_RATE, 4) != FM_OK) return;
+    (void)fm_engine_set_param(e, FM_PARAM_LFO_RATE_CENTIHZ, 600);
+    for (i = 0; i < n; i++) (void)fm_engine_set_param(e, (uint16_t)set[i][0], set[i][1]);
+    if (p >= 0) fm_engine_channel_pressure(e, (uint8_t)p);
+    fm_engine_note_on(e, 60, 100);
+    for (i = 0; i < 600; i++) fm_engine_render(e, out + i * 2u * (AT_RATE / 1000u), AT_RATE / 1000u);
+}
+
+static int16_t at_va[600u * 2u * (AT_RATE / 1000u)], at_vb[600u * 2u * (AT_RATE / 1000u)];
+
+/* AT VIB (B6): at full pressure it is the LFO's vibrato at its depth, exactly (the same render as the patch's
+ * LFO pitch depth at that many cents); it starts at once whatever the LFO delay (PG-8X 2.0.13, probe 5: its
+ * aftertouch vibrato is the same at LFO DELAY 0.5 and 0.7); with no pressure it does nothing */
+TT_TEST(at_vib_is_the_lfo_at_its_depth)
+{
+    static const int32_t lfo[][2] = {{FM_PARAM_LFO_PITCH_CENTS, 300}};
+    static const int32_t at[][2] = {{FM_PARAM_AT_VIB_CENTS, 300}, {FM_PARAM_LFO_DELAY_MS, 2000}};
+    static const int32_t none[][2] = {{FM_PARAM_LFO_DELAY_MS, 2000}};
+    TT_CHECK(sizeof at_va == sizeof at_vb);
+    at_vib_run(&at_ref, lfo, 1, -1, at_va);
+    at_vib_run(&at_eng, at, 2, 127, at_vb);
+    TT_CHECK(memcmp(at_va, at_vb, sizeof at_va) == 0);
+    at_vib_run(&at_ref, none, 1, -1, at_va);
+    at_vib_run(&at_eng, at, 2, 0, at_vb);
+    TT_CHECK(memcmp(at_va, at_vb, sizeof at_va) == 0);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
@@ -208,4 +239,5 @@ static void run_at_tests(void)
     TT_RUN(at_pressure_step_ramps_in_16_ms);
     TT_RUN(at_ramp_does_not_depend_on_block_size);
     TT_RUN(at_bri_raises_the_cutoff_by_its_cents);
+    TT_RUN(at_vib_is_the_lfo_at_its_depth);
 }

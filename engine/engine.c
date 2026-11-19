@@ -318,6 +318,11 @@ static void lfo_routes(fm_engine *e)
                      (c2 + add) * 65536 / 1200);
     fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
                      pw * 42949673);
+    /* aftertouch's vibrato (#61): both oscillators, cents at full pressure */
+    fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ATLFO, FM_MOD_PITCH1,
+                     e->params[FM_PARAM_AT_VIB_CENTS] * 65536 / 1200);
+    fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ATLFO, FM_MOD_PITCH2,
+                     e->params[FM_PARAM_AT_VIB_CENTS] * 65536 / 1200);
 }
 
 /* A control tick while the wheel moves: one step of its smoothing. */
@@ -503,6 +508,7 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_LFO_PITCH_OSC2_CENTS:
     case FM_PARAM_WHEEL_PITCH_CENTS:
     case FM_PARAM_WHEEL_PW_PCT:
+    case FM_PARAM_AT_VIB_CENTS:
         lfo_routes(e);
         return;
     case FM_PARAM_AT_VOL_PCT:
@@ -1112,7 +1118,8 @@ static int16_t to_int16(int32_t q24)
 static int lfo_live(const fm_engine *e)
 {
     return e->mod_on || fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
-           fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV);
+           fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV) ||
+           fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_ATLFO);
 }
 
 /*
@@ -1136,7 +1143,8 @@ static void control_tick(fm_engine *e)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_tick(&e->voices[k], lfo, &e->mod, e->ticks);
     e->mod_on = (uint8_t)(fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
-                          fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV));
+                          fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV) ||
+                          fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_ATLFO));
 }
 
 /*
