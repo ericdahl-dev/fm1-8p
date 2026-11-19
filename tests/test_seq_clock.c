@@ -19,6 +19,9 @@ static uint32_t ck_n_on, ck_n_off;
 static uint32_t ck_done, ck_m;                 /* ck_run's frames rendered and messages handled so far */
 static uint32_t ck_rng = 12345u;
 static double ck_watch_from = 1e9;             /* from this time on, the tempo shown's range */
+static uint8_t ck_out[8192];                   /* MIDI real-time sent out (#286), as the main loop takes it */
+static double ck_out_t[8192];                  /* and when: the end of the block it was taken after */
+static uint32_t ck_n_out;
 static uint32_t ck_tempo_lo, ck_tempo_hi;
 
 static uint32_t ck_host(double s) { return (uint32_t)(uint64_t)llround(s * SEQ_CLK_HZ); }
@@ -37,7 +40,7 @@ static void ck_fresh(uint32_t src)
     }
     seq_set_gate(&ck, 50);
     seq_set_clock_source(&ck, src);
-    ck_n_msgs = ck_n_on = ck_n_off = ck_done = ck_m = 0;
+    ck_n_msgs = ck_n_on = ck_n_off = ck_done = ck_m = ck_n_out = 0;
     ck_rng = 12345u;
     ck_watch_from = 1e9;
     ck_tempo_lo = 0xFFFFFFFFu;
@@ -114,6 +117,13 @@ static void ck_run(double secs)
                 }
             }
         done += CK_BLOCK;
+        {                                      /* the main loop sends what's due (#286) */
+            uint8_t b;
+            while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u) {
+                ck_out[ck_n_out] = b;
+                ck_out_t[ck_n_out++] = (double)done / CK_FS;
+            }
+        }
     }
     ck_done = done;
     ck_m = m;
@@ -658,8 +668,360 @@ TT_TEST(clock_switch_to_auto_keeps_a_continue)
     TT_CHECK_EQ(ck_note[n], 48u + n);           /* the step after the last played, not step 1 */
 }
 
+/* the out bytes of kind st, how many */
+static uint32_t ck_outs(uint8_t st)
+{
+    uint32_t i, c = 0;
+    for (i = 0; i < ck_n_out; i++)
+        c += ck_out[i] == st;
+    return c;
+}
+
+/* G14 CLOCK OUT on, the sequencer on its own clock (120 BPM, a step 125 ms): a start, then 24 ticks a
+ * quarter, 6 a step, the tick on each step's start taken in the same block as its note (#286) */
+TT_TEST(clock_out_ticks_with_the_steps)
+{
+    uint32_t j, k, ticks;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.1 + 8 * 0.125 - 0.02);            /* steps 1..8 */
+    TT_CHECK(ck_n_out > 0u && ck_out[0] == 0xFAu);
+    TT_CHECK_EQ(ck_n_on, 8u);
+    ticks = ck_outs(0xF8u);
+    TT_CHECK(ticks >= 6u * 7u + 1u && ticks <= 6u * 8u);
+    for (j = 0, k = 0; k < ck_n_out && j < ck_n_on; k++) {    /* tick 6j: in step j's note's block */
+        uint32_t n, i;
+        for (i = 0, n = 0; i <= k; i++)
+            n += ck_out[i] == 0xF8u;
+        if (ck_out[k] == 0xF8u && n == 6u * j + 1u) {
+            TT_CHECK(fabs(ck_out_t[k] - ck_on[j]) <= (double)CK_BLOCK / CK_FS + 1e-9);
+            j++;
+        }
+    }
+    TT_CHECK_EQ(j, 8u);
+}
+
+/* G14 on: PLAY sends a start and STOP a stop, after the ticks before it; PLAY again, a start again. Never
+ * two starts or two stops in a row; no tick after a stop till the next start; a stop with nothing
+ * playing sends nothing (#286) */
+TT_TEST(clock_out_start_and_stop)
+{
+    uint32_t i;
+    uint8_t last = 0;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_msg_at(0.6, 0, CK_PLAY);                /* stop */
+    ck_msg_at(0.8, 0, CK_PLAY);                /* again */
+    ck_msg_at(1.2, 0, CK_PLAY);                /* stop */
+    ck_run(1.6);
+    TT_CHECK_EQ(ck_outs(0xFAu), 2u);
+    TT_CHECK_EQ(ck_outs(0xFCu), 2u);
+    TT_CHECK_EQ(ck_out[0], 0xFAu);
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);  /* (nothing after the last stop) */
+    for (i = 0; i < ck_n_out; i++) {
+        if (ck_out[i] == 0xFAu || ck_out[i] == 0xFCu) {
+            TT_CHECK(ck_out[i] != last);        /* start, stop, start, stop */
+            last = ck_out[i];
+        } else {
+            TT_CHECK_EQ(last, 0xFAu);           /* a tick only between a start and its stop */
+        }
+    }
+    seq_stop(&ck);                              /* stopped already: nothing more */
+    ck_run(1.8);
+    TT_CHECK_EQ(ck_outs(0xFCu), 2u);
+}
+
+/* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
+ * start: never two starts in a row (#286) */
+TT_TEST(clock_out_restart_stops_first)
+{
+    uint32_t i;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.4);
+    seq_play(&ck);                             /* again, playing: from step 1 */
+    ck_run(0.7);
+    TT_CHECK_EQ(ck_outs(0xFAu), 2u);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+    for (i = 0; i + 1u < ck_n_out; i++)
+        TT_CHECK(!(ck_out[i] == 0xFAu && ck_out[i + 1u] == 0xFAu));
+}
+
+/* G14 off: nothing goes out. A G14 change takes effect at the next PLAY (Eric, Q3): turned on while
+ * playing, nothing till then; turned off while playing, that run keeps its ticks and ends with its stop */
+TT_TEST(clock_out_off_and_changed_while_playing)
+{
+    uint32_t n;
+    ck_fresh(SEQ_CLK_AUTO);                    /* off */
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.5);
+    TT_CHECK_EQ(ck_n_out, 0u);
+    seq_set_clock_out(&ck, 1);                 /* on, while playing: nothing yet */
+    ck_run(0.8);
+    TT_CHECK_EQ(ck_n_out, 0u);
+    ck_msg_at(0.8, 0, CK_PLAY);                /* stop: nothing (it never started out) */
+    ck_msg_at(1.0, 0, CK_PLAY);                /* the next PLAY: on now */
+    ck_run(1.3);
+    TT_CHECK(ck_n_out > 0u && ck_out[0] == 0xFAu);
+    seq_set_clock_out(&ck, 0);                 /* off, while playing: this run goes on sending */
+    n = ck_outs(0xF8u);
+    ck_run(1.6);
+    TT_CHECK(ck_outs(0xF8u) > n);
+    ck_msg_at(1.6, 0, CK_PLAY);                /* and ends with its stop */
+    ck_run(1.8);
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+    n = ck_n_out;
+    ck_msg_at(1.9, 0, CK_PLAY);                /* the next run: off */
+    ck_run(2.3);
+    TT_CHECK_EQ(ck_n_out, n);
+}
+
+/* TEMPO changed while playing, many times (120, 157.3, 91.7 ... BPM, each from a step's start): the clock
+ * out follows, still 6 ticks a step, the tick on each step's start in that step's note's block, with no
+ * drift after 64 steps (#286) */
+TT_TEST(clock_out_follows_tempo_changes)
+{
+    static const uint32_t T[4] = {1200, 1573, 917, 1342};
+    uint32_t j, k, n, i;
+    double t = 0.1;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    for (i = 0; i < 16u; i++) {                /* a new tempo every 4 steps */
+        seq_set_tempo(&ck, T[i % 4u]);
+        t += 4.0 * 60.0 / (T[i % 4u] / 10.0) / SEQ_PPQ;
+        ck_run(t - 0.03);
+    }
+    TT_CHECK(ck_n_on >= 60u);
+    for (j = 0, k = 0, n = 0; k < ck_n_out && j < ck_n_on; k++) {
+        if (ck_out[k] != 0xF8u)
+            continue;
+        if (n++ == 6u * j) {                   /* tick 6j: in step j's note's block */
+            if (fabs(ck_out_t[k] - ck_on[j]) > (double)CK_BLOCK / CK_FS + 1e-9)
+                printf("    step %u: its tick %.4f s, its note %.4f s\n", j, ck_out_t[k], ck_on[j]);
+            TT_CHECK(fabs(ck_out_t[k] - ck_on[j]) <= (double)CK_BLOCK / CK_FS + 1e-9);
+            j++;
+        }
+    }
+    TT_CHECK(j >= 60u);
+}
+
+/* the clock bytes of a kind among ck_msgs that the main loop had taken by time `to` */
+static uint32_t ck_msgs_of(uint8_t st, double from, double to)
+{
+    uint32_t i, c = 0;
+    for (i = 0; i < ck_n_msgs; i++)
+        c += ck_msgs[i].st == st && ck_msgs[i].stamp >= from && ck_msgs[i].stamp <= to;
+    return c;
+}
+
+/* Following a clock (G13 MIDI) with G14 on (Eric, Q2: pass it on): the start goes out as the transport
+ * starts on it, then each tick that comes in goes out once, at once (not timed anew, and none of its own:
+ * a tick in isn't counted twice); a stop that comes in goes out as the transport stops (#286) */
+TT_TEST(clock_out_passes_a_followed_clock_on)
+{
+    double stop;
+    uint32_t in;
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, 1);
+    ck_ticks_ramp(0.05, 133.0, 133.0, 0, 1, 24u * 6u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    stop = ck_tick_at[24 + 6 * 12] + 0.005;
+    ck_msg_at(stop, 0, 0xFCu);
+    ck_run(stop + 0.3);
+    in = ck_msgs_of(0xF8u, ck_tick_at[24] - 0.001, stop);     /* the ticks from the start's on */
+    TT_CHECK(ck_n_out > 0u && ck_out[0] == 0xFAu);
+    TT_CHECK_EQ(ck_outs(0xF8u), in);           /* one out a tick in, while it ran on them */
+    TT_CHECK_EQ(ck_outs(0xFAu), 1u);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+}
+
+/* Following, a stop that comes right after a tick (in the same block): the tick goes out before the
+ * stop, never after it; and a clock lost while running sends a stop too (#286) */
+TT_TEST(clock_out_a_followed_stop_comes_after_its_ticks)
+{
+    uint32_t i, seen_stop = 0;
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, 1);
+    ck_ticks_ramp(0.05, 133.0, 133.0, 0, 1, 24u * 4u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_msg_at(ck_tick_at[48] + 0.001, 0, 0xFCu);
+    ck_run(ck_tick_at[24 * 4 - 1] + 0.1);
+    for (i = 0; i < ck_n_out; i++) {
+        if (ck_out[i] == 0xFCu)
+            seen_stop = 1;
+        else
+            TT_CHECK(!(seen_stop && ck_out[i] == 0xF8u));
+    }
+    TT_CHECK(seen_stop);
+    ck_fresh(SEQ_CLK_AUTO);                    /* lost while running: a stop */
+    seq_set_clock_out(&ck, 1);
+    ck_ticks_ramp(0.05, 133.0, 133.0, 0, 1, 24u * 2u);
+    ck_msg_at(ck_tick_at[12] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[47] + 0.5);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+}
+
+/* AUTO playing its own clock (G14 on), then a start and a clock come in and it hands over to them: its
+ * own ticks, its stop, then the start, then the ticks passed on, one out a tick in; never two starts in a
+ * row, none of its own ticks after its stop (#286) */
+TT_TEST(clock_out_hand_over_to_a_clock)
+{
+    uint32_t i, fa = 0, fc_at = 0, fa_at = 0, in;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);                /* its own */
+    ck_ticks_ramp(1.0, 140.0, 140.0, 0, 1, 24u * 4u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);   /* (ticks before it: no start, it goes on its own) */
+    ck_run(ck_tick_at[24 * 4 - 1] - 0.01);
+    for (i = 0; i < ck_n_out; i++) {
+        if (ck_out[i] == 0xFAu && ++fa == 2u)
+            fa_at = i;
+        if (ck_out[i] == 0xFCu && !fc_at)
+            fc_at = i;
+    }
+    TT_CHECK_EQ(fa, 2u);
+    TT_CHECK(fc_at > 0u && fc_at + 1u == fa_at);   /* its stop, then the start */
+    in = ck_msgs_of(0xF8u, ck_tick_at[24] - 0.001, ck_tick_at[24 * 4 - 1] - 0.01);   /* (to where it ran) */
+    for (i = fa_at + 1u; i < ck_n_out; i++)
+        TT_CHECK_EQ(ck_out[i], 0xF8u);
+    TT_CHECK_EQ(ck_n_out - fa_at - 1u, in);    /* one out a tick in, after the start */
+}
+
+/* Following, the clock lost (its stop queued by the main loop), then PLAY on its own clock before the
+ * main loop has sent anything: the followed run's stop goes out before the new run's start, never after
+ * (review of e2d7a23: a stop after the start leaves the gear down the line stopped while the FM-1 plays) */
+TT_TEST(clock_out_a_followed_stop_before_a_new_start)
+{
+    uint32_t i, fc = 9999, fa2 = 0, fa = 0;
+    double last;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_ticks_ramp(0.05, 140.0, 140.0, 0, 1, 24u * 2u);
+    ck_msg_at(ck_tick_at[12] - 0.002, 0, 0xFAu);
+    last = ck_tick_at[24u * 2u - 1u];
+    ck_run(last + 0.01);
+    seq_clock_poll(&ck, ck_host(last + 0.4));  /* gone: its stop, queued, not sent yet */
+    seq_play(&ck);                             /* PLAY at once: its own */
+    ck_run(last + 0.6);
+    for (i = 0; i < ck_n_out; i++) {
+        if (ck_out[i] == 0xFCu && fc == 9999u)
+            fc = i;
+        if (ck_out[i] == 0xFAu && ++fa == 2u)
+            fa2 = i;
+    }
+    TT_CHECK_EQ(fa, 2u);
+    TT_CHECK(fc < fa2);
+}
+
+/* The module switched away (release) while clock out runs: a stop goes out, once, and nothing after it
+ * (review of e2d7a23: the gear down the line kept running) */
+TT_TEST(clock_out_ends_with_a_stop_when_let_go)
+{
+    uint8_t b;
+    uint32_t n;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.5);
+    seq_clock_out_stop(&ck);                   /* release */
+    while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)
+        ck_out[ck_n_out++] = b;
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+    n = ck_n_out;
+    ck_run(0.8);                               /* (if the interrupt runs on: nothing more) */
+    TT_CHECK_EQ(ck_n_out, n);
+}
+
+/* the interrupt cutting in at a point of the main loop's clock_tick start (seq_test_hook): one block */
+static uint32_t ck_hook_at;
+static void ck_hook(seq *s, uint32_t point)
+{
+    static seq_event ev[SEQ_EVENTS];
+    if (point == ck_hook_at) {
+        seq_block_time(s, ck_host((double)ck_done / CK_FS));
+        (void)seq_render(s, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+        ck_done += CK_BLOCK;
+    }
+}
+
+/* G14 on, its own clock playing; STOP (its ask not yet taken), then a start and a clock come in, and the
+ * interrupt cuts in anywhere in the main loop's start of the followed run: the clock out stops its own
+ * run once, starts the followed one, and passes every tick on after that; never a stop after the start
+ * (Codex on #296: FC FA FC, then no clock while the FM-1 played) */
+TT_TEST(clock_out_a_stop_pending_when_a_clock_starts)
+{
+    uint32_t at, i, fa_at, fc_after;
+    for (at = 1; at <= 4u; at++) {
+        ck_fresh(SEQ_CLK_AUTO);
+        seq_set_clock_out(&ck, 1);
+        ck_msg_at(0.1, 0, CK_PLAY);
+        ck_run(0.5);                           /* its own run, sending */
+        seq_stop(&ck);                         /* STOP: asked, not yet taken */
+        seq_clock_in(&ck, 0xFAu, ck_host(0.5));
+        ck_hook_at = at;
+        seq_test_hook = ck_hook;
+        seq_clock_in(&ck, 0xF8u, ck_host(0.501));   /* the start's tick: the interrupt cuts in at `at` */
+        seq_test_hook = 0;
+        ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
+        ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
+        for (i = 0, fa_at = 9999u; i < ck_n_out; i++)
+            if (ck_out[i] == 0xFAu)
+                fa_at = i;                     /* the last start */
+        for (i = fa_at + 1u, fc_after = 0; i < ck_n_out; i++)
+            fc_after += ck_out[i] == 0xFCu;
+        if (fc_after || ck_n_out - fa_at - 1u < 24u)
+            printf("    cut in at %u: %u stops after the start, %u ticks after it\n", at, fc_after,
+                   ck_n_out - fa_at - 1u);
+        TT_CHECK_EQ(fc_after, 0u);
+        TT_CHECK(ck_n_out - fa_at - 1u >= 24u);   /* the start's tick and the 24 after, passed on */
+    }
+}
+
+/* Let go (release) with a PLAY asked but not yet taken: no start goes out after, so no gear is left
+ * started; the next PLAY (the module back) sends again (Codex P3 on #296) */
+TT_TEST(clock_out_let_go_with_a_play_pending)
+{
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    static seq_event ev[SEQ_EVENTS];
+    uint8_t b;
+    seq_play(&ck);                             /* asked, the interrupt hasn't taken it */
+    seq_clock_out_stop(&ck);                   /* release: */
+    seq_block_time(&ck, 0);                    /* (the interrupt cuts in: takes the PLAY) */
+    (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+    seq_stop(&ck);
+    while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)   /* release drains, then nothing more */
+        ck_out[ck_n_out++] = b;
+    TT_CHECK(ck_n_out == 0u || ck_out[ck_n_out - 1u] == 0xFCu);   /* nothing, or ended with a stop */
+    TT_CHECK_EQ(ck_outs(0xFAu), 0u);           /* (nothing started) */
+    ck_done += CK_BLOCK;
+    ck_run(0.3);
+    ck_msg_at(0.3, 0, CK_PLAY);                /* back: PLAY sends again */
+    ck_run(0.6);
+    TT_CHECK(ck_n_out > 0u && ck_out[0] == 0xFAu);
+}
+
 static void run_seq_clock_tests(void)
 {
+    TT_RUN(clock_out_ticks_with_the_steps);
+    TT_RUN(clock_out_start_and_stop);
+    TT_RUN(clock_out_restart_stops_first);
+    TT_RUN(clock_out_off_and_changed_while_playing);
+    TT_RUN(clock_out_follows_tempo_changes);
+    TT_RUN(clock_out_passes_a_followed_clock_on);
+    TT_RUN(clock_out_a_followed_stop_comes_after_its_ticks);
+    TT_RUN(clock_out_hand_over_to_a_clock);
+    TT_RUN(clock_out_a_followed_stop_before_a_new_start);
+    TT_RUN(clock_out_ends_with_a_stop_when_let_go);
+    TT_RUN(clock_out_a_stop_pending_when_a_clock_starts);
+    TT_RUN(clock_out_let_go_with_a_play_pending);
     TT_RUN(clock_lost_while_armed_disarms);
     TT_RUN(clock_source_switched_while_armed);
     TT_RUN(clock_lost_while_armed_under_midi_waits_on);

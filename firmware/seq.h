@@ -27,6 +27,8 @@
 #define SEQ_GATE_MIN 5u                 /* gate, % of a step: 5..100 (interaction.md, S1 PATTERN) */
 #define SEQ_GATE_DEF 50u
 #define SEQ_SWING_DEF 50u               /* swing, %: 50 straight .. 75 (the even steps late by half a step) */
+#define SEQ_OUT_EV 8u                   /* #286: starts and stops the main loop has yet to send */
+#define SEQ_OUT_M 16u                   /* #286: a followed clock's bytes, between two takes */
 #define SEQ_TRANSPOSE_MAX 24            /* transpose, semitones: -24..+24 (interaction.md, S3 PLAY) */
 #define SEQ_VEL_DEF 100u
 /* #38: external MIDI clock, 24 ticks a quarter note (6 a step), its times on the host's 24 MHz
@@ -153,6 +155,23 @@ typedef struct {
     volatile uint32_t playing;          /* 1 while the transport runs */
     volatile int32_t step_now;          /* the step playing, 0 .. length-1; -1 stopped */
     volatile uint32_t steps;            /* +1 per step played: the UI polls it to redraw */
+    /* #286 G14 CLOCK OUT. The main loop sets out_want; a transport's start latches it into out_on (a G14
+     * change waits for the next PLAY). On its own clock the interrupt counts the ticks due, 24 a quarter
+     * (out_acc, unswung), and puts each start and stop in out_ev stamped with the tick count then; the
+     * main loop takes them in order (seq_clock_out_take) and sends them, as only it may. */
+    uint8_t out_want;                   /* main loop: G14 */
+    volatile uint8_t out_on;            /* this transport sends: latched at its start */
+    volatile uint8_t out_block;         /* main loop: let go (release): no start sends till the next PLAY */
+    uint32_t out_acc;                   /* interrupt: the clock since the last tick, as acc counts it */
+    volatile uint32_t out_ticks;        /* interrupt: ticks due, all told */
+    uint32_t out_sent;                  /* main loop: ticks sent */
+    struct { uint8_t st; uint32_t at; } out_ev[SEQ_OUT_EV];   /* interrupt: a start or stop, at a tick count */
+    volatile uint32_t out_w;            /* interrupt: out_ev written */
+    uint32_t out_r;                     /* main loop: out_ev taken */
+    struct { uint8_t st; uint32_t w, t; } out_m[SEQ_OUT_M];   /* main loop: bytes it queued (a followed
+                                         * clock's, Eric Q2), each with out_w and out_ticks as they were then,
+                                         * so seq_clock_out_take puts both queues out in the order things happened */
+    uint32_t out_mw, out_mr;
 } seq;
 
 /* At init (play_init): the empty pattern (every step a rest), length 16, the defaults; stopped. */
@@ -230,6 +249,16 @@ uint32_t seq_clock_tempo_whole(const seq *s);
 /* 1 while the sequencer waits for the clock: PLAY armed for its start, or a start or continue come in
  * with no tick yet (WAITING FOR CLOCK; the PLAY LED blinks) */
 uint32_t seq_waiting(const seq *s);
+/* main loop: G14 CLOCK OUT (#286), from the next PLAY: MIDI start, a clock at 24 a quarter, and stop */
+void seq_set_clock_out(seq *s, uint32_t on);
+/* main loop: the next MIDI real-time byte to send (0xF8 clock, 0xFA start, 0xFC stop) into *st, in the
+ * order they fell due; 0 when there's none. Call it often (each main loop pass): a tick waits till then */
+int seq_clock_out_take(seq *s, uint8_t *st);
+/* main loop: clock out stops now (the module let go, release): a stop after what's due, then nothing */
+void seq_clock_out_stop(seq *s);
+/* tests only (0 in the firmware): called at points of clock_tick's start where the interrupt may cut in,
+ * so a test can run a block there (point 1, 2, 3 ...) */
+extern void (*seq_test_hook)(seq *s, uint32_t point);
 /* audio interrupt, before seq_render: the block's start, at host time t */
 void seq_block_time(seq *s, uint32_t t);
 
