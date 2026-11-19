@@ -648,8 +648,45 @@ TT_TEST(save_in_seq_view_keeps_its_own_draft)
     TT_CHECK(ui_u.save_name[0] != 'B');
 }
 
+/* slot 12 holds OTHER; SAVE open on it */
+static void save_on_other(void)
+{
+    static store_patch other;
+    save_setup();
+    store_from_factory(9, &other);
+    memset(other.name, 0, sizeof other.name);
+    memcpy(other.name, "OTHER", 5);
+    (void)store_slot_write(&store_lib_a, &store_fake_io, 1, &other);
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
+}
+
+/* #303: in SAVE, SEL held 1.5 s (on its release, as SEQ view's clear) on a slot that holds a patch asks
+ * DELETE 12 OTHER? and deletes nothing yet; on an EMPTY slot it does nothing, and a short SEL tap does
+ * nothing either */
+TT_TEST(save_sel_held_asks_to_delete)
+{
+    static store_patch out;
+    save_on_other();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1200);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1300);   /* a tap */
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1400);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 2900);   /* held 1.5 s */
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_DELETE);
+    TT_CHECK(strcmp(ui_u.save_msg, "DELETE 12 OTHER?") == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 3000);  /* 13: empty */
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+}
+
 static void run_ui_save_tests(void)
 {
+    TT_RUN(save_sel_held_asks_to_delete);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);

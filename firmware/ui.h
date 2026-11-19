@@ -132,7 +132,7 @@ typedef struct {
 
 /* ui_take's bits: what changed since the last redraw */
 enum { UI_COMPARE_ON = 1, UI_COMPARE_NONE = 2 };
-enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
+enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1, UI_SAVE_DELETE = 2 };   /* (DELETE: #303) */
 #define UI_SAVE_NO_DRAFT 0xFFFFFFFFu
 #define UI_SAVE_PATTERN_DRAFT 0x100u    /* save_draft_prog: this bit on, a pattern slot's draft */
 #define UI_D_FULL   0x01u               /* the whole screen: a page opened */
@@ -147,6 +147,7 @@ enum { UI_SAVE_EDITING = 0, UI_SAVE_CONFIRM = 1 };
 #define UI_PICKER_MS 1500u              /* HOME held alone this long: the host's picker opens (fm1-dock) */
 #define UI_TAP_MS 400u                  /* a button let go sooner is a tap (interaction.md) */
 #define UI_FORCE_MS 1000u               /* SAVE held this long writes a waiting save at once */
+#define UI_DELETE_MS 1500u              /* SEL held this long in SAVE asks to delete the slot (#303) */
 #define UI_BANNER_MS 1500u              /* how long the banner shows (interaction.md section 6) */
 /* PRESETS again within this, the same way: discard and load. The warning's time on screen, so a turn
  * never discards with nothing showing (the spec had 2 s against a 1.5 s banner: PR #83 review). */
