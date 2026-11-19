@@ -43,18 +43,16 @@ static int32_t voice_pitch(const fm_engine *e, uint8_t i, uint8_t note)
     return ((int32_t)note << 16) + e->bend + e->detune[i] + e->porta[i];
 }
 
-/* Portamento (#62): a note comes in. At a new control tick the newest note
- * before becomes the one to glide from, so a chord's notes (one tick) all
- * glide from the note before the chord, as PG-8X's do. */
+/* Portamento (#62): a note comes in; it glides from the last one played
+ * (bit 1 of porta_has: a note was played; bit 0: there is one to glide from) */
 static void porta_note(fm_engine *e, uint8_t note)
 {
-    if (e->porta_tick != e->ticks && (e->porta_has & 2u)) {   /* (bit 1: a newest note; bit 0: a from) */
+    if (e->porta_has & 2u) {
         e->porta_from = e->porta_newest;
         e->porta_has |= 1u;
     }
     e->porta_newest = (int32_t)note << 16;
     e->porta_has |= 2u;
-    e->porta_tick = e->ticks;
 }
 
 /* Portamento: voice `i` starts `note`, from the note glided from (none:
@@ -706,7 +704,6 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
             e->porta[q] = 0;
         e->porta_moving = e->porta_has = 0;
         e->porta_from = e->porta_newest = 0;
-        e->porta_tick = 0;
         e->porta_k = 0;
     }
     e->wheel_moving = 0;

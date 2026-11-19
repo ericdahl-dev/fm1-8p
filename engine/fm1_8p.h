@@ -53,8 +53,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 6664u     /* +52: portamento (#62): a glide a voice (8), its step, the note glided from, the newest and its tick, 2 flags */
-#define FM_ENGINE_BUDGET_BASE_64 6924u     /* +48: portamento (#62), as on 32-bit (less 4 B the 64-bit layout had to spare) */
+#define FM_ENGINE_BUDGET_BASE_32 6660u     /* +48: portamento (#62): a glide a voice (8), its step, the note glided from and the newest, 2 flags */
+#define FM_ENGINE_BUDGET_BASE_64 6924u     /* +48: portamento (#62): as on 32-bit, less the 4 B the 64-bit layout had spare, plus 4 B of padding */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
@@ -100,13 +100,11 @@ typedef struct {
     int32_t wheel;        /* the mod wheel (CC1) as the depths use it, 0..127 << 8 */
     int32_t wheel_to;     /* where it goes: the last CC1 << 8 */
     /* portamento (#62): each voice's glide still to go, Q16.16 semitones (0 settled), falling by
-     * porta_k (one control tick of 1 - exp(-tick / tau), Q30) each tick; the note glided from (the last
-     * one played before this tick: a chord's notes all glide from the note before it), Q16.16; and the
-     * newest note played, with the tick it came in, which becomes porta_from at the next tick */
+     * porta_k (one control tick of 1 - exp(-tick / tau), Q30) each tick; the note the newest note
+     * glides from (the one played before it), and the newest, Q16.16 */
     int32_t porta[FM_MAX_VOICES];
     int32_t porta_k;
     int32_t porta_from, porta_newest;
-    uint32_t porta_tick;
     int32_t mix[FM_MIX_FRAMES]; /* render scratch, Q8.24; kept off the stack */
     /* the chorus's right side, Q8.24; before the chorus writes it, the
      * voices' scratch (each voice's oscillators for the chunk): the chorus

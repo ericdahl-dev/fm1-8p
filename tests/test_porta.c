@@ -150,6 +150,21 @@ TT_TEST(porta_set_to_zero_mid_glide_lands)
     TT_CHECK_EQ(pt_eng.porta_moving, 0);
 }
 
+/* each note glides from the last one played, even in the same instant (#62: Eric's "last note
+ * played"): C3, let go, then E4 and G4 together: E4 glides from C3, G4 from E4 */
+TT_TEST(porta_each_note_glides_from_the_last_played)
+{
+    TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 6), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, 1000), FM_OK);
+    fm_engine_note_on(&pt_eng, 48, 100);
+    pt_run(20);
+    fm_engine_note_off(&pt_eng, 48);
+    fm_engine_note_on(&pt_eng, 64, 100);
+    fm_engine_note_on(&pt_eng, 67, 100);
+    TT_CHECK(fabs(pt_pitch(64) - 48.0) < 0.01);
+    TT_CHECK(fabs(pt_pitch(67) - 64.0) < 0.01);
+}
+
 static void run_porta_tests(void)
 {
     TT_RUN(porta_glides_exponentially_with_its_tau);
@@ -160,4 +175,5 @@ static void run_porta_tests(void)
     TT_RUN(porta_zero_is_off);
     TT_RUN(porta_first_note_does_not_glide);
     TT_RUN(porta_set_to_zero_mid_glide_lands);
+    TT_RUN(porta_each_note_glides_from_the_last_played);
 }
