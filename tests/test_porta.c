@@ -7,6 +7,7 @@
 #include "../engine/fm1_8p.h"
 
 #define PT_RATE 48000u
+#define PT_E 2.718281828459045
 
 static fm_engine pt_eng;
 static int16_t pt_buf[PT_RATE / 10 * 2];
@@ -73,8 +74,90 @@ TT_TEST(porta_down_lands_on_its_note)
     pt_down_lands(2000);
 }
 
+/* the semitones still to go `ms` after `to` follows `from` at tau `tau_ms` (from let go first) */
+static double pt_left(uint8_t from, uint8_t to, int32_t tau_ms, double ms, uint32_t block)
+{
+    uint32_t n, k;
+    if (fm_engine_init(&pt_eng, PT_RATE, 6) != FM_OK ||
+        fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, tau_ms) != FM_OK)
+        return 1000.0;
+    fm_engine_note_on(&pt_eng, from, 100);
+    pt_run(20);
+    fm_engine_note_off(&pt_eng, from);
+    fm_engine_note_on(&pt_eng, to, 100);
+    n = (uint32_t)(ms * PT_RATE / 1000.0);
+    while (n) {
+        k = n < block ? n : block;
+        fm_engine_render(&pt_eng, pt_buf, k);
+        n -= k;
+    }
+    return (double)to - pt_pitch(to);
+}
+
+/* PG-8X: one tau for any interval, up or down: after 1 tau each has 1/e of its interval left (2%) */
+TT_TEST(porta_one_tau_for_any_interval)
+{
+    static const uint8_t from[4] = { 53, 48, 36, 72 };
+    int k;
+    for (k = 0; k < 4; k++) {
+        double iv = 60.0 - from[k], left = pt_left(from[k], 60, 80, 80, 48);
+        if (fabs(left - iv / PT_E) > fabs(iv) * 0.02)
+            printf("    from %u: %.3f st left after 1 tau, want %.3f\n", from[k], left, iv / PT_E);
+        TT_CHECK(fabs(left - iv / PT_E) <= fabs(iv) * 0.02);
+    }
+}
+
+/* a long tau is as exact: 2 s, after 1 tau (2%) */
+TT_TEST(porta_long_tau_is_exact)
+{
+    double left = pt_left(48, 60, 2000, 2000, 48);
+    if (fabs(left - 12.0 / PT_E) > 12.0 * 0.02) printf("    %.3f st left, want %.3f\n", left, 12.0 / PT_E);
+    TT_CHECK(fabs(left - 12.0 / PT_E) <= 12.0 * 0.02);
+}
+
+/* the glide does not depend on the caller's block size */
+TT_TEST(porta_does_not_depend_on_block_size)
+{
+    double a = pt_left(48, 60, 50, 37, 48), b = pt_left(48, 60, 50, 37, 1), c = pt_left(48, 60, 50, 37, 256);
+    TT_CHECK(a == b);
+    TT_CHECK(a == c);
+}
+
+/* 0 is off: the note is at its pitch at once */
+TT_TEST(porta_zero_is_off)
+{
+    TT_CHECK(pt_left(48, 60, 0, 1, 48) == 0.0);
+}
+
+/* the first note after init has nothing to glide from */
+TT_TEST(porta_first_note_does_not_glide)
+{
+    TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 6), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, 200), FM_OK);
+    fm_engine_note_on(&pt_eng, 60, 100);
+    pt_run(1);
+    TT_CHECK(pt_pitch(60) == 60.0);
+}
+
+/* setting portamento to 0 mid-glide puts the note on its pitch */
+TT_TEST(porta_set_to_zero_mid_glide_lands)
+{
+    double left = pt_left(48, 60, 500, 50, 48);
+    TT_CHECK(left > 5.0);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, 0), FM_OK);
+    pt_run(1);
+    TT_CHECK(pt_pitch(60) == 60.0);
+    TT_CHECK_EQ(pt_eng.porta_moving, 0);
+}
+
 static void run_porta_tests(void)
 {
     TT_RUN(porta_glides_exponentially_with_its_tau);
     TT_RUN(porta_down_lands_on_its_note);
+    TT_RUN(porta_one_tau_for_any_interval);
+    TT_RUN(porta_long_tau_is_exact);
+    TT_RUN(porta_does_not_depend_on_block_size);
+    TT_RUN(porta_zero_is_off);
+    TT_RUN(porta_first_note_does_not_glide);
+    TT_RUN(porta_set_to_zero_mid_glide_lands);
 }
