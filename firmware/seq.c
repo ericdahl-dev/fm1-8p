@@ -110,10 +110,10 @@ static void out_put(seq *s, uint8_t st, uint32_t f)
  * it): the clock out's ticks that fell due, 24 a quarter, unswung (a step is fs x 600 of acc at 50 %: six
  * ticks), each stamped at the frame it fell due in (#306). Moved with acc, step by step, so a tempo change
  * at a step's start can't drift it from the steps */
-static void out_adv(seq *s, uint32_t t0, uint32_t f, uint32_t inc, uint32_t xi)
+static void out_adv(seq *s, uint32_t t0, uint32_t f, uint32_t inc)
 {
     uint32_t unit = s->fs * 100u, m;
-    if (!s->out_on || xi || !unit)
+    if (!unit)
         return;
     while (s->out_acc + f * inc >= unit) {
         m = s->out_acc >= unit ? 0 : (unit - s->out_acc + inc - 1u) / inc;   /* frames to the tick */
@@ -1000,10 +1000,12 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
         j = s->acc >= target ? 0 : (target - s->acc + inc - 1u) / inc;
         if (j >= n - t) {                       /* not in this block */
             s->acc += (n - t) * inc;
-            out_adv(s, t, n - t, inc, xi);
+            if (s->out_on && !xi)               /* (G14 off or following: no clock out work) */
+                out_adv(s, t, n - t, inc);
             break;
         }
-        out_adv(s, t, j, inc, xi);
+        if (s->out_on && !xi)
+            out_adv(s, t, j, inc);
         t += j;
         s->acc += j * inc;
         if (target == glide && glide != thr) {  /* a GLIDE update: where the step's clock has got to */
