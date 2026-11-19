@@ -206,6 +206,26 @@ TT_TEST(porta_unison_mid_glide_goes_on_from_where_it_is)
     TT_CHECK_EQ(pt_eng.voices[0].pitch, before);
 }
 
+/* a note waiting for a stolen voice keeps its glide when it moves to another voice: 2 voices, C3 then C4
+ * held; C5 steals C3's voice and waits there (gliding from C4); C3 struck again takes that voice back,
+ * and C5 moves to C4's voice, still gliding from C4 (Codex P3-1 on #301) */
+TT_TEST(porta_moved_waiting_note_keeps_its_glide)
+{
+    double p;
+    TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 2), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, 1000), FM_OK);
+    fm_engine_note_on(&pt_eng, 48, 100);
+    pt_run(10);
+    fm_engine_note_on(&pt_eng, 60, 100);
+    pt_run(10);
+    fm_engine_note_on(&pt_eng, 72, 100);
+    fm_engine_note_on(&pt_eng, 48, 100);
+    pt_run(30);
+    p = pt_pitch(72);
+    if (!(p > 60.0 && p < 61.0)) printf("    C5 at %.3f st 30 ms on, want just above 60\n", p);
+    TT_CHECK(p > 60.0 && p < 61.0);
+}
+
 static void run_porta_tests(void)
 {
     TT_RUN(porta_glides_exponentially_with_its_tau);
@@ -219,4 +239,5 @@ static void run_porta_tests(void)
     TT_RUN(porta_each_note_glides_from_the_last_played);
     TT_RUN(porta_stops_on_a_voice_gone_quiet);
     TT_RUN(porta_unison_mid_glide_goes_on_from_where_it_is);
+    TT_RUN(porta_moved_waiting_note_keeps_its_glide);
 }

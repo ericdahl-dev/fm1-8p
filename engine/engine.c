@@ -842,13 +842,12 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
 }
 
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune
- * is 0). */
+ * is 0), its glide set (porta_start, or one it brings along). */
 static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
                       uint8_t velocity)
 {
     uint8_t i = (uint8_t)(v - e->voices);
     fm_voice_age(v, ++e->stamp);
-    porta_start(e, i, note);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate, e->fade_samples);
 }
@@ -878,6 +877,7 @@ static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak,
 {
     fm_voice_waiting moved = fm_voice_waiting_note(f);
     fm_voice *w;
+    int32_t glide = e->porta[f - e->voices];    /* the waiting note's: it takes it along */
     porta_start(e, (uint8_t)(f - e->voices), note);
     fm_voice_take_back(f, &e->mod, voice_pitch(e, (uint8_t)(f - e->voices), note),
                        peak, velocity, e->ticks + 1, e->sample_rate);
@@ -885,6 +885,8 @@ static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak,
     if (!moved.key_down && !moved.sustained) return;
     w = pick_voice(e, f);
     if (!w) return;
+    e->porta[w - e->voices] = glide;
+    if (glide) e->porta_moving = 1;
     poly_play(e, w, moved.note, moved.peak, moved.velocity);
     if (!moved.key_down) fm_voice_key_up(w, 1); /* held by the pedal */
 }
@@ -981,6 +983,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
             }
             v = pick_voice(e, 0);
         }
+        porta_start(e, (uint8_t)(v - e->voices), note);
         poly_play(e, v, note, peak, velocity);
     }
 }
