@@ -119,7 +119,7 @@ static void ck_run(double secs)
         done += CK_BLOCK;
         {                                      /* the main loop sends what's due (#286) */
             uint8_t b;
-            while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u) {
+            while (seq_clock_out_take(&ck, ck_host((double)done / CK_FS), 0, &b) && ck_n_out < 8192u) {
                 ck_out[ck_n_out] = b;
                 ck_out_t[ck_n_out++] = (double)done / CK_FS;
             }
@@ -669,6 +669,13 @@ TT_TEST(clock_switch_to_auto_keeps_a_continue)
 }
 
 /* the out bytes of kind st, how many */
+/* tick sent at `out`, its step's note at `on`: sent SEQ_OUT_LAT frames after its note, within the take
+ * after that (ck_run takes at each block's end) (#306) */
+static int ck_tick_after_note(double out, double on)
+{
+    double d = out - on - (double)SEQ_OUT_LAT / CK_FS;
+    return d >= -1e-6 && d <= (double)CK_BLOCK / CK_FS + 1e-6;
+}
 static uint32_t ck_outs(uint8_t st)
 {
     uint32_t i, c = 0;
@@ -678,7 +685,7 @@ static uint32_t ck_outs(uint8_t st)
 }
 
 /* G14 CLOCK OUT on, the sequencer on its own clock (120 BPM, a step 125 ms): a start, then 24 ticks a
- * quarter, 6 a step, the tick on each step's start taken in the same block as its note (#286) */
+ * quarter, 6 a step, the tick on each step's start sent a block after its note (#286, #306) */
 TT_TEST(clock_out_ticks_with_the_steps)
 {
     uint32_t j, k, ticks;
@@ -690,12 +697,12 @@ TT_TEST(clock_out_ticks_with_the_steps)
     TT_CHECK_EQ(ck_n_on, 8u);
     ticks = ck_outs(0xF8u);
     TT_CHECK(ticks >= 6u * 7u + 1u && ticks <= 6u * 8u);
-    for (j = 0, k = 0; k < ck_n_out && j < ck_n_on; k++) {    /* tick 6j: in step j's note's block */
+    for (j = 0, k = 0; k < ck_n_out && j < ck_n_on; k++) {    /* tick 6j: a block after step j's note */
         uint32_t n, i;
         for (i = 0, n = 0; i <= k; i++)
             n += ck_out[i] == 0xF8u;
         if (ck_out[k] == 0xF8u && n == 6u * j + 1u) {
-            TT_CHECK(fabs(ck_out_t[k] - ck_on[j]) <= (double)CK_BLOCK / CK_FS + 1e-9);
+            TT_CHECK(ck_tick_after_note(ck_out_t[k], ck_on[j]));
             j++;
         }
     }
@@ -780,8 +787,8 @@ TT_TEST(clock_out_off_and_changed_while_playing)
 }
 
 /* TEMPO changed while playing, many times (120, 157.3, 91.7 ... BPM, each from a step's start): the clock
- * out follows, still 6 ticks a step, the tick on each step's start in that step's note's block, with no
- * drift after 64 steps (#286) */
+ * out follows, still 6 ticks a step, the tick on each step's start a block after that step's note, with no
+ * drift after 64 steps (#286, #306) */
 TT_TEST(clock_out_follows_tempo_changes)
 {
     static const uint32_t T[4] = {1200, 1573, 917, 1342};
@@ -799,10 +806,10 @@ TT_TEST(clock_out_follows_tempo_changes)
     for (j = 0, k = 0, n = 0; k < ck_n_out && j < ck_n_on; k++) {
         if (ck_out[k] != 0xF8u)
             continue;
-        if (n++ == 6u * j) {                   /* tick 6j: in step j's note's block */
-            if (fabs(ck_out_t[k] - ck_on[j]) > (double)CK_BLOCK / CK_FS + 1e-9)
+        if (n++ == 6u * j) {                   /* tick 6j: a block after step j's note */
+            if (!ck_tick_after_note(ck_out_t[k], ck_on[j]))
                 printf("    step %u: its tick %.4f s, its note %.4f s\n", j, ck_out_t[k], ck_on[j]);
-            TT_CHECK(fabs(ck_out_t[k] - ck_on[j]) <= (double)CK_BLOCK / CK_FS + 1e-9);
+            TT_CHECK(ck_tick_after_note(ck_out_t[k], ck_on[j]));
             j++;
         }
     }
@@ -930,7 +937,7 @@ TT_TEST(clock_out_ends_with_a_stop_when_let_go)
     ck_msg_at(0.1, 0, CK_PLAY);
     ck_run(0.5);
     seq_clock_out_stop(&ck);                   /* release */
-    while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)
+    while (seq_clock_out_take(&ck, 0, 1, &b) && ck_n_out < 8192u)
         ck_out[ck_n_out++] = b;
     TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
     TT_CHECK_EQ(ck_outs(0xFCu), 1u);
@@ -997,7 +1004,7 @@ TT_TEST(clock_out_let_go_with_a_play_pending)
     seq_block_time(&ck, 0);                    /* (the interrupt cuts in: takes the PLAY) */
     (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
     seq_stop(&ck);
-    while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)   /* release drains, then nothing more */
+    while (seq_clock_out_take(&ck, 0, 1, &b) && ck_n_out < 8192u)   /* release drains, then nothing more */
         ck_out[ck_n_out++] = b;
     TT_CHECK(ck_n_out == 0u || ck_out[ck_n_out - 1u] == 0xFCu);   /* nothing, or ended with a stop */
     TT_CHECK_EQ(ck_outs(0xFAu), 0u);           /* (nothing started) */
@@ -1006,6 +1013,269 @@ TT_TEST(clock_out_let_go_with_a_play_pending)
     ck_msg_at(0.3, 0, CK_PLAY);                /* back: PLAY sends again */
     ck_run(0.6);
     TT_CHECK(ck_n_out > 0u && ck_out[0] == 0xFAu);
+}
+
+/* #306: the clock out is stamped in the interrupt, each byte at its own frame, and the main loop sends
+ * it SEQ_OUT_LAT frames (a block) after that, so its gaps are the clock's own, not whole blocks */
+static uint32_t ck_frames_host(uint32_t f) { return (uint32_t)((uint64_t)f * SEQ_CLK_HZ / CK_FS); }
+static uint32_t ck_take_all_at(uint32_t now, uint8_t *got, uint32_t max)
+{
+    uint32_t n = 0;
+    uint8_t b;
+    while (n < max && seq_clock_out_take(&ck, now, 0, &b))
+        got[n++] = b;
+    return n;
+}
+
+/* a start and the first tick wait a block after the start's frame, then go, start first; the same
+ * across the host counter's wrap */
+TT_TEST(clock_out_holds_the_start_a_block)
+{
+    static const uint32_t T0[2] = {1000000u, 0xFFFFFFFFu - 50000u};
+    static seq_event ev[SEQ_EVENTS];
+    uint8_t got[8];
+    uint32_t i, l = ck_frames_host(SEQ_OUT_LAT);
+    for (i = 0; i < 2u; i++) {
+        ck_fresh(SEQ_CLK_AUTO);
+        seq_set_clock_out(&ck, 1);
+        seq_play(&ck);
+        seq_block_time(&ck, T0[i]);
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+        TT_CHECK_EQ(ck_take_all_at(T0[i] + l - 2u, got, 8), 0u);
+        TT_CHECK_EQ(ck_take_all_at(T0[i] + l + 1u, got, 8), 2u);
+        TT_CHECK_EQ(got[0], 0xFAu);
+        TT_CHECK_EQ(got[1], 0xF8u);
+    }
+}
+
+/* each tick is stamped at its own frame: tick k of a run started at frame P is due at frame
+ * P + ceil(k x fs x 100 / (tempo x 4)) (24 a quarter), and goes SEQ_OUT_LAT frames later, to within 2 host
+ * counts (the block's time rounded, the frames to counts floored), at 40 to 300 BPM, blocks of odd sizes */
+TT_TEST(clock_out_stamps_each_tick_at_its_frame)
+{
+    static const uint32_t TEMPO[5] = {400, 1100, 1310, 1573, 3000};
+    static const uint32_t N[4] = {256, 97, 13, 200};
+    static seq_event ev[SEQ_EVENTS];
+    uint32_t i;
+    for (i = 0; i < 5u; i++) {
+        uint32_t f = 4410u, b = 0, k = 0, bad = 0, ticks = 0, unit = CK_FS * 100u, inc = TEMPO[i] * SEQ_PPQ;
+        const uint32_t p = f;
+        uint8_t x;
+        ck_fresh(SEQ_CLK_AUTO);
+        seq_set_clock_out(&ck, 1);
+        seq_set_tempo(&ck, TEMPO[i]);
+        seq_play(&ck);
+        while (f < 3u * CK_FS) {
+            uint32_t n = N[b++ % 4u];
+            seq_block_time(&ck, ck_host((double)f / CK_FS));
+            (void)seq_render(&ck, n, CK_FS, SEQ_NOTES, ev);
+            f += n;
+            for (;; k++) {                     /* the ticks counted by now: each held, then sent */
+                uint32_t fk = p + (uint32_t)(((uint64_t)k * unit + inc - 1u) / inc);
+                uint32_t due = ck_host((double)fk / CK_FS) + ck_frames_host(SEQ_OUT_LAT);
+                if (fk > f)
+                    break;
+                bad += seq_clock_out_take(&ck, due - 3u, 0, &x);
+                if (k == 0u && !(seq_clock_out_take(&ck, due + 2u, 0, &x) && x == 0xFAu))
+                    bad++;
+                if (seq_clock_out_take(&ck, due + 2u, 0, &x) && x == 0xF8u)
+                    ticks++;
+                else
+                    bad++;
+            }
+        }
+        if (bad)
+            printf("    %u.%u BPM: %u ticks off their stamps\n", TEMPO[i] / 10u, TEMPO[i] % 10u, bad);
+        TT_CHECK_EQ(bad, 0u);
+        TT_CHECK(ticks + 2u > 29u * TEMPO[i] * 24u / 6000u);   /* (2.9 s of ticks) */
+    }
+}
+
+/* the device's main loop (#306): a block rendered at each block's start, the main loop taking every
+ * `poll` s between (the FM-1's passes: ~0.1 ms), except while away (away0 .. away1 s) */
+static uint8_t ckf_out[8192];
+static double ckf_out_t[8192];
+static uint32_t ckf_n;
+static double ckf_last;                        /* the last take's time */
+static void ckf_run(double secs, double poll, double away0, double away1)
+{
+    static seq_event ev[SEQ_EVENTS];
+    uint8_t b;
+    while (ck_done < (uint32_t)(secs * CK_FS)) {
+        double t0 = (double)ck_done / CK_FS, t1 = (double)(ck_done + CK_BLOCK) / CK_FS, now;
+        uint32_t i;
+        seq_block_time(&ck, ck_host(t0));
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+        for (i = 0; (now = t0 + i * poll) < t1; i++) {
+            if (now >= away0 && now < away1)
+                continue;
+            ckf_last = now;
+            while (ckf_n < 8192u && seq_clock_out_take(&ck, ck_host(now), 0, &b)) {
+                ckf_out[ckf_n] = b;
+                ckf_out_t[ckf_n++] = now;
+            }
+        }
+        ck_done += CK_BLOCK;
+    }
+}
+static void ckf_fresh(uint32_t tempo)
+{
+    ck_fresh(SEQ_CLK_AUTO);
+    ckf_n = 0;
+    ckf_last = 0;
+    seq_set_clock_out(&ck, 1);
+    seq_set_tempo(&ck, tempo);
+    seq_play(&ck);                             /* (from the first block: frame 0) */
+}
+/* tick k's time out: its frame (24 a quarter at tempo, from frame 0), SEQ_OUT_LAT frames on */
+static double ckf_due(uint32_t k, uint32_t tempo)
+{
+    uint32_t inc = tempo * SEQ_PPQ;
+    return (double)((((uint64_t)k * CK_FS * 100u + inc - 1u) / inc) + SEQ_OUT_LAT) / CK_FS;
+}
+/* the sent ticks against their times out (tempo held): the worst lateness, ms; -1 if one went early, or
+ * any tick due by the last take is missing */
+static double ckf_worst_late_ms(uint32_t tempo, double from)
+{
+    uint32_t i, k = 0;
+    double worst = 0;
+    for (i = 0; i < ckf_n; i++) {
+        double due;
+        if (ckf_out[i] != 0xF8u)
+            continue;
+        due = ckf_due(k++, tempo);
+        if (ckf_out_t[i] < due - 1e-7)
+            return -1;
+        if (due >= from && ckf_out_t[i] - due > worst)
+            worst = ckf_out_t[i] - due;
+    }
+    if (ckf_due(k, tempo) <= ckf_last - 1e-7)
+        return -1;                             /* (one due, not sent) */
+    return worst * 1000.0;
+}
+
+/* 10 s at 131 BPM, the main loop every 0.1 ms: every tick out on its own time, SEQ_OUT_LAT after its
+ * frame and at most a pass later; so no gap is whole blocks (the FM-1's 17.4 / 23.2 ms, #306) */
+TT_TEST(clock_out_ticks_on_their_own_time)
+{
+    uint32_t i, k = 0;
+    double worst, gap_lo = 1, gap_hi = 0, period = 60.0 / (131.0 * 24.0);
+    ckf_fresh(1310);
+    ckf_run(10.0, 1e-4, 1e9, 1e9);
+    worst = ckf_worst_late_ms(1310, 0);
+    for (i = 0; i < ckf_n; i++)
+        if (ckf_out[i] == 0xF8u) {
+            if (k++) {
+                double g = ckf_out_t[i] - ckf_out_t[i - 1u];
+                gap_lo = g < gap_lo ? g : gap_lo;
+                gap_hi = g > gap_hi ? g : gap_hi;
+            }
+        }
+    printf("    131 BPM: %u ticks, worst %.3f ms late, gaps %.3f .. %.3f ms (ideal %.3f)\n", k, worst,
+           gap_lo * 1000, gap_hi * 1000, period * 1000);
+    TT_CHECK(worst >= 0 && worst <= 0.1 + 1000.0 / CK_FS + 1e-3);
+    TT_CHECK(k > 520u);
+    TT_CHECK(gap_lo > period - 2e-4 && gap_hi < period + 2e-4);
+}
+
+/* the main loop away 300 ms at 300 BPM (36 ticks, past SEQ_OUT_T stamps): no tick lost, in order, and
+ * after it the ticks on their own time again */
+TT_TEST(clock_out_main_loop_away)
+{
+    uint32_t i;
+    double worst;
+    ckf_fresh(3000);
+    ckf_run(2.0, 1e-4, 1.0, 1.3);
+    for (i = 1; i < ckf_n; i++)
+        TT_CHECK_EQ(ckf_out[i], 0xF8u);        /* (the start, then ticks only) */
+    worst = ckf_worst_late_ms(3000, 1.32);     /* -1: one lost or early */
+    TT_CHECK(worst >= 0 && worst <= 0.1 + 1000.0 / CK_FS + 1e-3);
+}
+
+/* back from away just past SEQ_OUT_T ticks (their stamps written over by newer ones): every tick due by
+ * then goes at the first take, none held to a newer tick's time (away 130 .. 160 ms at 300 BPM) */
+TT_TEST(clock_out_back_from_away_sends_what_is_due)
+{
+    uint32_t ms, late = 0;
+    for (ms = 130; ms <= 160u; ms++) {
+        uint32_t i, k = 0;
+        double back = 1.0 + ms / 1000.0, first = 1e9;
+        ckf_fresh(3000);
+        ckf_run(back + 0.05, 1e-4, 1.0, back);
+        for (i = 0; i < ckf_n; i++)
+            if (ckf_out_t[i] >= back && ckf_out_t[i] < first)
+                first = ckf_out_t[i];
+        for (i = 0; i < ckf_n; i++)
+            if (ckf_out[i] == 0xF8u && ckf_due(k++, 3000) <= back - 1e-7 && ckf_out_t[i] > first + 1e-9)
+                late++;
+    }
+    TT_CHECK_EQ(late, 0u);
+}
+
+/* swing 66 %: the steps swing, the clock out doesn't: every tick on its own (unswung) time */
+TT_TEST(clock_out_ticks_stay_unswung)
+{
+    double worst;
+    ckf_fresh(1200);
+    seq_set_swing(&ck, 66);
+    ckf_run(3.0, 1e-4, 1e9, 1e9);
+    worst = ckf_worst_late_ms(1200, 0);
+    TT_CHECK(worst >= 0 && worst <= 0.1 + 1000.0 / CK_FS + 1e-3);
+}
+
+/* TEMPO changed many times, 60 to 300 BPM: each tick out after the one ahead of it, never in a burst:
+ * no gap under the fastest tempo's (8.33 ms) less a pass */
+TT_TEST(clock_out_tempo_changes_without_a_burst)
+{
+    static const uint32_t T[5] = {600, 3000, 1310, 917, 2400};
+    uint32_t i, k = 0;
+    double lo = 1, prev = -1;
+    ckf_fresh(T[0]);
+    for (i = 0; i < 40u; i++) {
+        seq_set_tempo(&ck, T[i % 5u]);
+        ckf_run(0.25 * (i + 1u), 1e-4, 1e9, 1e9);
+    }
+    for (i = 0; i < ckf_n; i++)
+        if (ckf_out[i] == 0xF8u) {
+            if (k++ && ckf_out_t[i] - prev < lo)
+                lo = ckf_out_t[i] - prev;
+            prev = ckf_out_t[i];
+        }
+    printf("    %u ticks, the shortest gap %.3f ms\n", k, lo * 1000);
+    TT_CHECK(k > 300u);
+    TT_CHECK(lo > 60.0 / (300.0 * 24.0) - 2e-4);
+}
+
+/* following a clock: each tick passed on can be taken the moment it came in, not held a block as the
+ * sequencer's own ticks are (#306 leaves the pass-on as it was) */
+TT_TEST(clock_out_passes_on_at_once)
+{
+    static seq_event ev[SEQ_EVENTS];
+    uint32_t i, f = 0, passed = 0, held = 0;
+    double period = 60.0 / 133.0 / SEQ_CLK_PPQN;
+    uint8_t b;
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, 1);
+    for (i = 0; i < 24u * 6u; i++) {
+        double t = 0.05 + i * period;
+        uint32_t ht = ck_host(t), n = 0;
+        while ((double)f / CK_FS <= t) {        /* the blocks up to this tick */
+            seq_block_time(&ck, ck_host((double)f / CK_FS));
+            (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+            f += CK_BLOCK;
+        }
+        if (i == 24u)
+            seq_clock_in(&ck, 0xFAu, ht - 1000u);   /* a start, just ahead of tick 24 */
+        seq_clock_in(&ck, 0xF8u, ht);
+        while (seq_clock_out_take(&ck, ht, 0, &b))
+            n += b == 0xF8u;
+        if (i >= 24u) {
+            passed += n == 1u;
+            held += n == 0u;
+        }
+    }
+    TT_CHECK_EQ(held, 0u);
+    TT_CHECK_EQ(passed, 24u * 5u);
 }
 
 static void run_seq_clock_tests(void)
@@ -1020,6 +1290,14 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_hand_over_to_a_clock);
     TT_RUN(clock_out_a_followed_stop_before_a_new_start);
     TT_RUN(clock_out_ends_with_a_stop_when_let_go);
+    TT_RUN(clock_out_holds_the_start_a_block);
+    TT_RUN(clock_out_stamps_each_tick_at_its_frame);
+    TT_RUN(clock_out_ticks_on_their_own_time);
+    TT_RUN(clock_out_main_loop_away);
+    TT_RUN(clock_out_back_from_away_sends_what_is_due);
+    TT_RUN(clock_out_ticks_stay_unswung);
+    TT_RUN(clock_out_tempo_changes_without_a_burst);
+    TT_RUN(clock_out_passes_on_at_once);
     TT_RUN(clock_out_a_stop_pending_when_a_clock_starts);
     TT_RUN(clock_out_let_go_with_a_play_pending);
     TT_RUN(clock_lost_while_armed_disarms);
