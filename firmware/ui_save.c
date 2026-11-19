@@ -283,6 +283,11 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         }
         u->dirty |= UI_D_ALL & ~UI_D_FULL;
     }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->save_step == UI_SAVE_DELETE) {   /* #303: the question only */
+        u->save_step = UI_SAVE_EDITING;
+        u->dirty |= UI_D_ALL & ~UI_D_FULL;
+        return;
+    }
     if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap) {   /* canceled: nothing written, the name kept */
         uint32_t i;
         for (i = 0; i <= STORE_NAME_LEN; i++)
@@ -316,7 +321,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap) {
-        if (u->save_step == UI_SAVE_EDITING && u->save_dest != current(u) &&
+        if (u->save_step != UI_SAVE_CONFIRM && u->save_dest != current(u) &&
             ui_save_slot_used(u, u->save_dest, NULL)) {   /* another patch (pattern) is there: ask first */
             replace_prompt(u);
             return;

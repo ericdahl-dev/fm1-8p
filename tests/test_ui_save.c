@@ -749,11 +749,32 @@ TT_TEST(save_delete_waits_for_silence_and_cancels)
     TT_CHECK(strcmp(ui_banner(&ui_u), "DELETED 12") == 0);
 }
 
+/* #303: the question canceled: HOME cancels it and SAVE stays open (a second HOME leaves, as before); a SAVE
+ * tap while it shows asks REPLACE, as on any slot that holds one; nothing is deleted */
+TT_TEST(save_delete_question_cancels)
+{
+    static store_patch out;
+    save_on_other();
+    save_ask_delete(1200);
+    save_tap(UI_BTN_HOME, 3000);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+    save_ask_delete(3200);
+    save_tap(UI_BTN_SAVE, 5000);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_CONFIRM);
+    TT_CHECK(strcmp(ui_u.save_msg, "REPLACE 12 OTHER?") == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    TT_CHECK(strcmp(out.name, "OTHER") == 0);
+    save_tap(UI_BTN_HOME, 5200);                /* (at REPLACE, one HOME leaves SAVE, as before) */
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_sel_held_asks_to_delete);
     TT_RUN(save_sel_again_deletes_the_slot);
     TT_RUN(save_delete_waits_for_silence_and_cancels);
+    TT_RUN(save_delete_question_cancels);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);
