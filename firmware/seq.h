@@ -31,7 +31,9 @@
 #define SEQ_OUT_M 16u                   /* #286: a followed clock's bytes, between two takes */
 #define SEQ_OUT_LAT 256u                /* #306: frames from a clock out byte's time to its send (a block) */
 #define SEQ_OUT_T 16u                   /* #306: ticks stamped, not yet sent (past that: sent unstamped) */
-_Static_assert((SEQ_OUT_T & (SEQ_OUT_T - 1u)) == 0, "SEQ_OUT_T a power of two: out_ticks % SEQ_OUT_T across the wrap");
+#if (SEQ_OUT_T & (SEQ_OUT_T - 1u)) != 0
+#error "SEQ_OUT_T must be a power of two: out_ticks % SEQ_OUT_T across the counter's wrap"
+#endif
 #define SEQ_TRANSPOSE_MAX 24            /* transpose, semitones: -24..+24 (interaction.md, S3 PLAY) */
 #define SEQ_VEL_DEF 100u
 /* #38: external MIDI clock, 24 ticks a quarter note (6 a step), its times on the host's 24 MHz
