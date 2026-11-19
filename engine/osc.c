@@ -870,13 +870,40 @@ static int32_t cycle_mean(int64_t sum, uint32_t inc)
     return m > RING_MAX ? RING_MAX : m < -RING_MAX ? -RING_MAX : (int32_t)m;
 }
 
+/*
+ * A cycle is a fractional number of samples (220 Hz at 48 kHz: 218.18),
+ * so a restart's polyBLEP blip falls on one side of the wrap or the
+ * other, and a cycle's mean jitters by up to one sample's swing over its
+ * length even when nothing changes. The offset moved by all of each
+ * mean would step with that jitter, un-band-limited, and the steps'
+ * pattern is a comb at tens of Hz (#253: CLAV, a synced square, -24 dB
+ * re f0 where PG-8X has -52). So the part of a mean within one full
+ * step (1.0) per cycle, the most the jitter of one wave at full reaches,
+ * moves the offset by 1/32 of it each cycle; the jitter averages out
+ * under it. Anything past that moves it at once, as before: a real
+ * change (a note's first cycle, a retune, a sweep, osc1 coming back from
+ * a stop), or the share of a wider pair's jitter (osc1 mixed in, the
+ * ring) past the step, which still leaves the comb lower than taking it
+ * all. While a sweep runs, the offset trails it by up to that step (0.018
+ * at A5, 0.06 an octave up). A vibrato on osc2 alone moves the DC by less
+ * than the step each cycle, so the offset trails it too: a wobble at the
+ * vibrato's rate, sub-audio, up to about 0.024 of full (-32 dBFS, A6,
+ * 100 cents; taking the whole mean, about 0.0013). That is accepted for the
+ * comb it takes off CLAV. Shifts and a hold at the wrap only: nothing per
+ * sample, no state.
+ */
+#define SYNC_DC_SLOW 5 /* the jitter's share moves the offset by 1/2^5 a cycle */
 static inline int32_t sync_dc(fm_osc_pair *p, int32_t v, int wrapped)
 {
     int32_t y = v - p->dc;
     y = y > RING_MAX ? RING_MAX : y < -RING_MAX ? -RING_MAX : y;
     p->dc_sum += y;
     if (wrapped) {
-        p->dc += cycle_mean(p->dc_sum, p->osc[0].inc);
+        int32_t m = cycle_mean(p->dc_sum, p->osc[0].inc);
+        int32_t jit = (int32_t)(p->osc[0].inc >> 8); /* 1.0 (Q8.24) / the cycle's length */
+        int32_t small = m > jit ? jit : m < -jit ? -jit : m;
+        /* rounded, not floored: a floor leaves a standing DC of about +16 LSB */
+        p->dc += m - small + ((small + (1 << (SYNC_DC_SLOW - 1))) >> SYNC_DC_SLOW);
         p->dc_sum = 0;
     }
     return y;
