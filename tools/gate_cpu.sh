@@ -5,7 +5,8 @@
 # code shows up as one; and, where TREE has it, "ui": plain with FM1-8P's VCF page redrawing every
 # frame (firmware/fm1_8p_cpu_ui, #47), the F budget with the UI drawing; and "seq": ring with step F
 # played by a running sequencer on the device's voices (firmware/fm1_8p_cpu_seq, #36). Device ~= emu x
-# 1.08 (FM-1, 2026-11-12).
+# 1.08 (FM-1, 2026-11-12). Each mode also runs as MODE-hn, the high-note row (#269): step F's chord at
+# notes 115..125, where the oscillators and the filter cost most (GATE_CPU_HINOTE=0 skips them).
 #
 # usage: tools/gate_cpu.sh TREE OUT      (prints one line per mode: 8 voices, U and F, code bytes)
 # Inputs, as tools/fm1-build.sh takes them: JIELI_TOOLCHAIN, AC79_SDK, FM1_DOCK, PYTHON (fm1-dock's) and
@@ -26,10 +27,20 @@ done
 PY=${FM1_DOCK_PYTHON:-${PYTHON:-python3}}
 mkdir -p "$OUT" || exit 2
 
-# stage MODE PAD DIR: a copy of TREE in DIR whose step F plays MODE (plain, sync, xmod, ring), padded or not
+# The high-note rows' chord (#269): step F at notes 115..125, every voice
+HN_CHORD='static const uint8_t CHORD[FM_MAX_VOICES] = {115, 117, 119, 121, 122, 123, 124, 125};'
+
+# stage MODE PAD DIR: a copy of TREE in DIR whose step F plays MODE (plain, sync, xmod, ring; MODE-hn its
+# high-note row), padded or not
 stage() {
     rm -rf "$3" && mkdir -p "$3" && cp -R "$TREE/." "$3/" && rm -rf "$3/build" || return 1
     case $1 in
+        *-hn)
+            grep -q '^static const uint8_t CHORD\[FM_MAX_VOICES\] = {[0-9, ]*};' "$3/firmware/cpu_test.c" ||
+                { echo "gate_cpu: step F's chord not found" >&2; return 1; }
+            sed -i "s|^static const uint8_t CHORD\[FM_MAX_VOICES\] = {[0-9, ]*};|$HN_CHORD|" "$3/firmware/cpu_test.c" ;;
+    esac
+    case ${1%-hn} in
         sync) add='    {FM_PARAM_OSC_SYNC, 1},' ;;
         xmod) add='    {FM_PARAM_OSC_RING, 1},' ;;
         ring|seq) add='    {FM_PARAM_OSC_SYNC, 1},\n    {FM_PARAM_OSC_RING, 1},' ;;   # (seq: ring too)
@@ -51,7 +62,7 @@ stage() {
 # run MODE PAD: one emulator run; prints "MODE[,pad]  8 = x %  U = x %  F = x %  overruns  code N B".
 # MODE ui is plain with a page of the UI redrawing every frame (emu-ui, firmware/fm1_8p_cpu_ui).
 run() {
-    t=$1${2:+-$2}; d=$OUT/$t; cmd=emu; [ "$1" = ui ] && cmd=emu-ui; [ "$1" = seq ] && cmd=emu-seq
+    t=$1${2:+-$2}; d=$OUT/$t; cmd=emu; [ "${1%-hn}" = ui ] && cmd=emu-ui; [ "${1%-hn}" = seq ] && cmd=emu-seq
     if [ "${GATE_CPU_PREPARE_ONLY:-0}" = 1 ]; then stage "$1" "$2" "$d/src"; return; fi
     stage "$1" "$2" "$d/src" || return 1
     rm -rf "$d/dock" && cp -a "$FM1_DOCK" "$d/dock" || return 1
@@ -64,18 +75,22 @@ run() {
         "$(grep -o '[0-9]* overruns' "$r" | head -1)" "$(grep -o 'code [0-9]* B' "$d/emu.log" | head -1)"
 }
 
+hn() { [ "${GATE_CPU_HINOTE:-1}" = 0 ] || run "$1-hn" "" & }   # the high-note twin, unpadded
 modes="plain sync xmod ring"
 for m in $modes; do
     run "$m" "" &
     [ "${GATE_CPU_PAD:-1}" = 0 ] || run "$m" pad &
+    hn "$m"
 done
 if [ -d "$TREE/firmware/fm1_8p_cpu_ui" ]; then
     run ui "" &                                 # the UI-active row (#47): no padded twin
+    hn ui
 else
     printf '%-10s n/a (no firmware/fm1_8p_cpu_ui in this tree)\n' ui
 fi
 if [ -d "$TREE/firmware/fm1_8p_cpu_seq" ]; then
     run seq "" &                                # the sequencer row (#36): F, ring, sequenced; no padded twin
+    hn seq
 else
     printf '%-10s n/a (no firmware/fm1_8p_cpu_seq in this tree)\n' seq
 fi
