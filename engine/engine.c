@@ -215,6 +215,19 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
 }
 
 /*
+ * The mix gain at VCA LEVEL `permille`: the voices' sum times the gain for
+ * the voice count (headroom, set at init) times the level, as PG-8X's VCA
+ * LEVEL scales its output and follows a change mid-note (#169). The level
+ * in Q30 is permille x 2^30 / 1000 in 32 bits, exact at 1000 (so a full
+ * level leaves the gain as it was). Event rate.
+ */
+static int32_t level_gain(const fm_engine *e, int32_t permille)
+{
+    uint32_t p = (uint32_t)permille, q = p * 1073741u + p * 824u / 1000u;
+    return (int32_t)(((int64_t)(386669466u / e->voice_count) * q) >> 30);
+}
+
+/*
  * setting_glide (#146): PG-8X 2.0.13 glides these settings to a new value
  * as a one-pole of about 16 ms (measured mid-note through DawDreamer
  * automation: VCA LEVEL 15.9 ms, MIX DCO-2 16.7 / 15.7, VCF FREQ 16.4 /
@@ -225,11 +238,12 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
 static const uint8_t glide_id[FM_GLIDE_SETTINGS] = {
     FM_PARAM_OSC1_LEVEL, FM_PARAM_OSC2_LEVEL, FM_PARAM_FILTER_CUTOFF_CENTS,
     FM_PARAM_FILTER_RESONANCE, FM_PARAM_FILTER_KEY_TRACK, FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
-    FM_PARAM_LFO_PITCH_CENTS, FM_PARAM_LFO_PITCH_OSC2_CENTS
+    FM_PARAM_LFO_PITCH_CENTS, FM_PARAM_LFO_PITCH_OSC2_CENTS, FM_PARAM_AMP_LEVEL
 };
 /* PG-8X's power-on values in engine units: DCO-1 at full mix, DCO-2 off,
- * VCF FREQ 127 (tools/jx8p.py cutoff_cents), the rest 0 */
-static const int16_t glide_power_on[FM_GLIDE_SETTINGS] = { 1000, 0, 14728, 0, 0, 0, 0, 0 };
+ * VCF FREQ 127 (tools/jx8p.py cutoff_cents), VCA LEVEL full (#169), the
+ * rest 0 */
+static const int16_t glide_power_on[FM_GLIDE_SETTINGS] = { 1000, 0, 14728, 0, 0, 0, 0, 0, 1000 };
 #define GLIDE_TAU_MS 16
 /* a glide steps every 4 control ticks (2.7 ms at 48 kHz, 6 steps a tau):
  * each step re-applies the settings that moved to every voice */
@@ -315,7 +329,7 @@ static void wheel_tick(fm_engine *e)
 }
 
 /*
- * The glide turned on: its 8 settings' parameters now hold where they
+ * The glide turned on: its settings' parameters now hold where they
  * play, their targets apart (glide_to). After a render they start where
  * they are; before one, at PG-8X's power-on values, as its renders do.
  * Turned off, they play their targets at once.
@@ -473,7 +487,11 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     case FM_PARAM_AMP_VELOCITY: /* read at the next note on */
     case FM_PARAM_AMP_DYNA:
-    case FM_PARAM_AMP_LEVEL:
+        return;
+    case FM_PARAM_AMP_LEVEL: /* the VCA LEVEL: the output's gain, at once (#169) */
+        e->mix_gain = level_gain(e, v);
+        for (i = 0; i < FM_MAX_VOICES; i++) /* every voice frees 80 dB under the output */
+            fm_voice_set_output_level(&e->voices[i], v);
         return;
     case FM_PARAM_AMP_GATE: /* every voice, as fm_voice_reset gave them all */
         for (i = 0; i < FM_MAX_VOICES; i++)
@@ -610,7 +628,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->mod_on = 0;
     /* no route but the ones set here and by the parameters below;
      * velocity sets the level at full depth: its source is already the
-     * note's level (velocity_peak) */
+     * velocity's level (velocity_peak; the VCA LEVEL is the output's gain) */
     fm_mod_routes_reset(&e->mod.routes);
     fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_VEL, FM_MOD_LEVEL, FM_ENV_FULL);
     /* each voice its own noise (an odd multiplier: never 0), so unison
@@ -718,9 +736,9 @@ static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
  * Amp envelope peak (Q1.30) for a MIDI velocity 1..127: full level less
  * amp_velocity percent of the way down the curve (velocity / 127)^2, or,
  * with amp_dyna (the JX-8P's VCA DYNAMICS), the DYNAMICS share at the
- * velocity as PG-8X 2.0.13 plays it (#8's curve); either times amp_level
- * per mille (the VCA LEVEL). Velocity 127 at level 1000 is always full.
- * Three constant divides, per note on.
+ * velocity as PG-8X 2.0.13 plays it (#8's curve). Velocity 127 is always
+ * full. (The VCA LEVEL is the output's gain, mix_gain: live, #169.)
+ * Two constant divides, per note on.
  */
 static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
 {
@@ -733,7 +751,7 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
         int64_t curve = (int64_t)velocity * velocity * FM_ENV_FULL / (127 * 127);
         peak = FM_ENV_FULL - (FM_ENV_FULL - curve) * sens / 100;
     }
-    return (int32_t)(peak * e->params[FM_PARAM_AMP_LEVEL] / 1000);
+    return (int32_t)peak;
 }
 
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune

@@ -263,8 +263,12 @@ resonant 4-pole (24 dB/octave) lowpass.
   constant tau, drawn as straight segments of at most 64 samples (tau / 8 when
   shorter), each ending on the curve: within 0.02 dB of e^(-t / tau) down to
   -60 dB for tau from 40 samples to 1 s at 48 kHz (`tests/test_filter.c`
-  `exponential_release_stays_on_its_curve`). A release goes idle below -80 dB
-  (`FM_ENV_FLOOR`), a decay lands on sustain within it.
+  `exponential_release_stays_on_its_curve`). A decay lands on sustain within -80 dB
+  (`FM_ENV_FLOOR`). A release goes idle below its floor: -80 dB, and for the
+  amp envelope 80 dB under the output, since the VCA LEVEL is a gain after it
+  (`fm_env_set_floor`, #169), so a quiet tone frees its voice as soon as a loud
+  one would. At a level of 0 the floor is full: a release frees the voice at
+  once and does not come back if the level returns.
 - **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
   amp envelope; its amount is -16400 to +16400 linear cents (a JX-8P VCF ENV of 127 is 127 knob steps, 14609 linear cents; #253).
   It starts where the amp envelope does: from 0 on an idle voice or after a
