@@ -122,7 +122,16 @@ void fm_env_init(fm_env *e, const fm_env_settings *set)
 {
     e->set = set;
     e->ks = 1u << 16;
+    e->floor = FM_ENV_FLOOR;
     fm_env_reset(e);
+}
+
+static void catch_up(fm_env *e);
+
+void fm_env_set_floor(fm_env *e, int32_t floor)
+{
+    catch_up(e); /* the samples owed stepped at the old floor */
+    e->floor = floor < FM_ENV_FLOOR ? FM_ENV_FLOOR : floor;
 }
 
 void fm_env_reset(fm_env *e)
@@ -173,7 +182,6 @@ static uint32_t exp2_cents(int32_t cents)
     return k >= 0 ? v << k : v >> -k;
 }
 
-static void catch_up(fm_env *e);
 
 void fm_env_key(fm_env *e, uint8_t note)
 {
@@ -296,6 +304,8 @@ int32_t fm_env_next(fm_env *e)
         d = e->level >= s ? e->level - s : s - e->level;
         /* a time of 0, or one key follow scales under a sample, lands
          * at once: start_segment divides by it (#284) */
+        /* the decay lands within FM_ENV_FLOOR of its sustain, not the
+         * output-relative floor: a level dip mid-note must not end it */
         if (d <= FM_ENV_FLOOR || (t = scaled(e, e->set->decay_samples)) == 0) {
             e->level = s;
             e->stage = FM_ENV_SUSTAIN;
@@ -311,7 +321,7 @@ int32_t fm_env_next(fm_env *e)
         e->level += e->step + rem;
         break;
     case FM_ENV_RELEASE: /* a segment starts, or the release ends */
-        if (e->level <= FM_ENV_FLOOR || (t = scaled(e, e->set->release_samples)) == 0) {
+        if (e->level <= e->floor || (t = scaled(e, e->set->release_samples)) == 0) {
             e->level = 0;
             e->stage = FM_ENV_IDLE;
             hold(e);

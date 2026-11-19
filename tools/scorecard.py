@@ -9,13 +9,14 @@ import os
 import numpy as np
 from scipy import signal
 
-SCHEMA = 8   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 9   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
              # 6: the reference has PG-8X's SELFNOISE at 0, v5, #247;
              # 7: both 5 and 6, merged;
-             # 8: no pitch for a ring or cross-mod tone without sync (it has none), #253)
+             # 8: no pitch for a ring or cross-mod tone without sync (it has none), #253;
+             # 9: the air gap takes PG-8X's side at our level in int16, so our 16-bit floor isn't air, #299)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = 48000
@@ -109,9 +110,21 @@ def air_db(x):
     return max(10 * np.log10(sp[f >= AIR_HZ].sum() / (sp.sum() + 1e-30) + 1e-30), -FLOOR_DB)
 
 
+def as_ours_int16(pg, ours):
+    """PG-8X's float render as ours would carry it: scaled to our RMS, put on 16 bits per channel as
+    engine.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
+    hiss in it; scored against this, the floor is on both sides (#299)."""
+    pg = np.asarray(pg, dtype=np.float64)
+    g = np.sqrt(np.mean(mono(ours) ** 2) / (np.mean(mono(pg) ** 2) + 1e-30))
+    if g <= 0:
+        return pg
+    return np.clip(np.floor(pg * g * 32768), -32768, 32767) / 32768 / g
+
+
 def air_gap(ours, pg):
-    """Ours' air minus PG-8X's, dB: + means more energy up there than PG-8X has."""
-    return float(air_db(ours) - air_db(pg))
+    """Ours' air minus PG-8X's, dB: + means more energy up there than PG-8X has. PG-8X's side is taken as
+    it would be at our level in int16 (as_ours_int16), so the 16-bit floor isn't read as air (#299)."""
+    return float(air_db(ours) - air_db(as_ours_int16(pg, ours)))
 
 
 _GRID = 30 * 2 ** (np.arange(0, 1200 * np.log2(8000 / 30), 5) / 1200)   # 5-cent steps, 30 Hz .. 8 kHz

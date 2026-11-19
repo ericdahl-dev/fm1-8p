@@ -35,7 +35,7 @@
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
 /* settings that glide with setting_glide (#146) */
-#define FM_GLIDE_SETTINGS 8
+#define FM_GLIDE_SETTINGS 9
 /* Keys unison mode remembers for last-note priority (oldest dropped). */
 #define FM_HELD_MAX 16
 
@@ -53,8 +53,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 6660u     /* +48: portamento (#62): a glide a voice (8), its step, the note glided from and the newest, 2 flags */
-#define FM_ENGINE_BUDGET_BASE_64 6924u     /* +48: portamento (#62): as on 32-bit, less the 4 B the 64-bit layout had spare, plus 4 B of padding */
+#define FM_ENGINE_BUDGET_BASE_32 6764u     /* +48: portamento (#62): a glide a voice (8), its step, the note glided from and the newest, 2 flags */
+#define FM_ENGINE_BUDGET_BASE_64 6932u     /* +48: portamento (#62): as on 32-bit, less the 4 B the 64-bit layout had spare, plus 4 B of padding */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 

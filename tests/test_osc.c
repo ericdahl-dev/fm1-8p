@@ -1444,6 +1444,171 @@ TT_TEST(synced_spike_restart_inside_the_spike_has_low_aliasing)
 }
 
 /*
+ * A synced pair takes each osc1 cycle's DC off at its wrap (#139). The cycle
+ * is a fractional number of samples (220 Hz at 48 kHz: 218.18), so cycles
+ * of 218 and 219 samples alternate and a restart's polyBLEP blip falls on
+ * either side of the cycle's edge; if the DC taken off follows each cycle's
+ * own sum, it steps a little at each wrap, un-band-limited, and the steps'
+ * pattern is a comb at tens of Hz (#253, CLAV: osc2 square an octave under
+ * and +22 cents, -24 dB re f0 where PG-8X has -52). The energy at 15-150 Hz,
+ * under the 220 Hz fundamental, against the fundamental's: -50 dB or less,
+ * once settled, for CLAV's square and for a saw in its place.
+ */
+static double synced_comb_db(uint8_t wave2)
+{
+    static fm_osc_pair p;
+    static double re[32768], im[32768];
+    const size_t n = 32768;
+    double sub = 0, f0 = 0;
+    size_t i;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_wave(&p, 1, wave2);
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, 1);
+    fm_osc_pair_set_pitch(&p, 57 << 16, 48000);
+    fm_osc_pair_set_tune(&p, 1, -1200 + 22, 57 << 16, 48000);
+    for (i = 0; i < 24000; i++) (void)fm_osc_pair_next(&p); /* settled */
+    for (i = 0; i < n; i++) {
+        double w = 0.5 - 0.5 * cos(2.0 * AN_PI * (double)i / (double)(n - 1));
+        re[i] = w * fm_osc_pair_next(&p) / 16777216.0;
+        im[i] = 0;
+    }
+    fft(re, im, n);
+    for (i = 1; i < n / 2; i++) {
+        double f = (double)i * 48000.0 / (double)n, e = re[i] * re[i] + im[i] * im[i];
+        if (f > 15 && f < 150) sub += e;
+        if (f > 200 && f < 240) f0 += e;
+    }
+    return 10.0 * log10(sub / f0);
+}
+
+TT_TEST(synced_dc_leaves_no_comb_under_the_fundamental)
+{
+    double sq = synced_comb_db(FM_WAVE_SQUARE), saw = synced_comb_db(FM_WAVE_SAW);
+    printf("    synced an octave under +22 cents, 220 Hz: 15-150 Hz re f0, square %.1f dB, saw %.1f dB\n",
+           sq, saw);
+    TT_CHECK(sq <= -50);
+    TT_CHECK(saw <= -50);
+}
+
+/*
+ * The DC taken off a synced pair follows a sync sweep (osc2 pitched up two
+ * octaves over half a second, the classic sweep a pitch envelope plays):
+ * each osc1 cycle's own mean stays within 0.04 of full while it moves,
+ * from A2 to A5, saw and square. Taking each cycle's DC off slowly (to
+ * hold the comb down, #253) must not leave it trailing the sweep.
+ */
+static double synced_sweep_worst_mean(int note, uint8_t wave2)
+{
+    static fm_osc_pair p;
+    const int len = 24000;
+    uint32_t last = 0;
+    double sum = 0, worst = 0;
+    int i, n = 0;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_wave(&p, 1, wave2);
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, 1);
+    fm_osc_pair_set_pitch(&p, note << 16, 48000);
+    fm_osc_pair_set_tune(&p, 1, 0, note << 16, 48000);
+    for (i = 0; i < 24000 + len + 24000; i++) {
+        double v;
+        if (i >= 24000 && i < 24000 + len && i % 32 == 0) /* at the control rate */
+            fm_osc_pair_set_pitch_mod(&p, 0, (int32_t)((int64_t)(i - 24000) * (2 << 16) / len));
+        v = fm_osc_pair_next(&p) / 16777216.0;
+        if (p.osc[0].phase < last) {
+            if (i > 24000 && fabs(sum / n) > worst) worst = fabs(sum / n);
+            sum = 0;
+            n = 0;
+        }
+        last = p.osc[0].phase;
+        sum += v;
+        n++;
+    }
+    return worst;
+}
+
+TT_TEST(synced_dc_follows_a_sync_sweep)
+{
+    static const int notes[] = { 45, 57, 69, 81 };
+    double worst = 0;
+    size_t k;
+    for (k = 0; k < sizeof notes / sizeof notes[0]; k++) {
+        double saw = synced_sweep_worst_mean(notes[k], FM_WAVE_SAW);
+        double sq = synced_sweep_worst_mean(notes[k], FM_WAVE_SQUARE);
+        if (saw > worst) worst = saw;
+        if (sq > worst) worst = sq;
+    }
+    printf("    synced sweep two octaves up in 0.5 s: largest cycle mean %.4f\n", worst);
+    TT_CHECK(worst < 0.04);
+}
+
+/*
+ * A synced voice played: osc2's LFO vibrato alone (5.5 Hz, 30 or 100
+ * cents), then a bend of both by 2 semitones in 100 ms, then a note 5
+ * semitones up, at A5 and A6, for a saw a fifth up and CLAV's square an
+ * octave under. The slow share of the DC (#253) trails the vibrato: the
+ * mean over any 50 ms (all under 20 Hz) reaches 0.0242 at worst (A6's
+ * square at 100 cents; main's whole-mean loop 0.0013), a sub-audio wobble
+ * accepted for the comb it takes off CLAV. Held under 0.03.
+ */
+static double synced_played_worst_drift(int note, uint8_t wave2, int32_t tune, double depth)
+{
+    static fm_osc_pair p;
+    static double y[96000];
+    const int n = 96000, win = 2400;
+    double acc = 0, worst = 0;
+    int i;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_wave(&p, 1, wave2);
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, 1);
+    fm_osc_pair_set_pitch(&p, note << 16, 48000);
+    fm_osc_pair_set_tune(&p, 1, tune, note << 16, 48000);
+    for (i = 0; i < n; i++) {
+        if (i % 32 == 0) { /* at the control rate */
+            double oct1 = 0, oct2 = 0;
+            if (i >= 24000 && i < 48000)
+                oct2 = depth / 1200 * sin(2.0 * AN_PI * 5.5 * (i - 24000) / 48000.0);
+            if (i >= 48000)
+                oct1 = oct2 = 2.0 / 12 * fmin(1.0, (i - 48000) / 4800.0);
+            fm_osc_pair_set_pitch_mod(&p, (int32_t)lrint(oct1 * 65536), (int32_t)lrint(oct2 * 65536));
+        }
+        if (i == 72000) {
+            fm_osc_pair_set_pitch(&p, (note + 5) << 16, 48000);
+            fm_osc_pair_set_tune(&p, 1, tune, (note + 5) << 16, 48000);
+        }
+        y[i] = fm_osc_pair_next(&p) / 16777216.0;
+    }
+    for (i = 0; i < n; i++) {
+        acc += y[i];
+        if (i >= win) acc -= y[i - win];
+        if (i >= 12000 && fabs(acc / win) > worst) worst = fabs(acc / win);
+    }
+    return worst;
+}
+
+TT_TEST(synced_dc_drift_stays_sub_audio_and_small_when_played)
+{
+    static const int notes[] = { 81, 93 };
+    static const double depths[] = { 30, 100 };
+    double worst = 0;
+    size_t k, d;
+    for (k = 0; k < 2; k++)
+    for (d = 0; d < 2; d++) {
+        double saw = synced_played_worst_drift(notes[k], FM_WAVE_SAW, 702, depths[d]);
+        double sq = synced_played_worst_drift(notes[k], FM_WAVE_SQUARE, -1178, depths[d]);
+        if (saw > worst) worst = saw;
+        if (sq > worst) worst = sq;
+    }
+    printf("    synced, osc2 vibrato, a bend, a note change: largest 50 ms mean %.4f\n", worst);
+    TT_CHECK(worst < 0.03);
+}
+
+/*
  * osc2 an octave less 2 cents up (a ratio just under 2) meets each
  * restart about 0.998 into its cycle, within one increment of its own wrap:
  * the polyBLEP it would put on that wrap must not add to the restart's.
@@ -2073,6 +2238,92 @@ TT_TEST(synced_osc2_has_no_dc)
 }
 
 /*
+ * A mean smaller than the step sync_dc takes at once (1.0 / the cycle's
+ * length: 0.018 at A5) is still taken off, slowly (#253): settled, a
+ * synced saw a fifth up at A5 has no DC left, not one parked anywhere
+ * under that step.
+ */
+TT_TEST(synced_osc2_settles_to_no_dc_under_the_step)
+{
+    static fm_osc_pair p;
+    int32_t pitch = 81 << 16;
+    double dc;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_tune(&p, 1, 702, pitch, RATE);
+    fm_osc_pair_set_pitch(&p, pitch, RATE);
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, 1);
+    dc = pair_dc(&p, 24000, 48000);
+    printf("    synced saw a fifth up at A5, settled: DC %+.6f\n", dc);
+    TT_CHECK(fabs(dc) < 1e-4);
+}
+
+/*
+ * The slow share of a cycle's mean moves the offset by 1/32, rounded to
+ * the nearest LSB, not floored (#253): a floor drops toward -inf, so each
+ * cycle's jitter leaves the offset half an LSB low on average and the pair
+ * a standing DC of about +16 LSB (Q8.24). Settled, over 100 s of CLAV's
+ * synced square and a saw in its place, at A3 and A5: under 4 LSB.
+ */
+TT_TEST(synced_dc_rounds_the_slow_share)
+{
+    static const int notes[] = { 57, 81 };
+    static const uint8_t waves[] = { FM_WAVE_SQUARE, FM_WAVE_SAW };
+    static fm_osc_pair p;
+    double worst = 0;
+    size_t w, k;
+    for (w = 0; w < 2; w++)
+    for (k = 0; k < 2; k++) {
+        const uint32_t n = 4800000;
+        int64_t sum = 0;
+        uint32_t i;
+        double dc;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 1, waves[w]);
+        fm_osc_pair_set_level(&p, 0, 0);
+        fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_sync(&p, 1);
+        fm_osc_pair_set_pitch(&p, notes[k] << 16, 48000);
+        fm_osc_pair_set_tune(&p, 1, -1200 + 22, notes[k] << 16, 48000);
+        for (i = 0; i < 48000; i++) (void)fm_osc_pair_next(&p);
+        for (i = 0; i < n; i++) sum += fm_osc_pair_next(&p);
+        dc = (double)sum / n;
+        if (fabs(dc) > fabs(worst)) worst = dc;
+    }
+    printf("    synced, settled, 100 s: largest DC %+.2f LSB (Q8.24)\n", worst);
+    TT_CHECK(fabs(worst) < 4);
+}
+
+/*
+ * osc2 retuned mid-note under a synced C3, an octave up to a fifth up:
+ * the restart moves from osc2's own wrap into its cycle, and the pair's DC
+ * from none to -1/6. That is a real change, far past the step taken
+ * slowly (#253), so all but that step comes off at once, as on a new
+ * note: over the ten cycles from the second after the retune, under
+ * 0.004 (the step is 1 / 367 here; the slow loop alone would leave
+ * 0.135).
+ */
+TT_TEST(synced_osc2_retuned_mid_note_has_no_dc)
+{
+    static fm_osc_pair p;
+    int32_t pitch = 48 << 16;
+    double dc;
+    uint32_t i;
+    fm_osc_pair_reset(&p, 1);
+    fm_osc_pair_set_tune(&p, 1, 1200, pitch, RATE);
+    fm_osc_pair_set_pitch(&p, pitch, RATE);
+    fm_osc_pair_set_level(&p, 0, 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, 1);
+    for (i = 0; i < 24000; i++) fm_osc_pair_next(&p);
+    fm_osc_pair_set_tune(&p, 1, 702, pitch, RATE);
+    dc = pair_dc(&p, 734, 4404); /* cycles 2 to 12 of 367 samples */
+    printf("    synced saw retuned an octave to a fifth up: DC %+.4f over the next ten cycles\n", dc);
+    TT_CHECK(fabs(dc) < 0.004);
+}
+
+/*
  * SYNC 2 with a pulse osc1 (SYNC LEAD's): the ring drives osc2 past +-2.0
  * a third of the time (inside the pair's +-4.0 hold), and taking a mean off
  * shifts the wave. The pair still plays with no DC.
@@ -2472,6 +2723,12 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_has_low_aliasing);
     TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
     TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
+    TT_RUN(synced_dc_leaves_no_comb_under_the_fundamental);
+    TT_RUN(synced_dc_follows_a_sync_sweep);
+    TT_RUN(synced_osc2_settles_to_no_dc_under_the_step);
+    TT_RUN(synced_osc2_retuned_mid_note_has_no_dc);
+    TT_RUN(synced_dc_rounds_the_slow_share);
+    TT_RUN(synced_dc_drift_stays_sub_audio_and_small_when_played);
     TT_RUN(sync_with_osc2_coarse_repeats_at_osc1);
     TT_RUN(synced_pitch_env_on_osc2_keeps_the_fundamental);
     TT_RUN(synced_osc2_has_no_dc);

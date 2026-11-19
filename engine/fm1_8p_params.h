@@ -105,7 +105,7 @@ typedef enum {
     FM_PARAM_AMP_DYNA,
     /* MIX DYNAMICS 0 (off) .. 3: osc_mix_env's depth times the DYNAMICS share at the velocity */
     FM_PARAM_OSC_MIX_ENV_DYNA,
-    /* per mille: the whole note's level (VCA LEVEL), read at note on */
+    /* per mille: the output level (VCA LEVEL), live; glides with setting_glide (#169) */
     FM_PARAM_AMP_LEVEL,
     /* 1: levels, filter and LFO depths glide as PG-8X's (#146) */
     FM_PARAM_SETTING_GLIDE,
