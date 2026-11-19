@@ -490,6 +490,8 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     case FM_PARAM_AMP_LEVEL: /* the VCA LEVEL: the output's gain, at once (#169) */
         e->mix_gain = level_gain(e, v);
+        for (i = 0; i < FM_MAX_VOICES; i++) /* every voice frees 80 dB under the output */
+            fm_voice_set_output_level(&e->voices[i], v);
         return;
     case FM_PARAM_AMP_GATE: /* every voice, as fm_voice_reset gave them all */
         for (i = 0; i < FM_MAX_VOICES; i++)
@@ -626,7 +628,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->mod_on = 0;
     /* no route but the ones set here and by the parameters below;
      * velocity sets the level at full depth: its source is already the
-     * note's level (velocity_peak) */
+     * velocity's level (velocity_peak; the VCA LEVEL is the output's gain) */
     fm_mod_routes_reset(&e->mod.routes);
     fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_VEL, FM_MOD_LEVEL, FM_ENV_FULL);
     /* each voice its own noise (an odd multiplier: never 0), so unison

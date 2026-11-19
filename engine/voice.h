@@ -303,6 +303,10 @@ void fm_voice_set_highpass(fm_voice *v, uint8_t step);
 void fm_voice_set_cutoff_linear(fm_voice *v, int32_t linear_cents);
 void fm_voice_set_key_track(fm_voice *v, int32_t permille);
 
+/* The output's level (VCA LEVEL), per mille: the amp envelope's floor
+ * follows it, so the note frees its voice 80 dB under the output (#169). */
+void fm_voice_set_output_level(fm_voice *v, int32_t permille);
+
 /* The filter's resonance, per mille: at once. */
 void fm_voice_set_resonance(fm_voice *v, int32_t permille);
 

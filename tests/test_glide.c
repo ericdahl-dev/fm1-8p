@@ -300,6 +300,54 @@ TT_TEST(a_full_range_cutoff_jump_glides_in_small_steps)
     TT_CHECK(big * 5 <= to - from);
 }
 
+/* Samples from a note's key up until its voice is free, at VCA LEVEL `level`, the release 100 ms. */
+static uint32_t gl_frees_after(int32_t level)
+{
+    uint32_t n = 0;
+    fm_engine_init(&gl_eng, GL_RATE, 6);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_LEVEL, level);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_ATTACK_MS, 1);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_RELEASE_MS, 100);
+    fm_engine_note_on(&gl_eng, 60, 127);
+    fm_engine_render(&gl_eng, gl_buf, GL_RATE / 10);
+    fm_engine_note_off(&gl_eng, 60);
+    while (fm_voice_active(&gl_eng.voices[0]) && n < 2 * GL_RATE) {
+        fm_engine_render(&gl_eng, gl_buf, 1);
+        n++;
+    }
+    return n;
+}
+
+/* A voice is free once its note's output is 80 dB down, whatever the VCA LEVEL (as when the level was
+ * in the note's peak, before #169 made it the output's gain): a release (tau 100 ms) at level 279 frees
+ * the voice ln(1000 / 279) = 1.277 tau sooner than at full, so a quiet tone's inaudible tail holds no
+ * voice (within 3 ms). */
+TT_TEST(a_quiet_vca_level_frees_its_voice_when_its_output_is_80_db_down)
+{
+    uint32_t full = gl_frees_after(1000), quiet = gl_frees_after(279);
+    printf("    voice free after key up: %.1f ms at level 1000, %.1f ms at 279\n", 1000.0 * full / GL_RATE,
+           1000.0 * quiet / GL_RATE);
+    TT_CHECK(fabs(1000.0 * (full - (double)quiet) / GL_RATE - 127.7) < 3.0);
+}
+
+/* The VCA LEVEL gliding down to 0 on a held note (each step sets the amp envelope's floor): no divide by
+ * 0 (the level is taken as 1 there), silence, and the voice frees soon after its key comes up. */
+TT_TEST(a_vca_level_gliding_to_zero_keeps_its_floor_safe)
+{
+    uint32_t n = 0;
+    gl_level_turn(1, 1000, 0);
+    TT_CHECK_EQ(gl_peak_at(590), 0);
+    fm_engine_set_param(&gl_eng, FM_PARAM_AMP_RELEASE_MS, 100);
+    fm_engine_note_off(&gl_eng, 84);
+    while (fm_voice_active(&gl_eng.voices[0]) && n < GL_RATE) {
+        fm_engine_render(&gl_eng, gl_buf, 1);
+        n++;
+    }
+    printf("    level 0: the voice free %.1f ms after key up\n", 1000.0 * n / GL_RATE);
+    TT_CHECK(n < GL_RATE / 4); /* 80 dB under a level of 1/1000: 20 dB, 2.3 tau */
+}
+
 static void run_glide_tests(void)
 {
     TT_RUN(setting_the_glide_on_again_keeps_a_change_gliding);
@@ -311,4 +359,6 @@ static void run_glide_tests(void)
     TT_RUN(a_vca_level_change_without_the_glide_acts_at_once);
     TT_RUN(a_patch_with_a_low_vca_level_glides_in_from_full);
     TT_RUN(a_full_range_cutoff_jump_glides_in_small_steps);
+    TT_RUN(a_quiet_vca_level_frees_its_voice_when_its_output_is_80_db_down);
+    TT_RUN(a_vca_level_gliding_to_zero_keeps_its_floor_safe);
 }
