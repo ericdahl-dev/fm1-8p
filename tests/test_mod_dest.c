@@ -246,8 +246,48 @@ TT_TEST(each_oscillator_pitch_is_its_own_destination)
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH2), -0x8000);
 }
 
+/* A source whose every depth is 0 is skipped by the sums (#61: two aftertouch sources, most patches route
+ * neither); a route turned on or off mid-note, alone or with others in its row, still sums right at once:
+ * on, its share; off, 0 (not a stale share); on again, its share; and fm_mod_source_routed follows. */
+TT_TEST(a_route_turned_on_and_off_mid_note_sums_right)
+{
+    fm_mod_routes r;
+    fm_mod m;
+    memset(&r, 0, sizeof r);
+    fm_mod_reset(&m);
+    fm_mod_set_source(&m, FM_MOD_SRC_ATLFO, 1 << 29);         /* 0.5 */
+    fm_mod_set_source(&m, FM_MOD_SRC_PENV, 1 << 28);          /* 0.25 */
+    fm_mod_tick(&m, &r);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 0);
+    TT_CHECK(!fm_mod_source_routed(&r, FM_MOD_SRC_ATLFO));
+    fm_mod_set_route(&r, FM_MOD_SRC_ATLFO, FM_MOD_PITCH1, 1 << 16);
+    fm_mod_set_route(&r, FM_MOD_SRC_ATLFO, FM_MOD_PITCH2, 1 << 16);
+    TT_CHECK(fm_mod_source_routed(&r, FM_MOD_SRC_ATLFO));
+    fm_mod_tick(&m, &r);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 1 << 15);
+    fm_mod_set_route(&r, FM_MOD_SRC_ATLFO, FM_MOD_PITCH1, 0);  /* one of the row's two off: the row stays */
+    TT_CHECK(fm_mod_source_routed(&r, FM_MOD_SRC_ATLFO));
+    fm_mod_tick(&m, &r);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 0);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH2), 1 << 15);
+    fm_mod_set_route(&r, FM_MOD_SRC_ATLFO, FM_MOD_PITCH2, 0);  /* the row off: skipped */
+    TT_CHECK(!fm_mod_source_routed(&r, FM_MOD_SRC_ATLFO));
+    fm_mod_tick(&m, &r);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH2), 0);
+    fm_mod_set_route(&r, FM_MOD_SRC_PENV, FM_MOD_PITCH1, 1 << 16);   /* another source on */
+    fm_mod_set_route(&r, FM_MOD_SRC_ATLFO, FM_MOD_PITCH1, 1 << 16);  /* and the row on again */
+    fm_mod_tick(&m, &r);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), (1 << 15) + (1 << 14));
+    TT_CHECK_EQ(fm_mod_update(&m, &r, FM_MOD_PITCH1), (1 << 15) + (1 << 14));
+    fm_mod_routes_reset(&r);
+    TT_CHECK(!fm_mod_source_routed(&r, FM_MOD_SRC_ATLFO) && !fm_mod_source_routed(&r, FM_MOD_SRC_PENV));
+    fm_mod_tick(&m, &r);
+    TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 0);
+}
+
 static void run_mod_dest_tests(void)
 {
+    TT_RUN(a_route_turned_on_and_off_mid_note_sums_right);
     TT_RUN(one_route_gives_source_times_depth);
     TT_RUN(sum_clamps_instead_of_wrapping);
     TT_RUN(tick_reports_the_destinations_that_changed);
