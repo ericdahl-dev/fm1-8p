@@ -156,12 +156,34 @@ static void write(ui *u, uint32_t ms)
 {
     u->save_waiting = 0;
     u->save_home_armed = 0;
+    if (u->save_delete) {                       /* a delete (#303) */
+        u->save_delete = 0;
+        if ((u->save_pattern ? play_pattern_delete(u->p, u->save_dest) : play_delete(u->p, u->save_dest)) == 0)
+            say(u, "DELETED", u->save_dest, ms, u->save_pattern);
+        else
+            say(u, "DELETE FAILED", STORE_USER_SLOTS, ms, 0);
+        return;
+    }
     if ((u->save_pattern ? play_pattern_write(u->p, u->save_dest, &psnap, psnap_name)
                          : play_save(u->p, u->save_dest, &snap)) == 0) {
         u->save_draft_prog = UI_SAVE_NO_DRAFT;  /* written: no draft to offer */
         say(u, "SAVED", u->save_dest, ms, u->save_pattern);
     } else
         say(u, "SAVE FAILED", STORE_USER_SLOTS, ms, 0);
+}
+
+/* "SAVING 23 WHEN SILENT" (or DELETING) into u->save_wait_msg */
+static void wait_msg(ui *u, const char *what)
+{
+    char *w = u->save_wait_msg;
+    const char *t = what;
+    while (*t)
+        *w++ = *t++;
+    ui_prog_number(u->save_dest, w);
+    w += 2;                                     /* a user slot: two digits (a scan is strlen to clang) */
+    for (t = " WHEN SILENT"; *t; )
+        *w++ = *t++;
+    *w = 0;
 }
 
 static const char HOLD[] = "HOLD SAVE: NOW";
@@ -171,6 +193,7 @@ void ui_save_home(ui *u, uint32_t ms)
 {
     if (u->save_home_armed && ms - u->save_home_ms < UI_BANNER_MS) {
         u->save_waiting = 0;
+        u->save_delete = 0;                     /* (a waiting delete too, #303) */
         u->save_home_armed = 0;
         say(u, "SAVE CANCELED", STORE_USER_SLOTS, ms, 0);
         return;
@@ -270,6 +293,23 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         say(u, "SAVE CANCELED", STORE_USER_SLOTS, ms, 0);
         return;
     }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && tap && u->save_step == UI_SAVE_DELETE) {   /* the delete (#303) */
+        u->save_step = UI_SAVE_EDITING;
+        u->save_delete = 1;
+        u->dirty |= UI_D_ALL & ~UI_D_FULL;
+        if (play_silent(u->p)) {                /* now: SAVE stays, on the slot now EMPTY */
+            write(u, ms);
+            return;
+        }
+        u->state = u->save_from;                /* or when silent, as a save waits */
+        u->dirty |= UI_D_FULL;
+        u->save_waiting = 1;
+        u->save_wait_ms = ms;
+        u->save_home_armed = 0;
+        wait_msg(u, "DELETING ");
+        ui_save_tick(u, ms);
+        return;
+    }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && ms - u->down_ms[UI_BTN_SEL] >= UI_DELETE_MS &&
         ui_save_slot_used(u, u->save_dest, NULL)) {   /* held, on a slot that holds one: ask (#303) */
         ask(u, "DELETE ", UI_SAVE_DELETE);
@@ -287,17 +327,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->save_waiting = 1;
         u->save_wait_ms = ms;
         u->save_home_armed = 0;
-        {
-            char *w = u->save_wait_msg;         /* SAVING 23 WHEN SILENT */
-            const char *t = "SAVING ";
-            while (*t)
-                *w++ = *t++;
-            ui_prog_number(u->save_dest, w);
-            w += 2;                             /* a user slot: two digits (a scan is strlen to clang) */
-            for (t = " WHEN SILENT"; *t; )
-                *w++ = *t++;
-            *w = 0;
-        }
+        wait_msg(u, "SAVING ");
         ui_save_tick(u, ms);                    /* silent now: written now */
     }
 }

@@ -65,6 +65,7 @@ typedef struct {
     uint32_t save_step;                 /* UI_SAVE_EDITING, UI_SAVE_CONFIRM */
     uint32_t save_cursor;               /* the name's character being edited, 0..11 */
     uint32_t save_waiting;              /* 1: a snapshot waits for silence to be written */
+    uint32_t save_delete;               /* 1: what waits (or is written) is a delete of save_dest (#303) */
     uint32_t save_wait_ms;              /* when it began to wait (the banner's turns) */
     char save_wait_msg[24];             /* SAVING 23 WHEN SILENT */
     uint32_t save_home_ms;              /* a HOME tap that asked to cancel the waiting write, when */

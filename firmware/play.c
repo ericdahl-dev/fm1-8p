@@ -180,6 +180,20 @@ int play_pattern_save(play *p, uint32_t dest, const char *name)
     return play_pattern_write(p, dest, &snap, name);
 }
 
+int play_pattern_delete(play *p, uint32_t dest)
+{
+    if (!p->plib || !p->io || dest >= PAT_SLOTS)
+        return -1;
+    return pat_slot_clear(p->plib, p->io, dest);
+}
+
+int play_delete(play *p, uint32_t dest)
+{
+    if (!p->lib || !p->io || dest >= STORE_USER_SLOTS)
+        return -1;
+    return store_slot_clear(p->lib, p->io, dest);
+}
+
 uint32_t play_silent(const play *p)
 {
     return p->sounding == 0 && p->head == p->tail && !seq_playing(&p->seq);

@@ -109,6 +109,8 @@ void play_pattern_snapshot(const play *p, seq_pattern *snap);
 int play_pattern_write(play *p, uint32_t dest, const seq_pattern *snap, const char *name);
 /* play_pattern_snapshot then play_pattern_write, at once */
 int play_pattern_save(play *p, uint32_t dest, const char *name);
+/* Empties pattern slot dest (#303): 0, or -1 when the write failed. What plays stays as it is. */
+int play_pattern_delete(play *p, uint32_t dest);
 /* main loop: 1 when nothing sounds, no note waits to, and the sequencer is stopped (a flash write may
  * stall the sound then; #201) */
 uint32_t play_silent(const play *p);
@@ -119,6 +121,8 @@ void play_snapshot(const play *p, const char *name, store_patch *s);
 /* main loop: s into user slot `dest` and its bank to flash: 0, or -1 when the write failed. When the
  * edit buffer still equals s, that slot becomes the stored patch playing (no longer edited). */
 int play_save(play *p, uint32_t dest, const store_patch *s);
+/* Empties user slot dest (#303): 0, or -1 when the write failed. What plays stays as it is. */
+int play_delete(play *p, uint32_t dest);
 /* The patch playing. */
 const patch *play_patch(const play *p);
 /* main loop: load PATCHES[i] (PRESETS): the next render lets the sounding notes go and applies every

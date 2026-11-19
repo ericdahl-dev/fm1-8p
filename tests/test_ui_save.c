@@ -684,9 +684,76 @@ TT_TEST(save_sel_held_asks_to_delete)
     TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
 }
 
+/* SEL held on slot 12 (OTHER): the question */
+static void save_ask_delete(uint32_t ms)
+{
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, ms);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, ms + 1600u);
+}
+
+/* #303: a second SEL tap deletes the slot. Silent, at once: DELETED 12 shows, the slot is empty (in flash
+ * too) and SAVE stays open on it, now EMPTY */
+TT_TEST(save_sel_again_deletes_the_slot)
+{
+    static store_patch out;
+    save_on_other();
+    save_ask_delete(1200);
+    TT_CHECK(play_silent(&ui_p));
+    save_tap(UI_BTN_SEL, 3000);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), -1);
+    store_lib_load(&store_lib_b, &store_fake_io);
+    TT_CHECK_EQ(store_slot_read(&store_lib_b, 1, &out), -1);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETED 12") == 0);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK_EQ(ui_u.save_dest, 1u);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+    TT_CHECK(!store_slot_used(&store_lib_a, 1));
+}
+
+/* #303: with a note sounding, the delete waits as a save does (DELETING 12 WHEN SILENT, back on the screen
+ * SAVE came from) and is done when silent (DELETED 12); a waiting delete canceled (HOME twice) deletes
+ * nothing, and the next SAVE writes, not deletes */
+TT_TEST(save_delete_waits_for_silence_and_cancels)
+{
+    static store_patch out;
+    uint32_t k;
+    save_on_other();
+    play_note(&ui_p, 60, 100);
+    save_render(4);
+    save_ask_delete(1200);
+    save_tap(UI_BTN_SEL, 3000);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETING 12 WHEN SILENT") == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    save_tap(UI_BTN_HOME, 3200);
+    save_tap(UI_BTN_HOME, 3400);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVE CANCELED") == 0);
+    play_note(&ui_p, 60, 0);
+    for (k = 0; k < 2000 && !play_silent(&ui_p); k++) save_render(1);
+    (void)ui_take(&ui_u, 6000);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    save_tap(UI_BTN_SAVE, 7000);                /* SAVE onto 11 (empty): a write */
+    save_tap(UI_BTN_SAVE, 7200);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 0, &out), 0);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED 11") == 0);
+    play_note(&ui_p, 60, 100);                  /* and a waiting delete is done when silent */
+    save_render(4);
+    save_tap(UI_BTN_SAVE, 8000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 8100);
+    save_ask_delete(8200);
+    save_tap(UI_BTN_SEL, 10000);
+    play_note(&ui_p, 60, 0);
+    for (k = 0; k < 2000 && !play_silent(&ui_p); k++) save_render(1);
+    (void)ui_take(&ui_u, 11000);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), -1);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETED 12") == 0);
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_sel_held_asks_to_delete);
+    TT_RUN(save_sel_again_deletes_the_slot);
+    TT_RUN(save_delete_waits_for_silence_and_cancels);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);
