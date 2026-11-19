@@ -126,7 +126,7 @@ PARAMS = [
     P(49, 'OSC_MIX_ENV_DYNA', 'osc_mix_env_dyna', '0', '3', '0', 49,
       "MIX DYNAMICS 0 (off) .. 3: osc_mix_env's depth times the DYNAMICS share at the velocity"),
     P(50, 'AMP_LEVEL', 'amp_level_permille', '0', '1000', '1000', 50,
-      "per mille: the whole note's level (VCA LEVEL), read at note on"),
+      "per mille: the output level (VCA LEVEL), live; glides with setting_glide (#169)"),
     P(51, 'SETTING_GLIDE', 'setting_glide', '0', '1', '0', 51,
       "1: levels, filter and LFO depths glide as PG-8X's (#146)"),
     P(52, 'AMP_GATE', 'amp_gate', '0', '1', '0', 52,
