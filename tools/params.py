@@ -137,6 +137,12 @@ PARAMS = [
       'the mod wheel (CC1) at full adds this to the LFO\'s pulse-width depth, at most 49 % in all (#41)'),
     P(55, 'OSC1_COARSE_SEMIS', 'osc1_coarse_semis', '-12', '12', '0', 55,
       '-12..+12 semitones, on top of osc1\'s octave and fine (DCO-1 TUNE, #108)'),
+    P(56, 'AT_VIB_CENTS', 'at_vib_cents', '0', '540', '0', 56,
+      'aftertouch (#61): vibrato depth at full pressure, at the LFO\'s rate on top of its own (PG-8X: 540 ct at full)'),
+    P(57, 'AT_BRI_CENTS', 'at_bri_cents', '0', '2280', '0', 57,
+      'aftertouch (#61): cents added to the cutoff at full pressure (PG-8X: 2280 ct at full)'),
+    P(58, 'AT_VOL_PCT', 'at_vol_pct', '0', '100', '0', 58,
+      'aftertouch (#61): a voice\'s gain is 1 - d/2 + d x pressure/127 at d percent (PG-8X\'s, an untouched key 6 dB down at 100)'),
 ]
 
 
@@ -300,6 +306,9 @@ DISPLAY = {
     'WHEEL_PITCH_CENTS': D('PLAIN', 'ct'),
     'WHEEL_PW_PCT': D('PLAIN', '%'),
     'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
+    'AT_VIB_CENTS': D('PLAIN', 'ct'),
+    'AT_BRI_CENTS': D('PLAIN', 'ct'),
+    'AT_VOL_PCT': D('PLAIN', '%'),
 }
 
 

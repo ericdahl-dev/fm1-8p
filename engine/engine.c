@@ -371,6 +371,22 @@ static GLIDE_NOINLINE void glide_tick(fm_engine *e)
 }
 
 /* Recomputes the derived settings a parameter feeds. */
+/* Aftertouch's volume (#61), as PG-8X's: voice `i`'s gain is
+ * 1 - d/2 + d x pressure at at_vol_pct d (Q1.30; exactly full at d 0). */
+static int32_t at_gain(const fm_engine *e, uint8_t i)
+{
+    int64_t d = e->params[FM_PARAM_AT_VOL_PCT];
+    return (int32_t)(FM_ENV_FULL + d * (2 * (int64_t)e->at_now[i] - FM_ENV_FULL) / 200);
+}
+
+/* Every voice takes its aftertouch gain. */
+static void at_gains(fm_engine *e)
+{
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++)
+        fm_voice_set_gain(&e->voices[i], at_gain(e, i));
+}
+
 static void apply_param(fm_engine *e, uint16_t id)
 {
     int32_t v = e->params[id];
@@ -465,6 +481,9 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_WHEEL_PITCH_CENTS:
     case FM_PARAM_WHEEL_PW_PCT:
         lfo_routes(e);
+        return;
+    case FM_PARAM_AT_VOL_PCT:
+        at_gains(e);
         return;
     case FM_PARAM_PITCH_ENV_OSC1_CENTS: /* cents -> Q16.16 octaves */
     case FM_PARAM_PITCH_ENV_OSC2_CENTS:
@@ -645,6 +664,8 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     glide_init(e);
     e->wheel = e->wheel_to = 0;                 /* the mod wheel down (#41) */
     e->wheel_moving = 0;
+    e->at_chan = 0;                             /* no pressure (#61) */
+    for (i = 0; i < FM_MAX_VOICES; i++) e->at_now[i] = 0;
     /* all defaults first: some settings combine several parameters */
     for (id = 0; id < FM_PARAM_COUNT; id++)
         e->params[id] = fm_param_info_get(id)->def;
@@ -935,6 +956,21 @@ void fm_engine_pitch_bend(fm_engine *e, uint16_t value)
     if (e->sample_rate == 0 || value > 16383) return;
     e->bend_value = (int32_t)value - 8192;
     apply_bend(e, e->bend_value);
+}
+
+/* MIDI pressure 0..127 as Q1.30 */
+static int32_t at_q30(uint8_t p)
+{
+    return (int32_t)(((int64_t)p << 30) / 127);
+}
+
+void fm_engine_channel_pressure(fm_engine *e, uint8_t pressure)
+{
+    uint8_t i;
+    if (e->sample_rate == 0 || pressure > 127) return;
+    e->at_chan = at_q30(pressure);
+    for (i = 0; i < e->voice_count; i++) e->at_now[i] = e->at_chan;
+    at_gains(e);
 }
 
 uint8_t fm_engine_active_voices(const fm_engine *e)

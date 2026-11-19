@@ -108,6 +108,10 @@ typedef struct {
     int32_t glide_cur[FM_GLIDE_SETTINGS];
     int16_t glide_to[FM_GLIDE_SETTINGS];
     int32_t glide_k;
+    /* aftertouch (#61): each voice's pressure, Q1.30 (p / 127), and the
+     * last channel pressure, which a new note starts at */
+    int32_t at_now[FM_MAX_VOICES];
+    int32_t at_chan;
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
@@ -147,6 +151,14 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value);
  * notes follow at once. Out-of-range values are ignored.
  */
 void fm_engine_pitch_bend(fm_engine *e, uint16_t value);
+
+/*
+ * MIDI pressure, 0..127 (#61): channel pressure reaches every voice,
+ * poly pressure the voice(s) playing `note`; for each voice the latest
+ * message wins. The at_* parameters set what it does. Out-of-range values
+ * are ignored.
+ */
+void fm_engine_channel_pressure(fm_engine *e, uint8_t pressure);
 
 /*
  * Sets a parameter; values outside its range are clamped. Returns

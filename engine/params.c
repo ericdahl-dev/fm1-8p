@@ -68,6 +68,9 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_WHEEL_PITCH_CENTS, "wheel_pitch_cents", 0, 1200, 50 },
     { FM_PARAM_WHEEL_PW_PCT, "wheel_pw_pct", 0, 49, 0 },
     { FM_PARAM_OSC1_COARSE_SEMIS, "osc1_coarse_semis", -12, 12, 0 },
+    { FM_PARAM_AT_VIB_CENTS, "at_vib_cents", 0, 540, 0 },
+    { FM_PARAM_AT_BRI_CENTS, "at_bri_cents", 0, 2280, 0 },
+    { FM_PARAM_AT_VOL_PCT, "at_vol_pct", 0, 100, 0 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)

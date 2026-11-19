@@ -38,6 +38,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->next_pitch = 0;
     v->wait = 0;
     v->gate_left = 0;
+    v->gain = FM_ENV_FULL;
     fm_mod_reset(&v->mod);
     v->lfo_start = 0;
     v->next_peak = FM_ENV_FULL;
@@ -420,6 +421,12 @@ void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
 }
 
+void fm_voice_set_gain(fm_voice *v, int32_t gain)
+{
+    v->gain = gain;
+    fm_voice_mark(v, FM_BUSY_GAIN, gain != FM_ENV_FULL);
+}
+
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now)
 {
@@ -460,7 +467,7 @@ uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m)
     return v->pending || v->gate_left ||
            !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) ||
            !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
-           v->mix_step || v->osc.req[1] != v->mix_base ||
+           v->mix_step || v->osc.req[1] != v->mix_base || v->gain != FM_ENV_FULL ||
            !fm_vfilter_is_wire(&v->vf) || !fm_vfilter_at_rest(&v->vf);
 }
 
@@ -533,6 +540,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
 {
     uint32_t i, told = 0; /* the lazy envelopes know of samples < told */
     int whole;
+    int32_t gain = v->gain; /* set between chunks only (control ticks, events) */
     if (render_plain(v, m, mix, osc, frames)) return;
     whole = osc_chunk_safe(v);
     if (whole) fm_osc_pair_render(&v->osc, osc, frames);
@@ -582,6 +590,8 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         if (v->mix_step)
             fm_osc_pair_set_level(&v->osc, 1, v->osc.req[1] + v->mix_step);
         out = fm_vfilter_run(&v->vf, whole ? osc[i] : fm_osc_pair_next(&v->osc));
+        if (gain != FM_ENV_FULL) /* aftertouch's volume: Q1.30 * Q1.30 */
+            level = (int32_t)(((int64_t)level * gain) >> 30);
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
     }
