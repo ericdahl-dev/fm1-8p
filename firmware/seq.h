@@ -93,6 +93,7 @@ typedef struct {
     volatile uint32_t ask_stop;         /* +1 per stop asked */
     volatile uint32_t want;             /* main loop writes (1 from seq_play to seq_stop), ISR reads */
     volatile int32_t transpose;         /* main loop writes: semitones, taken at a step's start */
+    uint8_t key_transpose;              /* main loop only: KEY TRANSPOSE (S3), keys set the transpose */
     /* pattern loads (#40): the copy last loaded or saved (main loop: seq_edited), and the next pattern,
      * queued while playing: the main loop writes it, then sets next_pending; the interrupt takes it in
      * place of the running pattern after the pass's last step, and counts next_taken */
@@ -211,6 +212,10 @@ void seq_mark_saved(seq *s);                            /* (after a SAVE: not ed
  * from the next step; a note it puts outside 0..127 is left out */
 void seq_set_transpose(seq *s, int32_t semis);
 int32_t seq_transpose(const seq *s);
+/* main loop: KEY TRANSPOSE (S3, #39), a performance setting too: 1 while played keys set the transpose
+ * (interaction.md 5); off at power-on, and a pattern loaded leaves it */
+void seq_set_key_transpose(seq *s, uint32_t on);
+uint32_t seq_key_transpose(const seq *s);
 uint32_t seq_tempo(const seq *s);
 void seq_set_tempo(seq *s, uint32_t tenths_bpm);       /* clamped to SEQ_TEMPO_MIN..MAX */
 void seq_set_gate(seq *s, uint32_t pct);               /* clamped to SEQ_GATE_MIN..100 */

@@ -828,15 +828,23 @@ Patterns have their own slots, separate from patches (decision Q2).
     Panel keys use their pitch before the octave shift.
   - **Outside SEQ view** there are no step keys, so a key press transposes at
     once.
-  - **In SEQ view, chord entry comes first:**
-    - Chord keys and MIDI notes are held without sounding and decided when the
-      last of them is released.
-    - If a step key was pressed while any of them was held, it was chord
-      entry: the chord was written at the step key, and nothing transposes.
-    - If no step key was pressed, it is a transpose to the lowest key held,
-      applied at the next step after the release.
+  - **In SEQ view, writing a step comes first:** the panel keys stay step
+    keys and never transpose. A MIDI note transposes, unless a step is armed
+    (tap, then play) or REC is: then it plays and writes that step, and the
+    transpose stays as it was (#39).
   - Releasing the keys keeps the transpose.
-  - When stopped, keys play normally.
+  - When stopped, while PLAY waits for a clock, or with KEY TRANSPOSE off,
+    keys play normally. A STOP press lets the keys play at once.
+  - **Every key ends the way it began:** a key or MIDI note that started
+    playing (stopped, say) lets its note go even if the sequencer started
+    since; one taken for the transpose is taken on release too, even after
+    STOP, so no note hangs and none goes off twice.
+  - KEY TRANSPOSE is a performance setting: off at power-on, not saved with
+    the pattern, and a pattern loaded leaves it. Transposing keys send nothing
+    out over MIDI.
+  - **fm1-dock's LOCAL OFF:** the keys then only go out as MIDI, and the
+    module hears them only if they come back as MIDI in, so they transpose as
+    MIDI notes (against note 60).
 - **Bend and mod per step (#42):**
   - JUMP steps set their bend and mod at the step start.
   - GLIDE steps ramp from the previous step's values to their own by the step

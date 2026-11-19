@@ -6,7 +6,8 @@
  *   MIDI   whatever the host takes in (USB, Bluetooth or the jack) comes through midi(), all alike:
  *          note on and off, sustain (CC 64), all sound / notes off (CC 120 / 123), pitch bend, and
  *          every parameter on its CC (the CC map, docs/ui/interaction.md), and program change (G41);
- *          on G11's channel. With LOCAL OFF the host plays the keys through note(), on its own octave.
+ *          on G11's channel. With fm1-dock's LOCAL OFF the keys only go out as MIDI: the module hears
+ *          them only as MIDI in, if they come back (fm1-dock 9e6e08e, dock.c:386).
  *   pages  ENV opens page 5A VCF (docs/ui/interaction.md), HPF, CUTOFF, RES and LFO on KNOB1-4, and
  *          again 5B, ENV, KEY, DYNAMICS and MODE; a tap of EDIT or HOME goes back to PLAY. The keys
  *          play on every page.
@@ -18,6 +19,7 @@
 #include "hb_module.h"
 #include "play.h"
 #include "ui.h"
+#include "ui_seq.h"
 #include "draw.h"
 #include "settings_store.h"
 
@@ -49,9 +51,13 @@ static void render(int32_t *out, uint32_t n)
     play_render(&P, out, n);
 }
 
+/* fm1-dock 9e6e08e never calls this for FM1-8P (it has a midi hook and the panel), but a host that
+ * did would be playing notes in as MIDI: so KEY TRANSPOSE takes them as it takes MIDI notes */
 static void note(uint32_t ch, uint32_t key, uint32_t vel)
 {
     (void)ch;
+    if (ui_seq_ktr_note(&U, key, vel, vel != 0))
+        return;
     play_note(&P, key, vel);
 }
 
@@ -87,6 +93,11 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
         return;
     }
     ui_midi_controls(&U, st, d1, d2);           /* the live bend and mod wheel, for a SEQ step written (#42) */
+    if ((st & 0xF0u) == 0xB0u && (d1 == 120u || d1 == 123u))
+        ui_seq_ktr_all_off(&U);                 /* (all off: the notes KEY TRANSPOSE held, too) */
+    if (((st & 0xF0u) == 0x90u || (st & 0xF0u) == 0x80u) &&
+        ui_seq_ktr_note(&U, d1, d2, (st & 0xF0u) == 0x90u))
+        return;                                 /* KEY TRANSPOSE took it: no sound (#39) */
     if ((st & 0xF0u) == 0x90u || (st & 0xF0u) == 0x80u)  /* MIDI notes held count as chord keys (SEQ view) */
         ui_chord_note(&U, d1, d2, (st & 0xF0u) == 0x90u && d2);
     if ((st & 0xF0u) == 0xB0u && ui_cc(&U, d1, d2, H->ms()))
