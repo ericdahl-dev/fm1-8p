@@ -40,7 +40,31 @@ typedef char fm_require_engine_within_its_32_bit_budget[
  * bend and the voice's unison detune. Both oscillators follow it. */
 static int32_t voice_pitch(const fm_engine *e, uint8_t i, uint8_t note)
 {
-    return ((int32_t)note << 16) + e->bend + e->detune[i];
+    return ((int32_t)note << 16) + e->bend + e->detune[i] + e->porta[i];
+}
+
+/* Portamento (#62): a note comes in. At a new control tick the newest note
+ * before becomes the one to glide from, so a chord's notes (one tick) all
+ * glide from the note before the chord, as PG-8X's do. */
+static void porta_note(fm_engine *e, uint8_t note)
+{
+    if (e->porta_tick != e->ticks && (e->porta_has & 2u)) {   /* (bit 1: a newest note; bit 0: a from) */
+        e->porta_from = e->porta_newest;
+        e->porta_has |= 1u;
+    }
+    e->porta_newest = (int32_t)note << 16;
+    e->porta_has |= 2u;
+    e->porta_tick = e->ticks;
+}
+
+/* Portamento: voice `i` starts `note`, from the note glided from (none:
+ * no glide, as with portamento off) */
+static void porta_start(fm_engine *e, uint8_t i, uint8_t note)
+{
+    e->porta[i] = e->params[FM_PARAM_PORTAMENTO_MS] && (e->porta_has & 1u) ?
+                  e->porta_from - ((int32_t)note << 16) : 0;
+    if (e->porta[i])
+        e->porta_moving = 1;
 }
 
 /*
@@ -357,11 +381,54 @@ static GLIDE_NOINLINE void glide_tick(fm_engine *e)
 }
 
 /* Recomputes the derived settings a parameter feeds. */
+/* Portamento's step a control tick: 1 - exp(-x), x = a tick / tau, Q16,
+ * from its series (x is at most 0.67 at 1 ms and 48 kHz, where the fourth
+ * term, dropped, is 0.008). Off (0): every glide ends where it is now. */
+static void porta_init(fm_engine *e)
+{
+    uint32_t ms = (uint32_t)e->params[FM_PARAM_PORTAMENTO_MS];
+    int32_t x, x2, x3;
+    uint8_t i;
+    if (!ms || !e->sample_rate) {
+        e->porta_k = 0;
+        if (e->porta_moving) {
+            for (i = 0; i < e->voice_count; i++)
+                e->porta[i] = 0;
+            e->porta_moving = 0;
+            retune(e);
+        }
+        return;
+    }
+    x = (int32_t)((uint32_t)FM_LFO_TICK_FRAMES * 1000u * 65536u / (e->sample_rate * ms));
+    x2 = ((x >> 4) * (x >> 4)) >> 8;
+    x3 = ((x2 >> 4) * (x >> 4)) >> 8;
+    e->porta_k = x - x2 / 2 + x3 / 6;
+}
+
+/* A control tick while a voice glides: its glide still to go falls by
+ * porta_k, and it is retuned; under 1/1000 semitone it ends */
+static void porta_tick(fm_engine *e)
+{
+    uint8_t i, moving = 0;
+    for (i = 0; i < e->voice_count; i++) {
+        int32_t g = e->porta[i];
+        if (!g) continue;
+        g -= (int32_t)(((int64_t)g * e->porta_k) >> 16);
+        e->porta[i] = g > -66 && g < 66 ? 0 : g;
+        moving |= e->porta[i] != 0;
+    }
+    e->porta_moving = moving;
+    retune(e);
+}
+
 static void apply_param(fm_engine *e, uint16_t id)
 {
     int32_t v = e->params[id];
     uint8_t i;
     switch (id) {
+    case FM_PARAM_PORTAMENTO_MS:
+        porta_init(e);
+        return;
     case FM_PARAM_BEND_RANGE:
         apply_bend(e, e->bend_value);
         return;
@@ -626,6 +693,15 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     fm_chorus_init(&e->chorus, sample_rate);
     glide_init(e);
     e->wheel = e->wheel_to = 0;                 /* the mod wheel down (#41) */
+    {                                           /* no glide, nor a note to glide from (#62) */
+        uint8_t q;
+        for (q = 0; q < FM_MAX_VOICES; q++)
+            e->porta[q] = 0;
+        e->porta_moving = e->porta_has = 0;
+        e->porta_from = e->porta_newest = 0;
+        e->porta_tick = 0;
+        e->porta_k = 0;
+    }
     e->wheel_moving = 0;
     /* all defaults first: some settings combine several parameters */
     for (id = 0; id < FM_PARAM_COUNT; id++)
@@ -743,6 +819,7 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
 {
     uint8_t i = (uint8_t)(v - e->voices);
     fm_voice_age(v, ++e->stamp);
+    porta_start(e, i, note);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate, e->fade_samples);
 }
@@ -772,6 +849,7 @@ static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak,
 {
     fm_voice_waiting moved = fm_voice_waiting_note(f);
     fm_voice *w;
+    porta_start(e, (uint8_t)(f - e->voices), note);
     fm_voice_take_back(f, &e->mod, voice_pitch(e, (uint8_t)(f - e->voices), note),
                        peak, velocity, e->ticks + 1, e->sample_rate);
     fm_voice_age(f, ++e->stamp);
@@ -804,6 +882,7 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         fm_voice_age(v, ++e->stamp);
+        porta_start(e, i, note);
         fm_voice_change_note(v, &e->mod, note, voice_pitch(e, i, note), peak,
                              velocity, e->ticks + 1, e->sample_rate, retrigger);
     }
@@ -830,6 +909,7 @@ static void unison_note_off(fm_engine *e, uint8_t note)
     uint8_t i;
     if (!forget_held(e, note)) return; /* not the sounding note */
     if (e->held_count) {
+        porta_note(e, e->held[e->held_count - 1]);   /* (a legato return glides too) */
         unison_play(e, e->held[e->held_count - 1], 0, 0, 0);
         return;
     }
@@ -849,6 +929,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         fm_engine_note_off(e, note);
         return;
     }
+    porta_note(e, note);
     if (e->params[FM_PARAM_VOICE_MODE] == FM_VOICE_MODE_UNISON) {
         unison_note_on(e, note, velocity_peak(e, velocity), velocity);
         return;
@@ -1015,6 +1096,7 @@ static void control_tick(fm_engine *e)
     e->tick_left = FM_LFO_TICK_FRAMES;
     if (e->glide_moving && !(e->ticks % GLIDE_TICKS)) glide_tick(e);
     if (e->wheel_moving) wheel_tick(e);
+    if (e->porta_moving) porta_tick(e);
     /* with every depth at 0 (after one tick that clears any offset still
      * applied) the voices have nothing to do */
     if (lfo_live(e))
@@ -1039,7 +1121,7 @@ static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    if ((lfo_live(e) || e->glide_moving || e->wheel_moving) && n > e->tick_left)
+    if ((lfo_live(e) || e->glide_moving || e->wheel_moving || e->porta_moving) && n > e->tick_left)
         n = e->tick_left;
     return n;
 }

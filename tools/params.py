@@ -137,6 +137,9 @@ PARAMS = [
       'the mod wheel (CC1) at full adds this to the LFO\'s pulse-width depth, at most 49 % in all (#41)'),
     P(55, 'OSC1_COARSE_SEMIS', 'osc1_coarse_semis', '-12', '12', '0', 55,
       '-12..+12 semitones, on top of osc1\'s octave and fine (DCO-1 TUNE, #108)'),
+    P(56, 'PORTAMENTO_MS', 'portamento_ms', '0', '10000', '0', 56,
+      'portamento (#62): each note glides from the last one played, the distance left falling by 1/e '
+      'every this many ms (PG-8X\'s exponential glide); 0 off'),
 ]
 
 
@@ -300,6 +303,7 @@ DISPLAY = {
     'WHEEL_PITCH_CENTS': D('PLAIN', 'ct'),
     'WHEEL_PW_PCT': D('PLAIN', '%'),
     'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
+    'PORTAMENTO_MS': D('MS_S'),
 }
 
 

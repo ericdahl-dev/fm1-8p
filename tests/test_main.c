@@ -48,6 +48,7 @@
 #include "test_seq_clock.c"
 #include "test_play_patterns.c"
 #include "test_svf.c"
+#include "test_porta.c"
 #include "test_dfont.c"
 #include "test_ui_boot.c"
 #include "test_ui_format.c"
@@ -88,6 +89,7 @@ int main(void)
     run_seq_clock_tests();
     run_play_patterns_tests();
     run_svf_tests();
+    run_porta_tests();
     run_dfont_tests();
     run_ui_boot_tests();
     run_ui_format_tests();
