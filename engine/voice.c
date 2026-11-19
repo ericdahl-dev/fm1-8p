@@ -550,17 +550,16 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
     return 1;
 }
 
-void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
-                         int32_t *mix, int32_t *osc,
-                         uint32_t frames, uint32_t sample_rate,
-                         uint32_t next_tick, uint32_t tick_left)
+/* The full loop, for fm_voice_render_add; with_gain a constant, so each
+ * call site is its own copy: the one without aftertouch's gain (#61) has
+ * no work for it at all, per sample. */
+static FM_ALWAYS_INLINE void render_full(fm_voice *v, const fm_voice_mod *m,
+                                         int32_t *mix, int32_t *osc,
+                                         uint32_t frames, uint32_t sample_rate,
+                                         uint32_t next_tick, uint32_t tick_left,
+                                         int whole, int32_t gain, const int with_gain)
 {
     uint32_t i, told = 0; /* the lazy envelopes know of samples < told */
-    int whole;
-    int32_t gain = v->gain; /* set between chunks only (control ticks, events) */
-    if (render_plain(v, m, mix, osc, frames)) return;
-    whole = osc_chunk_safe(v);
-    if (whole) fm_osc_pair_render(&v->osc, osc, frames);
     for (i = 0; i < frames; i++) {
         int32_t level, fenv, out;
         if (v->amp_env.stage == FM_ENV_IDLE) {
@@ -607,10 +606,25 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         if (v->mix_step)
             fm_osc_pair_set_level(&v->osc, 1, v->osc.req[1] + v->mix_step);
         out = fm_vfilter_run(&v->vf, whole ? osc[i] : fm_osc_pair_next(&v->osc));
-        if (gain != FM_ENV_FULL) /* aftertouch's volume: Q1.30 * Q1.30 */
+        if (with_gain) /* aftertouch's volume: Q1.30 * Q1.30 */
             level = (int32_t)(((int64_t)level * gain) >> 30);
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
     }
     lazy_envs_pass(v, frames - told);
+}
+
+void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
+                         int32_t *mix, int32_t *osc,
+                         uint32_t frames, uint32_t sample_rate,
+                         uint32_t next_tick, uint32_t tick_left)
+{
+    int whole;
+    if (render_plain(v, m, mix, osc, frames)) return;
+    whole = osc_chunk_safe(v);
+    if (whole) fm_osc_pair_render(&v->osc, osc, frames);
+    if (v->gain == FM_ENV_FULL) /* (the gain changes between chunks only) */
+        render_full(v, m, mix, osc, frames, sample_rate, next_tick, tick_left, whole, FM_ENV_FULL, 0);
+    else
+        render_full(v, m, mix, osc, frames, sample_rate, next_tick, tick_left, whole, v->gain, 1);
 }
