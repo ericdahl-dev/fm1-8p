@@ -367,8 +367,9 @@ Parameters are plain integers in the unit their name gives, for example
 converts them to samples or Q1.30 when they are set, not per sample. The table
 is in `engine/params.c`.
 
-Each voice has two oscillators. `osc1_wave` and `osc2_wave` pick 0 saw,
-1 pulse, 2 square or 3 noise; `oscN_octave` (-2 to +2) and `oscN_fine_cents`
+Each voice has two oscillators. `osc1_wave` and `osc2_wave` pick 0 saw
+(falling from +1 to -1 over its cycle, as PG-8X's: #260), 1 pulse, 2 square,
+3 noise or 4 spike; `oscN_octave` (-2 to +2) and `oscN_fine_cents`
 (-100 to +100) tune each from the played note; `oscN_pulse_width_pct` (1 to
 99) sets the pulse duty; and `osc1_level_permille` (default 1000) and
 `osc2_level_permille` (default 0) set each one's level into their sum, 0 off. osc2 also has `osc2_coarse_semis` (-12 to

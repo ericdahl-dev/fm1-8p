@@ -5,7 +5,8 @@
 # usage: tools/scorecard.sh COMMIT [BASE]        (make scorecard COMMIT=<commit> [BASE=<commit>])
 #   SCORECARD_REF       the PG-8X reference renders: NN.wav and manifest.json (made outside this repo;
 #                       no PG-8X audio is committed). Default: $FM1_REF/pg8x/scorecard/v5 (PG-8X 2.0.13,
-#                       SELFNOISE 0: #247).
+#                       SELFNOISE 0: #247; OCTAVE STRETCH at PG-8X's default 0.4, which plays a saw 1.4
+#                       cents flat at C4 and 2.1 at C6, where 0.5 is exact. Ours stays exact: Eric, #260).
 #   SCORECARD_HISTORY   history.jsonl to append to (default build/scorecard/history.jsonl)
 #   SCORECARD_PYTHON    a Python with numpy and scipy (default python3)
 #   SCORECARD_MATCH     the match harness's match.py, and SCORECARD_MATCH_PYTHON and SCORECARD_MATCH_CACHE
