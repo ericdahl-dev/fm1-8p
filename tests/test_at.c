@@ -231,6 +231,75 @@ TT_TEST(at_vib_is_the_lfo_at_its_depth)
     TT_CHECK(memcmp(at_va, at_vb, sizeof at_va) == 0);
 }
 
+/* B1, the acceptance: with every depth at 0, pressure changes nothing, byte for byte: a chord with poly and
+ * channel pressure streaming against the same chord without */
+TT_TEST(at_depths_zero_is_byte_identical)
+{
+    uint32_t i, k, same = 1;
+    static const uint8_t chord[3] = {48, 60, 67};
+    TT_CHECK_EQ(fm_engine_init(&at_eng, AT_RATE, 4), FM_OK);
+    TT_CHECK_EQ(fm_engine_init(&at_ref, AT_RATE, 4), FM_OK);
+    for (k = 0; k < 3; k++) fm_engine_note_on(&at_eng, chord[k], 100), fm_engine_note_on(&at_ref, chord[k], 100);
+    for (i = 0; i < 400; i++) {
+        if (i % 10 == 0) fm_engine_poly_pressure(&at_eng, chord[i / 10 % 3], (uint8_t)(i * 7 % 128));
+        if (i % 25 == 0) fm_engine_channel_pressure(&at_eng, (uint8_t)(i * 3 % 128));
+        if (i == 200) fm_engine_note_off(&at_eng, 60), fm_engine_note_off(&at_ref, 60);
+        fm_engine_render(&at_eng, at_buf, AT_RATE / 1000u);
+        fm_engine_render(&at_ref, at_rbuf, AT_RATE / 1000u);
+        for (k = 0; k < 2u * AT_RATE / 1000u; k++) same &= at_buf[k] == at_rbuf[k];
+    }
+    TT_CHECK(same);
+}
+
+/* B3: per voice, the latest message wins, poly or channel: C4's poly 127 then channel 64 plays at 64; channel
+ * 127 then C4's poly 0 plays at 0 (AT VOL 100: gain 0.5 + p/127) */
+static void at_send_poly_then_channel(void)
+{
+    fm_engine_poly_pressure(&at_eng, 60, 127);
+    fm_engine_channel_pressure(&at_eng, 64);
+}
+static void at_send_channel_then_poly(void)
+{
+    fm_engine_channel_pressure(&at_eng, 127);
+    fm_engine_poly_pressure(&at_eng, 60, 0);
+}
+TT_TEST(at_latest_message_wins_per_voice)
+{
+    double c4, g4, c4a, g4a, c4b, g4b;
+    at_chord(0, &c4, &g4);                      /* both at 0: gain 0.5 */
+    at_chord(at_send_poly_then_channel, &c4a, &g4a);
+    at_chord(at_send_channel_then_poly, &c4b, &g4b);
+    if (fabs(c4a / c4 - 2.0 * (0.5 + 64.0 / 127.0)) > 0.02 || fabs(c4b / c4 - 1.0) > 0.01 ||
+        fabs(g4b / g4 - 3.0) > 0.03)
+        printf("    poly then channel: C4 x%.4f; channel then poly: C4 x%.4f, G4 x%.4f\n", c4a / c4, c4b / c4,
+               g4b / g4);
+    TT_CHECK(fabs(c4a / c4 - 2.0 * (0.5 + 64.0 / 127.0)) <= 0.02);
+    TT_CHECK(fabs(c4b / c4 - 1.0) <= 0.01);
+    TT_CHECK(fabs(g4b / g4 - 3.0) <= 0.03);
+}
+
+/* AT VOL's gain leaves the release floor alone (the floor stays on the VCA level, #169): a note at no
+ * pressure, AT VOL 100 (6 dB down), frees its voice at the same sample as with AT VOL off */
+static uint32_t at_frees_at(int32_t d)
+{
+    uint32_t n = 0;
+    if (fm_engine_init(&at_eng, AT_RATE, 4) != FM_OK ||
+        fm_engine_set_param(&at_eng, FM_PARAM_AT_VOL_PCT, d) != FM_OK)
+        return 0;
+    fm_engine_note_on(&at_eng, 60, 100);
+    at_run(400);
+    fm_engine_note_off(&at_eng, 60);
+    while (fm_engine_active_voices(&at_eng) && n < 10u * AT_RATE) fm_engine_render(&at_eng, at_buf, 1), n++;
+    return n;
+}
+TT_TEST(at_vol_leaves_the_release_floor)
+{
+    uint32_t off = at_frees_at(0), on = at_frees_at(100);
+    TT_CHECK(off > 0 && off < 10u * AT_RATE);
+    if (on != off) printf("    frees after %u samples, %u with AT VOL off\n", on, off);
+    TT_CHECK_EQ(on, off);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
@@ -240,4 +309,7 @@ static void run_at_tests(void)
     TT_RUN(at_ramp_does_not_depend_on_block_size);
     TT_RUN(at_bri_raises_the_cutoff_by_its_cents);
     TT_RUN(at_vib_is_the_lfo_at_its_depth);
+    TT_RUN(at_depths_zero_is_byte_identical);
+    TT_RUN(at_latest_message_wins_per_voice);
+    TT_RUN(at_vol_leaves_the_release_floor);
 }
