@@ -413,7 +413,7 @@ TT_TEST(cpu_test_full_patch_filter_is_off_the_fast_path)
          * envelope adds in linear cents (#253), which reach further near the top of the curve */
         if (b < 2) continue;
         for (i = 0; i < ct_a.engine.voice_count; i++) {
-            const fm_filter *f = &ct_a.engine.voices[i].filter;
+            const fm_filter *f = fm_vfilter_filter(fm_voice_filter(&ct_a.engine.voices[i]));
             TT_CHECK(f->fade != 0);                             /* the lowpass */
             TT_CHECK(f->res != 0);                              /* its resonance */
             TT_CHECK(f->hp_g != 0);                             /* the highpass */
@@ -432,7 +432,7 @@ TT_TEST(cpu_test_full_patch_sweeps_the_filter_through_its_fade)
     for (b = 0; b < 200; b++) {                                 /* through attack and decay to sustain */
         cpu_test_render(&ct_a, ct_out, CT_BLOCK);
         for (i = 0; i < ct_a.engine.voice_count; i++) {
-            const fm_filter *f = &ct_a.engine.voices[i].filter;
+            const fm_filter *f = fm_vfilter_filter(fm_voice_filter(&ct_a.engine.voices[i]));
             if (f->fade > 0 && f->fade < (1 << 30))
                 faded++;
         }

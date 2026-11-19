@@ -705,9 +705,9 @@ TT_TEST(gate_mode_runs_envelope_2_for_the_cutoff)
     fm_engine_set_param(&eng, FM_PARAM_AMP_GATE, 1);
     fm_engine_note_on(&eng, 60, 127);
     fm_engine_render(&eng, buf, RATE * 5 / 1000);
-    early = eng.voices[0].cutoff_now;
+    early = fm_vfilter_cutoff(fm_voice_filter(&eng.voices[0]));
     fm_engine_render(&eng, buf, RATE * 6 / 10);
-    late = eng.voices[0].cutoff_now;
+    late = fm_vfilter_cutoff(fm_voice_filter(&eng.voices[0]));
     printf("    gate, ENV-2 to the cutoff: %d cents at 5 ms, %d at 605 ms; VCA %.3f\n",
            (int)early, (int)late,
            (double)eng.voices[0].amp_env.level / eng.voices[0].amp_env.peak);

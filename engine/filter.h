@@ -14,6 +14,9 @@
 #define FM_FILTER_H
 
 #include <stdint.h>
+#ifdef FM_CHECK_BUSY
+#include <assert.h>
+#endif
 
 /* At or above this cutoff the lowpass is fully open: a plain wire. */
 #define FM_FILTER_OPEN_CENTS 14400
@@ -119,6 +122,17 @@ static inline int32_t fm_filter_run(fm_filter *f, int32_t in)
         return in;
     }
     return fm_filter_process(f, in);
+}
+
+/* `last`, the last of samples that passed the filter as a wire without
+ * running it (the voice's fast path): kept as fm_filter_run keeps it, so a
+ * filter that closes carries on from it. Only while it is a wire. */
+static inline void fm_filter_pass_wire(fm_filter *f, int32_t last)
+{
+#ifdef FM_CHECK_BUSY /* debug builds: the fast path runs only a wire */
+    assert(fm_filter_is_wire(f));
+#endif
+    f->s[3] = last;
 }
 
 #endif /* FM_FILTER_H */
