@@ -141,7 +141,9 @@ int pat_slot_used(const pat_lib *l, uint32_t s)
     return s < PAT_SLOTS && is_record(slot(l, s), STORE_SLOT_BYTES);
 }
 
-int pat_slot_write(pat_lib *l, const store_io *io, uint32_t s, const seq_pattern *p, const char *name)
+/* Slot s becomes p's record, or (p NULL) empty: zeros, as a bank never saved reads; then its bank to
+ * flash */
+static int slot_set(pat_lib *l, const store_io *io, uint32_t s, const seq_pattern *p, const char *name)
 {
     uint32_t b, i;
     uint8_t *rec, was[STORE_SLOT_BYTES];
@@ -151,10 +153,24 @@ int pat_slot_write(pat_lib *l, const store_io *io, uint32_t s, const seq_pattern
     rec = l->img[b] + STORE_SLOT_BYTES * (s % STORE_BANK_SLOTS);
     for (i = 0; i < STORE_SLOT_BYTES; i++)
         was[i] = rec[i];
-    (void)pat_encode(p, name, rec);
+    if (p)
+        (void)pat_encode(p, name, rec);
+    else
+        for (i = 0; i < STORE_SLOT_BYTES; i++)
+            rec[i] = 0;
     if (io->save(io->ctx, PAT_BANK0 + b, l->img[b], STORE_BANK_BYTES) == 0)
         return 0;
     for (i = 0; i < STORE_SLOT_BYTES; i++)      /* not written: RAM keeps what flash has */
         rec[i] = was[i];
     return -1;
+}
+
+int pat_slot_write(pat_lib *l, const store_io *io, uint32_t s, const seq_pattern *p, const char *name)
+{
+    return slot_set(l, io, s, p, name);
+}
+
+int pat_slot_clear(pat_lib *l, const store_io *io, uint32_t s)
+{
+    return slot_set(l, io, s, 0, 0);
 }

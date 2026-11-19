@@ -34,4 +34,7 @@ int pat_slot_used(const pat_lib *l, uint32_t s);
 /* p and its name into slot s, and its bank to flash: 0, or -1 when the write failed (the slot is then as
  * it was). */
 int pat_slot_write(pat_lib *l, const store_io *io, uint32_t s, const seq_pattern *p, const char *name);
+/* Empties slot s (#303), and its bank to flash: 0, or -1 when the write failed (the slot is then as it
+ * was). */
+int pat_slot_clear(pat_lib *l, const store_io *io, uint32_t s);
 #endif
