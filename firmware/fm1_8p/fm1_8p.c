@@ -315,7 +315,13 @@ _Static_assert(UI_ENC_SELECT == HB_ENC_SELECT && UI_ENC_ALGORITHM == HB_ENC_ALGO
                "ui.h's encoders are hb_module.h's");
 
 /* the host switches to another module: the sequencer stops (init() starts afresh when it comes back) */
-static void release(void) { seq_stop(play_seq(&P)); }
+/* switched away: the sequencer stops, and clock out ends with its stop, sent now: nothing drains after */
+static void release(void)
+{
+    seq_clock_out_stop(play_seq(&P));           /* (#286: before seq_stop, so one stop, not two) */
+    seq_stop(play_seq(&P));
+    clock_out();
+}
 
 /* no cc(): midi() takes every channel message */
 HB_DESC = {HB_ABI, "FM1-8P", init, release, note, 0, render, ui_ev, draw, 0, 0, HB_F_SCREEN | HB_F_PANEL, midi};

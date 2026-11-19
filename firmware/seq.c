@@ -101,8 +101,23 @@ static void out_adv(seq *s, uint32_t d, uint32_t xi)
 /* main loop: a followed clock's byte to pass on (dropped past SEQ_OUT_M untaken) */
 static void out_pass(seq *s, uint8_t st)
 {
-    if (s->out_mw - s->out_mr < SEQ_OUT_M)
-        s->out_m[s->out_mw++ % SEQ_OUT_M] = st;
+    uint32_t i = s->out_mw % SEQ_OUT_M;
+    if (s->out_mw - s->out_mr >= SEQ_OUT_M)
+        return;
+    s->out_m[i].t = s->out_ticks;               /* (what the interrupt had counted and put by now: those go */
+    BARRIER();                                  /* out first) */
+    s->out_m[i].w = s->out_w;
+    s->out_m[i].st = st;
+    s->out_mw++;
+}
+
+void seq_clock_out_stop(seq *s)
+{
+    if (!s->out_on)
+        return;
+    s->out_on = 0;                              /* (the interrupt counts and stops no more for this run) */
+    BARRIER();
+    out_pass(s, 0xFCu);
 }
 
 void seq_set_clock_out(seq *s, uint32_t on)
@@ -112,23 +127,35 @@ void seq_set_clock_out(seq *s, uint32_t on)
 
 int seq_clock_out_take(seq *s, uint8_t *st)
 {
-    if (s->out_r != s->out_w) {                 /* the ticks before it, then it */
+    uint32_t t = s->out_ticks, w;               /* the ticks, then the events: an event put after this */
+    int m = s->out_mr != s->out_mw;             /* read is stamped at or after t, so never goes before them */
+    BARRIER();
+    w = s->out_w;
+    if (s->out_r != w && (!m || (int32_t)(s->out_r - s->out_m[s->out_mr % SEQ_OUT_M].w) < 0)) {
+        BARRIER();                              /* (the event's fields after its index) */
         if ((int32_t)(s->out_ev[s->out_r % SEQ_OUT_EV].at - s->out_sent) > 0) {
-            *st = 0xF8u;
+            *st = 0xF8u;                        /* the ticks before it, then it */
             s->out_sent++;
             return 1;
         }
         *st = s->out_ev[s->out_r % SEQ_OUT_EV].st;
+        BARRIER();
         s->out_r++;
         return 1;
     }
-    if (s->out_sent != s->out_ticks) {
-        *st = 0xF8u;
-        s->out_sent++;
+    if (m) {                                    /* one the main loop queued: the ticks counted before it, then it */
+        if ((int32_t)(s->out_m[s->out_mr % SEQ_OUT_M].t - s->out_sent) > 0) {
+            *st = 0xF8u;
+            s->out_sent++;
+            return 1;
+        }
+        *st = s->out_m[s->out_mr % SEQ_OUT_M].st;
+        s->out_mr++;
         return 1;
     }
-    if (s->out_mr != s->out_mw) {               /* (after its own: a followed clock's, passed on) */
-        *st = s->out_m[s->out_mr++ % SEQ_OUT_M];
+    if ((int32_t)(t - s->out_sent) > 0) {
+        *st = 0xF8u;
+        s->out_sent++;
         return 1;
     }
     return 0;
@@ -593,9 +620,6 @@ static void clock_tick(seq *s, uint32_t t)
         s->ext_cont = s->clk_pending == 2u;
         if (s->playing && s->out_on)
             out_pass(s, 0xFCu);                 /* #286: its own run (or the last) stops first */
-        s->out_on = s->out_want;                /* #286: G14 as it is at this start */
-        if (s->out_on)
-            out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
         s->clk_started = 1;
         s->clk_pending = 0;
         s->clk_target = 0;
@@ -603,6 +627,10 @@ static void clock_tick(seq *s, uint32_t t)
         s->ext_t0 = t;
         set_rate(s, 0, fs, 1);
         s->ext = 1;
+        BARRIER();                              /* (following now: the interrupt counts no ticks of its own) */
+        s->out_on = s->out_want;                /* #286: G14 as it is at this start */
+        if (s->out_on)
+            out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
         s->clk_running = 1;
         s->clk_armed = 0;
         s->want = 1;

@@ -893,6 +893,52 @@ TT_TEST(clock_out_hand_over_to_a_clock)
     TT_CHECK_EQ(ck_n_out - fa_at - 1u, in);    /* one out a tick in, after the start */
 }
 
+/* Following, the clock lost (its stop queued by the main loop), then PLAY on its own clock before the
+ * main loop has sent anything: the followed run's stop goes out before the new run's start, never after
+ * (review of e2d7a23: a stop after the start leaves the gear down the line stopped while the FM-1 plays) */
+TT_TEST(clock_out_a_followed_stop_before_a_new_start)
+{
+    uint32_t i, fc = 9999, fa2 = 0, fa = 0;
+    double last;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_ticks_ramp(0.05, 140.0, 140.0, 0, 1, 24u * 2u);
+    ck_msg_at(ck_tick_at[12] - 0.002, 0, 0xFAu);
+    last = ck_tick_at[24u * 2u - 1u];
+    ck_run(last + 0.01);
+    seq_clock_poll(&ck, ck_host(last + 0.4));  /* gone: its stop, queued, not sent yet */
+    seq_play(&ck);                             /* PLAY at once: its own */
+    ck_run(last + 0.6);
+    for (i = 0; i < ck_n_out; i++) {
+        if (ck_out[i] == 0xFCu && fc == 9999u)
+            fc = i;
+        if (ck_out[i] == 0xFAu && ++fa == 2u)
+            fa2 = i;
+    }
+    TT_CHECK_EQ(fa, 2u);
+    TT_CHECK(fc < fa2);
+}
+
+/* The module switched away (release) while clock out runs: a stop goes out, once, and nothing after it
+ * (review of e2d7a23: the gear down the line kept running) */
+TT_TEST(clock_out_ends_with_a_stop_when_let_go)
+{
+    uint8_t b;
+    uint32_t n;
+    ck_fresh(SEQ_CLK_AUTO);
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.5);
+    seq_clock_out_stop(&ck);                   /* release */
+    while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)
+        ck_out[ck_n_out++] = b;
+    TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+    n = ck_n_out;
+    ck_run(0.8);                               /* (if the interrupt runs on: nothing more) */
+    TT_CHECK_EQ(ck_n_out, n);
+}
+
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_out_ticks_with_the_steps);
@@ -903,6 +949,8 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_passes_a_followed_clock_on);
     TT_RUN(clock_out_a_followed_stop_comes_after_its_ticks);
     TT_RUN(clock_out_hand_over_to_a_clock);
+    TT_RUN(clock_out_a_followed_stop_before_a_new_start);
+    TT_RUN(clock_out_ends_with_a_stop_when_let_go);
     TT_RUN(clock_lost_while_armed_disarms);
     TT_RUN(clock_source_switched_while_armed);
     TT_RUN(clock_lost_while_armed_under_midi_waits_on);

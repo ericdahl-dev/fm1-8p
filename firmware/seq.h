@@ -166,7 +166,9 @@ typedef struct {
     struct { uint8_t st; uint32_t at; } out_ev[SEQ_OUT_EV];   /* interrupt: a start or stop, at a tick count */
     volatile uint32_t out_w;            /* interrupt: out_ev written */
     uint32_t out_r;                     /* main loop: out_ev taken */
-    uint8_t out_m[SEQ_OUT_M];           /* main loop: a followed clock's bytes to pass on (Eric, Q2) */
+    struct { uint8_t st; uint32_t w, t; } out_m[SEQ_OUT_M];   /* main loop: bytes it queued (a followed
+                                         * clock's, Eric Q2), each with out_w and out_ticks as they were then,
+                                         * so seq_clock_out_take puts both queues out in the order things happened */
     uint32_t out_mw, out_mr;
 } seq;
 
@@ -246,6 +248,8 @@ void seq_set_clock_out(seq *s, uint32_t on);
 /* main loop: the next MIDI real-time byte to send (0xF8 clock, 0xFA start, 0xFC stop) into *st, in the
  * order they fell due; 0 when there's none. Call it often (each main loop pass): a tick waits till then */
 int seq_clock_out_take(seq *s, uint8_t *st);
+/* main loop: clock out stops now (the module let go, release): a stop after what's due, then nothing */
+void seq_clock_out_stop(seq *s);
 /* audio interrupt, before seq_render: the block's start, at host time t */
 void seq_block_time(seq *s, uint32_t t);
 
