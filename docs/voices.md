@@ -113,6 +113,29 @@ least significant first). Values above 16383 are ignored.
 - Changing `bend_range_semitones` applies the last bend value again with the
   new range.
 
+## Portamento (#62)
+
+`portamento_ms` is the glide's time constant, tau; 0 is off. As on PG-8X
+2.0.13 (measured 2026-11-18), a glide is exponential in pitch: the distance
+left falls by 1/e every tau, the same tau for any interval, up or down. Each
+control tick (32 samples) a gliding voice's offset falls by
+`1 - exp(-tick / tau)`, rounded up on its size so it always ends; under
+1/1000 semitone it lands exactly.
+
+- **From the last note played**, also one let go (Eric's rule). Notes struck
+  together each glide from the one before. The engine keeps one last note
+  for everything it is sent, so sequencer notes and live keys glide from
+  each other.
+- **The same note struck again mid-glide lands at once:** the last note
+  played is itself (`porta_same_note_again_mid_glide_lands`).
+- **A note waiting for a stolen voice** keeps its glide if it moves to
+  another voice (`porta_moved_waiting_note_keeps_its_glide`).
+- **Unison:** the voices glide on from where they are, for a new note and
+  for the legato return.
+- A voice that goes quiet stops gliding.
+- **Unmeasured on PG-8X:** which note it glides from for a chord, or for a
+  new note while two are held. The rule above covers both.
+
 ## Unison
 
 The `voice_mode` parameter picks how notes get voices: 0 is poly (the
@@ -172,9 +195,8 @@ first (up to 16, `FM_HELD_MAX`; past that the oldest is forgotten):
   released while others are down does not stay as a pedal-held fallback.
 - **CC 123 / CC 120** release or silence every voice, as in poly, and forget
   the keys that were down.
-- There is no glide (portamento): pitch changes are instant. A glide time
-  would fit in this same place later, moving each voice's increment toward
-  the target once per block.
+- **Portamento** ([above](#portamento-62)) glides the voices on from where they are, for a
+  new note and for the legato return alike.
 
 `new_note_retriggers_and_release_returns_legato_to_held_note` checks the
 retrigger, the legato return and both pitches, and

@@ -226,6 +226,26 @@ TT_TEST(porta_moved_waiting_note_keeps_its_glide)
     TT_CHECK(p > 60.0 && p < 61.0);
 }
 
+/* by design (#62 "from the last note played"): a note struck again mid-glide glides from itself, so it
+ * lands at once. C3, then C4 with tau 1 s; 300 ms on, C4 let go and struck again: it is on C4 */
+TT_TEST(porta_same_note_again_mid_glide_lands)
+{
+    double p;
+    TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 6), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&pt_eng, FM_PARAM_PORTAMENTO_MS, 1000), FM_OK);
+    fm_engine_note_on(&pt_eng, 48, 100);
+    pt_run(20);
+    fm_engine_note_on(&pt_eng, 60, 100);
+    pt_run(300);
+    TT_CHECK(pt_pitch(60) < 58.0);
+    fm_engine_note_off(&pt_eng, 60);
+    fm_engine_note_on(&pt_eng, 60, 100);
+    pt_run(1);
+    p = pt_pitch(60);
+    if (p != 60.0) printf("    C4 again at %.3f st\n", p);
+    TT_CHECK(p == 60.0);
+}
+
 static void run_porta_tests(void)
 {
     TT_RUN(porta_glides_exponentially_with_its_tau);
@@ -240,4 +260,5 @@ static void run_porta_tests(void)
     TT_RUN(porta_stops_on_a_voice_gone_quiet);
     TT_RUN(porta_unison_mid_glide_goes_on_from_where_it_is);
     TT_RUN(porta_moved_waiting_note_keeps_its_glide);
+    TT_RUN(porta_same_note_again_mid_glide_lands);
 }
