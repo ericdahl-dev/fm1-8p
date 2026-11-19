@@ -84,8 +84,36 @@ TT_TEST(at_poly_pressure_reaches_only_its_key)
     TT_CHECK(fabs(g4p / g4 - 1.0) <= 0.01);
 }
 
+/* a new note starts at the last channel pressure, at once (#61 choice a): one voice, channel 127, then
+ * C4's poly pressure to 0 and C4 let go; C4 again plays at full pressure (x1.5), not at its voice's 0 */
+TT_TEST(at_new_note_starts_at_the_channel_pressure)
+{
+    double off, lvl;
+    TT_CHECK_EQ(fm_engine_init(&at_eng, AT_RATE, 1), FM_OK);   /* AT VOL off, one voice */
+    TT_CHECK_EQ(fm_engine_set_param(&at_eng, FM_PARAM_AMP_LEVEL, 250), FM_OK); /* under the knee at x1.5 */
+    fm_engine_note_on(&at_eng, 60, 100);
+    at_run(400);
+    off = at_run(100);
+    TT_CHECK_EQ(fm_engine_init(&at_eng, AT_RATE, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&at_eng, FM_PARAM_AT_VOL_PCT, 100), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&at_eng, FM_PARAM_AMP_RELEASE_MS, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&at_eng, FM_PARAM_AMP_LEVEL, 250), FM_OK);
+    fm_engine_channel_pressure(&at_eng, 127);
+    fm_engine_note_on(&at_eng, 60, 100);
+    at_run(100);
+    fm_engine_poly_pressure(&at_eng, 60, 0);
+    fm_engine_note_off(&at_eng, 60);
+    at_run(100);
+    fm_engine_note_on(&at_eng, 60, 100);
+    at_run(400);
+    lvl = at_run(100) / off;
+    if (fabs(lvl - 1.5) > 0.015) printf("    C4 again x%.4f (want 1.5)\n", lvl);
+    TT_CHECK(fabs(lvl - 1.5) <= 0.015);
+}
+
 static void run_at_tests(void)
 {
     TT_RUN(at_vol_scales_the_level_by_channel_pressure);
     TT_RUN(at_poly_pressure_reaches_only_its_key);
+    TT_RUN(at_new_note_starts_at_the_channel_pressure);
 }

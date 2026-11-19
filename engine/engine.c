@@ -775,6 +775,14 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
     return (int32_t)peak;
 }
 
+/* A note starts on voice `i`: at the last channel pressure, at once (#61:
+ * no swell up from 0; a key's own poly pressure comes after its note on) */
+static void at_start(fm_engine *e, uint8_t i)
+{
+    e->at_now[i] = e->at_chan;
+    fm_voice_set_gain(&e->voices[i], at_gain(e, i));
+}
+
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune
  * is 0). */
 static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
@@ -782,6 +790,7 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
 {
     uint8_t i = (uint8_t)(v - e->voices);
     fm_voice_age(v, ++e->stamp);
+    at_start(e, i);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate, e->fade_samples);
 }
@@ -811,6 +820,7 @@ static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak,
 {
     fm_voice_waiting moved = fm_voice_waiting_note(f);
     fm_voice *w;
+    at_start(e, (uint8_t)(f - e->voices));
     fm_voice_take_back(f, &e->mod, voice_pitch(e, (uint8_t)(f - e->voices), note),
                        peak, velocity, e->ticks + 1, e->sample_rate);
     fm_voice_age(f, ++e->stamp);
@@ -843,6 +853,7 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         fm_voice_age(v, ++e->stamp);
+        at_start(e, i);
         fm_voice_change_note(v, &e->mod, note, voice_pitch(e, i, note), peak,
                              velocity, e->ticks + 1, e->sample_rate, retrigger);
     }
