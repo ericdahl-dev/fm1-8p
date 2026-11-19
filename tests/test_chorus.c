@@ -37,9 +37,10 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
  * Retaken when the mix gain rose 3.17 dB to PG-8X's level (#102: every
  * sample x 1.44; the knee rose with it, so the phrase stays below it).
  * Retaken when every amp attack began to ease in (#274: each note's first
- * few samples).
+ * few samples), and when the saw began to fall, as PG-8X's (#260: the
+ * phrase is the default patch's saw, so every sample is negated).
  */
-#define CH_GOLDEN_HASH 0x042EA4CDu
+#define CH_GOLDEN_HASH 0x364E5CD9u
 
 /*
  * set_mode: set chorus_mode to `mode` before the phrase. was_on: first
