@@ -28,7 +28,7 @@ typedef struct {
     fm_filter f;
     int32_t rate_cents; /* fm_filter_rate_cents(sample rate) */
     int32_t base;       /* the cutoff setting, linear cents (fm_filter_linear_cents) */
-    int32_t now;        /* cents the filter is set to (INT32_MIN: none yet) */
+    int32_t cutoff;     /* cents the filter is set to (INT32_MIN: none yet) */
     int16_t key_track;  /* per mille (0..1300, params.c); 16 bits so the two
                          * bytes below pack beside it, no padding */
     uint8_t key;        /* the note the cutoff tracks */
@@ -78,7 +78,7 @@ int fm_vfilter_at_rest(const fm_vfilter *vf);
  * filter clamps it). */
 static inline int32_t fm_vfilter_cutoff(const fm_vfilter *vf)
 {
-    return vf->now;
+    return vf->cutoff;
 }
 
 /* Called once a sample, before the sample runs: 1 if it is a control
@@ -106,7 +106,7 @@ static inline void fm_vfilter_due_next(fm_vfilter *vf)
  * calls of fm_vfilter_due would. */
 static inline void fm_vfilter_pass(fm_vfilter *vf, int32_t last, uint32_t n)
 {
-    if (n) vf->f.s[3] = last;
+    if (n) fm_filter_pass_wire(&vf->f, last);
     vf->phase = (uint8_t)((vf->phase - n) & (FM_VFILTER_CTRL_SAMPLES - 1));
 }
 

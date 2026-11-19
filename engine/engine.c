@@ -512,7 +512,7 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_voice *vc = &e->voices[i];
         switch (id) {
         case FM_PARAM_FILTER_CUTOFF_CENTS:
-            fm_voice_set_cutoff(vc, v);
+            fm_voice_set_cutoff_linear(vc, v);
             break;
         case FM_PARAM_FILTER_RESONANCE:
             fm_voice_set_resonance(vc, v);

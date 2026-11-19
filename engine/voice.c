@@ -103,7 +103,7 @@ void fm_voice_set_highpass(fm_voice *v, uint8_t step)
     mark_filter(v);
 }
 
-void fm_voice_set_cutoff(fm_voice *v, int32_t linear_cents)
+void fm_voice_set_cutoff_linear(fm_voice *v, int32_t linear_cents)
 {
     fm_vfilter_set_base(&v->vf, linear_cents);
     fm_voice_mark(v, FM_BUSY_CUTOFF, 1);

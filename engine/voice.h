@@ -300,7 +300,7 @@ void fm_voice_set_highpass(fm_voice *v, uint8_t step);
 
 /* The filter's cutoff setting (linear cents, fm_filter_linear_cents) and
  * key tracking (per mille): taken at the voice's next control point. */
-void fm_voice_set_cutoff(fm_voice *v, int32_t linear_cents);
+void fm_voice_set_cutoff_linear(fm_voice *v, int32_t linear_cents);
 void fm_voice_set_key_track(fm_voice *v, int32_t permille);
 
 /* The filter's resonance, per mille: at once. */

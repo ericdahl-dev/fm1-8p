@@ -203,6 +203,15 @@ TT_TEST(vfilter_clear_drops_the_state_keeps_the_settings)
     TT_CHECK(fm_vfilter_at_rest(f));
 }
 
+/* The key-tracking setting fits the voice filter's 16 bits (it keeps it
+ * as int16 so the struct packs): a wider range must widen the field. */
+TT_TEST(vfilter_key_track_range_fits_16_bits)
+{
+    const fm_param_info *p = fm_param_info_get(FM_PARAM_FILTER_KEY_TRACK);
+    TT_CHECK(p != 0);
+    TT_CHECK(p->min >= INT16_MIN && p->max <= INT16_MAX);
+}
+
 static fm_engine vfe;
 static int16_t vfbuf[2 * 64];
 
@@ -274,6 +283,7 @@ static void run_vfilter_tests(void)
     TT_RUN(vfilter_at_rest_means_set_to_its_settings);
     TT_RUN(vfilter_resonance_and_highpass_pass_through);
     TT_RUN(vfilter_clear_drops_the_state_keeps_the_settings);
+    TT_RUN(vfilter_key_track_range_fits_16_bits);
     TT_RUN(vfilter_legato_key_change_recomposes_at_once);
     TT_RUN(vfilter_setting_takes_effect_at_the_next_control_point);
 }
