@@ -247,6 +247,44 @@ sensitivity goes halfway, and that 0 % ignores velocity.
 Filter velocity (velocity also opening the cutoff) lands in #8 after the
 filter.
 
+## Aftertouch (#61)
+
+Poly pressure (`fm_engine_poly_pressure`) and channel pressure
+(`fm_engine_channel_pressure`) set each voice's pressure, as PG-8X 2.0.13
+does (measured 2026-11-18 and -19):
+
+- **Which voices:** channel pressure reaches every voice, poly pressure the
+  voices playing its note (in unison, every voice when it is the sounding
+  note; a key held under it changes nothing). Per voice the latest message
+  wins (`at_latest_message_wins_per_voice`).
+- **A new note** starts at the last channel pressure at once (0 if none), not
+  at its voice's old poly pressure (`at_new_note_starts_at_the_channel_pressure`).
+  Reset all controllers (CC 121) puts every pressure back to 0.
+- **Smoothing:** a change moves as a one-pole of 16 ms, a step each control
+  tick, as PG-8X's (`at_pressure_step_ramps_in_16_ms`); the output doesn't
+  depend on the block size.
+
+Three depths, each 0 by default; at 0 the engine renders byte for byte as
+without pressure (`at_depths_zero_is_byte_identical`):
+
+| Param | Does, at pressure p (0..1) | PG-8X 2.0.13 at full knob |
+| --- | --- | --- |
+| `at_vib_cents` | vibrato of +-at_vib x p cents at the LFO's rate, on both oscillators, on top of the patch's LFO and the wheel; the LFO before its delay (PG-8X's doesn't wait for it) | +-540 ct |
+| `at_bri_cents` | the cutoff + at_bri x p cents, after the cutoff's curve (the same cents at any base), held at fully open | +2360 ct |
+| `at_vol_pct` d | the voice's gain 1 - d/2 + d x p: at full d an untouched key is 6 dB down, full pressure 3.5 dB up | as measured, to 0.03 dB |
+
+The pressure is a modulation source (`FM_MOD_SRC_AT`), and the vibrato's is
+pressure x the LFO (`FM_MOD_SRC_ATLFO`, routed to both pitches). AT VOL's gain
+multiplies the amp envelope's level in the voice's full render loop; a voice
+with a gain leaves the fast path (`FM_BUSY_GAIN`). The release floor stays on
+the VCA level alone (`at_vol_leaves_the_release_floor`).
+
+In the module, pressure doesn't go through the event queue: the FM-1's keys
+send each held key's pressure about 100 times a second, which would fill it
+(and an overflow lets every note go). Play keeps each key's latest value and
+the channel's, and the audio interrupt applies them after the queue each
+block (`play_pressure_flood_never_drops_a_note_off`).
+
 ## Cost
 
 Per control tick (every 32 samples), for the whole engine: one LFO step.
