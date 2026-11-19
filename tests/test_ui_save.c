@@ -810,6 +810,42 @@ TT_TEST(save_deleted_slot_is_empty_everywhere)
     TT_CHECK_EQ(play_prog(&ui_p), PLAY_PROG_P + PATCH_SOUNDTRACK);
 }
 
+/* #303 in SEQ view's SAVE: SEL held asks DELETE PATTERN 11 B?; with the pattern playing the delete waits as a
+ * save does (DELETING 11 WHEN SILENT) and the playing copy plays on; stopped and silent, the slot is empty
+ * (DELETED PATTERN 11), the pattern in the sequencer is as it was, now edited (the slot would load empty) */
+TT_TEST(save_in_seq_view_deletes_the_playing_pattern)
+{
+    static seq_pattern out;
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t k;
+    save_seq_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1100);   /* "B" */
+    save_tap(UI_BTN_SAVE, 2000);
+    TT_CHECK(pat_slot_used(&save_plib, 0));
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+    seq_play(play_seq(&ui_p));
+    save_render(4);
+    save_tap(UI_BTN_SAVE, 3000);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);
+    TT_CHECK(strcmp(ui_u.save_msg, "DELETE PATTERN 11 B?") == 0);
+    save_tap(UI_BTN_SEL, 5000);
+    (void)ui_take(&ui_u, 5100);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETING 11 WHEN SILENT") == 0);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    TT_CHECK(pat_slot_used(&save_plib, 0));
+    TT_CHECK(seq_playing(play_seq(&ui_p)));
+    seq_stop(play_seq(&ui_p));
+    for (k = 0; k < 20000u && !play_silent(&ui_p); k++)
+        save_render(1);
+    (void)ui_take(&ui_u, 6000);
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 0, &out, name), -1);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETED PATTERN 11") == 0);
+    TT_CHECK_EQ(play_seq(&ui_p)->edit.step[0].note[0], 60u);
+    TT_CHECK(seq_edited(play_seq(&ui_p)));
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_sel_held_asks_to_delete);
@@ -818,6 +854,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_delete_question_cancels);
     TT_RUN(save_delete_of_the_loaded_slot_keeps_the_sound_edited);
     TT_RUN(save_deleted_slot_is_empty_everywhere);
+    TT_RUN(save_in_seq_view_deletes_the_playing_pattern);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);

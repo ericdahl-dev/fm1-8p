@@ -183,9 +183,11 @@ int play_pattern_save(play *p, uint32_t dest, const char *name)
 
 int play_pattern_delete(play *p, uint32_t dest)
 {
-    if (!p->plib || !p->io || dest >= PAT_SLOTS)
+    if (!p->plib || !p->io || dest >= PAT_SLOTS || pat_slot_clear(p->plib, p->io, dest) != 0)
         return -1;
-    return pat_slot_clear(p->plib, p->io, dest);
+    if (dest == p->pat_prog)                    /* the slot now loads empty: edited is against that */
+        seq_pattern_empty(&p->seq.stored);
+    return 0;
 }
 
 int play_delete(play *p, uint32_t dest)
