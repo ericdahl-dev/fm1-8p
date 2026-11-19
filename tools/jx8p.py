@@ -254,6 +254,8 @@ def emit_ui_params_h():
         lo, hi, _ = params.values(p, ROOT)
         want = {'NAMES': hi - lo + 1, 'NAMES_INNER_UNIT': hi - lo + 1, 'NONZERO': 2, 'MASK3': 4}.get(
             d.kind, 1 if d.kind in one_name else 0)
+        if d.kind == 'MS_S' and len(d.names) <= 1:   # (a name for 0, or none)
+            want = len(d.names)
         if len(d.names) != want:
             raise ValueError("%s: %s takes %d names, not %d (%s..%s)" % (p.enum, d.kind, want, len(d.names), lo, hi))
         if len(d.names) > 255:                  # (ui_display's n is a uint8_t)

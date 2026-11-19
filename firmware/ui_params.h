@@ -103,7 +103,7 @@ static const ui_display UI_DISPLAY[FM_PARAM_COUNT] = {
     [FM_PARAM_WHEEL_PITCH_CENTS] = {UI_SHOW_PLAIN, 0, "ct", 0},
     [FM_PARAM_WHEEL_PW_PCT] = {UI_SHOW_PLAIN, 0, "%", 0},
     [FM_PARAM_OSC1_COARSE_SEMIS] = {UI_SHOW_SIGNED, 0, "st", 0},
-    [FM_PARAM_PORTAMENTO_MS] = {UI_SHOW_MS_S, 0, "", 0},
+    [FM_PARAM_PORTAMENTO_MS] = {UI_SHOW_MS_S, 1, "", UI_NAMES_9},
 };
 
 #endif

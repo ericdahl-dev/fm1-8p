@@ -676,8 +676,8 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "+12 st | +12 st",         /* osc1_coarse_semis 12 */
         "0 st | 0 st",             /* osc1_coarse_semis 0, the default */
     }},
-    {56, "portamento_ms", 10005u, 0x376F035Fu, {
-        "0 ms | 0 ms",             /* portamento_ms 0 */
+    {56, "portamento_ms", 10005u, 0x4A3EEA82u, {
+        "OFF | OFF",               /* portamento_ms 0 */
         "1.25 s | 1.25 s",         /* portamento_ms 1250 */
         "2.50 s | 2.50 s",         /* portamento_ms 2500 */
         "3.75 s | 3.75 s",         /* portamento_ms 3750 */
@@ -686,6 +686,6 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "7.50 s | 7.50 s",         /* portamento_ms 7500 */
         "8.75 s | 8.75 s",         /* portamento_ms 8750 */
         "10.0 s | 10.0 s",         /* portamento_ms 10000 */
-        "0 ms | 0 ms",             /* portamento_ms 0, the default */
+        "OFF | OFF",               /* portamento_ms 0, the default */
     }},
 };

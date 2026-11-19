@@ -227,7 +227,7 @@ DISPLAY_KINDS = (
     'NEG_NAME',         # below 0: names[0]; else the value
     'OFF_OR_N',         # 0 or below: names[0]; else the value
     'KEY_POS',          # the JX's key follow positions, 260 per mille each: names[0] for none, 1..3
-    'MS_S',             # milliseconds: 999 ms, then 1.25 s, 12.5 s
+    'MS_S',             # milliseconds: 999 ms, then 1.25 s, 12.5 s; with a name, that name at 0
     'RATE',             # hundredths of a hertz as Hz to three digits; below 1 is 1
     'NAMES',            # names[value - min], held to the ends; the unit always
     'NAMES_INNER_UNIT', # as NAMES, with the unit only for values strictly between min and max
@@ -303,7 +303,7 @@ DISPLAY = {
     'WHEEL_PITCH_CENTS': D('PLAIN', 'ct'),
     'WHEEL_PW_PCT': D('PLAIN', '%'),
     'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
-    'PORTAMENTO_MS': D('MS_S'),
+    'PORTAMENTO_MS': D('MS_S', '', ('OFF',)),
 }
 
 
