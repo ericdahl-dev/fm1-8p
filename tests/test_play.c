@@ -288,9 +288,9 @@ TT_TEST(play_last_note_skips_a_note_the_full_queue_dropped)
     TT_CHECK_EQ(play_last_note(&pl_a), 60);
 }
 
-/* The module's output gain: the engine's sound PLAY_GAIN_SHIFT doublings (+12 dB) louder, and
- * past full scale it saturates instead of wrapping. */
-TT_TEST(play_output_gain_is_12_db_and_saturates)
+/* The module's output gain: the engine's sound PLAY_GAIN_SHIFT doublings (+6 dB on the listening branch,
+ * #320) louder, and past full scale it saturates instead of wrapping. */
+TT_TEST(play_output_gain_is_6_db_and_saturates)
 {
     uint32_t i, k, louder = 0, clipped = 0;
     TT_CHECK_EQ(play_init(&pl_a), 0);
@@ -311,7 +311,7 @@ TT_TEST(play_output_gain_is_12_db_and_saturates)
             clipped |= pl_out[i] == 32767 || pl_out[i] == -32767;
         }
     }
-    TT_CHECK_EQ(PLAY_GAIN_SHIFT, 2);
+    TT_CHECK_EQ(PLAY_GAIN_SHIFT, 1);
     TT_CHECK(louder);
     TT_CHECK(clipped);                          /* the saturation was reached, not skipped */
 }
@@ -467,7 +467,7 @@ static void run_play_tests(void)
     TT_RUN(play_load_patch_reaches_the_engine_at_the_next_render);
     TT_RUN(play_keys_play_from_the_octave);
     TT_RUN(play_octave_leds_follow_the_octave);
-    TT_RUN(play_output_gain_is_12_db_and_saturates);
+    TT_RUN(play_output_gain_is_6_db_and_saturates);
     TT_RUN(play_last_note_skips_a_note_the_full_queue_dropped);
     TT_RUN(play_queue_overflow_lets_the_pedal_up_and_centers_the_bend);
     TT_RUN(play_note_name_spells_the_note);

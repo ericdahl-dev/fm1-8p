@@ -40,18 +40,18 @@ static hr_stats hr_chord(const uint8_t *notes, int count, uint32_t seconds, uint
 }
 
 /*
- * A PIN, not a goal (#320): today's figures on main 248ff96, so a change to the level, the chorus (#319) or
- * aftertouch (#61) shows as a measured difference and has to move these on purpose. Through play_render the
- * module's +12 dB saturates at +-32767 (a hard clip on the FM-1's Q15 output): 17 to 33 % of these chords'
- * samples today. The engine's own soft clip (past -2.85 dBFS) bends 0.1 to 0.5 % of its samples. Whether the
+ * A PIN, not a goal (#320): the figures with PLAY_GAIN_SHIFT 1 (the listening branch), so a change to the
+ * level, the chorus (#319) or aftertouch (#61) shows as a measured difference and has to move these on
+ * purpose. Through play_render the module's gain saturates at +-32767 (a hard clip on the FM-1's Q15 output):
+ * 1.3 to 5.2 % of these chords' samples at +6 dB (17 to 33 % at main's +12 dB). The engine's own soft clip (past -2.85 dBFS) bends 0.1 to 0.5 % of its samples. Whether the
  * level comes down is Eric's call (#320).
  */
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
     static const struct { uint8_t notes[4]; double sat_max, knee_max; } c[] = {
-        { { 48, 52, 55, 60 }, 17.5, 0.11 },  /* today 17.18 %, 0.100 % */
-        { { 36, 48, 79, 91 }, 25.2, 0.21 },  /* today 24.86 %, 0.190 % */
-        { { 24, 36, 96, 108 }, 33.5, 0.53 }, /* today 33.15 %, 0.496 % */
+        { { 48, 52, 55, 60 }, 1.4, 0.11 },   /* PLAY_GAIN_SHIFT 1: 1.30 % (2: 17.18 %), 0.100 % */
+        { { 36, 48, 79, 91 }, 2.6, 0.21 },   /* 2.41 % (2: 24.86 %), 0.190 % */
+        { { 24, 36, 96, 108 }, 5.4, 0.53 },  /* 5.19 % (2: 33.15 %), 0.496 % */
     };
     size_t k;
     for (k = 0; k < sizeof c / sizeof c[0]; k++) {
@@ -64,8 +64,8 @@ TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
     }
 }
 
-/* The same pin for everyday playing at velocity 100 (#320): a 4-note chord saturates 14.7 % of its samples
- * today, a triad 2.0 %, one note none. */
+/* The same pin for everyday playing at velocity 100 (#320): with PLAY_GAIN_SHIFT 1 a 4-note chord saturates
+ * 0.79 % of its samples, a triad 0.003 %, one note none (at 2: 14.7 %, 2.0 %, none). */
 TT_TEST(headroom_soundtrack_velocity_100_pinned)
 {
     static const uint8_t one[] = { 60 }, triad[] = { 60, 64, 67 }, four[] = { 48, 52, 55, 60 };
@@ -74,11 +74,11 @@ TT_TEST(headroom_soundtrack_velocity_100_pinned)
     printf("    SOUNDTRACK C4 at 100: peak %+.2f dBFS, %.3f %% saturated\n", s.peak_dbfs, s.sat_pct);
     TT_CHECK(s.sat_pct == 0);
     s = hr_chord(triad, 3, 10, 100);
-    printf("    SOUNDTRACK C4 E4 G4 at 100: %.3f %% saturated (pin 2.2)\n", s.sat_pct);
-    TT_CHECK(s.sat_pct <= 2.2);
+    printf("    SOUNDTRACK C4 E4 G4 at 100: %.3f %% saturated (pin 0.01)\n", s.sat_pct);
+    TT_CHECK(s.sat_pct <= 0.01);
     s = hr_chord(four, 4, 10, 100);
-    printf("    SOUNDTRACK C3 E3 G3 C4 at 100: %.3f %% saturated (pin 15.0)\n", s.sat_pct);
-    TT_CHECK(s.sat_pct <= 15.0);
+    printf("    SOUNDTRACK C3 E3 G3 C4 at 100: %.3f %% saturated (pin 0.9)\n", s.sat_pct);
+    TT_CHECK(s.sat_pct <= 0.9);
 }
 
 static void run_headroom_tests(void)
