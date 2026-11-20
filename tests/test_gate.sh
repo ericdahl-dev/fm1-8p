@@ -60,6 +60,21 @@ expect_ok "by name" grep -q "^gone: hpf-3$" "$T/out.last"
 printf 'import sys\nsys.exit(1)\n' >"$T/older/tools/gate_cases.py"
 expect_ok "a base whose clip list fails stops the gate" sh -c 'GATE_COVERAGE=0 sh tools/gate.sh "$1" "$2"; [ $? -eq 2 ]' - "$T/older" "$T/base"
 rm -rf "${T:?}/older"
+# A clip whose name has a backslash is still a clip both trees list: compared, not new (Codex P3).
+for t in bs-base bs-head; do
+    rm -rf "${T:?}/$t"; cp -R "$T/base" "$T/$t"
+    python3 -I -c 'import sys; s = open(sys.argv[1]).read(); d = "    yield \"demo\", \"demo.mid\", []\n"
+open(sys.argv[2], "w").write(s.replace(d, d + "    yield \"back\\\\\\\\slash\", \"demo.mid\", []\n"))' \
+        "$T/base/tools/gate_cases.py" "$T/$t/tools/gate_cases.py"
+done
+expect_ok "a clip named with a backslash" env GATE_COVERAGE=0 sh "$T/bs-head/tools/gate.sh" "$T/bs-base" "$T/bs-head"   # (its list)
+cp "$T/out" "$T/report-bs"
+expect_fail "is not taken for new" grep -q "^new: " "$T/report-bs"
+rm -rf "${T:?}/bs-base" "${T:?}/bs-head"
+# A tool the cache key needs that fails (here sha256sum) stops the gate (exit 2): two keys that both read
+# "-" would let HEAD reuse BASE's renders and pass anything (Codex P2).
+mkdir -p "$T/stub" && printf '#!/bin/sh\nexit 1\n' >"$T/stub/sha256sum" && chmod +x "$T/stub/sha256sum"
+expect_ok "a failing hash stops the gate" sh -c 'PATH="$1:$PATH" GATE_DIR="$2" GATE_COVERAGE=0 sh tools/gate.sh "$3" "$4"; [ $? -eq 2 ]' - "$T/stub" "$T/gate-stub" "$T/base" "$T/same"
 # CPU rows (fm1-emu): only with the FM-1 inputs; without them the gate says so and still passes.
 expect_ok "without the FM-1 inputs the gate skips the CPU rows" env -u FM1_REF -u FM1_DOCK GATE_COVERAGE=0 \
     sh tools/gate.sh "$T/base" "$T/same"
