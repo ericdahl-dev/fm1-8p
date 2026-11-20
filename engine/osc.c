@@ -1306,7 +1306,7 @@ static uint32_t tune_ratio_q16(int32_t tune)
     int32_t n = tune >> 16; /* floor: the fraction below is 0..1 up */
     int32_t oct = n >= 0 ? n / 12 : -((11 - n) / 12);
     uint64_t q = ((uint64_t)semitone_q30[n - 12 * oct] * semitone_ratio_q30((uint32_t)tune & 0xFFFFu)) >> 30;
-    return (uint32_t)(q >> (14 - oct));
+    return (uint32_t)q >> (14 - oct); /* q < 2^32: 2^(11 / 12) x 2^(1 / 12) in Q30 */
 }
 
 void fm_osc_pair_start_phase(fm_osc_pair *p, uint8_t which, uint32_t a, int32_t slope)

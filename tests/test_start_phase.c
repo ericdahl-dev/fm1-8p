@@ -257,6 +257,22 @@ TT_TEST(a_first_note_on_pg8xs_phases_eases_in_without_a_click)
     TT_CHECK(worst <= STP_CLICK_LSB);
 }
 
+/* 8. a DCO tuned down by less than an octave: DCO-1 COARSE -5 (r 2^(-5/12)) and DCO-2 FINE -50 cents
+ * (r 2^(-50/1200)) take the next octave down and its semitone (FW review on #310) */
+TT_TEST(a_dco_tuned_down_within_an_octave_starts_at_pg8xs_phase)
+{
+    double r1 = 0.7491535384383408, r2 = 0.9715319411536059;
+    stp_init(6);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC1_COARSE_SEMIS, -5), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_FINE_CENTS, -50), FM_OK);
+    fm_engine_note_on(&stp_eng, 60, 100);
+    if (stp_off(stp_phase(0, 0), stp_want(0, 0, r1, 0)) > 1e-4 || stp_off(stp_phase(0, 1), stp_want(0, 1, r2, 0)) > 1e-4)
+        printf("    %.4f %.4f, want %.4f %.4f\n", stp_phase(0, 0), stp_phase(0, 1),
+               stp_want(0, 0, r1, 0) - (long)stp_want(0, 0, r1, 0), stp_want(0, 1, r2, 0) - (long)stp_want(0, 1, r2, 0));
+    TT_CHECK(stp_off(stp_phase(0, 0), stp_want(0, 0, r1, 0)) < 1e-4);
+    TT_CHECK(stp_off(stp_phase(0, 1), stp_want(0, 1, r2, 0)) < 1e-4);
+}
+
 static void run_start_phase_tests(void)
 {
     TT_RUN(each_voices_first_note_starts_at_pg8xs_phases);
@@ -266,4 +282,5 @@ static void run_start_phase_tests(void)
     TT_RUN(start_phases_are_set_once_a_voice_life);
     TT_RUN(an_all_zero_table_renders_as_before);
     TT_RUN(a_first_note_on_pg8xs_phases_eases_in_without_a_click);
+    TT_RUN(a_dco_tuned_down_within_an_octave_starts_at_pg8xs_phase);
 }
