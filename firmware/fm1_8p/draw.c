@@ -534,9 +534,10 @@ static void save_part(uint32_t b, uint32_t part)
         blit(0, 78, 240, 60);
     } else if (b == UI_D_NOTE) {                /* rows 138..221: the step */
         H->cv_begin(240, 84, C_BG);
-        if (U->save_step == UI_SAVE_CONFIRM) {
+        if (U->save_step == UI_SAVE_CONFIRM || U->save_step == UI_SAVE_DELETE) {
             text_c(0, 240, 4, 0, U->save_msg, C_TEXT);
-            text_c(0, 240, 26, 0, "SAVE AGAIN TO REPLACE", led_of(C_PLAY));
+            text_c(0, 240, 26, 0, U->save_step == UI_SAVE_DELETE ? "SEL AGAIN TO DELETE" : "SAVE AGAIN TO REPLACE",
+                   led_of(C_PLAY));
             text_c(0, 240, 48, 0, "HOME CANCELS", C_DIM);
             text_c(0, 240, 66, 0, "PRESETS: OTHER SLOT", C_DIM);
         } else {

@@ -50,5 +50,8 @@ int store_slot_used(const store_lib *l, uint32_t s);
 /* p into user slot s, and its bank to flash: 0, or -1 when the write failed (the slot is then as
  * it was). */
 int store_slot_write(store_lib *l, const store_io *io, uint32_t s, const store_patch *p);
+/* Empties user slot s (#303), and its bank to flash: 0, or -1 when the write failed (the slot is
+ * then as it was). */
+int store_slot_clear(store_lib *l, const store_io *io, uint32_t s);
 
 #endif

@@ -148,7 +148,7 @@ TT_TEST(detune_spreads_voice_pitches_by_the_set_amount)
 /*
  * Mono note rule in unison: last note wins. A new note moves every voice
  * to its pitch and retriggers the envelope from its current level (no
- * steal fade, no drop). Releasing it goes back to the newest note still
+ * new voice, no drop). Releasing it goes back to the newest note still
  * held, legato: the pitch changes, the envelope carries on. Releasing the
  * last held note releases the voices.
  */

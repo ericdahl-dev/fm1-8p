@@ -77,7 +77,6 @@ typedef struct {
     int32_t params[FM_PARAM_COUNT];
     int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
     uint32_t stamp;   /* counts note ons and offs, to age the voices */
-    uint32_t fade_samples; /* fast fade of a stolen voice */
     fm_env_settings amp_set;    /* every voice's amp envelope reads these */
     fm_env_settings filter_set; /* and its filter envelope these (#19) */
     fm_env_settings gate_set;   /* the amp envelope's with amp_gate (#63) */
@@ -182,8 +181,8 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value);
 int32_t fm_engine_get_param(const fm_engine *e, uint16_t id);
 
 /*
- * Number of voices sounding (attack through release, or fading after a
- * steal). A voice goes idle once its release reaches silence.
+ * Number of voices sounding (attack through release). A voice goes idle
+ * once its release reaches silence.
  */
 uint8_t fm_engine_active_voices(const fm_engine *e);
 

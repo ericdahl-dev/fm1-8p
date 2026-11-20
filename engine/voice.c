@@ -36,18 +36,13 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->stamp = 0;
     v->pitch = 0;
     v->next_pitch = 0;
-    v->wait = 0;
-    v->gate_left = 0;
     v->gain = FM_ENV_FULL;
     fm_mod_reset(&v->mod);
     v->lfo_start = 0;
-    v->next_peak = FM_ENV_FULL;
-    v->velocity = v->next_velocity = 127;
+    v->velocity = 127;
     v->note = 0;
-    v->old_note = 0;
     v->key_down = 0;
     v->sustained = 0;
-    v->pending = 0;
     fm_vfilter_reset(&v->vf, rate_cents);
     v->mix_base = 0;
     v->mix_step = 0;
@@ -88,7 +83,7 @@ static void filter_env_gate_off(fm_voice *v)
 
 int fm_voice_active(const fm_voice *v)
 {
-    return v->amp_env.stage != FM_ENV_IDLE || v->pending;
+    return v->amp_env.stage != FM_ENV_IDLE;
 }
 
 /* The filter's settings changed: its busy bit follows whether it is now a
@@ -184,8 +179,8 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
 }
 
 /* Gates both envelopes on. The filter envelope starts from where the amp
- * envelope does: from its level on a retrigger, from 0 on an idle voice
- * (fresh, or after a steal fade), whatever level it was left at. */
+ * envelope does: from its level on a retrigger or a steal, from 0 on an
+ * idle voice, whatever level it was left at. */
 static void gate_on(fm_voice *v)
 {
     if (v->amp_env.stage == FM_ENV_IDLE) {
@@ -234,8 +229,8 @@ static void set_level(fm_voice *v, const fm_voice_mod *m, int32_t peak)
 /*
  * A note starts from silence: the LFO's offsets drop to 0 and its delay
  * counts from control tick `now`, the first tick after the start. A note
- * restruck while it still sounds (the same note again, a take back, a
- * unison retrigger) skips this, so the vibrato carries on from where it
+ * restruck while it still sounds (the same note again, a unison retrigger)
+ * skips this (a steal starts it again: fm_voice_note_on), so the vibrato carries on from where it
  * is instead of jumping.
  */
 static void restart_lfo(fm_voice *v, uint32_t now)
@@ -247,15 +242,11 @@ static void restart_lfo(fm_voice *v, uint32_t now)
     v->lfo_start = now;
 }
 
-/* Starts the note from the current level (0 when idle). A note whose
- * key came up while it waited for a steal fade queues its release for as
- * long as it waited, so it is heard rather than released at level 0. */
+/* Starts the note from the current level (0 when idle). */
 static void start(fm_voice *v, const fm_voice_mod *m, uint32_t sample_rate,
                   int32_t peak, uint8_t velocity, uint32_t now)
 {
     v->velocity = velocity;
-    v->pending = 0;
-    fm_voice_mark(v, FM_BUSY_STEAL, 0);
     fm_vfilter_due_next(&v->vf); /* the new note's cutoff from its first sample */
     restart_lfo(v, now);
     apply_pitch(v);
@@ -265,10 +256,6 @@ static void start(fm_voice *v, const fm_voice_mod *m, uint32_t sample_rate,
     fm_osc_pair_set_pitch(&v->osc, v->pitch, sample_rate);
     set_level(v, m, peak);
     gate_on(v); /* both envelopes */
-    if (!v->key_down && !v->sustained) {
-        v->gate_left = v->wait ? v->wait : 1;
-        fm_voice_mark(v, FM_BUSY_GATE, 1);
-    }
 }
 
 /* The voice now plays `note` at `pitch`, held by its key. */
@@ -278,39 +265,21 @@ static void hold(fm_voice *v, uint8_t note, int32_t pitch)
     v->next_key = note;
     v->key_down = 1;
     v->sustained = 0;
-    v->gate_left = 0;
-    fm_voice_mark(v, FM_BUSY_GATE, 0);
     v->next_pitch = pitch;
 }
 
 void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
                       int32_t pitch, int32_t peak, uint8_t velocity,
-                      uint32_t now, uint32_t sample_rate,
-                      uint32_t fade_samples)
+                      uint32_t now, uint32_t sample_rate)
 {
-    int same = fm_voice_active(v) && v->note == note;
-    uint8_t old = v->note;
-    hold(v, note, pitch);
-    v->next_peak = peak;
-    v->next_velocity = velocity;
-    if (v->pending) return; /* starts when the fade ends */
-    if (same || v->amp_env.stage == FM_ENV_IDLE) {
-        start(v, m, sample_rate, peak, velocity, now);
-    } else {
-        v->old_note = old;
-        v->pending = 1;
-        fm_voice_mark(v, FM_BUSY_STEAL, 1);
-        v->wait = fade_samples;
-        fm_env_fade(&v->amp_env, fade_samples);
+    if (fm_voice_active(v) && v->note != note) {
+        /* a steal: the LFO starts again, as PG-8X's (#312); the envelopes'
+         * sources carry on, as the envelopes do */
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_LFO, 0);
+        fm_mod_tick(&v->mod, &m->routes);
+        v->lfo_start = now;
     }
-}
-
-void fm_voice_take_back(fm_voice *v, const fm_voice_mod *m, int32_t pitch,
-                        int32_t peak, uint8_t velocity, uint32_t now,
-                        uint32_t sample_rate)
-{
-    hold(v, v->old_note, pitch);
-    /* next_peak and next_velocity stay the dropped note's */
+    hold(v, note, pitch);
     start(v, m, sample_rate, peak, velocity, now);
 }
 
@@ -319,11 +288,6 @@ void fm_voice_change_note(fm_voice *v, const fm_voice_mod *m, uint8_t note,
                           uint32_t now, uint32_t sample_rate, int retrigger)
 {
     hold(v, note, pitch);
-    if (retrigger) {
-        v->next_peak = peak;
-        v->next_velocity = velocity;
-    }
-    if (v->pending) return; /* starts when the fade ends */
     if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
         restart_lfo(v, now); /* before the gate: it checks for silence */
         apply_pitch(v);
@@ -354,10 +318,8 @@ void fm_voice_release(fm_voice *v)
 {
     v->key_down = 0;
     v->sustained = 0;
-    if (!v->pending) {
-        fm_env_gate_off(&v->amp_env);
-        filter_env_gate_off(v); /* and env2 */
-    }
+    fm_env_gate_off(&v->amp_env);
+    filter_env_gate_off(v); /* and env2 */
 }
 
 int fm_voice_let_go(fm_voice *v)
@@ -403,10 +365,6 @@ void fm_voice_silence(fm_voice *v)
     fm_env_reset(&v->filter_env);
     fm_env_reset(&v->env2);
     fm_vfilter_clear(&v->vf); /* no ringing left for the next note */
-    v->pending = 0;
-    fm_voice_mark(v, FM_BUSY_STEAL, 0);
-    v->gate_left = 0;
-    fm_voice_mark(v, FM_BUSY_GATE, 0);
     v->key_down = 0;
     v->sustained = 0;
 }
@@ -422,7 +380,6 @@ void fm_voice_set_amp(fm_voice *v, const fm_env_settings *amp)
 void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
 {
     v->next_pitch = pitch;
-    if (v->pending) return;
     v->pitch = pitch;
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
 }
@@ -444,8 +401,7 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now)
 {
     uint32_t since;
-    if (m->routes.depth[FM_MOD_SRC_ATLFO][FM_MOD_PITCH1] |
-        m->routes.depth[FM_MOD_SRC_ATLFO][FM_MOD_PITCH2]) /* Q1.30 * Q1.30 */
+    if (m->routes.live & 1u << FM_MOD_SRC_ATLFO) /* aftertouch's vibrato: Q1.30 * Q1.30, the LFO before its delay */
         fm_mod_set_source(&v->mod, FM_MOD_SRC_ATLFO,
                           (int32_t)(((int64_t)v->mod.src[FM_MOD_SRC_AT] * lfo) >> 30));
     /* zero for delay_ticks, then up by fade_step a tick to full; kept as
@@ -468,11 +424,9 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                               fm_dyna_share_q15(m->penv_dyna, v->velocity)) >> 15);
         fm_mod_set_source(&v->mod, FM_MOD_SRC_PENV, penv);
     }
-    /* a fading old note keeps its vibrato */
     apply_mod(v, fm_mod_tick(&v->mod, &m->routes));
 }
 
-/* A fading old note retunes too: `pitch` is still its pitch. */
 void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
                        uint32_t sample_rate)
 {
@@ -481,8 +435,7 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
 
 uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m)
 {
-    return v->pending || v->gate_left ||
-           !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) ||
+    return !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) ||
            !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
            v->mix_step || v->osc.req[1] != v->mix_base || v->gain != FM_ENV_FULL ||
            !fm_vfilter_is_wire(&v->vf) || !fm_vfilter_at_rest(&v->vf);
@@ -491,9 +444,8 @@ uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m)
 /*
  * 1 if the oscillators can render the whole chunk at once
  * (fm_osc_pair_render): the voice plays all of it and nothing in it can
- * change them. Not while the amp envelope is idle, in its release or a
- * steal's fade (the voice stops, or a stolen note starts, mid-chunk), nor
- * with a release queued (FM_BUSY_GATE) or the mix moving (FM_BUSY_MIX).
+ * change them. Not while the amp envelope is idle or in its release (the
+ * voice stops mid-chunk), nor with the mix moving (FM_BUSY_MIX).
  * Otherwise the oscillators run a sample at a time, as far as the voice
  * plays. The one rule for both render loops.
  */
@@ -501,14 +453,13 @@ static int osc_chunk_safe(const fm_voice *v)
 {
     uint8_t stage = v->amp_env.stage;
     return stage != FM_ENV_IDLE && stage != FM_ENV_RELEASE &&
-           stage != FM_ENV_FADE &&
-           !(fm_voice_busy(v) & (FM_BUSY_GATE | FM_BUSY_MIX));
+           !(fm_voice_busy(v) & FM_BUSY_MIX);
 }
 
 /*
  * A block with every processor at rest (fm_voice_busy 0, as in the default
  * patch): the filter a wire, no envelope amount and nothing marking the
- * cutoff, no steal fade or queued release, osc2 at osc2_level. Then nothing
+ * cutoff, osc2 at osc2_level. Then nothing
  * about the filter can change within the block, so the loop runs just the
  * amp envelope and the oscillators, and the filter's bookkeeping (its last
  * sample, the envelope's lag, the control phase) is done once at the end,
@@ -555,31 +506,15 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
  * no work for it at all, per sample. */
 static FM_ALWAYS_INLINE void render_full(fm_voice *v, const fm_voice_mod *m,
                                          int32_t *mix, int32_t *osc,
-                                         uint32_t frames, uint32_t sample_rate,
-                                         uint32_t next_tick, uint32_t tick_left,
-                                         int whole, int32_t gain, const int with_gain)
+                                         uint32_t frames, int whole,
+                                         int32_t gain, const int with_gain)
 {
     uint32_t i, told = 0; /* the lazy envelopes know of samples < told */
     for (i = 0; i < frames; i++) {
         int32_t level, fenv, out;
-        if (v->amp_env.stage == FM_ENV_IDLE) {
-            /* the stolen note faded: it starts here, before the ticks
-             * still to come in this chunk (one at tick_left, then one
-             * every FM_LFO_TICK_FRAMES) */
-            uint32_t now = next_tick;
+        if (v->amp_env.stage == FM_ENV_IDLE) { /* the release ended */
             lazy_envs_pass(v, i - told);
-            told = i;
-            if (!v->pending) return;
-            if (i >= tick_left)
-                now += ((i - tick_left) >> FM_LFO_TICK_SHIFT) + 1;
-            start(v, m, sample_rate, v->next_peak, v->next_velocity, now);
-        }
-        if (v->gate_left && --v->gate_left == 0) { /* the queued release */
-            fm_voice_mark(v, FM_BUSY_GATE, 0);
-            fm_env_gate_off(&v->amp_env);
-            lazy_envs_pass(v, i - told);
-            told = i;
-            filter_env_gate_off(v);
+            return;
         }
         level = fm_env_step(&v->amp_env);
         if (fm_vfilter_due(&v->vf)) {
@@ -616,15 +551,14 @@ static FM_ALWAYS_INLINE void render_full(fm_voice *v, const fm_voice_mod *m,
 
 void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
                          int32_t *mix, int32_t *osc,
-                         uint32_t frames, uint32_t sample_rate,
-                         uint32_t next_tick, uint32_t tick_left)
+                         uint32_t frames)
 {
     int whole;
     if (render_plain(v, m, mix, osc, frames)) return;
     whole = osc_chunk_safe(v);
     if (whole) fm_osc_pair_render(&v->osc, osc, frames);
     if (v->gain == FM_ENV_FULL) /* (the gain changes between chunks only) */
-        render_full(v, m, mix, osc, frames, sample_rate, next_tick, tick_left, whole, FM_ENV_FULL, 0);
+        render_full(v, m, mix, osc, frames, whole, FM_ENV_FULL, 0);
     else
-        render_full(v, m, mix, osc, frames, sample_rate, next_tick, tick_left, whole, v->gain, 1);
+        render_full(v, m, mix, osc, frames, whole, v->gain, 1);
 }

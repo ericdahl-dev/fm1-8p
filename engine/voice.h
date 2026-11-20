@@ -6,8 +6,8 @@
  *
  * The engine decides which voice plays a note (see docs/voices.md); the
  * voice handles starting, releasing and stealing it. A stolen voice
- * fades its old note out over a short time and then starts the new one
- * from silence, so a steal never jumps.
+ * starts the new note at once from the levels its envelopes are at, as
+ * PG-8X 2.0.13 does, so a steal never jumps.
  */
 #ifndef FM_VOICE_H
 #define FM_VOICE_H
@@ -29,22 +29,15 @@ typedef struct {
     fm_env amp_env;
     uint32_t stamp;    /* engine event count at the last note on or off */
     int32_t pitch;     /* sounding pitch, Q16.16 semitones (note + bend) */
-    int32_t next_pitch; /* pitch of `note` (kept while an old note fades) */
-    uint32_t wait;     /* length of the current steal fade, in samples */
-    uint32_t gate_left; /* samples until a queued release (0: none) */
+    int32_t next_pitch; /* pitch of `note`, set as it starts */
     uint32_t lfo_start; /* control tick the LFO delay started at */
-    int32_t next_peak; /* amp peak (velocity) of `note`, Q1.30, kept while
-                        * an old note fades */
     uint8_t note;
-    uint8_t old_note;  /* while pending: the stolen note fading out */
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
-    uint8_t pending;   /* fading out a stolen note; `note` starts after */
     uint8_t next_key;       /* `note` as set, for the filter's key when it
-                             * starts (after a steal fade, as next_pitch) */
+                             * starts */
     uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
     uint8_t velocity;       /* the sounding note's MIDI velocity */
-    uint8_t next_velocity;  /* `note`'s, kept beside next_peak */
     /* the filter, its cutoff and the voice's control cadence (vfilter.h);
      * its key stays the sounding note's when a mode switch sets
      * FM_VOICE_NO_NOTE */
@@ -84,14 +77,13 @@ typedef struct {
 void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
                     const fm_env_settings *amp, const fm_env_settings *filter);
 
-/* Sounding: attack through release, or fading out after a steal. */
+/* Sounding: attack through release. */
 int fm_voice_active(const fm_voice *v);
 
 /* What keeps a voice, in the order the engine steals: a free voice first,
  * then one releasing, then one the pedal holds, then one its key holds.
  * A key or the pedal holds only a sounding voice: a voice goes idle only
- * through a release, which lets go of both first (fm_voice_release, or a
- * queued release armed only once neither holds it), or through
+ * through a release, which lets go of both first (fm_voice_release), or through
  * fm_voice_silence or fm_voice_reset, which clear both. */
 typedef enum {
     FM_VOICE_FREE,
@@ -108,8 +100,7 @@ static inline fm_voice_hold fm_voice_holding(const fm_voice *v)
     return FM_VOICE_RELEASING;
 }
 
-/* The note the voice plays, or the one a steal fade waits to start
- * (FM_VOICE_NO_NOTE after a voice-mode switch). */
+/* The note the voice plays (FM_VOICE_NO_NOTE after a voice-mode switch). */
 static inline uint8_t fm_voice_note(const fm_voice *v)
 {
     return v->note;
@@ -127,31 +118,6 @@ static inline int fm_voice_key_holds(const fm_voice *v, uint8_t note)
     return v->key_down && v->note == note;
 }
 
-/* Fading `note` out after a steal, its new note waiting. */
-static inline int fm_voice_fading(const fm_voice *v, uint8_t note)
-{
-    return v->pending && v->old_note == note;
-}
-
-/* The note a steal left waiting on a voice (or the note it plays): its
- * peak and velocity as struck (next_peak, next_velocity; not the sounding
- * note's), and whether its key or the pedal holds it. */
-typedef struct {
-    uint8_t note, velocity, key_down, sustained;
-    int32_t peak;
-} fm_voice_waiting;
-
-static inline fm_voice_waiting fm_voice_waiting_note(const fm_voice *v)
-{
-    fm_voice_waiting w;
-    w.note = v->note;
-    w.velocity = v->next_velocity;
-    w.key_down = v->key_down;
-    w.sustained = v->sustained;
-    w.peak = v->next_peak;
-    return w;
-}
-
 /*
  * `now` in the calls below is the number of the next control tick: a
  * note that starts from silence counts its LFO delay from it.
@@ -160,40 +126,24 @@ static inline fm_voice_waiting fm_voice_waiting_note(const fm_voice *v)
  *
  * Plays `note` at `pitch` (Q16.16 semitones) with amp envelope peak
  * `peak` (Q1.30, from its MIDI `velocity`, which the voice keeps for the
- * DYNAMICS of its other depths). An idle voice starts it at
- * once, and a voice already playing the same note retriggers its attack
- * from the current level. Any other sounding voice is stolen: the old
- * note fades out over `fade_samples`, then the new one starts. A voice
- * already fading just changes the note it will start. If the new note's
- * key comes up during the fade, the note still starts after it, holds
- * for the fade time (as long as it waited) and then releases.
+ * DYNAMICS of its other depths). An idle voice starts it from silence. A
+ * sounding voice, on the same note or another (a steal), starts it at once
+ * from the levels its envelopes are at, as PG-8X 2.0.13 does: no fade, and
+ * the filter envelope carries on from where it is. A steal starts the LFO's
+ * delay again, as PG-8X's does; the same note again keeps it running.
  */
 void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
                       int32_t pitch, int32_t peak, uint8_t velocity,
-                      uint32_t now, uint32_t sample_rate,
-                      uint32_t fade_samples);
+                      uint32_t now, uint32_t sample_rate);
 
 /*
- * Takes a voice that is fading out a stolen note back for that note
- * (`old_note`, played again): the steal is called off and the note
- * restarts its attack from the current level at `pitch`, `peak` and
- * `velocity`. The note that was waiting for the fade is dropped; the
- * caller can give it another voice, at the peak and velocity still in
- * `next_peak` and `next_velocity`.
- */
-void fm_voice_take_back(fm_voice *v, const fm_voice_mod *m, int32_t pitch,
-                        int32_t peak, uint8_t velocity, uint32_t now,
-                        uint32_t sample_rate);
-
-/*
- * Moves the voice to `note` at `pitch` (Q16.16 semitones) without a steal fade (unison mode,
+ * Moves the voice to `note` at `pitch` (Q16.16 semitones) without a new voice (unison mode,
  * where every voice follows one note). The oscillator keeps its phase,
  * so the pitch changes without a jump. With `retrigger` the amp and
  * filter envelopes restart their attack from the current level (the amp
  * envelope toward `peak`, at `velocity`); without, they carry on (legato)
  * and `peak` and `velocity` are ignored, unless the voice was idle. Either way the filter's key
- * tracking follows `note` at once. A voice still fading out a stolen poly
- * note starts `note` when the fade ends.
+ * tracking follows `note` at once.
  */
 void fm_voice_change_note(fm_voice *v, const fm_voice_mod *m, uint8_t note,
                           int32_t pitch, int32_t peak, uint8_t velocity,
@@ -230,7 +180,7 @@ void fm_voice_silence(fm_voice *v);
  * amp_gate, #63). A sounding note takes the new times at once. */
 void fm_voice_set_amp(fm_voice *v, const fm_env_settings *amp);
 
-/* New pitch for the note (bend). An old note that is fading keeps its. */
+/* New pitch for the note (bend). */
 void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate);
 
 /* Retunes oscillator `which` (0 or 1) by `cents` from the voice's pitch. */
@@ -262,17 +212,14 @@ void fm_voice_set_pressure(fm_voice *v, const fm_voice_mod *m, int32_t pressure)
  */
 #define FM_BUSY_CUTOFF 0x01u     /* a setting or the note changed the cutoff */
 #define FM_BUSY_FILTER_ENV 0x02u /* the filter envelope moves the cutoff */
-#define FM_BUSY_STEAL 0x04u      /* fading out a stolen note (pending) */
-#define FM_BUSY_GATE 0x08u       /* a release queued (gate_left) */
 #define FM_BUSY_FILTER 0x10u     /* the filter isn't a wire (fm_filter_is_wire) */
 #define FM_BUSY_MIX 0x20u        /* the mix envelope on, or a glide not landed */
 #define FM_BUSY_GAIN 0x40u       /* an aftertouch gain (gain not FM_ENV_FULL) */
-#define FM_BUSY_ALL 0x7Fu
+#define FM_BUSY_ALL 0x73u
 
 /* every FM_BUSY_* bit fits in fm_voice's busy */
 typedef char fm_require_busy_bits_fit[
-    ((FM_BUSY_CUTOFF | FM_BUSY_FILTER_ENV | FM_BUSY_STEAL | FM_BUSY_GATE |
-      FM_BUSY_FILTER | FM_BUSY_MIX | FM_BUSY_GAIN) == FM_BUSY_ALL &&
+    ((FM_BUSY_CUTOFF | FM_BUSY_FILTER_ENV | FM_BUSY_FILTER | FM_BUSY_MIX | FM_BUSY_GAIN) == FM_BUSY_ALL &&
      FM_BUSY_ALL >> (8 * sizeof(((fm_voice *)0)->busy)) == 0) ? 1 : -1];
 
 /* Sets or clears busy bit(s) `bits` of voice `v`. */
@@ -301,8 +248,7 @@ static inline uint32_t fm_voice_busy(const fm_voice *v)
 }
 
 /* The same question asked of the processors themselves instead of the busy
- * word: nonzero while any is away from rest (a steal fade or queued
- * release, a filter envelope amount, the mix envelope or a glide, the
+ * word: nonzero while any is away from rest (a filter envelope amount, the mix envelope or a glide, the
  * filter not a wire, or a cutoff not yet updated for the settings and the
  * note). The busy word must be nonzero whenever this is. For checks only:
  * it costs a cutoff computation. */
@@ -331,15 +277,11 @@ static inline const fm_vfilter *fm_voice_filter(const fm_voice *v)
 }
 
 /*
- * Adds `frames` samples of the voice (Q8.24) to `mix`. `next_tick` is the
- * number of the next control tick and `tick_left` the samples before it,
- * so a stolen note that starts mid-chunk knows which tick its LFO delay
- * counts from. `osc` is scratch for `frames` samples (the oscillators'
- * chunk, when nothing can change them within it).
+ * Adds `frames` samples of the voice (Q8.24) to `mix`. `osc` is scratch
+ * for `frames` samples (the oscillators' chunk, when nothing can change
+ * them within it).
  */
 void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
-                         int32_t *mix, int32_t *osc,
-                         uint32_t frames, uint32_t sample_rate,
-                         uint32_t next_tick, uint32_t tick_left);
+                         int32_t *mix, int32_t *osc, uint32_t frames);
 
 #endif /* FM_VOICE_H */

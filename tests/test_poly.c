@@ -212,33 +212,11 @@ TT_TEST(no_click_when_a_voice_starts_is_stolen_or_ends)
 }
 
 /*
- * A stolen voice fades out fast, then its new note starts from silence
- * with its own attack, rather than carrying on at the old note's level.
+ * A note released right after it steals a voice still sounds: it starts
+ * at once from the stolen note's level, then releases, and does not
+ * stick. With the pedal down it is held.
  */
-TT_TEST(stolen_voice_fades_then_new_note_attacks_from_silence)
-{
-    int full, early;
-    init_poly(1);
-    fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 200);
-    fm_engine_note_on(&poly, 60, 100);
-    fm_engine_render(&poly, pbuf, PRATE / 2); /* 60 at full level */
-    full = peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2);
-    TT_CHECK(full > 5000); /* -12 dB mix gain */
-    fm_engine_note_on(&poly, 62, 100); /* steals the only voice */
-    fm_engine_render(&poly, pbuf, PRATE / 2);
-    /* 20 ms later: about 3 ms of fade, then 17 ms of a 200 ms attack */
-    early = peak_abs(pbuf, 882 - 176, 882);
-    printf("    20 ms after the steal: %.3f of full\n", (double)early / full);
-    TT_CHECK((double)early / full < 0.15);
-    TT_CHECK((double)peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2) / full > 0.95);
-}
-
-/*
- * A note released while its stolen voice is still fading still sounds:
- * it starts after the fade, holds for as long as it waited (3 ms), then
- * releases, and does not stick. With the pedal down it is held.
- */
-TT_TEST(note_released_during_a_steal_fade_still_sounds)
+TT_TEST(note_released_right_after_a_steal_still_sounds)
 {
     size_t i;
     int loud_after = 0;
@@ -246,10 +224,10 @@ TT_TEST(note_released_during_a_steal_fade_still_sounds)
     fm_engine_note_on(&poly, 60, 100);
     fm_engine_render(&poly, pbuf, 441);
     fm_engine_note_on(&poly, 62, 100); /* steal */
-    fm_engine_note_off(&poly, 62);     /* before the 3 ms fade ends */
+    fm_engine_note_off(&poly, 62);     /* at once */
     fm_engine_render(&poly, pbuf, 441);
-    /* after the 132-sample fade: a 2 ms attack, then a 50 ms release */
-    TT_CHECK(peak_abs(pbuf, 132, 441) > 5000);
+    /* from 60's level, then a 50 ms release */
+    TT_CHECK(peak_abs(pbuf, 0, 441) > 5000);
     fm_engine_render(&poly, pbuf, PRATE / 10);
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 0);
     for (i = 2 * 2205; i < 2 * (PRATE / 10); i++)
@@ -270,11 +248,12 @@ TT_TEST(note_released_during_a_steal_fade_still_sounds)
 }
 
 /*
- * A note pressed again while a steal is still fading it out takes its
- * voice back (so the same pitch is never on two voices), and the note
- * that was waiting for that voice moves to another one.
+ * A note pressed again right after another note stole its voice gets a
+ * voice by the usual rule: on one voice it steals it back and carries on
+ * from the level there, and on two the oldest held voice goes. The same
+ * pitch is never on two voices.
  */
-TT_TEST(note_pressed_again_during_its_steal_fade_takes_its_voice_back)
+TT_TEST(note_pressed_again_right_after_its_steal_comes_back)
 {
     static const int expect[8] = { 1, 0, 1, 0, 0, 0, 0, 0 };
     double ref;
@@ -286,14 +265,14 @@ TT_TEST(note_pressed_again_during_its_steal_fade_takes_its_voice_back)
     fm_engine_render(&poly, pbuf, PRATE / 2);
     full = peak_abs(pbuf, PRATE / 2 - 441, PRATE / 2);
     fm_engine_note_on(&poly, 62, 100); /* steals 60's voice */
-    fm_engine_render(&poly, pbuf, 22);  /* 0.5 ms into the 3 ms fade */
+    fm_engine_render(&poly, pbuf, 22);  /* 0.5 ms on */
     fm_engine_note_on(&poly, 60, 100); /* 60 again */
     fm_engine_render(&poly, pbuf, 882);
     early = peak_abs(pbuf, 882 - 176, 882);
     TT_CHECK((double)early / full > 0.7);
     TT_CHECK_EQ(fm_engine_active_voices(&poly), 1);
 
-    /* two voices: 62, which was waiting for 60's voice, steals 61's */
+    /* two voices: 62 steals 60's voice, then 60 steals 61's, the oldest held */
     ref = solo_amp(2, 60);
     init_poly(2);
     fm_engine_note_on(&poly, 60, 100);
@@ -525,34 +504,35 @@ static void render_blocks(int16_t *out, uint32_t from, uint32_t to, uint32_t blo
 }
 
 /*
- * One voice: a held note, a steal whose key is up before the new note
- * starts (its release queued for after the steal's fade), a release so
- * short it ends inside a chunk, then another note on the same voice,
- * whose oscillators carry on from where the last note left them.
+ * One voice: a held note, a steal whose key comes up 264 samples later
+ * (inside a chunk, whatever the block size), a release so short it ends
+ * there, then another note on the same voice, whose oscillators carry on
+ * from where the last note left them.
  */
-static void play_queued_release(int16_t *out, uint32_t block)
+static void play_steal_release(int16_t *out, uint32_t block)
 {
     init_poly(1);
     fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 0);
     fm_engine_note_on(&poly, 60, 100);
     render_blocks(out, 0, 1000, block);
     fm_engine_note_on(&poly, 64, 100); /* steals the voice */
-    fm_engine_note_off(&poly, 64);     /* before it starts: queued */
-    render_blocks(out, 1000, 3000, block);
+    render_blocks(out, 1000, 1264, block);
+    fm_engine_note_off(&poly, 64);
+    render_blocks(out, 1264, 3000, block);
     fm_engine_note_on(&poly, 67, 100);
     render_blocks(out, 3000, 4096, block);
 }
 
 /*
- * A queued release that ends the note inside a chunk sounds the same,
+ * A release that ends the note inside a chunk sounds the same,
  * and leaves the oscillators where they would be, whatever the block
  * size: the next note on the voice is the same too.
  */
-TT_TEST(queued_release_ending_mid_chunk_does_not_depend_on_block_size)
+TT_TEST(release_ending_mid_chunk_does_not_depend_on_block_size)
 {
     static int16_t whole[2 * 4096], single[2 * 4096];
-    play_queued_release(whole, 64);
-    play_queued_release(single, 1);
+    play_steal_release(whole, 64);
+    play_steal_release(single, 1);
     TT_CHECK(memcmp(whole, single, sizeof whole) == 0);
 }
 
@@ -565,9 +545,8 @@ static void run_poly_tests(void)
     TT_RUN(steal_takes_a_releasing_voice_before_a_pedal_held_one);
     TT_RUN(steal_takes_a_pedal_held_voice_before_a_key_held_one);
     TT_RUN(no_click_when_a_voice_starts_is_stolen_or_ends);
-    TT_RUN(stolen_voice_fades_then_new_note_attacks_from_silence);
-    TT_RUN(note_released_during_a_steal_fade_still_sounds);
-    TT_RUN(note_pressed_again_during_its_steal_fade_takes_its_voice_back);
+    TT_RUN(note_released_right_after_a_steal_still_sounds);
+    TT_RUN(note_pressed_again_right_after_its_steal_comes_back);
     TT_RUN(released_note_goes_silent_and_its_voice_idle);
     TT_RUN(repeated_note_reuses_its_voice);
     TT_RUN(sustain_pedal_holds_released_notes_until_it_comes_up);
@@ -575,5 +554,5 @@ static void run_poly_tests(void)
     TT_RUN(full_chord_at_max_velocity_never_clips);
     TT_RUN(random_playing_stays_bounded_and_ends_silent);
     TT_RUN(polyphonic_output_does_not_depend_on_block_size);
-    TT_RUN(queued_release_ending_mid_chunk_does_not_depend_on_block_size);
+    TT_RUN(release_ending_mid_chunk_does_not_depend_on_block_size);
 }
