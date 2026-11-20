@@ -53,8 +53,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 6764u     /* +48: portamento (#62): a glide a voice (8), its step, the note glided from and the newest, 2 flags */
-#define FM_ENGINE_BUDGET_BASE_64 6940u     /* +8: the start phase table's pointer (#154; on 32-bit it and each voice's fresh flag fit in padding) */
+#define FM_ENGINE_BUDGET_BASE_32 6768u     /* +4: the start phase table's pointer (#154), on a layout where it doesn't fit padding (apcs-gnu) */
+#define FM_ENGINE_BUDGET_BASE_64 6940u     /* +8: the start phase table's pointer (#154); each voice's fresh flag fits in padding */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
