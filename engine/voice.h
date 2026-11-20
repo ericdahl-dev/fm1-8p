@@ -127,7 +127,8 @@ static inline int fm_voice_key_holds(const fm_voice *v, uint8_t note)
  * DYNAMICS of its other depths). An idle voice starts it from silence. A
  * sounding voice, on the same note or another (a steal), starts it at once
  * from the levels its envelopes are at, as PG-8X 2.0.13 does: no fade, and
- * the filter envelope carries on from where it is.
+ * the filter envelope carries on from where it is. A steal starts the LFO's
+ * delay again, as PG-8X's does; the same note again keeps it running.
  */
 void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
                       int32_t pitch, int32_t peak, uint8_t velocity,

@@ -504,9 +504,10 @@ static void render_blocks(int16_t *out, uint32_t from, uint32_t to, uint32_t blo
 }
 
 /*
- * One voice: a held note, a steal whose key comes up at once, a release
- * so short it ends inside a chunk, then another note on the same voice,
- * whose oscillators carry on from where the last note left them.
+ * One voice: a held note, a steal whose key comes up 264 samples later
+ * (inside a chunk, whatever the block size), a release so short it ends
+ * there, then another note on the same voice, whose oscillators carry on
+ * from where the last note left them.
  */
 static void play_steal_release(int16_t *out, uint32_t block)
 {
@@ -515,8 +516,9 @@ static void play_steal_release(int16_t *out, uint32_t block)
     fm_engine_note_on(&poly, 60, 100);
     render_blocks(out, 0, 1000, block);
     fm_engine_note_on(&poly, 64, 100); /* steals the voice */
-    fm_engine_note_off(&poly, 64);     /* at once */
-    render_blocks(out, 1000, 3000, block);
+    render_blocks(out, 1000, 1264, block);
+    fm_engine_note_off(&poly, 64);
+    render_blocks(out, 1264, 3000, block);
     fm_engine_note_on(&poly, 67, 100);
     render_blocks(out, 3000, 4096, block);
 }
@@ -543,7 +545,7 @@ static void run_poly_tests(void)
     TT_RUN(steal_takes_a_releasing_voice_before_a_pedal_held_one);
     TT_RUN(steal_takes_a_pedal_held_voice_before_a_key_held_one);
     TT_RUN(no_click_when_a_voice_starts_is_stolen_or_ends);
-        TT_RUN(note_released_right_after_a_steal_still_sounds);
+    TT_RUN(note_released_right_after_a_steal_still_sounds);
     TT_RUN(note_pressed_again_right_after_its_steal_comes_back);
     TT_RUN(released_note_goes_silent_and_its_voice_idle);
     TT_RUN(repeated_note_reuses_its_voice);

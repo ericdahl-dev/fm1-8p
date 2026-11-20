@@ -41,7 +41,8 @@ are at**, as PG-8X 2.0.13 does. The amp envelope restarts its attack from its
 current level, toward the new note's peak. The filter envelope does the same,
 so the new note is as bright as the stolen one was, and goes on from there.
 This is the same as playing a note again on its own voice, only with a new
-pitch.
+pitch, except that the LFO's delay starts again, as on PG-8X (a stolen
+voice's vibrato drops away for the new note and builds back over the delay).
 
 There is no fade and no gap, and the oscillators keep their phase, so a steal
 doesn't click (`a_steal_does_not_click`). The filter's key tracking and the

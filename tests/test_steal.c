@@ -200,6 +200,33 @@ TT_TEST(a_steal_does_not_click)
     TT_CHECK(low >= peak / 10 * 8);
 }
 
+/* 6. the LFO starts again on a steal, as PG-8X 2.0.13's does (measured 2026-11-20: a stolen voice's vibrato,
+ * at +-211 cents, drops to +-17 for the new note's first 0.3 s and builds back over its delay). One voice,
+ * a 2 Hz LFO at 1200 cents with a 200 ms delay: C4 held 1 s, in full vibrato, more than a semitone off; E4
+ * steals it, and 50 ms on
+ * the LFO adds nothing to its pitch */
+TT_TEST(a_steal_starts_the_lfo_delay_again)
+{
+    int32_t was;
+    TT_CHECK_EQ(fm_engine_init(&st_eng, ST_RATE, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&st_eng, FM_PARAM_LFO_RATE_CENTIHZ, 200), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&st_eng, FM_PARAM_LFO_PITCH_CENTS, 1200), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&st_eng, FM_PARAM_LFO_DELAY_MS, 200), FM_OK);
+    fm_engine_note_on(&st_eng, 60, 100);
+    st_run(1000);
+    was = fm_mod_get(&st_eng.voices[0].mod, FM_MOD_PITCH1);
+    while (was > -(1 << 16) && was < (1 << 16)) { /* past a semitone either way */
+        st_run(10);
+        was = fm_mod_get(&st_eng.voices[0].mod, FM_MOD_PITCH1);
+    }
+    fm_engine_note_on(&st_eng, 64, 100);
+    st_run(50);
+    if (fm_mod_get(&st_eng.voices[0].mod, FM_MOD_PITCH1) != 0)
+        printf("    50 ms after the steal the LFO adds %ld (was %ld)\n",
+               (long)fm_mod_get(&st_eng.voices[0].mod, FM_MOD_PITCH1), (long)was);
+    TT_CHECK_EQ(fm_mod_get(&st_eng.voices[0].mod, FM_MOD_PITCH1), 0);
+}
+
 static void run_steal_tests(void)
 {
     TT_RUN(a_steal_starts_from_the_released_voices_level);
@@ -207,4 +234,5 @@ static void run_steal_tests(void)
     TT_RUN(a_steal_starts_from_the_voices_filter_envelope_level);
     TT_RUN(a_steal_starts_from_the_pedal_held_voices_level);
     TT_RUN(a_steal_does_not_click);
+    TT_RUN(a_steal_starts_the_lfo_delay_again);
 }

@@ -225,8 +225,8 @@ static void set_level(fm_voice *v, const fm_voice_mod *m, int32_t peak)
 /*
  * A note starts from silence: the LFO's offsets drop to 0 and its delay
  * counts from control tick `now`, the first tick after the start. A note
- * started on a voice that still sounds (the same note again, a steal, a
- * unison retrigger) skips this, so the vibrato carries on from where it
+ * restruck while it still sounds (the same note again, a unison retrigger)
+ * skips this (a steal starts it again: fm_voice_note_on), so the vibrato carries on from where it
  * is instead of jumping.
  */
 static void restart_lfo(fm_voice *v, uint32_t now)
@@ -266,6 +266,10 @@ void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
                       int32_t pitch, int32_t peak, uint8_t velocity,
                       uint32_t now, uint32_t sample_rate)
 {
+    if (fm_voice_active(v) && v->note != note) { /* a steal: the LFO starts again, as PG-8X's (#312) */
+        fm_mod_reset(&v->mod);
+        v->lfo_start = now;
+    }
     hold(v, note, pitch);
     v->next_peak = peak;
     v->next_velocity = velocity;

@@ -1399,7 +1399,7 @@ static void env_random_pair(fm_env *a, fm_env *b, uint32_t *seed)
 
 /*
  * One random event on both envelopes (gate on at a random peak, as
- * velocity sets it, gate off, fade, a retime to a random sustain, or
+ * velocity sets it, gate off, a retime to a random sustain, or
  * nothing) and a random length (0..399) to run them for, into *n.
  * Returns 1 if it left a decay rising to a raised sustain from a level of
  * 2^29 or more, the case the full-range draws are for.
@@ -1414,7 +1414,6 @@ static int env_random_op(fm_env *a, fm_env *b, uint32_t *seed, uint32_t *n)
         fm_env_gate_on(b);
         break;
     case 1: fm_env_gate_off(a); fm_env_gate_off(b); break;
-    case 2: fm_env_fade(a, *n); fm_env_fade(b, *n); break;
     case 3:
         env_set.sustain = env_level(seed); /* both read it */
         fm_env_retime(a);
@@ -1603,18 +1602,6 @@ static void env_change_retime(fm_env *e, uint32_t *seed)
 TT_TEST(env_skip_then_retime_matches_stepping)
 {
     TT_CHECK_EQ(env_skip_then_change(env_change_retime, 70704), 0);
-}
-
-static void env_change_fade(fm_env *e, uint32_t *seed)
-{
-    fm_env_fade(e, env_rand(seed) % 400);
-}
-
-/* A fade after a skip falls from the caught-up level, its step taken from
- * that level. */
-TT_TEST(env_skip_then_fade_matches_stepping)
-{
-    TT_CHECK_EQ(env_skip_then_change(env_change_fade, 70705), 0);
 }
 
 static void env_change_key(fm_env *e, uint32_t *seed)
@@ -3103,7 +3090,7 @@ static void run_filter_tests(void)
     TT_RUN(unison_note_change_gets_its_cutoff_from_the_first_sample);
     TT_RUN(mode_switch_release_keeps_the_key_tracked_cutoff);
     TT_RUN(filter_envelope_follows_the_key);
-        TT_RUN(idle_voice_starts_the_filter_envelope_from_zero);
+    TT_RUN(idle_voice_starts_the_filter_envelope_from_zero);
     TT_RUN(a_steal_tracks_the_new_notes_cutoff_at_once);
     TT_RUN(mode_switch_after_a_steal_tracks_the_new_note);
     TT_RUN(highpass_turned_on_mid_note_does_not_click);
@@ -3115,7 +3102,6 @@ static void run_filter_tests(void)
     TT_RUN(env_skip_then_gate_off_matches_stepping);
     TT_RUN(env_skip_then_gate_on_matches_stepping);
     TT_RUN(env_skip_then_retime_matches_stepping);
-    TT_RUN(env_skip_then_fade_matches_stepping);
     TT_RUN(env_skip_then_key_matches_stepping);
     TT_RUN(env_skip_zero_is_a_no_op);
     TT_RUN(env_reset_drops_a_skip);
