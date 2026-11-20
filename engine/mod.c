@@ -17,6 +17,7 @@ void fm_mod_routes_reset(fm_mod_routes *r)
     unsigned s, d;
     for (s = 0; s < FM_MOD_SRC_COUNT; s++)
         for (d = 0; d < FM_MOD_DEST_COUNT; d++) r->depth[s][d] = 0;
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++) r->to[d] = 0;
     r->live = 0;
 }
 
@@ -28,7 +29,7 @@ void fm_mod_set_route(fm_mod_routes *r, unsigned src, unsigned dest,
 #endif
     unsigned d;
     r->depth[src][dest] = depth;
-    r->live &= ~(1u << src);
-    for (d = 0; d < FM_MOD_DEST_COUNT; d++)
-        if (r->depth[src][d]) r->live |= 1u << src;
+    r->to[dest] = (uint8_t)(depth ? r->to[dest] | 1u << src : r->to[dest] & ~(1u << src));
+    r->live = 0;
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++) r->live |= r->to[d];
 }
