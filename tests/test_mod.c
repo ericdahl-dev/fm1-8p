@@ -519,7 +519,7 @@ static void depth_on_and_off_in_blocks(int16_t *out, uint32_t block)
     fm_engine_note_on(&mod_eng, 60, 100);
     fm_engine_note_on(&mod_eng, 64, 100);
     render_in_blocks(out + 2 * 333, 2000, block);
-    fm_engine_note_on(&mod_eng, 67, 100); /* steals: starts after 3 ms */
+    fm_engine_note_on(&mod_eng, 67, 100); /* steals: starts at once */
     render_in_blocks(out + 2 * 2333, 5000, block);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 300);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PW_PCT, 20);
