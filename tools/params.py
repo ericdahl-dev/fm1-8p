@@ -167,7 +167,7 @@ PATCH_FIELDS = [
     F('OSC2_PULSE_WIDTH_PCT', 'OSC2_PULSE_WIDTH_PCT', (17,), ''),
     F('OSC2_OCTAVE', 'OSC2_OCTAVE', (11, 13, 16, 19), ''),
     F('OSC2_COARSE_SEMIS', 'OSC2_COARSE_SEMIS', (11, 13, 16, 19), ''),
-    F('OSC2_FINE_CENTS', 'OSC2_FINE_CENTS', (20,), ''),
+    F('OSC2_FINE_CENTS', 'OSC2_FINE_CENTS', (20,), 'whole cents, toward 0; the hundredths are OSC2_FINE_HUNDREDTHS (#256)'),
     F('OSC1_LEVEL_PERMILLE', 'OSC1_LEVEL', (28,), 'DCO-1 level over 127, summed with DCO-2 (#102)'),
     F('AMP_LEVEL_PERMILLE', 'AMP_LEVEL', (41,), 'VCA LEVEL, 0.30 dB a step below 127'),
     F('OSC2_LEVEL_PERMILLE', 'OSC2_LEVEL', (29,), 'DCO-2 level over 127, before MIX ENV'),
@@ -207,6 +207,7 @@ PATCH_FIELDS = [
     F('AMP_KEY_FOLLOW_PERMILLE', 'AMP_KEY_FOLLOW', (56,), 'ENV-2 KEY: 260 per mille a position (#60)'),
     F('FILTER_ENV_KEY_FOLLOW_PERMILLE', 'FILTER_ENV_KEY_FOLLOW', (51,), "the filter envelope's (ENV-1 KEY, or ENV-2's)"),
     F('SETTING_GLIDE', 'SETTING_GLIDE', (), "1: levels, filter and LFO depths glide as PG-8X's (#146)"),
+    F('OSC2_FINE_HUNDREDTHS', 'OSC2_FINE_HUNDREDTHS', (20,), "DCO-2 FINE's hundredths of a cent, OSC2_FINE_CENTS's sign (#256)"),
 ]
 
 

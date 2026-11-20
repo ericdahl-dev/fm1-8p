@@ -16,6 +16,7 @@ typedef enum {
     PATCH_OSC2_PULSE_WIDTH_PCT,
     PATCH_OSC2_OCTAVE,
     PATCH_OSC2_COARSE_SEMIS,
+    /* whole cents, toward 0; the hundredths are OSC2_FINE_HUNDREDTHS (#256) */
     PATCH_OSC2_FINE_CENTS,
     /* DCO-1 level over 127, summed with DCO-2 (#102) */
     PATCH_OSC1_LEVEL_PERMILLE,
@@ -76,6 +77,8 @@ typedef enum {
     PATCH_FILTER_ENV_KEY_FOLLOW_PERMILLE,
     /* 1: levels, filter and LFO depths glide as PG-8X's (#146) */
     PATCH_SETTING_GLIDE,
+    /* DCO-2 FINE's hundredths of a cent, OSC2_FINE_CENTS's sign (#256) */
+    PATCH_OSC2_FINE_HUNDREDTHS,
     PATCH_FIELD_COUNT,
 } patch_field;
 
