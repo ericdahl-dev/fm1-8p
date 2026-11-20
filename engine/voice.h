@@ -221,7 +221,7 @@ static inline uint32_t fm_voice_stamp(const fm_voice *v)
 }
 
 /* Silences the voice at once (all sound off). A note waiting on a steal
- * fade is dropped: the voice's note is again the one it sounded. */
+ * fade is dropped, and the voice has no last note (FM_VOICE_NO_NOTE). */
 void fm_voice_silence(fm_voice *v);
 
 /* The amp envelope reads `amp` (envelope 2's settings, or the gate's with

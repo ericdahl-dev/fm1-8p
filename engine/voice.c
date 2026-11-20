@@ -396,8 +396,7 @@ void fm_voice_silence(fm_voice *v)
     fm_env_reset(&v->filter_env);
     fm_env_reset(&v->env2);
     fm_vfilter_clear(&v->vf); /* no ringing left for the next note */
-    if (v->pending && v->note != FM_VOICE_NO_NOTE) /* (a mode switch cleared it: stays clear) */
-        v->note = v->old_note; /* the waiting note never sounded here (#164) */
+    if (v->pending) v->note = FM_VOICE_NO_NOTE; /* the waiting note never sounded here: no last note (#164) */
     v->pending = 0;
     fm_voice_mark(v, FM_BUSY_STEAL, 0);
     v->gate_left = 0;

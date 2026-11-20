@@ -191,10 +191,10 @@ TT_TEST(a_key_whose_voice_still_sounds_keeps_its_paths)
     TT_CHECK_EQ(lv_voice(64), d);
 }
 
-/* 9. all sound off during a steal fade: the voice's last note is the one it sounded, not the one that waited
- * (Codex P2 on #164). Two voices, C4 and D4 held; E4 steals C4's voice, and CC 120 comes 1 ms into the fade.
- * C4 again gets its voice back; E4, which never sounded, takes the longest idle (D4's) */
-TT_TEST(all_sound_off_in_a_steal_fade_keeps_the_sounded_note)
+/* 9. all sound off during a steal fade: the voice keeps no last note, neither the one it sounded nor the one
+ * that waited (Codex P2 on #164). Two voices, C4 and D4 held; E4 steals C4's voice, and CC 120 comes 1 ms
+ * into the fade. E4, which never sounded, takes the longest idle voice (D4's), not C4's by affinity */
+TT_TEST(all_sound_off_in_a_steal_fade_leaves_no_last_note)
 {
     int c, d;
     lv_init(2);
@@ -213,8 +213,8 @@ TT_TEST(all_sound_off_in_a_steal_fade_keeps_the_sounded_note)
     fm_engine_note_off(&lv_eng, 64);
     lv_run(10);
     TT_CHECK_EQ(fm_engine_active_voices(&lv_eng), 0);
-    fm_engine_note_on(&lv_eng, 60, 100);
-    TT_CHECK_EQ(lv_voice(60), c);
+    TT_CHECK(c >= 0);
+    if (c >= 0) TT_CHECK_EQ(fm_voice_note(&lv_eng.voices[c]), FM_VOICE_NO_NOTE);
     fm_engine_note_on(&lv_eng, 64, 100);
     TT_CHECK_EQ(lv_voice(64), d);
 }
@@ -286,7 +286,7 @@ static void run_last_voice_tests(void)
     TT_RUN(a_key_whose_voice_was_stolen_takes_the_longest_idle);
     TT_RUN(a_voice_got_back_glides_from_the_last_note_played);
     TT_RUN(a_key_whose_voice_still_sounds_keeps_its_paths);
-    TT_RUN(all_sound_off_in_a_steal_fade_keeps_the_sounded_note);
+    TT_RUN(all_sound_off_in_a_steal_fade_leaves_no_last_note);
     TT_RUN(all_sound_off_after_a_mode_switch_in_a_steal_fade_keeps_no_note);
     TT_RUN(a_key_gets_its_voice_back_across_the_event_count_wrap);
     TT_RUN(a_mode_switch_clears_every_voices_last_note);
