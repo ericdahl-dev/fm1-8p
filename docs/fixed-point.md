@@ -502,7 +502,7 @@ How it works, per sample:
   (the two poles fit within 0.13 dB rms). An output never exceeds the input
   peak plus 2.42 (the line's clamp times 1.21; the 1-poles never overshoot).
   The dry part is limited to about +-124.0, so the sum fits in int32 for any
-  input (one clamp). On a held C3 saw the chorus raises the RMS level by about 2.4 dB
+  input (one clamp). On a held C3 saw the chorus raises the RMS level by about 3 dB
   over chorus off (I +2.9, II +3.1; PG-8X +3.0), and the left and right
   correlate at 0.45 (I) and 0.43 (II), against PG-8X's 0.46. The mix gain
   keeps the chorus's input within +-0.72 (-2.85 dBFS), and the soft clip

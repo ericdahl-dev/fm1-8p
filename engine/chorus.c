@@ -63,20 +63,24 @@ void fm_chorus_init(fm_chorus *c, uint32_t sample_rate)
 }
 
 /*
- * The wet path's 1-pole coefficient, Q16: k = 1 - e^-w, w = 2 pi WET_HZ / fs,
- * from its series (seven terms: under 1e-4 off at 8 kHz, where w is about 3.2).
- * Each term is the last times w / (n + 1): 32-bit, the product in 64 bits.
+ * The wet path's 1-pole coefficient, Q16: k = 1 - e^-w, w = 2 pi WET_HZ / fs.
+ * e^-w is taken as (e^(-w/4))^4: w/4 is at most 0.8 (8 kHz), where eight
+ * terms of the series are within 1e-5. Each term is the last times x / n:
+ * 32-bit, the products in 64 bits (FW review of #319: the series in w itself
+ * overshot below 16 kHz).
  */
 static int32_t wet_coefficient(uint32_t sample_rate)
 {
-    int32_t w = (int32_t)((411775u * WET_HZ) / sample_rate); /* 2 pi in Q16 times WET_HZ: under 2^31 */
-    int32_t t = w, k = 0;
+    int32_t x = (int32_t)((411775u * WET_HZ) / sample_rate) / 4; /* 2 pi in Q16 times WET_HZ: under 2^31 */
+    int32_t t = 65536, e = 65536;
     int n;
-    for (n = 1; n <= 7; n++) {
-        k += (n & 1) ? t : -t;
-        t = (int32_t)(((int64_t)t * w) >> 16) / (n + 1);
+    for (n = 1; n <= 8; n++) {
+        t = (int32_t)(((int64_t)t * x) >> 16) / n;
+        e += (n & 1) ? -t : t;
     }
-    return k > 65536 ? 65536 : k;
+    e = (int32_t)(((int64_t)e * e) >> 16);
+    e = (int32_t)(((int64_t)e * e) >> 16);
+    return 65536 - e;
 }
 
 void fm_chorus_set_mode(fm_chorus *c, uint8_t mode)
@@ -109,7 +113,11 @@ void fm_chorus_set_mode(fm_chorus *c, uint8_t mode)
 /* One step of a 1-pole: *y toward x by k (Q16), Q8.24. */
 static inline int32_t pole(int32_t *y, int32_t x, int32_t k)
 {
-    *y += (int32_t)(((int64_t)(x - *y) * k + (1 << 15)) >> 16); /* rounded: no DC drift */
+    /* rounded away from 0, toward x: a step never stalls a unit short of x
+     * (round-to-nearest left a -1 LSB tail after silence, FW review of
+     * #319), and with k <= 1 it never passes x */
+    int32_t d = x - *y;
+    *y += (int32_t)(((int64_t)d * k + (65535 & ~(d >> 31))) >> 16);
     return *y;
 }
 

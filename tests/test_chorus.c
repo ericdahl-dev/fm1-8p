@@ -853,10 +853,53 @@ TT_TEST(chorus_wet_path_matches_pg8x)
             }
 }
 
+/* The wet path's tail after the input stops: noise, then silence, and the output comes back to exactly 0 (the
+ * 1-poles' rounded steps must not stall a unit short; FW review of #319), at 44.1, 48 and 192 kHz, both modes. */
+TT_TEST(chorus_wet_tail_settles_to_exact_silence)
+{
+    static const uint32_t rates[] = { 44100, 48000, 192000 };
+    static fm_chorus ch;
+    uint32_t seed = 7, n;
+    size_t k;
+    int mode;
+    for (k = 0; k < sizeof rates / sizeof rates[0]; k++)
+        for (mode = FM_CHORUS_SLOW; mode <= FM_CHORUS_DEEP; mode++) {
+            int32_t l = 0, r = 0;
+            fm_chorus_init(&ch, rates[k]);
+            fm_chorus_set_mode(&ch, (uint8_t)mode);
+            for (n = 0; n < rates[k] / 4; n++) {
+                seed = seed * 1664525u + 1013904223u;
+                fm_chorus_process(&ch, (int32_t)(seed >> 8) - (1 << 23), &l, &r);
+            }
+            for (n = 0; n < rates[k]; n++) fm_chorus_process(&ch, 0, &l, &r);
+            if (l != 0 || r != 0) printf("    %u Hz, mode %d: tail %ld / %ld after 1 s of silence\n", rates[k], mode, (long)l, (long)r);
+            TT_CHECK(l == 0 && r == 0);
+        }
+}
+
+/* The wet path's 1-pole coefficient is 1 - e^-w, w = 2 pi 4075 / fs, at every rate the engine takes (FW review of
+ * #319: the series overshot at low rates) */
+TT_TEST(chorus_wet_coefficient_is_exact_at_every_rate)
+{
+    static const uint32_t rates[] = { 8000, 11025, 16000, 22050, 44100, 48000, 96000, 192000 };
+    static fm_chorus ch;
+    size_t k;
+    for (k = 0; k < sizeof rates / sizeof rates[0]; k++) {
+        double want = 1 - exp(-2 * 3.14159265358979 * 4075.0 / rates[k]), got;
+        fm_chorus_init(&ch, rates[k]);
+        fm_chorus_set_mode(&ch, FM_CHORUS_SLOW);
+        got = ch.wet_k / 65536.0;
+        if (fabs(got - want) > 1e-3) printf("    %u Hz: k %.5f, want %.5f\n", rates[k], got, want);
+        TT_CHECK(fabs(got - want) <= 1e-3);
+    }
+}
+
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_left_right_correlation_matches_pg8x);
     TT_RUN(chorus_wet_path_matches_pg8x);
+    TT_RUN(chorus_wet_tail_settles_to_exact_silence);
+    TT_RUN(chorus_wet_coefficient_is_exact_at_every_rate);
     TT_RUN(chorus_raises_a_held_saw_about_3_db_like_pg8x);
     TT_RUN(chorus_sweeps_at_pg8x_rate_in_modes_one_and_two);
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
