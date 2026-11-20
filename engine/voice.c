@@ -391,18 +391,6 @@ static FM_NOINLINE void update_mix(fm_voice *v, const fm_voice_mod *m,
     fm_voice_mark_mix(v, m);
 }
 
-void fm_voice_start_phases(fm_voice *v, const fm_start_table *t, uint8_t k)
-{
-    uint8_t i;
-    v->fresh = 0;
-    if (!t || k >= FM_START_VOICES) return;
-    for (i = 0; i < 2; i++) {
-        uint8_t w = v->osc.wave[i];
-        if (w == FM_WAVE_NOISE || w >= FM_WAVE_COUNT) continue;
-        fm_osc_pair_start_phase(&v->osc, i, t->a[k][i], t->b[k][i] + t->wave[w]);
-    }
-}
-
 void fm_voice_silence(fm_voice *v)
 {
     fm_env_reset(&v->amp_env);
@@ -600,4 +588,16 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
     }
     lazy_envs_pass(v, frames - told);
+}
+
+void fm_voice_start_phases(fm_voice *v, const fm_start_table *t, uint8_t k)
+{
+    uint8_t i;
+    v->fresh = 0;
+    if (!t || k >= FM_START_VOICES) return;
+    for (i = 0; i < 2; i++) {
+        uint8_t w = v->osc.wave[i];
+        if (w == FM_WAVE_NOISE || w >= FM_WAVE_COUNT) continue;
+        fm_osc_pair_start_phase(&v->osc, i, t->a[k][i], t->b[k][i] + t->wave[w]);
+    }
 }

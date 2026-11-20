@@ -116,11 +116,12 @@ typedef struct {
     int32_t glide_cur[FM_GLIDE_SETTINGS];
     int16_t glide_to[FM_GLIDE_SETTINGS];
     int32_t glide_k;
-    /* a fresh voice's start phases (#154): fm_start_pg8x after init */
-    const fm_start_table *start;
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
+    /* a fresh voice's start phases (#154): fm_start_pg8x after init; last,
+     * so the chorus and the render code before it keep their places */
+    const fm_start_table *start;
 } fm_engine;
 
 /* PG-8X 2.0.13's voices' start phases (#154), the table init sets. */
