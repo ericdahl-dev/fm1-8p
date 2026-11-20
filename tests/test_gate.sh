@@ -46,6 +46,15 @@ tree same
 expect_ok "two identical trees pass" sh tools/gate.sh "$T/base" "$T/same"
 cp "$T/out" "$T/report"
 expect_ok "and the report says nothing differs" grep -q "^0 of [0-9]* clips differ" "$T/report"
+# A clip the base doesn't list (a change that adds clips, #61): rendered on HEAD only and reported as new,
+# not compared, so the gate still runs against an older base. Here the base lacks the three hpf clips.
+rm -rf "${T:?}/older"; cp -R "$T/base" "$T/older"
+sed -i 's/^    yield from hpf_steps()$//' "$T/older/tools/gate_cases.py"
+expect_ok "a clip the base doesn't list is new, not a failure" env GATE_COVERAGE=0 sh tools/gate.sh "$T/older" "$T/base"
+cp "$T/out" "$T/report-new"            # (its own: the coverage tests below read the first report)
+expect_ok "and the report names each new clip" grep -q "^new: hpf-3$" "$T/report-new"
+expect_ok "and counts only the clips compared" grep -q "^0 of [0-9]* clips differ (3 new, not compared)$" "$T/report-new"
+rm -rf "${T:?}/older"
 # CPU rows (fm1-emu): only with the FM-1 inputs; without them the gate says so and still passes.
 expect_ok "without the FM-1 inputs the gate skips the CPU rows" env -u FM1_REF -u FM1_DOCK GATE_COVERAGE=0 \
     sh tools/gate.sh "$T/base" "$T/same"

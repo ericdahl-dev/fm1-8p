@@ -35,14 +35,22 @@ key() {
         LC_ALL=C sort | xargs sha256sum) | sha256sum | cut -c1-16
 }
 
-# renders DIR: renders every clip with DIR's renderer into $G/out/<key> (once per key); prints that folder
+# renders DIR: renders every clip with DIR's renderer into $G/out/<key> (once per key); prints that folder.
+# Only the clips DIR's own tools/gate_cases.py lists, if it has one: an older tree can't render a clip
+# added since (its params, its MIDI), and the comparison reports such a clip as new.
 renders() {
     k=$(key "$1"); o=$G/out/$k
     if [ ! -f "$o/.complete" ]; then
         rm -rf "$o" && mkdir -p "$o" "$G/build/$k"
         make -s -C "$1" BUILD="$G/build/$k" "$G/build/$k/fm1-8p-render" >"$o/.build.log" 2>&1 ||
             { cat "$o/.build.log" >&2; die "$1: the renderer does not build"; }
-        $PY -B "$ROOT/tools/gate_cases.py" "$1" >"$o/.cases" || die "$1: cannot list the clips"
+        $PY -B "$ROOT/tools/gate_cases.py" "$1" >"$o/.all" || die "$1: cannot list the clips"
+        if [ -f "$1/tools/gate_cases.py" ]; then
+            $PY -B "$1/tools/gate_cases.py" "$1" | cut -f1 >"$o/.own" || die "$1: its gate_cases.py fails"
+            awk -F'\t' 'NR == FNR { own[$1] = 1; next } $1 in own' "$o/.own" "$o/.all" >"$o/.cases"
+        else
+            cp "$o/.all" "$o/.cases"
+        fi
         while IFS='	' read -r name mid args; do
             # shellcheck disable=SC2086 # args are words
             "$G/build/$k/fm1-8p-render" $args "$G/midi/$mid" "$o/$name.wav" >/dev/null 2>"$o/$name.err" ||
@@ -95,12 +103,13 @@ cpu() {
     cat "$o/rows.txt"
 }
 
-n=0 d=0
+n=0 d=0 new=0
 while IFS='	' read -r name mid args; do
+    if [ ! -f "$OB/$name.wav" ]; then new=$((new + 1)); echo "new: $name"; continue; fi   # not on the base
     n=$((n + 1))
     if ! cmp -s "$OB/$name.wav" "$OH/$name.wav"; then d=$((d + 1)); echo "differs: $name"; fi
 done <"$OH/.cases"
-echo "$d of $n clips differ"
+if [ "$new" -gt 0 ]; then echo "$d of $n clips differ ($new new, not compared)"; else echo "$d of $n clips differ"; fi
 
 if [ -z "${FM1_REF:-}${FM1_DOCK:-}" ]; then
     echo "CPU rows: skipped (set FM1_REF or the FM-1 build inputs; see tools/gate_cpu.sh)"
