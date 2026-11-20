@@ -39,18 +39,19 @@ key() {
 # Only the clips DIR's own tools/gate_cases.py lists, if it has one: an older tree can't render a clip
 # added since (its params, its MIDI), and the comparison reports such a clip as new.
 renders() {
-    k=$(key "$1"); o=$G/out/$k
+    k=$(key "$1")-$(sha256sum "$ROOT/tools/gate_cases.py" | cut -c1-8); o=$G/out/$k   # (and the list it read)
     if [ ! -f "$o/.complete" ]; then
         rm -rf "$o" && mkdir -p "$o" "$G/build/$k"
         make -s -C "$1" BUILD="$G/build/$k" "$G/build/$k/fm1-8p-render" >"$o/.build.log" 2>&1 ||
             { cat "$o/.build.log" >&2; die "$1: the renderer does not build"; }
         $PY -B "$ROOT/tools/gate_cases.py" "$1" >"$o/.all" || die "$1: cannot list the clips"
-        if [ -f "$1/tools/gate_cases.py" ]; then
-            $PY -B "$1/tools/gate_cases.py" "$1" | cut -f1 >"$o/.own" || die "$1: its gate_cases.py fails"
+        if [ -f "$1/tools/gate_cases.py" ]; then   # (to a file: a pipe would hide its failure)
+            $PY -B "$1/tools/gate_cases.py" "$1" >"$o/.own" || die "$1: its gate_cases.py fails"
             awk -F'\t' 'NR == FNR { own[$1] = 1; next } $1 in own' "$o/.own" "$o/.all" >"$o/.cases"
         else
             cp "$o/.all" "$o/.cases"
         fi
+        [ -s "$o/.cases" ] || die "$1: no clip to render"   # (else everything is new and nothing compared)
         while IFS='	' read -r name mid args; do
             # shellcheck disable=SC2086 # args are words
             "$G/build/$k/fm1-8p-render" $args "$G/midi/$mid" "$o/$name.wav" >/dev/null 2>"$o/$name.err" ||
@@ -103,12 +104,19 @@ cpu() {
     cat "$o/rows.txt"
 }
 
+# listed NAME FILE: NAME is a clip of the case list FILE
+listed() { awk -F'\t' -v n="$1" '$1 == n { f = 1 } END { exit !f }' "$2"; }
 n=0 d=0 new=0
 while IFS='	' read -r name mid args; do
-    if [ ! -f "$OB/$name.wav" ]; then new=$((new + 1)); echo "new: $name"; continue; fi   # not on the base
+    if ! listed "$name" "$OB/.cases"; then new=$((new + 1)); echo "new: $name"; continue; fi   # not on the base
+    [ -f "$OB/$name.wav" ] || die "$name: listed on the base but not rendered"
     n=$((n + 1))
     if ! cmp -s "$OB/$name.wav" "$OH/$name.wav"; then d=$((d + 1)); echo "differs: $name"; fi
 done <"$OH/.cases"
+while IFS='	' read -r name mid args; do                # on the base only: say so, nothing to compare
+    listed "$name" "$OH/.cases" || echo "gone: $name"
+done <"$OB/.cases"
+[ "$n" -gt 0 ] || die "no clip on both trees: nothing compared"
 if [ "$new" -gt 0 ]; then echo "$d of $n clips differ ($new new, not compared)"; else echo "$d of $n clips differ"; fi
 
 if [ -z "${FM1_REF:-}${FM1_DOCK:-}" ]; then

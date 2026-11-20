@@ -49,11 +49,16 @@ expect_ok "and the report says nothing differs" grep -q "^0 of [0-9]* clips diff
 # A clip the base doesn't list (a change that adds clips, #61): rendered on HEAD only and reported as new,
 # not compared, so the gate still runs against an older base. Here the base lacks the three hpf clips.
 rm -rf "${T:?}/older"; cp -R "$T/base" "$T/older"
-sed -i 's/^    yield from hpf_steps()$//' "$T/older/tools/gate_cases.py"
+sed 's/^    yield from hpf_steps()$//' "$T/base/tools/gate_cases.py" >"$T/older/tools/gate_cases.py"
 expect_ok "a clip the base doesn't list is new, not a failure" env GATE_COVERAGE=0 sh tools/gate.sh "$T/older" "$T/base"
 cp "$T/out" "$T/report-new"            # (its own: the coverage tests below read the first report)
 expect_ok "and the report names each new clip" grep -q "^new: hpf-3$" "$T/report-new"
 expect_ok "and counts only the clips compared" grep -q "^0 of [0-9]* clips differ (3 new, not compared)$" "$T/report-new"
+expect_ok "the other way round, a clip HEAD no longer lists is reported gone" env GATE_COVERAGE=0 sh tools/gate.sh "$T/base" "$T/older"
+expect_ok "by name" grep -q "^gone: hpf-3$" "$T/out.last"
+# A base whose clip list fails can't make the gate pass with nothing compared: the gate can't run (exit 2).
+printf 'import sys\nsys.exit(1)\n' >"$T/older/tools/gate_cases.py"
+expect_ok "a base whose clip list fails stops the gate" sh -c 'GATE_COVERAGE=0 sh tools/gate.sh "$1" "$2"; [ $? -eq 2 ]' - "$T/older" "$T/base"
 rm -rf "${T:?}/older"
 # CPU rows (fm1-emu): only with the FM-1 inputs; without them the gate says so and still passes.
 expect_ok "without the FM-1 inputs the gate skips the CPU rows" env -u FM1_REF -u FM1_DOCK GATE_COVERAGE=0 \
