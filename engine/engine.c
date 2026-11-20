@@ -457,8 +457,16 @@ static void porta_tick(fm_engine *e)
  * 1 - d/2 + d x pressure at at_vol_pct d (Q1.30; exactly full at d 0). */
 static int32_t at_gain(const fm_engine *e, uint8_t i)
 {
-    int64_t d = e->params[FM_PARAM_AT_VOL_PCT];
-    return (int32_t)(FM_ENV_FULL + d * (2 * (int64_t)e->at_now[i] - FM_ENV_FULL) / 200);
+    /* d as Q30, d / 100 by a multiply (no 64-bit divide: a library call on the FM-1), exact at 0 */
+    int32_t q = (int32_t)(((int64_t)e->params[FM_PARAM_AT_VOL_PCT] * 42949673) >> 2);
+    return FM_ENV_FULL - (q >> 1) + (int32_t)(((int64_t)q * e->at_now[i]) >> 30);
+}
+
+/* Nonzero while any aftertouch depth is up. */
+static int at_any(const fm_engine *e)
+{
+    return (e->params[FM_PARAM_AT_VIB_CENTS] | e->params[FM_PARAM_AT_BRI_CENTS] |
+            e->params[FM_PARAM_AT_VOL_PCT]) != 0;
 }
 
 /* A control tick while a pressure moves: each voice one step of its
@@ -489,8 +497,7 @@ static void at_tick(fm_engine *e)
 static void at_set(fm_engine *e, uint8_t i, int32_t p)
 {
     e->at_to[i] = p;
-    if (e->params[FM_PARAM_AT_VIB_CENTS] | e->params[FM_PARAM_AT_BRI_CENTS] |
-        e->params[FM_PARAM_AT_VOL_PCT]) {
+    if (at_any(e)) {
         e->at_moving = 1;
         return;
     }
@@ -930,7 +937,8 @@ static void at_start(fm_engine *e, uint8_t i)
     }
     e->at_to[i] = e->at_chan;
     e->at_now[i] = e->at_chan;
-    fm_voice_set_gain(&e->voices[i], at_gain(e, i));
+    if (at_any(e)) /* (with every depth 0 the gain is already full: each note costs nothing more) */
+        fm_voice_set_gain(&e->voices[i], at_gain(e, i));
     fm_voice_set_pressure(&e->voices[i], &e->mod, e->at_now[i]);
 }
 
