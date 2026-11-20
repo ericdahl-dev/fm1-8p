@@ -1,7 +1,7 @@
 /*
  * A voice's lifecycle through its own interface (engine/voice.h, #73): which
- * hold keeps it (free, releasing, pedal, held), which note it plays, the note
- * a steal left waiting on it, and its allocation age. The engine's allocation
+ * hold keeps it (free, releasing, pedal, held), which note it plays, and its
+ * allocation age. The engine's allocation
  * policy (tests/test_poly.c) reads only these.
  */
 #include "../engine/voice.h"
@@ -39,7 +39,7 @@ TT_TEST(voice_reset_is_free_and_plays_no_note)
 /* Plays `note` at velocity 100 on `v`, from tick 0. */
 static void vl_play(fm_voice *v, uint8_t note)
 {
-    fm_voice_note_on(v, &vl_mod, note, (int32_t)note << 16, FM_ENV_FULL / 2, 100, 0, VL_RATE, VL_RATE / 200u);
+    fm_voice_note_on(v, &vl_mod, note, (int32_t)note << 16, FM_ENV_FULL / 2, 100, 0, VL_RATE);
 }
 
 /* 2. A note on: its key holds the voice, which plays that note and no other. */
@@ -81,13 +81,11 @@ static int32_t vl_mix[256], vl_osc[256];
 /* Renders `frames` samples of `v` (discarded), in chunks of up to 256. */
 static void vl_render(fm_voice *v, uint32_t frames)
 {
-    uint32_t tick = 0;
     while (frames) {
         uint32_t n = frames < 256u ? frames : 256u;
         memset(vl_mix, 0, sizeof vl_mix);
-        fm_voice_render_add(v, &vl_mod, vl_mix, vl_osc, n, VL_RATE, tick + 1u, 1u);
+        fm_voice_render_add(v, &vl_mod, vl_mix, vl_osc, n);
         frames -= n;
-        tick++;
     }
 }
 
@@ -106,31 +104,19 @@ TT_TEST(voice_release_runs_out_to_free)
     TT_CHECK(!fm_voice_plays(v, 60));
 }
 
-/* 5. A note on for another note steals a sounding voice: it fades the old
- * note out, and the new note waits on it with its own peak, velocity and
- * key state (what the engine needs to move it to another voice). */
-TT_TEST(voice_steal_fades_the_old_note_and_the_new_one_waits)
+/* 5. A note on for another note steals a sounding voice: the new note plays at once, held by its key, with
+ * its own velocity; the old note is gone. */
+TT_TEST(voice_steal_plays_the_new_note_at_once)
 {
     fm_voice *v = vl_reset();
-    fm_voice_waiting w;
     vl_play(v, 60);
     vl_render(v, VL_RATE / 100u);
-    fm_voice_note_on(v, &vl_mod, 64, 64 << 16, FM_ENV_FULL / 3, 90, 0, VL_RATE, VL_RATE / 200u);
-    TT_CHECK(fm_voice_fading(v, 60));
-    TT_CHECK(!fm_voice_fading(v, 64));
-    w = fm_voice_waiting_note(v);
-    TT_CHECK_EQ(w.note, 64);
-    TT_CHECK_EQ(w.velocity, 90);
-    TT_CHECK_EQ(w.peak, FM_ENV_FULL / 3);
-    TT_CHECK_EQ(w.key_down, 1);
-    TT_CHECK_EQ(w.sustained, 0);
-    fm_voice_key_up(v, 1);
-    w = fm_voice_waiting_note(v);
-    TT_CHECK_EQ(w.key_down, 0);
-    TT_CHECK_EQ(w.sustained, 1);
-    vl_render(v, VL_RATE / 100u); /* past the 5 ms fade: the new note plays */
-    TT_CHECK(!fm_voice_fading(v, 60));
+    fm_voice_note_on(v, &vl_mod, 64, 64 << 16, FM_ENV_FULL / 3, 90, 0, VL_RATE);
     TT_CHECK(fm_voice_plays(v, 64));
+    TT_CHECK(!fm_voice_plays(v, 60));
+    TT_CHECK(fm_voice_key_holds(v, 64));
+    TT_CHECK_EQ(fm_voice_holding(v), FM_VOICE_HELD);
+    TT_CHECK_EQ(v->velocity, 90);
 }
 
 /* 6. Let go (a voice-mode switch): a held voice releases and belongs to no
@@ -176,7 +162,7 @@ static void run_voice_life_tests(void)
     TT_RUN(voice_note_on_is_held_by_its_key);
     TT_RUN(voice_key_up_releases_or_the_pedal_holds);
     TT_RUN(voice_release_runs_out_to_free);
-    TT_RUN(voice_steal_fades_the_old_note_and_the_new_one_waits);
+    TT_RUN(voice_steal_plays_the_new_note_at_once);
     TT_RUN(voice_let_go_releases_and_plays_no_note);
     TT_RUN(voice_keeps_its_age);
 }

@@ -57,8 +57,8 @@ trap on pi32v2; it returns garbage:
   for a zeroed (uninitialized) engine instead of dividing;
 - the oscillator increment: the polyBLEP division runs only when it is
   non-zero;
-- envelope times: a 0 ms segment (or the steal fade at a very low sample
-  rate) jumps at once instead of dividing by 0 samples;
+- envelope times: a 0 ms segment jumps at once instead of dividing by 0
+  samples;
 - the voice count: `fm_engine_init` rejects 0 before dividing by it for the
   mix gain;
 - the remaining divisors are constants (1000).
@@ -271,10 +271,10 @@ resonant 4-pole (24 dB/octave) lowpass.
   once and does not come back if the level returns.
 - **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
   amp envelope; its amount is -16400 to +16400 linear cents (a JX-8P VCF ENV of 127 is 127 knob steps, 14609 linear cents; #253).
-  It starts where the amp envelope does: from 0 on an idle voice or after a
-  steal fade (whatever level the last note left it at), from its level on a
-  retrigger. During a steal fade the old note keeps its own key-tracked
-  cutoff; the new note's applies when it starts, as its pitch does.
+  It starts where the amp envelope does: from 0 on an idle voice (whatever
+  level the last note left it at), from its level on a retrigger or a steal.
+  On a steal the new note's key-tracked cutoff applies at once, as its pitch
+  does.
 
 Measured response (`tests/test_filter.c`, sines at 44.1 kHz, cutoff 440 Hz).
 The acceptance tolerance for the 24 dB/octave slope is: at resonance 0, each
@@ -340,8 +340,7 @@ before the filter:
   change to its settings or the amount, and at least every 2^24 samples. So
   turning the amount up mid-note finds it exactly where it would have been.
 
-When both hold for a whole block, and no note waits for a steal fade and no
-release is queued, nothing about the filter can change in the block, so the
+When both hold for a whole block, nothing about the filter can change in the block, so the
 voice renders it with a loop of just the amp envelope and the oscillators
 and does the filter's bookkeeping (its last sample, the envelope's lag, the
 control phase) once at the end. That loop calls nothing but those two: any
