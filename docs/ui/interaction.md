@@ -442,6 +442,9 @@ view. The flow is the same for both; only the slots differ.
      now `EMPTY`. Otherwise it waits as a write does: `DELETING 23 WHEN
      SILENT`, back where SAVE was pressed, SAVE held forces it, HOME twice
      cancels it. A pattern that is playing plays on until then.
+   - A waiting delete shares the write's wording: `HOLD SAVE: NOW`,
+     `HOME AGAIN TO CANCEL SAVE`, `SAVE CANCELED`. SEL's LED stays off in SAVE
+     (the delete starts with a hold).
    - **HOME** cancels the question only (SAVE stays open), and turning PRESETS
      to another slot does too. A SAVE tap while it shows asks `REPLACE` as on
      any slot that holds one.

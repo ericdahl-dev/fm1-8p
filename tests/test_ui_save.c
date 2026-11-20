@@ -903,6 +903,20 @@ TT_TEST(save_delete_of_the_queued_pattern_shows_edited_after_it_takes_over)
     TT_CHECK(seq_edited(play_seq(&ui_p)));
 }
 
+/* #303: a delete whose flash write fails says DELETE FAILED and leaves the slot as it was */
+TT_TEST(save_failed_delete_says_so)
+{
+    static store_patch out;
+    save_on_other();
+    save_ask_delete(1200);
+    store_flash.fail = 1;
+    save_tap(UI_BTN_SEL, 3000);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETE FAILED") == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    TT_CHECK(strcmp(out.name, "OTHER") == 0);
+    store_flash.fail = 0;
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_sel_held_asks_to_delete);
@@ -915,6 +929,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_delete_question_fits_the_screen);
     TT_RUN(save_sel_held_from_before_save_does_not_ask);
     TT_RUN(save_delete_of_the_queued_pattern_shows_edited_after_it_takes_over);
+    TT_RUN(save_failed_delete_says_so);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);
