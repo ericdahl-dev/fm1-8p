@@ -468,8 +468,8 @@ Q8.24 come out, and each is saturated to int16 as before. The `chorus_mode` para
 | Mode | LFO rate | Center delay | Sweep | Character |
 | --- | --- | --- | --- | --- |
 | 0 off | | | | input passed to both sides unchanged (bit-exact with the engine before the chorus) |
-| 1 slow (I) | 0.68 Hz | 2.0 ms | +-1.6 ms | PG-8X's chorus (#104) |
-| 2 deep (II) | 0.68 Hz | 2.1 ms | +-2.0 ms | the same, with a deeper sweep |
+| 1 slow (I) | 0.68 Hz | 2.15 ms | +-1.38 ms | PG-8X 2.0.13's chorus I (#104, #312) |
+| 2 deep (II) | 1.02 Hz | 2.14 ms | +-1.36 ms | PG-8X 2.0.13's chorus II (#312) |
 | 3 fast | 6.0 Hz | 3.0 ms | +-0.3 ms | quick, shallow shimmer |
 
 How it works, per sample:
@@ -483,26 +483,36 @@ How it works, per sample:
   [voices.md](voices.md#gain-staging)), so the line has 9 dB of headroom
   over the loudest mix for the filter's resonance and never clamps today.
 - A triangle LFO (Q0.32 phase, one add per sample) sweeps two taps in opposite
-  directions: left at center + sweep, right at center - sweep. Delays are
+  directions: left at center + sweep, right at center - sweep. It runs free
+  from `fm_chorus_init`, starting at the center and rising, so the left
+  delay peaks a quarter cycle in: as PG-8X 2.0.13's does from the start of
+  a render, in both modes (#312). On the device the phase at a note is
+  arbitrary anyway; starting where PG-8X does lines our renders up with
+  its, so the scorecard's short sections compare like with like. Delays are
   Q16.16 samples; each tap reads two neighbors and interpolates linearly
   (Q0.15 fraction, 32-bit math).
 - Each output is the dry input plus its tap, at full size each, as on
   PG-8X 2.0.13 (#104). An output never exceeds the input peak plus 2.0 (the
   line's clamp). The dry part is limited to about +-126.0, so the sum fits
   in int32 for any input (one clamp, no 64-bit math). On a held C3 saw the chorus raises the RMS level by about 2.4 dB
-  over chorus off (I +2.4, II +2.4; PG-8X +3.0), and the left and right
-  correlate at 0.50 (I) and 0.44 (II), against PG-8X's 0.46. The mix gain
+  over chorus off (I +2.2, II +2.5; PG-8X +3.0), and the left and right
+  correlate at 0.54 (I) and 0.52 (II), against PG-8X's 0.46. The rest of the
+  gap is PG-8X's wet path: 1.21 times as loud as ours at low notes and
+  darkened above about 4 kHz (2.6 kHz -1.5 dB, 7 kHz -10.2 dB; #312, #299),
+  not modeled yet. The mix gain
   keeps the chorus's input within +-0.72 (-2.85 dBFS), and the soft clip
   takes dry plus wet past the knee: an eight-note chord at full level peaks
   at about 29400 of 32767 with the chorus on (23200 off) and never reaches
   the rails. Before
   #104 each output was half dry plus half wet, which lowered the level by
   3.6 to 4.3 dB.
-- Modes I and II both sweep at 0.68 Hz, PG-8X's rate, because the JX-8P
-  loader sends CHORUS bytes 32..63 to I and 64..127 to II, and PG-8X's
-  chorus 1 and 2 measure about the same. II keeps a deeper sweep (+-2.0 ms
-  against +-1.6 ms), so the two modes still differ; both match PG-8X
-  within the param-match harness's tolerances.
+- The rates, sweeps, centers and start phase were measured on PG-8X 2.0.13
+  on 2026-11-20 (#312): the wet tap (chorus on minus chorus off) tracked
+  sample by sample against the dry over 20 s. Chorus I: 0.680 Hz, +-1.38 ms
+  around 2.17 ms. Chorus II: 1.020 Hz, +-1.36 ms around 2.16 ms. Before, I
+  swept +-1.6 ms and II ran at I's rate with +-2.0 ms. Lining up the phase
+  took the factory scorecard mean from 3.15 to about 2.58 (v5/s10), and the
+  sweeps and centers took it to 2.38.
 - **The bass stays in phase (2026-11-12).** The delays are short, as on
   PG-8X: its wet is in phase with the dry at a low note's bass (+6.7 dB at
   16-50 Hz, +5.9 at 65, +4.8 at 98, falling to 0 near 200 Hz, measured on
