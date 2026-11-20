@@ -61,6 +61,7 @@ typedef struct {
     uint32_t store_read;                /* main loop: the banks read so far, all kinds (the boot's bar) */
     uint32_t pat_prog;
     int32_t pat_next;
+    uint32_t pat_next_gone;              /* main loop: its slot was deleted while it waited (#303) */
     char pat_name[STORE_NAME_LEN + 1u];
     char pat_next_name[STORE_NAME_LEN + 1u];
     seq_event seq_ev[SEQ_EVENTS];       /* ISR only: a block's sequencer notes, static (not on its stack) */

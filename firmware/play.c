@@ -130,6 +130,7 @@ void play_load_pattern(play *p, uint32_t q)
     if (p->seq.want && p->seq.playing && q == p->pat_prog) {
         seq_cancel_next(&p->seq);               /* back to the running one: nothing queued */
         p->pat_next = -1;
+        p->pat_next_gone = 0;
         return;
     }
     if (p->plib)
@@ -139,6 +140,7 @@ void play_load_pattern(play *p, uint32_t q)
         name[0] = '\0';
     }
     seq_load_pattern(&p->seq, &pat);
+    p->pat_next_gone = 0;
     if (seq_next_queued(&p->seq)) {
         p->pat_next = (int32_t)q;
         copy_name(p->pat_next_name, name);
@@ -156,6 +158,9 @@ void play_pattern_tick(play *p)
         p->pat_prog = (uint32_t)p->pat_next;
         copy_name(p->pat_name, p->pat_next_name);
         p->pat_next = -1;
+        if (p->pat_next_gone)                   /* its slot was deleted meanwhile: edited against empty */
+            seq_pattern_empty(&p->seq.stored);
+        p->pat_next_gone = 0;
     }
 }
 
@@ -187,6 +192,8 @@ int play_pattern_delete(play *p, uint32_t dest)
         return -1;
     if (dest == p->pat_prog)                    /* the slot now loads empty: edited is against that */
         seq_pattern_empty(&p->seq.stored);
+    if (p->pat_next >= 0 && dest == (uint32_t)p->pat_next)   /* queued: so once it takes over */
+        p->pat_next_gone = 1;
     return 0;
 }
 
@@ -269,6 +276,7 @@ int play_init(play *p)
     p->plib = p->plib_attached = 0;
     p->store_bank = p->store_read = 0;
     p->pat_prog = 0;
+    p->pat_next_gone = 0;
     p->pat_next = -1;
     p->pat_name[0] = p->pat_next_name[0] = '\0';
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
