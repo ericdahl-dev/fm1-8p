@@ -140,6 +140,9 @@ PARAMS = [
     P(56, 'PORTAMENTO_MS', 'portamento_ms', '0', '10000', '0', 56,
       'portamento (#62): each note glides from the last one played, the distance left falling by 1/e '
       'every this many ms (PG-8X\'s exponential glide); 0 off'),
+    P(57, 'OSC2_FINE_HUNDREDTHS', 'osc2_fine_hundredths', '-99', '99', '0', 57,
+      "hundredths of a cent on osc2_fine_cents (#256): osc 2 plays fine x 100 + this, in hundredths, held "
+      "to +-100 cents; the two take the same sign"),
 ]
 
 
@@ -233,6 +236,7 @@ DISPLAY_KINDS = (
     'NAMES_INNER_UNIT', # as NAMES, with the unit only for values strictly between min and max
     'NONZERO',          # names[1] for any value but 0, else names[0]
     'MASK3',            # names[value & 3]: a source and its sign, or a pair (sync | ring << 1)
+    'SIGNED_HUNDREDTHS',  # hundredths as +4.72, -0.50, 0.00: always 2 decimals (#256)
 )
 
 Display = namedtuple("Display", "kind unit names")
@@ -304,6 +308,7 @@ DISPLAY = {
     'WHEEL_PW_PCT': D('PLAIN', '%'),
     'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
     'PORTAMENTO_MS': D('MS_S', '', ('OFF',)),
+    'OSC2_FINE_HUNDREDTHS': D('SIGNED_HUNDREDTHS', 'ct'),
 }
 
 

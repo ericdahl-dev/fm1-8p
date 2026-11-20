@@ -451,10 +451,10 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
 }
 
 /* A fading old note retunes too: `pitch` is still its pitch. */
-void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
+void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t hundredths,
                        uint32_t sample_rate)
 {
-    fm_osc_pair_set_tune(&v->osc, which, cents, v->pitch, sample_rate);
+    fm_osc_pair_set_tune_hundredths(&v->osc, which, hundredths, v->pitch, sample_rate);
 }
 
 uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m)

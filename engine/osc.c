@@ -605,9 +605,7 @@ void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
     if (which >= 2) return;
     if (cents < -12800) cents = -12800; /* keeps the sums from overflowing */
     if (cents > 12800) cents = 12800;
-    p->tune[which] = cents * 65536 / 100; /* Q16.16 semitones */
-    tune_osc(p, which, pitch, sample_rate);
-    update_derived(p);
+    fm_osc_pair_set_tune_hundredths(p, which, cents * 100, pitch, sample_rate);
 }
 
 void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, int32_t pct)
@@ -1314,4 +1312,18 @@ void fm_osc_pair_start_phase(fm_osc_pair *p, uint8_t which, uint32_t a, int32_t 
     if (which >= 2 || slope < 0) return;
     /* Q16.16 times Q16.16 is Q32: its low 32 bits are the fraction of a cycle */
     p->osc[which].phase = a + (uint32_t)((uint64_t)(uint32_t)slope * tune_ratio_q16(p->tune[which]));
+}
+
+/* the same in hundredths of a cent (#256); last, so the render code before it keeps its place */
+void fm_osc_pair_set_tune_hundredths(fm_osc_pair *p, uint8_t which, int32_t hundredths,
+                                     int32_t pitch, uint32_t sample_rate)
+{
+    if (which >= 2) return;
+    if (hundredths < -1280000) hundredths = -1280000;
+    if (hundredths > 1280000) hundredths = 1280000;
+    /* Q16.16 semitones: x 65536 / 10000, which is x 4096 / 625; at whole cents it is x 65536 / 100,
+     * truncated the same way */
+    p->tune[which] = (int32_t)((int64_t)hundredths * 4096 / 625);
+    tune_osc(p, which, pitch, sample_rate);
+    update_derived(p);
 }

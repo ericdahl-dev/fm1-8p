@@ -207,6 +207,10 @@ int32_t ui_time_at(uint32_t i);
 int32_t ui_time_step(int32_t ms, int32_t clicks);
 /* a slot's value: its param's, or a paired slot's two as id | id2 << 1 */
 int32_t ui_slot_value(const ui *u, const ui_slot *sl);
+/* slot sl's value as the focus row reads it (ui_value), and as its knob column does (ui_column):
+ * DCO-2's FINE with its hundredths (#256), the rest from ui_slot_value */
+void ui_slot_read(const ui *u, const ui_slot *sl, char *num, char *unit);
+void ui_slot_column(const ui *u, const ui_slot *sl, char *num, char *unit);
 /* the slot on knob k (0..3) of the page shown, NULL past KNOB4 */
 const ui_slot *ui_page_slot(const ui *u, uint32_t k);
 /* which screen shows (draw.c branches on it for every band): PLAY, an edit page, or the number jump's

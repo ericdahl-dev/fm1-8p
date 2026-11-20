@@ -107,6 +107,14 @@ static char *value_parts(uint16_t id, int32_t value, char *num, char *unit)
             *num++ = value < 0 ? '-' : '+';
         num = put_u(num, a);
         break;
+    case UI_SHOW_SIGNED_HUNDREDTHS:
+        if (value)
+            *num++ = value < 0 ? '-' : '+';
+        num = put_u(num, a / 100u);
+        *num++ = '.';
+        *num++ = (char)('0' + a / 10u % 10u);
+        *num++ = (char)('0' + a % 10u);
+        break;
     case UI_SHOW_PLAIN:
         num = put_u(num, p);
         break;
@@ -603,6 +611,22 @@ int32_t ui_slot_value(const ui *u, const ui_slot *sl)
     }
 }
 
+void ui_slot_read(const ui *u, const ui_slot *sl, char *num, char *unit)
+{
+    if (sl->how == UI_HOW_FINE)
+        ui_value(sl->id2, fm_osc2_fine_total(play_get_param(u->p, sl->id), play_get_param(u->p, sl->id2)), num, unit);
+    else
+        ui_value(sl->id, ui_slot_value(u, sl), num, unit);
+}
+
+void ui_slot_column(const ui *u, const ui_slot *sl, char *num, char *unit)
+{
+    if (sl->how == UI_HOW_FINE)
+        ui_column(sl->id2, fm_osc2_fine_total(play_get_param(u->p, sl->id), play_get_param(u->p, sl->id2)), num, unit);
+    else
+        ui_column(sl->id, ui_slot_value(u, sl), num, unit);
+}
+
 static void set_depth(ui *u, uint16_t depth, int neg)
 {
     int32_t d = play_get_param(u->p, depth);
@@ -626,6 +650,10 @@ static void set_slot(ui *u, const ui_slot *sl, int32_t v)
     case UI_HOW_SIZE:                           /* the size, kept on its ENV MODE's side */
         v = v < 0 ? 0 : v;
         play_set_param(u->p, sl->id, inverted(u, sl->id) ? -v : v);
+        return;
+    case UI_HOW_FINE:                           /* whole cents: the hundredths go */
+        play_set_param(u->p, sl->id2, 0);
+        play_set_param(u->p, sl->id, v);
         return;
     default:
         play_set_param(u->p, sl->id, v);
@@ -742,6 +770,12 @@ static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
             v += way * (big ? (fast ? 50 : 10) : (fast ? 10 : 1));
         }
         play_set_param(u->p, s->id, v);
+    } else if (s->how == UI_HOW_FINE && play_get_param(u->p, s->id2)) {   /* from a fraction (#256) */
+        int32_t t = fm_osc2_fine_total(play_get_param(u->p, s->id), play_get_param(u->p, s->id2));
+        int32_t way = clicks > 0 ? 1 : -1, c = t / 100;     /* (toward 0) */
+        if (t % 100 && (t > 0) == (way > 0))    /* the next whole cent its way */
+            c += way;
+        set_slot(u, s, c + (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * (clicks - way));
     } else {
         set_slot(u, s, ui_slot_value(u, s) + (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
     }

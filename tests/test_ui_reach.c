@@ -78,7 +78,7 @@ TT_TEST(ui_every_param_is_reached_edited_and_shown)
                 continue;
             slots++;
             covered[s->id] = 1;
-            if (s->how == UI_HOW_PAIR)
+            if (s->how == UI_HOW_PAIR || s->how == UI_HOW_FINE)   /* (FINE: its hundredths, #256) */
                 covered[s->id2] = 1;
             reach_ends(s, &lo, &hi);
             ui_event(&ui_u, UI_EV_ENC | (UI_ENC_KNOB1 + k), -1000, 100);
@@ -136,7 +136,8 @@ TT_TEST(ui_reach_exceptions_have_no_slot)
         for (p = 0; p < UI_PAGES * 4u; p++)
             TT_CHECK(!(UI_SLOTS[p].kind == UI_LIVE &&
                        (UI_SLOTS[p].id == REACH_NO_PAGE[i] ||
-                        (UI_SLOTS[p].how == UI_HOW_PAIR && UI_SLOTS[p].id2 == REACH_NO_PAGE[i]))));
+                        ((UI_SLOTS[p].how == UI_HOW_PAIR || UI_SLOTS[p].how == UI_HOW_FINE) &&
+                         UI_SLOTS[p].id2 == REACH_NO_PAGE[i]))));
     }
 }
 

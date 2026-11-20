@@ -215,7 +215,7 @@ static void focus_row(void)
         return;
     }
     ui_slot_number(s, num);
-    ui_value(s->id, ui_slot_value(U, s), val, unit);
+    ui_slot_read(U, s, val, unit);
     H->cv_begin(240, 50, C_BG);
     H->cv_rect(M, 0, 64, 46, C_WINDOW);
     frame(M, 0, 64, 46, C_LINE);
@@ -382,7 +382,7 @@ static void column(uint32_t k)
                 H->cv_rect(x + 6, 40, 44, 6, track);
                 H->cv_rect(x + 6 + a, 40, b - a, 6, on);
             }
-            ui_column(s->id, value, val, unit);
+            ui_slot_column(U, s, val, unit);
             tw = d24_w(val) + (*unit ? 3 + TEXT_W(0, unit) : 0);
             if (tw > COL_W - 4) {               /* too wide: the unit goes first (the focus row has it) */
                 *unit = 0;

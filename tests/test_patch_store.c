@@ -71,6 +71,35 @@ TT_TEST(store_record_from_older_firmware_loads_new_params_at_their_default)
     TT_CHECK(same);
 }
 
+/* DCO-2's fine in hundredths (#256): -4.72 (-4 and -72) comes back as saved; a patch saved before it,
+ * without the hundredths' tag (the record's last entry), loads its whole cents with hundredths 0; a
+ * hand-made pair of opposite signs (-4, +72) loads as it is and sums to -3.28 cents, and hundredths
+ * out of range (150) load held to 99. */
+TT_TEST(store_keeps_dco2_fine_hundredths_and_an_older_patch_loads_them_at_0)
+{
+    static store_patch in, out;
+    uint32_t used;
+    store_from_factory(5, &in);
+    in.v[FM_PARAM_OSC2_FINE_CENTS] = -4;
+    in.v[FM_PARAM_OSC2_FINE_HUNDREDTHS] = -72;
+    TT_CHECK_EQ(store_decode(store_rec, store_encode(&in, store_rec), &out), 0);
+    TT_CHECK_EQ(out.v[FM_PARAM_OSC2_FINE_CENTS], -4);
+    TT_CHECK_EQ(out.v[FM_PARAM_OSC2_FINE_HUNDREDTHS], -72);
+    used = store_encode(&in, store_rec);
+    TT_CHECK(store_tag_param(store_rec[used - 3u]) == FM_PARAM_OSC2_FINE_HUNDREDTHS);
+    store_rec[0] = (uint8_t)(used - 3u);
+    store_rec[14] = (uint8_t)(store_rec[14] - 1u);
+    TT_CHECK_EQ(store_decode(store_rec, used - 3u, &out), 0);
+    TT_CHECK_EQ(out.v[FM_PARAM_OSC2_FINE_CENTS], -4);
+    TT_CHECK_EQ(out.v[FM_PARAM_OSC2_FINE_HUNDREDTHS], 0);
+    in.v[FM_PARAM_OSC2_FINE_HUNDREDTHS] = 72;
+    TT_CHECK_EQ(store_decode(store_rec, store_encode(&in, store_rec), &out), 0);
+    TT_CHECK_EQ(fm_osc2_fine_total(out.v[FM_PARAM_OSC2_FINE_CENTS], out.v[FM_PARAM_OSC2_FINE_HUNDREDTHS]), -328);
+    in.v[FM_PARAM_OSC2_FINE_HUNDREDTHS] = 150;
+    TT_CHECK_EQ(store_decode(store_rec, store_encode(&in, store_rec), &out), 0);
+    TT_CHECK_EQ(out.v[FM_PARAM_OSC2_FINE_HUNDREDTHS], 99);
+}
+
 /* A record from newer firmware has tags this one doesn't know: those entries are skipped and the
  * rest load as saved. (An entry with tag 254 added at the end.) */
 TT_TEST(store_record_from_newer_firmware_skips_unknown_params)
@@ -371,6 +400,7 @@ static void run_patch_store_tests(void)
     TT_RUN(store_slot_from_before_the_spike_keeps_its_waves);
     TT_RUN(store_record_round_trips_every_factory_patch);
     TT_RUN(store_record_from_older_firmware_loads_new_params_at_their_default);
+    TT_RUN(store_keeps_dco2_fine_hundredths_and_an_older_patch_loads_them_at_0);
     TT_RUN(store_record_from_newer_firmware_skips_unknown_params);
     TT_RUN(store_empty_or_damaged_slot_reads_empty);
     TT_RUN(store_value_out_of_range_loads_clamped);

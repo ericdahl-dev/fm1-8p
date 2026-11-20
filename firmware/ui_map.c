@@ -81,6 +81,8 @@ static const int16_t MODE_ORDER[4] = {3, 1, 2, 0};
 #define MODE(n, id, d1, d2) {n, "MODE", "ENV MODE", id, UI_LIVE, 1, 1, MODE_ORDER, 4, 0x0Fu, d1, UI_HOW_MODE, d2}
 
 #define LIVE(n, l, f, id, st, fa) {n, l, f, id, UI_LIVE, st, fa, 0, 0, 0, 0, 0, 0}
+/* DCO-2's FINE: whole cents id, hundredths h (#256) */
+#define FINE(n, l, f, id, h, st, fa) {n, l, f, id, UI_LIVE, st, fa, 0, 0, 0, h, UI_HOW_FINE, 0}
 #define SIZE(n, l, f, id, st, fa) {n, l, f, id, UI_LIVE, st, fa, 0, 0, 0, 0, UI_HOW_SIZE, 0}
 #define PEND(n, l, f) {n, l, f, 0, UI_PENDING, 0, 0, 0, 0, 0, 0, 0, 0}
 #define PAGE(p) [4 * (p)] =
@@ -125,7 +127,7 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     CHOICE(22, "WAVE", "WAVEFORM", FM_PARAM_OSC2_WAVE, WAVE_ORDER),
     {23, "X-MOD", "CROSS MOD", FM_PARAM_OSC_SYNC, UI_LIVE, 1, 1, XMOD_ORDER, 4, 0x0Fu, FM_PARAM_OSC_RING, UI_HOW_PAIR, 0},
     LIVE(24, "TUNE", "TUNE", FM_PARAM_OSC2_COARSE_SEMIS, 1, 1),
-    PAGE(3) LIVE(25, "FINE", "FINE TUNE", FM_PARAM_OSC2_FINE_CENTS, 1, 10),
+    PAGE(3) FINE(25, "FINE", "FINE TUNE", FM_PARAM_OSC2_FINE_CENTS, FM_PARAM_OSC2_FINE_HUNDREDTHS, 1, 10),
     LIVE(26, "LFO", "LFO DEPTH", FM_PARAM_LFO_PITCH_OSC2_CENTS, 1, 10),
     SIZE(27, "ENV", "ENV DEPTH", FM_PARAM_PITCH_ENV_OSC2_CENTS, 10, 100),
     LIVE(28, "WIDTH", "PULSE WIDTH", FM_PARAM_OSC2_PULSE_WIDTH_PCT, 1, 5),

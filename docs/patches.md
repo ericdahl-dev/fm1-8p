@@ -181,10 +181,15 @@ A patch the user saves is a record of at most 248 bytes (`STORE_SLOT_BYTES`), so
 - **Older records**, from before a param existed, load that param at its engine default.
 - **Newer records** may carry tags this firmware doesn't know: those entries are skipped.
 - **Out of range:** a value outside the param's range loads clamped into it.
+- **DCO-2 FINE (#256)** is two params: `osc2_fine_cents`, whole cents, and `osc2_fine_hundredths`,
+  -99..+99. Osc 2 plays fine x 100 + hundredths, in hundredths of a cent, held to +-100 cents. The
+  two take the same sign: -4.72 cents is -4 and -72. A hand-made record with opposite signs still
+  sums (-4 and +72 plays -3.28). Firmware from before #256 skips the hundredths' tag and plays the
+  whole cents alone, -4.72 as -4.
 - **Damaged:** a wrong version, a length that disagrees with the count, or a record longer than the
   bytes read is an empty slot.
 <!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
-- **Room:** 57 params take 186 bytes; a slot has room for 77.
+- **Room:** 58 params take 189 bytes; a slot has room for 77.
 <!-- end generated -->
 
 ### Settings (`firmware/settings_store.c`, GLO)

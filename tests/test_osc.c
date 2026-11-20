@@ -511,6 +511,51 @@ TT_TEST(osc2_coarse_tune_clamps_to_an_octave)
     }
 }
 
+/* DCO-2's FINE in hundredths of a cent (#256): FINE -4 and -72 hundredths play -4.72 cents, where
+ * -4 and -5 are 0.28 cent off (0.016 % of the period; the check holds 0.05 cent). */
+TT_TEST(osc2_fine_hundredths_add_to_its_fine)
+{
+    double want = RATE / (note_hz(57) * pow(2.0, -4.72 / 1200.0));
+    osc_init();
+    set_crossfade(&eng, 1000);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, -4), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_HUNDREDTHS, -72), FM_OK);
+    TT_CHECK_NEAR(held_period(57), want, want * 0.00003);
+}
+
+/* The hundredths stop at FINE's ends (#256): +100 and +99 plays +100 cents, -100 and -50 plays -100. A
+ * pair of opposite signs, from a hand-made patch, sums: -4 and +72 plays -3.28. */
+TT_TEST(osc2_fine_hundredths_stop_at_fines_ends_and_a_mixed_pair_sums)
+{
+    static const int32_t fine[3] = { 100, -100, -4 }, hund[3] = { 99, -50, 72 };
+    static const double cents[3] = { 100.0, -100.0, -3.28 };
+    size_t k;
+    for (k = 0; k < 3; k++) {
+        double want = RATE / (note_hz(57) * pow(2.0, cents[k] / 1200.0));
+        osc_init();
+        set_crossfade(&eng, 1000);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_CENTS, fine[k]);
+        fm_engine_set_param(&eng, FM_PARAM_OSC2_FINE_HUNDREDTHS, hund[k]);
+        TT_CHECK_NEAR(held_period(57), want, want * 0.00003);
+    }
+}
+
+/* Hundredths at 0 render exactly as before they existed: the tune sets the same Q16.16 at whole cents
+ * (the old path, cents x 65536 / 100, against hundredths x 4096 / 625), so old patches don't move. */
+TT_TEST(osc2_fine_hundredths_at_zero_set_the_whole_cent_tune_exactly)
+{
+    int32_t c;
+    for (c = -12800; c <= 12800; c++) {
+        fm_osc_pair a, b;
+        memset(&a, 0, sizeof a);
+        memset(&b, 0, sizeof b);
+        fm_osc_pair_set_tune_hundredths(&b, 1, c * 100, 57 << 16, 48000);
+        a.tune[1] = c * 65536 / 100;
+        if (a.tune[1] != b.tune[1]) break;
+    }
+    TT_CHECK_EQ(c, 12801);
+}
+
 /* Coarse tune back at 0 sounds exactly like coarse tune never touched. */
 TT_TEST(osc2_coarse_zero_matches_no_coarse)
 {
@@ -2927,6 +2972,9 @@ static void run_osc_tests(void)
     TT_RUN(osc2_coarse_tune_shifts_by_semitones);
     TT_RUN(osc1_coarse_tune_shifts_by_semitones);
     TT_RUN(osc2_coarse_tune_clamps_to_an_octave);
+    TT_RUN(osc2_fine_hundredths_add_to_its_fine);
+    TT_RUN(osc2_fine_hundredths_stop_at_fines_ends_and_a_mixed_pair_sums);
+    TT_RUN(osc2_fine_hundredths_at_zero_set_the_whole_cent_tune_exactly);
     TT_RUN(osc2_coarse_zero_matches_no_coarse);
     TT_RUN(osc2_coarse_change_retunes_a_held_note_without_a_restart);
     TT_RUN(tuned_increment_matches_exact_pitch);
