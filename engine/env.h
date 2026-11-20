@@ -16,8 +16,6 @@
  * An exponential stage is drawn as straight segments of up to 64 samples
  * (fewer for a short tau, see env.c), each ending on the curve, each a
  * whole-number step a sample with the remainder moved on its first.
- *   fade    - like release, but over a time given by the caller and not
- *             changed by fm_env_retime (the fast fade of a stolen voice)
  *
  * When a setting changes, fm_env_retime recomputes the running stage from
  * the current level: a new release time applies at once, and a sustain
@@ -42,8 +40,7 @@ typedef enum {
     FM_ENV_ATTACK,
     FM_ENV_DECAY,
     FM_ENV_SUSTAIN,
-    FM_ENV_RELEASE,
-    FM_ENV_FADE
+    FM_ENV_RELEASE
 } fm_env_stage;
 
 /* An envelope's times and sustain, in samples and Q1.30. One struct is
@@ -102,8 +99,6 @@ void fm_env_reset(fm_env *e);
 void fm_env_key(fm_env *e, uint8_t note);
 void fm_env_gate_on(fm_env *e);
 void fm_env_gate_off(fm_env *e);
-/* Falls from the current level to 0 in `samples`, then goes idle. */
-void fm_env_fade(fm_env *e, uint32_t samples);
 /* Call after changing a setting in *set while the envelope runs (an idle
  * one needs none: the next gate on reads the settings). */
 void fm_env_retime(fm_env *e);
@@ -158,7 +153,7 @@ void fm_env_skip_far(fm_env *e, uint32_t n);
 /*
  * The lazy envelope: `n` samples pass without stepping it. It catches up
  * by itself, exactly (as fm_env_advance), when its level is read
- * (fm_env_level) or it is changed (key, gate on, gate off, fade,
+ * (fm_env_level) or it is changed (key, gate on, gate off,
  * retime, advance), so a caller never syncs it. An envelope is either stepped
  * (fm_env_step, fm_env_next: they do not catch up) or skipped, not both.
  */
