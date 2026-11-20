@@ -45,6 +45,8 @@ typedef struct {
     uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
     uint8_t velocity;       /* the sounding note's MIDI velocity */
     uint8_t next_velocity;  /* `note`'s, kept beside next_peak */
+    uint8_t fresh;          /* never played since reset: its first note sets
+                             * the start phases (fm_voice_start_phases) */
     /* the filter, its cutoff and the voice's control cadence (vfilter.h);
      * its key stays the sounding note's when a mode switch sets
      * FM_VOICE_NO_NOTE */
@@ -219,6 +221,29 @@ static inline uint32_t fm_voice_stamp(const fm_voice *v)
 {
     return v->stamp;
 }
+
+/*
+ * A fresh voice's DCO start phases, as PG-8X 2.0.13's voices start theirs
+ * (#154, measured 2026-11-19): voice k (0..FM_START_VOICES - 1) starts DCO d
+ * at a[k][d] + (b[k][d] + wave[its wave]) r cycles, r the DCO's pitch over
+ * the note's. Its first note only: later notes run on from where it is.
+ */
+#define FM_START_VOICES 6
+typedef struct {
+    uint32_t a[FM_START_VOICES][2]; /* cycles, Q0.32 */
+    int32_t b[FM_START_VOICES][2];  /* cycles per unit r, Q16.16 */
+    int32_t wave[FM_WAVE_COUNT];    /* the wave's term, Q16.16, added to b */
+} fm_start_table;
+
+/* Never played since its reset (its next note is its first). */
+static inline int fm_voice_fresh(const fm_voice *v)
+{
+    return v->fresh;
+}
+
+/* Sets voice `k`'s start phases from `t` (a noise DCO, a voice past the
+ * table and a null table keep theirs) and marks the voice played. */
+void fm_voice_start_phases(fm_voice *v, const fm_start_table *t, uint8_t k);
 
 /* Silences the voice at once (all sound off). A note waiting on a steal
  * fade is dropped, and the voice has no last note (FM_VOICE_NO_NOTE). */

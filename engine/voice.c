@@ -43,6 +43,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->next_peak = FM_ENV_FULL;
     v->velocity = v->next_velocity = 127;
     v->note = FM_VOICE_NO_NOTE; /* no last note yet (#164) */
+    v->fresh = 1;
     v->old_note = 0;
     v->key_down = 0;
     v->sustained = 0;
@@ -388,6 +389,18 @@ static FM_NOINLINE void update_mix(fm_voice *v, const fm_voice_mod *m,
     if (!v->mix_step) /* within a glide's rounding: there now */
         fm_osc_pair_set_level(&v->osc, 1, (int32_t)mix);
     fm_voice_mark_mix(v, m);
+}
+
+void fm_voice_start_phases(fm_voice *v, const fm_start_table *t, uint8_t k)
+{
+    uint8_t i;
+    v->fresh = 0;
+    if (!t || k >= FM_START_VOICES) return;
+    for (i = 0; i < 2; i++) {
+        uint8_t w = v->osc.wave[i];
+        if (w == FM_WAVE_NOISE || w >= FM_WAVE_COUNT) continue;
+        fm_osc_pair_start_phase(&v->osc, i, t->a[k][i], t->b[k][i] + t->wave[w]);
+    }
 }
 
 void fm_voice_silence(fm_voice *v)

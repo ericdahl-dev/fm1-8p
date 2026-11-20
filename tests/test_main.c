@@ -14,10 +14,15 @@
 #error "fm1_8p.h must not include engine/chorus.h"
 #endif
 
+/* An all-zero start phase table (#154): with it every voice starts at phase 0, bit for bit as before
+ * (an_all_zero_table_renders_as_before), for tests whose premise is a phase-0 start */
+static const fm_start_table tt_start_zero;
+
 #include "test_engine.c"
 #include "test_host.c"
 #include "test_poly.c"
 #include "test_last_voice.c"
+#include "test_start_phase.c"
 #include "test_unison.c"
 #include "test_cpu_test.c"
 #include "test_bench.c"
@@ -60,6 +65,7 @@ int main(void)
     run_host_tests();
     run_poly_tests();
     run_last_voice_tests();
+    run_start_phase_tests();
     run_unison_tests();
     run_cpu_test_tests();
     run_bench_tests();

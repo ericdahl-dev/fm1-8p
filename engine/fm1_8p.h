@@ -54,7 +54,7 @@ typedef enum {
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
 #define FM_ENGINE_BUDGET_BASE_32 6764u     /* +48: portamento (#62): a glide a voice (8), its step, the note glided from and the newest, 2 flags */
-#define FM_ENGINE_BUDGET_BASE_64 6932u     /* +48: portamento (#62): as on 32-bit, less the 4 B the 64-bit layout had spare, plus 4 B of padding */
+#define FM_ENGINE_BUDGET_BASE_64 6940u     /* +8: the start phase table's pointer (#154; on 32-bit it and each voice's fresh flag fit in padding) */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
@@ -116,10 +116,15 @@ typedef struct {
     int32_t glide_cur[FM_GLIDE_SETTINGS];
     int16_t glide_to[FM_GLIDE_SETTINGS];
     int32_t glide_k;
+    /* a fresh voice's start phases (#154): fm_start_pg8x after init */
+    const fm_start_table *start;
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
 } fm_engine;
+
+/* PG-8X 2.0.13's voices' start phases (#154), the table init sets. */
+extern const fm_start_table fm_start_pg8x;
 
 /*
  * Sets up `e` for `voice_count` voices (1..FM_MAX_VOICES) at
