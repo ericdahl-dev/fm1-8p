@@ -103,19 +103,16 @@ static void say(ui *u, const char *what, uint32_t slot, uint32_t ms, uint32_t pa
     u->dirty |= UI_D_FOOT;
 }
 
-/* "REPLACE 23 NAME?" (or, `what` "DELETE ", "DELETE 23 NAME?"; "DELETE PATTERN 23 NAME?" for a pattern)
- * into u->save_msg: the screen asks it, at step `step` */
+/* "REPLACE 23 NAME?" (or, `what` "DELETE ", "DELETE 23 NAME?") into u->save_msg: the screen asks it, at
+ * step `step` */
 static void ask(ui *u, const char *what, uint32_t step)
 {
     char there[STORE_NAME_LEN + 1u];
     const char *w = what;
     char *s = u->save_msg;
     uint32_t i;
-    while (*w)
+    while (*w)                                  /* (no PATTERN: SEQ's SAVE says it, and 30 characters fit) */
         *s++ = *w++;
-    if (step == UI_SAVE_DELETE && u->save_pattern)
-        for (w = "PATTERN "; *w; )
-            *s++ = *w++;
     ui_prog_number(u->save_dest, s);
     s += 2;                                     /* a user slot: two digits (a scan here is strlen to clang) */
     *s++ = ' ';

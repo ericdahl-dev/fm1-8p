@@ -432,8 +432,9 @@ view. The flow is the same for both; only the slots differ.
    - A failed write shows `SAVE FAILED` and keeps the edit buffer dirty.
 
 7. **Delete (#303):** SEL held 1.5 s (on its release, as SEQ view's clear) on
-   a destination that holds a patch asks `DELETE 23 <NAME>?` (in SEQ view
-   `DELETE PATTERN 23 <NAME>?`), `SEL AGAIN TO DELETE` and `HOME CANCELS`. On an
+   a destination that holds a patch (or pattern) asks `DELETE 23 <NAME>?`,
+   `SEL AGAIN TO DELETE` and `HOME CANCELS` (30 characters at most: SEQ's SAVE
+   screen already says it is a pattern). On an
    `EMPTY` slot, and on a short tap, SEL does nothing. P slots can't be
    reached (PRESETS walks the user slots).
    - **A second SEL tap** deletes it. Silent, at once: `DELETED 23` (or

@@ -829,7 +829,7 @@ TT_TEST(save_in_seq_view_deletes_the_playing_pattern)
     save_tap(UI_BTN_SAVE, 3000);
     ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3100);
     ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);
-    TT_CHECK(strcmp(ui_u.save_msg, "DELETE PATTERN 11 B?") == 0);
+    TT_CHECK(strcmp(ui_u.save_msg, "DELETE 11 B?") == 0);   /* (SEQ's SAVE says PATTERN) */
     save_tap(UI_BTN_SEL, 5000);
     (void)ui_take(&ui_u, 5100);
     TT_CHECK(strcmp(ui_banner(&ui_u), "DELETING 11 WHEN SILENT") == 0);
@@ -846,6 +846,24 @@ TT_TEST(save_in_seq_view_deletes_the_playing_pattern)
     TT_CHECK(seq_edited(play_seq(&ui_p)));
 }
 
+/* #303 (FW review): the longest question, a pattern's with a 12-character name, fits the screen's 30
+ * characters (8 px each in 240) */
+TT_TEST(save_delete_question_fits_the_screen)
+{
+    save_seq_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1100);
+    memcpy(ui_u.save_name, "ABCDEFGHIJKL", 12);
+    save_tap(UI_BTN_SAVE, 2000);                /* saved as pattern 11, a 12-character name */
+    TT_CHECK(pat_slot_used(&save_plib, 0));
+    save_tap(UI_BTN_SAVE, 3000);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_DELETE);
+    if (strlen(ui_u.save_msg) > 30u) printf("    %u characters: %s\n", (unsigned)strlen(ui_u.save_msg), ui_u.save_msg);
+    TT_CHECK(strlen(ui_u.save_msg) <= 30u);
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_sel_held_asks_to_delete);
@@ -855,6 +873,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_delete_of_the_loaded_slot_keeps_the_sound_edited);
     TT_RUN(save_deleted_slot_is_empty_everywhere);
     TT_RUN(save_in_seq_view_deletes_the_playing_pattern);
+    TT_RUN(save_delete_question_fits_the_screen);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);
