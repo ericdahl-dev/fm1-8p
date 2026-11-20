@@ -122,6 +122,14 @@ def factory(tree):
         yield f"tone-{i:02d}", "ab.mid", args
 
 
+def aftertouch():
+    """Aftertouch (#61): every depth up, with vibrato and a resonant filter so each shows; and in unison."""
+    a = s(at_vib_cents=300, at_bri_cents=1200, at_vol_pct=100, lfo_rate_centihz=550,
+          filter_cutoff_cents=7000, filter_resonance_permille=400, amp_release_ms=300)
+    yield "aftertouch", "pressure.mid", a
+    yield "aftertouch-unison", "pressure.mid", a + s(voice_mode=1, unison_detune_cents=20)
+
+
 def cases(tree):
     yield "demo", "demo.mid", []
     yield from pair_matrix()
@@ -131,6 +139,7 @@ def cases(tree):
     yield from hpf_steps()
     yield from filter_env()
     yield from unison()
+    yield from aftertouch()
     yield from factory(tree)
 
 

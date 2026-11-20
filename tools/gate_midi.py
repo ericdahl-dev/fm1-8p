@@ -24,8 +24,8 @@ def smf(notes, other=()):
     for note, s, e, v in notes:
         ev.append((round(s * TPS), 1, bytes([0x90, note, v])))
         ev.append((round(e * TPS), 0, bytes([0x80, note, 0])))
-    for t, st, d1, d2 in other:
-        ev.append((round(t * TPS), 2, bytes([st, d1, d2])))
+    for t, st, d1, d2 in other:                 # (program change and channel pressure: one data byte)
+        ev.append((round(t * TPS), 2, bytes([st, d1]) if (st & 0xF0) in (0xC0, 0xD0) else bytes([st, d1, d2])))
     ev.sort(key=lambda x: (x[0], x[1]))
     body, now = b"", 0
     for t, _, msg in ev:
@@ -99,8 +99,20 @@ def controllers():
     return notes, other
 
 
+def pressure():
+    """Aftertouch (#61): a held chord with E4's poly pressure swept up and down (the others untouched), then
+    channel pressure swept over all three, then a key struck again under pressure, and a reset of all
+    controllers."""
+    notes = [(48, 0.0, 4.0, 100), (64, 0.0, 4.0, 90), (67, 0.0, 4.0, 80), (64, 4.2, 5.0, 100)]
+    other = [(0.3 + 0.02 * i, 0xA0, 64, min(127, 4 * i)) for i in range(32)]           # E4 up ...
+    other += [(1.0 + 0.02 * i, 0xA0, 64, max(0, 127 - 4 * i)) for i in range(32)]      # ... and down
+    other += [(1.8 + 0.02 * i, 0xD0, min(127, 3 * i), 0) for i in range(43)]           # channel up
+    other += [(3.0, 0xA0, 48, 0), (4.2, 0xA0, 64, 127), (4.6, 0xB0, 121, 0)]           # poly over it; reset
+    return notes, other
+
+
 FILES = {"chords.mid": chords, "unison.mid": unison, "vel.mid": vel, "ab.mid": ab,
-         "controllers.mid": controllers, "score.mid": score}
+         "controllers.mid": controllers, "score.mid": score, "pressure.mid": pressure}
 
 if __name__ == "__main__":
     d = sys.argv[1]
