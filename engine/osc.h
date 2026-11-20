@@ -117,6 +117,9 @@ void fm_osc_pair_set_width(fm_osc_pair *p, uint8_t which, int32_t pct);
  */
 void fm_osc_pair_set_tune(fm_osc_pair *p, uint8_t which, int32_t cents,
                           int32_t pitch, uint32_t sample_rate);
+/* The same in hundredths of a cent (#256), held to +-128 semitones. */
+void fm_osc_pair_set_tune_hundredths(fm_osc_pair *p, uint8_t which, int32_t hundredths,
+                                     int32_t pitch, uint32_t sample_rate);
 /*
  * Oscillator `which`'s (0 or 1) level, Q1.30 (0..FM_OSC_LEVEL_FULL,
  * clamped): the pair plays osc1 * level 0 + osc2 * level 1, a sum as on

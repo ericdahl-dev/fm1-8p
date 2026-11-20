@@ -256,8 +256,8 @@ void fm_voice_set_amp(fm_voice *v, const fm_env_settings *amp);
 /* New pitch for the note (bend). An old note that is fading keeps its. */
 void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate);
 
-/* Retunes oscillator `which` (0 or 1) by `cents` from the voice's pitch. */
-void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
+/* Retunes oscillator `which` (0 or 1) by `hundredths` of a cent from the voice's pitch. */
+void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t hundredths,
                        uint32_t sample_rate);
 
 /*

@@ -926,6 +926,44 @@ TT_TEST(ui_dco_values_read_as_the_panel)
     TT_CHECK(ui_shows(FM_PARAM_OSC1_PULSE_WIDTH_PCT, 50, "50 %"));
 }
 
+/* The slot that turns param id (the first, 0 if none). */
+static const ui_slot *ui_slot_of(uint16_t id)
+{
+    uint32_t i;
+    for (i = 0; i < UI_PAGES * 4u; i++)
+        if (UI_SLOTS[i].kind == UI_LIVE && UI_SLOTS[i].id == id)
+            return &UI_SLOTS[i];
+    return 0;
+}
+
+/* 1 when DCO-2's FINE slot reads num and unit in the focus row, with its fine and hundredths set */
+static int ui_fine_reads(int32_t cents, int32_t hundredths, const char *num, const char *unit)
+{
+    char n[UI_VALUE_LEN], u[UI_VALUE_LEN];
+    play_set_param(&ui_p, FM_PARAM_OSC2_FINE_CENTS, cents);
+    play_set_param(&ui_p, FM_PARAM_OSC2_FINE_HUNDREDTHS, hundredths);
+    ui_slot_read(&ui_u, ui_slot_of(FM_PARAM_OSC2_FINE_CENTS), n, u);
+    if (strcmp(n, num) != 0 || strcmp(u, unit) != 0) {
+        printf("    %ld and %ld read \"%s\" \"%s\", not \"%s\" \"%s\"\n", (long)cents, (long)hundredths, n, u,
+               num, unit);
+        return 0;
+    }
+    return 1;
+}
+
+/* DCO-2's FINE reads to a hundredth of a cent, always 2 decimals (#256, Eric): its fine and its
+ * hundredths together. DCO-1's FINE stays whole cents. */
+TT_TEST(ui_dco2_fine_reads_two_decimals)
+{
+    ui_setup();
+    TT_CHECK(ui_fine_reads(-4, -72, "-4.72", "ct"));
+    TT_CHECK(ui_fine_reads(5, 0, "+5.00", "ct"));
+    TT_CHECK(ui_fine_reads(0, 0, "0.00", "ct"));
+    TT_CHECK(ui_fine_reads(0, -50, "-0.50", "ct"));
+    TT_CHECK(ui_fine_reads(-100, 0, "-100.00", "ct"));
+    TT_CHECK(ui_shows(FM_PARAM_OSC1_FINE_CENTS, 5, "+5 ct"));
+}
+
 /* SEL steps its ring (interaction.md 4): 1A, 1B, 2A, 2B, 3A, 4A, 4B, and back to 1A. */
 TT_TEST(ui_sel_walks_the_dco_pages)
 {
@@ -2429,6 +2467,55 @@ TT_TEST(ui_cc_lands_where_a_knob_does)
     }
 }
 
+/* DCO-2's FINE from c and h hundredths, turned `clicks` in one event: 1 when it lands on want_c and
+ * hundredths 0 */
+static int ui_fine_turns_to(int32_t c, int32_t h, int32_t clicks, int32_t want_c)
+{
+    uint32_t enc;
+    ui_setup();
+    enc = ui_goto_page_of(FM_PARAM_OSC2_FINE_CENTS);
+    play_set_param(&ui_p, FM_PARAM_OSC2_FINE_CENTS, c);
+    play_set_param(&ui_p, FM_PARAM_OSC2_FINE_HUNDREDTHS, h);
+    ui_event(&ui_u, UI_EV_ENC | enc, clicks, 0);
+    if (play_get_param(&ui_p, FM_PARAM_OSC2_FINE_CENTS) != want_c ||
+        play_get_param(&ui_p, FM_PARAM_OSC2_FINE_HUNDREDTHS) != 0) {
+        printf("    %ld.%02ld turned %ld: %ld and %ld, not %ld and 0\n", (long)c, (long)(h < 0 ? -h : h), (long)clicks,
+               (long)play_get_param(&ui_p, FM_PARAM_OSC2_FINE_CENTS),
+               (long)play_get_param(&ui_p, FM_PARAM_OSC2_FINE_HUNDREDTHS), (long)want_c);
+        return 0;
+    }
+    return 1;
+}
+
+/* DCO-2's FINE knob from a fraction (#256, cos): the first click lands on the next whole cent its way
+ * and drops the hundredths, the rest step whole cents as before, 1 a click and 10 a fast one's; both
+ * ways, both signs. On a whole cent it steps as it always did. A CC sets whole cents, hundredths 0. */
+TT_TEST(ui_dco2_fine_knob_from_a_fraction_lands_on_the_next_whole_cent)
+{
+    uint32_t cc = ui_cc_of(UI_CC_MAP_JX, 25u);
+    TT_CHECK(ui_fine_turns_to(-4, -72, 1, -4));
+    TT_CHECK(ui_fine_turns_to(-4, -72, -1, -5));
+    TT_CHECK(ui_fine_turns_to(4, 72, 1, 5));
+    TT_CHECK(ui_fine_turns_to(4, 72, -1, 4));
+    TT_CHECK(ui_fine_turns_to(0, -50, 1, 0));
+    TT_CHECK(ui_fine_turns_to(0, -50, -1, -1));
+    TT_CHECK(ui_fine_turns_to(4, 72, 2, 6));
+    TT_CHECK(ui_fine_turns_to(-4, -72, -2, -6));
+    TT_CHECK(ui_fine_turns_to(4, 72, 3, 25));                  /* fast: 5, then 2 x 10 */
+    TT_CHECK(ui_fine_turns_to(-4, -72, -3, -25));
+    TT_CHECK(ui_fine_turns_to(99, 50, 1, 100));                /* the end */
+    TT_CHECK(ui_fine_turns_to(99, 50, 5, 100));
+    TT_CHECK(ui_fine_turns_to(5, 0, 1, 6));
+    TT_CHECK(ui_fine_turns_to(-4, 72, 1, -3));                 /* a mixed pair, -3.28: up to -3 */
+    TT_CHECK(cc != UI_CC_NONE);
+    ui_setup();
+    ui_u.set.cc_map = UI_CC_MAP_JX;
+    play_set_param(&ui_p, FM_PARAM_OSC2_FINE_HUNDREDTHS, 72);
+    ui_cc(&ui_u, cc, 127u, 0);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC2_FINE_CENTS), 100);
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_OSC2_FINE_HUNDREDTHS), 0);
+}
+
 /* docs/ui/interaction.md's CC map table is the code's: a row per slot (live or waiting), its JX CC, and
  * its STANDARD CCs (the sending one first; "-" none) */
 static uint32_t ui_doc_std_count(uint32_t num)
@@ -2953,6 +3040,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_glo_clock_out_turns_on_and_off);
     TT_RUN(ui_cc_map_is_the_pg800_numbers_off_the_standard_ccs);
     TT_RUN(ui_cc_lands_where_a_knob_does);
+    TT_RUN(ui_dco2_fine_knob_from_a_fraction_lands_on_the_next_whole_cent);
     TT_RUN(ui_cc_map_doc_matches_the_code);
     TT_RUN(ui_cc_leaves_the_mod_wheel_to_the_engine);
     TT_RUN(ui_cc_redraws_the_sections_picture_and_followers);
@@ -3009,6 +3097,7 @@ static void run_ui_tests(void)
     TT_RUN(ui_xmod_steps_the_cross_mod_positions);
     TT_RUN(ui_sel_walks_the_dco_pages);
     TT_RUN(ui_dco_values_read_as_the_panel);
+    TT_RUN(ui_dco2_fine_reads_two_decimals);
     TT_RUN(ui_section_led_follows_the_ring);
     TT_RUN(ui_sel_opens_dco1);
     TT_RUN(ui_steady_turns_still_reach_the_columns);

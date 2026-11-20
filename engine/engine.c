@@ -121,21 +121,23 @@ typedef char fm_require_osc2_octave_at_2[
 typedef char fm_require_osc2_fine_at_3[
     FM_PARAM_OSC2_FINE_CENTS - FM_PARAM_OSC2_WAVE == 3 ? 1 : -1];
 
-/* Oscillator `which`'s offset from the played note, in cents. */
-static int32_t osc_tune_cents(const fm_engine *e, uint8_t which)
+/* Oscillator `which`'s offset from the played note, in hundredths of a cent: osc 2's fine takes its
+ * hundredths (#256). */
+static int32_t osc_tune_hundredths(const fm_engine *e, uint8_t which)
 {
     const int32_t *p = &e->params[which ? FM_PARAM_OSC2_WAVE : FM_PARAM_OSC1_WAVE];
-    int32_t cents = p[2] * 1200 + p[3];
-    return cents + e->params[which ? FM_PARAM_OSC2_COARSE_SEMIS : FM_PARAM_OSC1_COARSE_SEMIS] * 100;
+    int32_t fine = which ? fm_osc2_fine_total(p[3], e->params[FM_PARAM_OSC2_FINE_HUNDREDTHS]) : p[3] * 100;
+    int32_t semis = p[2] * 12 + e->params[which ? FM_PARAM_OSC2_COARSE_SEMIS : FM_PARAM_OSC1_COARSE_SEMIS];
+    return semis * 10000 + fine;
 }
 
 /* Retunes oscillator `which` on every voice to its octave, coarse and fine. */
 static void retune_osc(fm_engine *e, uint8_t which)
 {
-    int32_t cents = osc_tune_cents(e, which);
+    int32_t hundredths = osc_tune_hundredths(e, which);
     uint8_t i;
     for (i = 0; i < FM_MAX_VOICES; i++)
-        fm_voice_set_tune(&e->voices[i], which, cents, e->sample_rate);
+        fm_voice_set_tune(&e->voices[i], which, hundredths, e->sample_rate);
 }
 
 static void apply_osc_param(fm_engine *e, uint8_t which, int rel)
@@ -473,6 +475,7 @@ static void apply_param(fm_engine *e, uint16_t id)
         apply_osc_param(e, 1, id - FM_PARAM_OSC2_WAVE);
         return;
     case FM_PARAM_OSC2_COARSE_SEMIS:
+    case FM_PARAM_OSC2_FINE_HUNDREDTHS:
         retune_osc(e, 1);
         return;
     case FM_PARAM_OSC1_COARSE_SEMIS:

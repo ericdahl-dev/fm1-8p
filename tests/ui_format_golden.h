@@ -2,7 +2,7 @@
  * tests/ui_format_walk.h: edit the display, then make it again and review the rows that moved.
  * Each param: its id, name, the values walked (min - 2 .. max + 2), their hash, then the text at
  * its min, 1/8 .. 7/8 of the way, max and default, as "focus row | knob column". */
-#define UFW_GOLDEN_N 57u
+#define UFW_GOLDEN_N 58u
 static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
     {0, "amp_attack_ms", 32005u, 0xC4FE2AF3u, {
         "0 ms | 0 ms",             /* amp_attack_ms 0 */
@@ -687,5 +687,17 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "8.75 s | 8.75 s",         /* portamento_ms 8750 */
         "10.0 s | 10.0 s",         /* portamento_ms 10000 */
         "OFF | OFF",               /* portamento_ms 0, the default */
+    }},
+    {57, "osc2_fine_hundredths", 203u, 0xB3215190u, {
+        "-0.99 ct | -0.99 ct",     /* osc2_fine_hundredths -99 */
+        "-0.75 ct | -0.75 ct",     /* osc2_fine_hundredths -75 */
+        "-0.50 ct | -0.50 ct",     /* osc2_fine_hundredths -50 */
+        "-0.25 ct | -0.25 ct",     /* osc2_fine_hundredths -25 */
+        "0.00 ct | 0.00 ct",       /* osc2_fine_hundredths 0 */
+        "+0.24 ct | +0.24 ct",     /* osc2_fine_hundredths 24 */
+        "+0.49 ct | +0.49 ct",     /* osc2_fine_hundredths 49 */
+        "+0.74 ct | +0.74 ct",     /* osc2_fine_hundredths 74 */
+        "+0.99 ct | +0.99 ct",     /* osc2_fine_hundredths 99 */
+        "0.00 ct | 0.00 ct",       /* osc2_fine_hundredths 0, the default */
     }},
 };

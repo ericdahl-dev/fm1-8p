@@ -140,6 +140,9 @@ PARAMS = [
     P(56, 'PORTAMENTO_MS', 'portamento_ms', '0', '10000', '0', 56,
       'portamento (#62): each note glides from the last one played, the distance left falling by 1/e '
       'every this many ms (PG-8X\'s exponential glide); 0 off'),
+    P(57, 'OSC2_FINE_HUNDREDTHS', 'osc2_fine_hundredths', '-99', '99', '0', 57,
+      "hundredths of a cent on osc2_fine_cents (#256): osc 2 plays fine x 100 + this, in hundredths, held "
+      "to +-100 cents; the two take the same sign"),
 ]
 
 
@@ -164,7 +167,7 @@ PATCH_FIELDS = [
     F('OSC2_PULSE_WIDTH_PCT', 'OSC2_PULSE_WIDTH_PCT', (17,), ''),
     F('OSC2_OCTAVE', 'OSC2_OCTAVE', (11, 13, 16, 19), ''),
     F('OSC2_COARSE_SEMIS', 'OSC2_COARSE_SEMIS', (11, 13, 16, 19), ''),
-    F('OSC2_FINE_CENTS', 'OSC2_FINE_CENTS', (20,), ''),
+    F('OSC2_FINE_CENTS', 'OSC2_FINE_CENTS', (20,), 'whole cents, toward 0; the hundredths are OSC2_FINE_HUNDREDTHS (#256)'),
     F('OSC1_LEVEL_PERMILLE', 'OSC1_LEVEL', (28,), 'DCO-1 level over 127, summed with DCO-2 (#102)'),
     F('AMP_LEVEL_PERMILLE', 'AMP_LEVEL', (41,), 'VCA LEVEL, 0.30 dB a step below 127'),
     F('OSC2_LEVEL_PERMILLE', 'OSC2_LEVEL', (29,), 'DCO-2 level over 127, before MIX ENV'),
@@ -204,6 +207,7 @@ PATCH_FIELDS = [
     F('AMP_KEY_FOLLOW_PERMILLE', 'AMP_KEY_FOLLOW', (56,), 'ENV-2 KEY: 260 per mille a position (#60)'),
     F('FILTER_ENV_KEY_FOLLOW_PERMILLE', 'FILTER_ENV_KEY_FOLLOW', (51,), "the filter envelope's (ENV-1 KEY, or ENV-2's)"),
     F('SETTING_GLIDE', 'SETTING_GLIDE', (), "1: levels, filter and LFO depths glide as PG-8X's (#146)"),
+    F('OSC2_FINE_HUNDREDTHS', 'OSC2_FINE_HUNDREDTHS', (20,), "DCO-2 FINE's hundredths of a cent, OSC2_FINE_CENTS's sign (#256)"),
 ]
 
 
@@ -233,6 +237,7 @@ DISPLAY_KINDS = (
     'NAMES_INNER_UNIT', # as NAMES, with the unit only for values strictly between min and max
     'NONZERO',          # names[1] for any value but 0, else names[0]
     'MASK3',            # names[value & 3]: a source and its sign, or a pair (sync | ring << 1)
+    'SIGNED_HUNDREDTHS',  # hundredths as +4.72, -0.50, 0.00: always 2 decimals (#256)
 )
 
 Display = namedtuple("Display", "kind unit names")
@@ -304,6 +309,7 @@ DISPLAY = {
     'WHEEL_PW_PCT': D('PLAIN', '%'),
     'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
     'PORTAMENTO_MS': D('MS_S', '', ('OFF',)),
+    'OSC2_FINE_HUNDREDTHS': D('SIGNED_HUNDREDTHS', 'ct'),
 }
 
 

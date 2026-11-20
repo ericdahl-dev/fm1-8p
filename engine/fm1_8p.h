@@ -47,6 +47,15 @@ typedef enum {
 /* Parameter IDs (fm_param_id), generated from tools/params.py. */
 #include "fm1_8p_params.h"
 
+/* Osc 2's fine tune in hundredths of a cent (#256): osc2_fine_cents x 100 plus
+ * osc2_fine_hundredths, held to osc2_fine_cents's +-100 cents. The two take the same sign
+ * (-4.72 is -4 and -72); a pair that doesn't still sums (-4 and +72 is -3.28). */
+static inline int32_t fm_osc2_fine_total(int32_t cents, int32_t hundredths)
+{
+    int32_t t = cents * 100 + hundredths;
+    return t < -10000 ? -10000 : t > 10000 ? 10000 : t;
+}
+
 /*
  * fm_engine's size budget: a base plus 4 bytes a param (fm_engine.params),
  * so a new param needs no edit here. Anything else that grows (voice state,

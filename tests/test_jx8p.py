@@ -95,11 +95,24 @@ class MapTest(unittest.TestCase):
         self.assertEqual(sounding(patch("WINDCHIMES")), (21, 36))     # DCO-1 2' -3, DCO-2 2' +12
 
     def test_dco2_fine_tune_is_100_cents_around_67(self):
-        # PG-8X centers FINE at 67, 100 cents over 0..127 (#256)
-        self.assertEqual(patch("HI STRINGS")["OSC2_FINE_CENTS"], 13)    # 83
-        self.assertEqual(patch("SOUNDTRACK")["OSC2_FINE_CENTS"], -15)   # 48
+        # PG-8X centers FINE at 67, 100 cents over 0..127 (#256); the whole cents, toward 0
+        self.assertEqual(patch("HI STRINGS")["OSC2_FINE_CENTS"], 12)    # 83: 12.60
+        self.assertEqual(patch("SOUNDTRACK")["OSC2_FINE_CENTS"], -14)   # 48: -14.96
         self.assertEqual(patch("PIANO 3")["OSC2_FINE_CENTS"], -35)      # 22
-        self.assertEqual(patch("CHURCHBELL")["OSC2_FINE_CENTS"], -12)   # 52: its beat rates on PG-8X
+        self.assertEqual(patch("CHURCHBELL")["OSC2_FINE_CENTS"], -11)   # 52: its beat rates on PG-8X
+
+    def test_dco2_fine_tune_keeps_its_hundredths(self):
+        # to a hundredth of a cent (#256): SOUNDTRACK's 48 is -14.96 cents, -14 and -96; whole cents
+        # and hundredths take the same sign, and every byte's pair sums to (byte - 67) x 10000 / 127
+        # rounded
+        e = patch("SOUNDTRACK")
+        self.assertEqual((e["OSC2_FINE_CENTS"], e["OSC2_FINE_HUNDREDTHS"]), (-14, -96))
+        e = patch("HI STRINGS")
+        self.assertEqual((e["OSC2_FINE_CENTS"], e["OSC2_FINE_HUNDREDTHS"]), (12, 60))
+        for b in range(128):
+            c, h = jx8p.fine_cents_and_hundredths(b)
+            self.assertEqual(c * 100 + h, jx8p.rnd((b - 67) * 10000 / 127), b)
+            self.assertTrue(-99 <= h <= 99 and c * h >= 0, b)
 
     # PG-8X 2.0.13 sums the DCOs, each at its level byte over 127 (measured, #102)
     def test_each_dco_level_is_its_byte_over_127(self):

@@ -18,7 +18,7 @@ typedef struct {
     const int16_t *order;               /* a choice: every engine value in panel order (0: steps) */
     uint8_t n_order;
     uint8_t stops;                      /* bit i: order[i] is a knob position (the rest only show) */
-    uint16_t id2;                       /* UI_HOW_PAIR's second param; UI_HOW_MODE's (first) depth */
+    uint16_t id2;                       /* UI_HOW_PAIR's second param; UI_HOW_MODE's (first) depth; UI_HOW_FINE's hundredths */
     uint8_t how;                        /* ui_how: what the knob's value is */
     uint16_t id3;                       /* UI_HOW_MODE's second depth (id2 again when one) */
 } ui_slot;
@@ -28,8 +28,10 @@ typedef struct {
  * MODE  a JX ENV MODE: the source param id | the depth's sign << 1 (inverted), the depths id2, id3
  * SIZE  a depth's size, its sign being its ENV MODE's
  * TIME  a time: a click is an entry of the time table (UI_TIMES), a fast one four
- * RATE  the LFO rate, the same on the rate table (UI_RATES) */
-typedef enum { UI_HOW_PLAIN, UI_HOW_PAIR, UI_HOW_MODE, UI_HOW_SIZE, UI_HOW_TIME, UI_HOW_RATE } ui_how;
+ * RATE  the LFO rate, the same on the rate table (UI_RATES)
+ * FINE  DCO-2's fine (#256): whole cents id, with hundredths id2 shown after them; a turn from a
+ *       fraction lands on the next whole cent its way, then steps whole cents */
+typedef enum { UI_HOW_PLAIN, UI_HOW_PAIR, UI_HOW_MODE, UI_HOW_SIZE, UI_HOW_TIME, UI_HOW_RATE, UI_HOW_FINE } ui_how;
 
 /* interaction.md's page order: 1A, 1B, 2A, 2B, 3A, 4A, 4B, 5A, 5B, 6A, 6B, 7A, 8A, 8B, 9A, 9B, 0A, 0B, 0C */
 #define UI_PAGES 19u

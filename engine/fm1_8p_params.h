@@ -123,6 +123,9 @@ typedef enum {
     /* portamento (#62): each note glides from the last one played, the distance left falling
      * by 1/e every this many ms (PG-8X's exponential glide); 0 off */
     FM_PARAM_PORTAMENTO_MS,
+    /* hundredths of a cent on osc2_fine_cents (#256): osc 2 plays fine x 100 + this, in
+     * hundredths, held to +-100 cents; the two take the same sign */
+    FM_PARAM_OSC2_FINE_HUNDREDTHS,
     FM_PARAM_COUNT
 } fm_param_id;
 

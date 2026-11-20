@@ -351,7 +351,7 @@ def inharmonic_tones(tree, bank=None):
     def off_whole(e):
         return off_whole_ratio_cents(
             1200 * (e["OSC2_OCTAVE"] - e["OSC1_OCTAVE"]) + 100 * (e["OSC2_COARSE_SEMIS"] - e["OSC1_COARSE_SEMIS"])
-            + e.get("OSC2_FINE_CENTS", 0) - e.get("OSC1_FINE_CENTS", 0))
+            + e.get("OSC2_FINE_CENTS", 0) + e.get("OSC2_FINE_HUNDREDTHS", 0) / 100 - e.get("OSC1_FINE_CENTS", 0))
     engine = [jx8p.to_engine(t) for t in tones]
     return {i for i, e in enumerate(engine, 1)
             if e.get("XMOD_AM") and not e.get("OSC_SYNC") and off_whole(e) > WHOLE_RATIO_CENTS}

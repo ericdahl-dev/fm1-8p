@@ -112,7 +112,7 @@ fast step applies when one event carries 3 or more clicks.
 | 22 | K2 | `osc2_wave` | WAVE | as 12 | 1 / 1 |
 | 23 | K3 | `osc_sync` + `osc_ring` | X-MOD | OFF, SYNC 1, SYNC 2, X-MOD (the JX's CROSS MOD) | 1 / 1 |
 | 24 | K4 | `osc2_coarse_semis` | TUNE | -12..+12 st | 1 / 1 |
-| 25 | K1 | `osc2_fine_cents` | FINE | -100..+100 ct | 1 / 10 |
+| 25 | K1 | `osc2_fine_cents` + `osc2_fine_hundredths` | FINE | -100.00..+100.00 ct, always 2 decimals (#256) | 1 / 10 |
 | 26 | K2 | `lfo_pitch_osc2_cents` | LFO | `D1` (follows 14), 0..1200 ct | as 14 |
 | 27 | K3 | `pitch_env_osc2_cents` | ENV | as 15 | as 15 |
 | 28 | K4 | `osc2_pulse_width_pct` (*ours*) | WIDTH | as 17 | 1 / 5 |
@@ -1308,6 +1308,10 @@ test.
 16. Cutoff 14400 shows `OPEN`, and 6900 shows `440 Hz`.
 17. KNOB4 +1 on page 2A raises `osc2_coarse_semis` by 1 semitone, clamped to
     -12..+12.
+18. 25 FINE on a fraction (a converted JX-8P tone's, #256): the first click
+    lands on the next whole cent that way and drops the hundredths, and the
+    rest step as above. From -4.72, +1 gives -4 and -1 gives -5; +3 gives
+    -4 + 2 x 10 = +16. A CC sets whole cents, hundredths 0.
 17a. KNOB3 on page 2A steps 23 X-MOD through OFF, SYNC 1, SYNC 2, X-MOD, setting
     `osc_sync` and `osc_ring` as `tools/jx8p.py` maps the JX's CROSS MOD.
 

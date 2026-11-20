@@ -378,6 +378,14 @@ def switch(v):
     return v >> 5
 
 
+def fine_cents_and_hundredths(b):
+    """DCO-2 FINE byte b as PG-8X plays it, (b - 67) x 100 / 127 cents (#256), to a hundredth of a
+    cent: (whole cents, hundredths), the two of the same sign (-4.72 is -4 and -72)."""
+    t = rnd((b - 67) * 10000 / 127)
+    c = int(t / 100)                    # toward 0
+    return c, t - 100 * c
+
+
 def rnd(x):
     """Round half away from zero, to an int (the same on every Python)."""
     return int(math.copysign(math.floor(abs(x) + 0.5), x))
@@ -553,7 +561,7 @@ def to_engine(tone):
     e["OSC2_OCTAVE"], e["OSC2_COARSE_SEMIS"] = octave_and_semis(pitch_semis(p[DCO2_RANGE], p[DCO2_TUNE]))
     # PG-8X centers FINE at 67, about 100 cents over 0..127 (#256, measured on PG-8X 3.0: -54.2 at 0,
     # -4.5 at 64, +45.7 at 127 re A440, with DCO-1 itself 1.5 flat there)
-    e["OSC2_FINE_CENTS"] = rnd((p[DCO2_FINE] - 67) * 100 / 127)
+    e["OSC2_FINE_CENTS"], e["OSC2_FINE_HUNDREDTHS"] = fine_cents_and_hundredths(p[DCO2_FINE])
     # The mixer sums the DCOs, each at its level byte over 127. MIX ENV adds depth x envelope to
     # DCO-2's byte (inverted: takes it away), clamped to 0..127: PG-8X 2.0.13, measured (#102).
     l1, l2 = p[MIX_DCO1], p[MIX_DCO2]

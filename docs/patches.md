@@ -113,7 +113,7 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 | --- | --- | --- |
 | RANGE + TUNE | `osc1_octave`, `osc1_coarse_semis`, `osc2_octave`, `osc2_coarse_semis` | 16' is octave -1, 8' 0, 4' +1, 2' +2; for each DCO, whole octaves of range + tune go to its octave and the rest to its coarse (#108), so every patch plays at its own pitch (before #108, DCO-1 had no coarse and MUSIC BOX played 4 semitones down, WINDCHIMES 9 down) |
 | WAVEFORM | `osc1_wave`, `osc2_wave` | noise, square, pulse (25 % wide, *est.*), saw |
-| FINE TUNE | `osc2_fine_cents` | (value - 67) x 100 / 127, as PG-8X plays it (#256, measured on PG-8X 3.0 against DCO-1: about 0.787 cents a step, -54.2 / -4.5 / +45.7 cents re A440 at 0 / 64 / 127, DCO-1 itself 1.5 flat there; CHURCHBELL's beat rates in the 2.0.13 reference agree). Before #256 it was (value - 64) x 50 / 64, about 3 cents sharp everywhere |
+| FINE TUNE | `osc2_fine_cents`, `osc2_fine_hundredths` | (value - 67) x 100 / 127, as PG-8X plays it, to a hundredth of a cent: whole cents toward 0 and the hundredths, of one sign (48: -14 and -96) (#256, measured on PG-8X 3.0 against DCO-1: about 0.787 cents a step, -54.2 / -4.5 / +45.7 cents re A440 at 0 / 64 / 127, DCO-1 itself 1.5 flat there; CHURCHBELL's beat rates in the 2.0.13 reference agree). Before #256 it was (value - 64) x 50 / 64, about 3 cents sharp everywhere |
 | MIX DCO-1, DCO-2 | `osc1_level_permille`, `osc2_level_permille` | each byte over 127; the DCOs sum, as PG-8X 2.0.13's mixer does (measured, #102) |
 | VCA LEVEL | `amp_level_permille` | 0.30 dB a step below 127, linear in dB down to 0 (−38.1 dB, not silent), as PG-8X 2.0.13 plays it (measured within 0.1 dB at 127, 112, 96, 88, 64, 32, 16, 8, 4, 1, 0). It scales the voices' sum (the output's gain), live: a held note follows a change, gliding with `setting_glide` (#169) |
 | MIX ENV, MIX ENV MODE | `osc_mix_env_permille`, `osc_mix_env_source` | depth x envelope is added to DCO-2's level byte (taken away when inverted), clamped to 0..127, as PG-8X 2.0.13 plays it (measured, #102); `osc_mix_env_permille` is the depth over 127, signed. It follows envelope 2 (`osc_mix_env_source` 1) for ENV-2, else the filter envelope, which runs ENV-1's own times (#59). With the VCA on GATE envelope 2 runs apart from the VCA (#63), so this holds there too. 19 of the 32 tones use MIX ENV at full depth on ENV-1, so DCO-2 swells in with the filter envelope and holds at its own level plus the sustain's share. With DCO-1 at 0 osc1 is off |
@@ -154,8 +154,8 @@ the table has no fields for them.
 ## Storage
 
 <!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
-Each patch is its name (12 characters and the end) and one `uint16_t` per field, 48 fields:
-110 bytes, 3520 bytes for the 32.
+Each patch is its name (12 characters and the end) and one `uint16_t` per field, 49 fields:
+112 bytes, 3584 bytes for the 32.
 <!-- end generated -->
 A value is stored with a bias of 32768 (`patch_value()` takes
 it off): stored as plain `int16_t`, a value of -64..-49 next to another can make a 32-bit word
@@ -181,10 +181,15 @@ A patch the user saves is a record of at most 248 bytes (`STORE_SLOT_BYTES`), so
 - **Older records**, from before a param existed, load that param at its engine default.
 - **Newer records** may carry tags this firmware doesn't know: those entries are skipped.
 - **Out of range:** a value outside the param's range loads clamped into it.
+- **DCO-2 FINE (#256)** is two params: `osc2_fine_cents`, whole cents, and `osc2_fine_hundredths`,
+  -99..+99. Osc 2 plays fine x 100 + hundredths, in hundredths of a cent, held to +-100 cents. The
+  two take the same sign: -4.72 cents is -4 and -72. A hand-made record with opposite signs still
+  sums (-4 and +72 plays -3.28). Firmware from before #256 skips the hundredths' tag and plays the
+  whole cents alone, -4.72 as -4.
 - **Damaged:** a wrong version, a length that disagrees with the count, or a record longer than the
   bytes read is an empty slot.
 <!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
-- **Room:** 57 params take 186 bytes; a slot has room for 77.
+- **Room:** 58 params take 189 bytes; a slot has room for 77.
 <!-- end generated -->
 
 ### Settings (`firmware/settings_store.c`, GLO)
