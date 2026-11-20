@@ -52,6 +52,8 @@ typedef struct {
     int32_t depth;      /* sweep either side of center, samples, Q16.16 */
     uint16_t pos;       /* index of the newest sample in line */
     uint8_t mode;       /* fm_chorus_mode */
+    int32_t wet_k;      /* the wet path's 1-pole coefficient, Q16 (#312) */
+    int32_t wet[4];     /* its two 1-poles a side, left then right, Q8.24 */
     int16_t line[FM_CHORUS_DELAY_LEN]; /* Q8.24 >> 10: 1.0 = 16384 */
 } fm_chorus;
 

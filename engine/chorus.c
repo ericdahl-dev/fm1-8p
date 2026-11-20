@@ -4,16 +4,24 @@
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  *
  * Per sample: one delay-line write, one triangle LFO step, two
- * linearly interpolated taps, one 64-bit multiply, one clamp of the dry
- * input and two dry-plus-wet adds. Divisions happen only in fm_chorus_set_mode.
+ * linearly interpolated taps, one 64-bit multiply for the sweep, the wet
+ * path (two gain multiplies and four 1-pole steps, each 32x32->64), one
+ * clamp of the dry input and two dry-plus-wet adds. Divisions happen only
+ * in fm_chorus_set_mode.
  *
  * Modes I and II are matched to PG-8X 2.0.13's chorus I and II (#104,
- * #312): dry plus wet, their rates, sweeps, centers and start phase, and a
- * short delay, so the wet stays in phase with the dry on a low note's bass,
+ * #312): dry plus wet, their rates, sweeps, centers and start phase, their
+ * wet path (each tap 1.21 times the dry's level, through two 1-poles at
+ * 4075 Hz; #312, #299), and a short delay, so the wet stays in phase with the dry on a low note's bass,
  * as on PG-8X.
  */
 #include "chorus.h"
 #include "units.h"
+
+/* PG-8X 2.0.13's chorus wet path (#312, #299, measured 2026-11-20): each tap
+ * 1.21 times the dry's level, through two 1-poles at 4075 Hz */
+#define WET_GAIN_Q15 39649 /* 1.21 */
+#define WET_HZ 4075u
 
 #define MASK (FM_CHORUS_DELAY_LEN - 1)
 
@@ -34,6 +42,7 @@ static void clear_line(fm_chorus *c)
 {
     uint32_t i;
     for (i = 0; i < FM_CHORUS_DELAY_LEN; i++) c->line[i] = 0;
+    for (i = 0; i < 4; i++) c->wet[i] = 0;
     c->pos = 0;
 }
 
@@ -53,6 +62,23 @@ void fm_chorus_init(fm_chorus *c, uint32_t sample_rate)
     c->pos = 0;
 }
 
+/*
+ * The wet path's 1-pole coefficient, Q16: k = 1 - e^-w, w = 2 pi WET_HZ / fs,
+ * from its series (seven terms: under 1e-4 off at 8 kHz, where w is about 3.2).
+ * Each term is the last times w / (n + 1): 32-bit, the product in 64 bits.
+ */
+static int32_t wet_coefficient(uint32_t sample_rate)
+{
+    int32_t w = (int32_t)((411775u * WET_HZ) / sample_rate); /* 2 pi in Q16 times WET_HZ: under 2^31 */
+    int32_t t = w, k = 0;
+    int n;
+    for (n = 1; n <= 7; n++) {
+        k += (n & 1) ? t : -t;
+        t = (int32_t)(((int64_t)t * w) >> 16) / (n + 1);
+    }
+    return k > 65536 ? 65536 : k;
+}
+
 void fm_chorus_set_mode(fm_chorus *c, uint8_t mode)
 {
     const mode_spec *m;
@@ -66,6 +92,7 @@ void fm_chorus_set_mode(fm_chorus *c, uint8_t mode)
     if (mode == FM_CHORUS_OFF) return;
     m = &modes[mode];
     c->lfo_inc = fm_rate_to_phase_inc(m->rate_mhz, 1000u, c->sample_rate, 0);
+    c->wet_k = wet_coefficient(c->sample_rate);
     center = fm_us_to_samples_q16(m->center_us, c->sample_rate);
     depth = fm_us_to_samples_q16(m->depth_us, c->sample_rate);
     if (center + depth > longest) { /* very high rates: scale to fit */
@@ -77,6 +104,13 @@ void fm_chorus_set_mode(fm_chorus *c, uint8_t mode)
         center = depth + (1u << 16);
     c->center = (int32_t)center;
     c->depth = (int32_t)depth;
+}
+
+/* One step of a 1-pole: *y toward x by k (Q16), Q8.24. */
+static inline int32_t pole(int32_t *y, int32_t x, int32_t k)
+{
+    *y += (int32_t)(((int64_t)(x - *y) * k + (1 << 15)) >> 16); /* rounded: no DC drift */
+    return *y;
 }
 
 /* Triangle from the LFO phase, Q1.30, -1.0 .. just under +1.0. */
@@ -101,16 +135,17 @@ static int32_t tap(const fm_chorus *c, int32_t delay)
 
 /*
  * The dry part, limited so dry + wet fits in int32: a tap is within
- * +-2.0 (+-2^25), so +-(2^31 - 2^25) leaves room. Only inputs beyond
- * about +-126.0 are touched, far above anything the mix reaches.
+ * +-2.0, and the wet path's 1.21 makes that +-2.42 (its 1-poles never
+ * overshoot), so +-(2^31 - 2^26) leaves room. Only inputs beyond about
+ * +-124.0 are touched, far above anything the mix reaches.
  */
-#define DRY_MAX (INT32_MAX - (1 << 25))
+#define DRY_MAX (INT32_MAX - (1 << 26))
 
 /* One sample with the chorus on. */
 static void process_on(fm_chorus *c, int32_t in, int32_t *left,
                        int32_t *right)
 {
-    int32_t q, sweep, dry;
+    int32_t q, sweep, dry, l, r;
     /* Q8.24 -> line units (1.0 = 16384), rounded, saturating at +-2.0 */
     q = (in >> 10) + ((in >> 9) & 1);
     if (q > 32767) q = 32767;
@@ -122,8 +157,11 @@ static void process_on(fm_chorus *c, int32_t in, int32_t *left,
     c->lfo_phase += c->lfo_inc;
 
     dry = in > DRY_MAX ? DRY_MAX : in < -DRY_MAX ? -DRY_MAX : in;
-    *left = dry + tap(c, c->center + sweep);
-    *right = dry + tap(c, c->center - sweep);
+    /* the wet path (#312, #299): each tap times 1.21, through two 1-poles */
+    l = (int32_t)(((int64_t)tap(c, c->center + sweep) * WET_GAIN_Q15 + (1 << 14)) >> 15);
+    r = (int32_t)(((int64_t)tap(c, c->center - sweep) * WET_GAIN_Q15 + (1 << 14)) >> 15);
+    *left = dry + pole(&c->wet[1], pole(&c->wet[0], l, c->wet_k), c->wet_k);
+    *right = dry + pole(&c->wet[3], pole(&c->wet[2], r, c->wet_k), c->wet_k);
 }
 
 void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,

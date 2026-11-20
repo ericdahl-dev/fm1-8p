@@ -136,7 +136,8 @@ TT_TEST(chorus_on_makes_left_and_right_differ_for_a_mono_voice)
 /*
  * Measures a mode's delay sweep through the module API. The input is a
  * slow ramp (a long sawtooth), so each wet tap is the ramp value from
- * `delay` samples ago, and linear interpolation of a ramp is exact:
+ * `delay` samples ago (times the wet path's 1.21, and late by its 1-poles'
+ * lag, both undone here), and linear interpolation of a ramp is exact:
  * delay = now - position of the tapped value on the ramp. Only rounding
  * remains (the line's 1/16384 step and the Q0.15 fraction), well under
  * 0.01 sample; without interpolation the error would be up to 0.5 sample.
@@ -147,6 +148,7 @@ TT_TEST(chorus_on_makes_left_and_right_differ_for_a_mono_voice)
  * after its render starts, in both chorus modes (#312, measured 2026-11-20).
  */
 #define CH_RAMP_PERIOD 4096
+#define CH_WET_GAIN_Q15 39649 /* the wet path's 1.21 (engine/chorus.c, #312) */
 #define CH_RAMP_STEP 8192 /* Q8.24 per sample: the ramp spans +-1.0 */
 
 typedef struct {
@@ -169,13 +171,15 @@ static ch_sweep ch_measure_sweep(uint8_t mode, uint32_t rate,
     static fm_chorus ch;
     const uint32_t frames = rate * 8;
     double lo = 1e9, hi = -1e9, sum = 0, mirror = 0, mean;
-    double first = -1, last = -1, prev = 0;
+    double first = -1, last = -1, prev = 0, lag;
     int crossings = 0, have_prev = 0, pass;
     size_t valid = 0;
     uint32_t n;
     ch_sweep out;
     fm_chorus_init(&ch, rate);
     fm_chorus_set_mode(&ch, mode);
+    /* a ramp through the wet path's two 1-poles comes out (1 - k) / k samples late each */
+    lag = 2.0 * (65536.0 - ch.wet_k) / ch.wet_k;
     /* pass 0 finds the mean delay, pass 1 counts LFO cycles around it */
     for (pass = 0; pass < 2; pass++) {
         if (pass == 1) {
@@ -189,12 +193,12 @@ static ch_sweep ch_measure_sweep(uint8_t mode, uint32_t rate,
             int32_t l, r;
             double wet_l, wet_r, d_l, d_r;
             fm_chorus_process(&ch, x, &l, &r);
-            /* skip the ramp's wrap until the taps are past it */
-            if (pos < FM_CHORUS_DELAY_LEN + 8 || n < CH_RAMP_PERIOD) continue;
-            wet_l = (double)l - x;
-            wet_r = (double)r - x;
-            d_l = pos - (wet_l / CH_RAMP_STEP + CH_RAMP_PERIOD / 2);
-            d_r = pos - (wet_r / CH_RAMP_STEP + CH_RAMP_PERIOD / 2);
+            /* skip the ramp's wrap until the taps, and the wet path's 1-poles, are past it */
+            if (pos < FM_CHORUS_DELAY_LEN + 256 || n < CH_RAMP_PERIOD) continue;
+            wet_l = ((double)l - x) * 32768.0 / CH_WET_GAIN_Q15;
+            wet_r = ((double)r - x) * 32768.0 / CH_WET_GAIN_Q15;
+            d_l = pos - (wet_l / CH_RAMP_STEP + CH_RAMP_PERIOD / 2) - lag;
+            d_r = pos - (wet_r / CH_RAMP_STEP + CH_RAMP_PERIOD / 2) - lag;
             if (pass == 0) {
                 if (d_l < lo) lo = d_l;
                 if (d_l > hi) hi = d_l;
@@ -317,7 +321,7 @@ TT_TEST(chorus_keeps_a_low_notes_bass_in_phase)
 static int ch_bounded(fm_chorus *ch, int32_t in, int32_t peak_in)
 {
     int32_t l, r;
-    int64_t limit = (int64_t)peak_in + (2 << 24) + 1;
+    int64_t limit = (int64_t)peak_in + ((int64_t)(2 << 24) * CH_WET_GAIN_Q15 >> 15) + 2; /* the line's +-2.0, times the wet's 1.21 */
     fm_chorus_process(ch, in, &l, &r);
     return llabs((long long)l) <= limit && llabs((long long)r) <= limit;
 }
@@ -457,12 +461,12 @@ TT_TEST(chorus_delay_line_clamps_hot_input_to_two)
     for (k = 0; k < 2; k++) {
         const int32_t x = inputs[k];
         int32_t l = 0, r = 0;
-        double wet_l, wet_r, want = x > 0 ? 2.0 : -2.0;
+        double wet_l, wet_r, want = (x > 0 ? 2.0 : -2.0) * CH_WET_GAIN_Q15 / 32768.0; /* the clamp, times the wet's 1.21 */
         fm_chorus_init(&ch, CH_RATE);
         fm_chorus_set_mode(&ch, FM_CHORUS_DEEP);
         for (n = 0; n < FM_CHORUS_DELAY_LEN + 100; n++)
             fm_chorus_process(&ch, x, &l, &r);
-        /* each output is the input plus the tap */
+        /* each output is the input plus the tap, times 1.21 (the wet path, #312) */
         wet_l = ((double)l - x) / (1 << 24);
         wet_r = ((double)r - x) / (1 << 24);
         printf("    chorus input %+.1f: wet %+.4f / %+.4f\n",
@@ -562,7 +566,8 @@ TT_TEST(chorus_adds_no_dc_offset)
  * docs/voices.md). The gain is read from an initialized engine, so a
  * gain change trips this test. The delay line must pass that level, and
  * four times it (12 dB kept for filter resonance), without clamping: the
- * wet part of a held level equals the level, in both directions.
+ * wet part of a held level is the level times the wet path's 1.21, in both
+ * directions.
  */
 TT_TEST(chorus_line_has_headroom_for_the_loudest_mix)
 {
@@ -593,9 +598,9 @@ TT_TEST(chorus_line_has_headroom_for_the_loudest_mix)
             fm_chorus_set_mode(&ch, FM_CHORUS_DEEP);
             for (n = 0; n < FM_CHORUS_DELAY_LEN + 100; n++)
                 fm_chorus_process(&ch, x, &l, &r);
-            /* the wet part is out - x; under one line unit (1024) of rounding */
-            TT_CHECK(llabs((long long)l - x - x) <= 1024);
-            TT_CHECK(llabs((long long)r - x - x) <= 1024);
+            /* the wet part is out - x, 1.21 x (the wet path, #312); under two line units (2048) of rounding */
+            TT_CHECK(llabs((long long)l - x - ((int64_t)x * CH_WET_GAIN_Q15 >> 15)) <= 2048);
+            TT_CHECK(llabs((long long)r - x - ((int64_t)x * CH_WET_GAIN_Q15 >> 15)) <= 2048);
         }
 }
 
@@ -774,15 +779,12 @@ TT_TEST(chorus_sweeps_at_pg8x_rate_in_modes_one_and_two)
 
 /*
  * PG-8X's chorus width: on the held C3 saw its left and right correlate at
- * 0.456 (the harness; 0.473 in #312's probe, the note 0.25 s in). That stays
- * the goal (CH_PG_LR_CORR). With PG-8X's rate, sweep, center and start phase
- * (#312) ours reads about 0.54 in mode I: the rest is PG-8X's wet path,
- * 1.21 times as loud as ours and darkened above about 4 kHz, which widens it
- * (with both, 0.45; #312, #299). Until that is in, the band is ours as it is,
- * so a change that narrows the chorus further still fails.
+ * 0.456 (the harness; 0.473 in #312's probe, the note 0.25 s in), with
+ * PG-8X's rate, sweep, center and start phase (#312) and its wet path
+ * (1.21 times the dry, through two 1-poles at 4075 Hz; #312, #299). Ours
+ * reads 0.453 (I) and 0.433 (II). Without the wet path it read 0.54.
  */
 #define CH_PG_LR_CORR 0.456
-#define CH_LR_CORR_MAX 0.56 /* PG-8X's wet path not yet in (#312, #299) */
 
 TT_TEST(chorus_left_right_correlation_matches_pg8x)
 {
@@ -804,13 +806,57 @@ TT_TEST(chorus_left_right_correlation_matches_pg8x)
                sqrt((sll - sl * sl / n) * (srr - sr * sr / n));
         printf("    chorus mode %d: L/R correlation %.3f (PG-8X %.3f)\n",
                (int)mode, corr, CH_PG_LR_CORR);
-        TT_CHECK(corr > CH_PG_LR_CORR - 0.05 && corr < CH_LR_CORR_MAX);
+        TT_CHECK_NEAR(corr, CH_PG_LR_CORR, 0.05);
     }
+}
+
+/*
+ * PG-8X 2.0.13's wet path (#312, #299, measured 2026-11-20 by a least-squares fit of its output to the dry and
+ * its two taps): the dry passes at 1.00 and each tap comes out 1.21 times as loud at low notes, darkened above
+ * about 4 kHz: 1.18 at 440 Hz, 1.14 at 880, about 1.0 at 1760, -1.5 dB at 2.6 kHz, -3.3 at 3.5, -6.9 at 5.3,
+ * -10.2 at 7.0. Two 1-poles at 4075 Hz after a gain of 1.21 fit that within 0.13 dB rms. A sine through the
+ * module: the wet (output less input) against the input, RMS over 1 s, each side, both modes.
+ */
+static double ch_wet_gain_db(uint8_t mode, double hz, int side)
+{
+    static fm_chorus ch;
+    const uint32_t n = CH_RATE + CH_RATE / 10;
+    double wet = 0, dry = 0;
+    uint32_t i;
+    fm_chorus_init(&ch, CH_RATE);
+    fm_chorus_set_mode(&ch, mode);
+    for (i = 0; i < n; i++) {
+        int32_t x = (int32_t)(0.25 * (1 << 24) * sin(2 * 3.14159265358979 * hz * i / CH_RATE)), l, r, w;
+        fm_chorus_process(&ch, x, &l, &r);
+        w = (side ? r : l) - x;
+        if (i < CH_RATE / 10) continue; /* the line fills, the filter settles */
+        wet += (double)w * w;
+        dry += (double)x * x;
+    }
+    return 10 * log10(wet / dry);
+}
+
+TT_TEST(chorus_wet_path_matches_pg8x)
+{
+    static const double hz[] = { 220, 880, 1760, 3520, 7040 };
+    static const double want[] = { 1.66, 1.14, 0.0, -3.3, -10.2 }; /* dB: 20 log10 1.21, 1.14 ... */
+    static const double tol[] = { 0.3, 0.4, 0.5, 0.8, 1.0 };
+    size_t k;
+    int mode, side;
+    for (mode = FM_CHORUS_SLOW; mode <= FM_CHORUS_DEEP; mode++)
+        for (k = 0; k < sizeof hz / sizeof hz[0]; k++)
+            for (side = 0; side < 2; side++) {
+                double g = ch_wet_gain_db((uint8_t)mode, hz[k], side);
+                if (side == 0)
+                    printf("    chorus mode %d: wet at %.0f Hz %+.2f dB re dry (PG-8X %+.1f)\n", mode, hz[k], g, want[k]);
+                TT_CHECK_NEAR(g, want[k], tol[k]);
+            }
 }
 
 static void run_chorus_tests(void)
 {
     TT_RUN(chorus_left_right_correlation_matches_pg8x);
+    TT_RUN(chorus_wet_path_matches_pg8x);
     TT_RUN(chorus_raises_a_held_saw_about_3_db_like_pg8x);
     TT_RUN(chorus_sweeps_at_pg8x_rate_in_modes_one_and_two);
     TT_RUN(chorus_off_engine_output_is_bit_exact_with_pre_chorus_engine);
