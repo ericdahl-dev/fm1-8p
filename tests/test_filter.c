@@ -2935,12 +2935,14 @@ static uint32_t golden_engine_hash(int step)
  * dc9d495 before; first taken on 38bfa6d. Steps 0..3 retaken again with the feedback clip (#266: only
  * the resonance's feedback saturates, busy_filter_patch is resonant), and with the two-section
  * lowpass (#162) and its cheaper per-sample form; the default patch, a wire, is unchanged. All five
- * retaken when every amp attack began to ease in (#274: the first few samples of each note).
+ * retaken when every amp attack began to ease in (#274: the first few samples of each note), and
+ * when the saw began to fall, as PG-8X's (#260: both patches play a saw, negated before the output's
+ * int16 floor, so within 1-2 LSB of the old render negated).
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {
-    static const uint32_t golden[5] = { 0x09352421u, 0x67B55C35u, 0x1DD66D2Du, 0x0A7FBA15u,
-                                        0xC28DCC29u };
+    static const uint32_t golden[5] = { 0xE3461C35u, 0xFE06FC7Du, 0x2AFB77DDu, 0x22D9669Du,
+                                        0x3A9BBB21u };
     int step, same = 1;
     for (step = -1; step < 4; step++) {
         uint32_t h = golden_engine_hash(step);

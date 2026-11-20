@@ -5,7 +5,8 @@
  *
  * The saw is a naive ramp with a polyBLEP (polynomial band-limited step)
  * correction on the two samples around each wrap, which removes most of
- * the aliasing a bare ramp produces. See docs/fixed-point.md.
+ * the aliasing a bare ramp produces. See docs/fixed-point.md. It falls, as
+ * PG-8X's does (#260); the pulse and square are made of rising ones.
  */
 #include "osc.h"
 
@@ -282,7 +283,7 @@ static int32_t spike_at(const fm_osc_pair *p, uint8_t i, uint32_t t)
     return (int32_t)(((int64_t)e * w) >> 28) - p->sp_mean[i];
 }
 
-/* polyBLEP saw at phase t with increment dt, Q8.24. */
+/* polyBLEP rising saw at phase t with increment dt, Q8.24 (the pulse's and square's two). */
 static int32_t saw_at(uint32_t t, uint32_t dt)
 {
     /* naive saw 2t - 1 as Q0.31: -1.0 at t = 0, rising to +1.0 */
@@ -316,6 +317,17 @@ static int32_t saw_at(uint32_t t, uint32_t dt)
 static FM_NOINLINE int32_t pulse_at(uint32_t t, uint32_t dt0, uint32_t dt, uint32_t width)
 {
     return saw_at(t, dt0) - saw_at(t + width, dt);
+}
+
+/*
+ * The saw wave, falling from +1.0 at t = 0 to -1.0: the rising one negated.
+ * PG-8X's saw falls where its square and spike rise (#260). Running free
+ * that can't be heard, as the phase between the DCOs drifts; sync and the
+ * ring hold it, and there the direction shapes the tone.
+ */
+static inline int32_t saw_fall(uint32_t t, uint32_t dt)
+{
+    return -saw_at(t, dt);
 }
 
 static void ring_coef(fm_osc_pair *p);
@@ -653,7 +665,7 @@ static int32_t naive_at(const fm_osc_pair *p, uint8_t which, uint32_t t)
     case FM_WAVE_SPIKE: /* continuous: it is its own naive wave */
         return spike_at(p, which, t);
     default:
-        return saw;
+        return -saw;
     }
 }
 
@@ -698,7 +710,7 @@ static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0)
     case FM_WAVE_SPIKE:
         return spike_at(p, which, t);
     default:
-        return saw_at(t, dt0);
+        return saw_fall(t, dt0);
     }
 }
 
@@ -717,20 +729,22 @@ static uint64_t restart_x(const fm_osc_pair *p, uint32_t t)
     return ((uint64_t)t * p->recip0) >> p->recip0_sh;
 }
 
-/* A polyBLEP term of osc2's first saw (Q8.24 at unit gain) at osc2's gain. */
+/* A polyBLEP term of osc2's first saw (Q8.24 at unit gain, the rising saw's) at osc2's gain and
+ * direction: the saw wave falls, so its own term is negated. */
 static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
 {
     /* noise has no polyBLEP, and the spike no step at its wrap */
     if (p->wave[1] == FM_WAVE_NOISE || p->wave[1] == FM_WAVE_SPIKE) return 0;
     if (p->wave[1] == FM_WAVE_PULSE) v = (v * p->pw_gain[1]) >> 30;
-    return (int32_t)v;
+    return (int32_t)(p->wave[1] == FM_WAVE_SAW ? -v : v); /* the saw falls */
 }
 
 /*
  * The polyBLEP osc2's first saw put on the sample just computed at phase
  * `t` for a wrap due later in that sample, negated: a restart came first,
  * so that wrap never happens. The same sum saw_at made (one division, as
- * there), times the wave's gain.
+ * there), times the wave's gain and, for the saw, its falling sign
+ * (osc2_gain).
  */
 static int32_t unwrap_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
 {
@@ -810,6 +824,8 @@ static inline int32_t gain(int32_t x, int32_t level)
  * peaks near 2.0, the impulse response's crest) to PG-8X's products with
  * DCO-1 on PULSE (A3, DCO-2 a saw a fourth up, every line about -35 dB re
  * f2; f1 and 2f1 at -34): 1.66, -0.398, 0.177.
+ * The fits ran free, which can't tell the saw's direction; the saw's apply
+ * to the falling saw, as PG-8X's (#260), which matches its SYNC 2 spectra.
  */
 static const int32_t ring_a[FM_WAVE_COUNT] = { 18790482, 27850179, 14092861, 16777216, 27850179 };
 static const int32_t ring_b[FM_WAVE_COUNT] = { -14260634, -16777216, -13925089, -16777216, -6679130 };
@@ -933,7 +949,9 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
         return gain(a, p->level[0]);
     }
     if (p->xmod) {
-        int64_t now = (int64_t)inc + (((int64_t)p->xmod_inc * a) >> 24);
+        /* a saw osc1 bends osc2 up over its cycle, as before the saw fell (#260) */
+        int32_t m = p->wave[0] == FM_WAVE_SAW ? -a : a;
+        int64_t now = (int64_t)inc + (((int64_t)p->xmod_inc * m) >> 24);
         p->osc[1].inc = now < 0 ? 0u : now > FM_OSC_MAX_INC ? FM_OSC_MAX_INC : (uint32_t)now;
     }
     b = osc2_at(p);
@@ -965,7 +983,7 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
     case FM_WAVE_SPIKE:
         return spike_at(p, which, t);
     default:
-        return saw_at(t, o->inc);
+        return saw_fall(t, o->inc);
     }
 }
 
@@ -1041,7 +1059,7 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
         break;
     default:
         for (i = 0; i < n; i++, t += dt) {
-            b = saw_at(t, dt);
+            b = saw_fall(t, dt);
             out[i] = add ? out[i] + gain(b, level) : gain(b, level);
         }
         break;
@@ -1199,7 +1217,7 @@ static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n)
         break;
     case FM_WAVE_SAW:
         for (i = 0; i < n; i++, t += dt)
-            out[i] = ring_sum(p, out[i], saw_at(t, dt));
+            out[i] = ring_sum(p, out[i], saw_fall(t, dt));
         break;
     default: /* pulse, noise and spike: a sample at a time */
         for (i = 0; i < n; i++)

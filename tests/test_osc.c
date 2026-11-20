@@ -2660,9 +2660,227 @@ TT_TEST(osc_ring_param_rings_sounding_notes)
     TT_CHECK(db > 1.2 && db < 2.0);
 }
 
+/*
+ * #260: PG-8X's saw falls (from +1 to -1 over its cycle), where its square
+ * and spike rise. Running free the two can't be told apart, as the phase
+ * between the DCOs drifts; sync and the ring hold it, and there the saw's
+ * direction shapes the tone. The figures are PG-8X 2.0.13's (Wine,
+ * SELFNOISE 0, HPF "0", our step 4, chorus off): C4, DCO-2 a fourth up,
+ * h1..h8 in dB re the signal's rms, each at the f1 measured on that render
+ * (PG-8X's is 261.36 Hz, at OCTAVE STRETCH 0.4).
+ */
+#define SAW260_RATE 48000u
+#define SAW260_SKIP 14400u
+#define SAW260_N 32768u
+
+/* h1..h8 of a held C4, osc2 a fourth up, in dB re its rms, as above. */
+static void saw260_harmonics(int32_t w1, int32_t w2, int32_t l1, int32_t ring, double *db)
+{
+    static int16_t out[2 * (SAW260_SKIP + SAW260_N)];
+    double r = 0;
+    uint32_t i;
+    int k;
+    fm_engine_init(&eng, SAW260_RATE, 6);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_ATTACK_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_DECAY_MS, 0);
+    fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_CHORUS_MODE, 0);
+    fm_engine_set_param(&eng, FM_PARAM_HIGHPASS_STEP, 4);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, w1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_WAVE, w2);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 5);
+    fm_engine_set_param(&eng, FM_PARAM_OSC1_LEVEL, l1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, 1000);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_SYNC, 1);
+    fm_engine_set_param(&eng, FM_PARAM_OSC_RING, ring);
+    fm_engine_note_on(&eng, 60, 100);
+    fm_engine_render(&eng, out, SAW260_SKIP + SAW260_N);
+    for (i = 0; i < SAW260_N; i++) {
+        double x = out[2 * (SAW260_SKIP + i)];
+        r += x * x;
+    }
+    r = sqrt(r / SAW260_N);
+    for (k = 1; k <= 8; k++)
+        db[k - 1] = 20.0 * log10(tone_amp(out + 2 * SAW260_SKIP, SAW260_N, 0, k * note_hz(60),
+                                          SAW260_RATE) / r);
+}
+
+/* RMS difference (dB) of h1..h8 from PG-8X's, printed. */
+static double saw260_error(const char *what, const double *db, const double *pg)
+{
+    double e = 0;
+    int k;
+    printf("    %s:", what);
+    for (k = 0; k < 8; k++) {
+        printf(" %+.1f (%+.1f)", db[k], pg[k]);
+        e += (db[k] - pg[k]) * (db[k] - pg[k]);
+    }
+    e = sqrt(e / 8);
+    printf("; rms %.2f dB off PG-8X\n", e);
+    return e;
+}
+
+/* SYNC 1, DCO-1 saw and DCO-2 square both at full: 8.2 dB rms off with a rising saw. */
+TT_TEST(synced_saw_and_square_mix_follows_pg8x)
+{
+    static const double pg[8] = { 0.6, -3.2, -8.7, -19.7, -13.5, -13.2, -17.4, -22.0 };
+    double db[8];
+    saw260_harmonics(FM_WAVE_SAW, FM_WAVE_SQUARE, 1000, 0, db);
+    TT_CHECK(saw260_error("SYNC 1 saw + square (PG-8X)", db, pg) < 1.5);
+}
+
+/*
+ * SYNC 2, DCO-1 a saw (unheard) ringing DCO-2's spike, as ARCOSTRING: f1
+ * reads -2.7 dB with a rising saw, where PG-8X has -11.2; 3.8 dB rms off.
+ */
+TT_TEST(sync2_saw_ringing_a_spike_follows_pg8x)
+{
+    static const double pg[8] = { -11.2, -8.0, -4.5, -5.8, -9.8, -10.6, -8.1, -8.4 };
+    double db[8];
+    saw260_harmonics(FM_WAVE_SAW, FM_WAVE_SPIKE, 0, 1, db);
+    TT_CHECK(saw260_error("SYNC 2 saw x spike (PG-8X)", db, pg) < 2.5);
+    TT_CHECK(fabs(db[0] - pg[0]) < 4.0);
+}
+
+/* The polyBLEP saw as it rose before #260, Q8.24 (engine/osc.c's saw_at then). */
+static int32_t rising_saw(uint32_t t, uint32_t dt)
+{
+    int64_t v = (int32_t)(t ^ 0x80000000u), blep = 0;
+    if (t < dt) {
+        int64_t x = (int64_t)(((uint64_t)t << 16) / dt);
+        blep = 2 * x - ((x * x) >> 16) - 65536;
+    } else if (t > 0u - dt) {
+        int64_t x = (int64_t)(((uint64_t)(0u - t) << 16) / dt);
+        blep = ((x * x) >> 16) - 2 * x + 65536;
+    }
+    v -= blep * 32768;
+    return (int32_t)(v >> 7);
+}
+
+/*
+ * A saw running free, on either DCO, is the rising saw negated bit for
+ * bit, per sample and as a block: only its direction changes.
+ */
+TT_TEST(free_saw_falls_and_is_the_rising_saw_negated)
+{
+    static fm_osc_pair p, q;
+    static int32_t blk[4096];
+    uint8_t which;
+    uint32_t i, bad = 0;
+    for (which = 0; which < 2; which++) {
+        uint32_t t, dt, off = 0;
+        int32_t lv;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_pitch(&p, 57 << 16, SAW260_RATE);
+        fm_osc_pair_set_tune(&p, 1, 500, 57 << 16, SAW260_RATE);
+        fm_osc_pair_set_level(&p, which, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_level(&p, !which, 0);
+        q = p;
+        t = p.osc[which].phase;
+        dt = p.osc[which].inc;
+        lv = p.level[which];
+        fm_osc_pair_render(&q, blk, 4096);
+        for (i = 0; i < 4096; i++, t += dt) {
+            int32_t r = rising_saw(t, dt);
+            int32_t want = -(lv == FM_OSC_LEVEL_FULL ? r : (int32_t)(((int64_t)r * lv) >> 30));
+            if (fm_osc_pair_next(&p) != want || blk[i] != want) off++;
+        }
+        printf("    osc%u saw alone: %u of 4096 samples off the rising saw negated\n", which + 1, off);
+        bad += off;
+    }
+    TT_CHECK_EQ(bad, 0);
+}
+
+/* FNV-1a of n samples of a pair. */
+static uint32_t pair_hash(fm_osc_pair *p, uint32_t n)
+{
+    static int32_t blk[8192];
+    uint32_t h = 2166136261u, i;
+    fm_osc_pair_render(p, blk, n);
+    for (i = 0; i < n; i++) {
+        uint32_t v = (uint32_t)blk[i];
+        int b;
+        for (b = 0; b < 4; b++, v >>= 8) h = (h ^ (v & 255u)) * 16777619u;
+    }
+    return h;
+}
+
+/*
+ * Pairs with no saw in them don't move at all with #260, BUBBLES' (two
+ * spikes, DCO-2 two octaves down and ringed) among them: pinned bit for bit
+ * to their renders before it. Square, spike and pulse, free, synced and
+ * ringed (SYNC 2).
+ */
+TT_TEST(pairs_without_a_saw_are_unchanged_by_the_saw_flip)
+{
+    static const struct { uint8_t w1, w2, sync, ring; int32_t semis; uint32_t want; } c[] = {
+        { FM_WAVE_SPIKE, FM_WAVE_SPIKE, 0, 1, -2400, 0xb8dfb1eau },  /* BUBBLES */
+        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 0, 500, 0x501c0af7u },
+        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 1, 500, 0xbb16c07fu },
+        { FM_WAVE_SPIKE, FM_WAVE_SQUARE, 1, 1, 700, 0x40a3da68u },
+        { FM_WAVE_PULSE, FM_WAVE_SQUARE, 1, 0, 1200, 0x6eecd1abu },
+    };
+    static fm_osc_pair p;
+    size_t k, bad = 0;
+    for (k = 0; k < sizeof c / sizeof c[0]; k++) {
+        uint32_t h;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 0, c[k].w1);
+        fm_osc_pair_set_wave(&p, 1, c[k].w2);
+        fm_osc_pair_set_width(&p, 0, 25);
+        fm_osc_pair_set_tune(&p, 1, c[k].semis, 57 << 16, SAW260_RATE);
+        fm_osc_pair_set_pitch(&p, 57 << 16, SAW260_RATE);
+        fm_osc_pair_set_level(&p, 0, c[k].ring ? 0 : FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_sync(&p, c[k].sync);
+        fm_osc_pair_set_ring(&p, c[k].ring);
+        h = pair_hash(&p, 8192);
+        printf("    pair %u x %u sync %u ring %u: %08x\n", c[k].w1, c[k].w2, c[k].sync, c[k].ring, h);
+        if (h != c[k].want) bad++;
+    }
+    TT_CHECK_EQ(bad, 0);
+}
+
+/*
+ * The engine's cross-mod (osc_xmod, FM: no PG-8X control has it; the
+ * JX-8P's X-MOD is the ring) bends osc2 as it did before the saw fell
+ * (#260): a saw osc1 still raises osc2's pitch over its cycle. Pinned bit
+ * for bit to the renders before, osc1 unheard (its own saw is negated) and
+ * osc2 a square, free and synced, at half and full depth.
+ */
+TT_TEST(cross_mod_by_a_saw_bends_osc2_as_before)
+{
+    static const struct { int32_t depth; uint8_t sync; uint32_t want; } c[] = {
+        { FM_OSC_LEVEL_FULL / 2, 0, 0xb7bce086u }, { FM_OSC_LEVEL_FULL / 2, 1, 0x60812dabu },
+        { FM_OSC_LEVEL_FULL, 1, 0x2fc34c68u },
+    };
+    static fm_osc_pair p;
+    size_t k, bad = 0;
+    for (k = 0; k < sizeof c / sizeof c[0]; k++) {
+        uint32_t h;
+        fm_osc_pair_reset(&p, 1);
+        fm_osc_pair_set_wave(&p, 1, FM_WAVE_SQUARE);
+        fm_osc_pair_set_tune(&p, 1, 700, 57 << 16, SAW260_RATE);
+        fm_osc_pair_set_pitch(&p, 57 << 16, SAW260_RATE);
+        fm_osc_pair_set_level(&p, 0, 0);
+        fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_sync(&p, c[k].sync);
+        fm_osc_pair_set_xmod(&p, c[k].depth);
+        h = pair_hash(&p, 8192);
+        printf("    cross-mod by a saw, depth %d sync %u: %08x\n", (int)c[k].depth, c[k].sync, h);
+        if (h != c[k].want) bad++;
+    }
+    TT_CHECK_EQ(bad, 0);
+}
+
 static void run_osc_tests(void)
 {
     TT_RUN(ring_leaves_no_dc_at_any_level);
+    TT_RUN(synced_saw_and_square_mix_follows_pg8x);
+    TT_RUN(sync2_saw_ringing_a_spike_follows_pg8x);
+    TT_RUN(free_saw_falls_and_is_the_rising_saw_negated);
+    TT_RUN(pairs_without_a_saw_are_unchanged_by_the_saw_flip);
+    TT_RUN(cross_mod_by_a_saw_bends_osc2_as_before);
     TT_RUN(synced_spike_restart_inside_the_spike_has_low_aliasing);
     TT_RUN(spike_matches_its_closed_form);
     TT_RUN(spike_level_rises_with_pitch_as_pg8x);

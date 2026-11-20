@@ -2,21 +2,29 @@
 """scorecard.py - how close fm1-8p's 32 JX-8P factory tones are to PG-8X 2.0.13 (and, from the parameter
 match harness, every tone parameter over its range). Needs numpy and scipy.
 
-The PG-8X reference renders live outside this repo (SCORECARD_REF); nothing PG-8X is committed."""
+The PG-8X reference renders live outside this repo (SCORECARD_REF); nothing PG-8X is committed.
+
+Quiet sections (s10): our renders are int16, so each spectral section scores PG-8X's side at our level in
+int16 too, and our 16-bit floor isn't read as timbre. The other side of that: in a section under about
+-55 dBFS, a difference counts only down to that floor. A band has to stand about 10 dB over it to count
+near fully, so a low score there means a match above the floor, not in the detail under it. PG-8X's
+float tail under one step, where our idle engine reads exact 0, floors to 0 or -1 on its side. That
+reads 1.5-6 dB in bands 55-60 dB down, about 0.1 dB on the section (AGOGO BELL's chord: 1.47 s9, 1.58 s10)."""
 import json
 import os
 
 import numpy as np
 from scipy import signal
 
-SCHEMA = 9   # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 10  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
              # 6: the reference has PG-8X's SELFNOISE at 0, v5, #247;
              # 7: both 5 and 6, merged;
              # 8: no pitch for a ring or cross-mod tone without sync (it has none), #253;
-             # 9: the air gap takes PG-8X's side at our level in int16, so our 16-bit floor isn't air, #299)
+             # 9: the air gap takes PG-8X's side at our level in int16, so our 16-bit floor isn't air, #299;
+             # 10: so does each spectral section, so the floor isn't timbre either)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = 48000
@@ -110,15 +118,18 @@ def air_db(x):
     return max(10 * np.log10(sp[f >= AIR_HZ].sum() / (sp.sum() + 1e-30) + 1e-30), -FLOOR_DB)
 
 
-def as_ours_int16(pg, ours):
+def as_ours_int16(pg, ours, clip=True):
     """PG-8X's float render as ours would carry it: scaled to our RMS, put on 16 bits per channel as
     engine.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
-    hiss in it; scored against this, the floor is on both sides (#299)."""
+    hiss in it; scored against this, the floor is on both sides (#299). With clip False it is floored but
+    not clipped: at our RMS PG-8X's peaks can pass full scale where ours don't, and clipped they'd gain
+    harmonics neither render has (the spectral sections, s10)."""
     pg = np.asarray(pg, dtype=np.float64)
     g = np.sqrt(np.mean(mono(ours) ** 2) / (np.mean(mono(pg) ** 2) + 1e-30))
     if g <= 0:
         return pg
-    return np.clip(np.floor(pg * g * 32768), -32768, 32767) / 32768 / g
+    q = np.floor(pg * g * 32768)
+    return (np.clip(q, -32768, 32767) if clip else q) / 32768 / g
 
 
 def air_gap(ours, pg):
@@ -172,8 +183,13 @@ def score_tone(ours, pg, harmonic=True):
     section and its mean (dB), the high note's decay (to -20 dB, from 30 ms after onset) and release (to
     -40 dB after note-off) gaps (ms, ours minus PG-8X; None where either never falls that far), the
     pitch offset of the held low and high notes (cents; None unless `harmonic`: a ring or cross-mod tone
-    has no single pitch and reads nonsense, s8), and the chord's air gap (dB)."""
-    spec = {k: round(spectral_distance(_cut(ours, *w), _cut(pg, *w)), 2) for k, w in SECTIONS.items()}
+    has no single pitch and reads nonsense, s8), and the chord's air gap (dB). The spectral sections and
+    the air gap take PG-8X's side as it would be at our level in int16 (as_ours_int16), so a quiet
+    section's 16-bit floor isn't read as timbre (s10) or air (s9)."""
+    spec = {}
+    for k, (a, b) in SECTIONS.items():   # PG-8X's side at our level in int16, per channel (s10)
+        o, p = (np.asarray(x)[int(a * SR):int(b * SR)] for x in (ours, pg))
+        spec[k] = round(spectral_distance(o, as_ours_int16(p, o, clip=False)), 2)
     return {
         "loudness_gap_lu": round(loudness_gap(ours, pg), 2),
         "spectral_db": spec,
