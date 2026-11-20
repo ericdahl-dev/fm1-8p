@@ -218,6 +218,45 @@ TT_TEST(an_all_zero_table_renders_as_before)
     TT_CHECK_EQ(h, STP_BASE_HASH);
 }
 
+/* 7. no click at a note's start on PG-8X's phases (Codex P3 on #310): a lone note, attack 0, on each voice 1..6
+ * and each wave (both DCOs at full, DCO-2 a fifth up). Its amp onset eases in over 8 samples (env.c RAMP_SEGS x
+ * RAMP_SAMPLES, #274): the first sample within 16 LSB of silence, and no step in those 8 over STP_CLICK_LSB
+ * (after them the level is up and a square's or spike's own edge steps by hundreds, as from any phase) */
+#define STP_CLICK_LSB 128
+#define STP_EASE 8
+TT_TEST(a_first_note_on_pg8xs_phases_eases_in_without_a_click)
+{
+    static const uint8_t waves[4] = { FM_WAVE_SAW, FM_WAVE_PULSE, FM_WAVE_SQUARE, FM_WAVE_SPIKE };
+    int w, k, n, worst = 0, first = 0;
+    for (w = 0; w < 4; w++) {
+        stp_init(6);
+        TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_AMP_ATTACK_MS, 0), FM_OK);
+        TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC1_WAVE, waves[w]), FM_OK);
+        TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_WAVE, waves[w]), FM_OK);
+        TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_LEVEL, 1000), FM_OK);
+        TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_COARSE_SEMIS, 7), FM_OK);
+        stp_run(50); /* past the start-up glides */
+        for (k = 0; k < 6; k++) {
+            int prev = 0;
+            uint8_t note = (uint8_t)(48 + 2 * k);
+            fm_engine_note_on(&stp_eng, note, 127);
+            TT_CHECK_EQ(stp_voice(note), k);
+            fm_engine_render(&stp_eng, stp_buf, STP_EASE);
+            if (abs(stp_buf[0]) > first) first = abs(stp_buf[0]);
+            for (n = 0; n < STP_EASE; n++) {
+                int d = abs(stp_buf[2 * n] - prev);
+                if (d > worst) worst = d;
+                prev = stp_buf[2 * n];
+            }
+            fm_engine_note_off(&stp_eng, note);
+            stp_run(50);
+        }
+    }
+    printf("    a first note's onset, voices 1-6, 4 waves: first sample at most %d LSB, largest step %d\n", first, worst);
+    TT_CHECK(first <= 16);
+    TT_CHECK(worst <= STP_CLICK_LSB);
+}
+
 static void run_start_phase_tests(void)
 {
     TT_RUN(each_voices_first_note_starts_at_pg8xs_phases);
@@ -226,4 +265,5 @@ static void run_start_phase_tests(void)
     TT_RUN(unison_keeps_phase_zero_and_marks_its_voices_played);
     TT_RUN(start_phases_are_set_once_a_voice_life);
     TT_RUN(an_all_zero_table_renders_as_before);
+    TT_RUN(a_first_note_on_pg8xs_phases_eases_in_without_a_click);
 }
