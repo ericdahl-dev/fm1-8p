@@ -31,7 +31,6 @@ typedef struct {
     int32_t pitch;     /* sounding pitch, Q16.16 semitones (note + bend) */
     int32_t next_pitch; /* pitch of `note`, set as it starts */
     uint32_t lfo_start; /* control tick the LFO delay started at */
-    int32_t next_peak; /* amp peak (velocity) of `note`, Q1.30 */
     uint8_t note;
     uint8_t key_down;
     uint8_t sustained; /* key up, held by the sustain pedal */
@@ -39,7 +38,6 @@ typedef struct {
                              * starts */
     uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
     uint8_t velocity;       /* the sounding note's MIDI velocity */
-    uint8_t next_velocity;  /* `note`'s, kept beside next_peak */
     /* the filter, its cutoff and the voice's control cadence (vfilter.h);
      * its key stays the sounding note's when a mode switch sets
      * FM_VOICE_NO_NOTE */

@@ -44,9 +44,12 @@ This is the same as playing a note again on its own voice, only with a new
 pitch, except that the LFO's delay starts again, as on PG-8X (a stolen
 voice's vibrato drops away for the new note and builds back over the delay).
 
-There is no fade and no gap, and the oscillators keep their phase, so a steal
-doesn't click (`a_steal_does_not_click`). The filter's key tracking and the
-pitch move to the new note at once.
+There is no fade and no gap, and the oscillators keep their phase, so the
+level and the waveform carry straight on (`a_steal_does_not_click`). The
+filter's key tracking and the pitch move to the new note at once. The LFO
+starting again moves a pulse width the LFO was sweeping back to its center
+at once, as on PG-8X, whose LFO starts again too (that step itself is not
+measured on PG-8X).
 
 PG-8X 2.0.13 was measured on 2026-11-20 (SELFNOISE 0, 6 voices all busy,
 chorus off, the stolen voice alone through a 700 Hz highpass). A releasing

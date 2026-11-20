@@ -38,8 +38,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->next_pitch = 0;
     fm_mod_reset(&v->mod);
     v->lfo_start = 0;
-    v->next_peak = FM_ENV_FULL;
-    v->velocity = v->next_velocity = 127;
+    v->velocity = 127;
     v->note = 0;
     v->key_down = 0;
     v->sustained = 0;
@@ -266,13 +265,14 @@ void fm_voice_note_on(fm_voice *v, const fm_voice_mod *m, uint8_t note,
                       int32_t pitch, int32_t peak, uint8_t velocity,
                       uint32_t now, uint32_t sample_rate)
 {
-    if (fm_voice_active(v) && v->note != note) { /* a steal: the LFO starts again, as PG-8X's (#312) */
-        fm_mod_reset(&v->mod);
+    if (fm_voice_active(v) && v->note != note) {
+        /* a steal: the LFO starts again, as PG-8X's (#312); the envelopes'
+         * sources carry on, as the envelopes do */
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_LFO, 0);
+        fm_mod_tick(&v->mod, &m->routes);
         v->lfo_start = now;
     }
     hold(v, note, pitch);
-    v->next_peak = peak;
-    v->next_velocity = velocity;
     start(v, m, sample_rate, peak, velocity, now);
 }
 
@@ -281,10 +281,6 @@ void fm_voice_change_note(fm_voice *v, const fm_voice_mod *m, uint8_t note,
                           uint32_t now, uint32_t sample_rate, int retrigger)
 {
     hold(v, note, pitch);
-    if (retrigger) {
-        v->next_peak = peak;
-        v->next_velocity = velocity;
-    }
     if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
         restart_lfo(v, now); /* before the gate: it checks for silence */
         apply_pitch(v);

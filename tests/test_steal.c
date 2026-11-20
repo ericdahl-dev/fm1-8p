@@ -174,7 +174,7 @@ static int st_peak(uint32_t a, uint32_t b)
  * level doesn't dip: each 4 ms (about a period) of the first 20 ms peaks at 0.8 of C4's or more */
 TT_TEST(a_steal_does_not_click)
 {
-    int before, at, after, low, peak;
+    int before, at, after, low, peak, last, edge;
     uint32_t w;
     TT_CHECK_EQ(fm_engine_init(&st_eng, ST_RATE, 1), FM_OK);
     TT_CHECK_EQ(fm_engine_set_param(&st_eng, FM_PARAM_AMP_SUSTAIN, 1000), FM_OK);
@@ -184,9 +184,13 @@ TT_TEST(a_steal_does_not_click)
     fm_engine_render(&st_eng, st_buf, ST_RATE / 20);
     before = st_step(0, ST_RATE / 20);
     peak = st_peak(0, ST_RATE / 20);
+    last = st_buf[2 * (ST_RATE / 20 - 1)];
     fm_engine_note_on(&st_eng, 64, 100);
     fm_engine_render(&st_eng, st_buf, ST_RATE / 10);
     at = st_step(0, ST_RATE / 200);
+    edge = st_buf[0] - last; /* the old note's last sample to the new one's first (Codex P3 on #313) */
+    if (edge < 0) edge = -edge;
+    if (edge > at) at = edge;
     after = st_step(ST_RATE / 20, ST_RATE / 10);
     low = peak;
     for (w = 0; w < ST_RATE / 50; w += ST_RATE / 250) {
@@ -227,6 +231,31 @@ TT_TEST(a_steal_starts_the_lfo_delay_again)
     TT_CHECK_EQ(fm_mod_get(&st_eng.voices[0].mod, FM_MOD_PITCH1), 0);
 }
 
+/* 7. the envelopes' modulation carries on through a steal: only the LFO starts again (Codex P2 on #313). One
+ * voice, the filter envelope held at full and moving DCO-1 an octave (PITCH ENV, source the filter
+ * envelope): C4 held, E4 steals it, and on every sample from the steal on DCO-1's offset is still there */
+TT_TEST(a_steal_keeps_the_envelopes_modulation)
+{
+    int k, low = 0;
+    int32_t was;
+    TT_CHECK_EQ(fm_engine_init(&st_eng, ST_RATE, 1), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&st_eng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&st_eng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&st_eng, FM_PARAM_PITCH_ENV_OSC1_CENTS, 1200), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&st_eng, FM_PARAM_PITCH_ENV_SOURCE, 0), FM_OK);
+    fm_engine_note_on(&st_eng, 60, 100);
+    st_run(100);
+    was = fm_mod_get(&st_eng.voices[0].mod, FM_MOD_PITCH1);
+    TT_CHECK(was > 0);
+    fm_engine_note_on(&st_eng, 64, 100);
+    for (k = 0; k < 64; k++) {
+        if (fm_mod_get(&st_eng.voices[0].mod, FM_MOD_PITCH1) < was / 10 * 9) low++;
+        fm_engine_render(&st_eng, st_buf, 1);
+    }
+    if (low) printf("    DCO-1's envelope offset under 0.9 of %ld on %d of the 64 samples after the steal\n", (long)was, low);
+    TT_CHECK_EQ(low, 0);
+}
+
 static void run_steal_tests(void)
 {
     TT_RUN(a_steal_starts_from_the_released_voices_level);
@@ -235,4 +264,5 @@ static void run_steal_tests(void)
     TT_RUN(a_steal_starts_from_the_pedal_held_voices_level);
     TT_RUN(a_steal_does_not_click);
     TT_RUN(a_steal_starts_the_lfo_delay_again);
+    TT_RUN(a_steal_keeps_the_envelopes_modulation);
 }
