@@ -285,8 +285,49 @@ TT_TEST(a_route_turned_on_and_off_mid_note_sums_right)
     TT_CHECK_EQ(fm_mod_get(&m, FM_MOD_PITCH1), 0);
 }
 
+/* The masked sums (fm_mod_tick, fm_mod_update) equal the plain sum over every source (fm_mod_sum) for any
+ * routes set and unset in any order, 0 and INT32_MIN among them: the masks never drift from the depths
+ * (FW review) */
+TT_TEST(masked_sums_equal_the_plain_sum_for_random_routes)
+{
+    static const int32_t depths[] = {0, 1, -1, 1 << 16, -(1 << 20), INT32_MIN, INT32_MAX, 12345};
+    fm_mod_routes r;
+    fm_mod m, plain;
+    uint32_t seed = 0x2545F491u, k, same = 1;
+    unsigned s, d;
+    memset(&r, 0, sizeof r);
+    fm_mod_reset(&m);
+    fm_mod_reset(&plain);
+    for (k = 0; k < 4000u; k++) {
+        seed = seed * 1664525u + 1013904223u;
+        fm_mod_set_route(&r, (seed >> 8) % FM_MOD_SRC_COUNT, (seed >> 12) % FM_MOD_DEST_COUNT,
+                         depths[(seed >> 16) % 8u]);
+        if (k % 997u == 0u) fm_mod_routes_reset(&r);
+        for (s = 0; s < FM_MOD_SRC_COUNT; s++) {
+            seed = seed * 1664525u + 1013904223u;
+            fm_mod_set_source(&m, s, (int32_t)(seed >> 1) - (1 << 30));
+            plain.src[s] = m.src[s];
+        }
+        fm_mod_tick(&m, &r);
+        fm_mod_sum(&plain, r.depth, plain.src, FM_MOD_SRC_COUNT);
+        for (d = 0; d < FM_MOD_DEST_COUNT; d++) {
+            same &= fm_mod_get(&m, d) == plain.sum[d];
+            same &= fm_mod_update(&m, &r, d) == plain.sum[d];
+            same &= fm_mod_at_rest(&m, &r, d) == (plain.sum[d] == 0 && !r.depth[0][d] && !r.depth[1][d] &&
+                    !r.depth[2][d] && !r.depth[3][d] && !r.depth[4][d] && !r.depth[5][d] && !r.depth[6][d]);
+        }
+        for (s = 0; s < FM_MOD_SRC_COUNT; s++) {
+            int any = 0;
+            for (d = 0; d < FM_MOD_DEST_COUNT; d++) any |= r.depth[s][d] != 0;
+            same &= fm_mod_source_routed(&r, s) == any;
+        }
+    }
+    TT_CHECK(same);
+}
+
 static void run_mod_dest_tests(void)
 {
+    TT_RUN(masked_sums_equal_the_plain_sum_for_random_routes);
     TT_RUN(a_route_turned_on_and_off_mid_note_sums_right);
     TT_RUN(one_route_gives_source_times_depth);
     TT_RUN(sum_clamps_instead_of_wrapping);
