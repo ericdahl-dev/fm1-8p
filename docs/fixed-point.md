@@ -483,10 +483,13 @@ How it works, per sample:
   [voices.md](voices.md#gain-staging)), so the line has 9 dB of headroom
   over the loudest mix for the filter's resonance and never clamps today.
 - A triangle LFO (Q0.32 phase, one add per sample) sweeps two taps in opposite
-  directions: left at center + sweep, right at center - sweep. It runs free
-  from `fm_chorus_init`, starting at the center and rising, so the left
-  delay peaks a quarter cycle in: as PG-8X 2.0.13's does from the start of
-  a render, in both modes (#312). On the device the phase at a note is
+  directions: left at center + sweep, right at center - sweep.
+  `fm_chorus_init` starts it at the center, rising, and it advances only
+  while the chorus is on. So with the chorus on from the start, the left
+  delay peaks a quarter cycle in, as PG-8X 2.0.13's does from the start of a
+  render, in both modes (#312). With the chorus off and then on again, that
+  quarter cycle counts from the turn-on. The phase carries over a switch
+  between modes and an all sound off (CC 120). On the device the phase at a note is
   arbitrary anyway; starting where PG-8X does lines our renders up with
   its, so the scorecard's short sections compare like with like. Delays are
   Q16.16 samples; each tap reads two neighbors and interpolates linearly
@@ -509,7 +512,9 @@ How it works, per sample:
 - The rates, sweeps, centers and start phase were measured on PG-8X 2.0.13
   on 2026-11-20 (#312): the wet tap (chorus on minus chorus off) tracked
   sample by sample against the dry over 20 s. Chorus I: 0.680 Hz, +-1.38 ms
-  around 2.17 ms. Chorus II: 1.020 Hz, +-1.36 ms around 2.16 ms. Before, I
+  around 2.17 ms. Chorus II: 1.020 Hz, +-1.36 ms around 2.16 ms. The table
+  sets the centers to 2.15 and 2.14 ms, because the same tracking reads ours
+  0.02 ms long. Before, I
   swept +-1.6 ms and II ran at I's rate with +-2.0 ms. Lining up the phase
   took the factory scorecard mean from 3.15 to about 2.58 (v5/s10), and the
   sweeps and centers took it to 2.38.
