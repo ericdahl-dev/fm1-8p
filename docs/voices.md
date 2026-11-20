@@ -47,15 +47,13 @@ There is no fade and no gap, and the oscillators keep their phase, so a steal
 doesn't click (`a_steal_does_not_click`). The filter's key tracking and the
 pitch move to the new note at once.
 
-PG-8X 2.0.13 was measured on 2026-11-20 (SELFNOISE 0, 3 voices, chorus off, the
-stolen voice alone through a 700 Hz highpass, 1 ms windows):
-
-- **Level:** through a steal of a releasing or pedal-held voice, it stays
-  within the steady note's ripple, with no dip. A key-held voice dips about
-  2 dB for about 1.5 ms. The engine doesn't copy that dip.
-- **Brightness:** with the filter envelope at full, the new note's first
-  20 ms are 2 to 3 dB under the steady note's. On a fresh voice they are 8 dB
-  under.
+PG-8X 2.0.13 was measured on 2026-11-20 (SELFNOISE 0, 6 voices all busy,
+chorus off, the stolen voice alone through a 700 Hz highpass). A releasing
+voice that gets stolen keeps its level through the steal with no dip, and the
+new note's first 20 ms are as bright as the old note's: −6.6 dB against
+−6.3 dB, where a fresh voice is at −15.9 dB. PG-8X takes the same voice the
+rules above take: a released voice before a held one, the one released
+longest ago, and among held voices the oldest.
 
 Until this change, the engine faded the old note out over 3 ms and then
 started the new note from silence, with both envelopes at 0. On a chord
