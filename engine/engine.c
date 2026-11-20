@@ -1198,11 +1198,12 @@ static int16_t to_int16(int32_t q24)
 /* The LFO is live: it reaches some destination now, or the last tick
  * applied it (one more tick clears the offset it left). The one test of
  * whether the control ticks have work for the voices. */
+/* the sources the control ticks move: the LFO, the pitch envelope and aftertouch's vibrato */
+#define TICK_SOURCES (1u << FM_MOD_SRC_LFO | 1u << FM_MOD_SRC_PENV | 1u << FM_MOD_SRC_ATLFO)
+
 static int lfo_live(const fm_engine *e)
 {
-    return e->mod_on || fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
-           fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV) ||
-           fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_ATLFO);
+    return e->mod_on || (e->mod.routes.live & TICK_SOURCES);
 }
 
 /*
@@ -1226,9 +1227,7 @@ static void control_tick(fm_engine *e)
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_tick(&e->voices[k], lfo, &e->mod, e->ticks);
-    e->mod_on = (uint8_t)(fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
-                          fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV) ||
-                          fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_ATLFO));
+    e->mod_on = (uint8_t)((e->mod.routes.live & TICK_SOURCES) != 0);
 }
 
 /*
