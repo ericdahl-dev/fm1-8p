@@ -864,6 +864,20 @@ TT_TEST(save_delete_question_fits_the_screen)
     TT_CHECK(strlen(ui_u.save_msg) <= 30u);
 }
 
+/* #303 (FW review): a SEL hold that began before SAVE opened (the number jump's) doesn't ask to delete when
+ * it is let go, even 1.5 s on, on a slot that holds a patch */
+TT_TEST(save_sel_held_from_before_save_does_not_ask)
+{
+    save_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 1200);                /* 11 holds the patch, loaded */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 2000);
+    save_tap(UI_BTN_SAVE, 2100);                /* SAVE opens on 11 with SEL held */
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3700);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+}
+
 static void run_ui_save_tests(void)
 {
     TT_RUN(save_sel_held_asks_to_delete);
@@ -874,6 +888,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_deleted_slot_is_empty_everywhere);
     TT_RUN(save_in_seq_view_deletes_the_playing_pattern);
     TT_RUN(save_delete_question_fits_the_screen);
+    TT_RUN(save_sel_held_from_before_save_does_not_ask);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);

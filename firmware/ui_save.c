@@ -44,7 +44,7 @@ uint32_t ui_save_edited(const ui *u)
 void ui_save_open(ui *u, uint32_t ms)
 {
     uint32_t q, s;
-    (void)ms;
+    u->save_open_ms = ms;
     u->save_from = u->state;
     u->save_pattern = u->state == UI_SEQ;
     q = current(u);
@@ -313,6 +313,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         return;
     }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && ms - u->down_ms[UI_BTN_SEL] >= UI_DELETE_MS &&
+        u->down_ms[UI_BTN_SEL] - u->save_open_ms < 0x80000000u &&   /* pressed in SAVE (wrap-safe) */
         ui_save_slot_used(u, u->save_dest, NULL)) {   /* held, on a slot that holds one: ask (#303) */
         ask(u, "DELETE ", UI_SAVE_DELETE);
         return;

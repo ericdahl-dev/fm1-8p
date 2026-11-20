@@ -410,6 +410,7 @@ void ui_init(ui *u, play *p)
     u->shown_edited = 0;
     u->save_waiting = 0;
     u->save_delete = 0;
+    u->save_open_ms = 0;
     u->save_home_armed = 0;
     u->save_draft_prog = UI_SAVE_NO_DRAFT;
     u->jump = -1;
