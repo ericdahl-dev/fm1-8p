@@ -17,6 +17,7 @@
 #include "test_engine.c"
 #include "test_host.c"
 #include "test_poly.c"
+#include "test_last_voice.c"
 #include "test_steal.c"
 #include "test_unison.c"
 #include "test_cpu_test.c"
@@ -59,6 +60,7 @@ int main(void)
     run_engine_tests();
     run_host_tests();
     run_poly_tests();
+    run_last_voice_tests();
     run_steal_tests();
     run_unison_tests();
     run_cpu_test_tests();

@@ -39,7 +39,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     fm_mod_reset(&v->mod);
     v->lfo_start = 0;
     v->velocity = 127;
-    v->note = 0;
+    v->note = FM_VOICE_NO_NOTE; /* no last note yet (#164) */
     v->key_down = 0;
     v->sustained = 0;
     fm_vfilter_reset(&v->vf, rate_cents);
@@ -322,7 +322,7 @@ int fm_voice_let_go(fm_voice *v)
     assert(!held || fm_voice_active(v));
 #endif
     if (held) fm_voice_release(v);
-    if (fm_voice_active(v)) v->note = FM_VOICE_NO_NOTE;
+    v->note = FM_VOICE_NO_NOTE; /* an idle one too: no last note in the new mode (#164) */
     return held;
 }
 

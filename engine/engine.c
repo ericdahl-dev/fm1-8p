@@ -792,7 +792,7 @@ static fm_voice *find_note(fm_engine *e, uint8_t note)
 }
 
 /*
- * The voice a new note takes: an idle one if any, else the oldest
+ * The voice a new note takes (after find_last): an idle one if any, else the oldest
  * released one, else the oldest held one. "Oldest" is the longest since
  * its last note on or off (stamps compared as a wrapping difference).
  */
@@ -844,6 +844,25 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
     fm_voice_age(v, ++e->stamp);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate);
+}
+
+/*
+ * The idle voice whose last note was `note`, or null: a key played again
+ * gets its last voice back, as on PG-8X 2.0.13 (#164), unless another key
+ * has played that voice since. A voice never played, or idle through a
+ * voice-mode switch, has no last note (FM_VOICE_NO_NOTE). At most one voice
+ * has a given note (find_note), idle ones too.
+ */
+static fm_voice *find_last(fm_engine *e, uint8_t note)
+{
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++) {
+        fm_voice *v = &e->voices[i];
+        /* (find_note runs first and takes any sounding voice with `note`, so the
+         * FREE test never fails here; it stays as a defense) */
+        if (fm_voice_holding(v) == FM_VOICE_FREE && fm_voice_note(v) == note) return v;
+    }
+    return 0;
 }
 
 /* Drops `note` from the unison held-key list, if it is there. Returns
@@ -931,7 +950,8 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         int32_t peak = velocity_peak(e, velocity);
         fm_voice *v = find_note(e, note);
         if (!v) {
-            v = pick_voice(e);
+            v = find_last(e, note);
+            if (!v) v = pick_voice(e);
         }
         porta_start(e, (uint8_t)(v - e->voices), note);
         poly_play(e, v, note, peak, velocity);

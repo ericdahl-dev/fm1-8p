@@ -23,9 +23,15 @@ On a note on, in this order:
    the pedal, or releasing), it plays it again: its attack restarts from the
    current level, so there is no click and no second voice. So at most one
    voice ever has a given note.
-2. **Idle voice.** Otherwise an idle voice takes it: the one whose last note
-   on or off was longest ago (least recently used).
-3. **Steal.** Otherwise a sounding voice is stolen. The engine takes the
+2. **Its last voice.** Otherwise, if the voice that last played this note is
+   idle and no other note has played on it since, it gets that voice back, as
+   PG-8X 2.0.13 does ([#164](https://github.com/ericdahl-dev/fm1-8p/issues/164),
+   measured 2026-11-19). A voice keeps its oscillators' phase while idle, so a
+   key played again starts where it left off, as on PG-8X.
+3. **Idle voice.** Otherwise an idle voice takes it: the one whose last note
+   on or off was longest ago (least recently used). A voice never played
+   counts as the longest ago, so new notes use every voice before reusing one.
+4. **Steal.** Otherwise a sounding voice is stolen. The engine takes the
    first non-empty group, and within it the voice whose last note on or off
    was longest ago:
    1. released voices (key up, in their release),
