@@ -149,7 +149,7 @@ static void take_snapshot(ui *u)
 }
 
 /* writes the snapshot to its slot and says how it went */
-static void write(ui *u, uint32_t ms)
+static void write_slot(ui *u, uint32_t ms)
 {
     u->save_waiting = 0;
     u->save_home_armed = 0;
@@ -209,7 +209,7 @@ void ui_save_tick(ui *u, uint32_t ms)
         return;
     if (play_silent(u->p) ||
         (u->held >> UI_BTN_SAVE & 1u && ms - u->down_ms[UI_BTN_SAVE] >= UI_FORCE_MS)) {
-        write(u, ms);                           /* silent, or forced: SAVE held (the sound stalls) */
+        write_slot(u, ms);                      /* silent, or forced: SAVE held (the sound stalls) */
         return;
     }
     if (!(!*u->banner || u->banner == u->save_wait_msg || u->banner == HOLD ||
@@ -300,7 +300,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->save_delete = 1;
         u->dirty |= UI_D_ALL & ~UI_D_FULL;
         if (play_silent(u->p)) {                /* now: SAVE stays, on the slot now EMPTY */
-            write(u, ms);
+            write_slot(u, ms);
             return;
         }
         u->state = u->save_from;                /* or when silent, as a save waits */
