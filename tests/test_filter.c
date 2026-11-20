@@ -935,12 +935,12 @@ static void release_patch(fm_engine *e)
 /*
  * Every way a note is released also releases its filter envelope: the
  * key coming up, the sustain pedal coming up, and a note whose key came
- * up while it waited for a steal fade (its release is queued). After the
+ * up right after it stole a voice. After the
  * release the tone darkens to the bare cutoff while the amp still sounds.
  */
 TT_TEST(every_release_path_releases_the_filter_envelope)
 {
-    double held, direct, pedal, queued;
+    double held, direct, pedal, stolen;
     /* the key comes up at 300 ms */
     fm_engine_init(&feng, FRATE, 1);
     release_patch(&feng);
@@ -960,7 +960,7 @@ TT_TEST(every_release_path_releases_the_filter_envelope)
     fm_engine_controller(&feng, 64, 0);
     fm_engine_render(&feng, fbuf_b + 2 * 13230, 13230);
     pedal = brightness(fbuf_b, 13230 + 8820, 26460);
-    /* one voice: note 36 steals it and its key comes up during the fade */
+    /* one voice: note 36 steals it and its key comes up at once */
     fm_engine_init(&feng, FRATE, 1);
     release_patch(&feng);
     fm_engine_note_on(&feng, 40, 100);
@@ -968,13 +968,13 @@ TT_TEST(every_release_path_releases_the_filter_envelope)
     fm_engine_note_on(&feng, 36, 100);
     fm_engine_note_off(&feng, 36);
     fm_engine_render(&feng, fbuf_b, 13230);
-    queued = brightness(fbuf_b, 8820, 13230);
+    stolen = brightness(fbuf_b, 8820, 13230);
     printf("    brightness held %.4f; after release: key %.4f, pedal %.4f, "
-           "queued %.4f\n", held, direct, pedal, queued);
+           "stolen %.4f\n", held, direct, pedal, stolen);
     TT_CHECK(peak_abs(fbuf_a, 13230 + 8820, 26460) > 2500); /* amp sounds */
     TT_CHECK(direct < 0.5 * held);
     TT_CHECK(pedal < 0.5 * held);
-    TT_CHECK(queued < 0.5 * held);
+    TT_CHECK(stolen < 0.5 * held);
 }
 
 /*
@@ -1182,42 +1182,9 @@ TT_TEST(filter_envelope_follows_the_key)
 }
 
 /*
- * A note that steals a voice mid-sustain starts its filter envelope from
- * 0, as its amp envelope does after the steal fade, so its sweep is the
- * same as on a fresh voice whichever voice it lands on.
- */
-TT_TEST(stolen_voice_starts_the_filter_envelope_from_zero)
-{
-    static fm_engine fresh;
-    int guard = 0;
-    fm_engine_init(&feng, FRATE, 1);
-    sweep_patch(&feng);
-    fm_engine_note_on(&feng, 40, 100);
-    fm_engine_render(&feng, fbuf_a, 22050); /* held at full */
-    TT_CHECK_EQ(feng.voices[0].filter_env.level, FM_ENV_FULL);
-    fm_engine_note_on(&feng, 70, 100); /* steals the only voice */
-    while (feng.voices[0].pending && guard++ < 1000) {
-        TT_CHECK(fm_voice_fading(&feng.voices[0], 40)); /* fading 40 throughout */
-        fm_engine_render(&feng, fbuf_a, 1); /* the new note starts in it */
-    }
-    TT_CHECK(!feng.voices[0].pending);
-    fm_engine_render(&feng, fbuf_a, 2000);
-
-    fm_engine_init(&fresh, FRATE, 1);
-    sweep_patch(&fresh);
-    fm_engine_note_on(&fresh, 70, 100);
-    fm_engine_render(&fresh, fbuf_b, 2001);
-    printf("    filter env 2001 samples into the note: stolen %ld, "
-           "fresh %ld\n", (long)feng.voices[0].filter_env.level,
-           (long)fresh.voices[0].filter_env.level);
-    TT_CHECK_EQ(feng.voices[0].filter_env.level,
-                fresh.voices[0].filter_env.level);
-}
-
-/*
- * The same on a voice that went idle (its amp release ended) while its
- * filter envelope was still releasing: the next note's filter envelope
- * starts from 0, not from that leftover level.
+ * A voice that went idle (its amp release ended) while its filter
+ * envelope was still releasing: the next note's filter envelope starts
+ * from 0, not from that leftover level.
  */
 TT_TEST(idle_voice_starts_the_filter_envelope_from_zero)
 {
@@ -1236,86 +1203,52 @@ TT_TEST(idle_voice_starts_the_filter_envelope_from_zero)
 }
 
 /*
- * During a steal fade the old note keeps its own key-tracked cutoff; the
- * new note's key tracking applies when the new note starts, as its pitch
- * does. Full key tracking, note 36 stolen by note 96 (5 octaves up), in
- * three cases, since the cutoff is recomputed during the fade only when
- * something asks for it: (0) nothing does, (1) a held filter envelope
- * amount recomputes it every 16 samples, (2) the cutoff setting moves a
- * cent in the middle of the fade. Throughout the fade the coefficient
- * must be note 36's for the cutoff setting in force.
+ * A steal moves the key tracking to the new note at once, as its pitch:
+ * full key tracking, note 36 stolen by note 96 (5 octaves up). From the
+ * steal's first control update the coefficient is note 96's, with no
+ * filter envelope amount and with one held at full.
  */
-TT_TEST(steal_fade_keeps_the_old_notes_key_tracked_cutoff)
+TT_TEST(a_steal_tracks_the_new_notes_cutoff_at_once)
 {
     static fm_filter want;
     int32_t rate_cents = fm_filter_rate_cents(FRATE);
     int how;
-    for (how = 0; how < 3; how++) {
-        int32_t g_old, base = 6000, env = how == 1 ? 1200 : 0;
-        int changed_in_fade = 0, guard = 0;
+    for (how = 0; how < 2; how++) {
+        int32_t env = how == 1 ? 1200 : 0;
         fm_engine_init(&feng, FRATE, 1);
         fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
         fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
         if (how == 1) { /* held at full: +1200 cents, constant */
             fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_ATTACK_MS, 0);
             fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_SUSTAIN, 1000);
-            fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS,
-                                1200);
+            fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 1200);
         }
         fm_engine_note_on(&feng, 36, 100);
         fm_engine_render(&feng, fbuf_a, 4410);
-        g_old = fm_vfilter_filter(fm_voice_filter(&feng.voices[0]))->t;
         fm_engine_note_on(&feng, 96, 100);
-        while (feng.voices[0].pending && guard++ < 1000) {
-            TT_CHECK(fm_voice_fading(&feng.voices[0], 36)); /* fading 36 throughout */
-            if (how == 2 && guard == 40) {
-                base = 6001;
-                fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS,
-                                    base);
-            }
-            fm_engine_render(&feng, fbuf_a, 1);
-            if (!feng.voices[0].pending) break; /* 96 has started */
-            if (fm_vfilter_phase(fm_voice_filter(&feng.voices[0])) == 15) {
-                /* just updated (every 16 samples): note 36's cutoff
-                 * for the setting in force */
-                fm_filter_reset(&want);
-                fm_filter_set_cutoff(&want,
-                                     fm_filter_voice_cents(
-                                         fm_filter_linear_cents(base), 1000,
-                                         36, env),
-                                     rate_cents);
-                if (fm_vfilter_filter(fm_voice_filter(&feng.voices[0]))->t != want.t) changed_in_fade = 1;
-            }
-        }
-        if (changed_in_fade)
-            printf("    case %d: not note 36's cutoff in the fade\n", how);
-        TT_CHECK(!changed_in_fade);
-        fm_engine_render(&feng, fbuf_a, 32);
-        TT_CHECK(fm_vfilter_filter(fm_voice_filter(&feng.voices[0]))->t > g_old); /* the new note's */
+        fm_engine_render(&feng, fbuf_a, 1);
+        fm_filter_reset(&want);
+        fm_filter_set_cutoff(&want, fm_filter_voice_cents(fm_filter_linear_cents(6000), 1000, 96, env), rate_cents);
+        TT_CHECK_EQ(fm_vfilter_filter(fm_voice_filter(&feng.voices[0]))->t, want.t);
     }
 }
 
 /*
- * A mode switch during a steal fade: the voice still starts the waiting
- * note when the fade ends (it then belongs to no key), and its filter
- * tracks that note, not the no-note marker.
+ * A mode switch right after a steal: the voice plays the new note, which
+ * then belongs to no key, and its filter tracks that note, not the
+ * no-note marker.
  */
-TT_TEST(mode_switch_during_a_steal_fade_tracks_the_waiting_note)
+TT_TEST(mode_switch_after_a_steal_tracks_the_new_note)
 {
     static fm_filter want;
-    int guard = 0;
     int32_t rate_cents = fm_filter_rate_cents(FRATE);
     fm_engine_init(&feng, FRATE, 1);
     fm_engine_set_param(&feng, FM_PARAM_FILTER_CUTOFF_CENTS, 6000);
     fm_engine_set_param(&feng, FM_PARAM_FILTER_KEY_TRACK, 1000);
     fm_engine_note_on(&feng, 36, 100);
     fm_engine_render(&feng, fbuf_a, 4410);
-    fm_engine_note_on(&feng, 96, 100); /* steal: 96 waits for the fade */
+    fm_engine_note_on(&feng, 96, 100); /* steal: 96 starts at once */
     fm_engine_set_param(&feng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
-    while (feng.voices[0].pending && guard++ < 1000) {
-        TT_CHECK(fm_voice_fading(&feng.voices[0], 36)); /* fading 36 throughout */
-        fm_engine_render(&feng, fbuf_a, 1);
-    }
     fm_engine_render(&feng, fbuf_a, 32);
     fm_filter_reset(&want);
     fm_filter_set_cutoff(&want,
@@ -2268,7 +2201,7 @@ static int filter_envs_match(fm_engine *a, fm_engine *b)
  * sound, and the render catches it up (fm_env_advance) only when it is
  * read and before a gate or setting change. It must stay exactly where
  * it would have been: against an engine whose amount is non-zero all
- * along, through notes, a retrigger, a steal, a queued release, a
+ * along, through notes, a retrigger, a steal, a release right after it, a
  * setting change, and the amount turned up mid-note. Both engines are
  * caught up the same way, so the first stretch also holds them to an
  * envelope stepped every sample (`ref`), through the attack and a retime.
@@ -2307,9 +2240,9 @@ TT_TEST(filter_envelope_skipped_at_zero_amount_stays_in_time)
     ok &= filter_envs_match(&a, &b);
     fm_engine_note_on(&a, 64, 100);
     fm_engine_note_on(&b, 64, 100);
-    fm_engine_note_on(&a, 67, 100); /* steals: waits for the fade */
+    fm_engine_note_on(&a, 67, 100); /* steals: starts at once */
     fm_engine_note_on(&b, 67, 100);
-    fm_engine_note_off(&a, 67); /* queued release */
+    fm_engine_note_off(&a, 67); /* released at once */
     fm_engine_note_off(&b, 67);
     fm_engine_render(&a, fbuf_a, 333);
     fm_engine_render(&b, fbuf_b, 333);
@@ -2518,13 +2451,12 @@ TT_TEST(filter_envelope_runs_at_the_control_rate_and_stays_exact)
 }
 
 /*
- * A steal leaves the filter envelope running (only the amp fades) and a
- * take-back (the stolen note played again mid fade) gates it on again
- * from where it is: through both, mid control period, it stays equal to
- * an envelope stepped every sample, and the take-back's first sample
- * sets the cutoff from that envelope's level.
+ * A steal gates the filter envelope on again from where it is, and so
+ * does a second steal back to the first note: through both, mid control
+ * period, it stays equal to an envelope stepped every sample, and the
+ * second steal's first sample sets the cutoff from that envelope's level.
  */
-TT_TEST(filter_envelope_through_a_steal_and_take_back_stays_exact)
+TT_TEST(filter_envelope_through_two_steals_stays_exact)
 {
     fm_env ref;
     int ok = 1;
@@ -2537,10 +2469,11 @@ TT_TEST(filter_envelope_through_a_steal_and_take_back_stays_exact)
     fm_engine_note_on(&feng, 60, 100);
     ref_beside(&ref, &feng, 1); /* gated on, not yet stepped */
     render_beside(&feng, &ref, 301); /* in the decay */
-    fm_engine_note_on(&feng, 64, 100); /* steals the only voice: a fade */
+    fm_engine_note_on(&feng, 64, 100); /* steals the only voice: gated on */
+    fm_env_gate_on(&ref);
     render_beside(&feng, &ref, 19);
     ok &= fenv_matches(&feng, &ref);
-    fm_engine_note_on(&feng, 60, 100); /* taken back mid fade */
+    fm_engine_note_on(&feng, 60, 100); /* steals it back */
     fm_env_gate_on(&ref);
     render_beside(&feng, &ref, 1);
     ok &= fm_vfilter_cutoff(fm_voice_filter(&feng.voices[0])) == fm_filter_voice_cents(fm_filter_linear_cents(4200), 0, 60,
@@ -2614,10 +2547,7 @@ TT_TEST(legato_note_change_reads_the_current_filter_envelope)
 /*
  * Renders `frames` one sample at a time and steps the reference `ref`
  * with fm_env_next beside voice 0's amp envelope; 1 if they match in
- * level and stage after every sample. Gates come from the engine: when
- * the voice starts a note from idle (a steal's fade ended), `ref` is
- * gated on at the voice's peak, before that sample's step, as the voice
- * does.
+ * level and stage after every sample.
  */
 static int amp_env_beside(fm_engine *e, fm_env *ref, uint32_t frames)
 {
@@ -2626,10 +2556,6 @@ static int amp_env_beside(fm_engine *e, fm_env *ref, uint32_t frames)
     for (i = 0; i < frames; i++) {
         const fm_env *amp = &e->voices[0].amp_env;
         fm_engine_render(e, fbuf_a, 1);
-        if (ref->stage == FM_ENV_IDLE && amp->stage != FM_ENV_IDLE) {
-            ref->peak = amp->peak; /* started this sample: gate on, then step */
-            fm_env_gate_on(ref);
-        }
         fm_env_next(ref);
         ok &= amp->level == ref->level && amp->stage == ref->stage &&
               amp->step == ref->step;
@@ -2641,8 +2567,8 @@ static int amp_env_beside(fm_engine *e, fm_env *ref, uint32_t frames)
  * The amp envelope in the render loop is exactly fm_env_next every
  * sample: level and stage after each sample, against a reference stepped
  * beside it, through the attack, a release from the attack, a retrigger
- * from the release, decay into sustain, a steal (its fade, then the new
- * note from silence), a take-back mid fade, and a unison legato
+ * from the release, decay into sustain, a steal (the new note from the
+ * current level), a steal back, another steal, and a unison legato
  * fall-back (no new gate).
  */
 TT_TEST(amp_envelope_in_the_render_matches_env_next_every_sample)
@@ -2666,14 +2592,16 @@ TT_TEST(amp_envelope_in_the_render_matches_env_next_every_sample)
     fm_env_gate_on(&ref);
     ok &= amp_env_beside(&feng, &ref, 5003); /* decay, then sustain */
     fm_engine_note_on(&feng, 55, 100);       /* steals the only voice */
-    fm_env_fade(&ref, feng.voices[0].wait);
+    ref.peak = feng.voices[0].amp_env.peak;
+    fm_env_gate_on(&ref);
     ok &= amp_env_beside(&feng, &ref, 17);
-    fm_engine_note_on(&feng, 48, 100);       /* taken back mid fade */
+    fm_engine_note_on(&feng, 48, 100);       /* steals it back */
     ref.peak = feng.voices[0].amp_env.peak;
     fm_env_gate_on(&ref);
     ok &= amp_env_beside(&feng, &ref, 999);
-    fm_engine_note_on(&feng, 60, 100);       /* steals again: fade, then 60 */
-    fm_env_fade(&ref, feng.voices[0].wait);
+    fm_engine_note_on(&feng, 60, 100);       /* steals again */
+    ref.peak = feng.voices[0].amp_env.peak;
+    fm_env_gate_on(&ref);
     ok &= amp_env_beside(&feng, &ref, 3001);
     TT_CHECK(ok);
 
@@ -3175,10 +3103,9 @@ static void run_filter_tests(void)
     TT_RUN(unison_note_change_gets_its_cutoff_from_the_first_sample);
     TT_RUN(mode_switch_release_keeps_the_key_tracked_cutoff);
     TT_RUN(filter_envelope_follows_the_key);
-    TT_RUN(stolen_voice_starts_the_filter_envelope_from_zero);
-    TT_RUN(idle_voice_starts_the_filter_envelope_from_zero);
-    TT_RUN(steal_fade_keeps_the_old_notes_key_tracked_cutoff);
-    TT_RUN(mode_switch_during_a_steal_fade_tracks_the_waiting_note);
+        TT_RUN(idle_voice_starts_the_filter_envelope_from_zero);
+    TT_RUN(a_steal_tracks_the_new_notes_cutoff_at_once);
+    TT_RUN(mode_switch_after_a_steal_tracks_the_new_note);
     TT_RUN(highpass_turned_on_mid_note_does_not_click);
     TT_RUN(leaving_the_open_filter_continues_from_a_consistent_state);
     TT_RUN(unison_note_change_keeps_the_control_cadence);
@@ -3218,7 +3145,7 @@ static void run_filter_tests(void)
     TT_RUN(filter_envelope_runs_at_the_control_rate_and_stays_exact);
     TT_RUN(legato_note_change_reads_the_current_filter_envelope);
     TT_RUN(filter_envelope_for_the_mix_alone_stays_exact);
-    TT_RUN(filter_envelope_through_a_steal_and_take_back_stays_exact);
+    TT_RUN(filter_envelope_through_two_steals_stays_exact);
     TT_RUN(envelope_amount_to_zero_returns_the_cutoff_to_its_setting);
     TT_RUN(open_filter_without_envelope_matches_the_full_render);
     TT_RUN(open_filter_with_sync_and_xmod_matches_the_full_render);

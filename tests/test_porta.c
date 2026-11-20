@@ -206,10 +206,10 @@ TT_TEST(porta_unison_mid_glide_goes_on_from_where_it_is)
     TT_CHECK_EQ(pt_eng.voices[0].pitch, before);
 }
 
-/* a note waiting for a stolen voice keeps its glide when it moves to another voice: 2 voices, C3 then C4
- * held; C5 steals C3's voice and waits there (gliding from C4); C3 struck again takes that voice back,
- * 2 ms into the steal fade, and C5 moves to C4's voice, its glide as far on as it was (Codex P3-1 on #301) */
-TT_TEST(porta_moved_waiting_note_keeps_its_glide)
+/* a stealing note keeps its glide when the stolen key comes back: 2 voices, C3 then C4 held; C5 steals
+ * C3's voice (gliding from C4); C3 struck again 2 ms on steals C4's voice, the oldest held, and C5 glides on
+ * where it is (Codex P3-1 on #301) */
+TT_TEST(porta_stealing_note_keeps_its_glide_when_the_stolen_key_comes_back)
 {
     double p;
     TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 2), FM_OK);
@@ -247,9 +247,9 @@ TT_TEST(porta_same_note_again_mid_glide_lands)
     TT_CHECK(p == 60.0);
 }
 
-/* a note that steals a voice glides through the steal fade: 2 voices, C3 and C4 held; C5 steals C3's
- * voice and, once that has faded, is just above C4 (it glides from C4) */
-TT_TEST(porta_stealing_note_glides_through_the_fade)
+/* a note that steals a voice glides from the last note played: 2 voices, C3 and C4 held; C5 steals C3's
+ * voice and 10 ms on is just above C4 (it glides from C4) */
+TT_TEST(porta_stealing_note_glides_from_the_last_note)
 {
     double p;
     TT_CHECK_EQ(fm_engine_init(&pt_eng, PT_RATE, 2), FM_OK);
@@ -299,8 +299,8 @@ static void run_porta_tests(void)
     TT_RUN(porta_each_note_glides_from_the_last_played);
     TT_RUN(porta_stops_on_a_voice_gone_quiet);
     TT_RUN(porta_unison_mid_glide_goes_on_from_where_it_is);
-    TT_RUN(porta_moved_waiting_note_keeps_its_glide);
+    TT_RUN(porta_stealing_note_keeps_its_glide_when_the_stolen_key_comes_back);
     TT_RUN(porta_same_note_again_mid_glide_lands);
-    TT_RUN(porta_stealing_note_glides_through_the_fade);
+    TT_RUN(porta_stealing_note_glides_from_the_last_note);
     TT_RUN(porta_sequencer_and_keys_share_the_last_note);
 }

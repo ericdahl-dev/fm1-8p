@@ -14,8 +14,6 @@
 /* Below 8 kHz slow LFO and delay settings lose precision. */
 #define MIN_SAMPLE_RATE 8000u
 #define MAX_SAMPLE_RATE 192000u
-/* A stolen voice fades out over this long before its new note starts. */
-#define STEAL_FADE_MS 3
 /* the gate's release time constant (#63), tenths of a ms: PG-8X 2.0.13's, from
  * its 1.4 / 2.6 ms to -20 / -40 dB (#160) */
 #define GATE_RELEASE_TENTHS_MS 6u
@@ -80,14 +78,13 @@ static int32_t unison_detune(const fm_engine *e, uint8_t i)
            (2 * (int32_t)i - (n - 1)) / (200 * (n - 1));
 }
 
-/* Retunes every sounding voice after the bend changes. A stolen voice's old note
- * keeps its pitch for the few ms it takes to fade. */
+/* Retunes every sounding voice after the bend changes. */
 static void retune(fm_engine *e)
 {
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) { /* idle voices get theirs at note on */
         fm_voice *v = &e->voices[i];
-        uint8_t note = fm_voice_note(v); /* its note, or the one a steal waits to start */
+        uint8_t note = fm_voice_note(v);
         if (fm_voice_active(v) && note != FM_VOICE_NO_NOTE)
             fm_voice_set_pitch(v, voice_pitch(e, i, note), e->sample_rate);
     }
@@ -689,7 +686,6 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     e->bend = 0;
     e->bend_value = 0;
     unison_reset(e);
-    e->fade_samples = fm_ms_to_samples(STEAL_FADE_MS, e->sample_rate);
     /* the gate (#63): up as fast as PG-8X's fastest attack (about 1.5 ms,
      * as its GATE opens, #274), held at full, down with a 0.6 ms time constant, as
      * PG-8X 2.0.13's GATE falls 20 / 40 dB in 1.4 / 2.6 ms */
@@ -799,9 +795,8 @@ static fm_voice *find_note(fm_engine *e, uint8_t note)
  * The voice a new note takes: an idle one if any, else the oldest
  * released one, else the oldest held one. "Oldest" is the longest since
  * its last note on or off (stamps compared as a wrapping difference).
- * Never `skip`; null if there is no other voice.
  */
-static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
+static fm_voice *pick_voice(fm_engine *e)
 {
     fm_voice *best = 0;
     fm_voice_hold best_rank = FM_VOICE_FREE;
@@ -809,7 +804,6 @@ static fm_voice *pick_voice(fm_engine *e, const fm_voice *skip)
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         fm_voice_hold r = fm_voice_holding(v); /* lower is taken first */
-        if (v == skip) continue;
         if (!best || r < best_rank ||
             (r == best_rank && (int32_t)(fm_voice_stamp(v) - fm_voice_stamp(best)) < 0)) {
             best = v;
@@ -849,46 +843,7 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
     uint8_t i = (uint8_t)(v - e->voices);
     fm_voice_age(v, ++e->stamp);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
-                     e->ticks + 1, e->sample_rate, e->fade_samples);
-}
-
-/* The voice fading `note` out after a steal, or null. */
-static fm_voice *find_fading(fm_engine *e, uint8_t note)
-{
-    uint8_t i;
-    for (i = 0; i < e->voice_count; i++) {
-        fm_voice *v = &e->voices[i];
-        if (fm_voice_fading(v, note)) return v;
-    }
-    return 0;
-}
-
-/*
- * `note` is played again while voice `f` fades it out for a steal: `f`
- * takes it back, so one pitch is never on two voices, and the note that
- * was waiting for `f` gets a voice by the usual rule. With no other
- * voice (or if its key already came up) that waiting note is dropped:
- * the newest note wins. `peak` and `velocity` are the new strike's; the
- * waiting note keeps its own, which `f` still holds in next_peak and
- * next_velocity.
- */
-static void take_back(fm_engine *e, fm_voice *f, uint8_t note, int32_t peak,
-                      uint8_t velocity)
-{
-    fm_voice_waiting moved = fm_voice_waiting_note(f);
-    fm_voice *w;
-    int32_t glide = e->porta[f - e->voices];    /* the waiting note's: it takes it along */
-    porta_start(e, (uint8_t)(f - e->voices), note);
-    fm_voice_take_back(f, &e->mod, voice_pitch(e, (uint8_t)(f - e->voices), note),
-                       peak, velocity, e->ticks + 1, e->sample_rate);
-    fm_voice_age(f, ++e->stamp);
-    if (!moved.key_down && !moved.sustained) return;
-    w = pick_voice(e, f);
-    if (!w) return;
-    e->porta[w - e->voices] = glide;
-    if (glide) e->porta_moving = 1;
-    poly_play(e, w, moved.note, moved.peak, moved.velocity);
-    if (!moved.key_down) fm_voice_key_up(w, 1); /* held by the pedal */
+                     e->ticks + 1, e->sample_rate);
 }
 
 /* Drops `note` from the unison held-key list, if it is there. Returns
@@ -976,12 +931,7 @@ void fm_engine_note_on(fm_engine *e, uint8_t note, uint8_t velocity)
         int32_t peak = velocity_peak(e, velocity);
         fm_voice *v = find_note(e, note);
         if (!v) {
-            fm_voice *f = find_fading(e, note);
-            if (f) {
-                take_back(e, f, note, peak, velocity);
-                return;
-            }
-            v = pick_voice(e, 0);
+            v = pick_voice(e);
         }
         porta_start(e, (uint8_t)(v - e->voices), note);
         poly_play(e, v, note, peak, velocity);
@@ -1184,8 +1134,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (i = 0; i < n; i++) e->mix[i] = 0;
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
-                fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n, e->sample_rate,
-                                    e->ticks + 1, e->tick_left);
+                fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
