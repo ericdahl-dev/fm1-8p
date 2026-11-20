@@ -120,6 +120,10 @@ def factory(tree):
             if f.param:
                 args += ["-s", f"{names[f.param]}={e[f.name]}"]
         yield f"tone-{i:02d}", "ab.mid", args
+        if i == 17:   # SOUNDTRACK, the boot patch, as the device plays it: 4 voices, a wide chord at 127 (#320)
+            dev = list(args)
+            dev[dev.index("-v") + 1] = "4"
+            yield "tone-17-4v-v127-wide", "wide127.mid", dev
 
 
 def cases(tree):
