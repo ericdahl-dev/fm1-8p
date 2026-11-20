@@ -648,8 +648,288 @@ TT_TEST(save_in_seq_view_keeps_its_own_draft)
     TT_CHECK(ui_u.save_name[0] != 'B');
 }
 
+/* slot 12 holds OTHER; SAVE open on it */
+static void save_on_other(void)
+{
+    static store_patch other;
+    save_setup();
+    store_from_factory(9, &other);
+    memset(other.name, 0, sizeof other.name);
+    memcpy(other.name, "OTHER", 5);
+    (void)store_slot_write(&store_lib_a, &store_fake_io, 1, &other);
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
+}
+
+/* #303: in SAVE, SEL held 1.5 s (on its release, as SEQ view's clear) on a slot that holds a patch asks
+ * DELETE 12 OTHER? and deletes nothing yet; on an EMPTY slot it does nothing, and a short SEL tap does
+ * nothing either */
+TT_TEST(save_sel_held_asks_to_delete)
+{
+    static store_patch out;
+    save_on_other();
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1200);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 1300);   /* a tap */
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 1400);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 2900);   /* held 1.5 s */
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_DELETE);
+    TT_CHECK(strcmp(ui_u.save_msg, "DELETE 12 OTHER?") == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 3000);  /* 13: empty */
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+}
+
+/* SEL held on slot 12 (OTHER): the question */
+static void save_ask_delete(uint32_t ms)
+{
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, ms);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, ms + 1600u);
+}
+
+/* #303: a second SEL tap deletes the slot. Silent, at once: DELETED 12 shows, the slot is empty (in flash
+ * too) and SAVE stays open on it, now EMPTY */
+TT_TEST(save_sel_again_deletes_the_slot)
+{
+    static store_patch out;
+    save_on_other();
+    save_ask_delete(1200);
+    TT_CHECK(play_silent(&ui_p));
+    save_tap(UI_BTN_SEL, 3000);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), -1);
+    store_lib_load(&store_lib_b, &store_fake_io);
+    TT_CHECK_EQ(store_slot_read(&store_lib_b, 1, &out), -1);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETED 12") == 0);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK_EQ(ui_u.save_dest, 1u);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+    TT_CHECK(!store_slot_used(&store_lib_a, 1));
+}
+
+/* #303: with a note sounding, the delete waits as a save does (DELETING 12 WHEN SILENT, back on the screen
+ * SAVE came from) and is done when silent (DELETED 12); a waiting delete canceled (HOME twice) deletes
+ * nothing, and the next SAVE writes, not deletes */
+TT_TEST(save_delete_waits_for_silence_and_cancels)
+{
+    static store_patch out;
+    uint32_t k;
+    save_on_other();
+    play_note(&ui_p, 60, 100);
+    save_render(4);
+    save_ask_delete(1200);
+    save_tap(UI_BTN_SEL, 3000);
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETING 12 WHEN SILENT") == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    save_tap(UI_BTN_HOME, 3200);
+    save_tap(UI_BTN_HOME, 3400);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVE CANCELED") == 0);
+    play_note(&ui_p, 60, 0);
+    for (k = 0; k < 2000 && !play_silent(&ui_p); k++) save_render(1);
+    (void)ui_take(&ui_u, 6000);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    save_tap(UI_BTN_SAVE, 7000);                /* SAVE onto 11 (empty): a write */
+    save_tap(UI_BTN_SAVE, 7200);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 0, &out), 0);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED 11") == 0);
+    play_note(&ui_p, 60, 100);                  /* and a waiting delete is done when silent */
+    save_render(4);
+    save_tap(UI_BTN_SAVE, 8000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 8100);
+    save_ask_delete(8200);
+    save_tap(UI_BTN_SEL, 10000);
+    play_note(&ui_p, 60, 0);
+    for (k = 0; k < 2000 && !play_silent(&ui_p); k++) save_render(1);
+    (void)ui_take(&ui_u, 11000);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), -1);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETED 12") == 0);
+}
+
+/* #303: the question canceled: HOME cancels it and SAVE stays open (a second HOME leaves, as before); a SAVE
+ * tap while it shows asks REPLACE, as on any slot that holds one; nothing is deleted */
+TT_TEST(save_delete_question_cancels)
+{
+    static store_patch out;
+    save_on_other();
+    save_ask_delete(1200);
+    save_tap(UI_BTN_HOME, 3000);
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+    save_ask_delete(3200);
+    save_tap(UI_BTN_SAVE, 5000);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_CONFIRM);
+    TT_CHECK(strcmp(ui_u.save_msg, "REPLACE 12 OTHER?") == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    TT_CHECK(strcmp(out.name, "OTHER") == 0);
+    save_tap(UI_BTN_HOME, 5200);                /* (at REPLACE, one HOME leaves SAVE, as before) */
+    TT_CHECK_EQ(ui_u.state, UI_EDIT);
+}
+
+/* #303: deleting the slot that is loaded leaves the edit buffer as it is (what plays doesn't change), shown
+ * edited: it no longer matches a saved patch */
+TT_TEST(save_delete_of_the_loaded_slot_keeps_the_sound_edited)
+{
+    int32_t res;
+    uint32_t enc;
+    save_setup();
+    enc = ui_goto(FM_PARAM_FILTER_RESONANCE);
+    ui_event(&ui_u, UI_EV_ENC | enc, 5, 500);
+    res = play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE);
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 1200);                /* saved to 11: loaded, unedited */
+    TT_CHECK_EQ(play_prog(&ui_p), 0u);
+    TT_CHECK(!play_edited(&ui_p));
+    save_tap(UI_BTN_SAVE, 2000);                /* SAVE opens on 11 */
+    TT_CHECK_EQ(ui_u.save_dest, 0u);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 2100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3700);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_DELETE);
+    save_tap(UI_BTN_SEL, 4000);
+    TT_CHECK(!store_slot_used(&store_lib_a, 0));
+    TT_CHECK_EQ(play_get_param(&ui_p, FM_PARAM_FILTER_RESONANCE), res);
+    TT_CHECK(play_edited(&ui_p));
+}
+
+/* #303: a deleted slot is an empty slot everywhere: PRESETS skips it, SAVE's ALGORITHM (next empty) finds it,
+ * and a program change to it is ignored */
+TT_TEST(save_deleted_slot_is_empty_everywhere)
+{
+    save_on_other();                            /* 12 holds OTHER */
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), 1u);   /* P32 -> 12 */
+    save_ask_delete(1200);
+    save_tap(UI_BTN_SEL, 3000);
+    TT_CHECK_EQ(play_prog_step(&ui_p, PLAY_PROG_P + PATCH_COUNT - 1u, 1), PLAY_PROG_P);   /* P32 -> P1 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -1, 3200);   /* on 11 */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 3300);  /* the next empty: 12 again */
+    TT_CHECK_EQ(ui_u.save_dest, 1u);
+    TT_CHECK_EQ(play_load_prog(&ui_p, 1), -1);
+    TT_CHECK_EQ(play_prog(&ui_p), PLAY_PROG_P + PATCH_SOUNDTRACK);
+}
+
+/* #303 in SEQ view's SAVE: SEL held asks DELETE PATTERN 11 B?; with the pattern playing the delete waits as a
+ * save does (DELETING 11 WHEN SILENT) and the playing copy plays on; stopped and silent, the slot is empty
+ * (DELETED PATTERN 11), the pattern in the sequencer is as it was, now edited (the slot would load empty) */
+TT_TEST(save_in_seq_view_deletes_the_playing_pattern)
+{
+    static seq_pattern out;
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t k;
+    save_seq_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1100);   /* "B" */
+    save_tap(UI_BTN_SAVE, 2000);
+    TT_CHECK(pat_slot_used(&save_plib, 0));
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+    seq_play(play_seq(&ui_p));
+    save_render(4);
+    save_tap(UI_BTN_SAVE, 3000);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);
+    TT_CHECK(strcmp(ui_u.save_msg, "DELETE 11 B?") == 0);   /* (SEQ's SAVE says PATTERN) */
+    save_tap(UI_BTN_SEL, 5000);
+    (void)ui_take(&ui_u, 5100);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETING 11 WHEN SILENT") == 0);
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    TT_CHECK(pat_slot_used(&save_plib, 0));
+    TT_CHECK(seq_playing(play_seq(&ui_p)));
+    seq_stop(play_seq(&ui_p));
+    for (k = 0; k < 20000u && !play_silent(&ui_p); k++)
+        save_render(1);
+    (void)ui_take(&ui_u, 6000);
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 0, &out, name), -1);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETED PATTERN 11") == 0);
+    TT_CHECK_EQ(play_seq(&ui_p)->edit.step[0].note[0], 60u);
+    TT_CHECK(seq_edited(play_seq(&ui_p)));
+}
+
+/* #303 (FW review): the longest question, a pattern's with a 12-character name, fits the screen's 30
+ * characters (8 px each in 240) */
+TT_TEST(save_delete_question_fits_the_screen)
+{
+    save_seq_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1100);
+    memcpy(ui_u.save_name, "ABCDEFGHIJKL", 12);
+    save_tap(UI_BTN_SAVE, 2000);                /* saved as pattern 11, a 12-character name */
+    TT_CHECK(pat_slot_used(&save_plib, 0));
+    save_tap(UI_BTN_SAVE, 3000);
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_DELETE);
+    if (strlen(ui_u.save_msg) > 30u) printf("    %u characters: %s\n", (unsigned)strlen(ui_u.save_msg), ui_u.save_msg);
+    TT_CHECK(strlen(ui_u.save_msg) <= 30u);
+}
+
+/* #303 (FW review): a SEL hold that began before SAVE opened (the number jump's) doesn't ask to delete when
+ * it is let go, even 1.5 s on, on a slot that holds a patch */
+TT_TEST(save_sel_held_from_before_save_does_not_ask)
+{
+    save_setup();
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 1200);                /* 11 holds the patch, loaded */
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 2000);
+    save_tap(UI_BTN_SAVE, 2100);                /* SAVE opens on 11 with SEL held */
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 3700);
+    TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
+}
+
+/* #303 (FW review): a pattern slot deleted while it is queued to take over (a forced delete while SEQ plays):
+ * once it has taken over, the pattern shows edited against the empty slot, not as the copy it came from */
+TT_TEST(save_delete_of_the_queued_pattern_shows_edited_after_it_takes_over)
+{
+    static seq_pattern pat;
+    uint32_t k;
+    save_seq_setup();
+    play_pattern_snapshot(&ui_p, &pat);
+    TT_CHECK_EQ(play_pattern_write(&ui_p, 0, &pat, "A"), 0);
+    TT_CHECK_EQ(play_pattern_write(&ui_p, 1, &pat, "B"), 0);
+    play_load_pattern(&ui_p, 0);
+    seq_play(play_seq(&ui_p));
+    save_render(4);
+    play_load_pattern(&ui_p, 1);                /* queued: 12 takes over after the pass */
+    TT_CHECK(seq_next_queued(play_seq(&ui_p)));
+    TT_CHECK_EQ(play_pattern_delete(&ui_p, 1), 0);
+    for (k = 0; k < 40000u && seq_next_queued(play_seq(&ui_p)); k++) {
+        save_render(1);
+        play_pattern_tick(&ui_p);
+    }
+    play_pattern_tick(&ui_p);
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    TT_CHECK(seq_edited(play_seq(&ui_p)));
+}
+
+/* #303: a delete whose flash write fails says DELETE FAILED and leaves the slot as it was */
+TT_TEST(save_failed_delete_says_so)
+{
+    static store_patch out;
+    save_on_other();
+    save_ask_delete(1200);
+    store_flash.fail = 1;
+    save_tap(UI_BTN_SEL, 3000);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETE FAILED") == 0);
+    TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
+    TT_CHECK(strcmp(out.name, "OTHER") == 0);
+    store_flash.fail = 0;
+}
+
 static void run_ui_save_tests(void)
 {
+    TT_RUN(save_sel_held_asks_to_delete);
+    TT_RUN(save_sel_again_deletes_the_slot);
+    TT_RUN(save_delete_waits_for_silence_and_cancels);
+    TT_RUN(save_delete_question_cancels);
+    TT_RUN(save_delete_of_the_loaded_slot_keeps_the_sound_edited);
+    TT_RUN(save_deleted_slot_is_empty_everywhere);
+    TT_RUN(save_in_seq_view_deletes_the_playing_pattern);
+    TT_RUN(save_delete_question_fits_the_screen);
+    TT_RUN(save_sel_held_from_before_save_does_not_ask);
+    TT_RUN(save_delete_of_the_queued_pattern_shows_edited_after_it_takes_over);
+    TT_RUN(save_failed_delete_says_so);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);
     TT_RUN(save_writes_the_edit_buffer_when_silent);

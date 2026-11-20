@@ -47,6 +47,7 @@ typedef struct {
     volatile uint32_t sounding;         /* ISR writes after each block: the voices sounding */
     uint32_t live_mod;                  /* ISR only: the last MIDI CC1 (#42: where a stop returns the mod) */
     uint32_t prog;                      /* main loop: the program playing (PLAY_PROG_P + n: P n+1) */
+    uint32_t prog_gone;                 /* main loop: 1 when its slot was deleted (#303): edited, whatever */
     char name[STORE_NAME_LEN + 1u];     /* main loop: its name */
     /* compare (EDIT held): the edit buffer, kept while the stored patch sounds */
     int32_t edit[FM_PARAM_COUNT];
@@ -60,6 +61,7 @@ typedef struct {
     uint32_t store_read;                /* main loop: the banks read so far, all kinds (the boot's bar) */
     uint32_t pat_prog;
     int32_t pat_next;
+    uint32_t pat_next_gone;              /* main loop: its slot was deleted while it waited (#303) */
     char pat_name[STORE_NAME_LEN + 1u];
     char pat_next_name[STORE_NAME_LEN + 1u];
     seq_event seq_ev[SEQ_EVENTS];       /* ISR only: a block's sequencer notes, static (not on its stack) */
@@ -109,6 +111,8 @@ void play_pattern_snapshot(const play *p, seq_pattern *snap);
 int play_pattern_write(play *p, uint32_t dest, const seq_pattern *snap, const char *name);
 /* play_pattern_snapshot then play_pattern_write, at once */
 int play_pattern_save(play *p, uint32_t dest, const char *name);
+/* Empties pattern slot dest (#303): 0, or -1 when the write failed. What plays stays as it is. */
+int play_pattern_delete(play *p, uint32_t dest);
 /* main loop: 1 when nothing sounds, no note waits to, and the sequencer is stopped (a flash write may
  * stall the sound then; #201) */
 uint32_t play_silent(const play *p);
@@ -119,6 +123,8 @@ void play_snapshot(const play *p, const char *name, store_patch *s);
 /* main loop: s into user slot `dest` and its bank to flash: 0, or -1 when the write failed. When the
  * edit buffer still equals s, that slot becomes the stored patch playing (no longer edited). */
 int play_save(play *p, uint32_t dest, const store_patch *s);
+/* Empties user slot dest (#303): 0, or -1 when the write failed. What plays stays as it is. */
+int play_delete(play *p, uint32_t dest);
 /* The patch playing. */
 const patch *play_patch(const play *p);
 /* main loop: load PATCHES[i] (PRESETS): the next render lets the sounding notes go and applies every

@@ -123,7 +123,7 @@ TT_TEST(play_holds_play_voices_notes_at_once)
     TT_CHECK_EQ(play_init(&pl_a), 0);
     for (k = 0; k < PLAY_VOICES + 1u; k++)
         play_note(&pl_a, 48u + 2u * k, 100);
-    pl_render_for(&pl_a, 8);                    /* past the stolen voice's fade */
+    pl_render_for(&pl_a, 8);                    /* the steal starts at once */
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), PLAY_VOICES);
 }
 

@@ -96,6 +96,33 @@ TT_TEST(pattern_empty_slot_loads_the_empty_pattern)
     TT_CHECK(ok);
 }
 
+/* A delete (#303) empties the pattern slot, in flash too (still empty after a power cycle); the other slots
+ * of its bank keep every byte; a delete whose save fails leaves the slot as it was. */
+TT_TEST(pattern_slot_clear_empties_it_for_good)
+{
+    static seq_pattern in, out;
+    static uint8_t before[STORE_BANK_BYTES];
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t i, same = 1;
+    store_flash_blank();
+    pat_lib_load(&pat_lib_a, &store_fake_io);
+    pat_sample(&in);
+    for (i = 0; i < 6; i++)
+        TT_CHECK_EQ(pat_slot_write(&pat_lib_a, &store_fake_io, i, &in, "KEEP"), 0);
+    memcpy(before, pat_lib_a.img[0], STORE_BANK_BYTES);
+    TT_CHECK_EQ(pat_slot_clear(&pat_lib_a, &store_fake_io, 3), 0);
+    TT_CHECK(!pat_slot_used(&pat_lib_a, 3));
+    pat_lib_load(&pat_lib_b, &store_fake_io);
+    TT_CHECK_EQ(pat_slot_read(&pat_lib_b, 3, &out, name), -1);
+    for (i = 0; i < STORE_BANK_BYTES; i++)
+        if (i / STORE_SLOT_BYTES != 3u)
+            same &= pat_lib_b.img[0][i] == before[i];
+    TT_CHECK(same);
+    store_flash.fail = 1;
+    TT_CHECK_EQ(pat_slot_clear(&pat_lib_a, &store_fake_io, 4), -1);
+    TT_CHECK(pat_slot_used(&pat_lib_a, 4));
+}
+
 /* A failed flash write leaves the slot as it was, in RAM too. */
 TT_TEST(pattern_failed_write_leaves_the_slot)
 {
@@ -250,6 +277,7 @@ TT_TEST(pattern_any_record_decodes_in_range)
 
 static void run_pattern_store_tests(void)
 {
+    TT_RUN(pattern_slot_clear_empties_it_for_good);
     TT_RUN(pattern_saved_loads_identically);
     TT_RUN(pattern_empty_slot_loads_the_empty_pattern);
     TT_RUN(pattern_failed_write_leaves_the_slot);
