@@ -606,6 +606,7 @@ TT_TEST(raising_sustain_mid_decay_glides_instead_of_jumping)
 static int saws_peak(int32_t osc1, int32_t osc2)
 {
     fm_engine_init(&eng, RATE, 1);
+    eng.start = &tt_start_zero; /* phase 0 (#154): the peak 5558 was read from a phase-0 start */
     fm_engine_set_param(&eng, FM_PARAM_OSC1_LEVEL, osc1);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_LEVEL, osc2);
     fm_engine_note_on(&eng, 57, 127);
