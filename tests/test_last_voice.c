@@ -260,6 +260,22 @@ TT_TEST(a_key_gets_its_voice_back_across_the_event_count_wrap)
     TT_CHECK_EQ(lv_voice(60), c);
 }
 
+/* 12. a mode switch starts clean: unison's note, left on idle voices, is no voice's last note in poly (Codex
+ * P2 on #164, round 3). Two voices: C4 in unison, let go, idle; in poly C4 takes the longest idle voice
+ * (the first, let go first), not the newest */
+TT_TEST(a_mode_switch_clears_every_voices_last_note)
+{
+    uint8_t i;
+    lv_init(2);
+    TT_CHECK_EQ(fm_engine_set_param(&lv_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON), FM_OK);
+    lv_tap(60);
+    TT_CHECK_EQ(fm_engine_active_voices(&lv_eng), 0);
+    TT_CHECK_EQ(fm_engine_set_param(&lv_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY), FM_OK);
+    for (i = 0; i < lv_eng.voice_count; i++) TT_CHECK_EQ(fm_voice_note(&lv_eng.voices[i]), FM_VOICE_NO_NOTE);
+    fm_engine_note_on(&lv_eng, 60, 100);
+    TT_CHECK_EQ(lv_voice(60), 0);
+}
+
 static void run_last_voice_tests(void)
 {
     TT_RUN(a_key_played_again_gets_its_idle_voice_back);
@@ -273,4 +289,5 @@ static void run_last_voice_tests(void)
     TT_RUN(all_sound_off_in_a_steal_fade_keeps_the_sounded_note);
     TT_RUN(all_sound_off_after_a_mode_switch_in_a_steal_fade_keeps_no_note);
     TT_RUN(a_key_gets_its_voice_back_across_the_event_count_wrap);
+    TT_RUN(a_mode_switch_clears_every_voices_last_note);
 }
