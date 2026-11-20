@@ -276,6 +276,28 @@ TT_TEST(a_mode_switch_clears_every_voices_last_note)
     TT_CHECK_EQ(lv_voice(60), 0);
 }
 
+/* 13. our choice (PG-8X not measured here): all sound off on a plain sounding voice keeps its last note. Two
+ * voices: C4 held on voice c, D4 on the other and let go; CC 120; C4 again gets voice c back, though D4's
+ * voice is the longer idle (Codex P3 on #309) */
+TT_TEST(all_sound_off_on_a_sounding_voice_keeps_its_last_note)
+{
+    int c;
+    lv_init(2);
+    fm_engine_note_on(&lv_eng, 62, 100);
+    fm_engine_note_off(&lv_eng, 62);
+    fm_engine_note_on(&lv_eng, 60, 100);
+    lv_run(10);
+    c = lv_voice(60);
+    fm_engine_controller(&lv_eng, 120, 0);
+    fm_engine_note_off(&lv_eng, 60);
+    lv_run(10);
+    TT_CHECK_EQ(fm_engine_active_voices(&lv_eng), 0);
+    TT_CHECK(c >= 0);
+    if (c >= 0) TT_CHECK_EQ(fm_voice_note(&lv_eng.voices[c]), 60);
+    fm_engine_note_on(&lv_eng, 60, 100);
+    TT_CHECK_EQ(lv_voice(60), c);
+}
+
 static void run_last_voice_tests(void)
 {
     TT_RUN(a_key_played_again_gets_its_idle_voice_back);
@@ -290,4 +312,5 @@ static void run_last_voice_tests(void)
     TT_RUN(all_sound_off_after_a_mode_switch_in_a_steal_fade_keeps_no_note);
     TT_RUN(a_key_gets_its_voice_back_across_the_event_count_wrap);
     TT_RUN(a_mode_switch_clears_every_voices_last_note);
+    TT_RUN(all_sound_off_on_a_sounding_voice_keeps_its_last_note);
 }

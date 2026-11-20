@@ -864,6 +864,8 @@ static fm_voice *find_last(fm_engine *e, uint8_t note)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
+        /* (find_note runs first and takes any sounding voice with `note`, so the
+         * FREE test never fails here; it stays as a defense) */
         if (fm_voice_holding(v) == FM_VOICE_FREE && fm_voice_note(v) == note) return v;
     }
     return 0;
