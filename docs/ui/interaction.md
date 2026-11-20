@@ -431,6 +431,25 @@ view. The flow is the same for both; only the slots differ.
      snapshot. Otherwise EDITED stays.
    - A failed write shows `SAVE FAILED` and keeps the edit buffer dirty.
 
+7. **Delete (#303):** SEL held 1.5 s (on its release, as SEQ view's clear) on
+   a destination that holds a patch asks `DELETE 23 <NAME>?` (in SEQ view
+   `DELETE PATTERN 23 <NAME>?`), `SEL AGAIN TO DELETE` and `HOME CANCELS`. On an
+   `EMPTY` slot, and on a short tap, SEL does nothing. P slots can't be
+   reached (PRESETS walks the user slots).
+   - **A second SEL tap** deletes it. Silent, at once: `DELETED 23` (or
+     `DELETED PATTERN 23`) shows for 1.5 s, and SAVE stays open on the slot,
+     now `EMPTY`. Otherwise it waits as a write does: `DELETING 23 WHEN
+     SILENT`, back where SAVE was pressed, SAVE held forces it, HOME twice
+     cancels it. A pattern that is playing plays on until then.
+   - **HOME** cancels the question only (SAVE stays open), and turning PRESETS
+     to another slot does too. A SAVE tap while it shows asks `REPLACE` as on
+     any slot that holds one.
+   - The slot is then empty, in flash too (a power cycle keeps it so): PRESETS
+     skips it, ALGORITHM finds it, a program change to it is ignored.
+     Deleting the slot that is loaded leaves what plays as it is, shown
+     edited (for a pattern: edited against the empty pattern the slot now
+     loads). A failed delete shows `DELETE FAILED`.
+
 A patch never includes a pattern, and a pattern never includes a sound
 (decision Q2).
 
@@ -941,7 +960,8 @@ Everywhere, unless the state says otherwise:
   - the destination slot number;
   - the name currently in that slot, or EMPTY;
   - the new name with the cursor position;
-  - the step: editing, confirm replace, waiting for silence, saved, or failed.
+  - the step: editing, confirm replace, confirm delete, waiting for silence,
+    saved, deleted, or failed.
 - **Must:** which controls do what: PRESETS for the slot, SELECT for the
   cursor, K1 for the character, K2 for insert or delete, SAVE to write, HOME to
   cancel.
@@ -1053,7 +1073,7 @@ stateDiagram-v2
 
 | Button | PLAY | EDIT | SEQ | SAVE | GLO |
 | --- | --- | --- | --- | --- | --- |
-| SEL | tap: DCO ring; hold: number jump | same | REST or clear step; hold 1.5 s: clear pattern | - | - |
+| SEL | tap: DCO ring; hold: number jump | same | REST or clear step; hold 1.5 s: clear pattern | hold 1.5 s: delete the slot (asks); tap: confirms it (#303) | - |
 | ENV | VCF/VCA ring | same | TIE | - | - |
 | LFO | LFO ring | same | JUMP or GLIDE | - | - |
 | FX | CTRL page | same | BACK (in REC) | - | - |
