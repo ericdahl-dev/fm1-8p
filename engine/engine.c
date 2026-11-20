@@ -855,8 +855,9 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
 /*
  * The idle voice whose last note was `note`, or null: a key played again
  * gets its last voice back, as on PG-8X 2.0.13 (#164), unless another key
- * has played that voice since. A voice never played (stamp 0) has no last
- * note. Of several (unison leaves every voice on its note), the newest.
+ * has played that voice since. A voice never played has no last note
+ * (FM_VOICE_NO_NOTE). Of several (unison leaves every voice on its note),
+ * the newest.
  */
 static fm_voice *find_last(fm_engine *e, uint8_t note)
 {
@@ -864,7 +865,7 @@ static fm_voice *find_last(fm_engine *e, uint8_t note)
     uint8_t i;
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
-        if (fm_voice_holding(v) != FM_VOICE_FREE || fm_voice_note(v) != note || !fm_voice_stamp(v))
+        if (fm_voice_holding(v) != FM_VOICE_FREE || fm_voice_note(v) != note)
             continue;
         if (!best || (int32_t)(fm_voice_stamp(v) - fm_voice_stamp(best)) > 0) best = v;
     }

@@ -105,7 +105,7 @@ static inline fm_voice_hold fm_voice_holding(const fm_voice *v)
 }
 
 /* The note the voice plays, or the one a steal fade waits to start
- * (FM_VOICE_NO_NOTE after a voice-mode switch). */
+ * (FM_VOICE_NO_NOTE before its first note, or after a voice-mode switch). */
 static inline uint8_t fm_voice_note(const fm_voice *v)
 {
     return v->note;

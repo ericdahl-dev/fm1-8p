@@ -42,7 +42,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->lfo_start = 0;
     v->next_peak = FM_ENV_FULL;
     v->velocity = v->next_velocity = 127;
-    v->note = 0;
+    v->note = FM_VOICE_NO_NOTE; /* no last note yet (#164) */
     v->old_note = 0;
     v->key_down = 0;
     v->sustained = 0;
@@ -396,7 +396,8 @@ void fm_voice_silence(fm_voice *v)
     fm_env_reset(&v->filter_env);
     fm_env_reset(&v->env2);
     fm_vfilter_clear(&v->vf); /* no ringing left for the next note */
-    if (v->pending) v->note = v->old_note; /* the waiting note never sounded here (#164) */
+    if (v->pending && v->note != FM_VOICE_NO_NOTE) /* (a mode switch cleared it: stays clear) */
+        v->note = v->old_note; /* the waiting note never sounded here (#164) */
     v->pending = 0;
     fm_voice_mark(v, FM_BUSY_STEAL, 0);
     v->gate_left = 0;

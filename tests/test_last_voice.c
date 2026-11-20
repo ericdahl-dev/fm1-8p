@@ -219,6 +219,47 @@ TT_TEST(all_sound_off_in_a_steal_fade_keeps_the_sounded_note)
     TT_CHECK_EQ(lv_voice(64), d);
 }
 
+/* 10. a mode switch in a steal fade clears the voice's note; all sound off after it keeps it cleared
+ * (Codex P2 on #164, round 2) */
+TT_TEST(all_sound_off_after_a_mode_switch_in_a_steal_fade_keeps_no_note)
+{
+    int c;
+    lv_init(2);
+    fm_engine_note_on(&lv_eng, 60, 100);
+    lv_run(10);
+    fm_engine_note_on(&lv_eng, 62, 100);
+    lv_run(10);
+    c = lv_voice(60);
+    fm_engine_note_on(&lv_eng, 64, 100); /* steals C4's voice */
+    lv_run(1);
+    TT_CHECK_EQ(fm_engine_set_param(&lv_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON), FM_OK);
+    fm_engine_controller(&lv_eng, 120, 0);
+    TT_CHECK_EQ(fm_engine_set_param(&lv_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY), FM_OK);
+    TT_CHECK(c >= 0);
+    if (c >= 0) TT_CHECK_EQ(fm_voice_note(&lv_eng.voices[c]), FM_VOICE_NO_NOTE);
+}
+
+/* 11. the event count wrapping to 0 on a note off still leaves the voice its key's (Codex P3 on #164). Two
+ * voices: D4 held, C4 on the other; D4 let go, then C4, whose note off is stamped 0. C4 again gets its voice
+ * back, though D4's is the longer idle */
+TT_TEST(a_key_gets_its_voice_back_across_the_event_count_wrap)
+{
+    int c;
+    lv_init(2);
+    lv_eng.stamp = 0xFFFFFFFCu;
+    fm_engine_note_on(&lv_eng, 62, 100);
+    fm_engine_note_on(&lv_eng, 60, 100);
+    lv_run(10);
+    c = lv_voice(60);
+    fm_engine_note_off(&lv_eng, 62);
+    fm_engine_note_off(&lv_eng, 60);
+    lv_run(50);
+    TT_CHECK(c >= 0);
+    if (c >= 0) TT_CHECK_EQ(fm_voice_stamp(&lv_eng.voices[c]), 0);
+    fm_engine_note_on(&lv_eng, 60, 100);
+    TT_CHECK_EQ(lv_voice(60), c);
+}
+
 static void run_last_voice_tests(void)
 {
     TT_RUN(a_key_played_again_gets_its_idle_voice_back);
@@ -230,4 +271,6 @@ static void run_last_voice_tests(void)
     TT_RUN(a_voice_got_back_glides_from_the_last_note_played);
     TT_RUN(a_key_whose_voice_still_sounds_keeps_its_paths);
     TT_RUN(all_sound_off_in_a_steal_fade_keeps_the_sounded_note);
+    TT_RUN(all_sound_off_after_a_mode_switch_in_a_steal_fade_keeps_no_note);
+    TT_RUN(a_key_gets_its_voice_back_across_the_event_count_wrap);
 }
