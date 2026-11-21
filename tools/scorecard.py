@@ -12,6 +12,7 @@ float tail under one step, where our idle engine reads exact 0, floors to 0 or -
 reads 1.5-6 dB in bands 55-60 dB down, about 0.1 dB on the section (AGOGO BELL's chord: 1.47 s9, 1.58 s10)."""
 import json
 import os
+import sys
 
 import numpy as np
 from scipy import signal
@@ -234,12 +235,24 @@ def param_row(commit, date, result):
 def moved(base, head, eps=0.05):
     """Tones whose spectral mean or loudness gap changed between two runs (lists of tone rows), biggest
     spectral change first. verdict: closer / further (to PG-8X, by the spectral mean; by the loudness gap
-    when that alone moved)."""
+    when that alone moved); new / gone for a tone on the head only / the base only (#335: never dropped),
+    after the others, by tone, with None for the side it lacks. ValueError for a figure that is not a
+    finite number."""
+    import math
+    base, head = list(base), list(head)          # (read twice: a generator would be empty the second time)
+    for r in base + head:            # (a NaN would read as a verdict from the other figure)
+        for f in ("spectral_db_mean", "loudness_gap_lu"):
+            if isinstance(r[f], bool) or not isinstance(r[f], (int, float)) or not math.isfinite(r[f]):
+                raise ValueError(f"tone {r['tone']:02d} {r['name']}: {f} is {r[f]!r}, not a number")
     b = {r["tone"]: r for r in base}
-    out = []
+    hs = {h["tone"] for h in head}
+    out, sides = [], []
     for h in head:
         r = b.get(h["tone"])
         if r is None:
+            sides.append({"tone": h["tone"], "name": h["name"], "spectral_base": None,
+                          "spectral_head": h["spectral_db_mean"], "spectral_change": None,
+                          "gap_base": None, "gap_head": h["loudness_gap_lu"], "verdict": "new"})
             continue
         ds = h["spectral_db_mean"] - r["spectral_db_mean"]
         dl = abs(h["loudness_gap_lu"]) - abs(r["loudness_gap_lu"])
@@ -250,15 +263,21 @@ def moved(base, head, eps=0.05):
                     "spectral_head": h["spectral_db_mean"], "spectral_change": ds,
                     "gap_base": r["loudness_gap_lu"], "gap_head": h["loudness_gap_lu"],
                     "verdict": "closer" if key < 0 else "further"})
-    return sorted(out, key=lambda m: -abs(m["spectral_change"]))
+    for r in base:
+        if r["tone"] not in hs:
+            sides.append({"tone": r["tone"], "name": r["name"], "spectral_base": r["spectral_db_mean"],
+                          "spectral_head": None, "spectral_change": None,
+                          "gap_base": r["loudness_gap_lu"], "gap_head": None, "verdict": "gone"})
+    return sorted(out, key=lambda m: -abs(m["spectral_change"])) + sorted(sides, key=lambda m: m["tone"])
 
 
 def moved_table(rows):
     """Markdown: tones moved, for a PR body."""
     lines = ["| tone | spectral dB (base → head) | loudness gap LU (base → head) | |", "|---|---|---|---|"]
     for m in rows:
-        lines.append(f"| {m['tone']:02d} {m['name']} | {m['spectral_base']:.1f} → {m['spectral_head']:.1f} | "
-                     f"{m['gap_base']:+.1f} → {m['gap_head']:+.1f} | {m['verdict']} |")
+        lines.append(f"| {m['tone']:02d} {m['name']} | {_fmt(m['spectral_base'], '{:.1f}')} → "
+                     f"{_fmt(m['spectral_head'], '{:.1f}')} | "
+                     f"{_fmt(m['gap_base'], '{:+.1f}')} → {_fmt(m['gap_head'], '{:+.1f}')} | {m['verdict']} |")
     return "\n".join(lines)
 
 
@@ -473,8 +492,9 @@ def report(head, base):
         out += ["", "tones moved: no base run to compare with"]
     else:
         m = moved(base, head)
-        out += ["", f"tones moved: {len(m)} ({sum(x['verdict'] == 'closer' for x in m)} closer, "
-                    f"{sum(x['verdict'] == 'further' for x in m)} further)"]
+        n = {v: sum(x["verdict"] == v for x in m) for v in ("closer", "further", "new", "gone")}
+        sides = "".join(f", {n[v]} {v}" for v in ("new", "gone") if n[v])   # (only when there are any)
+        out += ["", f"tones moved: {len(m)} ({n['closer']} closer, {n['further']} further{sides})"]
         if m:
             out += ["", moved_table(m)]
     return "\n".join(out)
@@ -511,15 +531,18 @@ def main(argv=None):
     if a.bank and a.bank_name == "factory":
         ap.error("--bank needs a --bank-name")
     rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match, a.bank, a.bank_name)
-    base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if a.base else None
+    asked = a.base is not None                   # (--base "" is a base asked for, and not found: exit 2)
+    base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if asked else None
     note = base_note(a.root, a.commit, a.base) if a.base and a.root else None
     if note:
         print(note)
     print(f"bank: {a.bank_name}")
-    if a.base and base is None:
+    if asked and base is None:
         print(missing_base(a.history, a.base, rows[0]["ref"], a.bank_name))
     print(report(rows, base))
     print(f"\n{len(rows)} tone rows{' and the parameter rows' if a.match else ''} appended to {a.history}")
+    if asked and base is None:
+        sys.exit(2)                              # (#335: asked to compare, and nothing was; the head's rows kept)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""The gate's CPU rows as records (#335): one record a layout's run ("cpu-layout", "plain@1024"), read
+from fm1-emu's own log lines, and one a row over its layouts ("cpu", "plain"). The lines tools/gate_cpu.sh
+prints are a view of them. Standard library only.
+"""
+import re
+import sys
+
+import gate_record as G
+
+_SWEEP = re.compile(r"fm1-8p voices/worst permille ([0-9a-fA-F]{8})")
+_OVERRUNS = re.compile(r"render: last.*?(?<![0-9])([0-9]+) overruns")
+_CODE = re.compile(r"code ([0-9]+) B")
+
+
+def max_voices(tree):
+    """`tree`'s FM_MAX_VOICES (engine/fm1_8p.h): the sweep's voice counts, 1 to it, then U and F.
+    ValueError when it is not defined exactly once (fm1-build.sh's sed would read 0 voices and a table
+    of two rows); OSError when the header is not there."""
+    import os
+    with open(os.path.join(tree, "engine", "fm1_8p.h")) as f:
+        found = re.findall(r"^#define FM_MAX_VOICES ([0-9]+)\b", f.read(), re.M)
+    if len(found) != 1:
+        raise ValueError(f"{tree}: FM_MAX_VOICES defined {len(found)} times in engine/fm1_8p.h")
+    return int(found[0])
+
+
+def sweep(log):
+    """{voice count: worst permille} of the log's last sweep (from its last count-1 line on), the last
+    figure for each count."""
+    out = {}
+    for m in _SWEEP.finditer(log):
+        x = int(m.group(1), 16)
+        count, pm = x >> 16, x & 0xFFFF
+        if count == 1:
+            out = {}
+        out[count] = pm
+    return out
+
+
+def layout_record(row, layout, log, build, max_voices):
+    """The record of one layout's run of `row`: its 8, U and F (% of a block), overruns and code bytes,
+    from fm1-emu's log and the build's output. Missing, saying why, when the log's last sweep lacks any
+    count 1..max_voices + 2 (U: the unison burst; F: the full patch), the log its render meter, or the
+    build its code size: never a figure read as 0."""
+    name = f"{row}@{layout}"
+    pm = sweep(log)
+    burst, full = max_voices + 1, max_voices + 2
+    label = {burst: "U", full: "F"}
+    why = None
+    if not pm:
+        why = "no voice counts in the log"
+    else:
+        gaps = [label.get(n, str(n)) for n in range(1, full + 1) if n not in pm]
+        if gaps:
+            why = f"no {', '.join(gaps)} in the log's last sweep"
+    ov, code = _OVERRUNS.search(log), _CODE.search(build)
+    if why is None and ov is None:
+        why = "no render meter (\"render: last\") in the log"
+    if why is None and code is None:
+        why = "no code size (\"code N B\") in the build's output"
+    if why:
+        return G.record("cpu-layout", name, "missing", why=why)
+    value = {"8": pm[max_voices] / 10, "U": pm[burst] / 10, "F": pm[full] / 10,
+             "overruns": int(ov.group(1)), "code_bytes": int(code.group(1)),
+             "layout": int(layout), "shipped": int(layout) == 0}   # (0: no dead code, the build that ships)
+    return G.record("cpu-layout", name, "pass", value=value)
+
+
+def layout_line(r):
+    """A layout's row as gate_cpu.sh has printed it (into OUT/layouts.txt)."""
+    v = r["value"]
+    figs = "".join(f"{k} =  {v[k]:.1f} %   " for k in ("8", "U", "F"))
+    return f"{r['name']:<14} {figs} {v['overruns']} overruns code {v['code_bytes']} B"
+
+
+def _limit(text):
+    import math
+    x = float(text)                              # (ValueError: "64,8", "": awk read either as 0)
+    if not math.isfinite(x):
+        raise ValueError(f"limit {text!r} is not a number")
+    return x
+
+
+def row_record(row, layouts, n_all, limit):
+    """`row` over its layout records (in GATE_CPU_LAYOUTS' order, `n_all` of them asked for): (its record,
+    the lines gate_cpu.sh prints for it). Its 8, U and F are their means over the layouts that passed, F
+    with its range; overruns summed, the code size the first layout's. A fail when F's mean is over `limit`
+    (% of a block); a layout over it only adds a warning line. An error when a layout has no figures."""
+    lim = _limit(limit)
+    got = [r for r in layouts if r["status"] == "pass"]
+    n = len(got)
+    if n < n_all or n == 0:
+        why = f"F at only {n} of {n_all} layouts"
+        return G.record("cpu", row, "error", why=why), [f"{row}: {why}"]
+    e = u = s = 0.0
+    ov = 0
+    lo = hi = None
+    for r in got:                                # (summed in order, as awk did: the same doubles)
+        v = r["value"]
+        e += v["8"]
+        u += v["U"]
+        s += v["F"]
+        ov += v["overruns"]
+        if lo is None or v["F"] < lo:
+            lo = v["F"]
+        if hi is None or v["F"] > hi:
+            hi, hilay = v["F"], r["name"].rsplit("@", 1)[1]
+    m = s / n
+    code = got[0]["value"]["code_bytes"]        # (every layout passed: the first is GATE_CPU_LAYOUTS' first)
+    value = {"F": m, "F_min": lo, "F_max": hi, "spread": hi - lo, "8": e / n, "U": u / n,
+             "overruns": ov, "code_bytes": code, "layouts": n, "limit": lim}
+    lines = [f"{row:<10} 8 = {e / n:4.1f} %   U = {u / n:4.1f} %   F = {m:4.1f} % ({lo:.1f}..{hi:.1f}, "
+             f"spread {hi - lo:.1f}, {n} layouts)    {ov} overruns code {code} B"]
+    status = "pass"
+    if m > lim:
+        status = "fail"
+        lines.append(f"{row}: F mean {m:.1f} % over the limit {lim:.1f} %")
+    elif hi > lim:
+        lines.append(f"{row}: max {hi:.1f} % over the limit {lim:.1f} % at layout {hilay} (mean ok)")
+    return G.record("cpu", row, status, value=value, why=lines[1] if len(lines) > 1 else None), lines
+
+
+def _put(prefix, r):
+    with open(prefix + ".json", "w") as f:
+        f.write(G.line(r) + "\n")
+
+
+FIGURES = ("8", "U", "F", "overruns", "code_bytes")    # a layout's, each a number in a pass
+
+
+def _clear(out):
+    import os
+    for f in ("layouts.txt", "rows.jsonl"):
+        try:
+            os.remove(os.path.join(out, f))
+        except FileNotFoundError:
+            pass
+
+
+def _rows(a):
+    """The `rows` call (see main())."""
+    import os
+    out, limit, layouts, rows = a[0], a[1], a[2].split(), a[3:]
+    _clear(out)                                  # (an earlier run's records never stand for this one's)
+    expected, records, view = [], [], []
+    with open(os.path.join(out, "layouts.txt"), "w") as lt:
+        for row in rows:
+            lays = []
+            for n in layouts:
+                name = f"{row}@{n}"
+                expected.append(("cpu-layout", name))
+                p = os.path.join(out, name)
+                try:
+                    got = G.load(p + ".json")
+                except FileNotFoundError:
+                    continue                 # (verdict: missing)
+                if [(r["kind"], r["name"]) for r in got] != [("cpu-layout", name)]:
+                    raise ValueError(f"{p}.json: not {name}'s one record")
+                v = got[0]["value"] or {}
+                bad = [f for f in FIGURES if not G._number(v.get(f))]
+                if got[0]["status"] == "pass" and bad:
+                    raise ValueError(f"{p}.json: a pass without its figures: {', '.join(bad)}")
+                lays += got
+                if got[0]["status"] == "pass":
+                    lt.write(layout_line(got[0]) + ("  (shipped)" if n == "0" else "") + "\n")
+            expected.append(("cpu", row))
+            r, lines = row_record(row, lays, len(layouts), limit)
+            records += lays + [r]
+            view += lines
+    with open(os.path.join(out, "rows.jsonl"), "w") as f:
+        f.writelines(G.line(r) + "\n" for r in records)
+    for x in view:
+        print(x)
+    code, _ = G.verdict(expected, records, compared=("cpu",),
+                        figures={"cpu": ("F", "F_min", "F_max", "8", "U", "overruns", "code_bytes"),
+                                 "cpu-layout": FIGURES})
+    return code
+
+
+def main(argv):
+    """gate_cpu.sh's calls:
+      layout TREE ROW LAYOUT LOG BUILD PREFIX   one layout's record into PREFIX.json, its line into
+                                                PREFIX.row; exit 1, printing why, when it has no figures
+      error ROW LAYOUT WHY PREFIX               a layout that could not run, as a record
+      rows OUT LIMIT LAYOUTS ROW...             each row over its layouts: OUT/layouts.txt, OUT/rows.jsonl,
+                                                the rows' lines on stdout; exit as verdict() says"""
+    cmd, a = argv[1], argv[2:]
+    if cmd == "layout":
+        tree, row, layout, log, build, prefix = a
+        try:
+            with open(log, errors="replace") as f:
+                log_text = f.read()
+            with open(build, errors="replace") as f:
+                build_text = f.read()
+            r = layout_record(row, layout, log_text, build_text, max_voices(tree))
+        except (OSError, ValueError) as e:
+            r = G.record("cpu-layout", f"{row}@{layout}", "error", why=str(e))
+        _put(prefix, r)
+        if r["status"] != "pass":
+            print(f"{r['name']}: {r['why']} (see {log})")
+            return 1
+        with open(prefix + ".row", "w") as f:
+            f.write(layout_line(r) + "\n")
+        return 0
+    if cmd == "error":
+        row, layout, why, prefix = a
+        _put(prefix, G.record("cpu-layout", f"{row}@{layout}", "error", why=why))
+        return 0
+    if cmd == "rows":
+        try:
+            return _rows(a)
+        except (OSError, ValueError) as e:       # (a limit not a number, a record file not one: 2, not 1)
+            print(f"gate_cpu: rows: {e}", file=sys.stderr)
+            try:
+                _clear(a[0])                     # (no half-written view or records left)
+            except OSError:
+                pass                             # (an OUT that can't be cleared: still 2, not a traceback)
+            return 2
+    print(f"gate_cpu_records: {cmd}: not a command", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
