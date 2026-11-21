@@ -5,6 +5,7 @@
 #include <math.h>
 #include "../engine/filter.h"
 #include "../engine/units.h"
+#include "../engine/cutoff_curve.h"
 
 #define FRATE 44100u
 
@@ -2915,18 +2916,27 @@ TT_TEST(highpass_step_4_is_the_pg8x_bass_boost)
  * step, then bends the sum once: a base at FREQ F plus E steps of
  * modulation must land on cents(F + E), at every F and E short of open.
  */
+/* The curve's coefficients, from the generated header (tools/cutoff_curve.py, #344) */
+#define CURVE_A2 ((double)FM_CURVE_A2_NUM / FM_CURVE_A2_DEN)
+#define CURVE_A1 ((double)FM_CURVE_A1_NUM / FM_CURVE_A1_DEN)
+
+static double curve_cents(double k)
+{
+    return CURVE_A2 * k * k + CURVE_A1 * k + FM_CURVE_ZERO;
+}
+
 TT_TEST(cutoff_sources_add_in_knob_steps_on_pg8x_curve)
 {
     double worst = 0.0;
     int f, e;
     for (f = 13; f <= 127; f++)
         for (e = -60; e <= 127; e++) {
-            double k = f + e, want = 0.0988 * k * k + 115.03 * k - 1474;
-            double base = 0.0988 * f * f + 115.03 * f - 1474;
+            double k = f + e, want = curve_cents(k);
+            double base = curve_cents(f);
             int32_t got;
             if (k < 0 || want > FM_FILTER_OPEN_CENTS - 100) continue;
             got = fm_filter_voice_cents(fm_filter_linear_cents((int32_t)floor(base + 0.5)), 0, 60,
-                                        (int32_t)floor(115.03 * e + 0.5));
+                                        (int32_t)floor(CURVE_A1 * e + 0.5));
             if (fabs(got - want) > worst) worst = fabs(got - want);
         }
     printf("    FREQ + ENV in knob steps against the curve: worst %.2f cents\n", worst);
@@ -2967,10 +2977,10 @@ TT_TEST(cutoff_setting_round_trips_through_linear_cents)
  */
 TT_TEST(linear_cents_holds_its_values_at_the_range_edges)
 {
-    static const int32_t in[] = { -5000, -1474, -1473, 0, 6900, 14400, 14728,
-                                  28799, 28800, 28801, 40000, INT32_MAX };
-    static const int32_t want[] = { -5000, -1474, -1473, -16, 6433, 12865, 13134,
-                                    23966, 23967, 23967, 23967, 23967 };
+    static const int32_t in[] = { -5000, FM_CURVE_ZERO, FM_CURVE_ZERO + 1, 0, 6900, 14400,
+                                  14728, 28799, 28800, 28801, 40000, INT32_MAX };
+    static const int32_t want[] = { -5000, FM_CURVE_ZERO, FM_CURVE_ZERO + 1, -16, 6433, 12865,
+                                    13134, 23966, 23967, 23967, 23967, 23967 };
     size_t i;
     for (i = 0; i < sizeof in / sizeof in[0]; i++)
         TT_CHECK_EQ(fm_filter_linear_cents(in[i]), want[i]);
@@ -2985,8 +2995,10 @@ TT_TEST(linear_cents_holds_its_values_at_the_range_edges)
  */
 TT_TEST(cutoff_curve_holds_its_values_at_the_range_edges)
 {
-    static const int32_t in[] = { -5000, -1474, -1473, 0, 6433, 12864, 14399, 14400, 20000 };
-    static const int32_t want[] = { -5000, -1474, -1473, 16, 6900, 14399, 16280, 14400, 20000 };
+    static const int32_t in[] = { -5000, FM_CURVE_ZERO, FM_CURVE_ZERO + 1, 0, 6433, 12864,
+                                  14399, 14400, 20000 };
+    static const int32_t want[] = { -5000, FM_CURVE_ZERO, FM_CURVE_ZERO + 1, 16, 6900, 14399,
+                                    16280, 14400, 20000 };
     size_t i;
     for (i = 0; i < sizeof in / sizeof in[0]; i++)
         TT_CHECK_EQ(fm_filter_voice_cents(in[i], 0, 60, 0), want[i]);
