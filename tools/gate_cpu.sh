@@ -23,7 +23,6 @@
 #
 # usage: tools/gate_cpu.sh TREE OUT      (prints one line per row, MODE-hn rows too: 8 voices, U and F, code bytes)
 #        tools/gate_cpu.sh --tools      (the FM-1 tools' identity as JSON, for gate.sh's CPU cache key)
-#        tools/gate_cpu.sh --tools      (the FM-1 tools' identity, JSON: fm1-live's hash, the Jieli clang's version, fm1-dock's commit)
 # Inputs, as tools/fm1-build.sh takes them: JIELI_TOOLCHAIN, AC79_SDK, FM1_DOCK, PYTHON (fm1-dock's) and
 # FM1_LIVE; or FM1_REF, a folder holding fm1-dock, jieli/toolchain, fw-AC79_AIoT_SDK, fm1-dock-venv and
 # fm1-emu/target/release/fm1-live. GATE_CPU_HINOTE=0 skips the high-note rows. Exit 1 when a row's F mean
