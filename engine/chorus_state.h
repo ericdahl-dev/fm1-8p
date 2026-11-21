@@ -23,8 +23,9 @@
  * Memory: fixed, no allocation. The delay line is FM_CHORUS_DELAY_LEN
  * int16_t samples = 2048 bytes; the whole struct is about 2.1 KiB
  * (sizeof(fm_chorus) is 2092 on the desktop), and it lives inside
- * fm_engine. The line holds 23 ms at 44.1 kHz; the deepest mode needs
- * 9.0 ms, so above about 113 kHz a mode's delays are scaled down to fit.
+ * fm_engine. The line holds 23 ms at 44.1 kHz; the deepest mode (SLOW)
+ * needs 3.53 ms, so a mode's delays would be scaled down to fit only above
+ * about 289 kHz, past the engine's 192 kHz maximum.
  */
 #ifndef FM_CHORUS_STATE_H
 #define FM_CHORUS_STATE_H
