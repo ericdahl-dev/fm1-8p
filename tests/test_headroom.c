@@ -63,7 +63,7 @@ TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
     size_t k;
     for (k = 0; k < sizeof c / sizeof c[0]; k++) {
         hr_stats s = hr_chord(c[k].notes, 4, 34, 127);
-        printf("    SOUNDTRACK %d %d %d %d at 127, held 34 s: module peak %+.2f dBFS, %.3f %% saturated (pin %.1f..%.1f); "
+        printf("    SOUNDTRACK %d %d %d %d at 127, held 34 s: module peak %+.2f dBFS, %.3f %% saturated (pin %.2f..%.2f); "
                "engine %.3f %% past its knee (pin %.2f..%.2f)\n", c[k].notes[0], c[k].notes[1], c[k].notes[2],
                c[k].notes[3], s.peak_dbfs, s.sat_pct, c[k].sat_min, c[k].sat_max, s.knee_pct, c[k].knee_min,
                c[k].knee_max);
