@@ -12,9 +12,11 @@
 #define PLAY_FS 44100u
 #define PLAY_BLOCK 256u                 /* frames per fm1-dock render call */
 #define PLAY_VOICES 4u                  /* polyphony on the device: 4, final (Eric, 2026-11-15; #13) */
-/* The module's output gain, in doublings: +12 dB over the engine, which mixes each voice at
- * 1 / voice count and then -6 dB (a 4-note chord peaked near -25 dBFS on the FM-1). Saturates. */
-#define PLAY_GAIN_SHIFT 2
+/* The module's output gain, in doublings: none, the engine's level as it is (#320). It was +12 dB from
+ * #74, when a 4-note chord peaked near -25 dBFS on the FM-1; the engine's +6 dB makeup (#24) and level work
+ * came after, and at +12 dB SOUNDTRACK's 4-note chord at velocity 100 saturated 14.7 % of its samples. At
+ * 0 dB nothing saturates: velocity-127 chords peak about 1 dB under the rails. */
+#define PLAY_GAIN_SHIFT 0
 #define PLAY_KEYS 27u                   /* the FM-1's note keys */
 #define PLAY_KEY0 53u                   /* key 0's note at octave 0: F3 */
 #define PLAY_PARAM_WORDS ((FM_PARAM_COUNT + 31u) / 32u)

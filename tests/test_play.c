@@ -288,11 +288,11 @@ TT_TEST(play_last_note_skips_a_note_the_full_queue_dropped)
     TT_CHECK_EQ(play_last_note(&pl_a), 60);
 }
 
-/* The module's output gain: the engine's sound PLAY_GAIN_SHIFT doublings (+12 dB) louder, and
- * past full scale it saturates instead of wrapping. */
-TT_TEST(play_output_gain_is_12_db_and_saturates)
+/* The module's output is the engine's sound as it is (PLAY_GAIN_SHIFT 0, #320), its one value
+ * past the Q15 rails (-32768) held at -32767. */
+TT_TEST(play_output_is_the_engines_level)
 {
-    uint32_t i, k, louder = 0, clipped = 0;
+    uint32_t i, k;
     TT_CHECK_EQ(play_init(&pl_a), 0);
     /* a loud sound: wide open, full at once, every voice at full velocity */
     (void)fm_engine_set_param(&pl_a.engine, FM_PARAM_FILTER_CUTOFF_CENTS, FM_FILTER_OPEN_CENTS);
@@ -307,13 +307,9 @@ TT_TEST(play_output_gain_is_12_db_and_saturates)
             int32_t want = (int32_t)pl_a.buf[i] * (1 << PLAY_GAIN_SHIFT);
             want = want > 32767 ? 32767 : want < -32767 ? -32767 : want;
             TT_CHECK_EQ(pl_out[i], want);
-            louder |= pl_out[i] != pl_a.buf[i];
-            clipped |= pl_out[i] == 32767 || pl_out[i] == -32767;
         }
     }
-    TT_CHECK_EQ(PLAY_GAIN_SHIFT, 2);
-    TT_CHECK(louder);
-    TT_CHECK(clipped);                          /* the saturation was reached, not skipped */
+    TT_CHECK_EQ(PLAY_GAIN_SHIFT, 0);
 }
 
 /* The OCT- / OCT+ LEDs say where the octave is: OCT- lit below 0, OCT+ above, both dark at 0. */
@@ -467,7 +463,7 @@ static void run_play_tests(void)
     TT_RUN(play_load_patch_reaches_the_engine_at_the_next_render);
     TT_RUN(play_keys_play_from_the_octave);
     TT_RUN(play_octave_leds_follow_the_octave);
-    TT_RUN(play_output_gain_is_12_db_and_saturates);
+    TT_RUN(play_output_is_the_engines_level);
     TT_RUN(play_last_note_skips_a_note_the_full_queue_dropped);
     TT_RUN(play_queue_overflow_lets_the_pedal_up_and_centers_the_bend);
     TT_RUN(play_note_name_spells_the_note);
