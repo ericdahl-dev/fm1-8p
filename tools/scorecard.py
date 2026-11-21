@@ -12,6 +12,7 @@ float tail under one step, where our idle engine reads exact 0, floors to 0 or -
 reads 1.5-6 dB in bands 55-60 dB down, about 0.1 dB on the section (AGOGO BELL's chord: 1.47 s9, 1.58 s10)."""
 import json
 import os
+import sys
 
 import numpy as np
 from scipy import signal
@@ -235,7 +236,13 @@ def moved(base, head, eps=0.05):
     """Tones whose spectral mean or loudness gap changed between two runs (lists of tone rows), biggest
     spectral change first. verdict: closer / further (to PG-8X, by the spectral mean; by the loudness gap
     when that alone moved); new / gone for a tone on the head only / the base only (#335: never dropped),
-    after the others, by tone, with None for the side it lacks."""
+    after the others, by tone, with None for the side it lacks. ValueError for a figure that is not a
+    finite number."""
+    import math
+    for r in list(base) + list(head):            # (a NaN would read as a verdict from the other figure)
+        for f in ("spectral_db_mean", "loudness_gap_lu"):
+            if not isinstance(r[f], (int, float)) or not math.isfinite(r[f]):
+                raise ValueError(f"tone {r['tone']:02d} {r['name']}: {f} is {r[f]!r}, not a number")
     b = {r["tone"]: r for r in base}
     hs = {h["tone"] for h in head}
     out, sides = [], []
@@ -532,6 +539,8 @@ def main(argv=None):
         print(missing_base(a.history, a.base, rows[0]["ref"], a.bank_name))
     print(report(rows, base))
     print(f"\n{len(rows)} tone rows{' and the parameter rows' if a.match else ''} appended to {a.history}")
+    if a.base and base is None:
+        sys.exit(2)                              # (#335: asked to compare, and nothing was; the head's rows kept)
 
 
 if __name__ == "__main__":

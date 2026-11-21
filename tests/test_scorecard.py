@@ -364,6 +364,14 @@ class HistoryTest(unittest.TestCase):
                       "pitch_cents": {"low": 0.0, "high": 0.0}})
         self.assertIn("tones moved: 1 (1 closer, 0 further)\n", self.sc.report(head, self.rows([5, 31])) + "\n")
 
+    def test_a_figure_that_is_not_a_number_is_an_error(self):
+        nan = float("nan")
+        for base, head in (([10.0], [nan]), ([nan], [10.0])):
+            with self.subTest(base=base, head=head), self.assertRaises(ValueError):
+                self.sc.moved(self.rows(base, [2.0]), self.rows(head, [1.0]))
+        with self.assertRaises(ValueError):
+            self.sc.moved(self.rows([10.0], [nan]), self.rows([10.0], [1.0]))
+
     def test_the_report_has_every_tone_the_worst_five_and_what_moved(self):
         head = self.rows([5, 30, 1, 25, 9, 40, 2])
         for r in head:
@@ -558,23 +566,66 @@ class ScoreMidiTest(unittest.TestCase):
             self.assertGreaterEqual(round(a - on, 3), 0.13, name)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ScriptBaseTest(unittest.TestCase):
     """tools/scorecard.sh stops on a BASE that is not a commit, before it builds anything (#335: it passed
-    --base "" and printed a report with nothing compared)."""
+    --base "" and printed a report with nothing compared). Run from a scratch repo holding only the
+    script, so a regression can't build into this checkout."""
 
     def test_a_base_that_is_not_a_commit_stops_it(self):
+        import shutil
         import subprocess
         import tempfile
-        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-        with tempfile.TemporaryDirectory() as ref:
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        with tempfile.TemporaryDirectory() as t:
+            root, ref = os.path.join(t, "repo"), os.path.join(t, "ref")
+            os.makedirs(os.path.join(root, "tools"))
+            os.makedirs(ref)
+            shutil.copy(os.path.join(here, "tools/scorecard.sh"), os.path.join(root, "tools"))
+            git = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
+            git("init", "-q")
+            git("add", ".")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "t")
             open(os.path.join(ref, "manifest.json"), "w").write("{}")
             env = dict(os.environ, SCORECARD_REF=ref, SCORECARD_HISTORY=os.path.join(ref, "h.jsonl"))
             p = subprocess.run(["sh", os.path.join(root, "tools/scorecard.sh"), "HEAD", "no-such-commit-335"],
-                               env=env, capture_output=True, text=True, timeout=600)
+                               env=env, capture_output=True, text=True, timeout=120)
+            built = os.path.exists(os.path.join(root, "build"))
         self.assertEqual(p.returncode, 2, p.stderr[-500:])
         self.assertIn("no-such-commit-335: not a commit", p.stderr)
-        self.assertNotIn("does not build", p.stderr)
+        self.assertFalse(built, "it archived or built before checking BASE")
+
+
+@unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
+class MainBaseTest(unittest.TestCase):
+    """main() with --base: a base with no rows in the history is told, and is exit 2 (#335: it printed
+    "no base run to compare with" and exited 0), after the head's rows are kept."""
+
+    def test_a_base_with_no_rows_is_exit_2_and_the_head_is_kept(self):
+        import contextlib
+        import io
+        import tempfile
+        import scorecard as sc
+        with tempfile.TemporaryDirectory() as t:
+            hist = os.path.join(t, "h.jsonl")
+            row = sc.tone_row("head1", "2026-11-21T00:00:00-05:00", 1, "T1",
+                              {"spectral_db_mean": 3.0, "loudness_gap_lu": 0.0, "spectral_db": {"chord": 3.0},
+                               "timing_gap_ms": {}, "pitch_cents": {"low": 0.0, "high": 0.0}}, "r")
+
+            def fake_run(tree, commit, ref, history, *a, **k):
+                sc.append_rows(history, [row])
+                return [row]
+            real, sc.run = sc.run, fake_run
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as e:
+                    sc.main(["--tree", t, "--commit", "head1", "--ref", t, "--history", hist, "--base", "nobase"])
+            finally:
+                sc.run = real
+            self.assertEqual(e.exception.code, 2)
+            self.assertIn("no rows", out.getvalue())
+            self.assertEqual(len(open(hist).read().splitlines()), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
