@@ -33,6 +33,7 @@ tool_failed() { echo "check-engine: $*" >&2; exit 2; }
 CC=${CC:-cc}
 OUT=$1
 shift
+[ $# -gt 0 ] || tool_failed "no sources given (an empty wildcard?)"
 
 case "$(uname -m)" in
 x86_64 | amd64 | i?86) FPU_OFF="-mgeneral-regs-only -mno-sse -mno-mmx -mno-80387" ;;

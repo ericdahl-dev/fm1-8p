@@ -39,6 +39,7 @@ stub objdump 'echo "x.o: file format mach-o arm64"'
 exits "an objdump that prints only a header stops it (exit 2)" 2 env PATH="$T/stub:$PATH" $CE "$T/o" $SRC
 rm -f "$T/stub/objdump"
 
+exits "no source at all stops it (exit 2), not ok - 0 sources" 2 $CE "$T/o"
 exits "a source that is not there stops it (exit 2), not a finding" 2 $CE "$T/o" $SRC tests/canary/no-such-canary.c
 
 echo
