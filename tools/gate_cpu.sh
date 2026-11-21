@@ -43,6 +43,11 @@ LAYOUTS=${GATE_CPU_LAYOUTS:-0 1024 2048 3072}
 LIMIT=${GATE_CPU_LIMIT:-64.8}
 JOBS=${GATE_CPU_JOBS:-16}
 BUILD=${GATE_CPU_BUILD:-tools/fm1-build.sh}
+set -- $LAYOUTS
+[ $# -gt 0 ] || { echo "gate_cpu: GATE_CPU_LAYOUTS lists no layout" >&2; exit 2; }
+for n in $LAYOUTS; do
+    case $n in ''|*[!0-9]*) echo "gate_cpu: GATE_CPU_LAYOUTS: $n is not a byte count" >&2; exit 2 ;; esac
+done
 mkdir -p "$OUT" || exit 2
 OUT=$(cd "$OUT" && pwd -P)
 
@@ -71,7 +76,7 @@ stage() {
         sed -i "s|^\(    {FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},\)\$|\1\\n$add|" "$3/firmware/cpu_test.c" || return 1
     fi
     if [ "$2" -gt 0 ]; then
-        sed "s/\.space [0-9]*/.space $2/" "$ROOT/tools/gate_pad.c" >"$3/engine/aa_pad.c" || return 1
+        sed "s/\"\.space [0-9]*\"/\".space $2\"/" "$ROOT/tools/gate_pad.c" >"$3/engine/aa_pad.c" || return 1
         f=$3/firmware/fm1_8p_cpu/fm1_8p_cpu.c
         grep -q '^static int init(const hb_host_t \*h)' "$f" && grep -q '^    H = h;' "$f" || { echo "gate_cpu: pad hook not found" >&2; return 1; }
         sed -i 's|^static int init(const hb_host_t \*h)|int32_t fm1_8p_gate_pad(int32_t x);\nstatic int init(const hb_host_t *h)|; s|^    H = h;|    H = h;\n    if (fm1_8p_gate_pad(3) == 7) return 1;|' "$f" || return 1
@@ -90,8 +95,12 @@ run() {
     case $BUILD in /*) b=$BUILD ;; *) b=$d/src/$BUILD ;; esac
     (cd "$d/src" && ulimit -n 8192 2>/dev/null; FM1_DOCK=$d/dock JIELI_TOOLCHAIN=$JIELI_TOOLCHAIN AC79_SDK=$AC79_SDK \
         PYTHON=$PY FM1_LIVE=$FM1_LIVE FM1_EMU_UNPINNED=1 sh "$b" $cmd) >"$d/emu.log" 2>&1
+    brc=$?                                      # (fm1-build writes a partial report when the emulator fails)
+    [ "$brc" -eq 0 ] || { echo "$t: the build failed (exit $brc, see $d/emu.log)"; return 1; }
     r=$d/src/build/fm1/$cmd-report.md
     [ -f "$r" ] || { echo "$t: no report (see $d/emu.log)"; return 1; }
+    grep -Eq '^\| F \(full patch\) \|[^|]*\| *[0-9]+(\.[0-9]+)? % \|' "$r" ||
+        { echo "$t: no F in the report (see $r)"; return 1; }
     printf '%-14s %s %s %s\n' "$t" \
         "$(awk -F'|' '/^\| (8|U \(unison burst\)|F \(full patch\)) \|/ { gsub(/ +$/, "", $2); gsub(/^ +/, "", $2); printf "%s = %s  ", substr($2, 1, 1), $4 }' "$r")" \
         "$(grep -o '[0-9]* overruns' "$r" | head -1)" "$(grep -o 'code [0-9]* B' "$d/emu.log" | head -1)" >"$d.row"
@@ -130,10 +139,12 @@ for R in $rows; do
     set --
     for N in $LAYOUTS; do [ -f "$OUT/$R@$N.row" ] && set -- "$@" "$OUT/$R@$N.row"; done
     [ $# -gt 0 ] || continue
-    awk -v row="$R" -v limit="$LIMIT" -v first="$OUT/$R@$first.row" '
+    awk -v row="$R" -v limit="$LIMIT" -v first="$OUT/$R@$first.row" -v all="$(set -- $LAYOUTS; echo $#)" '
         function num(s) { sub(/ *%.*/, "", s); return s + 0 }
         {
-            n++; split(FILENAME, f, "@"); lay = f[2]; sub(/\.row$/, "", lay)
+            lay = FILENAME; sub(/.*\//, "", lay); sub(/^.*@/, "", lay); sub(/\.row$/, "", lay)
+            if ($0 !~ /F = +[0-9]+(\.[0-9]+)? %/) next   # (only a layout with a number for F counts)
+            n++
             for (i = 1; i <= NF; i++) {
                 if ($i == "8" && $(i + 1) == "=") e += num($(i + 2))
                 if ($i == "U" && $(i + 1) == "=") u += num($(i + 2))
@@ -147,6 +158,7 @@ for R in $rows; do
             }
         }
         END {
+            if (n < all + 0) { printf "%s: F at only %d of %d layouts\n", row, n, all; exit 1 }
             m = s / n
             printf "%-10s 8 = %4.1f %%   U = %4.1f %%   F = %4.1f %% (%.1f..%.1f, spread %.1f, %d layouts)    %d overruns code %s B\n", \
                 row, e / n, u / n, m, lo, hi, hi - lo, n, ov, code

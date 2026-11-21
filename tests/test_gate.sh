@@ -2,6 +2,9 @@
 # Tests for tools/gate.sh, the no-sound gate (#140): renders two trees and compares every clip.
 # usage: sh tests/test_gate.sh       (run from the repo root; renders, so it takes minutes: make check-gate)
 set -u
+# The FM-1 inputs come only where a test passes them: with FM1_REF or FM1_DOCK in the environment, every
+# gate run would also build and time the CPU rows, and the clip tests would fail on the machine, not the code.
+unset FM1_REF FM1_DOCK
 # On disk under build/, not /tmp (a small tmpfs on some machines): every tree is a full source copy.
 mkdir -p build && T=$(mktemp -d "$PWD/build/test-gate.XXXXXX")
 trap 'rm -rf "$T"' EXIT
@@ -101,11 +104,14 @@ expect_ok "the normal rows keep the tree's own chord" sh -c 'test -n "$1" && tes
 # The rows, through a stand-in for the build and the emulator (GATE_CPU_BUILD): F is 40 % plus 1 % a KB of
 # dead code, so layouts 0 1024 2048 read 40, 41 and 42.
 cat >"$T/build-stub.sh" <<'STUB'
-n=$(sed -n 's/.*\.space \([0-9]*\).*/\1/p' engine/aa_pad.c 2>/dev/null); n=${n:-0}
+n=$(sed -n 's/.*"\.space \([0-9][0-9]*\)".*/\1/p' engine/aa_pad.c 2>/dev/null); n=${n:-0}
 if [ -n "${STUB_BUSY:-}" ]; then mkdir "$STUB_BUSY" 2>/dev/null || : >"$STUB_BUSY.overlap"; fi
 mkdir -p build/fm1
 f=$(awk -v n="$n" 'BEGIN { printf "%.1f", 40 + n / 1024 }')
-printf '| voices | worst permille | of a 256-frame block |\n| 8 | 145 | 14.5 %% |\n| U (unison burst) | 239 | 23.9 %% |\n| F (full patch) | 0 | %s %% |\n\nrender: last 1 ticks, worst 1, 0 overruns\n' "$f" >"build/fm1/$1-report.md"
+fline="| F (full patch) | 0 | $f % |"
+[ "${STUB_NO_F:-x}" = "$n" ] && fline=
+printf '| voices | worst permille | of a 256-frame block |\n| 8 | 145 | 14.5 %% |\n| U (unison burst) | 239 | 23.9 %% |\n%s\n\nrender: last 1 ticks, worst 1, 0 overruns\n' "$fline" >"build/fm1/$1-report.md"
+[ "${STUB_FAIL_AT:-x}" = "$n" ] && exit 3
 echo "module FM1-8P CPU: code 1000 B"
 if [ -n "${STUB_BUSY:-}" ]; then sleep 1; rmdir "$STUB_BUSY"; fi
 STUB
@@ -118,6 +124,14 @@ expect_fail "a mean over GATE_CPU_LIMIT fails the run" rows GATE_CPU_LIMIT=40.5
 expect_ok "and says so" grep -q '^plain: F mean 41\.0 % over the limit 40\.5 %' "$T/out.last"
 expect_ok "a max over it only warns" rows GATE_CPU_LIMIT=41.5
 expect_ok "with its layout" grep -q '^plain: max 42\.0 % over the limit 41\.5 % at layout 2048 (mean ok)' "$T/out.last"
+expect_fail "a layout whose report has no F fails its row" rows STUB_NO_F=1024
+expect_ok "and says so" grep -q '^plain@1024: no F in the report' "$T/out.last"
+expect_fail "a build that exits non-zero fails its row, report or not" rows STUB_FAIL_AT=2048
+expect_ok "and says so" grep -q '^plain@2048: the build failed' "$T/out.last"
+expect_fail "GATE_CPU_LAYOUTS must be byte counts" rows GATE_CPU_LAYOUTS="0 1k"
+expect_fail "and at least one" rows GATE_CPU_LAYOUTS=" "
+expect_ok "an @ in OUT's path doesn't move the layouts' names" sh -c 'mkdir -p "$1/at@dir" && env JIELI_TOOLCHAIN="$1/fm1/tc" AC79_SDK="$1/fm1/sdk" FM1_DOCK="$1/fm1/dock" FM1_LIVE="$1/fm1/live" GATE_CPU_BUILD="$1/build-stub.sh" GATE_CPU_LAYOUTS="0 1024 2048" GATE_CPU_HINOTE=0 GATE_CPU_LIMIT=41.5 sh tools/gate_cpu.sh "$1/base" "$1/at@dir/o" | grep -q "^plain: max 42.0 % over the limit 41.5 % at layout 2048 (mean ok)"' - "$T"
+expect_ok "a layout's size goes to its .space, not the file's comment" sh -c "grep -q '^/\* gate_pad.c - never-run code' '$T/cpu/plain@512/src/engine/aa_pad.c'"
 expect_ok "GATE_CPU_JOBS=1 builds one row at a time" sh -c 'rm -f "$1.overlap"; env STUB_BUSY="$1" sh -c "$2" && ! test -e "$1.overlap"' - "$T/busy" \
     "JIELI_TOOLCHAIN='$T/fm1/tc' AC79_SDK='$T/fm1/sdk' FM1_DOCK='$T/fm1/dock' FM1_LIVE='$T/fm1/live' GATE_CPU_BUILD='$T/build-stub.sh' GATE_CPU_LAYOUTS='0 1024' GATE_CPU_HINOTE=0 GATE_CPU_JOBS=1 sh tools/gate_cpu.sh '$T/base' '$T/cpu-jobs'"
 # A row that can't be staged says so in its place, and any failed row fails the run.
@@ -135,7 +149,7 @@ echo "plain      F =  1.0 %"
 STUB
 rm -rf "$T/gate/cpu"
 stub_gate() { env GATE_CPU="$T/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$T/fm1/dock" "$@" sh tools/gate.sh "$T/base" "$T/same"; }
-expect_ok "a failed CPU run is reported" stub_gate STUB_FAIL=1
+expect_ok "a failed CPU run fails the gate (exit 1)" sh -c 'env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" STUB_FAIL=1 sh tools/gate.sh "$1/base" "$1/same"; [ $? -eq 1 ]' - "$T"
 expect_ok "with its rows" sh -c "grep -q '^CPU rows: base failed' '$T/out.last' && grep -q '^plain-hn: stage failed' '$T/out.last'"
 expect_fail "and not kept" sh -c "ls '$T/gate/cpu/'*/rows.txt"
 expect_ok "GATE_CPU_HINOTE=0's rows are kept apart" stub_gate GATE_CPU_HINOTE=0

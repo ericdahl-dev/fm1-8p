@@ -7,7 +7,9 @@
 #                HEAD defaults to the commit checked out.
 #   GATE_DIR     where trees, builds and renders go (default build/gate); a tree's renders are kept,
 #                keyed by a hash of its sources, so the next run against the same BASE renders only HEAD.
-# Exit status: 0 every clip identical, 1 some clip differs, 2 the gate could not run.
+# Exit status: 0 every clip identical (and HEAD's CPU rows, when they run, pass), 1 some clip differs or a
+# CPU row of HEAD failed (a failed layout, or its mean over GATE_CPU_LIMIT; only a layout over it warns),
+# 2 the gate could not run.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 G=${GATE_DIR:-$ROOT/build/gate}
@@ -104,11 +106,14 @@ coverage() {
 [ "${GATE_COVERAGE:-1}" = 0 ] || coverage "$H"
 
 # cpu DIR: the CPU rows of DIR (tools/gate_cpu.sh, or GATE_CPU: a stand-in for tests), kept by DIR's key,
-# the script's and its toggles (GATE_CPU_LAYOUTS, GATE_CPU_HINOTE): a row added there or skipped by a toggle
-# must not come back missing. A failed run's rows are shown, not kept.
+# the script's, its pad's (tools/gate_pad.c) and its toggles (GATE_CPU_LAYOUTS, GATE_CPU_HINOTE,
+# GATE_CPU_LIMIT): a row added there or skipped by a toggle must not come back missing. A failed run's rows
+# are shown, not kept.
 cpu() {
     s=${GATE_CPU:-$ROOT/tools/gate_cpu.sh}
-    need_key "$1"; hash8 "$s"; k=$k-$h8-l$(printf "%s" "${GATE_CPU_LAYOUTS:-0 1024 2048 3072}" | tr " " _)h${GATE_CPU_HINOTE:-1}; o=$G/cpu/$k
+    need_key "$1"; hash8 "$s"; k=$k-$h8; hash8 "$ROOT/tools/gate_pad.c"
+    k=$k-$h8-l$(printf "%s" "${GATE_CPU_LAYOUTS:-0 1024 2048 3072}" | tr " " _)h${GATE_CPU_HINOTE:-1}-m${GATE_CPU_LIMIT:-64.8}
+    o=$G/cpu/$k
     if [ ! -f "$o/rows.txt" ]; then
         sh "$s" "$1" "$o/runs" >"$o.rows" 2>"$o.err" || { sort "$o.rows"; cat "$o.err" >&2; rm -f "$o.rows" "$o.err"; return 1; }
         mkdir -p "$o" && sort "$o.rows" >"$o/rows.txt" && rm -f "$o.rows" "$o.err"
@@ -137,6 +142,6 @@ else
     mkdir -p "$G/cpu"
     echo "CPU rows, fm1-emu strict, worst % of a block (device ~= x 1.08):"
     echo "base:"; cpu "$B" || echo "CPU rows: base failed"
-    echo "head:"; cpu "$H" || echo "CPU rows: head failed"
+    echo "head:"; cpu "$H" || { echo "CPU rows: head failed"; cpu_failed=1; }   # (a mean over the limit too)
 fi
-[ "$d" -eq 0 ] || exit 1
+[ "$d" -eq 0 ] && [ "${cpu_failed:-0}" = 0 ] || exit 1
