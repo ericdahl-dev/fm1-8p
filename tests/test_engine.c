@@ -115,6 +115,11 @@ TT_TEST(init_rejects_bad_arguments)
 TT_TEST(mix_gain_is_one_constant_at_init_and_at_full_vca_level)
 {
     uint8_t n;
+    /* the value itself (0.25 times 3.17 dB in Q1.30, #102), so a change to it is red */
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    TT_CHECK_EQ(eng.mix_gain, 386669466);
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 8), FM_OK);
+    TT_CHECK_EQ(eng.mix_gain, 48333683);
     for (n = 1; n <= FM_MAX_VOICES; n++) {
         TT_CHECK_EQ(fm_engine_init(&eng, RATE, n), FM_OK);
         TT_CHECK_EQ(eng.mix_gain, (int32_t)(FM_MIX_GAIN_Q30 / n));
