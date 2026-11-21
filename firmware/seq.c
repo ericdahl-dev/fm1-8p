@@ -9,10 +9,22 @@
  * enough on the FM-1's one core, where the interrupt only ever runs between two instructions */
 #define BARRIER() __asm__ volatile("" ::: "memory")
 
+#ifdef FM1_HANDOFF_TEST
+void (*handoff_gap)(const char *where, uint32_t n);
+#endif
+
+static uint32_t sync(seq *s);
+static void ask_close(seq *s);
+static uint32_t ask_open(seq *s);
+static uint32_t queued_closed(const seq *s);
+static void load_now(seq *s, const seq_pattern *p);
+
 static void edit_begin(seq *s)
 {
+    (void)sync(s);                              /* an edit is of the pattern playing (#324) */
     s->editing = 1;                             /* the interrupt leaves `edit` alone until edit_end */
     BARRIER();                                  /* set before any store to `edit` */
+    HANDOFF_GAP("edit", 1);
 }
 
 static void edit_end(seq *s)
@@ -45,7 +57,8 @@ void seq_init(seq *s)
 {
     seq_pattern_empty(&s->edit);
     s->run = s->stored = s->edit;
-    s->next_pending = s->next_taken = s->next_taken_seen = 0;
+    s->ask = s->took = s->took_pattern = s->took_seen = s->adopted = s->edit_base = 0;
+    s->ask_kind = SEQ_ASK_NONE;
     s->editing = 0;
     s->edits = s->edits_seen = 0;
     s->ask_play = s->ask_stop = s->play_seen = s->stop_seen = 0;
@@ -336,55 +349,120 @@ void seq_stop(seq *s)
     s->want = 0;
     BARRIER();
     s->ask_stop++;
-    (void)seq_main_tick(s);                     /* (one the interrupt took already) */
-    if (s->next_pending) {                      /* stopping with one queued: it loads at once */
-        s->next_pending = 0;
-        BARRIER();
-        edit_begin(s);
-        s->edit = s->next;
-        edit_end(s);
-        s->stored = s->next;
+    ask_close(s);
+    (void)sync(s);                              /* (one the interrupt took already) */
+    if (queued_closed(s)) {                     /* stopping with one queued: it loads at once */
+        s->adopted = s->ask & ~1u;
+        load_now(s, &s->next);
     }
+    s->ask_kind = SEQ_ASK_NONE;
+    (void)ask_open(s);
 }
 
-void seq_load_pattern(seq *s, const seq_pattern *p)
+/* The queued-pattern handoff's steps (#324): close, sync, write, open. Closed (`ask` odd), the
+ * interrupt takes nothing, so what it took is known (sync) before `next` and `ask_kind` change. */
+static void ask_close(seq *s)
 {
-    (void)seq_main_tick(s);
-    if (s->want && s->playing) {                /* playing: queued for the end of the pass */
-        s->next_pending = 0;                    /* (the interrupt leaves `next` alone while it's written) */
-        BARRIER();
-        s->next = *p;
-        BARRIER();
-        s->next_pending = 1;
-        return;
-    }
-    s->next_pending = 0;
+    s->ask = s->ask | 1u;
+    BARRIER();                                  /* closed before anything after it */
+    HANDOFF_GAP("ask", 1);
+}
+
+static uint32_t ask_open(seq *s)
+{
+    uint32_t a = s->ask + 1u;                   /* the next even one */
+    if (a == 0u)
+        a = 2u;                                 /* (0 is "no ask yet") */
+    HANDOFF_GAP("ask", 3);
+    BARRIER();                                  /* every store to next and ask_kind before it */
+    s->ask = a;
+    return a;
+}
+
+/* closed: the ask being replaced is still queued (not taken, not a cancel) */
+static uint32_t queued_closed(const seq *s)
+{
+    return s->ask_kind == SEQ_ASK_PATTERN && s->took != (s->ask & ~1u);
+}
+
+/* a takeover the main loop hasn't seen: the edit buffer and the stored copy become what was taken */
+static uint32_t sync(seq *s)
+{
+    uint32_t t = s->took_pattern;
+    if (t == s->took_seen)
+        return 0;
+    s->took_seen = t;
+    s->editing = 1;                             /* (as edit_begin, without its sync) */
+    BARRIER();
+    s->edit = s->next;                          /* what the interrupt took: `next` changes only after a sync */
+    s->edit_base = t;
+    edit_end(s);
+    s->stored = s->next;
+    s->adopted = t;
+    return 1;
+}
+
+static void load_now(seq *s, const seq_pattern *p)
+{
     edit_begin(s);
     s->edit = *p;
+    s->edit_base = s->took_pattern;             /* an edit of what plays */
     edit_end(s);
     s->stored = *p;
 }
 
+uint32_t seq_load_pattern(seq *s, const seq_pattern *p)
+{
+    ask_close(s);
+    (void)sync(s);
+    HANDOFF_GAP("ask", 2);
+    if (s->want && s->playing) {                /* playing: queued for the end of the pass */
+        s->next = *p;
+        s->ask_kind = SEQ_ASK_PATTERN;
+        return ask_open(s);
+    }
+    s->ask_kind = SEQ_ASK_NONE;
+    (void)ask_open(s);
+    load_now(s, p);
+    return 0;
+}
+
+uint32_t seq_requeue(seq *s, const seq_pattern *p)
+{
+    ask_close(s);
+    (void)sync(s);
+    HANDOFF_GAP("ask", 2);
+    if (queued_closed(s)) {
+        s->next = *p;
+        return ask_open(s);
+    }
+    s->ask_kind = SEQ_ASK_NONE;                 /* (taken or canceled: nothing to queue again) */
+    (void)ask_open(s);
+    return 0;
+}
+
 uint32_t seq_next_queued(const seq *s)
 {
-    return s->next_pending;
+    return s->ask_kind == SEQ_ASK_PATTERN && s->took != s->ask;
 }
 
 void seq_cancel_next(seq *s)
 {
-    s->next_pending = 0;
+    ask_close(s);
+    (void)sync(s);
+    HANDOFF_GAP("ask", 2);
+    s->ask_kind = SEQ_ASK_NONE;
+    (void)ask_open(s);
 }
 
 uint32_t seq_main_tick(seq *s)
 {
-    if (s->next_taken == s->next_taken_seen)
-        return 0;
-    s->next_taken_seen = s->next_taken;
-    edit_begin(s);
-    s->edit = s->next;                          /* what the interrupt took */
-    edit_end(s);
-    s->stored = s->next;
-    return 1;
+    return sync(s);
+}
+
+uint32_t seq_adopted(const seq *s)
+{
+    return s->adopted;
 }
 
 /* the same pattern, as played: settings, and each step's kind, velocity and the notes it has */
@@ -849,17 +927,20 @@ static uint32_t start_step(seq *s, seq_event *ev, uint32_t cnt, uint32_t at, uin
 {
     const seq_step *st;
     uint32_t k, n;
-    if (s->edits != s->edits_seen && !s->editing) {
+    if (s->edits != s->edits_seen && !s->editing && s->edit_base == s->took_pattern) {   /* (#324) */
         s->run = s->edit;
         s->edits_seen = s->edits;
     }
     if (s->pos >= s->run.length) {             /* the end of a pass */
         s->pos = 0;
-        if (s->next_pending) {                  /* the queued pattern takes over (#40) */
-            s->run = s->next;
-            s->edits_seen = s->edits;           /* (an edit to the old one is dropped with it) */
-            s->next_pending = 0;
-            s->next_taken++;
+        uint32_t a = s->ask;
+        if (!(a & 1u) && a != s->took) {        /* an open ask not acted on (#324) */
+            if (s->ask_kind == SEQ_ASK_PATTERN) {   /* the queued pattern takes over (#40) */
+                s->run = s->next;
+                s->edits_seen = s->edits;       /* (an edit to the old one is dropped with it) */
+                s->took_pattern = a;
+            }
+            s->took = a;
         }
     }
     s->run_transpose = s->transpose;            /* (a transpose plays from a step's start) */

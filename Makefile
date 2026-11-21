@@ -33,7 +33,8 @@
 
 CC      ?= cc
 CFLAGS  ?= -O2 -g
-STD     = -std=c99
+# FM1_HANDOFF_TEST: host builds get the handoffs' test gaps (firmware/handoff_test.h); the device's never
+STD     = -std=c99 -DFM1_HANDOFF_TEST
 WARN    = -Wall -Wextra -Werror -pedantic -Wshadow -Wconversion -Wno-sign-conversion
 BUILD   = build
 # The Python tools neither read nor write __pycache__: -B writes no .pyc, and the prefix (never

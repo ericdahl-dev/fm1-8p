@@ -17,6 +17,7 @@
 #define SEQ_H
 #include <stdint.h>
 #include "../engine/fm1_8p.h"
+#include "handoff_test.h"
 
 #define SEQ_STEPS 16u                   /* a pattern's steps (32 / 64 later) */
 #define SEQ_NOTES 6u                    /* a step's notes: the voice count after #34; more are dropped */
@@ -68,6 +69,7 @@ typedef struct {
 /* What the interrupt hands play_render, `at` frames into the block (0 .. n-1): a note on or off, or a bend
  * or mod wheel value (#42). seq_apply_event plays one into the engine. */
 enum { SEQ_EV_NOTE = 0, SEQ_EV_BEND = 1, SEQ_EV_MOD = 2 };
+enum { SEQ_ASK_NONE = 0, SEQ_ASK_PATTERN = 1 };   /* seq.ask_kind (#324) */
 #define SEQ_MOD_LIVE 255                /* a SEQ_EV_MOD value: back to the live wheel (the last MIDI CC1) */
 #define SEQ_GLIDE_FRAMES 32u            /* a GLIDE step's bend and mod move every this many frames */
 typedef struct {
@@ -94,14 +96,22 @@ typedef struct {
     volatile uint32_t want;             /* main loop writes (1 from seq_play to seq_stop), ISR reads */
     volatile int32_t transpose;         /* main loop writes: semitones, taken at a step's start */
     uint8_t key_transpose;              /* main loop only: KEY TRANSPOSE (S3), keys set the transpose */
-    /* pattern loads (#40): the copy last loaded or saved (main loop: seq_edited), and the next pattern,
-     * queued while playing: the main loop writes it, then sets next_pending; the interrupt takes it in
-     * place of the running pattern after the pass's last step, and counts next_taken */
+    /* pattern loads (#40, #324): the copy last loaded or saved (main loop: seq_edited), and the queued
+     * pattern, handed to the interrupt with one writer per field. The main loop writes `ask` (a
+     * generation: odd while it is being written, when the interrupt takes nothing), `ask_kind` and
+     * `next`; it changes them only by closing `ask`, syncing, writing, then opening the next even one.
+     * The interrupt writes only `took` (the last ask it acted on) and `took_pattern` (the last it
+     * switched patterns on): after the pass's last step, an open ask it hasn't acted on. */
     seq_pattern stored;
     seq_pattern next;
-    volatile uint32_t next_pending;
-    volatile uint32_t next_taken;
-    uint32_t next_taken_seen;           /* main loop: the last next_taken it adopted */
+    volatile uint32_t ask;
+    volatile uint32_t ask_kind;         /* SEQ_ASK_NONE (a cancel) or SEQ_ASK_PATTERN */
+    volatile uint32_t took;
+    volatile uint32_t took_pattern;
+    uint32_t took_seen;                 /* main loop: the last took_pattern adopted into `edit` */
+    uint32_t adopted;                   /* main loop: the ask that last became the running pattern */
+    volatile uint32_t edit_base;        /* main loop: the takeover `edit` is based on (the interrupt
+                                         * takes an edit only of the pattern it plays) */
     /* interrupt only */
     int32_t run_transpose;              /* the transpose playing */
     seq_pattern run;                    /* the pattern playing, taken from edit at a step's start */
@@ -200,12 +210,18 @@ void seq_toggle_tie(seq *s, uint32_t i);               /* a tie, or back to a re
 /* main loop: load a pattern (#40). Stopped (or before play has started), it loads at once. Playing, it
  * is queued: it takes over after the running pattern's last step (seq_main_tick then has it in the edit
  * buffer); a later load replaces the queued one. Either way it is not edited (seq_edited 0). */
-void seq_load_pattern(seq *s, const seq_pattern *p);
+uint32_t seq_load_pattern(seq *s, const seq_pattern *p);   /* the ask queued (seq_adopted), or 0: at once */
+/* main loop: queued, replace the queued pattern with p, keeping its place: the ask now queued, or 0 when
+ * nothing was queued any more (it had taken over, or was canceled) and nothing changed */
+uint32_t seq_requeue(seq *s, const seq_pattern *p);
 uint32_t seq_next_queued(const seq *s);                 /* 1 while a loaded pattern waits for the pass */
 void seq_cancel_next(seq *s);                           /* the running pattern goes on round */
-/* main loop, each draw: 1 when the queued pattern has taken over since the last call (the edit buffer is
- * it now) */
+/* main loop: 1 when the queued pattern has taken over since the last call (the edit buffer is it now).
+ * Every main-loop call that reads or edits the pattern does it first. */
 uint32_t seq_main_tick(seq *s);
+/* main loop: the ask (seq_load_pattern's) that last became the running pattern, by a takeover or a stop
+ * (0: none yet). Up to date after any main-loop call of seq's. */
+uint32_t seq_adopted(const seq *s);
 /* PATTERN EDITED: 1 when the edit buffer differs from the pattern last loaded or saved */
 uint32_t seq_edited(const seq *s);
 void seq_mark_saved(seq *s);                            /* (after a SAVE: not edited) */
