@@ -46,6 +46,35 @@ tree same
 expect_ok "two identical trees pass" sh tools/gate.sh "$T/base" "$T/same"
 cp "$T/out" "$T/report"
 expect_ok "and the report says nothing differs" grep -q "^0 of [0-9]* clips differ" "$T/report"
+# A clip the base doesn't list (a change that adds clips, #61): rendered on HEAD only and reported as new,
+# not compared, so the gate still runs against an older base. Here the base lacks the three hpf clips.
+rm -rf "${T:?}/older"; cp -R "$T/base" "$T/older"
+sed 's/^    yield from hpf_steps()$//' "$T/base/tools/gate_cases.py" >"$T/older/tools/gate_cases.py"
+expect_ok "a clip the base doesn't list is new, not a failure" env GATE_COVERAGE=0 sh tools/gate.sh "$T/older" "$T/base"
+cp "$T/out" "$T/report-new"            # (its own: the coverage tests below read the first report)
+expect_ok "and the report names each new clip" grep -q "^new: hpf-3$" "$T/report-new"
+expect_ok "and counts only the clips compared" grep -q "^0 of [0-9]* clips differ (3 new, not compared)$" "$T/report-new"
+expect_ok "the other way round, a clip HEAD no longer lists is reported gone" env GATE_COVERAGE=0 sh tools/gate.sh "$T/base" "$T/older"
+expect_ok "by name" grep -q "^gone: hpf-3$" "$T/out.last"
+# A base whose clip list fails can't make the gate pass with nothing compared: the gate can't run (exit 2).
+printf 'import sys\nsys.exit(1)\n' >"$T/older/tools/gate_cases.py"
+expect_ok "a base whose clip list fails stops the gate" sh -c 'GATE_COVERAGE=0 sh tools/gate.sh "$1" "$2"; [ $? -eq 2 ]' - "$T/older" "$T/base"
+rm -rf "${T:?}/older"
+# A clip whose name has a backslash is still a clip both trees list: compared, not new (Codex P3).
+for t in bs-base bs-head; do
+    rm -rf "${T:?}/$t"; cp -R "$T/base" "$T/$t"
+    python3 -I -c 'import sys; s = open(sys.argv[1]).read(); d = "    yield \"demo\", \"demo.mid\", []\n"
+open(sys.argv[2], "w").write(s.replace(d, d + "    yield \"back\\\\\\\\slash\", \"demo.mid\", []\n"))' \
+        "$T/base/tools/gate_cases.py" "$T/$t/tools/gate_cases.py"
+done
+expect_ok "a clip named with a backslash" env GATE_COVERAGE=0 sh "$T/bs-head/tools/gate.sh" "$T/bs-base" "$T/bs-head"   # (its list)
+cp "$T/out" "$T/report-bs"
+expect_fail "is not taken for new" grep -q "^new: " "$T/report-bs"
+rm -rf "${T:?}/bs-base" "${T:?}/bs-head"
+# A tool the cache key needs that fails (here sha256sum) stops the gate (exit 2): two keys that both read
+# "-" would let HEAD reuse BASE's renders and pass anything (Codex P2).
+mkdir -p "$T/stub" && printf '#!/bin/sh\nexit 1\n' >"$T/stub/sha256sum" && chmod +x "$T/stub/sha256sum"
+expect_ok "a failing hash stops the gate" sh -c 'PATH="$1:$PATH" GATE_DIR="$2" GATE_COVERAGE=0 sh tools/gate.sh "$3" "$4"; [ $? -eq 2 ]' - "$T/stub" "$T/gate-stub" "$T/base" "$T/same"
 # CPU rows (fm1-emu): only with the FM-1 inputs; without them the gate says so and still passes.
 expect_ok "without the FM-1 inputs the gate skips the CPU rows" env -u FM1_REF -u FM1_DOCK GATE_COVERAGE=0 \
     sh tools/gate.sh "$T/base" "$T/same"

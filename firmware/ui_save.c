@@ -169,7 +169,15 @@ static void write_slot(ui *u, uint32_t ms)
         say(u, "SAVE FAILED", STORE_USER_SLOTS, ms, 0);
 }
 
-/* "SAVING 23 WHEN SILENT" (or DELETING) into u->save_wait_msg */
+/* the longest wait message, with its NUL, fits save_wait_msg (Codex P3 on #314: a longer verb would
+ * overflow it) */
+#define WAIT_SAVING "SAVING "
+#define WAIT_DELETING "DELETING "
+#define WAIT_WHEN " WHEN SILENT"
+typedef char ui_require_wait_msg_fits[sizeof WAIT_DELETING "23" WAIT_WHEN <= sizeof ((ui *)0)->save_wait_msg &&
+                                      sizeof WAIT_SAVING "23" WAIT_WHEN <= sizeof ((ui *)0)->save_wait_msg ? 1 : -1];
+
+/* "SAVING 23 WHEN SILENT" (or DELETING) into u->save_wait_msg: the verbs are SAVING and DELETING only */
 static void wait_msg(ui *u, const char *what)
 {
     char *w = u->save_wait_msg;
@@ -178,26 +186,27 @@ static void wait_msg(ui *u, const char *what)
         *w++ = *t++;
     ui_prog_number(u->save_dest, w);
     w += 2;                                     /* a user slot: two digits (a scan is strlen to clang) */
-    for (t = " WHEN SILENT"; *t; )
+    for (t = WAIT_WHEN; *t; )
         *w++ = *t++;
     *w = 0;
 }
 
 static const char HOLD[] = "HOLD SAVE: NOW";
 static const char HOME_AGAIN[] = "HOME AGAIN TO CANCEL SAVE";
+static const char HOME_AGAIN_DELETE[] = "HOME AGAIN TO CANCEL DELETE";   /* a waiting delete's (#303) */
 
 void ui_save_home(ui *u, uint32_t ms)
 {
     if (u->save_home_armed && ms - u->save_home_ms < UI_BANNER_MS) {
+        say(u, u->save_delete ? "DELETE CANCELED" : "SAVE CANCELED", STORE_USER_SLOTS, ms, 0);
         u->save_waiting = 0;
         u->save_delete = 0;                     /* (a waiting delete too, #303) */
         u->save_home_armed = 0;
-        say(u, "SAVE CANCELED", STORE_USER_SLOTS, ms, 0);
         return;
     }
     u->save_home_armed = 1;                     /* the first tap only asks */
     u->save_home_ms = ms;
-    u->banner = HOME_AGAIN;
+    u->banner = u->save_delete ? HOME_AGAIN_DELETE : HOME_AGAIN;
     u->banner_ms = ms;
     u->dirty |= UI_D_FOOT;
 }
@@ -308,7 +317,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->save_waiting = 1;
         u->save_wait_ms = ms;
         u->save_home_armed = 0;
-        wait_msg(u, "DELETING ");
+        wait_msg(u, WAIT_DELETING);
         ui_save_tick(u, ms);
         return;
     }
@@ -330,7 +339,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->save_waiting = 1;
         u->save_wait_ms = ms;
         u->save_home_armed = 0;
-        wait_msg(u, "SAVING ");
+        wait_msg(u, WAIT_SAVING);
         ui_save_tick(u, ms);                    /* silent now: written now */
     }
 }

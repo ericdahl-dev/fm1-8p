@@ -33,6 +33,7 @@
 #include "test_vfilter.c"
 #include "test_filter_oracle.c"
 #include "test_play.c"
+#include "test_headroom.c"
 #include "test_ui.c"
 #include "test_patches.c"
 #include "test_units.c"
@@ -75,6 +76,7 @@ int main(void)
     run_vfilter_tests();
     run_filter_oracle_tests();
     run_play_tests();
+    run_headroom_tests();
     run_ui_tests();
     run_patches_tests();
     run_units_tests();

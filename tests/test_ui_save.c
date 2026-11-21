@@ -726,8 +726,9 @@ TT_TEST(save_delete_waits_for_silence_and_cancels)
     TT_CHECK(strcmp(ui_banner(&ui_u), "DELETING 12 WHEN SILENT") == 0);
     TT_CHECK_EQ(store_slot_read(&store_lib_a, 1, &out), 0);
     save_tap(UI_BTN_HOME, 3200);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "HOME AGAIN TO CANCEL DELETE") == 0);   /* (its own words, Codex P3) */
     save_tap(UI_BTN_HOME, 3400);
-    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVE CANCELED") == 0);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "DELETE CANCELED") == 0);
     play_note(&ui_p, 60, 0);
     for (k = 0; k < 2000 && !play_silent(&ui_p); k++) save_render(1);
     (void)ui_take(&ui_u, 6000);
