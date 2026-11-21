@@ -184,6 +184,13 @@ class RowTest(unittest.TestCase):
 class RowsCommandTest(unittest.TestCase):
     """gate_cpu.sh's `rows` call: its exit is the verdict's; what it can't judge is 2, never a traceback's 1."""
 
+    def setUp(self):
+        import contextlib
+        import io
+        quiet = contextlib.redirect_stdout(io.StringIO())   # (the rows' lines: not this run's output)
+        quiet.__enter__()
+        self.addCleanup(quiet.__exit__, None, None, None)
+
     def out(self):
         import tempfile
         d = tempfile.mkdtemp()
