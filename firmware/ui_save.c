@@ -185,19 +185,20 @@ static void wait_msg(ui *u, const char *what)
 
 static const char HOLD[] = "HOLD SAVE: NOW";
 static const char HOME_AGAIN[] = "HOME AGAIN TO CANCEL SAVE";
+static const char HOME_AGAIN_DELETE[] = "HOME AGAIN TO CANCEL DELETE";   /* a waiting delete's (#303) */
 
 void ui_save_home(ui *u, uint32_t ms)
 {
     if (u->save_home_armed && ms - u->save_home_ms < UI_BANNER_MS) {
+        say(u, u->save_delete ? "DELETE CANCELED" : "SAVE CANCELED", STORE_USER_SLOTS, ms, 0);
         u->save_waiting = 0;
         u->save_delete = 0;                     /* (a waiting delete too, #303) */
         u->save_home_armed = 0;
-        say(u, "SAVE CANCELED", STORE_USER_SLOTS, ms, 0);
         return;
     }
     u->save_home_armed = 1;                     /* the first tap only asks */
     u->save_home_ms = ms;
-    u->banner = HOME_AGAIN;
+    u->banner = u->save_delete ? HOME_AGAIN_DELETE : HOME_AGAIN;
     u->banner_ms = ms;
     u->dirty |= UI_D_FOOT;
 }
