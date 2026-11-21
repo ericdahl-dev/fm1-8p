@@ -72,28 +72,48 @@ static int16_t to_int16(int32_t q24)
     return (int16_t)s;
 }
 
-/* The output gain: `shift` doublings of the soft clip's int16, clamped at
- * +-32767 (it saturates, never wraps). The FM-1 module's gain
+/*
+ * The output gain: `shift` doublings of the soft clip's int16, clamped at
+ * +-32767 (it saturates, never wraps): the FM-1 module's gain
  * (FM_OUT_SHIFT_DEVICE), after the soft clip, as play_render applied it.
- * At shift 0 it is the soft clip's output as it is: that holds at 31642,
- * so the clamp never acts there. */
-static int16_t gained(int16_t s, uint8_t shift)
+ *
+ * At shift 1 and up the soft clip never shapes a sample: whatever reaches
+ * its knee (23600, -2.85 dBFS) is at least 47200 after one doubling, past
+ * the clamp. So there the stage is the makeup's plain shift, doubled and
+ * clamped: clamp((q24 >> 8) * 2^shift), the same sample for sample with no
+ * table and no 64-bit math. At shift 0 the soft clip is the output as it is
+ * (it holds at 31642, so no clamp acts).
+ */
+static int16_t gained(int32_t q24, uint8_t shift)
 {
-    int32_t v = (int32_t)s * (1 << shift);
+    int32_t v = (q24 >> 8) * (1 << shift);   /* |q24 >> 8| < 2^23: no overflow at shift 4 */
     return (int16_t)(v > 32767 ? 32767 : v < -32767 ? -32767 : v);
 }
 
 void fm_out_block(int16_t *out, const int32_t *left, const int32_t *right, uint32_t n, uint8_t shift)
 {
     uint32_t i;
-    if (right) {
+    if (shift == 0) {           /* the engine's own level: the soft clip */
+        if (right) {
+            for (i = 0; i < n; i++) {
+                out[2 * i] = to_int16(left[i]);
+                out[2 * i + 1] = to_int16(right[i]);
+            }
+        } else {
+            for (i = 0; i < n; i++) {
+                int16_t s = to_int16(left[i]);
+                out[2 * i] = s;
+                out[2 * i + 1] = s;
+            }
+        }
+    } else if (right) {         /* an output gain: past the knee is past the clamp */
         for (i = 0; i < n; i++) {
-            out[2 * i] = gained(to_int16(left[i]), shift);
-            out[2 * i + 1] = gained(to_int16(right[i]), shift);
+            out[2 * i] = gained(left[i], shift);
+            out[2 * i + 1] = gained(right[i], shift);
         }
     } else {
         for (i = 0; i < n; i++) {
-            int16_t s = gained(to_int16(left[i]), shift);
+            int16_t s = gained(left[i], shift);
             out[2 * i] = s;
             out[2 * i + 1] = s;
         }
