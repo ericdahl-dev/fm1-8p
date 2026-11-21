@@ -210,6 +210,7 @@ case $1 in *base*) echo "plain: stage failed"; exit 1 ;; esac
 echo "plain      F =  1.0 %"
 STUB
 expect_ok "a base-only CPU failure is shown, not a gate failure" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-base.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same" >"$1/bo" && grep -q "^CPU rows: base failed" "$1/bo"' - "$T"
+stub_gate >/dev/null 2>&1                # (this stand-in's key with its first tools, kept: the next run is a tool's change alone)
 expect_ok "and another tool's (gate_cpu.sh --tools)" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" STUB_TOOLS=2 sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
 # Rows made while the tools can't be identified are shown, not kept: a later tool could not be told apart.
 expect_ok "rows made with the tools unknown pass the gate" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" STUB_NO_TOOLS=1 sh tools/gate.sh "$1/base" "$1/same" >"$1/nt"' - "$T"
