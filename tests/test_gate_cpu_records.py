@@ -239,6 +239,13 @@ class RowsCommandTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(d, "rows.jsonl")))
         self.assertFalse(os.path.exists(os.path.join(d, "layouts.txt")))
 
+    def test_an_out_that_is_not_a_folder_exits_2(self):
+        import tempfile
+        fd, f = tempfile.mkstemp()
+        os.close(fd)
+        self.addCleanup(os.remove, f)
+        self.assertEqual(C.main(["x", "rows", f, "64.8", "0", "plain"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

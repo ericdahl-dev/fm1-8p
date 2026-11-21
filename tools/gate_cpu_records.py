@@ -212,7 +212,10 @@ def main(argv):
             return _rows(a)
         except (OSError, ValueError) as e:       # (a limit not a number, a record file not one: 2, not 1)
             print(f"gate_cpu: rows: {e}", file=sys.stderr)
-            _clear(a[0])                         # (no half-written view or records left)
+            try:
+                _clear(a[0])                     # (no half-written view or records left)
+            except OSError:
+                pass                             # (an OUT that can't be cleared: still 2, not a traceback)
             return 2
     print(f"gate_cpu_records: {cmd}: not a command", file=sys.stderr)
     return 2
