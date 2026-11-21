@@ -84,8 +84,12 @@ def verdict(expected, records, required=(), figures=None, compared=()):
     want = set(expected)
     figures = figures or {}
     for kind, fields in figures.items():         # (a bare str would read as its letters)
-        if isinstance(fields, str) or not fields:
+        if isinstance(fields, str):
             raise ValueError(f"figures for {kind}: name its fields, as a tuple ({fields!r})")
+    figures = {k: tuple(v) for k, v in figures.items()}   # (an iterator would be used up by one record)
+    for kind, fields in figures.items():
+        if not fields or not all(isinstance(f, str) for f in fields):
+            raise ValueError(f"figures for {kind}: name its fields, as text ({fields!r})")
     n_compared = {}
     seen = {}
     report = []

@@ -161,6 +161,20 @@ class VerdictTest(unittest.TestCase):
             with self.subTest(figures=figures), self.assertRaises(ValueError):
                 G.verdict([("cpu", "plain")], [rec("plain", "pass", kind="cpu")], figures=figures)
 
+    def test_a_figures_entry_that_is_an_iterator_is_read_once_for_all(self):
+        a = G.record("cpu", "a", "pass", value={"F": 1.0})
+        b = G.record("cpu", "b", "pass")
+        figures = {"cpu": (f for f in ["F"])}
+        self.assertEqual(self.code([("cpu", "a"), ("cpu", "b")], [a, b], figures=figures), 2)
+
+    def test_an_empty_iterator_names_no_field(self):
+        with self.assertRaises(ValueError):
+            G.verdict([("cpu", "plain")], [rec("plain", "pass", kind="cpu")], figures={"cpu": iter(())})
+
+    def test_a_field_name_that_is_not_text_is_a_mistake(self):
+        with self.assertRaises(ValueError):
+            G.verdict([("cpu", "plain")], [rec("plain", "pass", kind="cpu")], figures={"cpu": (1,)})
+
     def test_a_huge_whole_number_is_a_number(self):
         r = G.record("cpu", "plain", "pass", value={"F": 10 ** 400})
         self.assertEqual(self.code([("cpu", "plain")], [r], figures={"cpu": ("F",)}), 0)
