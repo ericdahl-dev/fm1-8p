@@ -169,7 +169,9 @@ expect_ok "and a row that can't be staged says so" grep -q '^plain-hn@1024: stag
 rm -rf "${T:?}/nochord" "${T:?}/cpu-nochord"
 # The gate keeps CPU rows per tree, gate_cpu.sh and its toggles, and never keeps a failed run's
 # (GATE_CPU: a stand-in for gate_cpu.sh).
+# (each stand-in answers --tools as gate_cpu.sh does: the tools' identity, for the CPU key)
 cat >"$T/cpu-stub.sh" <<'STUB'
+[ "$1" = --tools ] && { [ -z "${STUB_NO_TOOLS:-}" ] || exit 2; echo "{\"stub\": \"${STUB_TOOLS:-1}\"}"; exit 0; }
 echo "plain      F =  1.0 %"
 [ "${GATE_CPU_HINOTE:-1}" = 0 ] || echo "plain-hn   F =  2.0 %"
 [ -z "${STUB_FAIL:-}" ] || { echo "plain-hn: stage failed"; exit 1; }
@@ -179,11 +181,11 @@ stub_gate() { env GATE_CPU="$T/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$T/fm1/doc
 expect_ok "a failed CPU run fails the gate (exit 1)" sh -c 'env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" STUB_FAIL=1 sh tools/gate.sh "$1/base" "$1/same"; [ $? -eq 1 ]' - "$T"
 expect_ok "with its rows" sh -c "grep -q '^CPU rows: base failed' '$T/out.last' && grep -q '^plain-hn: stage failed' '$T/out.last'"
 # gate_cpu's exit 2 (a layout that could not run) fails the gate as its 1 does: never a pass.
-printf 'echo "plain: F at only 0 of 4 layouts"\nexit 2\n' >"$T/cpu-stub-2.sh"
+printf '[ "$1" = --tools ] && { echo "{}"; exit 0; }\necho "plain: F at only 0 of 4 layouts"\nexit 2\n' >"$T/cpu-stub-2.sh"
 expect_ok "a CPU run that could not run (exit 2) stops the gate: exit 2, never 0" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-2.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; r=$?; rm -rf "$1/gate/cpu"; [ $r -eq 2 ]' - "$T"
-printf 'echo "plain      F = 99.0 %%"\necho "plain: F mean 99.0 %% over the limit 64.8 %%"\nexit 1\n' >"$T/cpu-stub-1.sh"
+printf '[ "$1" = --tools ] && { echo "{}"; exit 0; }\necho "plain      F = 99.0 %%"\necho "plain: F mean 99.0 %% over the limit 64.8 %%"\nexit 1\n' >"$T/cpu-stub-1.sh"
 expect_ok "a CPU mean over the limit (exit 1) fails the gate: exit 1, never 0" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-1.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; r=$?; rm -rf "$1/gate/cpu"; [ $r -eq 1 ]' - "$T"
-printf 'echo "plain: crashed"\nexit 3\n' >"$T/cpu-stub-3.sh"
+printf '[ "$1" = --tools ] && { echo "{}"; exit 0; }\necho "plain: crashed"\nexit 3\n' >"$T/cpu-stub-3.sh"
 expect_ok "any other CPU exit stops it too (exit 2)" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-3.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; r=$?; rm -rf "$1/gate/cpu"; [ $r -eq 2 ]' - "$T"
 expect_fail "and not kept" sh -c "ls '$T/gate/cpu/'*/rows.txt"
 expect_ok "GATE_CPU_HINOTE=0's rows are kept apart" stub_gate GATE_CPU_HINOTE=0
@@ -203,10 +205,15 @@ for py in gate_cpu_records gate_stage gate_record; do
 done
 # Only HEAD's CPU rows judge: a failed base row is shown, and the gate still passes when HEAD's pass.
 cat >"$T/cpu-stub-base.sh" <<'STUB'
+[ "$1" = --tools ] && { echo "{\"stub\": \"${STUB_TOOLS:-1}\"}"; exit 0; }
 case $1 in *base*) echo "plain: stage failed"; exit 1 ;; esac
 echo "plain      F =  1.0 %"
 STUB
 expect_ok "a base-only CPU failure is shown, not a gate failure" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-base.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same" >"$1/bo" && grep -q "^CPU rows: base failed" "$1/bo"' - "$T"
+expect_ok "and another tool's (gate_cpu.sh --tools)" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" STUB_TOOLS=2 sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
+# Rows made while the tools can't be identified are shown, not kept: a later tool could not be told apart.
+expect_ok "rows made with the tools unknown pass the gate" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" STUB_NO_TOOLS=1 sh tools/gate.sh "$1/base" "$1/same" >"$1/nt"' - "$T"
+expect_ok "and are shown, not kept" sh -c 'grep -q "^plain      F =  1.0 %" "$1/nt" && ! ls "$1"/gate/cpu/*/rows.txt 2>/dev/null' - "$T"
 expect_ok "and another GATE_CPU_LAYOUTS's" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" GATE_CPU_LAYOUTS="0 512" sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
 expect_ok "from a default run's" stub_gate
 expect_ok "which has its high-note rows" grep -q '^plain-hn ' "$T/out.last"
