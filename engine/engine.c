@@ -243,7 +243,7 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
 static int32_t level_gain(const fm_engine *e, int32_t permille)
 {
     uint32_t p = (uint32_t)permille, q = p * 1073741u + p * 824u / 1000u;
-    return (int32_t)(((int64_t)(386669466u / e->voice_count) * q) >> 30);
+    return (int32_t)(((int64_t)(FM_MIX_GAIN_Q30 / e->voice_count) * q) >> 30);
 }
 
 /*
@@ -680,7 +680,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
      * adds up to +5.9 dB to a chord in phase) less PG-8X 2.0.13's 3.17 dB
      * over it, the same on every path (#102: one DCO or two, any notes,
      * the filter, the highpass, the VCA modes) */
-    e->mix_gain = (int32_t)(386669466u / voice_count);
+    e->mix_gain = (int32_t)(FM_MIX_GAIN_Q30 / voice_count);
     e->stamp = 0;
     e->pedal_down = 0;
     e->bend = 0;
