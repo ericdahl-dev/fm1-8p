@@ -4,6 +4,7 @@ from fm1-emu's own log lines, and one a row over its layouts ("cpu", "plain"). T
 prints are a view of them. Standard library only.
 """
 import re
+import sys
 
 import gate_record as G
 
@@ -118,3 +119,74 @@ def row_record(row, layouts, n_all, limit):
     elif hi > lim:
         lines.append(f"{row}: max {hi:.1f} % over the limit {lim:.1f} % at layout {hilay} (mean ok)")
     return G.record("cpu", row, status, value=value, why=lines[1] if len(lines) > 1 else None), lines
+
+
+def _put(prefix, r):
+    with open(prefix + ".json", "w") as f:
+        f.write(G.line(r) + "\n")
+
+
+def main(argv):
+    """gate_cpu.sh's calls:
+      layout TREE ROW LAYOUT LOG BUILD PREFIX   one layout's record into PREFIX.json, its line into
+                                                PREFIX.row; exit 1, printing why, when it has no figures
+      error ROW LAYOUT WHY PREFIX               a layout that could not run, as a record
+      rows OUT LIMIT LAYOUTS ROW...             each row over its layouts: OUT/layouts.txt, OUT/rows.jsonl,
+                                                the rows' lines on stdout; exit as verdict() says"""
+    cmd, a = argv[1], argv[2:]
+    if cmd == "layout":
+        tree, row, layout, log, build, prefix = a
+        try:
+            with open(log, errors="replace") as f:
+                log_text = f.read()
+            with open(build, errors="replace") as f:
+                build_text = f.read()
+            r = layout_record(row, layout, log_text, build_text, max_voices(tree))
+        except (OSError, ValueError) as e:
+            r = G.record("cpu-layout", f"{row}@{layout}", "error", why=str(e))
+        _put(prefix, r)
+        if r["status"] != "pass":
+            print(f"{r['name']}: {r['why']} (see {log})")
+            return 1
+        with open(prefix + ".row", "w") as f:
+            f.write(layout_line(r) + "\n")
+        return 0
+    if cmd == "error":
+        row, layout, why, prefix = a
+        _put(prefix, G.record("cpu-layout", f"{row}@{layout}", "error", why=why))
+        return 0
+    if cmd == "rows":
+        import os
+        out, limit, layouts, rows = a[0], a[1], a[2].split(), a[3:]
+        expected, records, view = [], [], []
+        with open(os.path.join(out, "layouts.txt"), "w") as lt:
+            for row in rows:
+                lays = []
+                for n in layouts:
+                    name = f"{row}@{n}"
+                    expected.append(("cpu-layout", name))
+                    p = os.path.join(out, name)
+                    try:
+                        lays += G.load(p + ".json")
+                    except FileNotFoundError:
+                        continue                 # (verdict: missing)
+                    if lays and lays[-1]["status"] == "pass" and lays[-1]["name"] == name:
+                        lt.write(layout_line(lays[-1]) + ("  (shipped)" if n == "0" else "") + "\n")
+                expected.append(("cpu", row))
+                r, lines = row_record(row, lays, len(layouts), limit)
+                records += lays + [r]
+                view += lines
+        with open(os.path.join(out, "rows.jsonl"), "w") as f:
+            f.writelines(G.line(r) + "\n" for r in records)
+        for x in view:
+            print(x)
+        code, _ = G.verdict(expected, records, compared=("cpu",),
+                            figures={"cpu": ("F", "F_min", "F_max", "8", "U", "overruns", "code_bytes"),
+                                     "cpu-layout": ("8", "U", "F", "overruns", "code_bytes")})
+        return code
+    print(f"gate_cpu_records: {cmd}: not a command", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
