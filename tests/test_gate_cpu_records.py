@@ -35,7 +35,12 @@ class LayoutTest(unittest.TestCase):
     def test_a_whole_run_is_a_pass_with_its_figures(self):
         r = C.layout_record("sync-hn", "0", LOG, BUILD, max_voices=8)
         self.assertEqual((r["kind"], r["name"], r["status"]), ("cpu-layout", "sync-hn@0", "pass"))
-        self.assertEqual(r["value"], {"8": 14.5, "U": 23.8, "F": 51.8, "overruns": 0, "code_bytes": 37412})
+        self.assertEqual(r["value"], {"8": 14.5, "U": 23.8, "F": 51.8, "overruns": 0, "code_bytes": 37412,
+                                      "layout": 0, "shipped": True})
+
+    def test_only_layout_0_shipped(self):
+        r = C.layout_record("plain", "1024", LOG, BUILD, max_voices=8)
+        self.assertEqual((r["value"]["layout"], r["value"]["shipped"]), (1024, False))
 
     def test_its_line_is_the_row_main_printed(self):
         r = C.layout_record("sync-hn", "0", LOG, BUILD, max_voices=8)
@@ -128,7 +133,8 @@ class RowTest(unittest.TestCase):
         self.assertEqual(lines, [ROW])
         got = {k: round(v, 9) for k, v in r["value"].items()}   # (means are doubles: 23.899999...)
         self.assertEqual(got, {"F": 41.0, "F_min": 40.0, "F_max": 42.0, "spread": 2.0, "8": 14.5,
-                                      "U": 23.9, "overruns": 0, "code_bytes": 1000, "layouts": 3})
+                                      "U": 23.9, "overruns": 0, "code_bytes": 1000, "layouts": 3,
+                               "limit": 64.8})
 
     def test_a_mean_over_the_limit_fails(self):
         r, lines = C.row_record("plain", self.LAYS, 3, "40.5")

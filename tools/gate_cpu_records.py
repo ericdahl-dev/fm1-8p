@@ -61,7 +61,8 @@ def layout_record(row, layout, log, build, max_voices):
     if why:
         return G.record("cpu-layout", name, "missing", why=why)
     value = {"8": pm[max_voices] / 10, "U": pm[burst] / 10, "F": pm[full] / 10,
-             "overruns": int(ov.group(1)), "code_bytes": int(code.group(1))}
+             "overruns": int(ov.group(1)), "code_bytes": int(code.group(1)),
+             "layout": int(layout), "shipped": int(layout) == 0}   # (0: no dead code, the build that ships)
     return G.record("cpu-layout", name, "pass", value=value)
 
 
@@ -107,7 +108,7 @@ def row_record(row, layouts, n_all, limit):
     m = s / n
     code = got[0]["value"]["code_bytes"]        # (every layout passed: the first is GATE_CPU_LAYOUTS' first)
     value = {"F": m, "F_min": lo, "F_max": hi, "spread": hi - lo, "8": e / n, "U": u / n,
-             "overruns": ov, "code_bytes": code, "layouts": n}
+             "overruns": ov, "code_bytes": code, "layouts": n, "limit": lim}
     lines = [f"{row:<10} 8 = {e / n:4.1f} %   U = {u / n:4.1f} %   F = {m:4.1f} % ({lo:.1f}..{hi:.1f}, "
              f"spread {hi - lo:.1f}, {n} layouts)    {ov} overruns code {code} B"]
     status = "pass"
