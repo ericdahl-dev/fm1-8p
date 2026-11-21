@@ -161,6 +161,16 @@ class VerdictTest(unittest.TestCase):
             with self.subTest(figures=figures), self.assertRaises(ValueError):
                 G.verdict([("cpu", "plain")], [rec("plain", "pass", kind="cpu")], figures=figures)
 
+    def test_required_given_as_an_iterator_holds_for_every_record(self):
+        r = [rec("a", "pass"), rec("t", "skipped", kind="tone"), rec("p", "skipped", kind="cpu")]
+        exp = [("clip", "a"), ("tone", "t"), ("cpu", "p")]
+        self.assertEqual(self.code(exp, r, required=iter(("cpu",))), 2)
+
+    def test_required_or_compared_as_a_bare_word_is_a_mistake(self):
+        for kw in (dict(required="cpu"), dict(compared="clip")):
+            with self.subTest(kw=kw), self.assertRaises(ValueError):
+                G.verdict([("clip", "a")], [rec("a", "pass")], **kw)
+
     def test_a_figures_entry_that_is_an_iterator_is_read_once_for_all(self):
         a = G.record("cpu", "a", "pass", value={"F": 1.0})
         b = G.record("cpu", "b", "pass")

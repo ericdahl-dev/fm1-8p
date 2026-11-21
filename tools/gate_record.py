@@ -82,6 +82,10 @@ def verdict(expected, records, required=(), figures=None, compared=()):
     plain pass, the missing ones made here among them. ValueError for a record that is not one."""
     expected = list(expected)                    # (read twice: an iterator would be empty the second time)
     want = set(expected)
+    for what, kinds in (("required", required), ("compared", compared)):
+        if isinstance(kinds, str):               # (a bare word would read as its letters)
+            raise ValueError(f"{what}: name its kinds, as a tuple ({kinds!r})")
+    required, compared = frozenset(required), tuple(compared)   # (read once: an iterator would run dry)
     figures = figures or {}
     for kind, fields in figures.items():         # (a bare str would read as its letters)
         if isinstance(fields, str):
