@@ -156,6 +156,15 @@ class VerdictTest(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(self.code([("cpu", "plain")], [r], figures={"cpu": ("F",)}), 2)
 
+    def test_a_figures_entry_naming_no_field_is_a_mistake(self):
+        for figures in ({"cpu": ()}, {"cpu": ""}, {"cpu": "F"}):
+            with self.subTest(figures=figures), self.assertRaises(ValueError):
+                G.verdict([("cpu", "plain")], [rec("plain", "pass", kind="cpu")], figures=figures)
+
+    def test_a_huge_whole_number_is_a_number(self):
+        r = G.record("cpu", "plain", "pass", value={"F": 10 ** 400})
+        self.assertEqual(self.code([("cpu", "plain")], [r], figures={"cpu": ("F",)}), 0)
+
     def test_every_kind_named_compared_needs_a_pass_or_fail(self):
         r = [rec("a", "new"), G.record("cpu", "plain", "pass", value={"F": 41.0})]
         self.assertEqual(self.code([("clip", "a"), ("cpu", "plain")], r, compared=("clip",)), 2)

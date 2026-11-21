@@ -67,7 +67,9 @@ def checked(d):
 
 def _number(x):
     import math
-    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        return False
+    return isinstance(x, int) or math.isfinite(x)   # (isfinite overflows on a huge int)
 
 
 def verdict(expected, records, required=(), figures=None, compared=()):
@@ -81,6 +83,9 @@ def verdict(expected, records, required=(), figures=None, compared=()):
     expected = list(expected)                    # (read twice: an iterator would be empty the second time)
     want = set(expected)
     figures = figures or {}
+    for kind, fields in figures.items():         # (a bare str would read as its letters)
+        if isinstance(fields, str) or not fields:
+            raise ValueError(f"figures for {kind}: name its fields, as a tuple ({fields!r})")
     n_compared = {}
     seen = {}
     report = []
