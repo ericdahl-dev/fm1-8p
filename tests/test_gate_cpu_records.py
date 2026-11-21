@@ -108,5 +108,72 @@ class MaxVoicesTest(unittest.TestCase):
         self.assertEqual(C.max_voices(ROOT), 8)
 
 
+def lay(layout, f, row="plain", u=23.9, overruns=0, code=1000):
+    v = {"8": 14.5, "U": u, "F": f, "overruns": overruns, "code_bytes": code}
+    return C.G.record("cpu-layout", f"{row}@{layout}", "pass", value=v)
+
+
+# The lines main's gate_cpu.sh (728f231) printed for these layouts (black2, through the build stub)
+ROW = "plain      8 = 14.5 %   U = 23.9 %   F = 41.0 % (40.0..42.0, spread 2.0, 3 layouts)    0 overruns code 1000 B"
+
+
+class RowTest(unittest.TestCase):
+    """A row over its layouts: F's mean judged against the limit, a layout over it only a warning."""
+
+    LAYS = [lay("0", 40.0), lay("1024", 41.0), lay("2048", 42.0)]
+
+    def test_a_row_under_the_limit_passes_with_main_s_line(self):
+        r, lines = C.row_record("plain", self.LAYS, 3, "64.8")
+        self.assertEqual(r["status"], "pass")
+        self.assertEqual(lines, [ROW])
+        got = {k: round(v, 9) for k, v in r["value"].items()}   # (means are doubles: 23.899999...)
+        self.assertEqual(got, {"F": 41.0, "F_min": 40.0, "F_max": 42.0, "spread": 2.0, "8": 14.5,
+                                      "U": 23.9, "overruns": 0, "code_bytes": 1000, "layouts": 3})
+
+    def test_a_mean_over_the_limit_fails(self):
+        r, lines = C.row_record("plain", self.LAYS, 3, "40.5")
+        self.assertEqual(r["status"], "fail")
+        self.assertEqual(lines, [ROW, "plain: F mean 41.0 % over the limit 40.5 %"])
+
+    def test_a_layout_over_the_limit_only_warns(self):
+        r, lines = C.row_record("plain", self.LAYS, 3, "41.5")
+        self.assertEqual(r["status"], "pass")
+        self.assertEqual(lines, [ROW, "plain: max 42.0 % over the limit 41.5 % at layout 2048 (mean ok)"])
+
+    def test_a_mean_at_the_limit_is_not_over_it(self):
+        r, lines = C.row_record("plain", self.LAYS, 3, "41.0")
+        self.assertEqual(r["status"], "pass")
+        self.assertEqual(lines[1], "plain: max 42.0 % over the limit 41.0 % at layout 2048 (mean ok)")
+
+    def test_a_layout_short_is_an_error(self):
+        r, lines = C.row_record("plain", [self.LAYS[0], self.LAYS[2]], 3, "64.8")
+        self.assertEqual(r["status"], "error")
+        self.assertEqual(lines, ["plain: F at only 2 of 3 layouts"])
+
+    def test_a_missing_layout_record_does_not_count(self):
+        gone = C.G.record("cpu-layout", "plain@1024", "missing", why="no F in the log's last sweep")
+        r, lines = C.row_record("plain", [self.LAYS[0], gone, self.LAYS[2]], 3, "64.8")
+        self.assertEqual((r["status"], lines), ("error", ["plain: F at only 2 of 3 layouts"]))
+
+    def test_no_layout_at_all_is_an_error_said_out_loud(self):
+        r, lines = C.row_record("plain", [], 3, "64.8")
+        self.assertEqual((r["status"], lines), ("error", ["plain: F at only 0 of 3 layouts"]))
+
+    def test_the_first_layout_s_code_and_the_overruns_summed(self):
+        lays = [lay("0", 40.0, code=900, overruns=1), lay("1024", 41.0, code=1100, overruns=2)]
+        r, lines = C.row_record("plain", lays, 2, "64.8")
+        self.assertEqual((r["value"]["code_bytes"], r["value"]["overruns"]), (900, 3))
+        self.assertTrue(lines[0].endswith("    3 overruns code 900 B"))
+
+    def test_the_first_highest_layout_is_named(self):
+        lays = [lay("0", 42.0), lay("1024", 40.0), lay("2048", 42.0)]
+        r, lines = C.row_record("plain", lays, 3, "41.5")
+        self.assertIn("at layout 0 (mean ok)", lines[1])
+
+    def test_a_limit_that_is_not_a_number_is_an_error(self):
+        with self.assertRaises(ValueError):
+            C.row_record("plain", self.LAYS, 3, "64,8")
+
+
 if __name__ == "__main__":
     unittest.main()

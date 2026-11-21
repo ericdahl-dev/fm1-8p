@@ -70,3 +70,50 @@ def layout_line(r):
     v = r["value"]
     figs = "".join(f"{k} =  {v[k]:.1f} %   " for k in ("8", "U", "F"))
     return f"{r['name']:<14} {figs} {v['overruns']} overruns code {v['code_bytes']} B"
+
+
+def _limit(text):
+    import math
+    x = float(text)                              # (ValueError: "64,8", "": awk read either as 0)
+    if not math.isfinite(x):
+        raise ValueError(f"limit {text!r} is not a number")
+    return x
+
+
+def row_record(row, layouts, n_all, limit):
+    """`row` over its layout records (in GATE_CPU_LAYOUTS' order, `n_all` of them asked for): (its record,
+    the lines gate_cpu.sh prints for it). Its 8, U and F are their means over the layouts that passed, F
+    with its range; overruns summed, the code size the first layout's. A fail when F's mean is over `limit`
+    (% of a block); a layout over it only adds a warning line. An error when a layout has no figures."""
+    lim = _limit(limit)
+    got = [r for r in layouts if r["status"] == "pass"]
+    n = len(got)
+    if n < n_all or n == 0:
+        why = f"F at only {n} of {n_all} layouts"
+        return G.record("cpu", row, "error", why=why), [f"{row}: {why}"]
+    e = u = s = 0.0
+    ov = 0
+    lo = hi = None
+    for r in got:                                # (summed in order, as awk did: the same doubles)
+        v = r["value"]
+        e += v["8"]
+        u += v["U"]
+        s += v["F"]
+        ov += v["overruns"]
+        if lo is None or v["F"] < lo:
+            lo = v["F"]
+        if hi is None or v["F"] > hi:
+            hi, hilay = v["F"], r["name"].rsplit("@", 1)[1]
+    m = s / n
+    code = got[0]["value"]["code_bytes"]        # (every layout passed: the first is GATE_CPU_LAYOUTS' first)
+    value = {"F": m, "F_min": lo, "F_max": hi, "spread": hi - lo, "8": e / n, "U": u / n,
+             "overruns": ov, "code_bytes": code, "layouts": n}
+    lines = [f"{row:<10} 8 = {e / n:4.1f} %   U = {u / n:4.1f} %   F = {m:4.1f} % ({lo:.1f}..{hi:.1f}, "
+             f"spread {hi - lo:.1f}, {n} layouts)    {ov} overruns code {code} B"]
+    status = "pass"
+    if m > lim:
+        status = "fail"
+        lines.append(f"{row}: F mean {m:.1f} % over the limit {lim:.1f} %")
+    elif hi > lim:
+        lines.append(f"{row}: max {hi:.1f} % over the limit {lim:.1f} % at layout {hilay} (mean ok)")
+    return G.record("cpu", row, status, value=value, why=lines[1] if len(lines) > 1 else None), lines
