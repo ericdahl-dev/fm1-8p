@@ -336,6 +336,48 @@ class HistoryTest(unittest.TestCase):
         self.assertIn("| 02 T2 |", text)
         self.assertIn("20.0 → 12.0", text)
 
+    def test_a_tone_the_base_lacks_is_new_not_dropped(self):
+        got = self.sc.moved(self.rows([10.0, 20.0]), self.rows([10.0, 20.0, 15.0]))
+        self.assertEqual([(m["tone"], m["verdict"]) for m in got], [(3, "new")])
+        self.assertEqual(got[0]["spectral_head"], 15.0)
+        self.assertIsNone(got[0]["spectral_base"])
+        self.assertIn("| 03 T3 | - → 15.0 |", self.sc.moved_table(got))
+
+    def test_a_tone_the_head_lacks_is_gone_not_dropped(self):
+        got = self.sc.moved(self.rows([10.0, 20.0, 15.0]), self.rows([10.0, 20.0]))
+        self.assertEqual([(m["tone"], m["verdict"]) for m in got], [(3, "gone")])
+        self.assertIn("| 03 T3 | 15.0 → - |", self.sc.moved_table(got))
+
+    def test_the_report_counts_new_and_gone_tones(self):
+        head = self.rows([5, 30, 1])
+        for r in head:
+            r.update({"spectral_db": {"chord": r["spectral_db_mean"]}, "timing_gap_ms": {},
+                      "pitch_cents": {"low": 0.0, "high": 0.0}})
+        base = self.rows([5, 30, 1, 7])[1:]
+        text = self.sc.report(head, base)
+        self.assertIn("tones moved: 2 (0 closer, 0 further, 1 new, 1 gone)", text)
+
+    def test_with_none_new_or_gone_the_count_line_is_as_before(self):
+        head = self.rows([5, 30])
+        for r in head:
+            r.update({"spectral_db": {"chord": r["spectral_db_mean"]}, "timing_gap_ms": {},
+                      "pitch_cents": {"low": 0.0, "high": 0.0}})
+        self.assertIn("tones moved: 1 (1 closer, 0 further)\n", self.sc.report(head, self.rows([5, 31])) + "\n")
+
+    def test_a_figure_that_is_not_a_number_is_an_error(self):
+        nan = float("nan")
+        for base, head in (([10.0], [nan]), ([nan], [10.0])):
+            with self.subTest(base=base, head=head), self.assertRaises(ValueError):
+                self.sc.moved(self.rows(base, [2.0]), self.rows(head, [1.0]))
+        with self.assertRaises(ValueError):
+            self.sc.moved(self.rows([10.0], [nan]), self.rows([10.0], [1.0]))
+        with self.assertRaises(ValueError):
+            self.sc.moved(self.rows([10.0]), [dict(self.rows([10.0])[0], spectral_db_mean=True)])
+
+    def test_a_base_given_as_a_generator_is_read_once(self):
+        got = self.sc.moved((r for r in self.rows([10.0, 20.0])), self.rows([10.0, 12.0]))
+        self.assertEqual([m["tone"] for m in got], [2])
+
     def test_the_report_has_every_tone_the_worst_five_and_what_moved(self):
         head = self.rows([5, 30, 1, 25, 9, 40, 2])
         for r in head:
@@ -530,5 +572,102 @@ class ScoreMidiTest(unittest.TestCase):
             self.assertGreaterEqual(round(a - on, 3), 0.13, name)
 
 
+class ScriptBaseTest(unittest.TestCase):
+    """tools/scorecard.sh stops on a BASE that is not a commit, before it builds anything (#335: it passed
+    --base "" and printed a report with nothing compared). Run from a scratch repo holding only the
+    script, so a regression can't build into this checkout."""
+
+    def test_a_base_that_is_not_a_commit_stops_it(self):
+        self.run_it(lambda t: os.environ)
+
+    def test_and_a_git_hook_environment_reaches_neither_git_nor_the_script(self):
+        # A hook's GIT_DIR and GIT_INDEX_FILE, aimed at a bait repo (never the real one): it has a commit
+        # tagged as the BASE, so a script that read GIT_DIR would find it and not stop; and its HEAD and
+        # the index file must be as they were.
+        import subprocess
+        state = {}
+
+        def outer(t):
+            bait = os.path.join(t, "bait")
+            os.makedirs(bait)
+            g = lambda *a: subprocess.run(["git", "-C", bait, *a], check=True, capture_output=True, text=True,
+                                          env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+            g("init", "-q")
+            open(os.path.join(bait, "keep"), "w").write("bait\n")
+            g("add", ".")
+            g("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "bait")
+            g("tag", "no-such-commit-335")
+            state.update(g=g, head=g("rev-parse", "HEAD").stdout, index=os.path.join(t, "hook-index"))
+            return dict(os.environ, GIT_DIR=os.path.join(bait, ".git"), GIT_INDEX_FILE=state["index"])
+
+        self.run_it(outer, after=lambda: (
+            self.assertEqual(state["g"]("rev-parse", "HEAD").stdout, state["head"], "a commit reached the bait"),
+            self.assertFalse(os.path.exists(state["index"]), "an index was written at the hook's path")))
+
+    def run_it(self, outer_env, after=lambda: None):
+        import shutil
+        import subprocess
+        import tempfile
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        with tempfile.TemporaryDirectory() as t:
+            outer = outer_env(t)
+            root, ref = os.path.join(t, "repo"), os.path.join(t, "ref")
+            os.makedirs(os.path.join(root, "tools"))
+            os.makedirs(ref)
+            shutil.copy(os.path.join(here, "tools/scorecard.sh"), os.path.join(root, "tools"))
+            clean = {k: v for k, v in outer.items() if not k.startswith("GIT_")}   # (a hook's GIT_DIR, GIT_INDEX_FILE)
+            git = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=clean)
+            git("init", "-q")
+            git("add", ".")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "t")
+            open(os.path.join(ref, "manifest.json"), "w").write("{}")
+            env = dict(clean, SCORECARD_REF=ref, SCORECARD_HISTORY=os.path.join(ref, "h.jsonl"))
+            p = subprocess.run(["sh", os.path.join(root, "tools/scorecard.sh"), "HEAD", "no-such-commit-335"],
+                               env=env, capture_output=True, text=True, timeout=120)
+            built = os.path.exists(os.path.join(root, "build"))
+            self.assertEqual(p.returncode, 2, p.stderr[-500:])
+            self.assertIn("no-such-commit-335: not a commit", p.stderr)
+            self.assertFalse(built, "it archived or built before checking BASE")
+            after()
+
+
+@unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
+class MainBaseTest(unittest.TestCase):
+    """main() with --base: a base with no rows in the history is told, and is exit 2 (#335: it printed
+    "no base run to compare with" and exited 0), after the head's rows are kept."""
+
+    def test_a_base_with_no_rows_is_exit_2_and_the_head_is_kept(self):
+        self.main_with_base("nobase")
+
+    def test_an_empty_base_is_exit_2_not_no_base(self):
+        self.main_with_base("")
+
+    def main_with_base(self, base):
+        import contextlib
+        import io
+        import tempfile
+        import scorecard as sc
+        with tempfile.TemporaryDirectory() as t:
+            hist = os.path.join(t, "h.jsonl")
+            row = sc.tone_row("head1", "2026-11-21T00:00:00-05:00", 1, "T1",
+                              {"spectral_db_mean": 3.0, "loudness_gap_lu": 0.0, "spectral_db": {"chord": 3.0},
+                               "timing_gap_ms": {}, "pitch_cents": {"low": 0.0, "high": 0.0}}, "r")
+
+            def fake_run(tree, commit, ref, history, *a, **k):
+                sc.append_rows(history, [row])
+                return [row]
+            real, sc.run = sc.run, fake_run
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as e:
+                    sc.main(["--tree", t, "--commit", "head1", "--ref", t, "--history", hist, "--base", base])
+            finally:
+                sc.run = real
+            self.assertEqual(e.exception.code, 2)
+            self.assertIn("no rows", out.getvalue())
+            self.assertEqual(len(open(hist).read().splitlines()), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
+

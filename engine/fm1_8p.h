@@ -32,6 +32,12 @@
 #include "voice.h"
 
 #define FM_MAX_VOICES 8
+/* The mix gain over the voice count, Q1.30: 0.25 (the -12 dB of headroom of
+ * #24) times PG-8X 2.0.13's 3.17 dB (#102), about 0.360, to the nearest. The
+ * sum of the voices is scaled by FM_MIX_GAIN_Q30 / voice_count, rounded
+ * down, times the VCA LEVEL (#169). */
+#define FM_MIX_GAIN_Q30 386669466u
+
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
 /* settings that glide with setting_glide (#146) */
