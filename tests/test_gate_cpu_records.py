@@ -217,6 +217,21 @@ class RowsCommandTest(unittest.TestCase):
             fh.write(C.G.line(lay("1024", 42.0)) + "\n")
         self.assertEqual(C.main(["x", "rows", d, "64.8", "0 1024", "plain"]), 2)
 
+    def test_a_pass_without_its_figures_exits_2(self):
+        for value in ({}, None, {"8": 14.5, "U": 23.9, "F": "41.0", "overruns": 0, "code_bytes": 1000}):
+            d = self.out()
+            with open(os.path.join(d, "plain@0.json"), "w") as fh:
+                fh.write(C.G.line(C.G.record("cpu-layout", "plain@0", "pass", value=value)) + "\n")
+            self.assertEqual(C.main(["x", "rows", d, "64.8", "0 1024", "plain"]), 2, value)
+
+    def test_a_failed_call_leaves_no_older_run_s_records(self):
+        d = self.out()
+        self.assertEqual(C.main(["x", "rows", d, "64.8", "0 1024", "plain"]), 0)
+        self.assertTrue(os.path.exists(os.path.join(d, "rows.jsonl")))
+        self.assertEqual(C.main(["x", "rows", d, "64,8", "0 1024", "plain"]), 2)
+        self.assertFalse(os.path.exists(os.path.join(d, "rows.jsonl")))
+        self.assertFalse(os.path.exists(os.path.join(d, "layouts.txt")))
+
 
 if __name__ == "__main__":
     unittest.main()

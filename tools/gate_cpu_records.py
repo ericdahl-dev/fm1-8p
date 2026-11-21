@@ -126,10 +126,23 @@ def _put(prefix, r):
         f.write(G.line(r) + "\n")
 
 
+FIGURES = ("8", "U", "F", "overruns", "code_bytes")    # a layout's, each a number in a pass
+
+
+def _clear(out):
+    import os
+    for f in ("layouts.txt", "rows.jsonl"):
+        try:
+            os.remove(os.path.join(out, f))
+        except FileNotFoundError:
+            pass
+
+
 def _rows(a):
     """The `rows` call (see main())."""
     import os
     out, limit, layouts, rows = a[0], a[1], a[2].split(), a[3:]
+    _clear(out)                                  # (an earlier run's records never stand for this one's)
     expected, records, view = [], [], []
     with open(os.path.join(out, "layouts.txt"), "w") as lt:
         for row in rows:
@@ -144,6 +157,10 @@ def _rows(a):
                     continue                 # (verdict: missing)
                 if [(r["kind"], r["name"]) for r in got] != [("cpu-layout", name)]:
                     raise ValueError(f"{p}.json: not {name}'s one record")
+                v = got[0]["value"] or {}
+                bad = [f for f in FIGURES if not G._number(v.get(f))]
+                if got[0]["status"] == "pass" and bad:
+                    raise ValueError(f"{p}.json: a pass without its figures: {', '.join(bad)}")
                 lays += got
                 if got[0]["status"] == "pass":
                     lt.write(layout_line(got[0]) + ("  (shipped)" if n == "0" else "") + "\n")
@@ -157,7 +174,7 @@ def _rows(a):
         print(x)
     code, _ = G.verdict(expected, records, compared=("cpu",),
                         figures={"cpu": ("F", "F_min", "F_max", "8", "U", "overruns", "code_bytes"),
-                                 "cpu-layout": ("8", "U", "F", "overruns", "code_bytes")})
+                                 "cpu-layout": FIGURES})
     return code
 
 
@@ -195,6 +212,7 @@ def main(argv):
             return _rows(a)
         except (OSError, ValueError) as e:       # (a limit not a number, a record file not one: 2, not 1)
             print(f"gate_cpu: rows: {e}", file=sys.stderr)
+            _clear(a[0])                         # (no half-written view or records left)
             return 2
     print(f"gate_cpu_records: {cmd}: not a command", file=sys.stderr)
     return 2
