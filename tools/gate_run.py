@@ -70,6 +70,60 @@ def fm1_tools(live, toolchain, dock):
             "fm1-dock": _dock(dock)}
 
 
+def _cases(o):
+    """The clip names of a render folder's case list (o/.cases: name, MIDI, args; tab-separated)."""
+    with open(os.path.join(o, ".cases"), newline="") as f:
+        return [line.rstrip("\n").split("\t", 1)[0] for line in f if line.rstrip("\n")]
+
+
+def _same(a, b):
+    with open(a, "rb") as fa, open(b, "rb") as fb:
+        while True:
+            x, y = fa.read(1 << 20), fb.read(1 << 20)
+            if x != y:
+                return False
+            if not x:
+                return True
+
+
+def clip_records(base, head):
+    """The clips of the render folders `base` and `head` compared byte for byte, as (records, lines): a
+    pass, a fail ("differs: NAME"), new (head only), gone (base only), and the count line; in gate.sh's
+    order (head's list, then base's). A clip the base lists but did not render is an error, and the
+    lines stop there, as gate.sh's did."""
+    b, h = _cases(base), _cases(head)
+    bset, hset = set(b), set(h)
+    records, lines = [], []
+    n = d = new = 0
+    for name in h:
+        if name not in bset:
+            new += 1
+            lines.append(f"new: {name}")
+            records.append(G.record("clip", name, "new", why="not on the base's list"))
+            continue
+        bw, hw = os.path.join(base, name + ".wav"), os.path.join(head, name + ".wav")
+        if not os.path.isfile(bw):
+            records.append(G.record("clip", name, "error", why=f"{name}: listed on the base but not rendered"))
+            return records, lines
+        if not os.path.isfile(hw):               # (cmp read it as differs)
+            records.append(G.record("clip", name, "error", why=f"{name}: listed on HEAD but not rendered"))
+            return records, lines
+        n += 1
+        if _same(bw, hw):
+            records.append(G.record("clip", name, "pass"))
+        else:
+            d += 1
+            lines.append(f"differs: {name}")
+            records.append(G.record("clip", name, "fail", why="differs"))
+    for name in b:
+        if name not in hset:
+            lines.append(f"gone: {name}")
+            records.append(G.record("clip", name, "gone", why="not on HEAD's list"))
+    if n:
+        lines.append(f"{d} of {n} clips differ" + (f" ({new} new, not compared)" if new else ""))
+    return records, lines
+
+
 def main(argv):
     """gate.sh's and gate_cpu.sh's calls:
       fm1-tools LIVE TOOLCHAIN DOCK     fm1_tools() as JSON (gate_cpu.sh --tools)"""

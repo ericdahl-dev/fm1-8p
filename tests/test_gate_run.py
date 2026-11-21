@@ -182,5 +182,74 @@ class Fm1ToolsTest(unittest.TestCase):
         self.assertIn(b"is not set or missing", p.stderr)
 
 
+class ClipsTest(unittest.TestCase):
+    """The clips compared byte for byte: pass, fail (differs), new, gone; the lines gate.sh printed."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d)
+        self.b, self.h = os.path.join(self.d, "b"), os.path.join(self.d, "h")
+
+    def side(self, o, clips):
+        os.makedirs(o, exist_ok=True)
+        with open(os.path.join(o, ".cases"), "w") as f:
+            for name, wav in clips:
+                f.write(f"{name}\tdemo.mid\t--x 1\n")
+                if wav is not None:
+                    with open(os.path.join(o, name + ".wav"), "wb") as w:
+                        w.write(wav)
+
+    def clips(self):
+        return R.clip_records(self.b, self.h)
+
+    def test_identical_clips_pass(self):
+        self.side(self.b, [("a", b"1"), ("b", b"2")])
+        self.side(self.h, [("a", b"1"), ("b", b"2")])
+        records, lines = self.clips()
+        self.assertEqual([(r["name"], r["status"]) for r in records], [("a", "pass"), ("b", "pass")])
+        self.assertEqual(lines, ["0 of 2 clips differ"])
+
+    def test_a_clip_that_differs_fails(self):
+        self.side(self.b, [("a", b"1"), ("b", b"2")])
+        self.side(self.h, [("a", b"1"), ("b", b"3")])
+        records, lines = self.clips()
+        self.assertEqual(records[1]["status"], "fail")
+        self.assertEqual(lines, ["differs: b", "1 of 2 clips differ"])
+
+    def test_new_and_gone_in_gate_sh_s_order(self):
+        self.side(self.b, [("a", b"1"), ("old", b"9"), ("b", b"2")])
+        self.side(self.h, [("n1", b"5"), ("a", b"1"), ("b", b"3"), ("n2", b"6")])
+        records, lines = self.clips()
+        self.assertEqual(lines, ["new: n1", "differs: b", "new: n2", "gone: old",
+                                 "1 of 2 clips differ (2 new, not compared)"])
+        st = {r["name"]: r["status"] for r in records}
+        self.assertEqual(st, {"n1": "new", "a": "pass", "b": "fail", "n2": "new", "old": "gone"})
+
+    def test_a_backslash_in_a_name_is_that_name(self):
+        self.side(self.b, [("back\\slash", b"1")])
+        self.side(self.h, [("back\\slash", b"1")])
+        self.assertEqual(self.clips()[1], ["0 of 1 clips differ"])
+
+    def test_a_base_clip_listed_but_not_rendered_is_an_error(self):
+        self.side(self.b, [("a", None)])
+        self.side(self.h, [("a", b"1")])
+        records, lines = self.clips()
+        self.assertEqual(records[0]["status"], "error")
+        self.assertIn("listed on the base but not rendered", records[0]["why"])
+
+    def test_a_head_clip_listed_but_not_rendered_is_an_error_not_a_differ(self):
+        self.side(self.b, [("a", b"1")])
+        self.side(self.h, [("a", None)])
+        records, lines = self.clips()
+        self.assertEqual(records[0]["status"], "error")
+        self.assertIn("listed on HEAD but not rendered", records[0]["why"])
+
+    def test_nothing_on_both_trees_says_so(self):
+        self.side(self.b, [("a", b"1")])
+        self.side(self.h, [("b", b"1")])
+        records, lines = self.clips()
+        self.assertEqual(R.G.verdict([("clip", "b")], records, compared=("clip",))[0], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
