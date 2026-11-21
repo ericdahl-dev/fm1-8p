@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The no-sound gate's MIDI files (tools/gate.sh, #140), written from note lists: original material.
 usage: python3 tools/gate_midi.py DIR    (writes DIR/chords.mid, unison.mid, vel.mid, ab.mid, controllers.mid,
-                                           score.mid, wide127.mid)"""
+                                           score.mid, wide127.mid, pressure.mid)"""
 import os
 import struct
 import sys
