@@ -16,6 +16,11 @@
  * input peak plus the delay line's +-2.0 clamp; the dry part is limited
  * to about +-126.0 so the sum never overflows int32.
  *
+ * Each tap goes through the wet path measured on PG-8X's chorus I and II
+ * (#312): x1.21, then two 1-poles at 4075 Hz. Every mode gets it, FAST
+ * too, so the three modes share one wet sound and differ only in rate and
+ * delays.
+ *
  * Memory: fixed, no allocation. The delay line is FM_CHORUS_DELAY_LEN
  * int16_t samples = 2048 bytes; the whole struct is about 2.1 KiB
  * (sizeof(fm_chorus) is 2072 on the desktop), and it lives inside
