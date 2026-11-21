@@ -515,6 +515,13 @@ def hpf_step(v):
     return (4, 0, 2, 3)[switch(v)]
 
 
+def dco_env_cents(v):
+    """DCO-1 or DCO-2 ENV, 0..127, as the pitch envelope's depth in cents at full envelope, as
+    PG-8X 2.0.13 plays it: 24.8 cents a step less 13 from byte 2 (3137 at 127; within 1.5 cents of
+    PG-8X's on both DCOs), byte 1 its own 4.72 (#328: the line would give 11.8), 0 at 0."""
+    return (0, 5)[v] if v < 2 else rnd(24.8 * v - 13)
+
+
 def tune_semis(v):
     """DCO TUNE, 0..127, in semitones -12..+12. Inferred, not documented (docs/patches.md): value >> 2
     with a dead band of four steps (56..71) at 0, so the factory tones' fifths (FAT FIFTH 97, ORGAN 1
@@ -597,11 +604,11 @@ def to_engine(tone):
     e["LFO_PITCH_OSC2_CENTS"] = rnd(4.5 * p[DCO2_LFO])
     e["CHORUS_MODE"] = min(switch(p[CHORUS]), 2)
     e["AMP_DYNA"] = switch(p[VCA_DYNA])         # the DYNAMICS curve (engine/dyna.c), as PG-8X plays it
-    # DCO ENV (#58), PG-8X 2.0.13: at full envelope 24.8 cents a step less 13 (0 at 0, 3137 at
-    # 127), linear in the envelope, the same on every key; each moves its own oscillator
+    # DCO ENV (#58, #328): dco_env_cents at full envelope, linear in the envelope, the same on
+    # every key; each moves its own oscillator
     src, sign = env_mode(p[DCO_ENV_MODE])
     for n, byte in ((1, DCO1_ENV), (2, DCO2_ENV)):
-        e["PITCH_ENV_OSC%d_CENTS" % n] = sign * rnd(24.8 * p[byte] - 13) if p[byte] else 0
+        e["PITCH_ENV_OSC%d_CENTS" % n] = sign * dco_env_cents(p[byte])
     e["PITCH_ENV_SOURCE"] = 1 if src == ENV2 else 0   # as MIX ENV's
     e["PITCH_ENV_DYNA"] = switch(p[DCO_DYNA])     # the engine's DYNAMICS curve (engine/dyna.c)
     e["OSC_MIX_ENV_DYNA"] = switch(p[MIX_DYNA])  # the MIX ENV depth times the DYNAMICS share
