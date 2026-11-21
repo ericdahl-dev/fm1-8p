@@ -169,7 +169,12 @@ static void write_slot(ui *u, uint32_t ms)
         say(u, "SAVE FAILED", STORE_USER_SLOTS, ms, 0);
 }
 
-/* "SAVING 23 WHEN SILENT" (or DELETING) into u->save_wait_msg */
+/* the longest wait message, with its NUL, fits save_wait_msg (Codex P3 on #314: a longer verb would
+ * overflow it) */
+typedef char ui_require_wait_msg_fits[sizeof "DELETING 23 WHEN SILENT" <=
+                                      sizeof ((ui *)0)->save_wait_msg ? 1 : -1];
+
+/* "SAVING 23 WHEN SILENT" (or DELETING) into u->save_wait_msg: the verbs are SAVING and DELETING only */
 static void wait_msg(ui *u, const char *what)
 {
     char *w = u->save_wait_msg;
