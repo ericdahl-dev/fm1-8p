@@ -67,7 +67,7 @@ class RenderKeyTest(unittest.TestCase):
 
     def test_the_cc_and_cflags_strings_change_it(self):
         k = self.key()
-        for env in ({"CC": "cc -ffast-math"}, {"CFLAGS": "-O0"}, {"CFLAGS": ""}):
+        for env in ({"CC": "cc -ffast-math"}, {"CFLAGS": "-O0"}, {"CFLAGS": ""}, {"CFLAGS": "(unset)"}):
             self.assertNotEqual(self.key(env), k, env)
 
     def test_an_older_tree_without_a_folder_has_a_key_its_own(self):

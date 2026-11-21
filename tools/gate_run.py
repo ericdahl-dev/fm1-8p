@@ -24,7 +24,7 @@ def render_key(tree, root, midi, cc, env):
     version line) and what `env` gives make for it: CC and CFLAGS (the Makefile's ?=, so unset is not
     empty). ValueError for no source or no MIDI; OSError for a file it can't read."""
     have, toggles = _dirs(tree)
-    toggles.update({n: env[n] if n in env else "(unset)" for n in ("CC", "CFLAGS")})
+    toggles.update({n: "set: " + env[n] if n in env else "unset" for n in ("CC", "CFLAGS")})   # (no value is "unset")
     names = sorted(os.listdir(midi))
     if not names:
         raise ValueError(f"{midi}: no MIDI")
