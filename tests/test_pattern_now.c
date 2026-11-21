@@ -33,18 +33,51 @@ TT_TEST(pattern_step_edit_in_the_window_edits_the_running_pattern)
     seq *s;
     pn_setup();
     s = play_seq(&sp_a);
-    play_load_pattern(&sp_a, 1);
+    pattern_queue(play_patterns(&sp_a), 1);
     pn_take();
     seq_set_step(s, 1, &g, 1, 100);
     TT_CHECK_EQ(seq_get_step(s, 0)->note[0], 64u);   /* B's, not A's */
     TT_CHECK_EQ(seq_get_step(s, 1)->note[0], 71u);
     sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
-    play_pattern_tick(&sp_a);
+    (void)pattern_takeover(play_patterns(&sp_a));
     TT_CHECK_EQ(seq_get_step(s, 0)->note[0], 64u);
     TT_CHECK_EQ(seq_get_step(s, 1)->note[0], 71u);   /* the edit kept */
 }
 
+/* the running pattern's slot and name, and the queued one's slot (-1: none), are these */
+static void pn_is(uint32_t running, const char *name, int32_t queued)
+{
+    char n[STORE_NAME_LEN + 1u];
+    TT_CHECK_EQ(pattern_running(play_patterns(&sp_a), 0), running);
+    (void)pattern_running(play_patterns(&sp_a), n);
+    TT_CHECK(strcmp(n, name) == 0);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&sp_a), 0), queued);
+}
+
+/* T2: in the window, PRESETS back to A's slot queues A again; B, playing, is the running pattern */
+TT_TEST(pattern_back_to_the_old_slot_in_the_window_queues_it)
+{
+    pn_setup();
+    pattern_queue(play_patterns(&sp_a), 1);
+    pn_take();
+    pattern_queue(play_patterns(&sp_a), 0);
+    pn_is(1, "B", 0);
+    TT_CHECK(seq_next_queued(play_seq(&sp_a)));
+}
+
+/* T3: in the window, PRESETS on to C queues C; B is the running pattern */
+TT_TEST(pattern_on_to_another_slot_in_the_window_keeps_the_takeover)
+{
+    pn_setup();
+    pattern_queue(play_patterns(&sp_a), 1);
+    pn_take();
+    pattern_queue(play_patterns(&sp_a), 2);
+    pn_is(1, "B", 2);
+}
+
 static void run_pattern_now_tests(void)
 {
+    TT_RUN(pattern_back_to_the_old_slot_in_the_window_queues_it);
+    TT_RUN(pattern_on_to_another_slot_in_the_window_keeps_the_takeover);
     TT_RUN(pattern_step_edit_in_the_window_edits_the_running_pattern);
 }

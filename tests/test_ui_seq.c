@@ -445,7 +445,7 @@ TT_TEST(seq_footer_says_the_pattern)
     TT_CHECK(strcmp(left, "PTN 11*") == 0);
     seq_play(play_seq(&ui_p));
     seq_render_to(0);
-    play_load_pattern(&ui_p, 1);                              /* queued: 12 */
+    pattern_queue(play_patterns(&ui_p), 1);                              /* queued: 12 */
     ui_seq_footer_text(&ui_u, left, right);
     TT_CHECK(strcmp(right, "NEXT 12") == 0);
 }
@@ -461,19 +461,19 @@ TT_TEST(seq_presets_loads_patterns_when_stopped)
     patch = play_prog(&ui_p);
     ui_tap(UI_BTN_SEQ, 1000);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);               /* 12 */
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);               /* 12 */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 1200);   /* around: 88 */
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 63u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 63u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 1300);    /* fast: a row */
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 7u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 7u);
     TT_CHECK_EQ(play_prog(&ui_p), patch);                    /* (the patch stays) */
     seq_set_step(play_seq(&ui_p), 0, C, 1, 100);             /* edited: warned first */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2000);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 7u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 7u);
     TT_CHECK(strcmp(ui_banner(&ui_u), "PTN EDITED - TURN TO DISCARD") == 0);
     TT_CHECK(strlen(ui_banner(&ui_u)) <= 28u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2500);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 8u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 8u);
     TT_CHECK(!seq_edited(play_seq(&ui_p)));
 }
 
@@ -486,13 +486,13 @@ TT_TEST(seq_presets_queues_the_next_pattern_while_playing)
     ui_tap(UI_BTN_PLAY, 1100);
     seq_render_to(0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1200);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 0u);
-    TT_CHECK_EQ(play_pattern_next(&ui_p), 1);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 0u);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&ui_p), 0), 1);
     TT_CHECK(strcmp(ui_banner(&ui_u), "NEXT PATTERN 12") == 0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1300);    /* on from the queued one */
-    TT_CHECK_EQ(play_pattern_next(&ui_p), 2);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&ui_p), 0), 2);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 1400);   /* back to the running one: none */
-    TT_CHECK_EQ(play_pattern_next(&ui_p), -1);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&ui_p), 0), -1);
 }
 
 /* The host's picker opens on HOME held alone 1.5 s, and the module sees HOME let go then (fm1-dock
@@ -802,7 +802,7 @@ TT_TEST(seq_roll_redraws_whole_on_a_pattern_load)
     (void)ui_take(&ui_u, 1050);
     (void)ui_seq_roll_take(&ui_u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
     (void)ui_take(&ui_u, 1110);
     TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
 }
@@ -855,8 +855,8 @@ TT_TEST(seq_roll_redraws_whole_when_the_next_pattern_takes_over)
     (void)ui_take(&ui_u, 1300);
     (void)ui_seq_roll_take(&ui_u);
     seq_render_to(0);                                         /* the pass ends: 12 plays */
-    play_pattern_tick(&ui_p);                                 /* (the module's main loop) */
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    (void)pattern_takeover(play_patterns(&ui_p));                                 /* (the module's main loop) */
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
     d = ui_take(&ui_u, 1400);
     TT_CHECK(d & UI_D_FOCUS);
     TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
@@ -1205,7 +1205,7 @@ TT_TEST(seq_rec_save_and_pattern_load_drop_the_step_being_built)
     seq_note(5, 60, 90, 1, 2000);                             /* held on step 2 */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2100);    /* edited: warned */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2200);    /* loads 12 */
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
     seq_note(5, 60, 0, 0, 2300);
     TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), ui_u.seq_cursor)->kind, SEQ_REST);
     TT_CHECK(!seq_edited(play_seq(&ui_p)));

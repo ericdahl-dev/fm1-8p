@@ -13,7 +13,7 @@
 void (*handoff_gap)(const char *where, uint32_t n);
 #endif
 
-static uint32_t sync(seq *s);
+static uint32_t take_in(seq *s);
 static void ask_close(seq *s);
 static uint32_t ask_open(seq *s);
 static uint32_t queued_closed(const seq *s);
@@ -21,7 +21,7 @@ static void load_now(seq *s, const seq_pattern *p);
 
 static void edit_begin(seq *s)
 {
-    (void)sync(s);                              /* an edit is of the pattern playing (#324) */
+    (void)take_in(s);                           /* an edit is of the pattern playing (#324) */
     s->editing = 1;                             /* the interrupt leaves `edit` alone until edit_end */
     BARRIER();                                  /* set before any store to `edit` */
     HANDOFF_GAP("edit", 1);
@@ -350,7 +350,7 @@ void seq_stop(seq *s)
     BARRIER();
     s->ask_stop++;
     ask_close(s);
-    (void)sync(s);                              /* (one the interrupt took already) */
+    (void)take_in(s);                           /* (one the interrupt took already) */
     if (queued_closed(s)) {                     /* stopping with one queued: it loads at once */
         s->adopted = s->ask & ~1u;
         load_now(s, &s->next);
@@ -386,7 +386,7 @@ static uint32_t queued_closed(const seq *s)
 }
 
 /* a takeover the main loop hasn't seen: the edit buffer and the stored copy become what was taken */
-static uint32_t sync(seq *s)
+static uint32_t take_in(seq *s)
 {
     uint32_t t = s->took_pattern;
     if (t == s->took_seen)
@@ -414,7 +414,7 @@ static void load_now(seq *s, const seq_pattern *p)
 uint32_t seq_load_pattern(seq *s, const seq_pattern *p)
 {
     ask_close(s);
-    (void)sync(s);
+    (void)take_in(s);
     HANDOFF_GAP("ask", 2);
     if (s->want && s->playing) {                /* playing: queued for the end of the pass */
         s->next = *p;
@@ -430,7 +430,7 @@ uint32_t seq_load_pattern(seq *s, const seq_pattern *p)
 uint32_t seq_requeue(seq *s, const seq_pattern *p)
 {
     ask_close(s);
-    (void)sync(s);
+    (void)take_in(s);
     HANDOFF_GAP("ask", 2);
     if (queued_closed(s)) {
         s->next = *p;
@@ -449,7 +449,7 @@ uint32_t seq_next_queued(const seq *s)
 void seq_cancel_next(seq *s)
 {
     ask_close(s);
-    (void)sync(s);
+    (void)take_in(s);
     HANDOFF_GAP("ask", 2);
     s->ask_kind = SEQ_ASK_NONE;
     (void)ask_open(s);
@@ -457,7 +457,7 @@ void seq_cancel_next(seq *s)
 
 uint32_t seq_main_tick(seq *s)
 {
-    return sync(s);
+    return take_in(s);
 }
 
 uint32_t seq_adopted(const seq *s)

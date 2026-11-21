@@ -529,7 +529,7 @@ TT_TEST(save_in_seq_view_writes_the_pattern)
     TT_CHECK(seq_edited(play_seq(&ui_p)));
     save_tap(UI_BTN_SAVE, 1000);
     TT_CHECK_EQ(ui_u.state, UI_SAVE);
-    TT_CHECK_EQ(ui_u.save_dest, play_pattern_prog(&ui_p));
+    TT_CHECK_EQ(ui_u.save_dest, pattern_running(play_patterns(&ui_p), 0));
     TT_CHECK(strcmp(ui_u.save_name, "            ") == 0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 2, 1100);   /* "B" */
     save_tap(UI_BTN_SAVE, 2000);
@@ -593,7 +593,7 @@ TT_TEST(save_in_seq_view_picks_pattern_slots)
     TT_CHECK(strcmp(ui_u.save_msg, "REPLACE 12 GROOVE?") == 0);
     save_tap(UI_BTN_SAVE, 1400);
     TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED PATTERN 12") == 0);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
 }
 
 /* While the sequencer plays, the pattern's write waits like a patch's: SAVING 11 WHEN SILENT, and an
@@ -879,29 +879,31 @@ TT_TEST(save_sel_held_from_before_save_does_not_ask)
     TT_CHECK_EQ(ui_u.save_step, UI_SAVE_EDITING);
 }
 
-/* #303 (FW review): a pattern slot deleted while it is queued to take over (a forced delete while SEQ plays):
- * once it has taken over, the pattern shows edited against the empty slot, not as the copy it came from */
-TT_TEST(save_delete_of_the_queued_pattern_shows_edited_after_it_takes_over)
+/* #324 T7 (Eric, 2026-11-21; it replaces #303's "takes over, edited against empty"): a pattern slot deleted
+ * while it is queued to take over (a forced delete while SEQ plays) cancels the queue: the running
+ * pattern plays on, unedited, and nothing is queued (NEXT PATTERN clears) */
+TT_TEST(save_delete_of_the_queued_pattern_cancels_the_queue)
 {
     static seq_pattern pat;
-    uint32_t k;
+    uint32_t k, t;
     save_seq_setup();
-    play_pattern_snapshot(&ui_p, &pat);
-    TT_CHECK_EQ(play_pattern_write(&ui_p, 0, &pat, "A"), 0);
-    TT_CHECK_EQ(play_pattern_write(&ui_p, 1, &pat, "B"), 0);
-    play_load_pattern(&ui_p, 0);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat);
+    TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 0, &pat, "A", t), 0);
+    TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 1, &pat, "B", t), 0);
+    pattern_queue(play_patterns(&ui_p), 0);
     seq_play(play_seq(&ui_p));
     save_render(4);
-    play_load_pattern(&ui_p, 1);                /* queued: 12 takes over after the pass */
+    pattern_queue(play_patterns(&ui_p), 1);                /* queued: 12 takes over after the pass */
     TT_CHECK(seq_next_queued(play_seq(&ui_p)));
-    TT_CHECK_EQ(play_pattern_delete(&ui_p, 1), 0);
-    for (k = 0; k < 40000u && seq_next_queued(play_seq(&ui_p)); k++) {
+    TT_CHECK_EQ(pattern_delete(play_patterns(&ui_p), 1), 0);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&ui_p), 0), -1);
+    TT_CHECK(!seq_next_queued(play_seq(&ui_p)));
+    for (k = 0; k < 200u; k++) {                           /* passes on */
         save_render(1);
-        play_pattern_tick(&ui_p);
+        (void)pattern_takeover(play_patterns(&ui_p));
     }
-    play_pattern_tick(&ui_p);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
-    TT_CHECK(seq_edited(play_seq(&ui_p)));
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 0u);
+    TT_CHECK(!pattern_edited(play_patterns(&ui_p)));
 }
 
 /* #303: a delete whose flash write fails says DELETE FAILED and leaves the slot as it was */
@@ -929,7 +931,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_in_seq_view_deletes_the_playing_pattern);
     TT_RUN(save_delete_question_fits_the_screen);
     TT_RUN(save_sel_held_from_before_save_does_not_ask);
-    TT_RUN(save_delete_of_the_queued_pattern_shows_edited_after_it_takes_over);
+    TT_RUN(save_delete_of_the_queued_pattern_cancels_the_queue);
     TT_RUN(save_failed_delete_says_so);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);

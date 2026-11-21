@@ -5,7 +5,7 @@
 /* the slot playing: the patch's, or the pattern's */
 static uint32_t current(const ui *u)
 {
-    return u->save_pattern ? play_pattern_prog(u->p) : play_prog(u->p);
+    return u->save_pattern ? pattern_running(play_patterns(u->p), 0) : play_prog(u->p);
 }
 
 /* the draft's key for the slot playing (a pattern's has UI_SAVE_PATTERN_DRAFT on) */
@@ -38,7 +38,7 @@ int ui_save_slot_used(const ui *u, uint32_t s, char *name)
 
 uint32_t ui_save_edited(const ui *u)
 {
-    return u->save_pattern ? seq_edited(play_seq(u->p)) : play_edited(u->p);
+    return u->save_pattern ? pattern_edited(play_patterns(u->p)) : play_edited(u->p);
 }
 
 void ui_save_open(ui *u, uint32_t ms)
@@ -61,7 +61,7 @@ void ui_save_open(ui *u, uint32_t ms)
         for (s = 0; s <= STORE_NAME_LEN; s++)
             u->save_name[s] = u->save_draft[s];
     else if (u->save_pattern)
-        play_pattern_name(u->p, u->save_name);
+        (void)pattern_running(play_patterns(u->p), u->save_name);
     else
         play_prog_name(u->p, u->save_name);
     for (s = 0; s < STORE_NAME_LEN; s++)        /* all 12 places editable: spaces past the end */
@@ -81,6 +81,7 @@ static const char CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 static store_patch snap;                        /* the patch a confirming tap took (main loop) */
 static seq_pattern psnap;                       /* or the pattern, and its name */
 static char psnap_name[STORE_NAME_LEN + 1u];
+static uint32_t psnap_token;                   /* pattern_snapshot's: a takeover since keeps what runs */
 
 /* "SAVED 23" and the like into u->save_msg, as the banner; "SAVED PATTERN 23" with pattern */
 static void say(ui *u, const char *what, uint32_t slot, uint32_t ms, uint32_t pattern)
@@ -140,7 +141,7 @@ static void take_snapshot(ui *u)
     for (i = (int32_t)STORE_NAME_LEN - 1; i >= 0 && name[i] == ' '; i--)
         name[i] = 0;
     if (u->save_pattern) {
-        play_pattern_snapshot(u->p, &psnap);
+        psnap_token = pattern_snapshot(play_patterns(u->p), &psnap);
         for (i = 0; i <= (int32_t)STORE_NAME_LEN; i++)
             psnap_name[i] = name[i];
     } else {
@@ -155,13 +156,13 @@ static void write_slot(ui *u, uint32_t ms)
     u->save_home_armed = 0;
     if (u->save_delete) {                       /* a delete (#303) */
         u->save_delete = 0;
-        if ((u->save_pattern ? play_pattern_delete(u->p, u->save_dest) : play_delete(u->p, u->save_dest)) == 0)
+        if ((u->save_pattern ? pattern_delete(play_patterns(u->p), u->save_dest) : play_delete(u->p, u->save_dest)) == 0)
             say(u, "DELETED", u->save_dest, ms, u->save_pattern);
         else
             say(u, "DELETE FAILED", STORE_USER_SLOTS, ms, 0);
         return;
     }
-    if ((u->save_pattern ? play_pattern_write(u->p, u->save_dest, &psnap, psnap_name)
+    if ((u->save_pattern ? pattern_save(play_patterns(u->p), u->save_dest, &psnap, psnap_name, psnap_token)
                          : play_save(u->p, u->save_dest, &snap)) == 0) {
         u->save_draft_prog = UI_SAVE_NO_DRAFT;  /* written: no draft to offer */
         say(u, "SAVED", u->save_dest, ms, u->save_pattern);

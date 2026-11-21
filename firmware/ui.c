@@ -1400,8 +1400,9 @@ uint32_t ui_take(ui *u, uint32_t ms)
     if (u->state == UI_SEQ)                     /* SEQ view: the playhead, the armed step's blink */
         ui_seq_tick(u, ms);
     if (u->state == UI_SEQ) {                   /* its footer: the pattern, the next one, edited */
-        uint32_t f = play_pattern_prog(u->p) | (uint32_t)(play_pattern_next(u->p) + 1) << 8 |
-                     seq_edited(play_seq(u->p)) << 16;
+        pattern_now *pn = play_patterns(u->p);
+        uint32_t f = pattern_running(pn, 0) | (uint32_t)(pattern_queued(pn, 0) + 1) << 8 |
+                     pattern_edited(pn) << 16;
         const seq *q = play_seq(u->p);
         uint32_t c = seq_clock_external(q) | seq_waiting(q) << 1 | (uint32_t)ui_seq_no_clock(u) << 2 |
                      ui_seq_tempo_shown(u) << 3;
