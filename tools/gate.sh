@@ -104,11 +104,11 @@ coverage() {
 [ "${GATE_COVERAGE:-1}" = 0 ] || coverage "$H"
 
 # cpu DIR: the CPU rows of DIR (tools/gate_cpu.sh, or GATE_CPU: a stand-in for tests), kept by DIR's key,
-# the script's and its toggles (GATE_CPU_PAD, GATE_CPU_HINOTE): a row added there or skipped by a toggle
+# the script's and its toggles (GATE_CPU_LAYOUTS, GATE_CPU_HINOTE): a row added there or skipped by a toggle
 # must not come back missing. A failed run's rows are shown, not kept.
 cpu() {
     s=${GATE_CPU:-$ROOT/tools/gate_cpu.sh}
-    need_key "$1"; hash8 "$s"; k=$k-$h8-p${GATE_CPU_PAD:-1}h${GATE_CPU_HINOTE:-1}; o=$G/cpu/$k
+    need_key "$1"; hash8 "$s"; k=$k-$h8-l$(printf "%s" "${GATE_CPU_LAYOUTS:-0 1024 2048 3072}" | tr " " _)h${GATE_CPU_HINOTE:-1}; o=$G/cpu/$k
     if [ ! -f "$o/rows.txt" ]; then
         sh "$s" "$1" "$o/runs" >"$o.rows" 2>"$o.err" || { sort "$o.rows"; cat "$o.err" >&2; rm -f "$o.rows" "$o.err"; return 1; }
         mkdir -p "$o" && sort "$o.rows" >"$o/rows.txt" && rm -f "$o.rows" "$o.err"
