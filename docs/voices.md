@@ -250,7 +250,7 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | Filter output | Q8.24 | the input's level with the filter open or no resonance (linear, to the hold's +-8.0); with high resonance about the feedback clip's +-4.0 |
 | Voice: filter output times amp envelope | Q8.24 | as the filter output |
 | Sum of voices (`fm_engine.mix`) | Q8.24 | 2 x `voice_count` with no resonance (both oscillators full); at most the filter's hold, 8.0 x 8 = 64.0, which uses all 7 headroom bits (Q8.24's +-128.0) |
-| Mix gain | Q1.30 | `0.36 / voice_count` = `386669466 / voice_count`, rounded down: 0.25 times 3.17 dB, PG-8X's level (#102); times the VCA LEVEL in Q30 (`level_gain`, exact at full, live and gliding, #169) |
+| Mix gain | Q1.30 | `FM_MIX_GAIN_Q30 / voice_count` (`engine/fm1_8p.h`: 386669466, about 0.36), rounded down: 0.25 times 3.17 dB, PG-8X's level (#102); times the VCA LEVEL in Q30 (`level_gain`, exact at full, live and gliding, #169) |
 | Output before conversion | Q8.24 | 0.72 with no resonance; more with high resonance |
 | Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; 8 voices in phase measure -0.1 dBFS at most |
 | Output makeup and soft clip (#24, #102) | Q8.24 to `int16_t` | x 2 (+6 dB), a pure gain up to the knee at 23600 (-2.85 dBFS); above it the soft clip bends toward full scale and holds at 0.966 of it (31653, -0.3 dBFS), so the output never reaches the rails |

@@ -25,11 +25,15 @@
 #     compiler derives from them), not every word the device build makes.
 #
 # Environment: CC (default cc).
+# Exit status: 0 the sources pass, 1 a finding (a layer caught something), 2 the check could not run: a
+# tool (nm, objdump) failed or listed nothing, so no layer may read its silence as a pass (#335).
 set -eu
+tool_failed() { echo "check-engine: $*" >&2; exit 2; }
 
 CC=${CC:-cc}
 OUT=$1
 shift
+[ $# -gt 0 ] || tool_failed "no sources given (an empty wildcard?)"
 
 case "$(uname -m)" in
 x86_64 | amd64 | i?86) FPU_OFF="-mgeneral-regs-only -mno-sse -mno-mmx -mno-80387" ;;
@@ -58,6 +62,7 @@ mkdir -p "$OUT"
 for opt in -O0 -O2; do
     objs=""
     for src in "$@"; do
+        [ -f "$src" ] || tool_failed "$src: no such source (not a finding)"
         obj="$OUT/$(basename "$src" .c)$opt.o"
         # shellcheck disable=SC2086 # flag lists are meant to split
         if ! $CC -std=c99 $opt $FPU_OFF $NO_FLOAT_TYPES -c "$src" -o "$obj"; then
@@ -69,12 +74,19 @@ for opt in -O0 -O2; do
     done
     [ -n "$objs" ] || continue
     # shellcheck disable=SC2086
-    nm -g $objs 2>/dev/null | awk 'NF == 2 && $1 == "U" { print "U", $2 }
-                                   NF == 3 && $2 != "U" { print "D", $3 }' \
-        >"$OUT/symbols$opt.txt"
+    nm -g $objs >"$OUT/nm$opt.txt" 2>"$OUT/nm$opt.err" ||
+        tool_failed "nm failed ($opt): $(head -3 "$OUT/nm$opt.err")"
+    awk 'NF == 2 && $1 == "U" { print "U", $2 }
+         NF == 3 && $2 != "U" { print "D", $3 }' "$OUT/nm$opt.txt" >"$OUT/symbols$opt.txt"
+    grep -q '^D ' "$OUT/symbols$opt.txt" || tool_failed "nm listed no symbol the sources define ($opt)"
     sed -n 's/^D //p' "$OUT/symbols$opt.txt" | sed "$STRIP" | sort -u >"$OUT/defined$opt.txt"
     sed -n 's/^U //p' "$OUT/symbols$opt.txt" | sed "$STRIP" | sort -u >"$OUT/undefined$opt.txt"
-    bad=$(comm -23 "$OUT/undefined$opt.txt" "$OUT/defined$opt.txt" | grep -Ev "$ALLOW" || true)
+    comm -23 "$OUT/undefined$opt.txt" "$OUT/defined$opt.txt" >"$OUT/outside$opt.txt" ||
+        tool_failed "comm failed ($opt)"
+    if grep -Ev "$ALLOW" "$OUT/outside$opt.txt" >"$OUT/bad$opt.txt"; then :; else
+        [ $? -eq 1 ] || tool_failed "grep failed on the symbols ($opt)"    # (1: nothing outside the list)
+    fi
+    bad=$(cat "$OUT/bad$opt.txt")
     if [ -n "$bad" ]; then
         echo "check-engine: forbidden external symbols ($opt):" >&2
         echo "$bad" | sed 's/^/    /' >&2
@@ -84,12 +96,19 @@ done
 
 # Layer 4: disassemble (immediates as hex or decimal) and dump data
 # sections (little-endian words), then look for 0xFFCxxxxx values.
+insns=0                                          # objects with an instruction (one may be data only: ui_map.c)
 for obj in "$OUT"/*.o; do
-    hits=$(
-        {
-            objdump -d --no-show-raw-insn "$obj" | sed 's/^/D /'
-            objdump -s "$obj" | sed 's/^/S /'
-        } 2>/dev/null | awk '
+    [ -e "$obj" ] || continue                    # (no object: every source failed to build, a finding above)
+    objdump -d --no-show-raw-insn "$obj" >"$OUT/dis.txt" 2>"$OUT/dis.err" ||
+        tool_failed "objdump -d failed on $obj: $(head -3 "$OUT/dis.err")"
+    objdump -s "$obj" >"$OUT/sec.txt" 2>"$OUT/sec.err" ||
+        tool_failed "objdump -s failed on $obj: $(head -3 "$OUT/sec.err")"
+    # (a header alone is not a listing: each object one section's contents, the run an instruction)
+    grep -q 'Contents of section' "$OUT/sec.txt" || tool_failed "objdump -s listed no section for $obj"
+    if grep -Eq '^ *[0-9a-f]+:[[:space:]]+[a-z]' "$OUT/dis.txt"; then insns=$((insns + 1)); fi
+    { sed 's/^/D /' "$OUT/dis.txt" && sed 's/^/S /' "$OUT/sec.txt"; } >"$OUT/both.txt" ||
+        tool_failed "sed failed on $obj's listing"
+    awk '
         function rom_hex(h) {   # h: lowercase hex digits, no 0x; either 32-bit word counts
             if (length(h) == 16)
                 return substr(h, 1, 3) == "ffc" || substr(h, 9, 3) == "ffc"
@@ -125,8 +144,8 @@ for obj in "$OUT"/*.o; do
                 if (length(w) != 8 || w !~ /^[0-9a-f]+$/) continue
                 if (substr(w, 7, 2) == "ff" && substr(w, 5, 1) == "c") print "data word " w
             }
-        }' | sort -u
-    )
+        }' "$OUT/both.txt" >"$OUT/hits.txt" || tool_failed "awk failed on $obj's listing"
+    hits=$(sort -u "$OUT/hits.txt") || tool_failed "sort failed on $obj's hits"
     if [ -n "$hits" ]; then
         echo "check-engine: ROM-looking constant (0xFFCxxxxx) in $obj:" >&2
         echo "$hits" | sed 's/^/    /' >&2
@@ -134,6 +153,9 @@ for obj in "$OUT"/*.o; do
     fi
 done
 
+if [ "$insns" -eq 0 ] && ls "$OUT"/*.o >/dev/null 2>&1; then
+    tool_failed "objdump -d listed no instruction in any object"
+fi
 if [ "$fail" -ne 0 ]; then
     echo "check-engine: FAILED - the engine must be fixed-point, heap-free and free of 0xFFCxxxxx constants" >&2
     exit 1
