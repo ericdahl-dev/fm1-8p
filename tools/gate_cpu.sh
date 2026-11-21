@@ -22,6 +22,8 @@
 # tools/fm1-build.sh (the tests' stub).
 #
 # usage: tools/gate_cpu.sh TREE OUT      (prints one line per row, MODE-hn rows too: 8 voices, U and F, code bytes)
+#        tools/gate_cpu.sh --tools      (the FM-1 tools' identity as JSON, for gate.sh's CPU cache key)
+#        tools/gate_cpu.sh --tools      (the FM-1 tools' identity, JSON: fm1-live's hash, the Jieli clang's version, fm1-dock's commit)
 # Inputs, as tools/fm1-build.sh takes them: JIELI_TOOLCHAIN, AC79_SDK, FM1_DOCK, PYTHON (fm1-dock's) and
 # FM1_LIVE; or FM1_REF, a folder holding fm1-dock, jieli/toolchain, fw-AC79_AIoT_SDK, fm1-dock-venv and
 # fm1-emu/target/release/fm1-live. GATE_CPU_HINOTE=0 skips the high-note rows. Exit 1 when a row's F mean
@@ -29,7 +31,7 @@
 # says why). The records: OUT/rows.jsonl (tools/gate_record.py), one for each layout and one for each row.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
-TREE=$1 OUT=$2
+TREE=${1:-} OUT=${2:-}
 if [ -n "${FM1_REF:-}" ]; then
     : "${JIELI_TOOLCHAIN:=$FM1_REF/jieli/toolchain}" "${AC79_SDK:=$FM1_REF/fw-AC79_AIoT_SDK}"
     : "${FM1_DOCK:=$FM1_REF/fm1-dock}" "${FM1_LIVE:=$FM1_REF/fm1-emu/target/release/fm1-live}"
@@ -40,6 +42,10 @@ for v in JIELI_TOOLCHAIN AC79_SDK FM1_DOCK FM1_LIVE; do
     [ -n "$x" ] && [ -e "$x" ] || { echo "gate_cpu: $v is not set or missing" >&2; exit 2; }
 done
 PY=${FM1_DOCK_PYTHON:-${PYTHON:-python3}}
+# --tools: the FM-1 tools' identity, for gate.sh's CPU cache key (tools/gate_run.py fm1-tools), from the
+# inputs as resolved above
+[ "$TREE" = --tools ] && exec $PY -B "$ROOT/tools/gate_run.py" fm1-tools "$FM1_LIVE" "$JIELI_TOOLCHAIN" "$FM1_DOCK"
+[ -n "$TREE" ] && [ -n "$OUT" ] || { echo "usage: tools/gate_cpu.sh TREE OUT | --tools" >&2; exit 2; }
 LAYOUTS=${GATE_CPU_LAYOUTS:-0 1024 2048 3072}
 LIMIT=${GATE_CPU_LIMIT:-64.8}
 JOBS=${GATE_CPU_JOBS:-16}

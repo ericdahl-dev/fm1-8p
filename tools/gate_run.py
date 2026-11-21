@@ -46,3 +46,45 @@ def cpu_key(tree, root, script, env, tools):
     inputs.update({f: os.path.join(root, "tools", f) for f in CPU_FILES})
     toggles.update({n: env.get(n) or d for n, d in CPU_TOGGLES.items()})
     return G.key(tree, have, inputs, toggles, tools)
+
+
+def _dock(dock):
+    """fm1-dock's identity: its commit, and whether it has local edits; or that it is not a checkout."""
+    import subprocess
+    if not os.path.exists(os.path.join(dock, ".git")):
+        return "not a git checkout"
+    head = G.tool_version(["git", "-C", dock, "rev-parse", "HEAD"])
+    p = subprocess.run(["git", "-C", dock, "status", "--porcelain"], stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL)
+    if p.returncode != 0:
+        raise OSError(f"{dock}: git status failed (exit {p.returncode})")
+    return head + (" (modified)" if p.stdout.strip() else "")
+
+
+def fm1_tools(live, toolchain, dock):
+    """The FM-1 tools' identity for cpu_key(): fm1-live by its contents (a rebuilt emulator is another
+    tool), the Jieli clang by its version line, fm1-dock by its commit. OSError when one can't be had.
+    Out: AC79_SDK (pinned files, checked by fm1-build.sh) and fm1-dock's Python (its venv)."""
+    return {"fm1-live": G.binary_identity(live),
+            "jieli-clang": G.tool_version([os.path.join(toolchain, "pi32v2", "bin", "clang"), "--version"]),
+            "fm1-dock": _dock(dock)}
+
+
+def main(argv):
+    """gate.sh's and gate_cpu.sh's calls:
+      fm1-tools LIVE TOOLCHAIN DOCK     fm1_tools() as JSON (gate_cpu.sh --tools)"""
+    import json
+    cmd, a = argv[1], argv[2:]
+    try:
+        if cmd == "fm1-tools":
+            print(json.dumps(fm1_tools(*a), sort_keys=True))
+            return 0
+    except (OSError, ValueError) as e:
+        print(f"gate: {cmd}: {e}", file=sys.stderr)
+        return 2
+    print(f"gate_run: {cmd}: not a command", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

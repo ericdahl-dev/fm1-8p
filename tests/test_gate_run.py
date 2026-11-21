@@ -129,5 +129,58 @@ class CpuKeyTest(unittest.TestCase):
         self.assertNotEqual(self.key(), k)
 
 
+class Fm1ToolsTest(unittest.TestCase):
+    """gate_cpu.sh --tools: the FM-1 tools' identity for the CPU key, from the inputs gate_cpu.sh resolves."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d)
+        self.live = os.path.join(self.d, "fm1-live")
+        write(self.live, "a live binary")
+        self.tc = os.path.join(self.d, "tc")
+        clang = os.path.join(self.tc, "pi32v2", "bin", "clang")
+        write(clang, "#!/bin/sh\necho 'clang version 9.9 (jieli)'\n")
+        os.chmod(clang, 0o755)
+        self.dock = os.path.join(self.d, "dock")
+        os.makedirs(self.dock)
+        self.sdk = os.path.join(self.d, "sdk")
+        os.makedirs(self.sdk)
+
+    def test_each_tool_by_its_identity(self):
+        t = R.fm1_tools(self.live, self.tc, self.dock)
+        self.assertEqual(t["fm1-live"], R.G.binary_identity(self.live))
+        self.assertEqual(t["jieli-clang"], "clang version 9.9 (jieli)")
+        self.assertEqual(t["fm1-dock"], "not a git checkout")
+
+    def test_a_rebuilt_fm1_live_is_another_tool(self):
+        a = R.fm1_tools(self.live, self.tc, self.dock)["fm1-live"]
+        write(self.live, "rebuilt")
+        self.assertNotEqual(R.fm1_tools(self.live, self.tc, self.dock)["fm1-live"], a)
+
+    def test_a_clang_that_fails_stops_it(self):
+        write(os.path.join(self.tc, "pi32v2", "bin", "clang"), "#!/bin/sh\nexit 1\n")
+        with self.assertRaises(OSError):
+            R.fm1_tools(self.live, self.tc, self.dock)
+
+    def test_gate_cpu_sh_prints_them(self):
+        import json
+        import subprocess
+        env = dict(os.environ, FM1_LIVE=self.live, JIELI_TOOLCHAIN=self.tc, FM1_DOCK=self.dock, AC79_SDK=self.sdk)
+        env.pop("FM1_REF", None)
+        p = subprocess.run(["sh", os.path.join(ROOT, "tools", "gate_cpu.sh"), "--tools"], env=env,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout), R.fm1_tools(self.live, self.tc, self.dock))
+
+    def test_gate_cpu_sh_without_its_inputs_stops_as_ever(self):
+        import subprocess
+        env = {k: v for k, v in os.environ.items() if k not in ("FM1_REF", "FM1_LIVE", "JIELI_TOOLCHAIN",
+                                                                 "FM1_DOCK", "AC79_SDK")}
+        p = subprocess.run(["sh", os.path.join(ROOT, "tools", "gate_cpu.sh"), "--tools"], env=env,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(p.returncode, 2)
+        self.assertIn(b"is not set or missing", p.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
