@@ -74,7 +74,9 @@ static int16_t to_int16(int32_t q24)
 
 /* The output gain: `shift` doublings of the soft clip's int16, clamped at
  * +-32767 (it saturates, never wraps). The FM-1 module's gain
- * (FM_OUT_SHIFT_DEVICE), after the soft clip, as play_render applied it. */
+ * (FM_OUT_SHIFT_DEVICE), after the soft clip, as play_render applied it.
+ * At shift 0 it is the soft clip's output as it is: that holds at 31642,
+ * so the clamp never acts there. */
 static int16_t gained(int16_t s, uint8_t shift)
 {
     int32_t v = (int32_t)s * (1 << shift);
@@ -84,21 +86,6 @@ static int16_t gained(int16_t s, uint8_t shift)
 void fm_out_block(int16_t *out, const int32_t *left, const int32_t *right, uint32_t n, uint8_t shift)
 {
     uint32_t i;
-    if (shift == 0) {           /* the engine's own level: the soft clip alone */
-        if (right) {
-            for (i = 0; i < n; i++) {
-                out[2 * i] = to_int16(left[i]);
-                out[2 * i + 1] = to_int16(right[i]);
-            }
-        } else {
-            for (i = 0; i < n; i++) {
-                int16_t s = to_int16(left[i]);
-                out[2 * i] = s;
-                out[2 * i + 1] = s;
-            }
-        }
-        return;
-    }
     if (right) {
         for (i = 0; i < n; i++) {
             out[2 * i] = gained(to_int16(left[i]), shift);
