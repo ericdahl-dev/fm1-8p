@@ -47,27 +47,27 @@ def stem(gcno):
 def reached(objdir, srcdir, run):
     """{(file, function)} with a line run in this clip."""
     out = set()
-    data = 0
+    n_gcda = 0
     with tempfile.TemporaryDirectory() as tmp:
         for gcno in glob.glob(os.path.join(objdir, "*.gcno")):
             obj, base = stem(gcno)
             gcda = os.path.join(run, obj + ".gcda")
             if not os.path.exists(gcda):
                 continue
-            data += 1
+            n_gcda += 1
             # gcov wants NAME.gcno and NAME.gcda beside each other; gcc names them NAME.o.gcno, .o.gcda
             shutil.copy(gcno, os.path.join(tmp, base + ".gcno"))
             shutil.copy(gcda, os.path.join(tmp, base + ".gcda"))
             src = os.path.join(srcdir, "engine", base + ".c")
             for js in gcov_json(tmp, src):
                 with gzip.open(js) as fh:
-                    data = json.load(fh)   # (json: gcov's; data above counts the clip's .gcda files)
+                    data = json.load(fh)
                 for f in own(data, base, js):
                     for line in f["lines"]:
                         if line["count"] > 0 and line.get("function_name"):
                             out.add((base + ".c", line["function_name"]))
                 os.remove(js)
-    if not data:
+    if not n_gcda:
         raise CoverageError(f"clip {os.path.basename(run)}: no run data (no .gcda for any object in {run})")
     return out
 

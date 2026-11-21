@@ -12,7 +12,7 @@ SCRIPT = os.path.join(ROOT, "tools", "gate_coverage.py")
 
 
 class GcovFailsTest(unittest.TestCase):
-    def run_with(self, gcov_body, notes=True, clips=True, clip_data=True):
+    def run_with(self, gcov_body, notes=True, clips=True, clip_data=True, objects=("osc",)):
         with tempfile.TemporaryDirectory() as t:
             stub = os.path.join(t, "stub")
             objdir, srcdir, runs = (os.path.join(t, d) for d in ("obj", "src", "runs"))
@@ -20,12 +20,12 @@ class GcovFailsTest(unittest.TestCase):
                 os.makedirs(d)
             if clips:
                 os.makedirs(os.path.join(runs, "clip"))
-            if notes:
-                open(os.path.join(objdir, "osc.o.gcno"), "wb").close()
-            open(os.path.join(objdir, "osc.o.gcda"), "wb").close()
-            if clips and clip_data:
-                open(os.path.join(runs, "clip", "osc.o.gcda"), "wb").close()
-            open(os.path.join(srcdir, "engine", "osc.c"), "w").close()
+            for o in objects:
+                if notes:
+                    open(os.path.join(objdir, o + ".o.gcno"), "wb").close()
+                if clips and clip_data:
+                    open(os.path.join(runs, "clip", o + ".o.gcda"), "wb").close()
+                open(os.path.join(srcdir, "engine", o + ".c"), "w").close()
             with open(os.path.join(stub, "gcov"), "w") as fh:
                 fh.write("#!/bin/sh\n" + gcov_body + "\n")
             os.chmod(os.path.join(stub, "gcov"), 0o755)
@@ -53,14 +53,20 @@ class GcovFailsTest(unittest.TestCase):
 
 class NoRunDataTest(GcovFailsTest):
     """A gcov that works, writing JSON for osc.c with one function, but runs that hold no data."""
-    GOOD = ("python3 -c 'import gzip, json, sys; "
-            "gzip.open(\"osc.gcov.json.gz\", \"wt\").write(json.dumps({\"files\": [{\"file\": \"osc.c\", "
-            "\"functions\": [{\"name\": \"f\"}], \"lines\": [{\"count\": 1, \"function_name\": \"f\"}]}]}))'")
+    GOOD = ("b=$(basename \"$4\" .c); python3 -c 'import gzip, json, sys; b = sys.argv[1]; "
+            "gzip.open(b + \".gcov.json.gz\", \"wt\").write(json.dumps({\"files\": [{\"file\": b + \".c\", "
+            "\"functions\": [{\"name\": \"f\"}], \"lines\": [{\"count\": 1, \"function_name\": \"f\"}]}]}))' \"$b\"")
 
     def test_with_data_it_counts(self):
         p = self.run_with(self.GOOD)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("osc.c", p.stdout)
+
+    def test_with_two_objects_it_counts_both(self):
+        p = self.run_with(self.GOOD, objects=("osc", "voice"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("osc.c", p.stdout)
+        self.assertIn("voice.c", p.stdout)
 
     def test_no_clip_folder_stops_it(self):
         p = self.run_with(self.GOOD, clips=False)
@@ -73,7 +79,7 @@ class NoRunDataTest(GcovFailsTest):
         self.assertIn("no run data", p.stderr)
 
     def test_json_without_its_source_stops_it(self):
-        p = self.run_with(self.GOOD.replace('"file": "osc.c"', '"file": "other.c"'))
+        p = self.run_with(self.GOOD.replace('"file": b + ".c"', '"file": "other.c"'))
         self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
         self.assertIn("osc.c", p.stderr)
 
