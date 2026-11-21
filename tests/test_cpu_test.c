@@ -28,14 +28,17 @@ TT_TEST(cpu_test_render_adds_engine_audio_into_host_buffer)
  * gain, FM_OUT_SHIFT_DEVICE, as play_init sets it, so the output stage's clamp is in the time. */
 TT_TEST(cpu_test_counts_run_at_the_device_output_gain)
 {
-    static const int32_t asks[] = { 1, 4, FM_MAX_VOICES, (int32_t)CT_BURST, (int32_t)CT_FULL };
-    size_t k;
+    uint32_t b, i, clamped = 0;
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
-    for (k = 0; k < sizeof asks / sizeof asks[0]; k++) {
-        cpu_test_request_voices(&ct_a, asks[k]);
+    cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);  /* the full patch's chord, its loudest count */
+    /* the engine's own level holds under 31643 (the soft clip): +-32767 is the device gain's clamp */
+    for (b = 0; b < 400 && !clamped; b++) {
+        for (i = 0; i < 2 * CT_BLOCK; i++) ct_out[i] = 0;
         cpu_test_render(&ct_a, ct_out, CT_BLOCK);
-        TT_CHECK_EQ(ct_a.engine.out_shift, FM_OUT_SHIFT_DEVICE);
+        for (i = 0; i < 2 * CT_BLOCK; i++)
+            clamped |= ct_out[i] == 32767 || ct_out[i] == -32767;
     }
+    TT_CHECK(clamped);
 }
 
 TT_TEST(cpu_test_voice_request_clamps_and_applies_at_next_block)

@@ -79,11 +79,15 @@ void render_describe(const render_info *info, char *buf, size_t len)
                         (double)(1u << info->output_shift) / n;
     /* one note sounds on one voice, or on all n in unison */
     double note_gain = (info->unison ? n : 1.0) * voice_gain;
+    char peak[48];
+    if (note_gain > 1.0)    /* past full scale: the output gain's clamp holds it there */
+        snprintf(peak, sizeof peak, "one note is clamped at full scale");
+    else
+        snprintf(peak, sizeof peak, "one note peaks at %.1f dBFS", 20.0 * log10(note_gain));
     snprintf(buf, len,
-             "%u voice%s%s, MIDI channel %u; each voice mixed at 1/%.2f "
-             "(one note peaks at %.1f dBFS)",
+             "%u voice%s%s, MIDI channel %u; each voice mixed at 1/%.2f (%s)",
              n, n == 1 ? "" : "s", info->unison ? " in unison" : "",
-             (unsigned)info->channel, 1.0 / voice_gain, 20.0 * log10(note_gain));
+             (unsigned)info->channel, 1.0 / voice_gain, peak);
 }
 
 int render_midi(const char *midi_path, const char *wav_path,

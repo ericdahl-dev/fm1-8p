@@ -580,6 +580,12 @@ TT_TEST(render_reports_voice_count_channel_and_level)
     TT_CHECK(strstr(text, "1/8.33") != NULL);
     TT_CHECK(strstr(text, "-2.9 dBFS") != NULL);
     TT_CHECK(strstr(text, "-18.4") == NULL);
+    /* at the device's gain (-d) that note is past full scale: the clamp holds it there (#342) */
+    info.output_shift = FM_OUT_SHIFT_DEVICE;
+    render_describe(&info, text, sizeof text);
+    printf("    %s\n", text);
+    TT_CHECK(strstr(text, "clamped at full scale") != NULL);
+    TT_CHECK(strstr(text, "+9.") == NULL);
 }
 
 TT_TEST(render_rejects_a_bad_voice_count)

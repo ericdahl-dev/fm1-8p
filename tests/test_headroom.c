@@ -2,8 +2,9 @@
  * The device's headroom (#320): the playable module (firmware/play.c) on its 4 voices at 44.1 kHz, booted on
  * SOUNDTRACK (the default patch): velocity-127 chords held 34 s, past the 32 s filter attack, and everyday
  * velocity-100 chords held 10 s. Measured through play_render, the device's own output path (the engine's
- * output stage at FM_OUT_SHIFT_DEVICE, #342: the soft clip, then the module's +12 dB, saturated at the Q15
- * rails). The knee figure comes from a twin at the engine's own level (output shift 0), as the stage's
+ * output stage at FM_OUT_SHIFT_DEVICE, #342: the makeup, then the module's +12 dB, saturated at the Q15
+ * rails; at that gain the soft clip never shapes a sample, since its knee is past the clamp, so every
+ * saturated sample here is a hard clip). The knee figure comes from a twin at the engine's own level (output shift 0), as the stage's
  * soft clip sees it.
  */
 #include "../firmware/play.h"
