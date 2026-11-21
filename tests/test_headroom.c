@@ -58,7 +58,7 @@ typedef struct {
 static int hr_check(const hr_pin *p)
 {
     hr_stats s = hr_chord(p->notes, p->count, p->seconds, p->vel);
-    printf("    SOUNDTRACK %s at %u, held %u s: module peak %+.2f dBFS (pin %+.1f..%+.1f), %.3f %% saturated "
+    printf("    SOUNDTRACK %s at %u, held %u s: module peak %+.2f dBFS (pin %+.2f..%+.2f), %.3f %% saturated "
            "(pin %.2f..%.2f); engine %.3f %% past its knee\n", p->name, (unsigned)p->vel, (unsigned)p->seconds,
            s.peak_dbfs, p->peak_min, p->peak_max, s.sat_pct, p->sat_min, p->sat_max, s.knee_pct);
     return s.ok && s.sat_pct >= p->sat_min && s.sat_pct <= p->sat_max && s.peak_dbfs >= p->peak_min &&
