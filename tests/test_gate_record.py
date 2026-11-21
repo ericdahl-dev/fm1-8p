@@ -144,14 +144,29 @@ class VerdictTest(unittest.TestCase):
         self.assertIn("b", [p["name"] for p in problems if p["status"] == "missing"])
 
     def test_a_pass_with_no_figures_where_figures_are_needed_is_an_error(self):
-        self.assertEqual(self.code([("cpu", "plain")], [rec("plain", "pass", kind="cpu")], figures=("cpu",)), 2)
+        self.assertEqual(self.code([("cpu", "plain")], [rec("plain", "pass", kind="cpu")], figures={"cpu": ("F",)}), 2)
 
     def test_a_fail_with_no_figures_where_figures_are_needed_is_an_error(self):
-        self.assertEqual(self.code([("cpu", "plain")], [rec("plain", "fail", kind="cpu")], figures=("cpu",)), 2)
+        self.assertEqual(self.code([("cpu", "plain")], [rec("plain", "fail", kind="cpu")], figures={"cpu": ("F",)}), 2)
+
+    def test_a_pass_whose_figure_is_not_a_number_is_an_error(self):
+        for value in ({}, {"F": None}, {"F": "no result"}, {"F": True}, {"F": float("nan")}, {"F": float("inf")},
+                      {"8": 13.7}):
+            r = G.record("cpu", "plain", "pass", value=value)
+            with self.subTest(value=value):
+                self.assertEqual(self.code([("cpu", "plain")], [r], figures={"cpu": ("F",)}), 2)
+
+    def test_every_kind_named_compared_needs_a_pass_or_fail(self):
+        r = [rec("a", "new"), G.record("cpu", "plain", "pass", value={"F": 41.0})]
+        self.assertEqual(self.code([("clip", "a"), ("cpu", "plain")], r, compared=("clip",)), 2)
+
+    def test_and_with_one_it_passes(self):
+        r = [rec("a", "pass"), rec("b", "new")]
+        self.assertEqual(self.code([("clip", "a"), ("clip", "b")], r, compared=("clip",)), 0)
 
     def test_a_pass_with_its_figures_is_0(self):
         r = G.record("cpu", "plain", "pass", value={"F": 41.0})
-        self.assertEqual(self.code([("cpu", "plain")], [r], figures=("cpu",)), 0)
+        self.assertEqual(self.code([("cpu", "plain")], [r], figures={"cpu": ("F",)}), 0)
 
     def test_a_required_kind_skipped_is_2(self):
         self.assertEqual(self.code([("cpu", "plain")], [rec("plain", "skipped", kind="cpu")], required=("cpu",)), 2)
@@ -241,6 +256,11 @@ class KeyTest(unittest.TestCase):
 
     def test_tools_cannot_collide_through_their_separators(self):
         self.assertNotEqual(self.key(tools={"a b": "c"}), self.key(tools={"a": "b c"}))
+
+    def test_a_toggle_or_tool_that_is_not_text_stops_it(self):
+        for kw in (dict(toggles={"x": False}), dict(toggles={"x": 1}), dict(tools={"cc": None})):
+            with self.subTest(kw=kw), self.assertRaises(ValueError):
+                self.key(**kw)
 
     def test_a_newline_cannot_forge_a_line(self):
         self.assertNotEqual(self.key(toggles={"x": "1\ntoggle y=2"}), self.key(toggles={"x": "1", "y": "2"}))

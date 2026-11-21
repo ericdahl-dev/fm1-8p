@@ -65,16 +65,23 @@ def checked(d):
     return record(d["kind"], d["name"], d["status"], d["value"], d["why"], d["key"])
 
 
-def verdict(expected, records, required=(), figures=()):
+def _number(x):
+    import math
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
+def verdict(expected, records, required=(), figures=None, compared=()):
     """The one verdict rule: (exit code, the records to report) for the (kind, name) pairs a run expects
     and the records it made. 2 (could not run): any error or missing, an expected name with no record
     (missing), a record nobody expected (but gone: on the base only), two records for one name, nothing
-    expected, nothing compared (no record a pass or a fail), a kind in `required` skipped, or a pass or
-    fail of a kind in `figures` with no value. 1: any fail. Else 0. Reported: every record that is not a
+    expected, nothing compared (no record a pass or a fail; and per kind, for each kind in `compared`),
+    a kind in `required` skipped, or a pass or fail of a kind in `figures` ({kind: field names}) without
+    each named field a finite number (not a bool). 1: any fail. Else 0. Reported: every record that is not a
     plain pass, the missing ones made here among them. ValueError for a record that is not one."""
     expected = list(expected)                    # (read twice: an iterator would be empty the second time)
     want = set(expected)
-    compared = 0
+    figures = figures or {}
+    n_compared = {}
     seen = {}
     report = []
     code = 0
@@ -91,10 +98,13 @@ def verdict(expected, records, required=(), figures=()):
         seen[k] = r
         if r["status"] == "skipped" and r["kind"] in required:
             r = record(r["kind"], r["name"], "error", why=f"skipped, but required: {r['why']}")
-        if r["status"] in ("pass", "fail") and r["kind"] in figures and r["value"] is None:
-            r = record(r["kind"], r["name"], "error", why=f"a {r['status']} with no figures")
+        if r["status"] in ("pass", "fail") and r["kind"] in figures:
+            bad = [f for f in figures[r["kind"]] if not _number((r["value"] or {}).get(f))]
+            if bad:
+                r = record(r["kind"], r["name"], "error",
+                           why=f"a {r['status']} without its figures: {', '.join(bad)}")
         if r["status"] in ("pass", "fail"):
-            compared += 1
+            n_compared[r["kind"]] = n_compared.get(r["kind"], 0) + 1
         if r["status"] in ("error", "missing"):
             code = 2
         elif r["status"] == "fail" and code == 0:
@@ -105,9 +115,13 @@ def verdict(expected, records, required=(), figures=()):
         if (kind, name) not in seen:
             report.append(record(kind, name, "missing", why="no record"))
             code = 2
-    if want and not compared:
+    if want and not n_compared:
         report.append(record("run", "", "error", why="nothing compared: no record is a pass or a fail"))
         code = 2
+    for kind in compared:
+        if not n_compared.get(kind):
+            report.append(record(kind, "", "error", why=f"no {kind} compared: none is a pass or a fail"))
+            code = 2
     return code, report
 
 
@@ -147,10 +161,14 @@ def _raise(e):
 def key(tree, dirs, inputs, toggles, tools):
     """A run's cache key, 16 hex digits: a hash of each of `tree`'s source files under `dirs` (its path and
     contents), of each named input file ({label: path}: the clip list, the MIDI written for the run, the
-    scripts), of `toggles` ({name: value}) and of `tools` ({name: identity}: tool_version's line, a
-    binary's path). OSError for a file it can't read or a folder that is not there; ValueError for a tree
-    with no source files. Never empty, never partial."""
+    scripts), of `toggles` ({name: value}, text) and of `tools` ({name: identity}, text: tool_version's line, a
+    binary_identity). OSError for a file it can't read or a folder that is not there; ValueError for a tree
+    with no source files or a toggle or tool that is not text. Never empty, never partial."""
     import hashlib
+    for what, d in (("toggle", toggles), ("tool", tools)):
+        for name, v in d.items():
+            if not isinstance(name, str) or not isinstance(v, str):
+                raise ValueError(f"{what} {name!r}: {v!r} is not text")   # (1 and "1" would hash alike)
     files = sources(tree, dirs)
     if not files:
         raise ValueError(f"{tree}: no source files under {', '.join(dirs) or '(none)'}")
@@ -162,9 +180,9 @@ def key(tree, dirs, inputs, toggles, tools):
     for label in sorted(inputs):
         item("input", label, _sha(inputs[label]))
     for name in sorted(toggles):
-        item("toggle", name, str(toggles[name]))
+        item("toggle", name, toggles[name])
     for name in sorted(tools):
-        item("tool", name, str(tools[name]))
+        item("tool", name, tools[name])
     return h.hexdigest()[:16]
 
 
