@@ -371,6 +371,12 @@ class HistoryTest(unittest.TestCase):
                 self.sc.moved(self.rows(base, [2.0]), self.rows(head, [1.0]))
         with self.assertRaises(ValueError):
             self.sc.moved(self.rows([10.0], [nan]), self.rows([10.0], [1.0]))
+        with self.assertRaises(ValueError):
+            self.sc.moved(self.rows([10.0]), [dict(self.rows([10.0])[0], spectral_db_mean=True)])
+
+    def test_a_base_given_as_a_generator_is_read_once(self):
+        got = self.sc.moved((r for r in self.rows([10.0, 20.0])), self.rows([10.0, 12.0]))
+        self.assertEqual([m["tone"] for m in got], [2])
 
     def test_the_report_has_every_tone_the_worst_five_and_what_moved(self):
         head = self.rows([5, 30, 1, 25, 9, 40, 2])
@@ -572,6 +578,13 @@ class ScriptBaseTest(unittest.TestCase):
     script, so a regression can't build into this checkout."""
 
     def test_a_base_that_is_not_a_commit_stops_it(self):
+        self.run_it(os.environ)
+
+    def test_and_a_git_hook_environment_does_not_reach_the_real_repo(self):
+        self.run_it(dict(os.environ, GIT_INDEX_FILE=os.path.join(os.path.dirname(__file__), "no-such-index"),
+                         GIT_DIR=os.path.join(os.path.dirname(__file__), "..", ".git")))
+
+    def run_it(self, outer):
         import shutil
         import subprocess
         import tempfile
@@ -581,12 +594,13 @@ class ScriptBaseTest(unittest.TestCase):
             os.makedirs(os.path.join(root, "tools"))
             os.makedirs(ref)
             shutil.copy(os.path.join(here, "tools/scorecard.sh"), os.path.join(root, "tools"))
-            git = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True)
+            clean = {k: v for k, v in outer.items() if not k.startswith("GIT_")}   # (a hook's GIT_DIR, GIT_INDEX_FILE)
+            git = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=clean)
             git("init", "-q")
             git("add", ".")
-            git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "t")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "t")
             open(os.path.join(ref, "manifest.json"), "w").write("{}")
-            env = dict(os.environ, SCORECARD_REF=ref, SCORECARD_HISTORY=os.path.join(ref, "h.jsonl"))
+            env = dict(clean, SCORECARD_REF=ref, SCORECARD_HISTORY=os.path.join(ref, "h.jsonl"))
             p = subprocess.run(["sh", os.path.join(root, "tools/scorecard.sh"), "HEAD", "no-such-commit-335"],
                                env=env, capture_output=True, text=True, timeout=120)
             built = os.path.exists(os.path.join(root, "build"))
@@ -601,6 +615,12 @@ class MainBaseTest(unittest.TestCase):
     "no base run to compare with" and exited 0), after the head's rows are kept."""
 
     def test_a_base_with_no_rows_is_exit_2_and_the_head_is_kept(self):
+        self.main_with_base("nobase")
+
+    def test_an_empty_base_is_exit_2_not_no_base(self):
+        self.main_with_base("")
+
+    def main_with_base(self, base):
         import contextlib
         import io
         import tempfile
@@ -618,7 +638,7 @@ class MainBaseTest(unittest.TestCase):
             out = io.StringIO()
             try:
                 with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as e:
-                    sc.main(["--tree", t, "--commit", "head1", "--ref", t, "--history", hist, "--base", "nobase"])
+                    sc.main(["--tree", t, "--commit", "head1", "--ref", t, "--history", hist, "--base", base])
             finally:
                 sc.run = real
             self.assertEqual(e.exception.code, 2)

@@ -239,9 +239,10 @@ def moved(base, head, eps=0.05):
     after the others, by tone, with None for the side it lacks. ValueError for a figure that is not a
     finite number."""
     import math
-    for r in list(base) + list(head):            # (a NaN would read as a verdict from the other figure)
+    base, head = list(base), list(head)          # (read twice: a generator would be empty the second time)
+    for r in base + head:            # (a NaN would read as a verdict from the other figure)
         for f in ("spectral_db_mean", "loudness_gap_lu"):
-            if not isinstance(r[f], (int, float)) or not math.isfinite(r[f]):
+            if isinstance(r[f], bool) or not isinstance(r[f], (int, float)) or not math.isfinite(r[f]):
                 raise ValueError(f"tone {r['tone']:02d} {r['name']}: {f} is {r[f]!r}, not a number")
     b = {r["tone"]: r for r in base}
     hs = {h["tone"] for h in head}
@@ -530,16 +531,17 @@ def main(argv=None):
     if a.bank and a.bank_name == "factory":
         ap.error("--bank needs a --bank-name")
     rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match, a.bank, a.bank_name)
-    base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if a.base else None
+    asked = a.base is not None                   # (--base "" is a base asked for, and not found: exit 2)
+    base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if asked else None
     note = base_note(a.root, a.commit, a.base) if a.base and a.root else None
     if note:
         print(note)
     print(f"bank: {a.bank_name}")
-    if a.base and base is None:
+    if asked and base is None:
         print(missing_base(a.history, a.base, rows[0]["ref"], a.bank_name))
     print(report(rows, base))
     print(f"\n{len(rows)} tone rows{' and the parameter rows' if a.match else ''} appended to {a.history}")
-    if a.base and base is None:
+    if asked and base is None:
         sys.exit(2)                              # (#335: asked to compare, and nothing was; the head's rows kept)
 
 
