@@ -28,6 +28,19 @@ class RecordTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             G.parse('{"kind": "cpu", "name": "plain", "status": "pass"}')
 
+    def test_a_line_naming_a_field_twice_is_an_error(self):
+        with self.assertRaises(ValueError):
+            G.parse('{"kind": "cpu", "name": "plain", "status": "fail", "value": null, "why": null, '
+                    '"key": null, "status": "pass"}')
+
+    def test_fields_of_the_wrong_type_are_an_error(self):
+        for bad in (dict(kind=1), dict(name=1), dict(name=["a"]), dict(value="no result"), dict(value=0),
+                    dict(why=3), dict(key=5)):
+            args = dict(kind="cpu", name="plain", status="pass")
+            args.update(bad)
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                G.record(**args)
+
     def test_a_line_that_is_not_json_is_an_error(self):
         with self.assertRaises(ValueError):
             G.parse("plain      F =  1.0 %")
@@ -111,10 +124,34 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual(self.code([("clip", "a")], [rec("a", "pass"), rec("a", "pass")]), 2)
 
     def test_new_and_skipped_are_reported_and_pass(self):
-        code, problems = G.verdict([("clip", "a"), ("cpu", "plain")],
-                                   [rec("a", "new"), rec("plain", "skipped", kind="cpu")])
+        code, problems = G.verdict([("clip", "a"), ("clip", "b"), ("cpu", "plain")],
+                                   [rec("a", "pass"), rec("b", "new"), rec("plain", "skipped", kind="cpu")])
         self.assertEqual(code, 0)
         self.assertEqual(sorted(p["status"] for p in problems), ["new", "skipped"])
+
+    def test_nothing_compared_is_2_all_new(self):
+        self.assertEqual(self.code([("clip", "a")], [rec("a", "new")]), 2)
+
+    def test_nothing_compared_is_2_all_skipped(self):
+        self.assertEqual(self.code([("cpu", "plain")], [rec("plain", "skipped", kind="cpu")]), 2)
+
+    def test_nothing_compared_is_2_only_gone(self):
+        self.assertEqual(self.code([("clip", "a")], [rec("a", "new"), rec("b", "gone")]), 2)
+
+    def test_expected_given_as_an_iterator_still_finds_the_missing(self):
+        code, problems = G.verdict((("clip", n) for n in ["a", "b"]), [rec("a", "pass")])
+        self.assertEqual(code, 2)
+        self.assertIn("b", [p["name"] for p in problems if p["status"] == "missing"])
+
+    def test_a_pass_with_no_figures_where_figures_are_needed_is_an_error(self):
+        self.assertEqual(self.code([("cpu", "plain")], [rec("plain", "pass", kind="cpu")], figures=("cpu",)), 2)
+
+    def test_a_fail_with_no_figures_where_figures_are_needed_is_an_error(self):
+        self.assertEqual(self.code([("cpu", "plain")], [rec("plain", "fail", kind="cpu")], figures=("cpu",)), 2)
+
+    def test_a_pass_with_its_figures_is_0(self):
+        r = G.record("cpu", "plain", "pass", value={"F": 41.0})
+        self.assertEqual(self.code([("cpu", "plain")], [r], figures=("cpu",)), 0)
 
     def test_a_required_kind_skipped_is_2(self):
         self.assertEqual(self.code([("cpu", "plain")], [rec("plain", "skipped", kind="cpu")], required=("cpu",)), 2)
@@ -192,6 +229,37 @@ class KeyTest(unittest.TestCase):
         os.makedirs(os.path.join(self.tree, "tools/__pycache__"))
         self.put("tree/tools/__pycache__/gate_cases.cpython-315.pyc", "x")
         self.assertEqual(self.key(), k)
+
+    def test_a_linked_source_folder_stops_it(self):
+        os.makedirs(os.path.join(self.t, "elsewhere"))
+        os.symlink(os.path.join(self.t, "elsewhere"), os.path.join(self.tree, "engine/linked"))
+        with self.assertRaises(OSError):
+            self.key()
+
+    def test_toggles_cannot_collide_through_their_separators(self):
+        self.assertNotEqual(self.key(toggles={"a=b": "c"}), self.key(toggles={"a": "b=c"}))
+
+    def test_tools_cannot_collide_through_their_separators(self):
+        self.assertNotEqual(self.key(tools={"a b": "c"}), self.key(tools={"a": "b c"}))
+
+    def test_a_newline_cannot_forge_a_line(self):
+        self.assertNotEqual(self.key(toggles={"x": "1\ntoggle y=2"}), self.key(toggles={"x": "1", "y": "2"}))
+
+    def test_a_binary_is_known_by_its_path_and_contents(self):
+        b = os.path.join(self.t, "fm1-live")
+        self.put("fm1-live", "v1")
+        one = G.binary_identity(b)
+        self.put("fm1-live", "v2")
+        self.assertNotEqual(G.binary_identity(b), one)
+        self.assertIn(b, one)
+
+    def test_a_binary_that_is_not_there_stops_it(self):
+        with self.assertRaises(OSError):
+            G.binary_identity(os.path.join(self.t, "none"))
+
+    def test_no_tool_at_all_stops_it(self):
+        with self.assertRaises(OSError):
+            G.tool_version([])
 
     def test_an_input_it_cannot_read_stops_it(self):
         with self.assertRaises(OSError):

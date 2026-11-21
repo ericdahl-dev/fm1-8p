@@ -20,9 +20,17 @@ FIELDS = ("kind", "name", "status", "value", "why", "key")
 
 
 def record(kind, name, status, value=None, why=None, key=None):
-    """A record; ValueError for a status not in STATUSES."""
+    """A record; ValueError for a status not in STATUSES, or a field of the wrong type (kind, name: str;
+    value: a dict or None; why, key: str or None)."""
     if status not in STATUSES:
         raise ValueError(f"{kind} {name}: unknown status {status!r}")
+    if not isinstance(kind, str) or not isinstance(name, str):
+        raise ValueError(f"{kind!r} {name!r}: kind and name must be text")
+    if value is not None and not isinstance(value, dict):
+        raise ValueError(f"{kind} {name}: value must be a dict or null, not {value!r}")
+    for f, x in (("why", why), ("key", key)):
+        if x is not None and not isinstance(x, str):
+            raise ValueError(f"{kind} {name}: {f} must be text or null, not {x!r}")
     return {"kind": kind, "name": name, "status": status, "value": value, "why": why, "key": key}
 
 
@@ -35,10 +43,19 @@ def parse(text):
     """A record from its JSON line; ValueError for anything that is not one (not JSON, a field missing or
     extra, an unknown status)."""
     try:
-        d = json.loads(text)
+        d = json.loads(text, object_pairs_hook=_no_twice)
     except json.JSONDecodeError as e:
         raise ValueError(f"not a record: {text[:60]!r} ({e})") from None
     return checked(d)
+
+
+def _no_twice(pairs):
+    d = {}
+    for k, v in pairs:
+        if k in d:
+            raise ValueError(f"not a record: {k!r} given twice")
+        d[k] = v
+    return d
 
 
 def checked(d):
@@ -48,13 +65,16 @@ def checked(d):
     return record(d["kind"], d["name"], d["status"], d["value"], d["why"], d["key"])
 
 
-def verdict(expected, records, required=()):
+def verdict(expected, records, required=(), figures=()):
     """The one verdict rule: (exit code, the records to report) for the (kind, name) pairs a run expects
     and the records it made. 2 (could not run): any error or missing, an expected name with no record
     (missing), a record nobody expected (but gone: on the base only), two records for one name, nothing
-    expected, or a kind in `required` skipped. 1: any fail. Else 0. Reported: every record that is not a
-    plain pass, the missing ones made here among them. ValueError for a record with an unknown status."""
+    expected, nothing compared (no record a pass or a fail), a kind in `required` skipped, or a pass or
+    fail of a kind in `figures` with no value. 1: any fail. Else 0. Reported: every record that is not a
+    plain pass, the missing ones made here among them. ValueError for a record that is not one."""
+    expected = list(expected)                    # (read twice: an iterator would be empty the second time)
     want = set(expected)
+    compared = 0
     seen = {}
     report = []
     code = 0
@@ -71,6 +91,10 @@ def verdict(expected, records, required=()):
         seen[k] = r
         if r["status"] == "skipped" and r["kind"] in required:
             r = record(r["kind"], r["name"], "error", why=f"skipped, but required: {r['why']}")
+        if r["status"] in ("pass", "fail") and r["kind"] in figures and r["value"] is None:
+            r = record(r["kind"], r["name"], "error", why=f"a {r['status']} with no figures")
+        if r["status"] in ("pass", "fail"):
+            compared += 1
         if r["status"] in ("error", "missing"):
             code = 2
         elif r["status"] == "fail" and code == 0:
@@ -81,6 +105,9 @@ def verdict(expected, records, required=()):
         if (kind, name) not in seen:
             report.append(record(kind, name, "missing", why="no record"))
             code = 2
+    if want and not compared:
+        report.append(record("run", "", "error", why="nothing compared: no record is a pass or a fail"))
+        code = 2
     return code, report
 
 
@@ -106,6 +133,9 @@ def sources(tree, dirs):
             raise FileNotFoundError(f"{tree}: no {d}")
         for top, subs, files in os.walk(p, onerror=_raise):
             subs[:] = [s for s in subs if s != "__pycache__"]
+            for s_ in subs:                      # (os.walk would skip a linked folder's files)
+                if os.path.islink(os.path.join(top, s_)):
+                    raise OSError(f"{tree}: {os.path.relpath(os.path.join(top, s_), tree)} is a linked folder")
             out += [os.path.relpath(os.path.join(top, f), tree) for f in files]
     return sorted(out)
 
@@ -125,14 +155,16 @@ def key(tree, dirs, inputs, toggles, tools):
     if not files:
         raise ValueError(f"{tree}: no source files under {', '.join(dirs) or '(none)'}")
     h = hashlib.sha256()
+    def item(*x):                                # one JSON line an item: no separator can make two alike
+        h.update((json.dumps(x) + "\n").encode())
     for rel in files:
-        h.update(f"src {rel} {_sha(os.path.join(tree, rel))}\n".encode())
+        item("src", rel, _sha(os.path.join(tree, rel)))
     for label in sorted(inputs):
-        h.update(f"input {label} {_sha(inputs[label])}\n".encode())
+        item("input", label, _sha(inputs[label]))
     for name in sorted(toggles):
-        h.update(f"toggle {name}={toggles[name]}\n".encode())
+        item("toggle", name, str(toggles[name]))
     for name in sorted(tools):
-        h.update(f"tool {name} {tools[name]}\n".encode())
+        item("tool", name, str(tools[name]))
     return h.hexdigest()[:16]
 
 
@@ -140,6 +172,8 @@ def tool_version(argv, timeout=60):
     """The first line `argv` (a tool and its version flag) prints, for key()'s tools. OSError when the tool
     is not there, fails, prints nothing or takes longer than `timeout` seconds."""
     import subprocess
+    if not argv:
+        raise OSError("no tool given")
     try:
         p = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -161,3 +195,9 @@ def load(path):
             except ValueError as e:
                 raise ValueError(f"{path}:{n}: {e}") from None
     return out
+
+
+def binary_identity(path):
+    """A binary's identity for key()'s tools: its path and the hash of its contents (a tool rebuilt in
+    place, its version line the same, is another tool). OSError when it can't be read."""
+    return f"{path} sha256 {_sha(path)}"
