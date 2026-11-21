@@ -74,10 +74,23 @@ expect_ok "a clip named with a backslash" env GATE_COVERAGE=0 sh "$T/bs-head/too
 cp "$T/out" "$T/report-bs"
 expect_fail "is not taken for new" grep -q "^new: " "$T/report-bs"
 rm -rf "${T:?}/bs-base" "${T:?}/bs-head"
-# A tool the cache key needs that fails (here sha256sum) stops the gate (exit 2): two keys that both read
-# "-" would let HEAD reuse BASE's renders and pass anything (Codex P2).
-mkdir -p "$T/stub" && printf '#!/bin/sh\nexit 1\n' >"$T/stub/sha256sum" && chmod +x "$T/stub/sha256sum"
-expect_ok "a failing hash stops the gate" sh -c 'PATH="$1:$PATH" GATE_DIR="$2" GATE_COVERAGE=0 sh tools/gate.sh "$3" "$4"; [ $? -eq 2 ]' - "$T/stub" "$T/gate-stub" "$T/base" "$T/same"
+# A source the cache key can't read stops the gate (exit 2): a key made without it would let HEAD reuse
+# BASE's renders and pass anything (Codex P2, #140; the key is gate_record.key() since #335).
+rm -rf "${T:?}/unread"; cp -R "$T/same" "$T/unread" && chmod 000 "$T/unread/engine/dyna.c"
+expect_ok "a source the key can't read stops the gate" sh -c 'GATE_DIR="$2" GATE_COVERAGE=0 sh tools/gate.sh "$1" "$3"; [ $? -eq 2 ]' - "$T/base" "$T/gate-stub" "$T/unread"
+chmod 644 "$T/unread/engine/dyna.c"; rm -rf "${T:?}/unread" "${T:?}/gate-stub"
+# The run's MIDI is in the key: a gate_midi.py that writes other MIDI renders again (#335).
+cp tools/gate_midi.py "$T/gate_midi.py.keep"
+expect_ok "the MIDI is in the render key" sh -c 'n=$(ls -d "$1"/gate/out/*/ | wc -l); printf "\nopen(sys.argv[1] + \"/chords.mid\", \"ab\").write(bytes([0xFF, 0x2F, 0x00]))\n" >>tools/gate_midi.py; GATE_COVERAGE=0 sh tools/gate.sh "$1/base" "$1/same" >/dev/null; r=$?; cp "$1/gate_midi.py.keep" tools/gate_midi.py; [ $r -eq 0 ] && test "$(ls -d "$1"/gate/out/*/ | wc -l)" -gt "$n"' - "$T"
+cp "$T/gate_midi.py.keep" tools/gate_midi.py
+# The run's records ($GATE_DIR/records.jsonl, tools/gate_record.py): every clip a pass on identical trees;
+# a run that stops leaves none of an earlier run's.
+recs() { python3 -I -c 'import json, sys; print(" ".join(sorted({json.loads(l)["kind"] + ":" + json.loads(l)["status"] for l in open(sys.argv[1])})))' "$T/gate/records.jsonl"; }
+GATE_COVERAGE=0 sh tools/gate.sh "$T/base" "$T/same" >/dev/null 2>&1
+expect_ok "the records of identical trees are every clip a pass" test "$(recs)" = "clip:pass"
+rm -rf "${T:?}/older2"; cp -R "$T/base" "$T/older2" && printf 'import sys\nsys.exit(1)\n' >"$T/older2/tools/gate_cases.py"
+expect_ok "a run that stops leaves no earlier run's records" sh -c 'GATE_COVERAGE=0 sh tools/gate.sh "$1/older2" "$1/base" >/dev/null 2>&1; [ $? -eq 2 ] && ! test -e "$1/gate/records.jsonl"' - "$T"
+rm -rf "${T:?}/older2"
 # CPU rows (fm1-emu): only with the FM-1 inputs; without them the gate says so and still passes.
 expect_ok "without the FM-1 inputs the gate skips the CPU rows" env -u FM1_REF -u FM1_DOCK GATE_COVERAGE=0 \
     sh tools/gate.sh "$T/base" "$T/same"
@@ -167,7 +180,11 @@ expect_ok "a failed CPU run fails the gate (exit 1)" sh -c 'env GATE_CPU="$1/cpu
 expect_ok "with its rows" sh -c "grep -q '^CPU rows: base failed' '$T/out.last' && grep -q '^plain-hn: stage failed' '$T/out.last'"
 # gate_cpu's exit 2 (a layout that could not run) fails the gate as its 1 does: never a pass.
 printf 'echo "plain: F at only 0 of 4 layouts"\nexit 2\n' >"$T/cpu-stub-2.sh"
-expect_ok "a CPU run that could not run (exit 2) fails the gate" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-2.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; r=$?; rm -rf "$1/gate/cpu"; [ $r -eq 1 ]' - "$T"
+expect_ok "a CPU run that could not run (exit 2) stops the gate: exit 2, never 0" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-2.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; r=$?; rm -rf "$1/gate/cpu"; [ $r -eq 2 ]' - "$T"
+printf 'echo "plain      F = 99.0 %%"\necho "plain: F mean 99.0 %% over the limit 64.8 %%"\nexit 1\n' >"$T/cpu-stub-1.sh"
+expect_ok "a CPU mean over the limit (exit 1) fails the gate: exit 1, never 0" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-1.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; r=$?; rm -rf "$1/gate/cpu"; [ $r -eq 1 ]' - "$T"
+printf 'echo "plain: crashed"\nexit 3\n' >"$T/cpu-stub-3.sh"
+expect_ok "any other CPU exit stops it too (exit 2)" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-3.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; r=$?; rm -rf "$1/gate/cpu"; [ $r -eq 2 ]' - "$T"
 expect_fail "and not kept" sh -c "ls '$T/gate/cpu/'*/rows.txt"
 expect_ok "GATE_CPU_HINOTE=0's rows are kept apart" stub_gate GATE_CPU_HINOTE=0
 expect_ok "and another GATE_CPU_LIMIT's" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" GATE_CPU_LIMIT=50 sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"

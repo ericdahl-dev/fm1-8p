@@ -124,16 +124,75 @@ def clip_records(base, head):
     return records, lines
 
 
+def host_cc(env):
+    """The host compiler's version line: CC as make takes it (the Makefile's CC ?= cc)."""
+    import shlex
+    return G.tool_version(shlex.split(env.get("CC") or "cc") + ["--version"])
+
+
+def _put(path, records, mode="w"):
+    with open(path, mode) as f:
+        f.writelines(G.line(r) + "\n" for r in records)
+
+
+def judge(records, head, cpu):
+    """The gate's exit: verdict() over the run's records, expecting every clip of HEAD's render folder
+    `head` and, when `cpu`, HEAD's CPU run. 2 when it could not run (nothing compared among them), 1
+    when a clip differs or HEAD's CPU rows failed, else 0."""
+    expected = [("clip", n) for n in _cases(head)] + ([("cpu-run", "head")] if cpu else [])
+    return G.verdict(expected, records, compared=("clip",))[0]
+
+
 def main(argv):
     """gate.sh's and gate_cpu.sh's calls:
-      fm1-tools LIVE TOOLCHAIN DOCK     fm1_tools() as JSON (gate_cpu.sh --tools)"""
+      render-key TREE ROOT MIDI          render_key(), with the host compiler (CC, or cc)
+      cpu-key TREE ROOT SCRIPT TOOLS     cpu_key(), with the environment's toggles; TOOLS: gate_cpu.sh
+                                         --tools' JSON file, or "stand-in" (GATE_CPU)
+      clips BASE HEAD RECORDS            clip_records() into RECORDS (anew), its lines on stdout; exit 2
+                                         when one could not be compared or none was
+      cpu-record RECORDS EXIT            HEAD's CPU run as a record: gate_cpu.sh's exit 0 a pass, 1 a fail
+                                         (a mean over the limit), anything else an error
+      judge RECORDS HEAD [cpu]           judge()
+      fm1-tools LIVE TOOLCHAIN DOCK      fm1_tools() as JSON (gate_cpu.sh --tools)"""
     import json
     cmd, a = argv[1], argv[2:]
     try:
+        if cmd == "render-key":
+            print(render_key(a[0], a[1], a[2], host_cc(os.environ)))
+            return 0
+        if cmd == "cpu-key":
+            if a[3] == "stand-in":
+                tools = {"gate_cpu": "a stand-in (GATE_CPU)"}
+            else:
+                with open(a[3]) as f:
+                    tools = json.load(f)
+            print(cpu_key(a[0], a[1], a[2], os.environ, tools))
+            return 0
+        if cmd == "clips":
+            records, lines = clip_records(a[0], a[1])
+            _put(a[2], records)
+            for x in lines:
+                print(x)
+            bad = [r for r in records if r["status"] == "error"]
+            if bad:
+                print(f"gate: {bad[0]['why']}", file=sys.stderr)
+                return 2
+            if not any(r["status"] in ("pass", "fail") for r in records):
+                print("gate: no clip on both trees: nothing compared", file=sys.stderr)
+                return 2
+            return 0
+        if cmd == "cpu-record":
+            rc = a[1]
+            st = {"0": "pass", "1": "fail"}.get(rc, "error")
+            why = None if st == "pass" else f"gate_cpu.sh exit {rc}"
+            _put(a[0], [G.record("cpu-run", "head", st, why=why)], mode="a")
+            return 0
+        if cmd == "judge":
+            return judge(G.load(a[0]), a[1], a[2:] == ["cpu"])
         if cmd == "fm1-tools":
             print(json.dumps(fm1_tools(*a), sort_keys=True))
             return 0
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, IndexError) as e:
         print(f"gate: {cmd}: {e}", file=sys.stderr)
         return 2
     print(f"gate_run: {cmd}: not a command", file=sys.stderr)
