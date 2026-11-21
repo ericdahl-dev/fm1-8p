@@ -87,9 +87,14 @@ the gate could not run.
 With the FM-1 build inputs (`FM1_REF`, a folder holding fm1-dock, the JieLi toolchain, the AC79
 SDK, fm1-dock's venv and fm1-live; or `tools/fm1-build.sh`'s own variables), it also prints the
 CPU rows in fm1-emu's strict timing: 8 voices, U and F, with code bytes, for step F plain, with
-sync, the ring and both. Each runs as built and with 3 KB of padding ahead of the engine, which
-moves every function, so a gain that is only alignment shows. The device reads about 1.08 times
-the emulator. Without those inputs it says the rows were skipped.
+sync, the ring and both, and, where the tree has them, with the UI drawing and with the sequencer
+playing. Each of these also has a high-note row (`-hn`). A row's time moves with where its code
+lands in the flash cache alone, so each row runs at four layouts (`GATE_CPU_LAYOUTS`, default
+`0 1024 2048 3072`: bytes of never-run code ahead of the engine; 0 is the build that ships). It
+prints F's mean and range across them. A row fails when its F mean is over `GATE_CPU_LIMIT`
+(default 64.8 % of a block). One layout over the limit with the mean under it is a warning. Each
+layout's own row is kept in its folder's `layouts.txt`, under `build/gate/cpu`. The device reads
+about 1.08 times the emulator. Without those inputs it says the rows were skipped.
 
 `make check-gate` tests the gate itself. For each covered path, a one-line change in a copy of
 the tree must fail the gate. It renders for a few minutes, so it is not part of `make check`.
