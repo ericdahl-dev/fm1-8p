@@ -942,6 +942,39 @@ TT_TEST(save_right_after_a_takeover_targets_the_running_slot)
     TT_CHECK_EQ(out.step[0].note[0], 60u);                  /* A's slot as it was */
 }
 
+/* #324 (FW review): stopped but not silent, a SAVE of the pattern waits; PRESETS then loads another slot
+ * at once. When the save lands it writes its snapshot to its slot, and the pattern loaded since stays the
+ * running one: its slot, its name, its notes */
+TT_TEST(save_waiting_through_a_pattern_load_keeps_the_loaded_one)
+{
+    static seq_pattern b, out;
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t k;
+    save_seq_setup();                                       /* 11, edited: C4 on step 1 */
+    seq_pattern_empty(&b);
+    TT_CHECK_EQ(pat_slot_write(&save_plib, &store_fake_io, 1, &b, "B"), 0);   /* 12: rests */
+    play_note(&ui_p, 60, 100);
+    save_render(4);
+    TT_CHECK(!play_silent(&ui_p));
+    save_tap(UI_BTN_SAVE, 1000);
+    TT_CHECK_EQ(ui_u.save_dest, 0u);
+    save_tap(UI_BTN_SAVE, 1200);                            /* waits for silence */
+    TT_CHECK_EQ(ui_u.state, UI_SEQ);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1300);  /* edited: the warning */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1400);  /* 12 at once */
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
+    play_note(&ui_p, 60, 0);
+    for (k = 0; k < 4000u && !play_silent(&ui_p); k++)
+        save_render(1);
+    (void)ui_take(&ui_u, 3000);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED PATTERN 11") == 0);
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 0, &out, name), 0);
+    TT_CHECK_EQ(out.step[0].note[0], 60u);                  /* the snapshot, in 11 */
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), name), 1u);
+    TT_CHECK(strcmp(name, "B") == 0);
+    TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 0)->kind, SEQ_REST);   /* 12's, as loaded */
+}
+
 /* #303: a delete whose flash write fails says DELETE FAILED and leaves the slot as it was */
 TT_TEST(save_failed_delete_says_so)
 {
@@ -969,6 +1002,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_sel_held_from_before_save_does_not_ask);
     TT_RUN(save_delete_of_the_queued_pattern_cancels_the_queue);
     TT_RUN(save_right_after_a_takeover_targets_the_running_slot);
+    TT_RUN(save_waiting_through_a_pattern_load_keeps_the_loaded_one);
     TT_RUN(save_failed_delete_says_so);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);

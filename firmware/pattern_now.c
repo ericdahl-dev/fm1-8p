@@ -20,6 +20,7 @@ static void pn_note(pattern_now *n)
     pn_copy_name(n->running_name, n->queued_name);
     n->queued = -1;
     n->takeovers++;
+    n->changes++;
 }
 
 static void pn_sync(pattern_now *n)
@@ -53,6 +54,7 @@ static void pn_load(pattern_now *n, uint32_t q)
         n->running = q;
         pn_copy_name(n->running_name, name);
         n->queued = -1;
+        n->changes++;
     }
 }
 
@@ -65,7 +67,7 @@ void pattern_init(pattern_now *n, seq *s)
     n->running_name[0] = n->queued_name[0] = '\0';
     n->queued = -1;
     n->queued_ask = 0;
-    n->takeovers = n->reported = 0;
+    n->takeovers = n->reported = n->changes = 0;
 }
 
 void pattern_attach(pattern_now *n, pat_lib *lib, const store_io *io)
@@ -125,7 +127,7 @@ uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap)
 {
     pn_sync(n);
     *snap = n->s->edit;
-    return n->takeovers;
+    return n->changes;
 }
 
 int pattern_save(pattern_now *n, uint32_t dest, const seq_pattern *snap, const char *name, uint32_t token)
@@ -143,7 +145,7 @@ int pattern_save(pattern_now *n, uint32_t dest, const seq_pattern *snap, const c
             n->queued_ask = ask;
         }
     }
-    if (token == n->takeovers && !into_queued)  /* what was snapshotted plays: dest is its slot now */
+    if (token == n->changes && !into_queued)    /* what was snapshotted plays: dest is its slot now */
         n->running = dest;
     if (dest == n->running) {                   /* edited now only by what differs from snap */
         pn_copy_name(n->running_name, name);
