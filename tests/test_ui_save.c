@@ -906,6 +906,42 @@ TT_TEST(save_delete_of_the_queued_pattern_cancels_the_queue)
     TT_CHECK(!pattern_edited(play_patterns(&ui_p)));
 }
 
+/* #324 T4: B takes over in the audio interrupt and SAVE comes before the next draw: SAVE offers B's slot
+ * and B's name, and the write lands there, not over A's slot */
+TT_TEST(save_right_after_a_takeover_targets_the_running_slot)
+{
+    static seq_pattern pat, out;
+    static const uint8_t e4 = 64;
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t k, t;
+    save_seq_setup();                                       /* step 1 C4 */
+    t = pattern_snapshot(play_patterns(&ui_p), &pat);
+    TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 0, &pat, "A", t), 0);
+    seq_set_step(play_seq(&ui_p), 0, &e4, 1, 100);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat);
+    TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 1, &pat, "B", t), 0);
+    pattern_queue(play_patterns(&ui_p), 0);                /* stopped: A at once */
+    seq_play(play_seq(&ui_p));
+    save_render(4);
+    pattern_queue(play_patterns(&ui_p), 1);
+    for (k = 0; k < 40000u && seq_next_queued(play_seq(&ui_p)); k++)
+        save_render(1);                                     /* B takes over: no draw since */
+    TT_CHECK(!seq_next_queued(play_seq(&ui_p)));
+    save_tap(UI_BTN_SAVE, 1000);
+    TT_CHECK_EQ(ui_u.save_dest, 1u);                        /* 12, B's */
+    TT_CHECK(strcmp(ui_u.save_name, "B           ") == 0);
+    save_tap(UI_BTN_SAVE, 1200);                            /* waits: playing */
+    seq_stop(play_seq(&ui_p));
+    for (k = 0; k < 4000u && !play_silent(&ui_p); k++)
+        save_render(1);
+    (void)ui_take(&ui_u, 3000);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED PATTERN 12") == 0);
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 1, &out, name), 0);
+    TT_CHECK_EQ(out.step[0].note[0], 64u);
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 0, &out, name), 0);
+    TT_CHECK_EQ(out.step[0].note[0], 60u);                  /* A's slot as it was */
+}
+
 /* #303: a delete whose flash write fails says DELETE FAILED and leaves the slot as it was */
 TT_TEST(save_failed_delete_says_so)
 {
@@ -932,6 +968,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_delete_question_fits_the_screen);
     TT_RUN(save_sel_held_from_before_save_does_not_ask);
     TT_RUN(save_delete_of_the_queued_pattern_cancels_the_queue);
+    TT_RUN(save_right_after_a_takeover_targets_the_running_slot);
     TT_RUN(save_failed_delete_says_so);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);

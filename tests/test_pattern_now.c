@@ -2,17 +2,35 @@
  * "The window" is a takeover the interrupt has made that no main-loop call has seen yet: rendered to the
  * pass end with no draw since. Uses test_play_patterns.c's RAM flash and test_seq_play.c's helpers. */
 
-/* A (slot 0, notes 60) and B (slot 1, notes 64) and C (slot 2, notes 67), two steps each; A loaded,
- * playing at a step a block or so (a pass ends every few blocks) */
+/* two steps of `note`, at 300 BPM (a pass is a few blocks) */
+static void pn_pat(seq_pattern *p, uint8_t note)
+{
+    seq_pattern_empty(p);
+    p->length = 2;
+    p->tempo = 3000;
+    p->step[0].kind = p->step[1].kind = SEQ_NOTES_ON;
+    p->step[0].n = p->step[1].n = 1;
+    p->step[0].note[0] = p->step[1].note[0] = note;
+}
+
+/* A (slot 0, notes 60) and B (slot 1, notes 64) and C (slot 2, notes 67), two steps each at 300 BPM;
+ * A loaded, unedited, and playing */
+static void pn_write(uint32_t slot, uint8_t note, const char *name)
+{
+    static seq_pattern p;
+    pn_pat(&p, note);
+    TT_CHECK_EQ(pat_slot_write(&pp_lib, &store_fake_io, slot, &p, name), 0);
+}
+
 static void pn_setup(void)
 {
     store_flash_blank();
     pat_lib_load(&pp_lib, &store_fake_io);
-    pp_write(0, 60, 2, "A");
-    pp_write(1, 64, 2, "B");
-    pp_write(2, 67, 2, "C");
+    pn_write(0, 60, "A");
+    pn_write(1, 64, "B");
+    pn_write(2, 67, "C");
     pp_setup();
-    seq_set_tempo(play_seq(&sp_a), 3000);
+    TT_CHECK(!pattern_edited(play_patterns(&sp_a)));
     seq_play(play_seq(&sp_a));
     sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
 }
@@ -75,16 +93,6 @@ TT_TEST(pattern_on_to_another_slot_in_the_window_keeps_the_takeover)
 }
 
 #define PN (play_patterns(&sp_a))
-
-/* a pattern of `len` steps of `note`, for a save */
-static void pn_pat(seq_pattern *p, uint8_t note)
-{
-    seq_pattern_empty(p);
-    p->length = 2;
-    p->step[0].kind = p->step[1].kind = SEQ_NOTES_ON;
-    p->step[0].n = p->step[1].n = 1;
-    p->step[0].note[0] = p->step[1].note[0] = note;
-}
 
 /* renders a few passes (at the slots' default tempo too), the draw's pattern_takeover after each block */
 static void pn_passes(void)
@@ -249,8 +257,136 @@ TT_TEST(pattern_save_in_the_window_targets_the_running_slot)
     TT_CHECK(!pattern_edited(PN));
 }
 
+/* T16: each call, made first after a takeover (the window), answers for B, the running pattern: what it
+ * returns or does is right whichever call came first (A was edited, so a stale answer shows), and the
+ * draw hears of the takeover once */
+static uint32_t pn_c_running(void) { return pattern_running(PN, 0) == 1u; }
+static uint32_t pn_c_queued(void) { return pattern_queued(PN, 0) == -1; }
+static uint32_t pn_c_edited(void) { return pattern_edited(PN) == 0u; }
+static uint32_t pn_c_takeover(void) { return pattern_takeover(PN) == 1u; }
+static uint32_t pn_c_snapshot(void)
+{
+    static seq_pattern x;
+    (void)pattern_snapshot(PN, &x);
+    return x.step[0].note[0] == 64u;
+}
+static uint32_t pn_c_queue_a(void) { pattern_queue(PN, 0); return pattern_queued(PN, 0) == 0; }
+static uint32_t pn_c_delete_b(void) { return pattern_delete(PN, 1) == 0 && pattern_edited(PN); }
+static uint32_t pn_c_step_edit(void)
+{
+    uint8_t g = 77;
+    seq_set_step(play_seq(&sp_a), 1, &g, 1, 100);
+    return seq_get_step(play_seq(&sp_a), 0)->note[0] == 64u;
+}
+TT_TEST(pattern_every_call_takes_in_a_takeover_first)
+{
+    static uint32_t (*const calls[])(void) = {
+        pn_c_running, pn_c_queued, pn_c_edited, pn_c_takeover, pn_c_snapshot, pn_c_queue_a, pn_c_delete_b,
+        pn_c_step_edit,
+    };
+    uint8_t g = 79;
+    uint32_t i, bad = 0;
+    for (i = 0; i < sizeof calls / sizeof calls[0]; i++) {
+        uint32_t right, told;
+        pn_setup();
+        seq_set_step(play_seq(&sp_a), 1, &g, 1, 100);   /* A edited */
+        pattern_queue(PN, 1);
+        pn_take();
+        right = calls[i]();
+        told = calls[i] == pn_c_takeover ? 1u : pattern_takeover(PN);
+        if (!right || !told || pattern_takeover(PN) || pattern_running(PN, 0) != 1u) {
+            printf("    call %u: right %u, told %u\n", (unsigned)i, (unsigned)right, (unsigned)told);
+            bad++;
+        }
+    }
+    TT_CHECK_EQ(bad, 0u);
+}
+
+/* The handoff's gaps (handoff_test.h): the interrupt runs through several pass ends at gap n of `where`
+ * (each of the main loop's steps: close, sync, write, open). A pass end in a gap takes nothing (the ask
+ * is closed), so what runs and what is queued come out as if it hadn't been there, and the pattern that
+ * plays is always the one named running. */
+static const char *pn_gap_where;
+static uint32_t pn_gap_n, pn_gap_hit;
+static void pn_gap(const char *where, uint32_t n)
+{
+    uint32_t k;
+    if (n != pn_gap_n || strcmp(where, pn_gap_where) != 0)
+        return;
+    pn_gap_hit++;
+    for (k = 0; k < 400u; k++)
+        sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
+}
+
+/* A runs, B queued; op at gap n; then what runs, by name and by its notes, after some passes */
+static uint32_t pn_gap_case(const char *where, uint32_t n, uint32_t op)
+{
+    static seq_pattern d;
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t ok = 1, want, note;
+    const char *want_name;
+    pn_setup();
+    pattern_queue(PN, 1);
+    pn_gap_where = where;
+    pn_gap_n = n;
+    pn_gap_hit = 0;
+    handoff_gap = pn_gap;
+    switch (op) {
+    case 0: pattern_queue(PN, 2); want = 2; want_name = "C"; note = 67; break;     /* on to C */
+    case 1: pattern_queue(PN, 0); want = 0; want_name = "A"; note = 60; break;     /* back: cancel */
+    case 2: pn_pat(&d, 74);                                                       /* B's slot saved anew */
+        ok &= pattern_save(PN, 1, &d, "D", pattern_snapshot(PN, &(seq_pattern){0})) == 0;
+        want = 1; want_name = "D"; note = 74; break;
+    default: ok &= pattern_delete(PN, 1) == 0; want = 0; want_name = "A"; note = 60; break;   /* B deleted */
+    }
+    handoff_gap = 0;
+    ok &= pn_gap_hit == 1u;
+    ok &= pattern_running(PN, 0) == 0u;                 /* closed: nothing took over in the gap */
+    pn_passes();
+    ok &= pattern_running(PN, name) == want && strcmp(name, want_name) == 0 && pattern_queued(PN, 0) == -1;
+    ok &= seq_get_step(play_seq(&sp_a), 0)->note[0] == note && !pattern_edited(PN);
+    if (!ok)
+        printf("    %s gap %u, op %u: running %u\n", where, (unsigned)n, (unsigned)op,
+               (unsigned)pattern_running(PN, 0));
+    return ok;
+}
+
+TT_TEST(pattern_a_pass_end_in_any_gap_of_the_handoff_takes_nothing)
+{
+    uint32_t n, op, bad = 0;
+    for (op = 0; op < 4u; op++)
+        for (n = 1; n <= 3u; n++)
+            bad += !pn_gap_case("ask", n, op);
+    TT_CHECK_EQ(bad, 0u);
+}
+
+/* A takeover in the middle of a step edit (after it synced): the edit, of A, is dropped with A; B, the
+ * pattern playing, is what the main loop sees and edits next */
+TT_TEST(pattern_a_takeover_inside_a_step_edit_drops_the_edit)
+{
+    uint8_t g = 77;
+    pn_setup();
+    pattern_queue(PN, 1);
+    pn_gap_where = "edit";
+    pn_gap_n = 1;
+    pn_gap_hit = 0;
+    handoff_gap = pn_gap;
+    seq_set_step(play_seq(&sp_a), 1, &g, 1, 100);     /* B takes over inside it */
+    handoff_gap = 0;
+    TT_CHECK_EQ(pn_gap_hit, 1u);
+    TT_CHECK_EQ(pattern_running(PN, 0), 1u);
+    TT_CHECK_EQ(seq_get_step(play_seq(&sp_a), 0)->note[0], 64u);
+    TT_CHECK_EQ(seq_get_step(play_seq(&sp_a), 1)->note[0], 64u);   /* A's edit gone with A */
+    TT_CHECK(!pattern_edited(PN));
+    pn_passes();
+    TT_CHECK_EQ(seq_get_step(play_seq(&sp_a), 1)->note[0], 64u);
+}
+
 static void run_pattern_now_tests(void)
 {
+    TT_RUN(pattern_a_pass_end_in_any_gap_of_the_handoff_takes_nothing);
+    TT_RUN(pattern_a_takeover_inside_a_step_edit_drops_the_edit);
+    TT_RUN(pattern_every_call_takes_in_a_takeover_first);
     TT_RUN(pattern_takeover_makes_the_queued_one_running);
     TT_RUN(pattern_save_into_the_queued_slot_changes_what_takes_over);
     TT_RUN(pattern_takeover_drops_the_old_edits);
