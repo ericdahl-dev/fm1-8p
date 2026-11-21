@@ -293,7 +293,12 @@ In the module, pressure doesn't go through the event queue: the FM-1's keys
 send each held key's pressure about 100 times a second, which would fill it
 (and an overflow lets every note go). Play keeps each key's latest value and
 the channel's, and the audio interrupt applies them after the queue each
-block (`play_pressure_flood_never_drops_a_note_off`).
+block (`play_pressure_flood_never_drops_a_note_off`). Each of the table's
+fields has one writer (the module can't mask the interrupt): the main loop
+writes a key's value and counts its puts, the interrupt counts what it took.
+A key's note on or off, all sound off and all notes off drop the pressure of
+the key (every key) not yet applied, so a key struck again in the same block
+starts at the channel pressure (`play_restruck_key_drops_its_old_pressure`).
 
 ## Cost
 
