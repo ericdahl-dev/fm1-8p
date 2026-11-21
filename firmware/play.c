@@ -173,8 +173,6 @@ int play_pattern_write(play *p, uint32_t dest, const seq_pattern *snap, const ch
 {
     if (!p->plib || !p->io || dest >= PAT_SLOTS || pat_slot_write(p->plib, p->io, dest, snap, name) != 0)
         return -1;
-    if (p->pat_next >= 0 && dest == (uint32_t)p->pat_next)   /* the queued one's slot holds a pattern again */
-        p->pat_next_gone = 0;
     p->pat_prog = dest;
     copy_name(p->pat_name, name);
     p->seq.stored = *snap;                      /* edited now only by what changed since the snapshot */
