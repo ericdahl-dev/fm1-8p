@@ -175,6 +175,13 @@ cp tools/gate_pad.c "$T/gate_pad.c.keep"
 printf '/* (an edit) */\n' >>tools/gate_pad.c
 expect_ok "and the pad's, once it changes" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
 cp "$T/gate_pad.c.keep" tools/gate_pad.c
+# and the Python that stages the rows and reads and judges them (Codex P2: they left gate_cpu.sh)
+for py in gate_cpu_records gate_stage gate_record; do
+    cp "tools/$py.py" "$T/$py.py.keep"
+    printf '# (an edit)\n' >>"tools/$py.py"
+    expect_ok "and $py.py's, once it changes" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
+    cp "$T/$py.py.keep" "tools/$py.py"
+done
 # Only HEAD's CPU rows judge: a failed base row is shown, and the gate still passes when HEAD's pass.
 cat >"$T/cpu-stub-base.sh" <<'STUB'
 case $1 in *base*) echo "plain: stage failed"; exit 1 ;; esac
