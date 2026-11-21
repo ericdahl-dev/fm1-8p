@@ -130,6 +130,8 @@ expect_fail "a build that exits non-zero fails its row, report or not" rows STUB
 expect_ok "and says so" grep -q '^plain@2048: the build failed' "$T/out.last"
 expect_fail "GATE_CPU_LAYOUTS must be byte counts" rows GATE_CPU_LAYOUTS="0 1k"
 expect_fail "and at least one" rows GATE_CPU_LAYOUTS=" "
+expect_fail "each once" rows GATE_CPU_LAYOUTS="0 0 1024"
+expect_fail "without leading zeros (00 would not read as the shipped 0)" rows GATE_CPU_LAYOUTS="00 1024"
 expect_ok "an @ in OUT's path doesn't move the layouts' names" sh -c 'mkdir -p "$1/at@dir" && env JIELI_TOOLCHAIN="$1/fm1/tc" AC79_SDK="$1/fm1/sdk" FM1_DOCK="$1/fm1/dock" FM1_LIVE="$1/fm1/live" GATE_CPU_BUILD="$1/build-stub.sh" GATE_CPU_LAYOUTS="0 1024 2048" GATE_CPU_HINOTE=0 GATE_CPU_LIMIT=41.5 sh tools/gate_cpu.sh "$1/base" "$1/at@dir/o" | grep -q "^plain: max 42.0 % over the limit 41.5 % at layout 2048 (mean ok)"' - "$T"
 expect_ok "a layout's size goes to its .space, not the file's comment" sh -c "grep -q '^/\* gate_pad.c - never-run code' '$T/cpu/plain@512/src/engine/aa_pad.c'"
 expect_ok "GATE_CPU_JOBS=1 builds one row at a time" sh -c 'rm -f "$1.overlap"; env STUB_BUSY="$1" sh -c "$2" && ! test -e "$1.overlap"' - "$T/busy" \
@@ -153,6 +155,17 @@ expect_ok "a failed CPU run fails the gate (exit 1)" sh -c 'env GATE_CPU="$1/cpu
 expect_ok "with its rows" sh -c "grep -q '^CPU rows: base failed' '$T/out.last' && grep -q '^plain-hn: stage failed' '$T/out.last'"
 expect_fail "and not kept" sh -c "ls '$T/gate/cpu/'*/rows.txt"
 expect_ok "GATE_CPU_HINOTE=0's rows are kept apart" stub_gate GATE_CPU_HINOTE=0
+expect_ok "and another GATE_CPU_LIMIT's" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" GATE_CPU_LIMIT=50 sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
+cp tools/gate_pad.c "$T/gate_pad.c.keep"
+printf '/* (an edit) */\n' >>tools/gate_pad.c
+expect_ok "and the pad's, once it changes" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
+cp "$T/gate_pad.c.keep" tools/gate_pad.c
+# Only HEAD's CPU rows judge: a failed base row is shown, and the gate still passes when HEAD's pass.
+cat >"$T/cpu-stub-base.sh" <<'STUB'
+case $1 in *base*) echo "plain: stage failed"; exit 1 ;; esac
+echo "plain      F =  1.0 %"
+STUB
+expect_ok "a base-only CPU failure is shown, not a gate failure" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-base.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same" >"$1/bo" && grep -q "^CPU rows: base failed" "$1/bo"' - "$T"
 expect_ok "and another GATE_CPU_LAYOUTS's" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" GATE_CPU_LAYOUTS="0 512" sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
 expect_ok "from a default run's" stub_gate
 expect_ok "which has its high-note rows" grep -q '^plain-hn ' "$T/out.last"

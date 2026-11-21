@@ -45,8 +45,12 @@ JOBS=${GATE_CPU_JOBS:-16}
 BUILD=${GATE_CPU_BUILD:-tools/fm1-build.sh}
 set -- $LAYOUTS
 [ $# -gt 0 ] || { echo "gate_cpu: GATE_CPU_LAYOUTS lists no layout" >&2; exit 2; }
+seen=" "
 for n in $LAYOUTS; do
     case $n in ''|*[!0-9]*) echo "gate_cpu: GATE_CPU_LAYOUTS: $n is not a byte count" >&2; exit 2 ;; esac
+    case $n in 0?*) echo "gate_cpu: GATE_CPU_LAYOUTS: $n has a leading zero (0 alone is the shipped layout)" >&2; exit 2 ;; esac
+    case $seen in *" $n "*) echo "gate_cpu: GATE_CPU_LAYOUTS: $n is listed twice" >&2; exit 2 ;; esac
+    seen="$seen$n "
 done
 mkdir -p "$OUT" || exit 2
 OUT=$(cd "$OUT" && pwd -P)
