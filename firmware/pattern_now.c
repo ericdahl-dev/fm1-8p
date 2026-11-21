@@ -102,16 +102,24 @@ uint32_t pattern_edited(pattern_now *n)
 
 void pattern_queue(pattern_now *n, uint32_t q)
 {
+    uint32_t tries, back;
     if (q >= PAT_SLOTS)
         return;
     pn_sync(n);
-    if (n->s->want && n->s->playing && q == n->running) {
-        seq_cancel_next(n->s);                  /* back to the running one: nothing queued */
-        pn_note(n);
-        n->queued = -1;
-        return;
+    for (tries = 0; tries < 2u; tries++) {
+        back = n->s->want && n->s->playing && q == n->running;
+        if (back) {
+            seq_cancel_next(n->s);              /* back to the running one: nothing queued */
+            pn_note(n);
+            n->queued = -1;
+        } else {
+            pn_load(n, q);
+        }
+        /* a takeover just before the ask closed can change which it should have been (back to the
+         * running one, or on): then once more, on what runs now */
+        if (back == (n->s->want && n->s->playing && q == n->running))
+            return;
     }
-    pn_load(n, q);
 }
 
 uint32_t pattern_takeover(pattern_now *n)

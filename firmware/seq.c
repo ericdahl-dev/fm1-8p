@@ -349,6 +349,7 @@ void seq_stop(seq *s)
     s->want = 0;
     BARRIER();
     s->ask_stop++;
+    HANDOFF_GAP("stop", 1);
     ask_close(s);
     (void)take_in(s);                           /* (one the interrupt took already) */
     if (queued_closed(s)) {                     /* stopping with one queued: it loads at once */
@@ -363,6 +364,7 @@ void seq_stop(seq *s)
  * interrupt takes nothing, so what it took is known (sync) before `next` and `ask_kind` change. */
 static void ask_close(seq *s)
 {
+    HANDOFF_GAP("ask", 0);                      /* (still open: the caller decided before this) */
     s->ask = s->ask | 1u;
     BARRIER();                                  /* closed before anything after it */
     HANDOFF_GAP("ask", 1);

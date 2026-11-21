@@ -311,8 +311,8 @@ static uint32_t pn_gap_n, pn_gap_hit;
 static void pn_gap(const char *where, uint32_t n)
 {
     uint32_t k;
-    if (n != pn_gap_n || strcmp(where, pn_gap_where) != 0)
-        return;
+    if (pn_gap_hit || n != pn_gap_n || strcmp(where, pn_gap_where) != 0)
+        return;                                 /* (once: one takeover) */
     pn_gap_hit++;
     for (k = 0; k < 400u; k++)
         sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
@@ -382,8 +382,70 @@ TT_TEST(pattern_a_takeover_inside_a_step_edit_drops_the_edit)
     TT_CHECK_EQ(seq_get_step(play_seq(&sp_a), 1)->note[0], 64u);
 }
 
+/* Gap 0: a pass end after a call decided and before the ask closes, so B takes over just then. Each call
+ * ends as if it had come right after the takeover (T2, T3, T7, T10's rules) */
+TT_TEST(pattern_a_takeover_just_before_the_close_is_taken_in)
+{
+    static seq_pattern d;
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t op, bad = 0;
+    for (op = 0; op < 5u; op++) {
+        uint32_t ok = 1;
+        pn_setup();
+        pattern_queue(PN, 1);
+        pn_gap_where = "ask";
+        pn_gap_n = 0;
+        pn_gap_hit = 0;
+        handoff_gap = pn_gap;
+        switch (op) {
+        case 0: pattern_queue(PN, 2); break;                                  /* on to C */
+        case 1: pattern_queue(PN, 0); break;                                  /* back to A */
+        case 2: pn_pat(&d, 74); (void)pattern_save(PN, 1, &d, "D", 0); break;  /* B's slot saved */
+        case 3: (void)pattern_delete(PN, 1); break;                           /* B's slot deleted */
+        default: pattern_queue(PN, 1); break;                                 /* B again */
+        }
+        handoff_gap = 0;
+        ok &= pn_gap_hit >= 1u;
+        switch (op) {
+        case 0: ok &= pattern_running(PN, 0) == 1u && pattern_queued(PN, 0) == 2; break;
+        case 1: ok &= pattern_running(PN, 0) == 1u && pattern_queued(PN, 0) == 0; break;
+        case 2: ok &= pattern_running(PN, name) == 1u && strcmp(name, "D") == 0 && pattern_edited(PN) &&
+                      pattern_queued(PN, 0) == -1; break;
+        case 3: ok &= pattern_running(PN, 0) == 1u && pattern_edited(PN) && pattern_queued(PN, 0) == -1; break;
+        default: ok &= pattern_running(PN, 0) == 1u && !pattern_edited(PN) && pattern_queued(PN, 0) == -1;
+        }
+        if (!ok) {
+            printf("    op %u: running %u queued %d hit %u\n", (unsigned)op, (unsigned)pattern_running(PN, 0),
+                   (int)pattern_queued(PN, 0), (unsigned)pn_gap_hit);
+            bad++;
+        }
+    }
+    TT_CHECK_EQ(bad, 0u);
+}
+
+/* A pass end inside a stop, between its ask and the queue's close: B, queued, still loads, once */
+TT_TEST(pattern_a_takeover_inside_a_stop_loads_the_queued_one)
+{
+    pn_setup();
+    pattern_queue(PN, 1);
+    pn_gap_where = "stop";
+    pn_gap_n = 1;
+    pn_gap_hit = 0;
+    handoff_gap = pn_gap;
+    seq_stop(play_seq(&sp_a));
+    handoff_gap = 0;
+    TT_CHECK_EQ(pn_gap_hit, 1u);
+    pn_is(1, "B", -1);
+    TT_CHECK(!pattern_edited(PN));
+    TT_CHECK_EQ(seq_get_step(play_seq(&sp_a), 0)->note[0], 64u);
+    TT_CHECK_EQ(pattern_takeover(PN), 1u);
+    TT_CHECK_EQ(pattern_takeover(PN), 0u);
+}
+
 static void run_pattern_now_tests(void)
 {
+    TT_RUN(pattern_a_takeover_just_before_the_close_is_taken_in);
+    TT_RUN(pattern_a_takeover_inside_a_stop_loads_the_queued_one);
     TT_RUN(pattern_a_pass_end_in_any_gap_of_the_handoff_takes_nothing);
     TT_RUN(pattern_a_takeover_inside_a_step_edit_drops_the_edit);
     TT_RUN(pattern_every_call_takes_in_a_takeover_first);
