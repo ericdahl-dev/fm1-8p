@@ -24,6 +24,20 @@ TT_TEST(cpu_test_render_adds_engine_audio_into_host_buffer)
     TT_CHECK(sound);
 }
 
+/* The CPU rows time what the device runs (#342): every count's engine plays at the module's output
+ * gain, FM_OUT_SHIFT_DEVICE, as play_init sets it, so the output stage's clamp is in the time. */
+TT_TEST(cpu_test_counts_run_at_the_device_output_gain)
+{
+    static const int32_t asks[] = { 1, 4, FM_MAX_VOICES, (int32_t)CT_BURST, (int32_t)CT_FULL };
+    size_t k;
+    TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    for (k = 0; k < sizeof asks / sizeof asks[0]; k++) {
+        cpu_test_request_voices(&ct_a, asks[k]);
+        cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+        TT_CHECK_EQ(ct_a.engine.out_shift, FM_OUT_SHIFT_DEVICE);
+    }
+}
+
 TT_TEST(cpu_test_voice_request_clamps_and_applies_at_next_block)
 {
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
@@ -451,6 +465,7 @@ static void run_cpu_test_tests(void)
     TT_RUN(cpu_test_default_steps_leave_the_patch_at_its_defaults);
     TT_RUN(cpu_test_full_patch_step_turns_on_every_modulation);
     TT_RUN(cpu_test_render_adds_engine_audio_into_host_buffer);
+    TT_RUN(cpu_test_counts_run_at_the_device_output_gain);
     TT_RUN(cpu_test_voice_request_clamps_and_applies_at_next_block);
     TT_RUN(cpu_test_keeps_worst_block_time_per_voice_count);
     TT_RUN(cpu_test_sweep_steps_up_one_voice_per_hold_then_the_burst_then_the_full_patch);
