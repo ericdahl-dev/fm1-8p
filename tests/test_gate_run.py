@@ -33,8 +33,8 @@ class RenderKeyTest(unittest.TestCase):
         write(os.path.join(self.midi, "chords.mid"), "chords")
         self.cc = "cc version 1"
 
-    def key(self):
-        return R.render_key(self.tree, self.root, self.midi, cc=self.cc)
+    def key(self, env=None):
+        return R.render_key(self.tree, self.root, self.midi, cc=self.cc, env=env or {})
 
     def test_the_same_inputs_give_the_same_key(self):
         self.assertEqual(self.key(), self.key())
@@ -64,6 +64,11 @@ class RenderKeyTest(unittest.TestCase):
         k = self.key()
         self.cc = "cc version 2"
         self.assertNotEqual(self.key(), k)
+
+    def test_the_cc_and_cflags_strings_change_it(self):
+        k = self.key()
+        for env in ({"CC": "cc -ffast-math"}, {"CFLAGS": "-O0"}, {"CFLAGS": ""}):
+            self.assertNotEqual(self.key(env), k, env)
 
     def test_an_older_tree_without_a_folder_has_a_key_its_own(self):
         k = self.key()
@@ -149,13 +154,49 @@ class Fm1ToolsTest(unittest.TestCase):
     def test_each_tool_by_its_identity(self):
         t = R.fm1_tools(self.live, self.tc, self.dock)
         self.assertEqual(t["fm1-live"], R.G.binary_identity(self.live))
-        self.assertEqual(t["jieli-clang"], "clang version 9.9 (jieli)")
+        clang = os.path.join(self.tc, "pi32v2", "bin", "clang")
+        self.assertEqual(t["jieli-clang"], "clang version 9.9 (jieli); " + R.G.binary_identity(clang))
         self.assertEqual(t["fm1-dock"], "not a git checkout")
 
     def test_a_rebuilt_fm1_live_is_another_tool(self):
         a = R.fm1_tools(self.live, self.tc, self.dock)["fm1-live"]
         write(self.live, "rebuilt")
         self.assertNotEqual(R.fm1_tools(self.live, self.tc, self.dock)["fm1-live"], a)
+
+    def test_a_rebuilt_clang_of_the_same_version_is_another_tool(self):
+        a = R.fm1_tools(self.live, self.tc, self.dock)["jieli-clang"]
+        clang = os.path.join(self.tc, "pi32v2", "bin", "clang")
+        write(clang, "#!/bin/sh\necho 'clang version 9.9 (jieli)'\n# rebuilt\n")
+        os.chmod(clang, 0o755)
+        self.assertNotEqual(R.fm1_tools(self.live, self.tc, self.dock)["jieli-clang"], a)
+
+    def git_dock(self):
+        import subprocess
+        g = ["git", "-C", self.dock, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", self.dock], check=True, env=env)
+        write(os.path.join(self.dock, "dock.py"), "v1")
+        subprocess.run(g + ["add", "."], check=True, env=env)
+        subprocess.run(g + ["commit", "-q", "-m", "1"], check=True, env=env)
+
+    def dock_id(self):
+        return R.fm1_tools(self.live, self.tc, self.dock)["fm1-dock"]
+
+    def test_a_dock_edited_twice_is_two_docks(self):
+        self.git_dock()
+        clean = self.dock_id()
+        write(os.path.join(self.dock, "dock.py"), "v2")
+        once = self.dock_id()
+        write(os.path.join(self.dock, "dock.py"), "v3")
+        twice = self.dock_id()
+        self.assertEqual(len({clean, once, twice}), 3)
+
+    def test_a_dock_s_new_file_counts_by_its_contents(self):
+        self.git_dock()
+        write(os.path.join(self.dock, "new.py"), "a")
+        a = self.dock_id()
+        write(os.path.join(self.dock, "new.py"), "b")
+        self.assertNotEqual(self.dock_id(), a)
 
     def test_a_clang_that_fails_stops_it(self):
         write(os.path.join(self.tc, "pi32v2", "bin", "clang"), "#!/bin/sh\nexit 1\n")

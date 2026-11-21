@@ -18,11 +18,13 @@ def _dirs(tree):
     return have, {"absent": " ".join(d for d in DIRS if d not in have)}
 
 
-def render_key(tree, root, midi, cc):
+def render_key(tree, root, midi, cc, env):
     """The key `tree`'s renders are kept by: its sources, the case list it was rendered by (root's
-    tools/gate_cases.py), every MIDI file of the run (the folder `midi`) and the host compiler (`cc`: its
-    version line). ValueError for no source or no MIDI; OSError for a file it can't read."""
+    tools/gate_cases.py), every MIDI file of the run (the folder `midi`), the host compiler (`cc`: its
+    version line) and what `env` gives make for it: CC and CFLAGS (the Makefile's ?=, so unset is not
+    empty). ValueError for no source or no MIDI; OSError for a file it can't read."""
     have, toggles = _dirs(tree)
+    toggles.update({n: env[n] if n in env else "(unset)" for n in ("CC", "CFLAGS")})
     names = sorted(os.listdir(midi))
     if not names:
         raise ValueError(f"{midi}: no MIDI")
@@ -53,20 +55,37 @@ def _dock(dock):
     import subprocess
     if not os.path.exists(os.path.join(dock, ".git")):
         return "not a git checkout"
+    import hashlib
+
+    def git(*a):
+        p = subprocess.run(["git", "-C", dock] + list(a), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        if p.returncode != 0:
+            raise OSError(f"{dock}: git {a[0]} failed (exit {p.returncode})")
+        return p.stdout
     head = G.tool_version(["git", "-C", dock, "rev-parse", "HEAD"])
-    p = subprocess.run(["git", "-C", dock, "status", "--porcelain"], stdout=subprocess.PIPE,
-                       stderr=subprocess.DEVNULL)
-    if p.returncode != 0:
-        raise OSError(f"{dock}: git status failed (exit {p.returncode})")
-    return head + (" (modified)" if p.stdout.strip() else "")
+    diff = git("diff", "HEAD", "--binary")
+    new = sorted(x.decode(errors="surrogateescape") for x in git("ls-files", "--others", "--exclude-standard",
+                                                                  "-z").split(b"\0") if x)
+    if not diff and not new:
+        return head
+    h = hashlib.sha256(diff)                     # (each edit its own dock: "modified" alone kept the old rows)
+    for f in new:
+        h.update(f"\0{f}\0{G.binary_identity(os.path.join(dock, f))}".encode(errors="surrogateescape"))
+    return f"{head} (modified: {h.hexdigest()[:16]})"
+
+
+def _clang(clang):
+    """The Jieli clang by its version line and its bytes (fm1-build.sh pins only its folder's name)."""
+    return f"{G.tool_version([clang, '--version'])}; {G.binary_identity(clang)}"
 
 
 def fm1_tools(live, toolchain, dock):
     """The FM-1 tools' identity for cpu_key(): fm1-live by its contents (a rebuilt emulator is another
-    tool), the Jieli clang by its version line, fm1-dock by its commit. OSError when one can't be had.
+    tool), the Jieli clang by its version line and bytes, fm1-dock by its commit and the hash of its
+    local edits. OSError when one can't be had.
     Out: AC79_SDK (pinned files, checked by fm1-build.sh) and fm1-dock's Python (its venv)."""
     return {"fm1-live": G.binary_identity(live),
-            "jieli-clang": G.tool_version([os.path.join(toolchain, "pi32v2", "bin", "clang"), "--version"]),
+            "jieli-clang": _clang(os.path.join(toolchain, "pi32v2", "bin", "clang")),
             "fm1-dock": _dock(dock)}
 
 
@@ -158,7 +177,7 @@ def main(argv):
     cmd, a = argv[1], argv[2:]
     try:
         if cmd == "render-key":
-            print(render_key(a[0], a[1], a[2], host_cc(os.environ)))
+            print(render_key(a[0], a[1], a[2], host_cc(os.environ), os.environ))
             return 0
         if cmd == "cpu-key":
             if a[3] == "stand-in":
