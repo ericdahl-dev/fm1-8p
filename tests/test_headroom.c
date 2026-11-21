@@ -2,15 +2,17 @@
  * The device's headroom (#320): the playable module (firmware/play.c) on its 4 voices at 44.1 kHz, booted on
  * SOUNDTRACK (the default patch): velocity-127 chords held 34 s, past the 32 s filter attack, and everyday
  * velocity-100 chords held 10 s. Measured through play_render, the device's own output path (the engine's
- * int16, then the module's +12 dB, saturated at the Q15 rails).
+ * output stage at FM_OUT_SHIFT_DEVICE, #342: the soft clip, then the module's +12 dB, saturated at the Q15
+ * rails). The knee figure comes from a twin at the engine's own level (output shift 0), as the stage's
+ * soft clip sees it.
  */
 #include "../firmware/play.h"
 
-static play hr_p;
-static int32_t hr_out[2 * PLAY_BLOCK];
+static play hr_p, hr_q;     /* the device; its twin at the engine's level (shift 0) */
+static int32_t hr_out[2 * PLAY_BLOCK], hr_eng[2 * PLAY_BLOCK];
 
-/* The engine's soft-clip knee in its int16 output: engine.c's OUT_KNEE (12083420, Q8.24 after the makeup)
- * through to_int16's shift of 9. Every sample past it has been bent. */
+/* The engine's soft-clip knee in its int16 output at shift 0: output.c's OUT_KNEE (12083420, Q8.24 after
+ * the makeup) through to_int16's shift of 9. Every sample past it has been bent. */
 #define HR_KNEE (12083420 >> 9)
 
 typedef struct {
@@ -26,14 +28,19 @@ static hr_stats hr_chord(const uint8_t *notes, int count, uint32_t seconds, uint
     uint32_t b, i, blocks = seconds * PLAY_FS / PLAY_BLOCK, n = 0, sat = 0, knee = 0;
     int32_t peak = 0;
     int k;
-    if (play_init(&hr_p) != 0) return s;
+    if (play_init(&hr_p) != 0 || play_init(&hr_q) != 0 || fm_engine_set_output_shift(&hr_q.engine, 0) != FM_OK)
+        return s;
     s.ok = 1;
-    for (k = 0; k < count; k++) play_note(&hr_p, notes[k], vel);
+    for (k = 0; k < count; k++) {
+        play_note(&hr_p, notes[k], vel);
+        play_note(&hr_q, notes[k], vel);
+    }
     for (b = 0; b < blocks; b++) {
-        for (i = 0; i < 2 * PLAY_BLOCK; i++) hr_out[i] = 0;
+        for (i = 0; i < 2 * PLAY_BLOCK; i++) hr_out[i] = hr_eng[i] = 0;
         play_render(&hr_p, hr_out, PLAY_BLOCK);
+        play_render(&hr_q, hr_eng, PLAY_BLOCK);
         for (i = 0; i < 2 * PLAY_BLOCK; i++) {
-            int32_t a = hr_out[i] < 0 ? -hr_out[i] : hr_out[i], e = hr_p.buf[i] < 0 ? -hr_p.buf[i] : hr_p.buf[i];
+            int32_t a = hr_out[i] < 0 ? -hr_out[i] : hr_out[i], e = hr_eng[i] < 0 ? -hr_eng[i] : hr_eng[i];
             if (a > peak) peak = a;
             if (a >= 32767) sat++;
             if (e > HR_KNEE) knee++;
