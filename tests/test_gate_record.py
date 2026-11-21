@@ -171,6 +171,11 @@ class VerdictTest(unittest.TestCase):
             with self.subTest(kw=kw), self.assertRaises(ValueError):
                 G.verdict([("clip", "a")], [rec("a", "pass")], **kw)
 
+    def test_a_kind_that_is_not_text_is_a_mistake(self):
+        for kw in (dict(required=b"cpu"), dict(required=(b"cpu",)), dict(required=(1,)), dict(compared=(None,))):
+            with self.subTest(kw=kw), self.assertRaises(ValueError):
+                G.verdict([("cpu", "p")], [rec("p", "skipped", kind="cpu")], **kw)
+
     def test_a_figures_entry_that_is_an_iterator_is_read_once_for_all(self):
         a = G.record("cpu", "a", "pass", value={"F": 1.0})
         b = G.record("cpu", "b", "pass")

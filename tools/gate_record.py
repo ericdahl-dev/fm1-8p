@@ -83,9 +83,11 @@ def verdict(expected, records, required=(), figures=None, compared=()):
     expected = list(expected)                    # (read twice: an iterator would be empty the second time)
     want = set(expected)
     for what, kinds in (("required", required), ("compared", compared)):
-        if isinstance(kinds, str):               # (a bare word would read as its letters)
+        if isinstance(kinds, (str, bytes)):      # (a bare word would read as its letters)
             raise ValueError(f"{what}: name its kinds, as a tuple ({kinds!r})")
     required, compared = frozenset(required), tuple(compared)   # (read once: an iterator would run dry)
+    if not all(isinstance(k, str) for k in required | set(compared)):
+        raise ValueError(f"required {sorted(map(repr, required))}, compared {compared!r}: kinds are text")
     figures = figures or {}
     for kind, fields in figures.items():         # (a bare str would read as its letters)
         if isinstance(fields, str):
