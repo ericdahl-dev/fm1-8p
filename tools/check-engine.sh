@@ -25,7 +25,10 @@
 #     compiler derives from them), not every word the device build makes.
 #
 # Environment: CC (default cc).
+# Exit status: 0 the sources pass, 1 a finding (a layer caught something), 2 the check could not run: a
+# tool (nm, objdump) failed or listed nothing, so no layer may read its silence as a pass (#335).
 set -eu
+tool_failed() { echo "check-engine: $*" >&2; exit 2; }
 
 CC=${CC:-cc}
 OUT=$1
@@ -69,9 +72,11 @@ for opt in -O0 -O2; do
     done
     [ -n "$objs" ] || continue
     # shellcheck disable=SC2086
-    nm -g $objs 2>/dev/null | awk 'NF == 2 && $1 == "U" { print "U", $2 }
-                                   NF == 3 && $2 != "U" { print "D", $3 }' \
-        >"$OUT/symbols$opt.txt"
+    nm -g $objs >"$OUT/nm$opt.txt" 2>"$OUT/nm$opt.err" ||
+        tool_failed "nm failed ($opt): $(head -3 "$OUT/nm$opt.err")"
+    awk 'NF == 2 && $1 == "U" { print "U", $2 }
+         NF == 3 && $2 != "U" { print "D", $3 }' "$OUT/nm$opt.txt" >"$OUT/symbols$opt.txt"
+    grep -q '^D ' "$OUT/symbols$opt.txt" || tool_failed "nm listed no symbol the sources define ($opt)"
     sed -n 's/^D //p' "$OUT/symbols$opt.txt" | sed "$STRIP" | sort -u >"$OUT/defined$opt.txt"
     sed -n 's/^U //p' "$OUT/symbols$opt.txt" | sed "$STRIP" | sort -u >"$OUT/undefined$opt.txt"
     bad=$(comm -23 "$OUT/undefined$opt.txt" "$OUT/defined$opt.txt" | grep -Ev "$ALLOW" || true)
@@ -85,11 +90,16 @@ done
 # Layer 4: disassemble (immediates as hex or decimal) and dump data
 # sections (little-endian words), then look for 0xFFCxxxxx values.
 for obj in "$OUT"/*.o; do
+    objdump -d --no-show-raw-insn "$obj" >"$OUT/dis.txt" 2>"$OUT/dis.err" ||
+        tool_failed "objdump -d failed on $obj: $(head -3 "$OUT/dis.err")"
+    objdump -s "$obj" >"$OUT/sec.txt" 2>"$OUT/sec.err" ||
+        tool_failed "objdump -s failed on $obj: $(head -3 "$OUT/sec.err")"
+    [ -s "$OUT/dis.txt" ] && [ -s "$OUT/sec.txt" ] || tool_failed "objdump printed nothing for $obj"
     hits=$(
         {
-            objdump -d --no-show-raw-insn "$obj" | sed 's/^/D /'
-            objdump -s "$obj" | sed 's/^/S /'
-        } 2>/dev/null | awk '
+            sed 's/^/D /' "$OUT/dis.txt"
+            sed 's/^/S /' "$OUT/sec.txt"
+        } | awk '
         function rom_hex(h) {   # h: lowercase hex digits, no 0x; either 32-bit word counts
             if (length(h) == 16)
                 return substr(h, 1, 3) == "ffc" || substr(h, 9, 3) == "ffc"

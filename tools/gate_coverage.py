@@ -4,7 +4,9 @@ usage: python3 tools/gate_coverage.py OBJDIR SRCDIR RUNS
   OBJDIR  a --coverage build's object folder for engine/ (holds the .gcno files)
   SRCDIR  the tree's sources
   RUNS    one folder per clip, each holding that clip's .gcda files (GCOV_PREFIX, flattened)
-Prints, for every function in SRCDIR/engine/*.c, the number of clips that ran any of its lines."""
+Prints, for every function in SRCDIR/engine/*.c, the number of clips that ran any of its lines.
+Exit 2, naming why, when gcov fails or writes no JSON for an object (Apple's llvm-cov gcov has no -j),
+or lists no engine function: never a count of 0 read as coverage (#335)."""
 import glob
 import gzip
 import json
@@ -13,6 +15,26 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+
+class CoverageError(Exception):
+    """gcov could not say what ran."""
+
+
+def gcov_json(tmp, src):
+    """Runs gcov -j on SRC's notes in TMP; returns the JSON files it wrote. CoverageError when gcov is
+    missing, fails or writes none."""
+    try:
+        p = subprocess.run(["gcov", "-j", "-o", tmp, src], cwd=tmp, capture_output=True, text=True)
+    except OSError as e:
+        raise CoverageError(f"gcov: {e}") from None
+    if p.returncode != 0:
+        raise CoverageError(f"gcov failed on {os.path.basename(src)} (exit {p.returncode}): "
+                            f"{(p.stderr or p.stdout).strip()[:300]}")
+    out = glob.glob(os.path.join(tmp, "*.gcov.json.gz"))
+    if not out:
+        raise CoverageError(f"gcov wrote no JSON for {os.path.basename(src)} (a gcov without -j?)")
+    return out
 
 
 def stem(gcno):
@@ -34,8 +56,7 @@ def reached(objdir, srcdir, run):
             shutil.copy(gcno, os.path.join(tmp, base + ".gcno"))
             shutil.copy(gcda, os.path.join(tmp, base + ".gcda"))
             src = os.path.join(srcdir, "engine", base + ".c")
-            subprocess.run(["gcov", "-j", "-o", tmp, src], cwd=tmp, capture_output=True, check=True)
-            for js in glob.glob(os.path.join(tmp, "*.gcov.json.gz")):
+            for js in gcov_json(tmp, src):
                 with gzip.open(js) as fh:
                     data = json.load(fh)
                 for f in data["files"]:
@@ -56,8 +77,7 @@ def functions(objdir, srcdir):
             obj, base = stem(gcno)
             shutil.copy(gcno, os.path.join(tmp, base + ".gcno"))
             src = os.path.join(srcdir, "engine", base + ".c")
-            subprocess.run(["gcov", "-j", "-o", tmp, src], cwd=tmp, capture_output=True)
-            for js in glob.glob(os.path.join(tmp, "*.gcov.json.gz")):
+            for js in gcov_json(tmp, src):
                 with gzip.open(js) as fh:
                     for f in json.load(fh)["files"]:
                         if os.path.basename(f["file"]) == base + ".c":
@@ -68,10 +88,16 @@ def functions(objdir, srcdir):
 
 def main():
     objdir, srcdir, runs = sys.argv[1:4]
-    count = {k: 0 for k in functions(objdir, srcdir)}
-    for run in sorted(glob.glob(os.path.join(runs, "*"))):
-        for k in reached(objdir, srcdir, run):
-            count[k] = count.get(k, 0) + 1
+    try:
+        count = {k: 0 for k in functions(objdir, srcdir)}
+        if not count:
+            raise CoverageError(f"gcov listed no engine function (no .gcno in {objdir}?)")
+        for run in sorted(glob.glob(os.path.join(runs, "*"))):
+            for k in reached(objdir, srcdir, run):
+                count[k] = count.get(k, 0) + 1
+    except CoverageError as e:
+        print(f"gate_coverage: {e}", file=sys.stderr)
+        sys.exit(2)
     print("clips reaching each engine function (head):")
     for (f, fn), n in sorted(count.items(), key=lambda kv: (kv[1], kv[0])):
         print(f"{n:6d}  {f:10s} {fn}{'   <- fewer than 2' if n < 2 else ''}")
