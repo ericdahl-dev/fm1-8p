@@ -53,8 +53,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 6764u     /* +48: portamento (#62): a glide a voice (8), its step, the note glided from and the newest, 2 flags */
-#define FM_ENGINE_BUDGET_BASE_64 6932u     /* +48: portamento (#62): as on 32-bit, less the 4 B the 64-bit layout had spare, plus 4 B of padding */
+#define FM_ENGINE_BUDGET_BASE_32 7000u     /* +236: the routes' source masks (each destination's, 6 B, and their OR, 4 B, padded); aftertouch (#61): each voice's gain, pressure, its target and its 2 mod sources (AT, AT x LFO; 4 B each), the 2 sources' route rows (24 B each), the brilliance depth, the channel pressure, the step, a flag */
+#define FM_ENGINE_BUDGET_BASE_64 7128u     /* +196: the routes' source masks (8 B); aftertouch (#61): as on 32-bit, part of it in the voices' padding */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
@@ -115,6 +115,14 @@ typedef struct {
     int32_t glide_cur[FM_GLIDE_SETTINGS];
     int16_t glide_to[FM_GLIDE_SETTINGS];
     int32_t glide_k;
+    /* aftertouch (#61): each voice's pressure, Q1.30 (p / 127), where it
+     * is and where it goes (a one-pole of 16 ms, step at_k Q16 a control
+     * tick), and the last channel pressure, which a new note starts at */
+    int32_t at_now[FM_MAX_VOICES];
+    int32_t at_to[FM_MAX_VOICES];
+    int32_t at_chan;
+    int32_t at_k;
+    uint8_t at_moving;     /* a voice's pressure is on its way */
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
@@ -154,6 +162,15 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value);
  * notes follow at once. Out-of-range values are ignored.
  */
 void fm_engine_pitch_bend(fm_engine *e, uint16_t value);
+
+/*
+ * MIDI pressure, 0..127 (#61): channel pressure reaches every voice,
+ * poly pressure the voice(s) playing `note`; for each voice the latest
+ * message wins. The at_* parameters set what it does. Out-of-range values
+ * are ignored.
+ */
+void fm_engine_channel_pressure(fm_engine *e, uint8_t pressure);
+void fm_engine_poly_pressure(fm_engine *e, uint8_t note, uint8_t pressure);
 
 /*
  * Sets a parameter; values outside its range are clamped. Returns

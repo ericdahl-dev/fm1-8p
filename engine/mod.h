@@ -21,9 +21,12 @@
 /* Sources, values in Q1.30: the LFO (after the voice's delay and fade),
  * the note's velocity (its amp level, velocity curve applied), envelope 1
  * (the filter envelope's level) and envelope 2 (the amp envelope's level
- * as a share of the note's peak, so velocity doesn't scale it). */
+ * as a share of the note's peak, so velocity doesn't scale it), the pitch
+ * envelope, the voice's aftertouch pressure (#61, smoothed) and that
+ * pressure times the LFO (before its delay: PG-8X's aftertouch vibrato
+ * doesn't wait for it). */
 enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_ENV1, FM_MOD_SRC_ENV2,
-       FM_MOD_SRC_PENV, FM_MOD_SRC_COUNT };
+       FM_MOD_SRC_PENV, FM_MOD_SRC_AT, FM_MOD_SRC_ATLFO, FM_MOD_SRC_COUNT };
 
 /* Destinations, each summed in its own unit: osc 1's pitch in Q16.16
  * octaves, pulse width in Q0.32, level (the amp envelope's peak) in Q1.30,
@@ -32,10 +35,18 @@ enum { FM_MOD_SRC_LFO, FM_MOD_SRC_VEL, FM_MOD_SRC_ENV1, FM_MOD_SRC_ENV2,
 enum { FM_MOD_PITCH1, FM_MOD_PW, FM_MOD_LEVEL, FM_MOD_CUTOFF, FM_MOD_MIX,
        FM_MOD_PITCH2, FM_MOD_DEST_COUNT };
 
-/* Route depths, in each destination's unit at full source. */
+/* Route depths, in each destination's unit at full source; for each
+ * destination the sources that reach it (bit 1 << src: a nonzero depth),
+ * and which reach anything at all (live, their OR). fm_mod_set_route keeps
+ * them, so a sum touches only its own routes. */
 typedef struct {
     int32_t depth[FM_MOD_SRC_COUNT][FM_MOD_DEST_COUNT];
+    uint8_t to[FM_MOD_DEST_COUNT];
+    uint32_t live;
 } fm_mod_routes;
+
+/* every source fits a bit of `to` */
+typedef char fm_require_mod_sources_fit[FM_MOD_SRC_COUNT <= 8 ? 1 : -1];
 
 /* One voice's sources (as last set) and sums. */
 typedef struct {
@@ -100,11 +111,42 @@ static inline void fm_mod_set_source(fm_mod *m, unsigned src, int32_t value)
     m->src[src] = value;
 }
 
+/* Destination `d`'s sum of the sources that reach it through their
+ * depths, clamped to int32: fm_mod_dest_sum, touching only its routes
+ * (most patches route few: each voice sums every tick). */
+static inline int32_t fm_mod_live_sum(const fm_mod_routes *r,
+                                      const int32_t *src, unsigned d)
+{
+    int64_t sum = 0;
+    int32_t v;
+    uint32_t bits = r->to[d];
+    while (bits) {
+#if defined(__GNUC__) || defined(__clang__)
+        unsigned s = (unsigned)__builtin_ctz(bits);
+#else
+        unsigned s = 0;
+        while (!(bits >> s & 1u)) s++;
+#endif
+        bits &= bits - 1u;
+        sum += ((int64_t)src[s] * r->depth[s][d]) >> 30; /* Q1.30 * depth -> depth's unit */
+    }
+    v = (int32_t)sum;
+    if (v != sum) v = sum < 0 ? INT32_MIN : INT32_MAX; /* clamp, not wrap */
+    return v;
+}
+
 /* Sums the voice's sources, as last set, through the routes `r`. Returns
  * the destinations whose sum changed, bit 1 << dest. */
 static inline uint32_t fm_mod_tick(fm_mod *m, const fm_mod_routes *r)
 {
-    return fm_mod_sum(m, r->depth, m->src, FM_MOD_SRC_COUNT);
+    uint32_t changed = 0;
+    unsigned d;
+    for (d = 0; d < FM_MOD_DEST_COUNT; d++) {
+        int32_t v = fm_mod_live_sum(r, m->src, d);
+        if (v != m->sum[d]) changed |= 1u << d;
+        m->sum[d] = v;
+    }
+    return changed;
 }
 
 /* Sums destination `dest` alone from the voice's sources, as last set,
@@ -113,18 +155,14 @@ static inline uint32_t fm_mod_tick(fm_mod *m, const fm_mod_routes *r)
 static inline int32_t fm_mod_update(fm_mod *m, const fm_mod_routes *r,
                                     unsigned dest)
 {
-    return m->sum[dest] = fm_mod_dest_sum(r->depth, m->src,
-                                          FM_MOD_SRC_COUNT, dest);
+    return m->sum[dest] = fm_mod_live_sum(r, m->src, dest);
 }
 
 /* Nonzero while source `src` reaches any destination at a nonzero depth
  * (the engine ticks the LFO's sums only then, and once after). */
 static inline int fm_mod_source_routed(const fm_mod_routes *r, unsigned src)
 {
-    unsigned d;
-    for (d = 0; d < FM_MOD_DEST_COUNT; d++)
-        if (r->depth[src][d]) return 1;
-    return 0;
+    return (int)(r->live >> src & 1u);
 }
 
 /* Nonzero while destination `dest` is at rest: no route reaches it and
@@ -133,11 +171,7 @@ static inline int fm_mod_source_routed(const fm_mod_routes *r, unsigned src)
 static inline int fm_mod_at_rest(const fm_mod *m, const fm_mod_routes *r,
                                  unsigned dest)
 {
-    unsigned s;
-    if (m->sum[dest]) return 0;
-    for (s = 0; s < FM_MOD_SRC_COUNT; s++)
-        if (r->depth[s][dest]) return 0;
-    return 1;
+    return !m->sum[dest] && !r->to[dest];
 }
 
 /* The sum at destination `dest`. */

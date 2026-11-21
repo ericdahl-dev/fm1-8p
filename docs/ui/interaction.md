@@ -207,9 +207,9 @@ settings.
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
-| 01 | K1 | aftertouch to vibrato (pending, #61) | AT VIB | -- | - |
-| 02 | K2 | aftertouch to cutoff (pending, #61) | AT BRI | -- | - |
-| 03 | K3 | aftertouch to level (pending, #61) | AT VOL | -- | - |
+| 01 | K1 | `at_vib_cents` (#61) | AT VIB | 0..540 ct | 1 / 10 |
+| 02 | K2 | `at_bri_cents` (#61) | AT BRI | 0..2360 ct | 10 / 100 |
+| 03 | K3 | `at_vol_pct` (#61) | AT VOL | 0..100 % | 1 / 5 |
 | 04 | K4 | `setting_glide` (*ours*, Eric's Q4) | GLIDE | OFF, ON | 1 / 1 |
 | 05 | K1 | `bend_range_semitones` | BEND | 0..24 st | 1 / 2 |
 | 06 | K2 | `portamento_ms` (#62: tau, 0 off) | PORTA | time, OFF at 0 | time table |
@@ -1222,9 +1222,9 @@ CC first.
 | 93 | ENV-2 | SUSTAIN | 93 | 36 |
 | 94 | ENV-2 | RELEASE | 94 | 37, 72 |
 | 95 | ENV-2 | KEY FOLLOW | 95 | - |
-| 01 | AFTERTOUCH | VIBRATO (when it lands) | 102 | - |
-| 02 | AFTERTOUCH | TO CUTOFF (when it lands) | 103 | - |
-| 03 | AFTERTOUCH | VOLUME (when it lands) | 104 | - |
+| 01 | AFTERTOUCH | VIBRATO | 102 | - |
+| 02 | AFTERTOUCH | TO CUTOFF | 103 | - |
+| 03 | AFTERTOUCH | VOLUME | 104 | - |
 | 04 | AFTERTOUCH | GLIDE | 105 | - |
 | 05 | CONTROL | BEND RANGE | 106 | 91 |
 | 06 | CONTROL | PORTAMENTO | 107 | 5 |
@@ -1468,9 +1468,10 @@ until then test 12 (pending slots send nothing) covers those slots.
 67. After #158: KNOB3 +1 on page 1A raises 13 TUNE (`osc1_coarse_semis`) by 1
     semitone.
 68. After #172: KNOB4 +1 on page 5A raises 54 LFO and sends LFO to cutoff.
-69. After #61: KNOB1 +1 on page 0A shows 01 AT VIB `1 %` and sends it. With it
-    at 100 %, key pressure 127 on a held sensed key reaches the engine as that
-    voice's aftertouch.
+69. After #61: KNOB1 +1 on page 0A shows 01 AT VIB `1 ct` and sends it (the
+    depth is in cents, as the wheel's). With 03 AT VOL at 100 %, key pressure
+    127 on a held sensed key reaches the engine as that voice's aftertouch: it
+    plays 9.5 dB louder than with no pressure.
 70. After #62: 06 PORTA at 0 shows `OFF`. KNOB2 +1 on page 0B shows the time
     table's next entry (`1 ms`) and sends the portamento time; -1 from there
     shows `OFF`.

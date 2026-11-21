@@ -63,11 +63,14 @@ void fm_vfilter_set_highpass(fm_vfilter *vf, uint8_t step);
 
 /*
  * Composes the cutoff from the settings, the key and `mod_cents` (the
- * voice's modulation of the cutoff, engine/mod.h) and sets the filter to
- * it if it moved. The one place the cutoff is composed. Returns 1 if the
- * filter was set, 0 if its coefficients stand.
+ * voice's modulation of the cutoff, engine/mod.h, in the curve's linear
+ * cents), plus `add_cents` after the curve (aftertouch's brilliance, #61:
+ * PG-8X's shifts the cutoff by the same cents whatever the base), held at
+ * fully open, and sets the filter to it if it moved. The one place the
+ * cutoff is composed. Returns 1 if the filter was set, 0 if its
+ * coefficients stand.
  */
-int fm_vfilter_update(fm_vfilter *vf, int32_t mod_cents);
+int fm_vfilter_update(fm_vfilter *vf, int32_t mod_cents, int32_t add_cents);
 
 /* Set to what its settings and key compose with no modulation: nothing
  * left for an update to do once the voice's modulation is at rest. For

@@ -57,6 +57,8 @@ static void dispatch(fm_engine *e, const smf_event *ev, uint8_t channel)
     case 0x90: fm_engine_note_on(e, ev->data1, ev->data2); break;
     case 0x80: fm_engine_note_off(e, ev->data1); break;
     case 0xB0: fm_engine_controller(e, ev->data1, ev->data2); break;
+    case 0xA0: fm_engine_poly_pressure(e, ev->data1, ev->data2); break;   /* #61 */
+    case 0xD0: fm_engine_channel_pressure(e, ev->data1); break;
     case 0xE0: /* 14-bit value, least significant 7 bits first */
         fm_engine_pitch_bend(e, (uint16_t)(ev->data1 | ev->data2 << 7));
         break;

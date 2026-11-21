@@ -456,8 +456,103 @@ TT_TEST(play_load_patch_asks_only_for_the_params_that_change)
     TT_CHECK_EQ(pl_a.asked[FM_PARAM_FILTER_RESONANCE >> 5], 1u << (FM_PARAM_FILTER_RESONANCE & 31u));
 }
 
+/* pressure (#61) from MIDI reaches the engine at the next render, any channel: channel pressure (0xD0, one data
+ * byte) every voice, poly (0xA0) its note's */
+TT_TEST(play_midi_pressure_reaches_the_engine)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    play_midi(&pl_a, 0x90, 64, 100);
+    pl_render(&pl_a);
+    play_midi(&pl_a, 0xD5, 64, 0);
+    TT_CHECK_EQ(pl_a.engine.at_chan, 0);
+    pl_render(&pl_a);
+    TT_CHECK_EQ(pl_a.engine.at_chan, (int32_t)((64ll << 30) / 127));
+    play_midi(&pl_a, 0xA2, 64, 127);
+    pl_render(&pl_a);
+    {
+        uint32_t i, at64 = 0, at127 = 0;
+        for (i = 0; i < pl_a.engine.voice_count; i++) {
+            if (fm_voice_note(&pl_a.engine.voices[i]) == 60) at64 += pl_a.engine.at_to[i] == pl_a.engine.at_chan;
+            if (fm_voice_note(&pl_a.engine.voices[i]) == 64) at127 += pl_a.engine.at_to[i] == 1 << 30;
+        }
+        TT_CHECK_EQ(at64, 1);
+        TT_CHECK_EQ(at127, 1);
+    }
+}
+
+/* B9: a pressure flood (10 keys' poly pressure 20 times and the channel's, between two blocks: far more than
+ * the queue holds) never drops a note off or lets every note go: the queue never sees it */
+TT_TEST(play_pressure_flood_never_drops_a_note_off)
+{
+    uint32_t i, k;
+    TT_CHECK_EQ(pl_init_short_release(&pl_a), 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    play_midi(&pl_a, 0x90, 64, 100);
+    pl_render(&pl_a);
+    for (i = 0; i < 20u; i++) {
+        for (k = 0; k < 10u; k++)
+            play_midi(&pl_a, 0xA0, 60 + k, (i * 13u + k) & 127u);
+        play_midi(&pl_a, 0xD0, i * 5u, 0);
+    }
+    play_midi(&pl_a, 0x80, 60, 0);
+    pl_render_for(&pl_a, PL_RELEASED);
+    TT_CHECK_EQ(pl_a.lost, 0);
+    TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 1);   /* C4 let go, E4 still held */
+}
+
+/* reset all controllers (CC 121) puts every pressure to 0, also one put before it in the same block that the
+ * ISR applies after the queue; all notes off (CC 123) drops the poly pressure not yet applied */
+TT_TEST(play_reset_controllers_clears_the_pressure)
+{
+    uint32_t i, any = 0;
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    pl_render(&pl_a);
+    play_midi(&pl_a, 0xA0, 60, 127);
+    play_midi(&pl_a, 0xD0, 90, 0);
+    play_midi(&pl_a, 0xB0, 121, 0);
+    pl_render(&pl_a);
+    for (i = 0; i < pl_a.engine.voice_count; i++) any |= pl_a.engine.at_to[i] != 0;
+    TT_CHECK_EQ(any, 0);
+    TT_CHECK_EQ(pl_a.engine.at_chan, 0);
+    play_midi(&pl_a, 0xA0, 60, 127);
+    play_midi(&pl_a, 0xB0, 123, 0);
+    play_midi(&pl_a, 0x90, 60, 100);            /* struck again in the same block: at the channel's 0 */
+    pl_render(&pl_a);
+    for (i = 0; i < pl_a.engine.voice_count; i++) any |= pl_a.engine.at_to[i] != 0;
+    TT_CHECK_EQ(any, 0);
+}
+
+/* a key struck again in the same block as its old pressure starts at the channel pressure (Codex on #325):
+ * poly 60 = 127, note off 60, note on 60, all before one render; the new note isn't left at the old 127.
+ * Likewise after all sound off (CC 120). */
+TT_TEST(play_restruck_key_drops_its_old_pressure)
+{
+    uint32_t i, at127 = 0;
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    pl_render(&pl_a);
+    play_midi(&pl_a, 0xA0, 60, 127);
+    play_midi(&pl_a, 0x80, 60, 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    pl_render(&pl_a);
+    for (i = 0; i < pl_a.engine.voice_count; i++) at127 += pl_a.engine.at_to[i] != 0;
+    TT_CHECK_EQ(at127, 0);
+    play_midi(&pl_a, 0xA0, 60, 127);
+    play_midi(&pl_a, 0xB0, 120, 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    pl_render(&pl_a);
+    for (i = 0, at127 = 0; i < pl_a.engine.voice_count; i++) at127 += pl_a.engine.at_to[i] != 0;
+    TT_CHECK_EQ(at127, 0);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_restruck_key_drops_its_old_pressure);
+    TT_RUN(play_midi_pressure_reaches_the_engine);
+    TT_RUN(play_pressure_flood_never_drops_a_note_off);
+    TT_RUN(play_reset_controllers_clears_the_pressure);
     TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
     TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);
     TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);

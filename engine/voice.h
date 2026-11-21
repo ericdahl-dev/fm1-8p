@@ -45,6 +45,8 @@ typedef struct {
     fm_env filter_env;      /* lazy (fm_env_skip): read at the control rate */
     int32_t mix_base;       /* osc2_level, Q1.30 */
     int32_t mix_step;       /* the mix's glide each sample to its next target */
+    int32_t gain;           /* aftertouch's volume (#61), Q1.30 on the amp
+                             * envelope's level; FM_ENV_FULL: none */
     /* last: read only at control ticks and note starts, so the fields the
      * render reads keep their offsets */
     fm_mod mod;             /* the modulation sources and sums (mod.h) */
@@ -64,6 +66,8 @@ typedef struct {
     uint8_t penv_dyna;    /* its DYNAMICS position (dyna.h), 0 off */
     uint8_t fenv_dyna;    /* the filter envelope's, on its cutoff depth */
     uint8_t mix_dyna;     /* the mix envelope's DYNAMICS position, 0 off */
+    int32_t at_bri_cents; /* aftertouch's brilliance (#61): cents added after
+                           * the cutoff's curve at full pressure */
 } fm_voice_mod;
 
 /* Idle, with the filter open. `seed` starts the voice's noise; give each
@@ -192,6 +196,15 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now);
 
+/* Aftertouch's volume (#61): the voice's output is its amp envelope's
+ * level times `gain` (Q1.30, up to 1.5; FM_ENV_FULL is none). Applied
+ * from the next sample rendered. */
+void fm_voice_set_gain(fm_voice *v, int32_t gain);
+
+/* The voice's aftertouch pressure (#61), Q1.30: its mod source
+ * FM_MOD_SRC_AT. A note start keeps it (the engine sets it per note). */
+void fm_voice_set_pressure(fm_voice *v, const fm_voice_mod *m, int32_t pressure);
+
 /*
  * A voice's busy word: each per-voice processor sets its bit when it leaves
  * rest and clears it when it returns. A voice with none set (and sounding)
@@ -201,11 +214,12 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
 #define FM_BUSY_FILTER_ENV 0x02u /* the filter envelope moves the cutoff */
 #define FM_BUSY_FILTER 0x10u     /* the filter isn't a wire (fm_filter_is_wire) */
 #define FM_BUSY_MIX 0x20u        /* the mix envelope on, or a glide not landed */
-#define FM_BUSY_ALL 0x33u
+#define FM_BUSY_GAIN 0x40u       /* an aftertouch gain (gain not FM_ENV_FULL) */
+#define FM_BUSY_ALL 0x73u
 
 /* every FM_BUSY_* bit fits in fm_voice's busy */
 typedef char fm_require_busy_bits_fit[
-    ((FM_BUSY_CUTOFF | FM_BUSY_FILTER_ENV | FM_BUSY_FILTER | FM_BUSY_MIX) == FM_BUSY_ALL &&
+    ((FM_BUSY_CUTOFF | FM_BUSY_FILTER_ENV | FM_BUSY_FILTER | FM_BUSY_MIX | FM_BUSY_GAIN) == FM_BUSY_ALL &&
      FM_BUSY_ALL >> (8 * sizeof(((fm_voice *)0)->busy)) == 0) ? 1 : -1];
 
 /* Sets or clears busy bit(s) `bits` of voice `v`. */

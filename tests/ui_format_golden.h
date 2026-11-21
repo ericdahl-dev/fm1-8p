@@ -2,7 +2,7 @@
  * tests/ui_format_walk.h: edit the display, then make it again and review the rows that moved.
  * Each param: its id, name, the values walked (min - 2 .. max + 2), their hash, then the text at
  * its min, 1/8 .. 7/8 of the way, max and default, as "focus row | knob column". */
-#define UFW_GOLDEN_N 57u
+#define UFW_GOLDEN_N 60u
 static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
     {0, "amp_attack_ms", 32005u, 0xC4FE2AF3u, {
         "0 ms | 0 ms",             /* amp_attack_ms 0 */
@@ -687,5 +687,41 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "8.75 s | 8.75 s",         /* portamento_ms 8750 */
         "10.0 s | 10.0 s",         /* portamento_ms 10000 */
         "OFF | OFF",               /* portamento_ms 0, the default */
+    }},
+    {57, "at_vib_cents", 545u, 0x100DA502u, {
+        "0 ct | 0 ct",             /* at_vib_cents 0 */
+        "67 ct | 67 ct",           /* at_vib_cents 67 */
+        "135 ct | 135 ct",         /* at_vib_cents 135 */
+        "202 ct | 202 ct",         /* at_vib_cents 202 */
+        "270 ct | 270 ct",         /* at_vib_cents 270 */
+        "337 ct | 337 ct",         /* at_vib_cents 337 */
+        "405 ct | 405 ct",         /* at_vib_cents 405 */
+        "472 ct | 472 ct",         /* at_vib_cents 472 */
+        "540 ct | 540 ct",         /* at_vib_cents 540 */
+        "0 ct | 0 ct",             /* at_vib_cents 0, the default */
+    }},
+    {58, "at_bri_cents", 2365u, 0x73D27918u, {
+        "0 ct | 0 ct",             /* at_bri_cents 0 */
+        "295 ct | 295 ct",         /* at_bri_cents 295 */
+        "590 ct | 590 ct",         /* at_bri_cents 590 */
+        "885 ct | 885 ct",         /* at_bri_cents 885 */
+        "1180 ct | 1180 ct",       /* at_bri_cents 1180 */
+        "1475 ct | 1475 ct",       /* at_bri_cents 1475 */
+        "1770 ct | 1770 ct",       /* at_bri_cents 1770 */
+        "2065 ct | 2065 ct",       /* at_bri_cents 2065 */
+        "2360 ct | 2360 ct",       /* at_bri_cents 2360 */
+        "0 ct | 0 ct",             /* at_bri_cents 0, the default */
+    }},
+    {59, "at_vol_pct", 105u, 0xF58CDE38u, {
+        "0 % | 0 %",               /* at_vol_pct 0 */
+        "12 % | 12 %",             /* at_vol_pct 12 */
+        "25 % | 25 %",             /* at_vol_pct 25 */
+        "37 % | 37 %",             /* at_vol_pct 37 */
+        "50 % | 50 %",             /* at_vol_pct 50 */
+        "62 % | 62 %",             /* at_vol_pct 62 */
+        "75 % | 75 %",             /* at_vol_pct 75 */
+        "87 % | 87 %",             /* at_vol_pct 87 */
+        "100 % | 100 %",           /* at_vol_pct 100 */
+        "0 % | 0 %",               /* at_vol_pct 0, the default */
     }},
 };

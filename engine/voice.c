@@ -36,6 +36,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->stamp = 0;
     v->pitch = 0;
     v->next_pitch = 0;
+    v->gain = FM_ENV_FULL;
     fm_mod_reset(&v->mod);
     v->lfo_start = 0;
     v->velocity = 127;
@@ -165,11 +166,15 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, fenv);
     if (m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF])
         fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2, env2);
+    int32_t at = m->at_bri_cents ? (int32_t)(((int64_t)v->mod.src[FM_MOD_SRC_AT] *
+                                              m->at_bri_cents) >> 30) : 0;
     if (fm_vfilter_update(&v->vf, fm_mod_update(&v->mod, &m->routes,
-                                                FM_MOD_CUTOFF)))
+                                                FM_MOD_CUTOFF), at))
         mark_filter(v); /* else the coefficients stand */
+    /* (aftertouch's shift, #61, too: the cutoff is away from rest, even
+     * where it holds the filter fully open, a wire) */
     fm_voice_mark(v, FM_BUSY_FILTER_ENV,
-                  !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF));
+                  !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) || at);
     fm_voice_mark(v, FM_BUSY_CUTOFF, 0);
 }
 
@@ -230,8 +235,10 @@ static void set_level(fm_voice *v, const fm_voice_mod *m, int32_t peak)
  */
 static void restart_lfo(fm_voice *v, uint32_t now)
 {
+    int32_t at = v->mod.src[FM_MOD_SRC_AT]; /* the engine's, for this note */
     if (v->amp_env.stage != FM_ENV_IDLE) return;
     fm_mod_reset(&v->mod);
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_AT, at);
     v->lfo_start = now;
 }
 
@@ -377,10 +384,26 @@ void fm_voice_set_pitch(fm_voice *v, int32_t pitch, uint32_t sample_rate)
     fm_osc_pair_set_pitch(&v->osc, pitch, sample_rate);
 }
 
+void fm_voice_set_gain(fm_voice *v, int32_t gain)
+{
+    v->gain = gain;
+    fm_voice_mark(v, FM_BUSY_GAIN, gain != FM_ENV_FULL);
+}
+
+void fm_voice_set_pressure(fm_voice *v, const fm_voice_mod *m, int32_t pressure)
+{
+    fm_mod_set_source(&v->mod, FM_MOD_SRC_AT, pressure);
+    if (m->at_bri_cents)
+        fm_voice_mark(v, FM_BUSY_CUTOFF, 1); /* composed at the next filter step */
+}
+
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now)
 {
     uint32_t since;
+    if (m->routes.live & 1u << FM_MOD_SRC_ATLFO) /* aftertouch's vibrato: Q1.30 * Q1.30, the LFO before its delay */
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_ATLFO,
+                          (int32_t)(((int64_t)v->mod.src[FM_MOD_SRC_AT] * lfo) >> 30));
     /* zero for delay_ticks, then up by fade_step a tick to full; kept as
      * a start tick, so a tick without modulation has nothing to count */
     since = now - v->lfo_start; /* wraps after 2^32 ticks (36 days) */
@@ -414,7 +437,7 @@ uint32_t fm_voice_busy_derived(const fm_voice *v, const fm_voice_mod *m)
 {
     return !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF) ||
            !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_MIX) ||
-           v->mix_step || v->osc.req[1] != v->mix_base ||
+           v->mix_step || v->osc.req[1] != v->mix_base || v->gain != FM_ENV_FULL ||
            !fm_vfilter_is_wire(&v->vf) || !fm_vfilter_at_rest(&v->vf);
 }
 
@@ -478,15 +501,15 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
     return 1;
 }
 
-void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
-                         int32_t *mix, int32_t *osc,
-                         uint32_t frames)
+/* The full loop, for fm_voice_render_add; with_gain a constant, so each
+ * call site is its own copy: the one without aftertouch's gain (#61) has
+ * no work for it at all, per sample. */
+static FM_ALWAYS_INLINE void render_full(fm_voice *v, const fm_voice_mod *m,
+                                         int32_t *mix, int32_t *osc,
+                                         uint32_t frames, int whole,
+                                         int32_t gain, const int with_gain)
 {
     uint32_t i, told = 0; /* the lazy envelopes know of samples < told */
-    int whole;
-    if (render_plain(v, m, mix, osc, frames)) return;
-    whole = osc_chunk_safe(v);
-    if (whole) fm_osc_pair_render(&v->osc, osc, frames);
     for (i = 0; i < frames; i++) {
         int32_t level, fenv, out;
         if (v->amp_env.stage == FM_ENV_IDLE) { /* the release ended */
@@ -518,8 +541,24 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         if (v->mix_step)
             fm_osc_pair_set_level(&v->osc, 1, v->osc.req[1] + v->mix_step);
         out = fm_vfilter_run(&v->vf, whole ? osc[i] : fm_osc_pair_next(&v->osc));
+        if (with_gain) /* aftertouch's volume: Q1.30 * Q1.30 */
+            level = (int32_t)(((int64_t)level * gain) >> 30);
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
     }
     lazy_envs_pass(v, frames - told);
+}
+
+void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
+                         int32_t *mix, int32_t *osc,
+                         uint32_t frames)
+{
+    int whole;
+    if (render_plain(v, m, mix, osc, frames)) return;
+    whole = osc_chunk_safe(v);
+    if (whole) fm_osc_pair_render(&v->osc, osc, frames);
+    if (v->gain == FM_ENV_FULL) /* (the gain changes between chunks only) */
+        render_full(v, m, mix, osc, frames, whole, FM_ENV_FULL, 0);
+    else
+        render_full(v, m, mix, osc, frames, whole, v->gain, 1);
 }

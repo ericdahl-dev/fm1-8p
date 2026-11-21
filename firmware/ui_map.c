@@ -156,9 +156,9 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     TIME(72, "DELAY", "DELAY TIME", FM_PARAM_LFO_DELAY_MS),
     {73, "RATE", "RATE", FM_PARAM_LFO_RATE_CENTIHZ, UI_LIVE, 1, 4, 0, 0, 0, 0, UI_HOW_RATE, 0},
     LIVE(74, "PW", "PW DEPTH", FM_PARAM_LFO_PW_PCT, 1, 5),                 /* ours */
-    PAGE(16) PEND(1, "AT VIB", "VIBRATO"),                              /* #61 */
-    PEND(2, "AT BRI", "TO CUTOFF"),
-    PEND(3, "AT VOL", "VOLUME"),
+    PAGE(16) LIVE(1, "AT VIB", "VIBRATO", FM_PARAM_AT_VIB_CENTS, 1, 10),    /* #61: aftertouch */
+    LIVE(2, "AT BRI", "TO CUTOFF", FM_PARAM_AT_BRI_CENTS, 10, 100),
+    LIVE(3, "AT VOL", "VOLUME", FM_PARAM_AT_VOL_PCT, 1, 5),
     CHOICE(4, "GLIDE", "GLIDE", FM_PARAM_SETTING_GLIDE, TWO_ORDER), /* ours (Q4) */
     PAGE(17) LIVE(5, "BEND", "BEND RANGE", FM_PARAM_BEND_RANGE, 1, 2),
     TIME(6, "PORTA", "PORTAMENTO", FM_PARAM_PORTAMENTO_MS),                /* #62: tau, 0 off */
