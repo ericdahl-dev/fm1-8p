@@ -171,8 +171,11 @@ static void write_slot(ui *u, uint32_t ms)
 
 /* the longest wait message, with its NUL, fits save_wait_msg (Codex P3 on #314: a longer verb would
  * overflow it) */
-typedef char ui_require_wait_msg_fits[sizeof "DELETING 23 WHEN SILENT" <=
-                                      sizeof ((ui *)0)->save_wait_msg ? 1 : -1];
+#define WAIT_SAVING "SAVING "
+#define WAIT_DELETING "DELETING "
+#define WAIT_WHEN " WHEN SILENT"
+typedef char ui_require_wait_msg_fits[sizeof WAIT_DELETING "23" WAIT_WHEN <= sizeof ((ui *)0)->save_wait_msg &&
+                                      sizeof WAIT_SAVING "23" WAIT_WHEN <= sizeof ((ui *)0)->save_wait_msg ? 1 : -1];
 
 /* "SAVING 23 WHEN SILENT" (or DELETING) into u->save_wait_msg: the verbs are SAVING and DELETING only */
 static void wait_msg(ui *u, const char *what)
@@ -183,7 +186,7 @@ static void wait_msg(ui *u, const char *what)
         *w++ = *t++;
     ui_prog_number(u->save_dest, w);
     w += 2;                                     /* a user slot: two digits (a scan is strlen to clang) */
-    for (t = " WHEN SILENT"; *t; )
+    for (t = WAIT_WHEN; *t; )
         *w++ = *t++;
     *w = 0;
 }
@@ -314,7 +317,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->save_waiting = 1;
         u->save_wait_ms = ms;
         u->save_home_armed = 0;
-        wait_msg(u, "DELETING ");
+        wait_msg(u, WAIT_DELETING);
         ui_save_tick(u, ms);
         return;
     }
@@ -336,7 +339,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->save_waiting = 1;
         u->save_wait_ms = ms;
         u->save_home_armed = 0;
-        wait_msg(u, "SAVING ");
+        wait_msg(u, WAIT_SAVING);
         ui_save_tick(u, ms);                    /* silent now: written now */
     }
 }
