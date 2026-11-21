@@ -578,18 +578,39 @@ class ScriptBaseTest(unittest.TestCase):
     script, so a regression can't build into this checkout."""
 
     def test_a_base_that_is_not_a_commit_stops_it(self):
-        self.run_it(os.environ)
+        self.run_it(lambda t: os.environ)
 
-    def test_and_a_git_hook_environment_does_not_reach_the_real_repo(self):
-        self.run_it(dict(os.environ, GIT_INDEX_FILE=os.path.join(os.path.dirname(__file__), "no-such-index"),
-                         GIT_DIR=os.path.join(os.path.dirname(__file__), "..", ".git")))
+    def test_and_a_git_hook_environment_reaches_neither_git_nor_the_script(self):
+        # A hook's GIT_DIR and GIT_INDEX_FILE, aimed at a bait repo (never the real one): it has a commit
+        # tagged as the BASE, so a script that read GIT_DIR would find it and not stop; and its HEAD and
+        # the index file must be as they were.
+        import subprocess
+        state = {}
 
-    def run_it(self, outer):
+        def outer(t):
+            bait = os.path.join(t, "bait")
+            os.makedirs(bait)
+            g = lambda *a: subprocess.run(["git", "-C", bait, *a], check=True, capture_output=True, text=True,
+                                          env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+            g("init", "-q")
+            open(os.path.join(bait, "keep"), "w").write("bait\n")
+            g("add", ".")
+            g("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "bait")
+            g("tag", "no-such-commit-335")
+            state.update(g=g, head=g("rev-parse", "HEAD").stdout, index=os.path.join(t, "hook-index"))
+            return dict(os.environ, GIT_DIR=os.path.join(bait, ".git"), GIT_INDEX_FILE=state["index"])
+
+        self.run_it(outer, after=lambda: (
+            self.assertEqual(state["g"]("rev-parse", "HEAD").stdout, state["head"], "a commit reached the bait"),
+            self.assertFalse(os.path.exists(state["index"]), "an index was written at the hook's path")))
+
+    def run_it(self, outer_env, after=lambda: None):
         import shutil
         import subprocess
         import tempfile
         here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
         with tempfile.TemporaryDirectory() as t:
+            outer = outer_env(t)
             root, ref = os.path.join(t, "repo"), os.path.join(t, "ref")
             os.makedirs(os.path.join(root, "tools"))
             os.makedirs(ref)
@@ -604,9 +625,10 @@ class ScriptBaseTest(unittest.TestCase):
             p = subprocess.run(["sh", os.path.join(root, "tools/scorecard.sh"), "HEAD", "no-such-commit-335"],
                                env=env, capture_output=True, text=True, timeout=120)
             built = os.path.exists(os.path.join(root, "build"))
-        self.assertEqual(p.returncode, 2, p.stderr[-500:])
-        self.assertIn("no-such-commit-335: not a commit", p.stderr)
-        self.assertFalse(built, "it archived or built before checking BASE")
+            self.assertEqual(p.returncode, 2, p.stderr[-500:])
+            self.assertIn("no-such-commit-335: not a commit", p.stderr)
+            self.assertFalse(built, "it archived or built before checking BASE")
+            after()
 
 
 @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
