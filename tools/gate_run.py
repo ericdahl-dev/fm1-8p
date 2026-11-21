@@ -165,8 +165,8 @@ def judge(records, head, cpu):
 def main(argv):
     """gate.sh's and gate_cpu.sh's calls:
       render-key TREE ROOT MIDI          render_key(), with the host compiler (CC, or cc)
-      cpu-key TREE ROOT SCRIPT TOOLS     cpu_key(), with the environment's toggles; TOOLS: gate_cpu.sh
-                                         --tools' JSON file, or "stand-in" (GATE_CPU)
+      cpu-key TREE ROOT SCRIPT TOOLS     cpu_key(), with the environment's toggles; TOOLS: SCRIPT
+                                         --tools' JSON file
       clips BASE HEAD RECORDS            clip_records() into RECORDS (anew), its lines on stdout; exit 2
                                          when one could not be compared or none was
       cpu-record RECORDS EXIT            HEAD's CPU run as a record: gate_cpu.sh's exit 0 a pass, 1 a fail
@@ -180,11 +180,8 @@ def main(argv):
             print(render_key(a[0], a[1], a[2], host_cc(os.environ), os.environ))
             return 0
         if cmd == "cpu-key":
-            if a[3] == "stand-in":
-                tools = {"gate_cpu": "a stand-in (GATE_CPU)"}
-            else:
-                with open(a[3]) as f:
-                    tools = json.load(f)
+            with open(a[3]) as f:
+                tools = json.load(f)
             print(cpu_key(a[0], a[1], a[2], os.environ, tools))
             return 0
         if cmd == "clips":

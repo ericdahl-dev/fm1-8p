@@ -104,15 +104,17 @@ coverage() {
 # return is gate_cpu.sh's exit.
 cpu() {
     s=${GATE_CPU:-$ROOT/tools/gate_cpu.sh}
-    if [ -n "${GATE_CPU:-}" ]; then t=stand-in
-    else t=$G/cpu/.tools.json; sh "$s" --tools >"$t" 2>/dev/null || printf '{"fm1": "not to be had"}\n' >"$t"; fi
-    # (when the tools can't be had, gate_cpu.sh below stops with its own line, and nothing is kept)
+    t=$G/cpu/.tools.json keep=1
+    # tools that can't be identified: the rows are made and shown, never kept (a later tool could not be
+    # told apart); gate_cpu.sh below stops with its own line when its inputs are missing
+    sh "$s" --tools >"$t" 2>/dev/null || { printf '{"fm1": "not to be had"}\n' >"$t"; keep=0; }
     k=$($PY -B "$ROOT/tools/gate_run.py" cpu-key "$1" "$ROOT" "$s" "$t") && [ ${#k} -eq 16 ] || die "$1: cannot hash its CPU inputs"
     o=$G/cpu/$k
-    if [ ! -f "$o/rows.txt" ]; then
+    if [ "$keep" = 0 ] || [ ! -f "$o/rows.txt" ]; then
         sh "$s" "$1" "$o/runs" >"$o.rows" 2>"$o.err"
         r=$?
         if [ "$r" -ne 0 ]; then sort "$o.rows"; cat "$o.err" >&2; rm -f "$o.rows" "$o.err"; return "$r"; fi
+        if [ "$keep" = 0 ]; then sort "$o.rows"; rm -f "$o.rows" "$o.err"; return 0; fi
         mkdir -p "$o" && sort "$o.rows" >"$o/rows.txt" && rm -f "$o.rows" "$o.err"
     fi
     cat "$o/rows.txt"
