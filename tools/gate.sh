@@ -6,10 +6,13 @@
 #   BASE, HEAD   a git commit (or branch) of this repo, or a directory holding a source tree;
 #                HEAD defaults to the commit checked out.
 #   GATE_DIR     where trees, builds and renders go (default build/gate); a tree's renders are kept,
-#                keyed by a hash of its sources, so the next run against the same BASE renders only HEAD.
-# Exit status: 0 every clip identical (and HEAD's CPU rows, when they run, pass), 1 some clip differs or a
-# CPU row of HEAD failed (a failed layout, or its mean over GATE_CPU_LIMIT; only a layout over it warns),
-# 2 the gate could not run.
+#                keyed by a hash of its sources, the clip list, the run's MIDI and the host compiler
+#                (tools/gate_run.py), so the next run against the same BASE renders only HEAD.
+# The run's records (tools/gate_record.py): GATE_DIR/records.jsonl, a clip each and HEAD's CPU run.
+# Exit status (tools/gate_record.py verdict): 0 every clip identical (and HEAD's CPU rows, when they run,
+# pass); 1 some clip differs, or a CPU row of HEAD has its mean over GATE_CPU_LIMIT (only a layout over it
+# warns); 2 the gate could not run, HEAD's CPU rows among it (a layout that could not run or has no
+# figures): an error over a fail.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 G=${GATE_DIR:-$ROOT/build/gate}
@@ -18,6 +21,8 @@ mkdir -p "$G" || exit 2
 G=$(cd "$G" && pwd -P)
 
 die() { echo "gate: $*" >&2; exit 2; }
+REC=$G/records.jsonl                    # this run's records: none of an earlier run's stand for it
+rm -f "$REC" || die "cannot clear $REC"
 
 # src REF: prints the directory of REF's sources (a directory as given, a commit archived once)
 src() {
@@ -113,10 +118,8 @@ cpu() {
     cat "$o/rows.txt"
 }
 
-# the clips compared byte for byte (tools/gate_run.py clips): their records into $G/records.jsonl, the
+# the clips compared byte for byte (tools/gate_run.py clips): their records into $REC, the
 # lines on stdout; a clip that can't be compared, or none compared, stops the gate
-REC=$G/records.jsonl
-rm -f "$REC"
 $PY -B "$ROOT/tools/gate_run.py" clips "$OB" "$OH" "$REC" || exit 2
 
 if [ -z "${FM1_REF:-}${FM1_DOCK:-}" ]; then

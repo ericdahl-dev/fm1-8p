@@ -78,7 +78,11 @@ The clips are listed in `tools/gate_cases.py` and play MIDI that `tools/gate_mid
 - the 32 JX-8P factory tones, each tree on its own converter
 
 Nothing in it is PG-8X material. A tree's renders are kept in `build/gate` by a hash of its
-sources, so the next run against the same BASE renders only HEAD.
+sources, the clip list, the gate's MIDI and the host compiler's version, so the next run against
+the same BASE renders only HEAD. Each run writes its results as records to
+`build/gate/records.jsonl`: one for each clip, and one for HEAD's CPU rows when they run. The exit is
+0 when everything passes, 1 when a clip differs or HEAD's CPU mean is over the limit, and 2 when
+the gate could not run.
 
 With the FM-1 build inputs (`FM1_REF`, a folder holding fm1-dock, the JieLi toolchain, the AC79
 SDK, fm1-dock's venv and fm1-live; or `tools/fm1-build.sh`'s own variables), it also prints the
