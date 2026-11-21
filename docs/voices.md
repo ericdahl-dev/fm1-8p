@@ -253,7 +253,14 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | Mix gain | Q1.30 | `0.36 / voice_count` = `386669466 / voice_count`, rounded down: 0.25 times 3.17 dB, PG-8X's level (#102); times the VCA LEVEL in Q30 (`level_gain`, exact at full, live and gliding, #169) |
 | Output before conversion | Q8.24 | 0.72 with no resonance; more with high resonance |
 | Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; 8 voices in phase measure -0.1 dBFS at most |
-| Output makeup and soft clip (#24, #102) | Q8.24 to `int16_t` | x 2 (+6 dB), a pure gain up to the knee at 23600 (-2.85 dBFS); above it the soft clip bends toward full scale and holds at 0.966 of it (31653, -0.3 dBFS), so the output never reaches the rails |
+| Output makeup and soft clip (#24, #102) | Q8.24 to `int16_t` | x 2 (+6 dB), a pure gain up to the knee at 23600 (-2.85 dBFS); above it the soft clip bends toward full scale and holds at 0.966 of it (31653, -0.3 dBFS), so the engine's output never reaches the rails |
+| Module output gain (`play_render`, `PLAY_GAIN_SHIFT` 0, #320) | `int16_t` to `int32_t` | x 1, the engine's level as it is, through a hard clamp at +-32767 that it does not reach: SOUNDTRACK's velocity-127 chords (4 voices, held 34 s) peak at -0.95 to -1.07 dBFS and saturate nothing; one C4 at velocity 100 peaks at -12.4 dBFS (`tests/test_headroom.c`) |
+| To the DAC | `int32_t` | added into fm1-dock's output buffer (`firmware/fm1_8p/fm1_8p.c`); what fm1-dock does after that is outside this repo |
+
+The last two rows run only on the device path. The gate and the scorecard
+render through `host/render.c`, which calls the engine and never
+`play_render`, so a change to the module's gain or clamp is invisible to them;
+only `tests/test_headroom.c` and `tests/test_play.c` see it.
 
 Each voice is scaled by `1 / voice_count`, then a fixed -8.83 dB: the
 -12 dB of #24 (a voice's two oscillators at full peak at 2.0, as they sum on
