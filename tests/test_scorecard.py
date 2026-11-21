@@ -195,7 +195,7 @@ class MetricTest(unittest.TestCase):
         s = self.sc.score_tone(np.stack([ours, ours], 1), np.stack([pg, pg], 1), harmonic=False)
         self.assertLess(s["spectral_db"]["low"], 0.5, s["spectral_db"])
 
-    # PG-8X's side lands on our renderer's grid: engine.c to_int16 floors (an arithmetic >> 8) and clips
+    # PG-8X's side lands on our renderer's grid: output.c to_int16 floors (an arithmetic >> 8) and clips
     # to -32768..32767, and the reader divides by 32768.
     def test_pg_at_our_level_is_floored_and_clipped_as_our_renderer(self):
         np = self.np

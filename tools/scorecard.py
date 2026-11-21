@@ -124,7 +124,7 @@ def air_db(x):
 
 def as_ours_int16(pg, ours, clip=True):
     """PG-8X's float render as ours would carry it: scaled to our RMS, put on 16 bits per channel as
-    engine.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
+    output.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
     hiss in it; scored against this, the floor is on both sides (#299). With clip False it is floored but
     not clipped: at our RMS PG-8X's peaks can pass full scale where ours don't, and clipped they'd gain
     harmonics neither render has (the spectral sections, s10)."""
