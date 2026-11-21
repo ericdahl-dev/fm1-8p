@@ -126,6 +126,41 @@ def _put(prefix, r):
         f.write(G.line(r) + "\n")
 
 
+def _rows(a):
+    """The `rows` call (see main())."""
+    import os
+    out, limit, layouts, rows = a[0], a[1], a[2].split(), a[3:]
+    expected, records, view = [], [], []
+    with open(os.path.join(out, "layouts.txt"), "w") as lt:
+        for row in rows:
+            lays = []
+            for n in layouts:
+                name = f"{row}@{n}"
+                expected.append(("cpu-layout", name))
+                p = os.path.join(out, name)
+                try:
+                    got = G.load(p + ".json")
+                except FileNotFoundError:
+                    continue                 # (verdict: missing)
+                if [(r["kind"], r["name"]) for r in got] != [("cpu-layout", name)]:
+                    raise ValueError(f"{p}.json: not {name}'s one record")
+                lays += got
+                if got[0]["status"] == "pass":
+                    lt.write(layout_line(got[0]) + ("  (shipped)" if n == "0" else "") + "\n")
+            expected.append(("cpu", row))
+            r, lines = row_record(row, lays, len(layouts), limit)
+            records += lays + [r]
+            view += lines
+    with open(os.path.join(out, "rows.jsonl"), "w") as f:
+        f.writelines(G.line(r) + "\n" for r in records)
+    for x in view:
+        print(x)
+    code, _ = G.verdict(expected, records, compared=("cpu",),
+                        figures={"cpu": ("F", "F_min", "F_max", "8", "U", "overruns", "code_bytes"),
+                                 "cpu-layout": ("8", "U", "F", "overruns", "code_bytes")})
+    return code
+
+
 def main(argv):
     """gate_cpu.sh's calls:
       layout TREE ROW LAYOUT LOG BUILD PREFIX   one layout's record into PREFIX.json, its line into
@@ -156,34 +191,11 @@ def main(argv):
         _put(prefix, G.record("cpu-layout", f"{row}@{layout}", "error", why=why))
         return 0
     if cmd == "rows":
-        import os
-        out, limit, layouts, rows = a[0], a[1], a[2].split(), a[3:]
-        expected, records, view = [], [], []
-        with open(os.path.join(out, "layouts.txt"), "w") as lt:
-            for row in rows:
-                lays = []
-                for n in layouts:
-                    name = f"{row}@{n}"
-                    expected.append(("cpu-layout", name))
-                    p = os.path.join(out, name)
-                    try:
-                        lays += G.load(p + ".json")
-                    except FileNotFoundError:
-                        continue                 # (verdict: missing)
-                    if lays and lays[-1]["status"] == "pass" and lays[-1]["name"] == name:
-                        lt.write(layout_line(lays[-1]) + ("  (shipped)" if n == "0" else "") + "\n")
-                expected.append(("cpu", row))
-                r, lines = row_record(row, lays, len(layouts), limit)
-                records += lays + [r]
-                view += lines
-        with open(os.path.join(out, "rows.jsonl"), "w") as f:
-            f.writelines(G.line(r) + "\n" for r in records)
-        for x in view:
-            print(x)
-        code, _ = G.verdict(expected, records, compared=("cpu",),
-                            figures={"cpu": ("F", "F_min", "F_max", "8", "U", "overruns", "code_bytes"),
-                                     "cpu-layout": ("8", "U", "F", "overruns", "code_bytes")})
-        return code
+        try:
+            return _rows(a)
+        except (OSError, ValueError) as e:       # (a limit not a number, a record file not one: 2, not 1)
+            print(f"gate_cpu: rows: {e}", file=sys.stderr)
+            return 2
     print(f"gate_cpu_records: {cmd}: not a command", file=sys.stderr)
     return 2
 

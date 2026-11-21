@@ -181,5 +181,42 @@ class RowTest(unittest.TestCase):
             C.row_record("plain", self.LAYS, 3, "64,8")
 
 
+class RowsCommandTest(unittest.TestCase):
+    """gate_cpu.sh's `rows` call: its exit is the verdict's; what it can't judge is 2, never a traceback's 1."""
+
+    def out(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, d)
+        for n, f in (("0", 40.0), ("1024", 42.0)):
+            with open(os.path.join(d, f"plain@{n}.json"), "w") as fh:
+                fh.write(C.G.line(lay(n, f)) + "\n")
+        return d
+
+    def test_rows_under_the_limit_exit_0(self):
+        self.assertEqual(C.main(["x", "rows", self.out(), "64.8", "0 1024", "plain"]), 0)
+
+    def test_a_mean_over_the_limit_exits_1(self):
+        self.assertEqual(C.main(["x", "rows", self.out(), "40.5", "0 1024", "plain"]), 1)
+
+    def test_a_layout_with_no_record_exits_2(self):
+        self.assertEqual(C.main(["x", "rows", self.out(), "64.8", "0 1024 2048", "plain"]), 2)
+
+    def test_a_limit_that_is_not_a_number_exits_2(self):
+        self.assertEqual(C.main(["x", "rows", self.out(), "64,8", "0 1024", "plain"]), 2)
+
+    def test_a_record_file_that_is_not_one_exits_2(self):
+        d = self.out()
+        with open(os.path.join(d, "plain@0.json"), "w") as fh:
+            fh.write("{not json\n")
+        self.assertEqual(C.main(["x", "rows", d, "64.8", "0 1024", "plain"]), 2)
+
+    def test_a_record_file_holding_another_layout_exits_2(self):
+        d = self.out()
+        with open(os.path.join(d, "plain@0.json"), "w") as fh:
+            fh.write(C.G.line(lay("1024", 42.0)) + "\n")
+        self.assertEqual(C.main(["x", "rows", d, "64.8", "0 1024", "plain"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
