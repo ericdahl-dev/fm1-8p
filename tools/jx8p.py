@@ -475,7 +475,7 @@ def env_mode(v):
 def cutoff_cents(v):
     """VCF FREQ, 0..127 (or a knob-step sum, fractional), as the engine's cutoff in cents from MIDI
     note 0: tools/cutoff_curve.py's curve, fitted so the engine's resonant peak lands on PG-8X 2.0.13's
-    (VCF RES 96-127, no key follow, C4; within 0.45 semitone over 48..112; docs/patches.md). Below 13
+    (VCF RES 96-127, no key follow, C4; within 0.45 semitone over 48..96; docs/patches.md). Below 13
     it is under the engine's lowest cutoff, note 0 (8.2 Hz), and clamps there. The engine plays its
     cutoff sources' sum through the same curve (engine/filter.c, cutoff_curve, #253)."""
     return max(0, rnd(cutoff_curve.cents(v)))

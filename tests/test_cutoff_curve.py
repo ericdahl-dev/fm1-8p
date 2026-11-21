@@ -28,8 +28,9 @@ class CurveTest(unittest.TestCase):
     # the header holds the constants it's generated from, by name
     def test_the_header_defines_the_constants(self):
         h = cutoff_curve.emit_h()
-        for line in ("#define FM_CURVE_ZERO (-1474)", "#define FM_CURVE_A_Q32 32070u",
-                     "#define FM_CURVE_A_Q32_HALF 16035u", "#define FM_CURVE_A2_NUM 247",
+        q = cutoff_curve.a_q32()
+        for line in ("#define FM_CURVE_ZERO (%d)" % cutoff_curve.zero(), "#define FM_CURVE_A_Q32 %du" % q,
+                     "#define FM_CURVE_A_Q32_HALF %du" % (q // 2), "#define FM_CURVE_A2_NUM 247",
                      "#define FM_CURVE_A2_DEN 2500", "#define FM_CURVE_A1_NUM 11503",
                      "#define FM_CURVE_A1_DEN 100"):
             self.assertIn(line, h)

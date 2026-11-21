@@ -3009,11 +3009,14 @@ TT_TEST(cutoff_curve_holds_its_values_at_the_range_edges)
  * peak PG-8X measured (filter sweep of 2026-11-11: noise in, C4, no key
  * follow, VCF RES 96, 112 and 127; numbers only, #344) against the peak of
  * this filter at the curve's cutoff for the same byte, at 48 kHz, with
- * tools/jx8p.py RESONANCE_PERMILLE's resonance for the RES byte. This
- * checks the fit, not the formula: a refit or a typo in one coefficient
- * moves the peaks off PG-8X's. Within the fit's 0.45 semitone over VCF
- * FREQ 48..96; at 112 (9.6-9.7 kHz) the peak's place near Nyquist is the
- * warp's (#130), which holds it within 0.65.
+ * the resonance tools/jx8p.py RESONANCE_PERMILLE gives the RES byte
+ * (795 / 900 / 935, retyped here). This checks the fit, not the formula:
+ * a refit or a coefficient that moves the cutoff by about 30 cents or
+ * more fails it. Within the fit's 0.45 semitone (measured: 25 cents at
+ * most) over VCF FREQ 48..96, and at 112 at RES 112 (-15). At 112 with
+ * RES 96 and 127 (9.6-9.9 kHz) the peak's place near Nyquist is the
+ * warp's (#130), and it moves with the resonance: +60 and -50 cents,
+ * checked within 90.
  */
 #define PK_RATE 48000u
 
@@ -3050,11 +3053,13 @@ TT_TEST(resonant_peak_lands_on_pg8x_at_each_vcf_freq)
     for (r = 0; r < sizeof row / sizeof row[0]; r++) {
         double best = -1e9, at = 0.0, off;
         int c;
-        fm_filter_reset(&f);
-        fm_filter_set_resonance(&f, row[r].res_permille);
-        fm_filter_set_cutoff(&f, (int32_t)floor(curve_cents(row[r].freq) + 0.5), rate_cents);
+        int32_t cents = (int32_t)floor(curve_cents(row[r].freq) + 0.5);
         for (c = -300; c <= 300; c += 5) {
-            double hz = row[r].pg8x_hz * pow(2.0, c / 1200.0), db = gain_db_48k(&f, hz);
+            double hz = row[r].pg8x_hz * pow(2.0, c / 1200.0), db;
+            fm_filter_reset(&f);
+            fm_filter_set_resonance(&f, row[r].res_permille);
+            fm_filter_set_cutoff(&f, cents, rate_cents);
+            db = gain_db_48k(&f, hz);
             if (db > best) {
                 best = db;
                 at = hz;
@@ -3063,7 +3068,7 @@ TT_TEST(resonant_peak_lands_on_pg8x_at_each_vcf_freq)
         off = 1200.0 * log2(at / row[r].pg8x_hz);
         printf("    VCF FREQ %3d RES %3d: peak %7.1f Hz, PG-8X %7.1f (%+.0f cents)\n",
                row[r].freq, row[r].res, at, row[r].pg8x_hz, off);
-        TT_CHECK(fabs(off) <= (row[r].freq < 112 ? 45.0 : 65.0));
+        TT_CHECK(fabs(off) <= (row[r].freq == 112 && row[r].res != 112 ? 90.0 : 45.0));
     }
 }
 

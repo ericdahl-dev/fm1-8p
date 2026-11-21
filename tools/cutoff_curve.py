@@ -4,7 +4,9 @@
     knob-step sum, fractional)
 
 Fitted so the engine's resonant peak lands on PG-8X 2.0.13's (#130): the filter sweep of 2026-11-11,
-VCF RES 96-127, noise in, no key follow, C4; within 0.45 semitone over VCF FREQ 48..112. PG-8X adds
+VCF RES 96-127, noise in, no key follow, C4; within 0.45 semitone over VCF FREQ 48..112 by that sweep
+(tests/test_filter.c measures the engine's peak against it: within 25 cents over 48..96, up to 60 at
+112, where the warp places the peak, #130). PG-8X adds
 VCF ENV and VCF KEY to VCF FREQ in knob steps, then plays the sum through this curve (#253).
 
 tools/jx8p.py plays the curve (cutoff_cents) and generates engine/cutoff_curve.h from it (`make
@@ -39,8 +41,11 @@ def zero():
 
 
 def a_q32():
-    """A = A2 / A1^2 in Q32, rounded to nearest."""
-    return round(Fraction(A2) / Fraction(A1) ** 2 * 2 ** 32)
+    """A = A2 / A1^2 in Q32, rounded to nearest. An exact tie is refused, not rounded to even."""
+    x = Fraction(A2) / Fraction(A1) ** 2 * 2 ** 32
+    if (x - int(x)) == Fraction(1, 2):
+        raise ValueError("A2 / A1^2 in Q32 is a tie: pick the rounding")
+    return round(x)
 
 
 def emit_h():
