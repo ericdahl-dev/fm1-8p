@@ -917,6 +917,9 @@ Everywhere, unless the state says otherwise:
   - `SAVING 23 WHEN SILENT`, `HOLD SAVE: NOW` (by turns, while a write waits)
   - `HOME AGAIN TO CANCEL SAVE`
   - `SAVE FAILED`
+  - `DELETED 23`, `DELETED PATTERN 23`, `DELETE FAILED` (#303)
+  - `DELETING 23 WHEN SILENT`, `HOLD SAVE: NOW` (by turns, while a delete waits)
+  - `HOME AGAIN TO CANCEL DELETE`, `DELETE CANCELED`
   - `TEMPO FOLLOWS MIDI CLOCK`
   - `COMPARE: RELEASE EDIT`
   - `NEXT PATTERN 23`

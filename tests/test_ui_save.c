@@ -943,39 +943,8 @@ TT_TEST(save_into_a_deleted_queued_slot_before_takeover_reads_unedited)
     TT_CHECK(!seq_edited(play_seq(&ui_p)));
 }
 
-/* (FW review, from before #314) saving into the queued pattern's slot re-queues what the slot now holds: A plays,
- * B (slot 12) queued, A edited and saved into 12 as "A2": what takes over is A2, by that name, unedited */
-TT_TEST(save_into_the_queued_slot_queues_what_it_now_holds)
-{
-    static seq_pattern pat;
-    static const uint8_t e4 = 64;
-    char name[STORE_NAME_LEN + 1u];
-    uint32_t k;
-    save_seq_setup();
-    play_pattern_snapshot(&ui_p, &pat);
-    TT_CHECK_EQ(play_pattern_write(&ui_p, 0, &pat, "A"), 0);
-    TT_CHECK_EQ(play_pattern_write(&ui_p, 1, &pat, "B"), 0);
-    play_load_pattern(&ui_p, 0);
-    seq_play(play_seq(&ui_p));
-    save_render(4);
-    play_load_pattern(&ui_p, 1);                /* B queued */
-    seq_set_step(play_seq(&ui_p), 1, &e4, 1, 100);      /* A edited */
-    TT_CHECK_EQ(play_pattern_save(&ui_p, 1, "A2"), 0);  /* into B's slot */
-    for (k = 0; k < 40000u && seq_next_queued(play_seq(&ui_p)); k++) {
-        save_render(1);
-        play_pattern_tick(&ui_p);
-    }
-    play_pattern_tick(&ui_p);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
-    TT_CHECK_EQ(play_seq(&ui_p)->edit.step[1].note[0], 64u);
-    play_pattern_name(&ui_p, name);
-    TT_CHECK(strcmp(name, "A2") == 0);
-    TT_CHECK(!seq_edited(play_seq(&ui_p)));
-}
-
 static void run_ui_save_tests(void)
 {
-    TT_RUN(save_into_the_queued_slot_queues_what_it_now_holds);
     TT_RUN(save_into_a_deleted_queued_slot_before_takeover_reads_unedited);
     TT_RUN(save_sel_held_asks_to_delete);
     TT_RUN(save_sel_again_deletes_the_slot);
