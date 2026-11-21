@@ -135,8 +135,7 @@ expect_ok "with its layout" grep -q '^plain: max 42\.0 % over the limit 41\.5 % 
 expect_ok "the rows' records are kept, one a layout and one a row" sh -c "grep -c '\"kind\": \"cpu-layout\"' '$T/cpu-rows/rows.jsonl' | grep -qx 18 && grep -c '\"kind\": \"cpu\"' '$T/cpu-rows/rows.jsonl' | grep -qx 6"
 expect_ok "a mean over the limit is exit 1" sh -c 'env JIELI_TOOLCHAIN="$1/fm1/tc" AC79_SDK="$1/fm1/sdk" FM1_DOCK="$1/fm1/dock" FM1_LIVE="$1/fm1/live" GATE_CPU_BUILD="$1/build-stub.sh" GATE_CPU_LAYOUTS="0 1024 2048" GATE_CPU_HINOTE=0 GATE_CPU_LIMIT=40.5 sh tools/gate_cpu.sh "$1/base" "$1/cpu-rows"; [ $? -eq 1 ]' - "$T"
 expect_fail "a layout whose log has no F fails its row" rows STUB_NO_F=1024
-expect_ok "and says so" grep -q "^plain@1024: no F in the log's last sweep" "$T/out.last"
-expect_ok "and the row is short of a layout" grep -q '^plain: F at only 2 of 3 layouts$' "$T/out.last"
+expect_ok "and says so, and that the row is short of a layout" sh -c "grep -q \"^plain@1024: no F in the log's last sweep\" '$T/out.last' && grep -q '^plain: F at only 2 of 3 layouts\$' '$T/out.last'"
 expect_ok "a layout with no F is exit 2 (could not run), not 1" sh -c 'env JIELI_TOOLCHAIN="$1/fm1/tc" AC79_SDK="$1/fm1/sdk" FM1_DOCK="$1/fm1/dock" FM1_LIVE="$1/fm1/live" GATE_CPU_BUILD="$1/build-stub.sh" GATE_CPU_LAYOUTS="0 1024 2048" GATE_CPU_HINOTE=0 STUB_NO_F=1024 sh tools/gate_cpu.sh "$1/base" "$1/cpu-rows"; [ $? -eq 2 ]' - "$T"
 expect_fail "a build that exits non-zero fails its row, report or not" rows STUB_FAIL_AT=2048
 expect_ok "and says so" grep -q '^plain@2048: the build failed' "$T/out.last"
