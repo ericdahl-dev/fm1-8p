@@ -524,8 +524,32 @@ TT_TEST(play_reset_controllers_clears_the_pressure)
     TT_CHECK_EQ(any, 0);
 }
 
+/* a key struck again in the same block as its old pressure starts at the channel pressure (Codex on #325):
+ * poly 60 = 127, note off 60, note on 60, all before one render; the new note isn't left at the old 127.
+ * Likewise after all sound off (CC 120). */
+TT_TEST(play_restruck_key_drops_its_old_pressure)
+{
+    uint32_t i, at127 = 0;
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    pl_render(&pl_a);
+    play_midi(&pl_a, 0xA0, 60, 127);
+    play_midi(&pl_a, 0x80, 60, 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    pl_render(&pl_a);
+    for (i = 0; i < pl_a.engine.voice_count; i++) at127 += pl_a.engine.at_to[i] != 0;
+    TT_CHECK_EQ(at127, 0);
+    play_midi(&pl_a, 0xA0, 60, 127);
+    play_midi(&pl_a, 0xB0, 120, 0);
+    play_midi(&pl_a, 0x90, 60, 100);
+    pl_render(&pl_a);
+    for (i = 0, at127 = 0; i < pl_a.engine.voice_count; i++) at127 += pl_a.engine.at_to[i] != 0;
+    TT_CHECK_EQ(at127, 0);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_restruck_key_drops_its_old_pressure);
     TT_RUN(play_midi_pressure_reaches_the_engine);
     TT_RUN(play_pressure_flood_never_drops_a_note_off);
     TT_RUN(play_reset_controllers_clears_the_pressure);

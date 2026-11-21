@@ -264,9 +264,9 @@ int play_init(play *p)
     p->head = p->tail = 0;
     p->lost = p->lost_seen = 0;
     for (i = 0; i < 128u; i++)
-        p->poly_pr[i] = 0;
+        p->poly_pr[i] = PLAY_PR_NONE, p->poly_put[i] = p->poly_got[i] = 0;
     for (i = 0; i < 4u; i++)
-        p->poly_new[i] = 0;
+        p->poly_any[i] = 0;
     p->chan_pr = p->chan_puts = p->chan_seen = 0;
     p->last_note = -1;
     p->oct = 0;
@@ -337,72 +337,99 @@ static void apply(play *p, uint32_t ev)
     }
 }
 
+/* Main loop: key `note`'s poly pressure is `v` (PLAY_PR_NONE: none to apply), for the ISR's next block:
+ * the value, then its count (the ISR reads them the other way round) */
+static void set_poly_pressure(play *p, uint32_t note, uint8_t v)
+{
+    p->poly_pr[note] = v;
+    BARRIER();
+    p->poly_put[note] = (uint8_t)(p->poly_put[note] + 1u);
+    p->poly_any[note >> 5] = p->poly_any[note >> 5] | 1u << (note & 31u);   /* (the main loop's word only) */
+}
+
+/* Main loop: the poly pressure not yet applied is dropped, key `note`'s (or, 128, every key's): what comes
+ * after it (a note on or off, a channel pressure, all notes off) makes it old */
+static void drop_poly_pressure(play *p, uint32_t note)
+{
+    uint32_t k;
+    for (k = note < 128u ? note : 0u; k < 128u; k++) {
+        if (p->poly_any[k >> 5] >> (k & 31u) & 1u && p->poly_pr[k] != PLAY_PR_NONE)
+            set_poly_pressure(p, k, PLAY_PR_NONE);
+        if (note < 128u)
+            break;
+    }
+}
+
 void play_note(play *p, uint32_t note, uint32_t vel)
 {
+    if (note < 128u)
+        drop_poly_pressure(p, note);
     put(p, 0x90u, note, vel);
 }
 
-/* Main loop: a key's poly pressure, for the ISR's next block (the value before its bit). */
+/* Main loop: a key's poly pressure, for the ISR's next block. */
 static void put_poly_pressure(play *p, uint32_t note, uint32_t v)
 {
     if (note > 127u || v > 127u)
         return;
-    p->poly_pr[note] = (uint8_t)v;
-    BARRIER();
-    p->poly_new[note >> 5] = p->poly_new[note >> 5] | 1u << (note & 31u);
+    set_poly_pressure(p, note, (uint8_t)v);
 }
 
 /* Main loop: the channel pressure. The poly values not yet applied are older: dropped first, then the
  * value, then its count, so the ISR never applies an older poly value after it. */
 static void put_channel_pressure(play *p, uint32_t v)
 {
-    uint32_t i;
     if (v > 127u)
         return;
-    for (i = 0; i < 4u; i++)
-        p->poly_new[i] = 0;
+    drop_poly_pressure(p, 128u);
     p->chan_pr = v;
     BARRIER();
     p->chan_puts = p->chan_puts + 1u;
 }
 
-/* Audio interrupt: the pressure the main loop put since the last block, channel first. */
+/* Audio interrupt: the pressure the main loop put since the last block, channel first. It writes only its
+ * own counts (poly_got, chan_seen): the main loop may run between any two of its reads. */
 static void apply_pressure(play *p)
 {
-    uint32_t w, bits, k;
+    uint32_t w, any, k;
+    uint8_t put, v;
     if (p->chan_puts != p->chan_seen) {
         p->chan_seen = p->chan_puts;
         BARRIER();                              /* the value after its count */
         fm_engine_channel_pressure(&p->engine, (uint8_t)p->chan_pr);
     }
     for (w = 0; w < 4u; w++) {
-        bits = p->poly_new[w];
-        if (!bits)
-            continue;
-        p->poly_new[w] = 0;                     /* (the main loop never runs inside this) */
-        BARRIER();
-        for (k = 0; k < 32u; k++)
-            if (bits >> k & 1u)
-                fm_engine_poly_pressure(&p->engine, (uint8_t)(w * 32u + k), p->poly_pr[w * 32u + k]);
+        any = p->poly_any[w];
+        for (k = w * 32u; any; k++, any >>= 1) {
+            if (!(any & 1u) || (put = p->poly_put[k]) == p->poly_got[k])
+                continue;
+            p->poly_got[k] = put;
+            BARRIER();                          /* the value after its count: a newer one is fine */
+            v = p->poly_pr[k];
+            if (v != PLAY_PR_NONE)
+                fm_engine_poly_pressure(&p->engine, (uint8_t)k, v);
+        }
     }
 }
 
 void play_midi(play *p, uint32_t st, uint32_t d1, uint32_t d2)
 {
-    uint32_t i;
     switch (st & 0xF0u) {
     case 0xA0u: put_poly_pressure(p, d1, d2); break;
     case 0xD0u: put_channel_pressure(p, d1); break;
     case 0x90u:
     case 0x80u:
+        if (d1 < 128u)                          /* the key's old pressure goes with its note (Codex on #325) */
+            drop_poly_pressure(p, d1);
+        put(p, st & 0xF0u, d1, d2);
+        break;
     case 0xE0u: put(p, st & 0xF0u, d1, d2); break;
     case 0xB0u:
         put(p, 0xB0u, d1, d2);
         if (d1 == 121u)                         /* reset all controllers: no pressure after it (#61) */
             put_channel_pressure(p, 0);
-        else if (d1 == 123u)                    /* all notes off: the keys' pressure not yet applied goes */
-            for (i = 0; i < 4u; i++)
-                p->poly_new[i] = 0;
+        else if (d1 == 120u || d1 == 123u)      /* all sound / notes off: the keys' pressure not yet applied goes */
+            drop_poly_pressure(p, 128u);
         break;
     default: break;
     }

@@ -18,6 +18,7 @@
 #define PLAY_KEYS 27u                   /* the FM-1's note keys */
 #define PLAY_KEY0 53u                   /* key 0's note at octave 0: F3 */
 #define PLAY_PARAM_WORDS ((FM_PARAM_COUNT + 31u) / 32u)
+#define PLAY_PR_NONE 0xFFu                /* a key's poly pressure: none to apply (#61) */
 #define PLAY_QUEUE 64u                  /* events between two renders (a power of two) */
 
 typedef struct {
@@ -30,11 +31,16 @@ typedef struct {
     volatile uint32_t lost;             /* main loop: +1 per event the full queue dropped */
     uint32_t lost_seen;                 /* ISR only: the last `lost` it acted on */
     /* pressure (#61), main loop to the ISR outside the queue, so a stream of it (the FM-1's keys send each
-     * held key's about 100 times a second) never fills it: each key's latest poly pressure and a bit per key
-     * the ISR hasn't applied, and the latest channel pressure, counted. A channel pressure clears the poly
-     * bits, so per voice the latest message wins. */
+     * held key's about 100 times a second) never fills it. Each field has one writer (the module ABI can't
+     * mask the interrupt, so no word is read-modified-written by both sides): the main loop writes each
+     * key's latest poly pressure (PLAY_PR_NONE: dropped, by a channel pressure, the key's note on or off,
+     * or all notes / sound off), counts its puts and marks the keys it ever put; the ISR applies a key
+     * whose put count isn't the one it last took. The channel pressure is counted the same way. */
     volatile uint8_t poly_pr[128];
-    volatile uint32_t poly_new[4];
+    volatile uint8_t poly_put[128];     /* main loop: +1 per put of the key's value (256 puts to a key in
+                                         * one block would look like none: MIDI can't send that many) */
+    uint8_t poly_got[128];              /* ISR only: the key's poly_put it last took */
+    volatile uint32_t poly_any[4];      /* main loop: a bit per key ever put (the ISR scans those words) */
     volatile uint32_t chan_pr;
     volatile uint32_t chan_puts;        /* main loop: +1 per channel pressure */
     uint32_t chan_seen;                 /* ISR only: the last `chan_puts` it applied */
