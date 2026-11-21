@@ -3005,6 +3005,69 @@ TT_TEST(cutoff_curve_holds_its_values_at_the_range_edges)
 }
 
 /*
+ * VCF FREQ puts the engine's resonant peak where PG-8X 2.0.13's is: the
+ * peak PG-8X measured (filter sweep of 2026-11-11: noise in, C4, no key
+ * follow, VCF RES 96, 112 and 127; numbers only, #344) against the peak of
+ * this filter at the curve's cutoff for the same byte, at 48 kHz, with
+ * tools/jx8p.py RESONANCE_PERMILLE's resonance for the RES byte. This
+ * checks the fit, not the formula: a refit or a typo in one coefficient
+ * moves the peaks off PG-8X's. Within the fit's 0.45 semitone over VCF
+ * FREQ 48..96; at 112 (9.6-9.7 kHz) the peak's place near Nyquist is the
+ * warp's (#130), which holds it within 0.65.
+ */
+#define PK_RATE 48000u
+
+static double gain_db_48k(fm_filter *f, double hz)
+{
+    double in2 = 0, out2 = 0;
+    size_t i;
+    for (i = 0; i < PK_RATE / 2; i++) {
+        int32_t x = (int32_t)lround(0.02 * 16777216.0 * sin(2.0 * AN_PI * hz * (double)i / PK_RATE));
+        int32_t y = fm_filter_process(f, x);
+        if (i >= PK_RATE / 4) {
+            in2 += (double)x * x;
+            out2 += (double)y * y;
+        }
+    }
+    return 10.0 * log10(out2 / in2);
+}
+
+TT_TEST(resonant_peak_lands_on_pg8x_at_each_vcf_freq)
+{
+    static const struct {
+        int freq, res, res_permille;
+        double pg8x_hz;
+    } row[] = {
+        { 48, 96, 795, 82.0 },    { 48, 112, 900, 84.7 },    { 48, 127, 935, 85.9 },
+        { 64, 96, 795, 270.3 },   { 64, 112, 900, 277.0 },   { 64, 127, 935, 280.9 },
+        { 80, 96, 795, 883.4 },   { 80, 112, 900, 913.6 },   { 80, 127, 935, 921.4 },
+        { 96, 96, 795, 2915.9 },  { 96, 112, 900, 2999.2 },  { 96, 127, 935, 3021.2 },
+        { 112, 96, 795, 9556.1 }, { 112, 112, 900, 9686.8 }, { 112, 127, 935, 9701.7 },
+    };
+    static fm_filter f;
+    int32_t rate_cents = fm_filter_rate_cents(PK_RATE);
+    size_t r;
+    for (r = 0; r < sizeof row / sizeof row[0]; r++) {
+        double best = -1e9, at = 0.0, off;
+        int c;
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, row[r].res_permille);
+        fm_filter_set_cutoff(&f, (int32_t)floor(curve_cents(row[r].freq) + 0.5), rate_cents);
+        for (c = -300; c <= 300; c += 5) {
+            double hz = row[r].pg8x_hz * pow(2.0, c / 1200.0), db = gain_db_48k(&f, hz);
+            if (db > best) {
+                best = db;
+                at = hz;
+            }
+        }
+        off = 1200.0 * log2(at / row[r].pg8x_hz);
+        printf("    VCF FREQ %3d RES %3d: peak %7.1f Hz, PG-8X %7.1f (%+.0f cents)\n",
+               row[r].freq, row[r].res, at, row[r].pg8x_hz, off);
+        TT_CHECK(fabs(off) <= (row[r].freq < 112 ? 45.0 : 65.0));
+    }
+}
+
+/*
  * With no resonance the lowpass is linear at any level an oscillator pair
  * reaches: the ring's peaks pass +-2.0 (its x2 (a + b m1) + c m1 reaches
  * -2.46 with squares at full), and a filter that bent them would add the
@@ -3066,6 +3129,7 @@ static void run_filter_tests(void)
     TT_RUN(the_hold_is_past_the_pair_through_the_bass_boost);
     TT_RUN(lowpass_without_resonance_is_linear_past_two);
     TT_RUN(cutoff_curve_holds_its_values_at_the_range_edges);
+    TT_RUN(resonant_peak_lands_on_pg8x_at_each_vcf_freq);
     TT_RUN(linear_cents_holds_its_values_at_the_range_edges);
     TT_RUN(cutoff_sources_add_in_knob_steps_on_pg8x_curve);
     TT_RUN(cutoff_setting_round_trips_through_linear_cents);
