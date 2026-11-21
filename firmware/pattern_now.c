@@ -65,7 +65,7 @@ void pattern_init(pattern_now *n, seq *s)
     n->running_name[0] = n->queued_name[0] = '\0';
     n->queued = -1;
     n->queued_ask = 0;
-    n->takeovers = 0;
+    n->takeovers = n->reported = 0;
 }
 
 void pattern_attach(pattern_now *n, pat_lib *lib, const store_io *io)
@@ -114,9 +114,11 @@ void pattern_queue(pattern_now *n, uint32_t q)
 
 uint32_t pattern_takeover(pattern_now *n)
 {
-    uint32_t t = n->takeovers;
+    uint32_t r;
     pn_sync(n);
-    return n->takeovers != t;
+    r = n->takeovers != n->reported;
+    n->reported = n->takeovers;
+    return r;
 }
 
 uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap)
@@ -128,11 +130,12 @@ uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap)
 
 int pattern_save(pattern_now *n, uint32_t dest, const seq_pattern *snap, const char *name, uint32_t token)
 {
-    uint32_t ask;
+    uint32_t ask, into_queued;
     if (!n->lib || !n->io || dest >= PAT_SLOTS || pat_slot_write(n->lib, n->io, dest, snap, name) != 0)
         return -1;
     pn_sync(n);
-    if (n->queued >= 0 && dest == (uint32_t)n->queued) {   /* "slot B next": what takes over is this now */
+    into_queued = n->queued >= 0 && dest == (uint32_t)n->queued;
+    if (into_queued) {                          /* "slot B next": what takes over is this now */
         ask = seq_requeue(n->s, snap);
         pn_note(n);                                /* (or it took over just before) */
         if (ask) {
@@ -140,7 +143,7 @@ int pattern_save(pattern_now *n, uint32_t dest, const seq_pattern *snap, const c
             n->queued_ask = ask;
         }
     }
-    if (token == n->takeovers)                  /* what was snapshotted plays: dest is its slot now */
+    if (token == n->takeovers && !into_queued)  /* what was snapshotted plays: dest is its slot now */
         n->running = dest;
     if (dest == n->running) {                   /* edited now only by what differs from snap */
         pn_copy_name(n->running_name, name);

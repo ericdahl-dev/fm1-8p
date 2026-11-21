@@ -26,6 +26,7 @@ typedef struct {
     char queued_name[STORE_NAME_LEN + 1u];
     uint32_t queued_ask;                /* seq_load_pattern's ask it went with (seq_adopted) */
     uint32_t takeovers;                 /* +1 a takeover: a snapshot's token */
+    uint32_t reported;                  /* the takeovers pattern_takeover has said */
 } pattern_now;
 
 void pattern_init(pattern_now *n, seq *s);
@@ -41,12 +42,14 @@ uint32_t pattern_edited(pattern_now *n);
 /* Slot q (an empty one: the empty pattern). Stopped, it loads at once. Playing, it is queued for the
  * end of the pass, and q the running slot cancels a queued one (interaction.md, Pattern slots). */
 void pattern_queue(pattern_now *n, uint32_t q);
-/* 1 once for each takeover since the last call (each draw: the screen follows). */
+/* 1 when a takeover happened since its last call, whichever call took it in first (each draw: the
+ * screen follows). */
 uint32_t pattern_takeover(pattern_now *n);
 /* The running pattern as edited, for a save that may wait: returns its token for pattern_save. */
 uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap);
 /* snap, named `name`, into slot dest: 0, or -1 when the write failed (nothing changes then).
- * - no takeover since the snapshot (token): dest becomes the running slot, and its stored pattern snap;
+ * - no takeover since the snapshot (token), and dest not the queued slot: dest becomes the running
+ *   slot, and its stored pattern snap;
  * - a takeover since: the running pattern stays; when dest is its slot, its stored pattern is snap;
  * - dest the queued slot: the queued pattern is snap now, named `name`. */
 int pattern_save(pattern_now *n, uint32_t dest, const seq_pattern *snap, const char *name, uint32_t token);
