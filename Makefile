@@ -108,14 +108,17 @@ test: $(BUILD)/run-tests
 	sh tools/run-tests.sh ./$(BUILD)/run-tests
 
 # The engine must pass; each canary (a float or heap use added to the
-# engine sources) must make the same check fail.
+# engine sources) must make the same check fail with a finding (exit 1:
+# exit 2 is a tool that failed, which catches nothing, #335).
 check-float-free:
+	sh tests/test_check_engine.sh
 	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-engine $(ENGINE_SRC)
 	CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-play $(ENGINE_SRC) firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/pattern_store.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c firmware/ui_seq.c
 	@for c in $(CANARIES); do \
-		if CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-canary \
-			$(ENGINE_SRC) $$c >/dev/null 2>&1; then \
-			echo "check-float-free: canary $$c was NOT caught" >&2; exit 1; \
+		CC="$(CC)" sh tools/check-engine.sh $(BUILD)/check-canary \
+			$(ENGINE_SRC) $$c >/dev/null 2>&1; r=$$?; \
+		if [ $$r -ne 1 ]; then \
+			echo "check-float-free: canary $$c was NOT caught (exit $$r)" >&2; exit 1; \
 		fi; \
 		echo "check-float-free: canary $$c caught as expected"; \
 	done
