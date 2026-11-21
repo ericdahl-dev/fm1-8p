@@ -918,8 +918,34 @@ TT_TEST(save_failed_delete_says_so)
     store_flash.fail = 0;
 }
 
+/* #303 (Codex P3 on #314): a queued pattern's slot deleted, then saved into again before it takes over (the
+ * same pattern): once it takes over it reads unedited, as against the slot's new copy, not the empty one */
+TT_TEST(save_into_a_deleted_queued_slot_before_takeover_reads_unedited)
+{
+    static seq_pattern pat;
+    uint32_t k;
+    save_seq_setup();
+    play_pattern_snapshot(&ui_p, &pat);
+    TT_CHECK_EQ(play_pattern_write(&ui_p, 0, &pat, "A"), 0);
+    TT_CHECK_EQ(play_pattern_write(&ui_p, 1, &pat, "B"), 0);
+    play_load_pattern(&ui_p, 0);
+    seq_play(play_seq(&ui_p));
+    save_render(4);
+    play_load_pattern(&ui_p, 1);                /* queued */
+    TT_CHECK_EQ(play_pattern_delete(&ui_p, 1), 0);
+    TT_CHECK_EQ(play_pattern_write(&ui_p, 1, &pat, "B"), 0);   /* saved again, before it takes over */
+    for (k = 0; k < 40000u && seq_next_queued(play_seq(&ui_p)); k++) {
+        save_render(1);
+        play_pattern_tick(&ui_p);
+    }
+    play_pattern_tick(&ui_p);
+    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    TT_CHECK(!seq_edited(play_seq(&ui_p)));
+}
+
 static void run_ui_save_tests(void)
 {
+    TT_RUN(save_into_a_deleted_queued_slot_before_takeover_reads_unedited);
     TT_RUN(save_sel_held_asks_to_delete);
     TT_RUN(save_sel_again_deletes_the_slot);
     TT_RUN(save_delete_waits_for_silence_and_cancels);
