@@ -24,8 +24,9 @@
 # usage: tools/gate_cpu.sh TREE OUT      (prints one line per row, MODE-hn rows too: 8 voices, U and F, code bytes)
 # Inputs, as tools/fm1-build.sh takes them: JIELI_TOOLCHAIN, AC79_SDK, FM1_DOCK, PYTHON (fm1-dock's) and
 # FM1_LIVE; or FM1_REF, a folder holding fm1-dock, jieli/toolchain, fw-AC79_AIoT_SDK, fm1-dock-venv and
-# fm1-emu/target/release/fm1-live. GATE_CPU_HINOTE=0 skips the high-note rows. Exit 1 when a row failed
-# (its line says why) or its mean is over the limit, 2 when an input is missing.
+# fm1-emu/target/release/fm1-live. GATE_CPU_HINOTE=0 skips the high-note rows. Exit 1 when a row's F mean
+# is over the limit; 2 when an input is missing, or a layout could not run or has no figures (its line
+# says why). The records: OUT/rows.jsonl (tools/gate_record.py), one for each layout and one for each row.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 TREE=$1 OUT=$2
@@ -55,59 +56,36 @@ done
 mkdir -p "$OUT" || exit 2
 OUT=$(cd "$OUT" && pwd -P)
 
-# The high-note rows' chord (#269): notes 115..125, of which step F plays 115..121
-HN_CHORD='static const uint8_t CHORD[FM_MAX_VOICES] = {115, 117, 119, 121, 122, 123, 124, 125};   /* #269: the high notes */'
-
 # stage MODE BYTES DIR: a copy of TREE in DIR whose step F plays MODE (plain, sync, xmod, ring, ui, seq;
-# MODE-hn: its high-note row), with BYTES of never-run code ahead of the engine (0: none)
+# MODE-hn: its high-note row, the chord at notes 115..125), with BYTES of never-run code ahead of the
+# engine (0: none). The edits: tools/gate_stage.py (each line exactly once; macOS's sed can't run them).
 stage() {
     rm -rf "$3" && mkdir -p "$3" && cp -R "$TREE/." "$3/" && rm -rf "$3/build" || return 1
-    case $1 in
-        *-hn)
-            grep -q '^static const uint8_t CHORD\[FM_MAX_VOICES\] = {[0-9, ]*};' "$3/firmware/cpu_test.c" ||
-                { echo "gate_cpu: step F's chord not found" >&2; return 1; }
-            sed -i "s|^static const uint8_t CHORD\[FM_MAX_VOICES\] = {[0-9, ]*};.*\$|$HN_CHORD|" "$3/firmware/cpu_test.c" || return 1 ;;
-    esac
-    case ${1%-hn} in
-        sync) add='    {FM_PARAM_OSC_SYNC, 1},' ;;
-        xmod) add='    {FM_PARAM_OSC_RING, 1},' ;;
-        ring|seq) add='    {FM_PARAM_OSC_SYNC, 1},\n    {FM_PARAM_OSC_RING, 1},' ;;   # (seq: ring too)
-        *)    add= ;;
-    esac
-    if [ -n "$add" ]; then
-        # step F's highpass line, whatever its step (1 before #136, the bass boost after): the params go after it
-        grep -q '^    {FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},$' "$3/firmware/cpu_test.c" || { echo "gate_cpu: step F's patch not found" >&2; return 1; }
-        sed -i "s|^\(    {FM_PARAM_HIGHPASS_STEP, [A-Z0-9_]*},\)\$|\1\\n$add|" "$3/firmware/cpu_test.c" || return 1
-    fi
-    if [ "$2" -gt 0 ]; then
-        sed "s/\"\.space [0-9]*\"/\".space $2\"/" "$ROOT/tools/gate_pad.c" >"$3/engine/aa_pad.c" || return 1
-        f=$3/firmware/fm1_8p_cpu/fm1_8p_cpu.c
-        grep -q '^static int init(const hb_host_t \*h)' "$f" && grep -q '^    H = h;' "$f" || { echo "gate_cpu: pad hook not found" >&2; return 1; }
-        sed -i 's|^static int init(const hb_host_t \*h)|int32_t fm1_8p_gate_pad(int32_t x);\nstatic int init(const hb_host_t *h)|; s|^    H = h;|    H = h;\n    if (fm1_8p_gate_pad(3) == 7) return 1;|' "$f" || return 1
-    fi
+    $PY -B "$ROOT/tools/gate_stage.py" "$3" "$1" "$2" "$ROOT/tools/gate_pad.c"
 }
 
-# run MODE BYTES: one emulator run (MODE may end in -hn) at that layout, its row into OUT/MODE@BYTES.row
-# ("MODE@BYTES  8 = x %  U = x %  F = x %  N overruns  code N B"); on stdout only why there is none.
+# run MODE BYTES: one emulator run (MODE may end in -hn) at that layout, its record (tools/gate_cpu_records.py,
+# read from fm1-emu's own log) into OUT/MODE@BYTES.json and its row into OUT/MODE@BYTES.row ("MODE@BYTES
+# 8 = x %  U = x %  F = x %  N overruns  code N B"); on stdout only why there is none.
 # MODE ui is plain with a page of the UI redrawing every frame (emu-ui, firmware/fm1_8p_cpu_ui).
 run() {
     t=$1@$2; d=$OUT/$t; cmd=emu; [ "${1%-hn}" = ui ] && cmd=emu-ui; [ "${1%-hn}" = seq ] && cmd=emu-seq
-    rm -f "$d.row"
+    rm -f "$d.row" "$d.json"
     if [ "${GATE_CPU_PREPARE_ONLY:-0}" = 1 ]; then stage "$1" "$2" "$d/src"; return; fi
-    stage "$1" "$2" "$d/src" || { echo "$t: stage failed (see above)"; return 1; }
-    rm -rf "$d/dock" && cp -a "$FM1_DOCK" "$d/dock" || return 1
+    stage "$1" "$2" "$d/src" || { failed "$1" "$2" "$t: stage failed (see above)"; return 1; }
+    rm -rf "$d/dock" && cp -a "$FM1_DOCK" "$d/dock" || { failed "$1" "$2" "$t: cannot copy FM1_DOCK"; return 1; }
     case $BUILD in /*) b=$BUILD ;; *) b=$d/src/$BUILD ;; esac
     (cd "$d/src" && ulimit -n 8192 2>/dev/null; FM1_DOCK=$d/dock JIELI_TOOLCHAIN=$JIELI_TOOLCHAIN AC79_SDK=$AC79_SDK \
         PYTHON=$PY FM1_LIVE=$FM1_LIVE FM1_EMU_UNPINNED=1 sh "$b" $cmd) >"$d/emu.log" 2>&1
     brc=$?                                      # (fm1-build writes a partial report when the emulator fails)
-    [ "$brc" -eq 0 ] || { echo "$t: the build failed (exit $brc, see $d/emu.log)"; return 1; }
-    r=$d/src/build/fm1/$cmd-report.md
-    [ -f "$r" ] || { echo "$t: no report (see $d/emu.log)"; return 1; }
-    grep -Eq '^\| F \(full patch\) \|[^|]*\| *[0-9]+(\.[0-9]+)? % \|' "$r" ||
-        { echo "$t: no F in the report (see $r)"; return 1; }
-    printf '%-14s %s %s %s\n' "$t" \
-        "$(awk -F'|' '/^\| (8|U \(unison burst\)|F \(full patch\)) \|/ { gsub(/ +$/, "", $2); gsub(/^ +/, "", $2); printf "%s = %s  ", substr($2, 1, 1), $4 }' "$r")" \
-        "$(grep -o '[0-9]* overruns' "$r" | head -1)" "$(grep -o 'code [0-9]* B' "$d/emu.log" | head -1)" >"$d.row"
+    [ "$brc" -eq 0 ] || { failed "$1" "$2" "$t: the build failed (exit $brc, see $d/emu.log)"; return 1; }
+    $PY -B "$ROOT/tools/gate_cpu_records.py" layout "$d/src" "$1" "$2" "$d/src/build/fm1/$cmd.log" "$d/emu.log" "$d"
+}
+
+# failed MODE BYTES WHY: a layout that could not run: WHY on stdout, and its record
+failed() {
+    echo "$3"
+    $PY -B "$ROOT/tools/gate_cpu_records.py" error "$1" "$2" "$3" "$OUT/$1@$2" || echo "$1@$2: cannot write its record"
 }
 
 # each row and layout runs in the background, at most JOBS at once; any one's failure is the script's
@@ -132,42 +110,10 @@ done
 for p in $pids; do wait "$p" || rc=1; done
 [ "${GATE_CPU_PREPARE_ONLY:-0}" = 1 ] && exit $rc
 
-# each row's figures over its layouts; every layout's own row into OUT/layouts.txt, the shipped one marked
-first=${LAYOUTS%% *}
-: >"$OUT/layouts.txt"
-for R in $rows; do
-    for N in $LAYOUTS; do
-        [ -f "$OUT/$R@$N.row" ] || continue
-        if [ "$N" = 0 ]; then sed 's/$/  (shipped)/' "$OUT/$R@$N.row"; else cat "$OUT/$R@$N.row"; fi >>"$OUT/layouts.txt"
-    done
-    set --
-    for N in $LAYOUTS; do [ -f "$OUT/$R@$N.row" ] && set -- "$@" "$OUT/$R@$N.row"; done
-    [ $# -gt 0 ] || continue
-    awk -v row="$R" -v limit="$LIMIT" -v first="$OUT/$R@$first.row" -v all="$(set -- $LAYOUTS; echo $#)" '
-        function num(s) { sub(/ *%.*/, "", s); return s + 0 }
-        {
-            lay = FILENAME; sub(/.*\//, "", lay); sub(/^.*@/, "", lay); sub(/\.row$/, "", lay)
-            if ($0 !~ /F = +[0-9]+(\.[0-9]+)? %/) next   # (only a layout with a number for F counts)
-            n++
-            for (i = 1; i <= NF; i++) {
-                if ($i == "8" && $(i + 1) == "=") e += num($(i + 2))
-                if ($i == "U" && $(i + 1) == "=") u += num($(i + 2))
-                if ($i == "F" && $(i + 1) == "=") {
-                    v = num($(i + 2)); s += v
-                    if (n == 1 || v < lo) lo = v
-                    if (n == 1 || v > hi) { hi = v; hilay = lay }
-                }
-                if ($(i + 1) == "overruns") ov += $i
-                if ($i == "code" && FILENAME == first) code = $(i + 1)
-            }
-        }
-        END {
-            if (n < all + 0) { printf "%s: F at only %d of %d layouts\n", row, n, all; exit 1 }
-            m = s / n
-            printf "%-10s 8 = %4.1f %%   U = %4.1f %%   F = %4.1f %% (%.1f..%.1f, spread %.1f, %d layouts)    %d overruns code %s B\n", \
-                row, e / n, u / n, m, lo, hi, hi - lo, n, ov, code
-            if (m > limit + 0) { printf "%s: F mean %.1f %% over the limit %.1f %%\n", row, m, limit; exit 1 }
-            if (hi > limit + 0) printf "%s: max %.1f %% over the limit %.1f %% at layout %s (mean ok)\n", row, hi, limit, hilay
-        }' "$@" || rc=1
-done
+# each row over its layouts (tools/gate_cpu_records.py): every layout's own row into OUT/layouts.txt, the
+# shipped one marked; every record into OUT/rows.jsonl; the rows' lines on stdout. Its exit is the run's
+# when worse: 2 when a layout could not run or has no figures, 1 when a row's F mean is over the limit.
+$PY -B "$ROOT/tools/gate_cpu_records.py" rows "$OUT" "$LIMIT" "$LAYOUTS" $rows
+r=$?
+[ "$r" -gt "$rc" ] && rc=$r
 exit $rc

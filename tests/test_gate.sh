@@ -102,15 +102,23 @@ expect_ok "and keeps its mode's step F (SYNC 2: sync then the ring)" sh -c "grep
 chord() { grep '^static const uint8_t CHORD' "$1/firmware/cpu_test.c"; }
 expect_ok "the normal rows keep the tree's own chord" sh -c 'test -n "$1" && test "$1" = "$2"' - "$(chord "$T/base")" "$(chord "$T/cpu/sync@0/src")"
 # The rows, through a stand-in for the build and the emulator (GATE_CPU_BUILD): F is 40 % plus 1 % a KB of
-# dead code, so layouts 0 1024 2048 read 40, 41 and 42.
+# dead code, so layouts 0 1024 2048 read 40, 41 and 42. It writes fm1-emu's log lines (the records read
+# them) and the Markdown report (what main's gate_cpu.sh read), alike.
 cat >"$T/build-stub.sh" <<'STUB'
 n=$(sed -n 's/.*"\.space \([0-9][0-9]*\)".*/\1/p' engine/aa_pad.c 2>/dev/null); n=${n:-0}
 if [ -n "${STUB_BUSY:-}" ]; then mkdir "$STUB_BUSY" 2>/dev/null || : >"$STUB_BUSY.overlap"; fi
 mkdir -p build/fm1
-f=$(awk -v n="$n" 'BEGIN { printf "%.1f", 40 + n / 1024 }')
-fline="| F (full patch) | 0 | $f % |"
+pm=$((400 + n * 10 / 1024))
+f=$((pm / 10)).$((pm % 10))
+fline="| F (full patch) | $pm | $f % |"
 [ "${STUB_NO_F:-x}" = "$n" ] && fline=
 printf '| voices | worst permille | of a 256-frame block |\n| 8 | 145 | 14.5 %% |\n| U (unison burst) | 239 | 23.9 %% |\n%s\n\nrender: last 1 ticks, worst 1, 0 overruns\n' "$fline" >"build/fm1/$1-report.md"
+{
+    for v in 1 2 3 4 5 6 7; do printf '100 fm1-8p voices/worst permille %04x%04x\n' "$v" $((v * 18)); done
+    printf '100 fm1-8p voices/worst permille %04x%04x\n' 8 145 9 239
+    [ "${STUB_NO_F:-x}" = "$n" ] || printf '100 fm1-8p voices/worst permille %04x%04x\n' 10 "$pm"
+    echo "active module 1; render: last 1 ticks, worst 1, 0 overruns"
+} >"build/fm1/$1.log"
 [ "${STUB_FAIL_AT:-x}" = "$n" ] && exit 3
 echo "module FM1-8P CPU: code 1000 B"
 if [ -n "${STUB_BUSY:-}" ]; then sleep 1; rmdir "$STUB_BUSY"; fi
@@ -124,10 +132,14 @@ expect_fail "a mean over GATE_CPU_LIMIT fails the run" rows GATE_CPU_LIMIT=40.5
 expect_ok "and says so" grep -q '^plain: F mean 41\.0 % over the limit 40\.5 %' "$T/out.last"
 expect_ok "a max over it only warns" rows GATE_CPU_LIMIT=41.5
 expect_ok "with its layout" grep -q '^plain: max 42\.0 % over the limit 41\.5 % at layout 2048 (mean ok)' "$T/out.last"
-expect_fail "a layout whose report has no F fails its row" rows STUB_NO_F=1024
-expect_ok "and says so" grep -q '^plain@1024: no F in the report' "$T/out.last"
+expect_ok "the rows' records are kept, one a layout and one a row" sh -c "grep -c '\"kind\": \"cpu-layout\"' '$T/cpu-rows/rows.jsonl' | grep -qx 18 && grep -c '\"kind\": \"cpu\"' '$T/cpu-rows/rows.jsonl' | grep -qx 6"
+expect_ok "a mean over the limit is exit 1" sh -c 'env JIELI_TOOLCHAIN="$1/fm1/tc" AC79_SDK="$1/fm1/sdk" FM1_DOCK="$1/fm1/dock" FM1_LIVE="$1/fm1/live" GATE_CPU_BUILD="$1/build-stub.sh" GATE_CPU_LAYOUTS="0 1024 2048" GATE_CPU_HINOTE=0 GATE_CPU_LIMIT=40.5 sh tools/gate_cpu.sh "$1/base" "$1/cpu-rows"; [ $? -eq 1 ]' - "$T"
+expect_fail "a layout whose log has no F fails its row" rows STUB_NO_F=1024
+expect_ok "and says so, and that the row is short of a layout" sh -c "grep -q \"^plain@1024: no F in the log's last sweep\" '$T/out.last' && grep -q '^plain: F at only 2 of 3 layouts\$' '$T/out.last'"
+expect_ok "a layout with no F is exit 2 (could not run), not 1" sh -c 'env JIELI_TOOLCHAIN="$1/fm1/tc" AC79_SDK="$1/fm1/sdk" FM1_DOCK="$1/fm1/dock" FM1_LIVE="$1/fm1/live" GATE_CPU_BUILD="$1/build-stub.sh" GATE_CPU_LAYOUTS="0 1024 2048" GATE_CPU_HINOTE=0 STUB_NO_F=1024 sh tools/gate_cpu.sh "$1/base" "$1/cpu-rows"; [ $? -eq 2 ]' - "$T"
 expect_fail "a build that exits non-zero fails its row, report or not" rows STUB_FAIL_AT=2048
 expect_ok "and says so" grep -q '^plain@2048: the build failed' "$T/out.last"
+expect_ok "a tree without FM_MAX_VOICES can't be read (exit 2)" sh -c 'rm -rf "$1/nomax"; cp -R "$1/base" "$1/nomax" && sed "s/^#define FM_MAX_VOICES /#define FM_MAX_VOICEZ /" "$1/base/engine/fm1_8p.h" >"$1/nomax/engine/fm1_8p.h" && env JIELI_TOOLCHAIN="$1/fm1/tc" AC79_SDK="$1/fm1/sdk" FM1_DOCK="$1/fm1/dock" FM1_LIVE="$1/fm1/live" GATE_CPU_BUILD="$1/build-stub.sh" GATE_CPU_LAYOUTS="0" GATE_CPU_HINOTE=0 sh tools/gate_cpu.sh "$1/nomax" "$1/cpu-nomax" >"$1/nomax.out"; r=$?; rm -rf "$1/nomax" "$1/cpu-nomax"; [ $r -eq 2 ] && grep -q "^plain@0: .*FM_MAX_VOICES defined 0 times" "$1/nomax.out"' - "$T"
 expect_fail "GATE_CPU_LAYOUTS must be byte counts" rows GATE_CPU_LAYOUTS="0 1k"
 expect_fail "and at least one" rows GATE_CPU_LAYOUTS=" "
 expect_fail "each once" rows GATE_CPU_LAYOUTS="0 0 1024"
@@ -153,6 +165,9 @@ rm -rf "$T/gate/cpu"
 stub_gate() { env GATE_CPU="$T/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$T/fm1/dock" "$@" sh tools/gate.sh "$T/base" "$T/same"; }
 expect_ok "a failed CPU run fails the gate (exit 1)" sh -c 'env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" STUB_FAIL=1 sh tools/gate.sh "$1/base" "$1/same"; [ $? -eq 1 ]' - "$T"
 expect_ok "with its rows" sh -c "grep -q '^CPU rows: base failed' '$T/out.last' && grep -q '^plain-hn: stage failed' '$T/out.last'"
+# gate_cpu's exit 2 (a layout that could not run) fails the gate as its 1 does: never a pass.
+printf 'echo "plain: F at only 0 of 4 layouts"\nexit 2\n' >"$T/cpu-stub-2.sh"
+expect_ok "a CPU run that could not run (exit 2) fails the gate" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-2.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; r=$?; rm -rf "$1/gate/cpu"; [ $r -eq 1 ]' - "$T"
 expect_fail "and not kept" sh -c "ls '$T/gate/cpu/'*/rows.txt"
 expect_ok "GATE_CPU_HINOTE=0's rows are kept apart" stub_gate GATE_CPU_HINOTE=0
 expect_ok "and another GATE_CPU_LIMIT's" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" GATE_CPU_LIMIT=50 sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
@@ -160,6 +175,15 @@ cp tools/gate_pad.c "$T/gate_pad.c.keep"
 printf '/* (an edit) */\n' >>tools/gate_pad.c
 expect_ok "and the pad's, once it changes" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
 cp "$T/gate_pad.c.keep" tools/gate_pad.c
+# and the Python that stages the rows and reads and judges them (Codex P2: they left gate_cpu.sh). A
+# default run first: the first default run's key is new by its toggles alone.
+stub_gate >/dev/null 2>&1
+for py in gate_cpu_records gate_stage gate_record; do
+    cp "tools/$py.py" "$T/$py.py.keep"
+    printf '# (an edit)\n' >>"tools/$py.py"
+    expect_ok "and $py.py's, once it changes" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
+    cp "$T/$py.py.keep" "tools/$py.py"
+done
 # Only HEAD's CPU rows judge: a failed base row is shown, and the gate still passes when HEAD's pass.
 cat >"$T/cpu-stub-base.sh" <<'STUB'
 case $1 in *base*) echo "plain: stage failed"; exit 1 ;; esac
