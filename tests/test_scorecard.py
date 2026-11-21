@@ -336,6 +336,34 @@ class HistoryTest(unittest.TestCase):
         self.assertIn("| 02 T2 |", text)
         self.assertIn("20.0 → 12.0", text)
 
+    def test_a_tone_the_base_lacks_is_new_not_dropped(self):
+        got = self.sc.moved(self.rows([10.0, 20.0]), self.rows([10.0, 20.0, 15.0]))
+        self.assertEqual([(m["tone"], m["verdict"]) for m in got], [(3, "new")])
+        self.assertEqual(got[0]["spectral_head"], 15.0)
+        self.assertIsNone(got[0]["spectral_base"])
+        self.assertIn("| 03 T3 | - → 15.0 |", self.sc.moved_table(got))
+
+    def test_a_tone_the_head_lacks_is_gone_not_dropped(self):
+        got = self.sc.moved(self.rows([10.0, 20.0, 15.0]), self.rows([10.0, 20.0]))
+        self.assertEqual([(m["tone"], m["verdict"]) for m in got], [(3, "gone")])
+        self.assertIn("| 03 T3 | 15.0 → - |", self.sc.moved_table(got))
+
+    def test_the_report_counts_new_and_gone_tones(self):
+        head = self.rows([5, 30, 1])
+        for r in head:
+            r.update({"spectral_db": {"chord": r["spectral_db_mean"]}, "timing_gap_ms": {},
+                      "pitch_cents": {"low": 0.0, "high": 0.0}})
+        base = self.rows([5, 30, 1, 7])[1:]
+        text = self.sc.report(head, base)
+        self.assertIn("tones moved: 2 (0 closer, 0 further, 1 new, 1 gone)", text)
+
+    def test_with_none_new_or_gone_the_count_line_is_as_before(self):
+        head = self.rows([5, 30])
+        for r in head:
+            r.update({"spectral_db": {"chord": r["spectral_db_mean"]}, "timing_gap_ms": {},
+                      "pitch_cents": {"low": 0.0, "high": 0.0}})
+        self.assertIn("tones moved: 1 (1 closer, 0 further)\n", self.sc.report(head, self.rows([5, 31])) + "\n")
+
     def test_the_report_has_every_tone_the_worst_five_and_what_moved(self):
         head = self.rows([5, 30, 1, 25, 9, 40, 2])
         for r in head:
@@ -532,3 +560,21 @@ class ScoreMidiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScriptBaseTest(unittest.TestCase):
+    """tools/scorecard.sh stops on a BASE that is not a commit, before it builds anything (#335: it passed
+    --base "" and printed a report with nothing compared)."""
+
+    def test_a_base_that_is_not_a_commit_stops_it(self):
+        import subprocess
+        import tempfile
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        with tempfile.TemporaryDirectory() as ref:
+            open(os.path.join(ref, "manifest.json"), "w").write("{}")
+            env = dict(os.environ, SCORECARD_REF=ref, SCORECARD_HISTORY=os.path.join(ref, "h.jsonl"))
+            p = subprocess.run(["sh", os.path.join(root, "tools/scorecard.sh"), "HEAD", "no-such-commit-335"],
+                               env=env, capture_output=True, text=True, timeout=600)
+        self.assertEqual(p.returncode, 2, p.stderr[-500:])
+        self.assertIn("no-such-commit-335: not a commit", p.stderr)
+        self.assertNotIn("does not build", p.stderr)
