@@ -452,7 +452,9 @@ view. The flow is the same for both; only the slots differ.
      skips it, ALGORITHM finds it, a program change to it is ignored.
      Deleting the slot that is loaded leaves what plays as it is, shown
      edited (for a pattern: edited against the empty pattern the slot now
-     loads). A failed delete shows `DELETE FAILED`.
+     loads). Deleting the queued pattern's slot cancels the queue (see
+     [Running, queued and stored patterns](#running-queued-and-stored-patterns)).
+     A failed delete shows `DELETE FAILED`.
 
 A patch never includes a pattern, and a pattern never includes a sound
 (decision Q2).
@@ -820,6 +822,34 @@ Patterns have their own slots, separate from patches (decision Q2).
   - A patch change, from PRESETS or a MIDI program change, changes only the
     sound, and the running pattern plays on (decision Q8).
   - A pattern change changes only the notes.
+
+#### Running, queued and stored patterns
+
+Four words for what plays and what is saved (#324; Eric, 2026-11-21):
+
+- **Running pattern:** what the sequencer plays now. Its slot and name are in
+  the footer (`PTN 12 NAME`), and edits are edits of it.
+- **Queued pattern:** the slot chosen, while playing, to take over at the end
+  of the pass (`NEXT 23`). The queue means "slot 23 next".
+- **Stored pattern:** what the running pattern's slot holds. PATTERN EDITED
+  (`*`) means the running pattern differs from it.
+- **Takeover:** the moment, after the running pattern's last step, when the
+  queued pattern becomes the running one.
+
+What follows from them:
+
+| Case | What happens |
+|---|---|
+| A slot's pattern is saved while it is queued | The takeover plays what the slot holds now, and the screen shows the slot's new name. |
+| A queued slot is deleted | The queue is canceled. The running pattern plays on and `NEXT` clears. |
+| A takeover while the running pattern is edited | Its edits are dropped. Queueing it already warned. |
+| A SAVE waiting for silence when another pattern takes over | The save writes the snapshot it took. The pattern that took over stays the running one, unedited. |
+| The same, saved into the slot of the pattern that took over | That pattern shows edited: what plays differs from what its slot now holds. |
+| The running pattern's slot is deleted | It plays on, edited against the empty slot. |
+
+Every screen, SAVE, PRESETS turn and step edit sees a takeover as soon as it
+happens, not only from the next redraw. SAVE in SEQ view always offers the
+running pattern's slot.
 
 ### Playing
 
