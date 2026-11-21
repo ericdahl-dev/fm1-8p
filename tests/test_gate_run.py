@@ -292,5 +292,47 @@ class ClipsTest(unittest.TestCase):
         self.assertEqual(R.G.verdict([("clip", "b")], records, compared=("clip",))[0], 2)
 
 
+class JudgeTest(unittest.TestCase):
+    """judge: the gate's exit from its records, and why, when it could not run."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d)
+        with open(os.path.join(self.d, ".cases"), "w") as f:
+            f.write("a\tdemo.mid\t\nb\tdemo.mid\t\n")
+
+    def judge(self, records, cpu=False):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = R.judge(records, self.d, cpu)
+        return code, err.getvalue()
+
+    def rec(self, name, status, kind="clip"):
+        return R.G.record(kind, name, status)
+
+    def test_all_pass_is_0_and_quiet(self):
+        self.assertEqual(self.judge([self.rec("a", "pass"), self.rec("b", "pass")]), (0, ""))
+
+    def test_a_clip_that_differs_is_1(self):
+        self.assertEqual(self.judge([self.rec("a", "pass"), self.rec("b", "fail")])[0], 1)
+
+    def test_a_name_twice_is_2_and_says_so(self):
+        code, err = self.judge([self.rec("a", "pass"), self.rec("a", "pass"), self.rec("b", "pass")])
+        self.assertEqual(code, 2)
+        self.assertIn("gate: clip a: two records for one name", err)
+
+    def test_head_s_cpu_run_missing_is_2_and_says_so(self):
+        code, err = self.judge([self.rec("a", "pass"), self.rec("b", "pass")], cpu=True)
+        self.assertEqual(code, 2)
+        self.assertIn("gate: cpu-run head: no record", err)
+
+    def test_head_s_cpu_error_beats_a_differing_clip(self):
+        code, _ = self.judge([self.rec("a", "fail"), self.rec("b", "pass"), self.rec("head", "error", "cpu-run")],
+                             cpu=True)
+        self.assertEqual(code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

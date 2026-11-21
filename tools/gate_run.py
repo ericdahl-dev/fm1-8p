@@ -157,9 +157,13 @@ def _put(path, records, mode="w"):
 def judge(records, head, cpu):
     """The gate's exit: verdict() over the run's records, expecting every clip of HEAD's render folder
     `head` and, when `cpu`, HEAD's CPU run. 2 when it could not run (nothing compared among them), 1
-    when a clip differs or HEAD's CPU rows failed, else 0."""
+    when a clip differs or HEAD's CPU rows failed, else 0. Each error or missing record on stderr."""
     expected = [("clip", n) for n in _cases(head)] + ([("cpu-run", "head")] if cpu else [])
-    return G.verdict(expected, records, compared=("clip",))[0]
+    code, report = G.verdict(expected, records, compared=("clip",))
+    for r in report:                             # (2 is never quiet: why, on stderr)
+        if r["status"] in ("error", "missing"):
+            print(f"gate: {r['kind']} {r['name']}: {r['why']}".replace(" : ", ": "), file=sys.stderr)
+    return code
 
 
 def main(argv):
