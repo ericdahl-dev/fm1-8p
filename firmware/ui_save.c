@@ -2,10 +2,17 @@
 /* fm1-8p SAVE: the destination, the name and the write (interaction.md, SAVE). */
 #include "ui_save.h"
 
-/* the slot playing: the patch's, or the pattern's */
+static store_patch snap;                        /* the patch a confirming tap took (main loop) */
+static seq_pattern psnap;                       /* or the pattern, as SAVE opened on it, and its name */
+static char psnap_name[STORE_NAME_LEN + 1u];
+static uint32_t psnap_token;                   /* pattern_snapshot's: a takeover since keeps what runs */
+static uint32_t psnap_slot;                    /* the pattern's slot, from the same look */
+
+/* the slot playing: the patch's, or the pattern SAVE opened on (Eric on #324: a takeover while SAVE is
+ * open doesn't change what it saves) */
 static uint32_t current(const ui *u)
 {
-    return u->save_pattern ? pattern_running(play_patterns(u->p), 0) : play_prog(u->p);
+    return u->save_pattern ? psnap_slot : play_prog(u->p);
 }
 
 /* the draft's key for the slot playing (a pattern's has UI_SAVE_PATTERN_DRAFT on) */
@@ -47,6 +54,8 @@ void ui_save_open(ui *u, uint32_t ms)
     u->save_open_ms = ms;
     u->save_from = u->state;
     u->save_pattern = u->state == UI_SEQ;
+    if (u->save_pattern)                        /* the pattern, its slot and its name: one look */
+        psnap_token = pattern_snapshot(play_patterns(u->p), &psnap, &psnap_slot, u->save_name);
     q = current(u);
     if (u->save_pattern) {
         u->save_dest = q;                       /* the pattern slot playing (always one: 11..88) */
@@ -60,9 +69,7 @@ void ui_save_open(ui *u, uint32_t ms)
     if (u->save_draft_prog == draft_key(u))     /* a canceled SAVE of this patch (pattern): its name again */
         for (s = 0; s <= STORE_NAME_LEN; s++)
             u->save_name[s] = u->save_draft[s];
-    else if (u->save_pattern)
-        (void)pattern_running(play_patterns(u->p), u->save_name);
-    else
+    else if (!u->save_pattern)                  /* (a pattern's name came with its snapshot) */
         play_prog_name(u->p, u->save_name);
     for (s = 0; s < STORE_NAME_LEN; s++)        /* all 12 places editable: spaces past the end */
         if (!u->save_name[s])
@@ -78,10 +85,6 @@ void ui_save_open(ui *u, uint32_t ms)
 static const char CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 #define N_CHARS (sizeof CHARS - 1u)
 
-static store_patch snap;                        /* the patch a confirming tap took (main loop) */
-static seq_pattern psnap;                       /* or the pattern, and its name */
-static char psnap_name[STORE_NAME_LEN + 1u];
-static uint32_t psnap_token;                   /* pattern_snapshot's: a takeover since keeps what runs */
 
 /* "SAVED 23" and the like into u->save_msg, as the banner; "SAVED PATTERN 23" with pattern */
 static void say(ui *u, const char *what, uint32_t slot, uint32_t ms, uint32_t pattern)
@@ -131,7 +134,8 @@ static void replace_prompt(ui *u)
     ask(u, "REPLACE ", UI_SAVE_CONFIRM);
 }
 
-/* the edit buffer (or the pattern) and the name, trailing spaces trimmed, into snap (psnap) */
+/* the edit buffer and the name, trailing spaces trimmed, into snap; or the name only into psnap_name (the
+ * pattern is the one SAVE opened on) */
 static void take_snapshot(ui *u)
 {
     char name[STORE_NAME_LEN + 1u];
@@ -141,7 +145,6 @@ static void take_snapshot(ui *u)
     for (i = (int32_t)STORE_NAME_LEN - 1; i >= 0 && name[i] == ' '; i--)
         name[i] = 0;
     if (u->save_pattern) {
-        psnap_token = pattern_snapshot(play_patterns(u->p), &psnap);
         for (i = 0; i <= (int32_t)STORE_NAME_LEN; i++)
             psnap_name[i] = name[i];
     } else {

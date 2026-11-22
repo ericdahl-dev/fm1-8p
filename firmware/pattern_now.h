@@ -46,8 +46,10 @@ void pattern_queue(pattern_now *n, uint32_t q);
 /* 1 when a takeover happened since its last call, whichever call took it in first (each draw: the
  * screen follows). */
 uint32_t pattern_takeover(pattern_now *n);
-/* The running pattern as edited, for a save that may wait: returns its token for pattern_save. */
-uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap);
+/* The running pattern as edited into snap, with its slot into *slot and its name into name (as
+ * pattern_running's), each unless NULL: all from one look, for a save that may wait. Returns its token
+ * for pattern_save. */
+uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap, uint32_t *slot, char *name);
 /* snap, named `name`, into slot dest: 0, or -1 when the write failed (nothing changes then).
  * - the same pattern running as at the snapshot (token), and dest not the queued slot: dest becomes the
  *   running slot, and its stored pattern snap;

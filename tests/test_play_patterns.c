@@ -16,7 +16,7 @@ static void pp_setup(void)
 static int pn_save_now(play *p, uint32_t dest, const char *name)
 {
     static seq_pattern snap;
-    uint32_t t = pattern_snapshot(play_patterns(p), &snap);
+    uint32_t t = pattern_snapshot(play_patterns(p), &snap, 0, 0);
     return pattern_save(play_patterns(p), dest, &snap, name, t);
 }
 

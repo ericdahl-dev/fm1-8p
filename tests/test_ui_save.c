@@ -887,7 +887,7 @@ TT_TEST(save_delete_of_the_queued_pattern_cancels_the_queue)
     static seq_pattern pat;
     uint32_t k, t;
     save_seq_setup();
-    t = pattern_snapshot(play_patterns(&ui_p), &pat);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 0, &pat, "A", t), 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 1, &pat, "B", t), 0);
     pattern_queue(play_patterns(&ui_p), 0);
@@ -915,10 +915,10 @@ TT_TEST(save_right_after_a_takeover_targets_the_running_slot)
     char name[STORE_NAME_LEN + 1u];
     uint32_t k, t;
     save_seq_setup();                                       /* step 1 C4 */
-    t = pattern_snapshot(play_patterns(&ui_p), &pat);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 0, &pat, "A", t), 0);
     seq_set_step(play_seq(&ui_p), 0, &e4, 1, 100);
-    t = pattern_snapshot(play_patterns(&ui_p), &pat);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 1, &pat, "B", t), 0);
     pattern_queue(play_patterns(&ui_p), 0);                /* stopped: A at once */
     seq_play(play_seq(&ui_p));
@@ -975,6 +975,48 @@ TT_TEST(save_waiting_through_a_pattern_load_keeps_the_loaded_one)
     TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), 0)->kind, SEQ_REST);   /* 12's, as loaded */
 }
 
+/* #324, Codex P2 (Eric, 2026-11-21: "save A as it was when SAVE opened"): SAVE opens on A, edited, with
+ * B queued, and B takes over while SAVE is open. The confirm writes A's notes, as they were at the open,
+ * into A's slot under A's name, and B stays the running pattern, unedited */
+TT_TEST(save_open_through_a_takeover_writes_the_pattern_it_opened_on)
+{
+    static seq_pattern pat, out;
+    static const uint8_t d4 = 62, e4 = 64;
+    char name[STORE_NAME_LEN + 1u];
+    uint32_t k, t;
+    save_seq_setup();                                       /* step 1 C4 */
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
+    TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 0, &pat, "A", t), 0);
+    seq_set_step(play_seq(&ui_p), 0, &e4, 1, 100);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
+    TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 1, &pat, "B", t), 0);
+    pattern_queue(play_patterns(&ui_p), 0);                /* stopped: A at once */
+    seq_set_step(play_seq(&ui_p), 0, &d4, 1, 100);         /* A, edited: D4 */
+    seq_play(play_seq(&ui_p));
+    save_render(4);
+    pattern_queue(play_patterns(&ui_p), 1);
+    save_tap(UI_BTN_SAVE, 1000);                            /* SAVE opens on A */
+    TT_CHECK_EQ(ui_u.save_dest, 0u);
+    TT_CHECK(strcmp(ui_u.save_name, "A           ") == 0);
+    for (k = 0; k < 40000u && seq_next_queued(play_seq(&ui_p)); k++)
+        save_render(1);                                     /* B takes over, SAVE open */
+    TT_CHECK(!seq_next_queued(play_seq(&ui_p)));
+    save_tap(UI_BTN_SAVE, 1200);                            /* the confirm: waits, playing */
+    seq_stop(play_seq(&ui_p));
+    for (k = 0; k < 4000u && !play_silent(&ui_p); k++)
+        save_render(1);
+    (void)ui_take(&ui_u, 3000);
+    TT_CHECK(strcmp(ui_banner(&ui_u), "SAVED PATTERN 11") == 0);
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 0, &out, name), 0);
+    TT_CHECK(strcmp(name, "A") == 0);
+    TT_CHECK_EQ(out.step[0].note[0], 62u);                  /* A as it was at the open */
+    TT_CHECK_EQ(pat_slot_read(&save_plib, 1, &out, name), 0);
+    TT_CHECK_EQ(out.step[0].note[0], 64u);                  /* B's slot untouched */
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), name), 1u);
+    TT_CHECK(strcmp(name, "B") == 0);
+    TT_CHECK(!pattern_edited(play_patterns(&ui_p)));
+}
+
 /* #303: a delete whose flash write fails says DELETE FAILED and leaves the slot as it was */
 TT_TEST(save_failed_delete_says_so)
 {
@@ -1003,6 +1045,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_delete_of_the_queued_pattern_cancels_the_queue);
     TT_RUN(save_right_after_a_takeover_targets_the_running_slot);
     TT_RUN(save_waiting_through_a_pattern_load_keeps_the_loaded_one);
+    TT_RUN(save_open_through_a_takeover_writes_the_pattern_it_opened_on);
     TT_RUN(save_failed_delete_says_so);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);

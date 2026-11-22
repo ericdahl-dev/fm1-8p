@@ -131,10 +131,14 @@ uint32_t pattern_takeover(pattern_now *n)
     return r;
 }
 
-uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap)
+uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap, uint32_t *slot, char *name)
 {
     pn_sync(n);
     *snap = n->s->edit;
+    if (slot)
+        *slot = n->running;
+    if (name)
+        pn_copy_name(name, n->running_name);
     return n->changes;
 }
 
