@@ -882,6 +882,39 @@ TT_TEST(seq_turn_right_after_a_takeover_starts_from_the_new_pattern)
     TT_CHECK_EQ(s->edit.swing_pct, SEQ_SWING_DEF + 1u);
 }
 
+/* the second look of a call takes the takeover (handoff_test.h, gap "sync" 1): from the first pattern call
+ * to the second */
+static uint32_t seq_look_hits;
+static void seq_gap_second_look(const char *where, uint32_t n)
+{
+    (void)n;
+    if (strcmp(where, "sync") == 0 && ++seq_look_hits == 2u) {
+        seq_render_to(15);
+        seq_render_to(0);                                     /* the pass ends: 12 takes over */
+    }
+}
+
+/* #324, Codex P3: the footer is one look. A takeover between its reads of the queued and the running
+ * pattern showed "PTN 12" with "NEXT 12" for a frame: now it shows 11 with NEXT 12, or 12 alone */
+TT_TEST(seq_footer_is_one_look_through_a_takeover)
+{
+    char left[UI_SEQ_TEXT_LEN], right[UI_SEQ_TEXT_LEN];
+    ui_setup();
+    seq_play(play_seq(&ui_p));
+    seq_render_to(0);
+    pattern_queue(play_patterns(&ui_p), 1);                  /* queued: 12 */
+    seq_look_hits = 0;
+    handoff_gap = seq_gap_second_look;
+    ui_seq_footer_text(&ui_u, left, right);
+    handoff_gap = 0;
+    TT_CHECK((strcmp(left, "PTN 11") == 0 && strcmp(right, "NEXT 12") == 0) ||
+             (strcmp(left, "PTN 12") == 0 && strcmp(right, "") == 0));
+    seq_render_to(15);
+    seq_render_to(0);                                         /* (past the pass end, if not in the call) */
+    ui_seq_footer_text(&ui_u, left, right);
+    TT_CHECK(strcmp(left, "PTN 12") == 0 && strcmp(right, "") == 0);
+}
+
 /* The header shows the tempo (>07 120 INT): a TEMPO turn redraws it, stopped or playing */
 TT_TEST(seq_tempo_turn_redraws_the_header)
 {
@@ -2094,6 +2127,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_stop_clears_the_playhead);
     TT_RUN(seq_roll_redraws_whole_when_the_next_pattern_takes_over);
     TT_RUN(seq_turn_right_after_a_takeover_starts_from_the_new_pattern);
+    TT_RUN(seq_footer_is_one_look_through_a_takeover);
     TT_RUN(seq_tempo_turn_redraws_the_header);
     TT_RUN(seq_roll_wide_span_fits_once);
     TT_RUN(seq_select_and_the_pattern_page);

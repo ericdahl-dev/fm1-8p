@@ -30,6 +30,14 @@ typedef struct {
     uint32_t changes;                   /* +1 another pattern running (a takeover, a load): a snapshot's token */
 } pattern_now;
 
+/* What the screen shows of the patterns, from one look (pattern_look) */
+typedef struct {
+    uint32_t running;                   /* as pattern_running */
+    char name[STORE_NAME_LEN + 1u];     /* the running pattern's */
+    int32_t queued;                     /* as pattern_queued: -1 none */
+    uint32_t edited;                    /* as pattern_edited */
+} pattern_seen;
+
 void pattern_init(pattern_now *n, seq *s);
 /* The slots are read: the running slot's pattern loads (slot 0 from init). */
 void pattern_attach(pattern_now *n, pat_lib *lib, const store_io *io);
@@ -38,6 +46,8 @@ void pattern_attach(pattern_now *n, pat_lib *lib, const store_io *io);
 uint32_t pattern_running(pattern_now *n, char *name);
 /* The queued pattern's slot (-1: none), and its name as pattern_running's. */
 int32_t pattern_queued(pattern_now *n, char *name);
+/* The running and queued patterns and edited, all from one look: no takeover between them. */
+void pattern_look(pattern_now *n, pattern_seen *v);
 /* PATTERN EDITED: the running pattern (as edited) differs from its stored pattern. */
 uint32_t pattern_edited(pattern_now *n);
 /* Slot q (an empty one: the empty pattern). Stopped, it loads at once. Playing, it is queued for the

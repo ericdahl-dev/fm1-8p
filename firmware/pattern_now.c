@@ -25,6 +25,7 @@ static void pn_note(pattern_now *n)
 
 static void pn_sync(pattern_now *n)
 {
+    HANDOFF_GAP("sync", 1);                        /* (a takeover may come before any look) */
     pn_note(n);                                    /* (one seq took in already, in another of its calls) */
     (void)seq_main_tick(n->s);
     pn_note(n);
@@ -92,6 +93,15 @@ int32_t pattern_queued(pattern_now *n, char *name)
     if (name)
         pn_copy_name(name, n->queued >= 0 ? n->queued_name : "");
     return n->queued;
+}
+
+void pattern_look(pattern_now *n, pattern_seen *v)
+{
+    pn_sync(n);
+    v->running = n->running;
+    pn_copy_name(v->name, n->running_name);
+    v->queued = n->queued;
+    v->edited = seq_edited(n->s);
 }
 
 uint32_t pattern_edited(pattern_now *n)

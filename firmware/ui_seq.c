@@ -623,20 +623,19 @@ static char *put_slot(char *s, uint32_t q)
 
 void ui_seq_footer_text(const ui *u, char *left, char *right)
 {
-    char name[STORE_NAME_LEN + 1u];
+    pattern_seen v;                             /* one look: no takeover between its parts */
     char *s = put_s(left, "PTN ");
-    pattern_now *pn = play_patterns(u->p);
-    int32_t next = pattern_queued(pn, 0);
-    s = put_slot(s, pattern_running(pn, name));
-    if (*name) {
+    pattern_look(play_patterns(u->p), &v);
+    s = put_slot(s, v.running);
+    if (*v.name) {
         s = put_s(s, " ");
-        s = put_s(s, name);
+        s = put_s(s, v.name);
     }
-    if (pattern_edited(pn))
+    if (v.edited)
         put_s(s, "*");
     *right = 0;
-    if (next >= 0)
-        put_slot(put_s(right, "NEXT "), (uint32_t)next);
+    if (v.queued >= 0)
+        put_slot(put_s(right, "NEXT "), (uint32_t)v.queued);
 }
 
 /* every note of the pattern's steps (within its length) and an armed step's notes so far, into *lo, *hi;
