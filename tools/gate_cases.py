@@ -124,6 +124,21 @@ def factory(tree):
             dev = list(args)
             dev[dev.index("-v") + 1] = "4"
             yield "tone-17-4v-v127-wide", "wide127.mid", dev
+            yield from device(dev)
+
+
+# The unison clip that plays loudest on 4 voices (#342 step 2): measured at -v 4, see device()
+UNISON_WORST = "unison-sync"
+
+
+def device(soundtrack):
+    """Device-like twins (#342 step 2): clips again on the device's 4 voices at its output gain (-d, the
+    engine's FM_OUT_SHIFT_DEVICE), so a change to the module gain shows on the gate as differing clips.
+    SOUNDTRACK's wide chord at 127 and its 4-note chord at 100, and the unison worst case."""
+    yield "tone-17-4v-v127-wide-dev", "wide127.mid", soundtrack + ["-d"]
+    yield "tone-17-4v-v100-chord-dev", "chord100.mid", soundtrack + ["-d"]
+    mid, args = {n: (m, a) for n, m, a in unison()}[UNISON_WORST]
+    yield "unison-4v-dev", mid, args + ["-v", "4", "-d"]
 
 
 def cases(tree):

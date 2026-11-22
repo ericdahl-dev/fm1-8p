@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The no-sound gate's MIDI files (tools/gate.sh, #140), written from note lists: original material.
 usage: python3 tools/gate_midi.py DIR    (writes DIR/chords.mid, unison.mid, vel.mid, ab.mid, controllers.mid,
-                                           score.mid, wide127.mid)"""
+                                           score.mid, wide127.mid, chord100.mid)"""
 import os
 import struct
 import sys
@@ -90,6 +90,13 @@ def wide127():
     return [(n, 0.25, 6.25, 127) for n in (36, 48, 79, 91)]
 
 
+def chord100():
+    """SOUNDTRACK's everyday 4-note chord, C3 E3 G3 C4 at velocity 100, held 6 s (tests/test_headroom.c holds
+    it 10 s): where the module's gain first saturates in everyday playing (#320). Four notes, so on 4 voices
+    no voice is stolen."""
+    return [(n, 0.25, 6.25, 100) for n in (48, 52, 55, 60)]
+
+
 def controllers():
     """The sustain pedal holding released keys, then letting go; the mod wheel swept; pitch bend up and
     back; all notes off under the pedal; all sound off."""
@@ -107,7 +114,8 @@ def controllers():
 
 
 FILES = {"chords.mid": chords, "unison.mid": unison, "vel.mid": vel, "ab.mid": ab,
-         "controllers.mid": controllers, "score.mid": score, "wide127.mid": wide127}
+         "controllers.mid": controllers, "score.mid": score, "wide127.mid": wide127,
+         "chord100.mid": chord100}
 
 if __name__ == "__main__":
     d = sys.argv[1]
