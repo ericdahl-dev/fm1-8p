@@ -2,7 +2,7 @@
  * The device's headroom (#320): the playable module (firmware/play.c) on its 4 voices at 44.1 kHz, booted on
  * SOUNDTRACK (the default patch): velocity-127 chords held 34 s, past the 32 s filter attack, and everyday
  * velocity-100 chords held 10 s. Measured through play_render, the device's own output path (the engine's
- * output stage at FM_OUT_SHIFT_DEVICE, #342: the makeup, then the module's +12 dB, saturated at the Q15
+ * output stage at FM_OUT_SHIFT_DEVICE, #342: the makeup, then the module's +6 dB, saturated at the Q15
  * rails; at that gain the soft clip never shapes a sample, since its knee is past the clamp, so every
  * saturated sample here is a hard clip). The knee figure comes from a twin at the engine's own level (output shift 0), as the stage's
  * soft clip sees it.
@@ -54,52 +54,61 @@ static hr_stats hr_chord(const uint8_t *notes, int count, uint32_t seconds, uint
     return s;
 }
 
+/* One pinned case: its figures, printed, then each inside its band. A knee band of -1 is not checked. */
+typedef struct {
+    const char *name;
+    uint8_t notes[4];
+    int count;
+    uint32_t seconds, vel;
+    double sat_min, sat_max, peak_min, peak_max, knee_min, knee_max;
+} hr_pin;
+
+static int hr_check(const hr_pin *p)
+{
+    hr_stats s = hr_chord(p->notes, p->count, p->seconds, p->vel);
+    printf("    SOUNDTRACK %s at %u, held %u s: module peak %+.2f dBFS (pin %+.2f..%+.2f), %.3f %% saturated "
+           "(pin %.4f..%.4f); engine %.3f %% past its knee\n", p->name, (unsigned)p->vel, (unsigned)p->seconds,
+           s.peak_dbfs, p->peak_min, p->peak_max, s.sat_pct, p->sat_min, p->sat_max, s.knee_pct);
+    return s.ok && s.sat_pct >= p->sat_min && s.sat_pct <= p->sat_max && s.peak_dbfs >= p->peak_min &&
+           s.peak_dbfs <= p->peak_max && (p->knee_min < 0 || (s.knee_pct >= p->knee_min && s.knee_pct <= p->knee_max));
+}
+
+static int hr_check_all(const hr_pin *p, size_t n)
+{
+    size_t k;
+    int ok = 1;
+    for (k = 0; k < n; k++)
+        ok &= hr_check(&p[k]);
+    return ok;
+}
+
 /*
- * A PIN, not a goal (#320): today's figures on main 248ff96, inside a band either way, so a change to the
- * level, the chorus (#319) or aftertouch (#61), up or down, shows as a measured difference and has to move
- * these on purpose. Through play_render the module's +12 dB saturates at +-32767 (a hard clip on the FM-1's
- * Q15 output): 17 to 33 % of these chords' samples today. The engine's own soft clip (past -2.85 dBFS) bends
- * 0.1 to 0.5 % of its samples. Whether the level comes down is Eric's call (#320).
+ * A PIN, not a goal (#320): the figures at FM_OUT_SHIFT_DEVICE 1 (x2, +6 dB), inside a band either way, so a
+ * change to the level, the chorus (#319) or aftertouch (#61), up or down, shows as a measured difference and
+ * has to move these on purpose. At +6 dB the module still saturates at +-32767 (a hard clip) on velocity-127
+ * chords held past the filter attack (1.3 to 5.2 % of their samples). The engine's own soft clip (past
+ * -2.85 dBFS) bends 0.1 to 0.5 % of its samples, whatever the module's gain.
  */
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
-    static const struct { uint8_t notes[4]; double sat_min, sat_max, knee_min, knee_max; } c[] = {
-        { { 48, 52, 55, 60 }, 16.8, 17.5, 0.09, 0.11 },  /* today 17.176 %, 0.100 % */
-        { { 36, 48, 79, 91 }, 24.5, 25.2, 0.17, 0.21 },  /* today 24.855 %, 0.191 % */
-        { { 24, 36, 96, 108 }, 32.8, 33.5, 0.47, 0.53 }, /* today 33.151 %, 0.500 % */
+    static const hr_pin c[] = {
+        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 34, 127, 1.0, 1.6, -0.1, 0.1, 0.09, 0.11 },   /* today 1.304 %, knee 0.100 % */
+        { "C2 C3 G5 G6", { 36, 48, 79, 91 }, 4, 34, 127, 2.1, 2.7, -0.1, 0.1, 0.17, 0.21 },   /* today 2.410 %, knee 0.191 % */
+        { "C1 C2 C7 C8", { 24, 36, 96, 108 }, 4, 34, 127, 4.85, 5.5, -0.1, 0.1, 0.47, 0.53 }, /* today 5.189 %, knee 0.500 % */
     };
-    size_t k;
-    for (k = 0; k < sizeof c / sizeof c[0]; k++) {
-        hr_stats s = hr_chord(c[k].notes, 4, 34, 127);
-        printf("    SOUNDTRACK %d %d %d %d at 127, held 34 s: module peak %+.2f dBFS, %.3f %% saturated (pin %.1f..%.1f); "
-               "engine %.3f %% past its knee (pin %.2f..%.2f)\n", c[k].notes[0], c[k].notes[1], c[k].notes[2],
-               c[k].notes[3], s.peak_dbfs, s.sat_pct, c[k].sat_min, c[k].sat_max, s.knee_pct, c[k].knee_min,
-               c[k].knee_max);
-        TT_CHECK(s.ok);
-        TT_CHECK(s.sat_pct >= c[k].sat_min && s.sat_pct <= c[k].sat_max);
-        TT_CHECK(s.knee_pct >= c[k].knee_min && s.knee_pct <= c[k].knee_max);
-    }
+    TT_CHECK(hr_check_all(c, sizeof c / sizeof c[0]));
 }
 
 /* The same pin for everyday playing at velocity 100 (#320), chords held 10 s: a 4-note chord saturates
- * 14.7 % of its samples today, a triad 2.0 %, one note none. */
+ * 0.8 % of its samples, a triad just reaches the rails, one note peaks 6.4 dB under them. */
 TT_TEST(headroom_soundtrack_velocity_100_pinned)
 {
-    static const uint8_t one[] = { 60 }, triad[] = { 60, 64, 67 }, four[] = { 48, 52, 55, 60 };
-    hr_stats s;
-    s = hr_chord(one, 1, 10, 100);
-    printf("    SOUNDTRACK C4 at 100: peak %+.2f dBFS, %.3f %% saturated\n", s.peak_dbfs, s.sat_pct);
-    TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct == 0);
-    TT_CHECK(s.peak_dbfs > -1.0);   /* today -0.35 dBFS: just under the rails */
-    s = hr_chord(triad, 3, 10, 100);
-    printf("    SOUNDTRACK C4 E4 G4 at 100: %.3f %% saturated (pin 1.8..2.2)\n", s.sat_pct);
-    TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct >= 1.8 && s.sat_pct <= 2.2);     /* today 2.022 % */
-    s = hr_chord(four, 4, 10, 100);
-    printf("    SOUNDTRACK C3 E3 G3 C4 at 100: %.3f %% saturated (pin 14.3..15.0)\n", s.sat_pct);
-    TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct >= 14.3 && s.sat_pct <= 15.0);   /* today 14.655 % */
+    static const hr_pin c[] = {
+        { "C4", { 60 }, 1, 10, 100, 0, 0, -6.9, -5.9, -1, -1 },                        /* today 0 %, peak -6.37 dBFS */
+        { "C4 E4 G4", { 60, 64, 67 }, 3, 10, 100, 0.0001, 0.05, -0.1, 0.1, -1, -1 },   /* today 0.003 % */
+        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 10, 100, 0.5, 1.1, -0.1, 0.1, -1, -1 }, /* today 0.789 % */
+    };
+    TT_CHECK(hr_check_all(c, sizeof c / sizeof c[0]));
 }
 
 static void run_headroom_tests(void)

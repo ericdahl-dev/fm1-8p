@@ -309,7 +309,7 @@ TT_TEST(play_output_is_the_engines_at_the_device_gain)
             clamped |= pl_a.buf[i] == 32767 || pl_a.buf[i] == -32767;
         }
     }
-    TT_CHECK_EQ(FM_OUT_SHIFT_DEVICE, 2);        /* x4 (+12 dB) until #320 picks */
+    TT_CHECK_EQ(FM_OUT_SHIFT_DEVICE, 1);        /* x2 (+6 dB), #320 */
     TT_CHECK(clamped);                          /* the device gain is in the engine's output */
 }
 
