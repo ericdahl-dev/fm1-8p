@@ -793,8 +793,58 @@ TT_TEST(seq_glides_do_not_depend_on_the_block_size)
     }
 }
 
+/* #324: an empty slot's pattern is empty, and any setting or step that plays differently is not */
+TT_TEST(seq_pattern_is_empty_as_it_plays)
+{
+    static seq_pattern p;
+    seq_pattern_empty(&p);
+    TT_CHECK(seq_pattern_is_empty(&p));
+    p.swing_pct = SEQ_SWING_DEF + 1u;
+    TT_CHECK(!seq_pattern_is_empty(&p));
+    seq_pattern_empty(&p);
+    p.step[SEQ_STEPS - 1u].kind = SEQ_TIE;
+    TT_CHECK(!seq_pattern_is_empty(&p));
+    seq_pattern_empty(&p);
+    p.step[3].glide = 1;
+    TT_CHECK(!seq_pattern_is_empty(&p));
+}
+
+/* #324: a takeover inside a step edit, after the edit synced and before it is published (handoff_test.h,
+ * gap "edit" 1): the edit, of a, goes with a. From then on b plays, before any other main-loop call. */
+static void seq_gap_takeover(const char *where, uint32_t n)
+{
+    (void)n;
+    if (strcmp(where, "edit") == 0)
+        seq_run(seq_start_at(4, 44100, 1200), SEQ_256, 1, 44100, 6);   /* past a's pass end */
+}
+TT_TEST(seq_takeover_inside_an_edit_plays_the_new_pattern)
+{
+    static seq_pattern a, b;
+    uint8_t g = 77;
+    uint32_t i, from, others = 0;
+    seq_fresh();
+    seq_two(&a, &b, 3);
+    a.tempo = b.tempo = 1200;
+    seq_load_pattern(&sq, &a);
+    seq_play(&sq);
+    seq_run(1000, SEQ_256, 1, 44100, 6);
+    seq_load_pattern(&sq, &b);
+    handoff_gap = seq_gap_takeover;
+    seq_set_step(&sq, 1, &g, 1, 100);           /* b takes over inside it */
+    handoff_gap = 0;
+    TT_CHECK_EQ(seq_next_queued(&sq), 0u);
+    from = seq_logged;
+    seq_run(2u * seq_start_at(4, 44100, 1200), SEQ_256, 1, 44100, 6);   /* no main-loop call since */
+    for (i = from; i < seq_logged; i++)
+        others += seq_log[i].vel && seq_log[i].note != 72u;
+    TT_CHECK(seq_logged > from);
+    TT_CHECK_EQ(others, 0u);                    /* only b's: not a, not a's edit */
+}
+
 static void run_seq_tests(void)
 {
+    TT_RUN(seq_takeover_inside_an_edit_plays_the_new_pattern);
+    TT_RUN(seq_pattern_is_empty_as_it_plays);
     TT_RUN(seq_starts_empty_and_stopped);
     TT_RUN(seq_edits_steps_length_and_tempo);
     TT_RUN(seq_steps_fire_at_their_exact_frames);

@@ -8,6 +8,7 @@
 #include "patch_store.h"
 #include "seq.h"
 #include "pattern_store.h"
+#include "pattern_now.h"
 
 #define PLAY_FS 44100u
 #define PLAY_BLOCK 256u                 /* frames per fm1-dock render call */
@@ -65,17 +66,13 @@ typedef struct {
     int32_t edit[FM_PARAM_COUNT];
     uint32_t comparing;                 /* main loop: 1 while the stored patch sounds for compare */
     seq seq;                            /* the sequencer (seq.h: its own main loop / ISR split) */
-    /* pattern slots (#40), main loop: the slots (NULL: none, or not read yet), the slot playing and its
-     * name, and the one queued to take over after the pass (-1 none) */
+    /* pattern slots (#40), main loop: the slots (NULL: none, or not read yet), and which pattern is
+     * running, queued and stored (#324) */
+    pattern_now pat;
     pat_lib *plib;
     pat_lib *plib_attached;
     uint32_t store_bank;                /* main loop: the next bank the first draws read (one a draw) */
     uint32_t store_read;                /* main loop: the banks read so far, all kinds (the boot's bar) */
-    uint32_t pat_prog;
-    int32_t pat_next;
-    uint32_t pat_next_gone;              /* main loop: its slot was deleted while it waited (#303) */
-    char pat_name[STORE_NAME_LEN + 1u];
-    char pat_next_name[STORE_NAME_LEN + 1u];
     seq_event seq_ev[SEQ_EVENTS];       /* ISR only: a block's sequencer notes, static (not on its stack) */
 } play;
 
@@ -102,29 +99,12 @@ void play_attach_patterns(play *p, pat_lib *lib);
  * 4 ms, a draw call's budget 5: visual.md): the user slots' two, then the pattern slots' two, and with
  * the last slot 0's pattern into the sequencer. 1 when it read one (the call's work is done), 0 after. */
 uint32_t play_store_tick(play *p);
-/* Pattern slots (#40), main loop. The slot playing (0..63, shown 11..88; 0 from init) and its name
- * (STORE_NAME_LEN + 1 chars, "" for an empty slot); the slot queued to take over after the pass, -1 none. */
-uint32_t play_pattern_prog(const play *p);
-void play_pattern_name(const play *p, char *name);
-int32_t play_pattern_next(const play *p);
-/* Load slot q (an empty one: the empty pattern). Stopped, at once; playing, queued for the end of the
- * pass, and q the running slot cancels a queued one (interaction.md, Pattern slots). */
-void play_load_pattern(play *p, uint32_t q);
-/* Each draw: a queued pattern that has taken over (or that a stop loaded) becomes the slot playing. */
-void play_pattern_tick(play *p);
+/* Pattern slots (#40), main loop: the running, queued and stored patterns (pattern_now.h, #324). */
+pattern_now *play_patterns(play *p);
 /* the flash banks the first draws read: the user slots' and the pattern slots', and how many are read so
  * far (the boot screen's load bar, #50) */
 #define PLAY_STORE_BANKS (STORE_USER_SLOTS / STORE_BANK_SLOTS + PAT_SLOTS / STORE_BANK_SLOTS)
 uint32_t play_store_progress(const play *p);
-/* The edit buffer, for a save that waits (SAVE: the snapshot is what is written). */
-void play_pattern_snapshot(const play *p, seq_pattern *snap);
-/* snap, named `name`, into pattern slot dest and its bank to flash: 0, or -1 when the write failed.
- * dest is then the slot playing, and the edit buffer is edited only by what changed since the snapshot. */
-int play_pattern_write(play *p, uint32_t dest, const seq_pattern *snap, const char *name);
-/* play_pattern_snapshot then play_pattern_write, at once */
-int play_pattern_save(play *p, uint32_t dest, const char *name);
-/* Empties pattern slot dest (#303): 0, or -1 when the write failed. What plays stays as it is. */
-int play_pattern_delete(play *p, uint32_t dest);
 /* main loop: 1 when nothing sounds, no note waits to, and the sequencer is stopped (a flash write may
  * stall the sound then; #201) */
 uint32_t play_silent(const play *p);

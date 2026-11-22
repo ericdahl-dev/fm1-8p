@@ -245,8 +245,10 @@ int32_t ui_seq_value(const ui *u, uint32_t k)
 static void turn(ui *u, uint32_t k, int32_t clicks)
 {
     seq *s = play_seq(u->p);
-    int32_t fast = clicks >= 3 || clicks <= -3, v = ui_seq_value(u, k);
+    int32_t fast = clicks >= 3 || clicks <= -3, v;
     const seq_step *st;
+    (void)pattern_running(play_patterns(u->p), 0);   /* a takeover first: the value is the running one's */
+    v = ui_seq_value(u, k);
     if (!UI_SEQ_SLOTS[u->seq_page][k].live)
         return;
     switch (u->seq_page * 4u + k) {
@@ -317,8 +319,9 @@ static char *put_s(char *s, const char *t);
 static void browse(ui *u, int32_t clicks, uint32_t ms)
 {
     const seq *s = play_seq(u->p);
-    int32_t way = clicks > 0 ? 1 : -1, from = play_pattern_next(u->p), q;
-    if (seq_edited(s) && !(u->warned == way && ms - u->warned_ms < UI_DISCARD_MS)) {
+    pattern_now *pn = play_patterns(u->p);
+    int32_t way = clicks > 0 ? 1 : -1, from = pattern_queued(pn, 0), q;
+    if (pattern_edited(pn) && !(u->warned == way && ms - u->warned_ms < UI_DISCARD_MS)) {
         banner(u, "PTN EDITED - TURN TO DISCARD", ms);   /* the first click loads nothing */
         u->warned = way;
         u->warned_ms = ms;
@@ -328,10 +331,10 @@ static void browse(ui *u, int32_t clicks, uint32_t ms)
     if (clicks >= 3 || clicks <= -3)
         clicks = clicks > 0 ? 8 : -8;
     if (from < 0)                               /* (on from the queued one, if there is one) */
-        from = (int32_t)play_pattern_prog(u->p);
+        from = (int32_t)pattern_running(pn, 0);
     q = ((from + clicks) % (int32_t)UI_PATTERNS + (int32_t)UI_PATTERNS) % (int32_t)UI_PATTERNS;
-    play_load_pattern(u->p, (uint32_t)q);
-    if (s->want && play_pattern_next(u->p) >= 0) {   /* queued: say which */
+    pattern_queue(pn, (uint32_t)q);
+    if (s->want && pattern_queued(pn, 0) >= 0) {   /* queued: say which */
         put_slot(put_s(u->seq_msg, "NEXT PATTERN "), (uint32_t)q);
         banner(u, u->seq_msg, ms);
     } else {
@@ -620,20 +623,19 @@ static char *put_slot(char *s, uint32_t q)
 
 void ui_seq_footer_text(const ui *u, char *left, char *right)
 {
-    char name[STORE_NAME_LEN + 1u];
+    pattern_seen v;                             /* one look: no takeover between its parts */
     char *s = put_s(left, "PTN ");
-    int32_t next = play_pattern_next(u->p);
-    s = put_slot(s, play_pattern_prog(u->p));
-    play_pattern_name(u->p, name);
-    if (*name) {
+    pattern_look(play_patterns(u->p), &v);
+    s = put_slot(s, v.running);
+    if (*v.name) {
         s = put_s(s, " ");
-        s = put_s(s, name);
+        s = put_s(s, v.name);
     }
-    if (seq_edited(play_seq(u->p)))
+    if (v.edited)
         put_s(s, "*");
     *right = 0;
-    if (next >= 0)
-        put_slot(put_s(right, "NEXT "), (uint32_t)next);
+    if (v.queued >= 0)
+        put_slot(put_s(right, "NEXT "), (uint32_t)v.queued);
 }
 
 /* every note of the pattern's steps (within its length) and an armed step's notes so far, into *lo, *hi;
