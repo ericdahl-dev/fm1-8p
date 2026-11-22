@@ -26,9 +26,9 @@ static void pn_note(pattern_now *n)
 static void pn_sync(pattern_now *n)
 {
     HANDOFF_GAP("sync", 1);                        /* (a takeover may come before any look) */
-    pn_note(n);                                    /* (one seq took in already, in another of its calls) */
     (void)seq_main_tick(n->s);
-    pn_note(n);
+    pn_note(n);                                    /* keyed on seq_adopted, a state: also a takeover another
+                                                       seq call took in before */
 }
 
 static void pn_read_slot(const pattern_now *n, uint32_t q, seq_pattern *pat, char *name)
