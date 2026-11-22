@@ -1,4 +1,5 @@
 /* SAVE (firmware/ui_save.c): naming a patch and writing it to a user slot (interaction.md, SAVE). */
+#include "../firmware/ui_save.h"
 
 /* A fresh unit with the user slots on the RAM flash, the VCF page open. */
 static void save_setup(void)
@@ -887,7 +888,7 @@ TT_TEST(save_delete_of_the_queued_pattern_cancels_the_queue)
     static seq_pattern pat;
     uint32_t k, t;
     save_seq_setup();
-    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 0, &pat, "A", t), 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 1, &pat, "B", t), 0);
     pattern_queue(play_patterns(&ui_p), 0);
@@ -915,10 +916,10 @@ TT_TEST(save_right_after_a_takeover_targets_the_running_slot)
     char name[STORE_NAME_LEN + 1u];
     uint32_t k, t;
     save_seq_setup();                                       /* step 1 C4 */
-    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 0, &pat, "A", t), 0);
     seq_set_step(play_seq(&ui_p), 0, &e4, 1, 100);
-    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 1, &pat, "B", t), 0);
     pattern_queue(play_patterns(&ui_p), 0);                /* stopped: A at once */
     seq_play(play_seq(&ui_p));
@@ -985,10 +986,10 @@ TT_TEST(save_open_through_a_takeover_writes_the_pattern_it_opened_on)
     char name[STORE_NAME_LEN + 1u];
     uint32_t k, t;
     save_seq_setup();                                       /* step 1 C4 */
-    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 0, &pat, "A", t), 0);
     seq_set_step(play_seq(&ui_p), 0, &e4, 1, 100);
-    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0, 0);
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0);
     TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 1, &pat, "B", t), 0);
     pattern_queue(play_patterns(&ui_p), 0);                /* stopped: A at once */
     seq_set_step(play_seq(&ui_p), 0, &d4, 1, 100);         /* A, edited: D4 */
@@ -1001,6 +1002,7 @@ TT_TEST(save_open_through_a_takeover_writes_the_pattern_it_opened_on)
     for (k = 0; k < 40000u && seq_next_queued(play_seq(&ui_p)); k++)
         save_render(1);                                     /* B takes over, SAVE open */
     TT_CHECK(!seq_next_queued(play_seq(&ui_p)));
+    TT_CHECK(ui_save_edited(&ui_u));                        /* "+ EDITS": A's, as SAVE opened on it */
     save_tap(UI_BTN_SAVE, 1200);                            /* the confirm: waits, playing */
     seq_stop(play_seq(&ui_p));
     for (k = 0; k < 4000u && !play_silent(&ui_p); k++)
@@ -1015,6 +1017,25 @@ TT_TEST(save_open_through_a_takeover_writes_the_pattern_it_opened_on)
     TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), name), 1u);
     TT_CHECK(strcmp(name, "B") == 0);
     TT_CHECK(!pattern_edited(play_patterns(&ui_p)));
+}
+
+/* #324: SAVE's "+ EDITS" is the pattern SAVE opened on against its slot. Silent, a delete of that slot
+ * happens at once and SAVE stays, on the slot now EMPTY: the pattern is edited against it now */
+TT_TEST(save_delete_now_of_the_open_patterns_slot_shows_its_edits)
+{
+    save_seq_setup();                                       /* step 1 C4 */
+    save_tap(UI_BTN_SAVE, 1000);
+    save_tap(UI_BTN_SAVE, 2000);                            /* 11 holds it: not edited */
+    TT_CHECK(!pattern_edited(play_patterns(&ui_p)));
+    TT_CHECK(play_silent(&ui_p));
+    save_tap(UI_BTN_SAVE, 3000);
+    TT_CHECK(!ui_save_edited(&ui_u));
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);   /* DELETE 11? */
+    save_tap(UI_BTN_SEL, 5000);                             /* silent: now */
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK(!pat_slot_used(&save_plib, 0));
+    TT_CHECK(ui_save_edited(&ui_u));                        /* "+ EDITS": its notes, against EMPTY */
 }
 
 /* #303: a delete whose flash write fails says DELETE FAILED and leaves the slot as it was */
@@ -1046,6 +1067,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_right_after_a_takeover_targets_the_running_slot);
     TT_RUN(save_waiting_through_a_pattern_load_keeps_the_loaded_one);
     TT_RUN(save_open_through_a_takeover_writes_the_pattern_it_opened_on);
+    TT_RUN(save_delete_now_of_the_open_patterns_slot_shows_its_edits);
     TT_RUN(save_failed_delete_says_so);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);

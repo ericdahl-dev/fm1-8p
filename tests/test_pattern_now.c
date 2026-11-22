@@ -123,7 +123,7 @@ TT_TEST(pattern_save_into_the_queued_slot_changes_what_takes_over)
     pn_setup();
     pattern_queue(PN, 1);
     pn_pat(&d, 74);
-    TT_CHECK_EQ(pattern_save(PN, 1, &d, "D", pattern_snapshot(PN, &(seq_pattern){0}, 0, 0)), 0);
+    TT_CHECK_EQ(pattern_save(PN, 1, &d, "D", pattern_snapshot(PN, &(seq_pattern){0}, 0)), 0);
     pn_is(0, "A", 1);
     {
         char n[STORE_NAME_LEN + 1u];
@@ -159,7 +159,7 @@ TT_TEST(pattern_waiting_save_after_a_takeover_keeps_the_running_pattern)
     uint32_t t;
     pn_setup();
     seq_set_step(play_seq(&sp_a), 1, &g, 1, 100);
-    t = pattern_snapshot(PN, &snap, 0, 0);
+    t = pattern_snapshot(PN, &snap, 0);
     pattern_queue(PN, 1);
     pn_passes();
     TT_CHECK_EQ(pattern_save(PN, 0, &snap, "A2", t), 0);
@@ -175,7 +175,7 @@ TT_TEST(pattern_waiting_save_into_the_new_running_slot_shows_it_edited)
     static seq_pattern snap;
     uint32_t t;
     pn_setup();
-    t = pattern_snapshot(PN, &snap, 0, 0);
+    t = pattern_snapshot(PN, &snap, 0);
     pattern_queue(PN, 1);
     pn_passes();
     TT_CHECK_EQ(pattern_save(PN, 1, &snap, "AA", t), 0);
@@ -247,7 +247,7 @@ TT_TEST(pattern_save_in_the_window_targets_the_running_slot)
     pn_setup();
     pattern_queue(PN, 1);
     pn_take();
-    t = pattern_snapshot(PN, &snap, 0, 0);
+    t = pattern_snapshot(PN, &snap, 0);
     TT_CHECK_EQ(pattern_save(PN, pattern_running(PN, 0), &snap, "B", t), 0);
     TT_CHECK_EQ(pat_slot_read(&pp_lib, 1, &out, n), 0);
     TT_CHECK_EQ(out.step[0].note[0], 64u);      /* B's, into B's slot */
@@ -267,7 +267,7 @@ static uint32_t pn_c_takeover(void) { return pattern_takeover(PN) == 1u; }
 static uint32_t pn_c_snapshot(void)
 {
     static seq_pattern x;
-    (void)pattern_snapshot(PN, &x, 0, 0);
+    (void)pattern_snapshot(PN, &x, 0);
     return x.step[0].note[0] == 64u;
 }
 static uint32_t pn_c_queue_a(void) { pattern_queue(PN, 0); return pattern_queued(PN, 0) == 0; }
@@ -335,7 +335,7 @@ static uint32_t pn_gap_case(const char *where, uint32_t n, uint32_t op)
     case 0: pattern_queue(PN, 2); want = 2; want_name = "C"; note = 67; break;     /* on to C */
     case 1: pattern_queue(PN, 0); want = 0; want_name = "A"; note = 60; break;     /* back: cancel */
     case 2: pn_pat(&d, 74);                                                       /* B's slot saved anew */
-        ok &= pattern_save(PN, 1, &d, "D", pattern_snapshot(PN, &(seq_pattern){0}, 0, 0)) == 0;
+        ok &= pattern_save(PN, 1, &d, "D", pattern_snapshot(PN, &(seq_pattern){0}, 0)) == 0;
         want = 1; want_name = "D"; note = 74; break;
     default: ok &= pattern_delete(PN, 1) == 0; want = 0; want_name = "A"; note = 60; break;   /* B deleted */
     }

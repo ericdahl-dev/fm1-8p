@@ -6,13 +6,13 @@ static store_patch snap;                        /* the patch a confirming tap to
 static seq_pattern psnap;                       /* or the pattern, as SAVE opened on it, and its name */
 static char psnap_name[STORE_NAME_LEN + 1u];
 static uint32_t psnap_token;                   /* pattern_snapshot's: a takeover since keeps what runs */
-static uint32_t psnap_slot;                    /* the pattern's slot, from the same look */
+static pattern_seen psnap_seen;                /* its slot, name and edited, from the same look */
 
 /* the slot playing: the patch's, or the pattern SAVE opened on (Eric on #324: a takeover while SAVE is
  * open doesn't change what it saves) */
 static uint32_t current(const ui *u)
 {
-    return u->save_pattern ? psnap_slot : play_prog(u->p);
+    return u->save_pattern ? psnap_seen.running : play_prog(u->p);
 }
 
 /* the draft's key for the slot playing (a pattern's has UI_SAVE_PATTERN_DRAFT on) */
@@ -45,7 +45,7 @@ int ui_save_slot_used(const ui *u, uint32_t s, char *name)
 
 uint32_t ui_save_edited(const ui *u)
 {
-    return u->save_pattern ? pattern_edited(play_patterns(u->p)) : play_edited(u->p);
+    return u->save_pattern ? psnap_seen.edited : play_edited(u->p);   /* (the pattern's: as SAVE opened) */
 }
 
 void ui_save_open(ui *u, uint32_t ms)
@@ -54,8 +54,11 @@ void ui_save_open(ui *u, uint32_t ms)
     u->save_open_ms = ms;
     u->save_from = u->state;
     u->save_pattern = u->state == UI_SEQ;
-    if (u->save_pattern)                        /* the pattern, its slot and its name: one look */
-        psnap_token = pattern_snapshot(play_patterns(u->p), &psnap, &psnap_slot, u->save_name);
+    if (u->save_pattern) {                      /* the pattern, its slot, name and edited: one look */
+        psnap_token = pattern_snapshot(play_patterns(u->p), &psnap, &psnap_seen);
+        for (s = 0; s <= STORE_NAME_LEN; s++)
+            u->save_name[s] = psnap_seen.name[s];
+    }
     q = current(u);
     if (u->save_pattern) {
         u->save_dest = q;                       /* the pattern slot playing (always one: 11..88) */
@@ -159,9 +162,15 @@ static void write_slot(ui *u, uint32_t ms)
     u->save_home_armed = 0;
     if (u->save_delete) {                       /* a delete (#303) */
         u->save_delete = 0;
-        if ((u->save_pattern ? pattern_delete(play_patterns(u->p), u->save_dest) : play_delete(u->p, u->save_dest)) == 0)
+        if ((u->save_pattern ? pattern_delete(play_patterns(u->p), u->save_dest) : play_delete(u->p, u->save_dest)) == 0) {
+            if (u->save_pattern && u->save_dest == psnap_seen.running) {   /* its own slot: + EDITS against EMPTY */
+                pattern_seen v;
+                pattern_look(play_patterns(u->p), &v);
+                if (v.running == psnap_seen.running)   /* (its slot still runs: no takeover since) */
+                    psnap_seen.edited = v.edited;
+            }
             say(u, "DELETED", u->save_dest, ms, u->save_pattern);
-        else
+        } else
             say(u, "DELETE FAILED", STORE_USER_SLOTS, ms, 0);
         return;
     }

@@ -59,6 +59,14 @@ static void pn_load(pattern_now *n, uint32_t q)
     }
 }
 
+static void pn_seen(pattern_now *n, pattern_seen *v)
+{
+    v->running = n->running;
+    pn_copy_name(v->name, n->running_name);
+    v->queued = n->queued;
+    v->edited = seq_edited(n->s);
+}
+
 void pattern_init(pattern_now *n, seq *s)
 {
     n->s = s;
@@ -98,10 +106,7 @@ int32_t pattern_queued(pattern_now *n, char *name)
 void pattern_look(pattern_now *n, pattern_seen *v)
 {
     pn_sync(n);
-    v->running = n->running;
-    pn_copy_name(v->name, n->running_name);
-    v->queued = n->queued;
-    v->edited = seq_edited(n->s);
+    pn_seen(n, v);
 }
 
 uint32_t pattern_edited(pattern_now *n)
@@ -141,14 +146,12 @@ uint32_t pattern_takeover(pattern_now *n)
     return r;
 }
 
-uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap, uint32_t *slot, char *name)
+uint32_t pattern_snapshot(pattern_now *n, seq_pattern *snap, pattern_seen *v)
 {
     pn_sync(n);
     *snap = n->s->edit;
-    if (slot)
-        *slot = n->running;
-    if (name)
-        pn_copy_name(name, n->running_name);
+    if (v)
+        pn_seen(n, v);
     return n->changes;
 }
 
