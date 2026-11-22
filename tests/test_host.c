@@ -196,6 +196,35 @@ TT_TEST(tempo_changes_set_the_song_length)
     TT_CHECK_EQ(frames, 22050 + 11025);
 }
 
+/* render -d (#342): the output stage at the FM-1 module's gain, FM_OUT_SHIFT_DEVICE: the engine's own
+ * render 2^shift louder, clamped at +-32767, sample for sample. */
+TT_TEST(render_at_the_device_gain_is_the_engines_render_louder)
+{
+    render_opts o;
+    uint32_t frames, rate, f2, r2, i, louder = 0;
+    int16_t *a, *b;
+    memset(&o, 0, sizeof o);
+    o.sample_rate = 44100;
+    o.tail_ms = 100;
+    write_two_track_smf("build/dev.mid");
+    TT_CHECK_EQ(render_midi_file("build/dev.mid", "build/dev-engine.wav", &o), 0);
+    o.output_shift = FM_OUT_SHIFT_DEVICE;
+    TT_CHECK_EQ(render_midi_file("build/dev.mid", "build/dev-device.wav", &o), 0);
+    a = read_wav_pcm("build/dev-engine.wav", &frames, &rate);
+    b = read_wav_pcm("build/dev-device.wav", &f2, &r2);
+    TT_CHECK(a != NULL && b != NULL);
+    TT_CHECK_EQ(frames, f2);
+    for (i = 0; a && b && i < 2 * frames; i++) {
+        int32_t want = (int32_t)a[i] * (1 << FM_OUT_SHIFT_DEVICE);
+        want = want > 32767 ? 32767 : want < -32767 ? -32767 : want;
+        TT_CHECK_EQ(b[i], want);
+        louder |= b[i] != a[i];
+    }
+    free(a);
+    free(b);
+    TT_CHECK(louder);
+}
+
 TT_TEST(same_midi_file_renders_byte_identical_wav)
 {
     render_opts o = { .sample_rate = 44100, .tail_ms = 400 };
@@ -551,6 +580,12 @@ TT_TEST(render_reports_voice_count_channel_and_level)
     TT_CHECK(strstr(text, "1/8.33") != NULL);
     TT_CHECK(strstr(text, "-2.9 dBFS") != NULL);
     TT_CHECK(strstr(text, "-18.4") == NULL);
+    /* at the device's gain (-d) that note is past full scale: the clamp holds it there (#342) */
+    info.output_shift = FM_OUT_SHIFT_DEVICE;
+    render_describe(&info, text, sizeof text);
+    printf("    %s\n", text);
+    TT_CHECK(strstr(text, "clamped at full scale") != NULL);
+    TT_CHECK(strstr(text, "+9.") == NULL);
 }
 
 TT_TEST(render_rejects_a_bad_voice_count)
@@ -633,6 +668,7 @@ static void run_host_tests(void)
     TT_RUN(one_note_midi_file_renders_at_note_pitch);
     TT_RUN(render_applies_parameter_settings);
     TT_RUN(tempo_changes_set_the_song_length);
+    TT_RUN(render_at_the_device_gain_is_the_engines_render_louder);
     TT_RUN(same_midi_file_renders_byte_identical_wav);
     TT_RUN(render_rejects_bad_input);
     TT_RUN(smf_accepts_a_well_formed_file);

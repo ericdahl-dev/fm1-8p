@@ -20,6 +20,9 @@ typedef struct {
     uint32_t voice_count; /* 1..FM_MAX_VOICES; 0 means RENDER_DEFAULT_VOICES */
     uint32_t channel;     /* MIDI channel 1..16 to play; 0 means the
                              channel of the first note on */
+    uint32_t output_shift; /* the output stage's gain, 0..FM_OUT_SHIFT_MAX
+                              doublings (#342): 0 the engine's level, -d
+                              FM_OUT_SHIFT_DEVICE (the FM-1 module's) */
     /* engine parameters set before the song starts, in order */
     uint32_t param_count;
     uint16_t param_id[RENDER_MAX_SETTINGS];
@@ -41,6 +44,7 @@ typedef struct {
     uint32_t voice_count; /* after the default is applied */
     uint32_t channel;     /* MIDI channel played, 1..16 */
     uint32_t unison;      /* 1 if the engine ended in unison mode */
+    uint32_t output_shift; /* the output gain it rendered at */
 } render_info;
 
 /* render_midi_file, also filling `info` (if non-null) on success. */
@@ -49,8 +53,9 @@ int render_midi(const char *midi_path, const char *wav_path,
 
 /*
  * One line for the user: voice count, channel and the level one note
- * peaks at, since the mix gain is 1 / (2 x voices) (in unison one note
- * takes every voice, so it peaks at -6 dBFS).
+ * peaks at (both oscillators full, filter open), from the mix gain
+ * FM_MIX_GAIN_Q30 / voices, the +6 dB makeup and the output gain (in
+ * unison one note takes every voice).
  */
 void render_describe(const render_info *info, char *buf, size_t len);
 

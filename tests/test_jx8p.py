@@ -9,6 +9,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
+import cutoff_curve  # noqa: E402
 import jx8p  # noqa: E402
 
 SYX = os.path.join(ROOT, "data", "jx8p-factory-1-32.syx")
@@ -247,18 +248,19 @@ class MapTest(unittest.TestCase):
 
     # The engine's cutoff as it plays it (engine/filter.c, #253): its sources add in linear cents, then
     # bend once onto cutoff_cents's curve. curve() and linear() are fm_filter_voice_cents's curve and
-    # fm_filter_linear_cents, in floating point.
-    CURVE_A = 0.0988 / 115.03 ** 2
+    # fm_filter_linear_cents, in floating point, from tools/cutoff_curve.py's coefficients (#344).
+    CURVE_A = float(cutoff_curve.A2) / float(cutoff_curve.A1) ** 2
+    CURVE_ZERO = cutoff_curve.zero()
 
     @classmethod
     def curve(cls, u):
-        d = u + 1474
+        d = u - cls.CURVE_ZERO
         return u + cls.CURVE_A * d * d if d > 0 else u
 
     @classmethod
     def linear(cls, cents):
-        y = cents + 1474
-        return -1474 + ((1 + 4 * cls.CURVE_A * y) ** 0.5 - 1) / (2 * cls.CURVE_A) if y > 0 else cents
+        y = cents - cls.CURVE_ZERO
+        return cls.CURVE_ZERO + ((1 + 4 * cls.CURVE_A * y) ** 0.5 - 1) / (2 * cls.CURVE_A) if y > 0 else cents
 
     @classmethod
     def cutoff_at(cls, e, note, env_cents=0):
@@ -275,7 +277,7 @@ class MapTest(unittest.TestCase):
         e = jx8p.to_engine(jx8p.Tone("KEY 127", bytes(d)))
         f, k = d[jx8p.VCF_FREQ], jx8p.key_steps(127)
         for note, octaves in ((36, 0), (60, 2), (84, 4)):
-            want = 0.0988 * (f + octaves * k) ** 2 + 115.03 * (f + octaves * k) - 1474
+            want = cutoff_curve.cents(f + octaves * k)
             self.assertLess(abs(self.cutoff_at(e, note) - want), 5, note)
         self.assertLess(abs((self.cutoff_at(e, 60) - self.cutoff_at(e, 36)) / 2400 - 1.29), 0.05)
 
