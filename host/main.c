@@ -29,10 +29,13 @@ static void usage(void)
             "  -t MS          tail rendered after the song ends (default 1000)\n"
             "  -v VOICES      voice count, 1..%d (default %d); each voice is\n"
             "                 mixed at 1.44/(2 x VOICES), so fewer voices play louder\n"
+            "  -d             at the FM-1 module's output gain (x %u, the device's\n"
+            "                 level; default: the engine's own)\n"
             "  -c CHANNEL     MIDI channel to play, 1..16 (default: the channel\n"
             "                 of the first note on); other channels are ignored\n"
             "  -s NAME=VALUE  set a parameter (repeatable); parameters:\n",
-            (unsigned)SEQ_STEPS, (unsigned)SEQ_NOTES, FM_MAX_VOICES, RENDER_DEFAULT_VOICES);
+            (unsigned)SEQ_STEPS, (unsigned)SEQ_NOTES, FM_MAX_VOICES, RENDER_DEFAULT_VOICES,
+            1u << FM_OUT_SHIFT_DEVICE);
     for (id = 0; id < FM_PARAM_COUNT; id++) {
         const fm_param_info *p = fm_param_info_get(id);
         fprintf(stderr, "                   %-22s %d..%d (default %d)\n",
@@ -103,6 +106,8 @@ int main(int argc, char **argv)
                 fprintf(stderr, "bad loop count (1..1000): %s\n", argv[i]);
                 return 2;
             }
+        } else if (strcmp(opt, "-d") == 0) {
+            o.output_shift = FM_OUT_SHIFT_DEVICE;   /* a flag: no value (#342) */
         } else if (strcmp(opt, "-s") == 0) {
             if (args_parse_setting(argv[++i], &o) != 0) {
                 fprintf(stderr, "bad setting: %s\n", argv[i]);

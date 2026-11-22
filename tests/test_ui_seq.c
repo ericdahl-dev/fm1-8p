@@ -445,7 +445,7 @@ TT_TEST(seq_footer_says_the_pattern)
     TT_CHECK(strcmp(left, "PTN 11*") == 0);
     seq_play(play_seq(&ui_p));
     seq_render_to(0);
-    play_load_pattern(&ui_p, 1);                              /* queued: 12 */
+    pattern_queue(play_patterns(&ui_p), 1);                              /* queued: 12 */
     ui_seq_footer_text(&ui_u, left, right);
     TT_CHECK(strcmp(right, "NEXT 12") == 0);
 }
@@ -461,19 +461,19 @@ TT_TEST(seq_presets_loads_patterns_when_stopped)
     patch = play_prog(&ui_p);
     ui_tap(UI_BTN_SEQ, 1000);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);               /* 12 */
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);               /* 12 */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 1200);   /* around: 88 */
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 63u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 63u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 3, 1300);    /* fast: a row */
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 7u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 7u);
     TT_CHECK_EQ(play_prog(&ui_p), patch);                    /* (the patch stays) */
     seq_set_step(play_seq(&ui_p), 0, C, 1, 100);             /* edited: warned first */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2000);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 7u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 7u);
     TT_CHECK(strcmp(ui_banner(&ui_u), "PTN EDITED - TURN TO DISCARD") == 0);
     TT_CHECK(strlen(ui_banner(&ui_u)) <= 28u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2500);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 8u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 8u);
     TT_CHECK(!seq_edited(play_seq(&ui_p)));
 }
 
@@ -486,13 +486,13 @@ TT_TEST(seq_presets_queues_the_next_pattern_while_playing)
     ui_tap(UI_BTN_PLAY, 1100);
     seq_render_to(0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1200);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 0u);
-    TT_CHECK_EQ(play_pattern_next(&ui_p), 1);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 0u);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&ui_p), 0), 1);
     TT_CHECK(strcmp(ui_banner(&ui_u), "NEXT PATTERN 12") == 0);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1300);    /* on from the queued one */
-    TT_CHECK_EQ(play_pattern_next(&ui_p), 2);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&ui_p), 0), 2);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, -2, 1400);   /* back to the running one: none */
-    TT_CHECK_EQ(play_pattern_next(&ui_p), -1);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&ui_p), 0), -1);
 }
 
 /* The host's picker opens on HOME held alone 1.5 s, and the module sees HOME let go then (fm1-dock
@@ -802,7 +802,7 @@ TT_TEST(seq_roll_redraws_whole_on_a_pattern_load)
     (void)ui_take(&ui_u, 1050);
     (void)ui_seq_roll_take(&ui_u);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 1100);
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
     (void)ui_take(&ui_u, 1110);
     TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
 }
@@ -855,11 +855,64 @@ TT_TEST(seq_roll_redraws_whole_when_the_next_pattern_takes_over)
     (void)ui_take(&ui_u, 1300);
     (void)ui_seq_roll_take(&ui_u);
     seq_render_to(0);                                         /* the pass ends: 12 plays */
-    play_pattern_tick(&ui_p);                                 /* (the module's main loop) */
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    (void)pattern_takeover(play_patterns(&ui_p));                                 /* (the module's main loop) */
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
     d = ui_take(&ui_u, 1400);
     TT_CHECK(d & UI_D_FOCUS);
     TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
+}
+
+/* #324, Codex P3: a knob turned right after a takeover, before any other main-loop call, changes the
+ * pattern that now runs from its own value: B's SWING one up, not A's */
+TT_TEST(seq_turn_right_after_a_takeover_starts_from_the_new_pattern)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 2, 1100);      /* 11's SWING: 52 */
+    TT_CHECK_EQ(s->edit.swing_pct, SEQ_SWING_DEF + 2u);
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_render_to(0);
+    pattern_queue(play_patterns(&ui_p), 1);                  /* 12, empty: SWING 50 */
+    seq_render_to(15);
+    seq_render_to(0);                                         /* the pass ends: 12 takes over, no call since */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 1300);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
+    TT_CHECK_EQ(s->edit.swing_pct, SEQ_SWING_DEF + 1u);
+}
+
+/* the second look of a call takes the takeover (handoff_test.h, gap "sync" 1): from the first pattern call
+ * to the second */
+static uint32_t seq_look_hits;
+static void seq_gap_second_look(const char *where, uint32_t n)
+{
+    (void)n;
+    if (strcmp(where, "sync") == 0 && ++seq_look_hits == 2u) {
+        seq_render_to(15);
+        seq_render_to(0);                                     /* the pass ends: 12 takes over */
+    }
+}
+
+/* #324, Codex P3: the footer is one look. A takeover between its reads of the queued and the running
+ * pattern showed "PTN 12" with "NEXT 12" for a frame: now it shows 11 with NEXT 12, or 12 alone */
+TT_TEST(seq_footer_is_one_look_through_a_takeover)
+{
+    char left[UI_SEQ_TEXT_LEN], right[UI_SEQ_TEXT_LEN];
+    ui_setup();
+    seq_play(play_seq(&ui_p));
+    seq_render_to(0);
+    pattern_queue(play_patterns(&ui_p), 1);                  /* queued: 12 */
+    seq_look_hits = 0;
+    handoff_gap = seq_gap_second_look;
+    ui_seq_footer_text(&ui_u, left, right);
+    handoff_gap = 0;
+    TT_CHECK((strcmp(left, "PTN 11") == 0 && strcmp(right, "NEXT 12") == 0) ||
+             (strcmp(left, "PTN 12") == 0 && strcmp(right, "") == 0));
+    seq_render_to(15);
+    seq_render_to(0);                                         /* (past the pass end, if not in the call) */
+    ui_seq_footer_text(&ui_u, left, right);
+    TT_CHECK(strcmp(left, "PTN 12") == 0 && strcmp(right, "") == 0);
 }
 
 /* The header shows the tempo (>07 120 INT): a TEMPO turn redraws it, stopped or playing */
@@ -1205,7 +1258,7 @@ TT_TEST(seq_rec_save_and_pattern_load_drop_the_step_being_built)
     seq_note(5, 60, 90, 1, 2000);                             /* held on step 2 */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2100);    /* edited: warned */
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_PRESETS, 1, 2200);    /* loads 12 */
-    TT_CHECK_EQ(play_pattern_prog(&ui_p), 1u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
     seq_note(5, 60, 0, 0, 2300);
     TT_CHECK_EQ(seq_get_step(play_seq(&ui_p), ui_u.seq_cursor)->kind, SEQ_REST);
     TT_CHECK(!seq_edited(play_seq(&ui_p)));
@@ -2073,6 +2126,8 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_redraws_whole_on_length_tie_and_rest);
     TT_RUN(seq_roll_stop_clears_the_playhead);
     TT_RUN(seq_roll_redraws_whole_when_the_next_pattern_takes_over);
+    TT_RUN(seq_turn_right_after_a_takeover_starts_from_the_new_pattern);
+    TT_RUN(seq_footer_is_one_look_through_a_takeover);
     TT_RUN(seq_tempo_turn_redraws_the_header);
     TT_RUN(seq_roll_wide_span_fits_once);
     TT_RUN(seq_select_and_the_pattern_page);

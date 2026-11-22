@@ -195,7 +195,7 @@ class MetricTest(unittest.TestCase):
         s = self.sc.score_tone(np.stack([ours, ours], 1), np.stack([pg, pg], 1), harmonic=False)
         self.assertLess(s["spectral_db"]["low"], 0.5, s["spectral_db"])
 
-    # PG-8X's side lands on our renderer's grid: engine.c to_int16 floors (an arithmetic >> 8) and clips
+    # PG-8X's side lands on our renderer's grid: output.c to_int16 floors (an arithmetic >> 8) and clips
     # to -32768..32767, and the reader divides by 32768.
     def test_pg_at_our_level_is_floored_and_clipped_as_our_renderer(self):
         np = self.np
@@ -248,6 +248,17 @@ class MetricTest(unittest.TestCase):
         self.assertNotIn(19, odd)    # RES BELL: osc2 +15 c
         self.assertNotIn(20, odd)    # WAVEAURA: osc2 -14 c
         self.assertNotIn(32, odd)    # PSYCHMELLO: osc2 -12 c
+
+# The scorecard scores PG-8X against the engine's own level (#342): its renders never take -d, the FM-1
+# module's output gain, so moving that gain (#320) leaves the ruler (v5/s10) as it is. Needs no numpy.
+class RenderCommandTest(unittest.TestCase):
+    def test_the_scorecard_renders_at_the_engines_level_without_d(self):
+        import scorecard_cmd
+        cmd = scorecard_cmd.render_command("/t", ["-s", "osc1_level_permille=1000"], "a.mid", "b.wav")
+        self.assertNotIn("-d", cmd)
+        self.assertEqual(cmd, [os.path.join("/t", "build", "fm1-8p-render"), "-r", "48000", "-t", "3000", "-v", "6",
+                               "-s", "osc1_level_permille=1000", "a.mid", "b.wav"])
+
 
 @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
 class HistoryTest(unittest.TestCase):

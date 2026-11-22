@@ -15,6 +15,7 @@ from collections import namedtuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import params  # noqa: E402  (tools/params.py: the param list)
+import cutoff_curve  # noqa: E402  (tools/cutoff_curve.py: VCF FREQ's curve)
 
 Tone = namedtuple("Tone", "name params")   # params: the 59 data bytes, PG-800 / SysEx numbering
 
@@ -302,6 +303,7 @@ def generated_params():
             "firmware/patch_fields.h": emit_patch_fields_h(),
             "firmware/patch_store_tags.h": emit_store_tags_h(),
             "firmware/ui_params.h": emit_ui_params_h(),
+            "engine/cutoff_curve.h": cutoff_curve.emit_h(),
             "docs/patches.md": emit_patches_md()}
 
 
@@ -472,18 +474,18 @@ def env_mode(v):
 
 def cutoff_cents(v):
     """VCF FREQ, 0..127 (or a knob-step sum, fractional), as the engine's cutoff in cents from MIDI
-    note 0: 0.0988 v^2 + 115.03 v - 1474, fitted so the engine's resonant peak lands on PG-8X 2.0.13's
-    (VCF RES 96-127, no key follow, C4; within 0.45 semitone over 48..112; docs/patches.md). Below 13
+    note 0: tools/cutoff_curve.py's curve, fitted so the engine's resonant peak lands on PG-8X 2.0.13's
+    (VCF RES 96-127, no key follow, C4; within 0.45 semitone over 48..96; docs/patches.md). Below 13
     it is under the engine's lowest cutoff, note 0 (8.2 Hz), and clamps there. The engine plays its
     cutoff sources' sum through the same curve (engine/filter.c, cutoff_curve, #253)."""
-    return max(0, rnd(0.0988 * v * v + 115.03 * v - 1474))
+    return max(0, rnd(cutoff_curve.cents(v)))
 
 
 # PG-8X 2.0.13 adds VCF ENV and VCF KEY to VCF FREQ in knob steps, then plays the sum through
 # cutoff_cents's curve (#253, measured on PG-8X 3.0: ENV 100 at sustain 65 adds 50.2-50.7 steps at FREQ
 # 19, 30, 40 and 56 alike; KEY 73 at C6 adds 27.8-28.2 at FREQ 40 and 70). The engine adds them in
 # linear cents, LINEAR_CENTS_PER_STEP a knob step, and bends the sum once onto the curve.
-LINEAR_CENTS_PER_STEP = 115.03
+LINEAR_CENTS_PER_STEP = cutoff_curve.cents_per_step()
 # VCF KEY's knob steps an octave above C2, per KEY unit: 0.0955 (KEY 127 adds 47.9-48.2 at C6, 4
 # octaves up; 73 adds 27.8-28.2), the same as the 1.29 octaves an octave match.py measured at KEY 127
 # (#95) on the curve's slope there
