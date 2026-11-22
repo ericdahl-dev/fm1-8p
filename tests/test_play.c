@@ -453,8 +453,104 @@ TT_TEST(play_load_patch_asks_only_for_the_params_that_change)
     TT_CHECK_EQ(pl_a.asked[FM_PARAM_FILTER_RESONANCE >> 5], 1u << (FM_PARAM_FILTER_RESONANCE & 31u));
 }
 
+/* #349: the param asks' |= split by the interrupt (handoff_test.h, gap "asked" 1). The main loop has read
+ * asked[] with X's bit still on; a block applies X and clears it; the main loop writes X's bit back with
+ * Y's, so the next block sets X again, to the same value. That second set must not change the sound:
+ * the render is the same, sample for sample, as when the block falls after the |= */
+static play pl_b;
+static int32_t pl_ra[2 * PLAY_BLOCK], pl_rb[2 * PLAY_BLOCK];
+static void pl_into(play *p, int32_t *o)
+{
+    uint32_t i;
+    for (i = 0; i < 2 * PLAY_BLOCK; i++)
+        o[i] = 0;
+    play_render(p, o, PLAY_BLOCK);
+}
+static uint32_t pl_gap_hits;
+static void pl_gap(const char *where, uint32_t n)
+{
+    (void)n;
+    if (strcmp(where, "asked") == 0 && pl_gap_hits++ == 0)
+        pl_into(&pl_a, pl_ra);
+}
+/* blocks rendered before the sets (past PL_SECOND: the notes let go that many blocks before), and the
+ * first block after them that differs (0: none) */
+static uint32_t pl_race(uint32_t patch, uint16_t x, uint32_t before, int32_t *worst, int32_t *peak)
+{
+    const fm_param_info *in = fm_param_info_get(x);
+    uint16_t y = (uint16_t)((x ^ 1u) < FM_PARAM_COUNT ? x ^ 1u : x - 1u);   /* the same word of asked[] */
+    int32_t v;
+    uint32_t k, i, first = 0;
+    play *ps[2] = { &pl_a, &pl_b };
+    *worst = *peak = 0;
+    for (k = 0; k < 2u; k++) {
+        (void)play_init(ps[k]);
+        play_load_patch(ps[k], patch);
+        play_note(ps[k], 48, 110);
+        play_note(ps[k], 55, 100);
+        play_note(ps[k], 64, 90);
+        for (i = 0; i < before; i++) {
+            if (i + PL_SECOND == before) {               /* the release */
+                play_note(ps[k], 48, 0);
+                play_note(ps[k], 55, 0);
+                play_note(ps[k], 64, 0);
+            }
+            pl_into(ps[k], k ? pl_rb : pl_ra);
+        }
+    }
+    v = play_get_param(&pl_a, x) < in->max ? in->max : in->min;
+    play_set_param(&pl_b, x, v);                            /* the block after the |= */
+    pl_into(&pl_b, pl_rb);
+    play_set_param(&pl_b, y, play_get_param(&pl_b, y));
+    play_set_param(&pl_a, x, v);                            /* the block inside it */
+    pl_gap_hits = 0;
+    handoff_gap = pl_gap;
+    play_set_param(&pl_a, y, play_get_param(&pl_a, y));
+    handoff_gap = 0;
+    if (pl_gap_hits != 1u)                                  /* (the block did fall inside the |=) */
+        return 0xFFFFFFFFu;
+    for (i = 0; i < 2 * PLAY_BLOCK; i++)                   /* (that block: the same either way) */
+        if (pl_ra[i] != pl_rb[i] && !first)
+            first = 1;
+    for (k = 1; k <= PL_SECOND; k++) {
+        pl_into(&pl_a, pl_ra);
+        pl_into(&pl_b, pl_rb);
+        for (i = 0; i < 2 * PLAY_BLOCK; i++) {
+            int32_t d = pl_ra[i] - pl_rb[i], m = pl_rb[i] < 0 ? -pl_rb[i] : pl_rb[i];
+            d = d < 0 ? -d : d;
+            if (m > *peak)
+                *peak = m;
+            if (d > *worst)
+                *worst = d;
+            if (d && !first)
+                first = k + 1u;
+        }
+    }
+    return first;
+}
+TT_TEST(play_param_set_again_by_the_asks_race_changes_nothing)
+{
+    static const uint32_t BEFORE[] = { 2, 40, PL_SECOND + 4u };   /* attack, decay; released 4 blocks */
+    uint32_t b, n = 0, t;
+    uint16_t x;
+    int32_t worst, peak;
+    for (t = 0; t < PATCH_COUNT; t++)                       /* every factory patch: its envelopes, modes */
+        for (b = 0; b < sizeof BEFORE / sizeof BEFORE[0]; b++)
+            for (x = 0; x < FM_PARAM_COUNT; x++) {
+                uint32_t f = pl_race(t, x, BEFORE[b], &worst, &peak);
+                if (f) {
+                    n++;
+                    printf("    asks race: patch %u, %s after %u blocks: differs from block %u, worst %d of peak %d\n",
+                           (unsigned)t + 1u, fm_param_info_get(x)->name, (unsigned)BEFORE[b], (unsigned)f,
+                           (int)worst, (int)peak);
+                }
+            }
+    TT_CHECK_EQ(n, 0u);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_param_set_again_by_the_asks_race_changes_nothing);
     TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
     TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);
     TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);
