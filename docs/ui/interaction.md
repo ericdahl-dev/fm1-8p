@@ -843,13 +843,15 @@ What follows from them:
 | A slot's pattern is saved while it is queued | The takeover plays what the slot holds now, and the screen shows the slot's new name. |
 | A queued slot is deleted | The queue is canceled. The running pattern plays on and `NEXT` clears. |
 | A takeover while the running pattern is edited | Its edits are dropped. Queueing it already warned. |
+| Another pattern takes over while SAVE is open | SAVE saves the pattern it opened on, as it was then, into the slot and under the name it offered. The pattern that took over stays the running one, unedited (Eric, 2026-11-21). |
 | A SAVE waiting for silence when another pattern takes over | The save writes the snapshot it took. The pattern that took over stays the running one, unedited. |
 | The same, saved into the slot of the pattern that took over | That pattern shows edited: what plays differs from what its slot now holds. |
 | The running pattern's slot is deleted | It plays on, edited against the empty slot. |
 
 Every screen, SAVE, PRESETS turn and step edit sees a takeover as soon as it
 happens, not only from the next redraw. SAVE in SEQ view always offers the
-running pattern's slot.
+running pattern's slot, and takes the pattern, its slot and its name together
+when it opens.
 
 ### Playing
 
