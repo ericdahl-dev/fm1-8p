@@ -91,7 +91,9 @@ int render_pattern(const char *text, const char *wav_path, const render_opts *o,
     play = (uint32_t)((loops * units + inc - 1u) / inc);
     total = play + (uint32_t)((uint64_t)o->tail_ms * o->sample_rate / 1000u);
     pcm = malloc((size_t)(total ? total : 1) * 2 * sizeof *pcm);
-    if (!pcm || fm_engine_init(&eng, o->sample_rate, (uint8_t)voices) != FM_OK) {
+    if (!pcm || o->output_shift > FM_OUT_SHIFT_MAX ||
+        fm_engine_init(&eng, o->sample_rate, (uint8_t)voices) != FM_OK ||
+        fm_engine_set_output_shift(&eng, (uint8_t)o->output_shift) != FM_OK) {
         fprintf(stderr, "cannot set up render\n");
         free(pcm);
         return -1;
