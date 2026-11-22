@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print the output soft clip's table used by engine/engine.c (#24).
+"""Print the output soft clip's table used by engine/output.c (#24).
 
 After the +6 dB output makeup, a sample past the knee (0.7202 of full scale,
 -2.85 dBFS: #102's +3.17 dB over the old 0.5, so all that was linear stays so)

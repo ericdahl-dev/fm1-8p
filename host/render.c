@@ -75,15 +75,21 @@ int render_midi_file(const char *midi_path, const char *wav_path,
 void render_describe(const render_info *info, char *buf, size_t len)
 {
     unsigned n = (unsigned)info->voice_count;
-    /* each voice at 1 / (2 n), 3.17 dB up to PG-8X's level (#102) */
-    double voice_gain = pow(10.0, 3.17 / 20.0) / (2.0 * n);
+    /* each voice at FM_MIX_GAIN_Q30 / n (0.25 x 3.17 dB, PG-8X's level,
+     * #102), times the +6 dB makeup and the output gain (#342) */
+    double voice_gain = (double)FM_MIX_GAIN_Q30 / 1073741824.0 * 2.0 *
+                        (double)(1u << info->output_shift) / n;
     /* one note sounds on one voice, or on all n in unison */
     double note_gain = (info->unison ? n : 1.0) * voice_gain;
+    char peak[48];
+    if (note_gain > 1.0)    /* past full scale: the output gain's clamp holds it there */
+        snprintf(peak, sizeof peak, "one note is clamped at full scale");
+    else
+        snprintf(peak, sizeof peak, "one note peaks at %.1f dBFS", 20.0 * log10(note_gain));
     snprintf(buf, len,
-             "%u voice%s%s, MIDI channel %u; each voice mixed at 1/%.2f "
-             "(one note peaks at %.1f dBFS)",
+             "%u voice%s%s, MIDI channel %u; each voice mixed at 1/%.2f (%s)",
              n, n == 1 ? "" : "s", info->unison ? " in unison" : "",
-             (unsigned)info->channel, 1.0 / voice_gain, 20.0 * log10(note_gain));
+             (unsigned)info->channel, 1.0 / voice_gain, peak);
 }
 
 int render_midi(const char *midi_path, const char *wav_path,
@@ -136,7 +142,9 @@ int render_midi(const char *midi_path, const char *wav_path,
     }
     total = us_to_frames(total_us, o->sample_rate);
     pcm = malloc((size_t)(total ? total : 1) * 2 * sizeof *pcm);
-    if (!pcm || fm_engine_init(&eng, o->sample_rate, (uint8_t)voices) != FM_OK) {
+    if (!pcm || o->output_shift > FM_OUT_SHIFT_MAX ||
+        fm_engine_init(&eng, o->sample_rate, (uint8_t)voices) != FM_OK ||
+        fm_engine_set_output_shift(&eng, (uint8_t)o->output_shift) != FM_OK) {
         fprintf(stderr, "cannot set up render\n");
         free(pcm);
         smf_free(&song);
@@ -169,6 +177,7 @@ int render_midi(const char *midi_path, const char *wav_path,
     if (rc == 0 && info) {
         info->voice_count = voices;
         info->channel = (uint32_t)channel + 1;
+        info->output_shift = o->output_shift;
         info->unison = fm_engine_get_param(&eng, FM_PARAM_VOICE_MODE) ==
                        FM_VOICE_MODE_UNISON;
     }

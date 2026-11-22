@@ -5,6 +5,7 @@
 #include <math.h>
 #include "../engine/filter.h"
 #include "../engine/units.h"
+#include "../engine/cutoff_curve.h"
 
 #define FRATE 44100u
 
@@ -2915,18 +2916,27 @@ TT_TEST(highpass_step_4_is_the_pg8x_bass_boost)
  * step, then bends the sum once: a base at FREQ F plus E steps of
  * modulation must land on cents(F + E), at every F and E short of open.
  */
+/* The curve's coefficients, from the generated header (tools/cutoff_curve.py, #344) */
+#define CURVE_A2 ((double)FM_CURVE_A2_NUM / FM_CURVE_A2_DEN)
+#define CURVE_A1 ((double)FM_CURVE_A1_NUM / FM_CURVE_A1_DEN)
+
+static double curve_cents(double k)
+{
+    return CURVE_A2 * k * k + CURVE_A1 * k + FM_CURVE_ZERO;
+}
+
 TT_TEST(cutoff_sources_add_in_knob_steps_on_pg8x_curve)
 {
     double worst = 0.0;
     int f, e;
     for (f = 13; f <= 127; f++)
         for (e = -60; e <= 127; e++) {
-            double k = f + e, want = 0.0988 * k * k + 115.03 * k - 1474;
-            double base = 0.0988 * f * f + 115.03 * f - 1474;
+            double k = f + e, want = curve_cents(k);
+            double base = curve_cents(f);
             int32_t got;
             if (k < 0 || want > FM_FILTER_OPEN_CENTS - 100) continue;
             got = fm_filter_voice_cents(fm_filter_linear_cents((int32_t)floor(base + 0.5)), 0, 60,
-                                        (int32_t)floor(115.03 * e + 0.5));
+                                        (int32_t)floor(CURVE_A1 * e + 0.5));
             if (fabs(got - want) > worst) worst = fabs(got - want);
         }
     printf("    FREQ + ENV in knob steps against the curve: worst %.2f cents\n", worst);
@@ -2967,10 +2977,10 @@ TT_TEST(cutoff_setting_round_trips_through_linear_cents)
  */
 TT_TEST(linear_cents_holds_its_values_at_the_range_edges)
 {
-    static const int32_t in[] = { -5000, -1474, -1473, 0, 6900, 14400, 14728,
-                                  28799, 28800, 28801, 40000, INT32_MAX };
-    static const int32_t want[] = { -5000, -1474, -1473, -16, 6433, 12865, 13134,
-                                    23966, 23967, 23967, 23967, 23967 };
+    static const int32_t in[] = { -5000, FM_CURVE_ZERO, FM_CURVE_ZERO + 1, 0, 6900, 14400,
+                                  14728, 28799, 28800, 28801, 40000, INT32_MAX };
+    static const int32_t want[] = { -5000, FM_CURVE_ZERO, FM_CURVE_ZERO + 1, -16, 6433, 12865,
+                                    13134, 23966, 23967, 23967, 23967, 23967 };
     size_t i;
     for (i = 0; i < sizeof in / sizeof in[0]; i++)
         TT_CHECK_EQ(fm_filter_linear_cents(in[i]), want[i]);
@@ -2985,11 +2995,81 @@ TT_TEST(linear_cents_holds_its_values_at_the_range_edges)
  */
 TT_TEST(cutoff_curve_holds_its_values_at_the_range_edges)
 {
-    static const int32_t in[] = { -5000, -1474, -1473, 0, 6433, 12864, 14399, 14400, 20000 };
-    static const int32_t want[] = { -5000, -1474, -1473, 16, 6900, 14399, 16280, 14400, 20000 };
+    static const int32_t in[] = { -5000, FM_CURVE_ZERO, FM_CURVE_ZERO + 1, 0, 6433, 12864,
+                                  14399, 14400, 20000 };
+    static const int32_t want[] = { -5000, FM_CURVE_ZERO, FM_CURVE_ZERO + 1, 16, 6900, 14399,
+                                    16280, 14400, 20000 };
     size_t i;
     for (i = 0; i < sizeof in / sizeof in[0]; i++)
         TT_CHECK_EQ(fm_filter_voice_cents(in[i], 0, 60, 0), want[i]);
+}
+
+/*
+ * VCF FREQ puts the engine's resonant peak where PG-8X 2.0.13's is: the
+ * peak PG-8X measured (filter sweep of 2026-11-11: noise in, C4, no key
+ * follow, VCF RES 96, 112 and 127; numbers only, #344) against the peak of
+ * this filter at the curve's cutoff for the same byte, at 48 kHz, with
+ * the resonance tools/jx8p.py RESONANCE_PERMILLE gives the RES byte
+ * (795 / 900 / 935, retyped here). This checks the fit, not the formula:
+ * a refit or a coefficient that moves the cutoff by about 30 cents or
+ * more fails it. Within the fit's 0.45 semitone (measured: 25 cents at
+ * most) over VCF FREQ 48..96, and at 112 at RES 112 (-15). At 112 with
+ * RES 96 and 127 (9.6-9.9 kHz) the peak's place near Nyquist is the
+ * warp's (#130), and it moves with the resonance: +60 and -50 cents,
+ * checked within 90.
+ */
+#define PK_RATE 48000u
+
+static double gain_db_48k(fm_filter *f, double hz)
+{
+    double in2 = 0, out2 = 0;
+    size_t i;
+    for (i = 0; i < PK_RATE / 2; i++) {
+        int32_t x = (int32_t)lround(0.02 * 16777216.0 * sin(2.0 * AN_PI * hz * (double)i / PK_RATE));
+        int32_t y = fm_filter_process(f, x);
+        if (i >= PK_RATE / 4) {
+            in2 += (double)x * x;
+            out2 += (double)y * y;
+        }
+    }
+    return 10.0 * log10(out2 / in2);
+}
+
+TT_TEST(resonant_peak_lands_on_pg8x_at_each_vcf_freq)
+{
+    static const struct {
+        int freq, res, res_permille;
+        double pg8x_hz;
+    } row[] = {
+        { 48, 96, 795, 82.0 },    { 48, 112, 900, 84.7 },    { 48, 127, 935, 85.9 },
+        { 64, 96, 795, 270.3 },   { 64, 112, 900, 277.0 },   { 64, 127, 935, 280.9 },
+        { 80, 96, 795, 883.4 },   { 80, 112, 900, 913.6 },   { 80, 127, 935, 921.4 },
+        { 96, 96, 795, 2915.9 },  { 96, 112, 900, 2999.2 },  { 96, 127, 935, 3021.2 },
+        { 112, 96, 795, 9556.1 }, { 112, 112, 900, 9686.8 }, { 112, 127, 935, 9701.7 },
+    };
+    static fm_filter f;
+    int32_t rate_cents = fm_filter_rate_cents(PK_RATE);
+    size_t r;
+    for (r = 0; r < sizeof row / sizeof row[0]; r++) {
+        double best = -1e9, at = 0.0, off;
+        int c;
+        int32_t cents = (int32_t)floor(curve_cents(row[r].freq) + 0.5);
+        for (c = -300; c <= 300; c += 5) {
+            double hz = row[r].pg8x_hz * pow(2.0, c / 1200.0), db;
+            fm_filter_reset(&f);
+            fm_filter_set_resonance(&f, row[r].res_permille);
+            fm_filter_set_cutoff(&f, cents, rate_cents);
+            db = gain_db_48k(&f, hz);
+            if (db > best) {
+                best = db;
+                at = hz;
+            }
+        }
+        off = 1200.0 * log2(at / row[r].pg8x_hz);
+        printf("    VCF FREQ %3d RES %3d: peak %7.1f Hz, PG-8X %7.1f (%+.0f cents)\n",
+               row[r].freq, row[r].res, at, row[r].pg8x_hz, off);
+        TT_CHECK(fabs(off) <= (row[r].freq == 112 && row[r].res != 112 ? 90.0 : 45.0));
+    }
 }
 
 /*
@@ -3054,6 +3134,7 @@ static void run_filter_tests(void)
     TT_RUN(the_hold_is_past_the_pair_through_the_bass_boost);
     TT_RUN(lowpass_without_resonance_is_linear_past_two);
     TT_RUN(cutoff_curve_holds_its_values_at_the_range_edges);
+    TT_RUN(resonant_peak_lands_on_pg8x_at_each_vcf_freq);
     TT_RUN(linear_cents_holds_its_values_at_the_range_edges);
     TT_RUN(cutoff_sources_add_in_knob_steps_on_pg8x_curve);
     TT_RUN(cutoff_setting_round_trips_through_linear_cents);

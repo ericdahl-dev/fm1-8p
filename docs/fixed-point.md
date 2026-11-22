@@ -219,7 +219,9 @@ resonant 4-pole (24 dB/octave) lowpass.
   steps and plays the sum through `cents(K) = 0.0988 K^2 + 115.03 K -
   1474`. A linear cent is 1/115.03 of a knob step, from -1474 at step 0, so
   `C(u) = u + A (u + 1474)^2` with `A = 0.0988 / 115.03^2` (Q32 32070, one
-  64-bit multiply), and `C(u) = u` below step 0. At or above the open
+  64-bit multiply), and `C(u) = u` below step 0. The curve is written once,
+  in `tools/cutoff_curve.py`; `make generate` writes its constants into
+  `engine/cutoff_curve.h` (#344). At or above the open
   cutoff the sum is open either way, and passes without the multiply.
   `base` is the cutoff setting's linear cents (`fm_filter_linear_cents`: an
   integer square root and a divide, once a setting change, then the

@@ -12,9 +12,6 @@
 #define PLAY_FS 44100u
 #define PLAY_BLOCK 256u                 /* frames per fm1-dock render call */
 #define PLAY_VOICES 4u                  /* polyphony on the device: 4, final (Eric, 2026-11-15; #13) */
-/* The module's output gain, in doublings: +12 dB over the engine, which mixes each voice at
- * 1 / voice count and then -6 dB (a 4-note chord peaked near -25 dBFS on the FM-1). Saturates. */
-#define PLAY_GAIN_SHIFT 2
 #define PLAY_KEYS 27u                   /* the FM-1's note keys */
 #define PLAY_KEY0 53u                   /* key 0's note at octave 0: F3 */
 #define PLAY_PARAM_WORDS ((FM_PARAM_COUNT + 31u) / 32u)

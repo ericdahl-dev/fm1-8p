@@ -284,7 +284,8 @@ int play_init(play *p)
     p->pat_next_gone = 0;
     p->pat_next = -1;
     p->pat_name[0] = p->pat_next_name[0] = '\0';
-    if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
+    if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK ||
+        fm_engine_set_output_shift(&p->engine, FM_OUT_SHIFT_DEVICE) != FM_OK)   /* the module's gain (#342) */
         return -1;
     p->patch = &PATCHES[PATCH_SOUNDTRACK];
     p->prog = PLAY_PROG_P + PATCH_SOUNDTRACK;
@@ -598,10 +599,8 @@ void play_render(play *p, int32_t *out, uint32_t n)
         fm_engine_render(&p->engine, p->buf + 2u * at, n - at);
     }
     p->sounding = fm_engine_active_voices(&p->engine);   /* (for play_silent) */
-    for (i = 0; i < 2u * n; i++) {
-        int32_t v = (int32_t)p->buf[i] * (1 << PLAY_GAIN_SHIFT);
-        out[i] += v > 32767 ? 32767 : v < -32767 ? -32767 : v;     /* saturate, never wrap */
-    }
+    for (i = 0; i < 2u * n; i++)    /* at the module's gain already: the engine's output stage */
+        out[i] += p->buf[i];
 }
 
 void play_compare_begin(play *p)

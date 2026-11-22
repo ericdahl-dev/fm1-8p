@@ -24,6 +24,23 @@ TT_TEST(cpu_test_render_adds_engine_audio_into_host_buffer)
     TT_CHECK(sound);
 }
 
+/* The CPU rows time what the device runs (#342): every count's engine plays at the module's output
+ * gain, FM_OUT_SHIFT_DEVICE, as play_init sets it, so the output stage's clamp is in the time. */
+TT_TEST(cpu_test_counts_run_at_the_device_output_gain)
+{
+    uint32_t b, i, clamped = 0;
+    TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);  /* the full patch's chord, its loudest count */
+    /* the engine's own level holds under 31643 (the soft clip): +-32767 is the device gain's clamp */
+    for (b = 0; b < 400 && !clamped; b++) {
+        for (i = 0; i < 2 * CT_BLOCK; i++) ct_out[i] = 0;
+        cpu_test_render(&ct_a, ct_out, CT_BLOCK);
+        for (i = 0; i < 2 * CT_BLOCK; i++)
+            clamped |= ct_out[i] == 32767 || ct_out[i] == -32767;
+    }
+    TT_CHECK(clamped);
+}
+
 TT_TEST(cpu_test_voice_request_clamps_and_applies_at_next_block)
 {
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
@@ -451,6 +468,7 @@ static void run_cpu_test_tests(void)
     TT_RUN(cpu_test_default_steps_leave_the_patch_at_its_defaults);
     TT_RUN(cpu_test_full_patch_step_turns_on_every_modulation);
     TT_RUN(cpu_test_render_adds_engine_audio_into_host_buffer);
+    TT_RUN(cpu_test_counts_run_at_the_device_output_gain);
     TT_RUN(cpu_test_voice_request_clamps_and_applies_at_next_block);
     TT_RUN(cpu_test_keeps_worst_block_time_per_voice_count);
     TT_RUN(cpu_test_sweep_steps_up_one_voice_per_hold_then_the_burst_then_the_full_patch);

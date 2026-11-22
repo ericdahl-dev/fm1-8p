@@ -6,7 +6,9 @@
 #include "chorus.h"
 #include "dyna.h"
 #include "fm1_8p.h"
+#include "output.h"
 #include "units.h"
+#include <stddef.h>
 #ifdef FM_CHECK_ENGINE
 #include <assert.h>
 #endif
@@ -750,6 +752,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         return FM_ERR_ARG;
     e->sample_rate = sample_rate;
     e->voice_count = voice_count;
+    e->out_shift = 0; /* the engine's own level (#342) */
     /* each voice at 1 / voice_count, then -8.83 dB: the -12 dB of
      * headroom (#24: both oscillators at full peak at 2.0, and the chorus
      * adds up to +5.9 dB to a chord in phase) less PG-8X 2.0.13's 3.17 dB
@@ -816,6 +819,14 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         e->params[id] = fm_param_info_get(id)->def;
     for (id = 0; id < FM_PARAM_COUNT; id++)
         apply_param(e, id);
+    return FM_OK;
+}
+
+fm_status fm_engine_set_output_shift(fm_engine *e, uint8_t shift)
+{
+    if (!e || shift > FM_OUT_SHIFT_MAX)
+        return FM_ERR_ARG;
+    e->out_shift = shift;
     return FM_OK;
 }
 
@@ -1130,72 +1141,6 @@ uint8_t fm_engine_active_voices(const fm_engine *e)
     return n;
 }
 
-/*
- * Q8.24 to int16 with +6 dB of output makeup (#24), then a soft clip.
- * The mix plays 3.17 dB over the old -12 dB of headroom, at PG-8X 2.0.13's
- * level (#102); the makeup gives 6 dB back. Up to the knee at -2.85 dBFS
- * it is a pure gain: the knee sat at -6 dBFS and moved up by the same
- * 3.17 dB, since PG-8X stays linear to -0.5 dBFS (a six-note two-DCO
- * chord), so what was linear here stays linear. Above it, d past the knee
- * becomes knee + h d / (h + d), h = full scale - knee: slope 1 at the
- * knee, monotonic, and short of full scale. That curve is read from a
- * table (tools/gen_softclip_table.py), linearly interpolated, so the render
- * path has no divide; past d = 2.0 it holds at 0.966 of full scale.
- */
-#define OUT_KNEE 12083420 /* 0.7202 of full scale (-2.85 dBFS), after the makeup, in Q8.24 */
-#define OUT_CLIP_SHIFT 18  /* table step: 2^18 in Q8.24 */
-static const int32_t out_clip[129] = {
-    0, 248278, 471610, 673576, 857103, 1024604,
-    1178092, 1319254, 1449518, 1570099, 1682038, 1786232,
-    1883457, 1974390, 2059624, 2139677, 2215007, 2286022,
-    2353081, 2416505, 2476584, 2533573, 2587707, 2639194,
-    2688223, 2734967, 2779582, 2822210, 2862980, 2902012,
-    2939415, 2975288, 3009723, 3042806, 3074613, 3105218,
-    3134688, 3163084, 3190465, 3216883, 3242389, 3267028,
-    3290845, 3313880, 3336171, 3357753, 3378659, 3398922,
-    3418569, 3437629, 3456128, 3474090, 3491538, 3508494,
-    3524978, 3541010, 3556608, 3571790, 3586571, 3600969,
-    3614996, 3628668, 3641998, 3654998, 3667681, 3680058,
-    3692140, 3703937, 3715460, 3726718, 3737719, 3748473,
-    3758987, 3769271, 3779330, 3789173, 3798807, 3808237,
-    3817471, 3826514, 3835372, 3844051, 3852557, 3860894,
-    3869067, 3877081, 3884942, 3892652, 3900217, 3907640,
-    3914925, 3922077, 3929099, 3935994, 3942766, 3949418,
-    3955953, 3962374, 3968685, 3974887, 3980984, 3986979,
-    3992874, 3998671, 4004373, 4009983, 4015502, 4020932,
-    4026276, 4031536, 4036714, 4041811, 4046830, 4051773,
-    4056640, 4061434, 4066156, 4070809, 4075393, 4079910,
-    4084361, 4088749, 4093073, 4097337, 4101540, 4105684,
-    4109771, 4113801, 4117777,
-};
-
-static int16_t to_int16(int32_t q24)
-{
-    int64_t u, a, d;
-    uint32_t k;
-    int32_t s;
-    /* below the knee (the common case): a pure gain, one unsigned compare
-     * in 32 bits (|q24| <= knee / 2 before the makeup) */
-    if ((uint32_t)q24 + (uint32_t)(OUT_KNEE / 2) <= (uint32_t)OUT_KNEE)
-        return (int16_t)(q24 >> 8);
-    u = (int64_t)q24 * 2;
-    a = u < 0 ? -u : u;
-    d = a - OUT_KNEE;
-    k = (uint32_t)(d >> OUT_CLIP_SHIFT);
-    if (k >= 128) {
-        a = OUT_KNEE + out_clip[128];
-    } else {
-        int64_t frac = d & ((1 << OUT_CLIP_SHIFT) - 1);
-        a = OUT_KNEE + out_clip[k] +
-            (((int64_t)(out_clip[k + 1] - out_clip[k]) * frac) >> OUT_CLIP_SHIFT);
-    }
-    u = u < 0 ? -a : a;
-    s = (int32_t)(u >> 9);
-    if (s > 32767) return 32767;
-    if (s < -32768) return -32768;
-    return (int16_t)s;
-}
-
 /* The LFO is live: it reaches some destination now, or the last tick
  * applied it (one more tick clears the offset it left). The one test of
  * whether the control ticks have work for the voices. */
@@ -1276,16 +1221,9 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
         if (fm_chorus_is_on(&e->chorus)) {
             fm_chorus_process_block(&e->chorus, e->mix, e->mix_right, n);
-            for (i = 0; i < n; i++) {
-                out[2 * i] = to_int16(e->mix[i]);
-                out[2 * i + 1] = to_int16(e->mix_right[i]);
-            }
+            fm_out_block(out, e->mix, e->mix_right, n, e->out_shift);
         } else {
-            for (i = 0; i < n; i++) {
-                int16_t s = to_int16(e->mix[i]);
-                out[2 * i] = s;
-                out[2 * i + 1] = s;
-            }
+            fm_out_block(out, e->mix, NULL, n, e->out_shift);
         }
         advance_ticks(e, n);
         out += 2 * n;
