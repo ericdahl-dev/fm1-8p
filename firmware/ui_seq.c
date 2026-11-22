@@ -245,8 +245,10 @@ int32_t ui_seq_value(const ui *u, uint32_t k)
 static void turn(ui *u, uint32_t k, int32_t clicks)
 {
     seq *s = play_seq(u->p);
-    int32_t fast = clicks >= 3 || clicks <= -3, v = ui_seq_value(u, k);
+    int32_t fast = clicks >= 3 || clicks <= -3, v;
     const seq_step *st;
+    (void)pattern_running(play_patterns(u->p), 0);   /* a takeover first: the value is the running one's */
+    v = ui_seq_value(u, k);
     if (!UI_SEQ_SLOTS[u->seq_page][k].live)
         return;
     switch (u->seq_page * 4u + k) {

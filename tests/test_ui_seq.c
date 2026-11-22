@@ -862,6 +862,26 @@ TT_TEST(seq_roll_redraws_whole_when_the_next_pattern_takes_over)
     TT_CHECK_EQ(ui_seq_roll_take(&ui_u), 0xFFFFu);
 }
 
+/* #324, Codex P3: a knob turned right after a takeover, before any other main-loop call, changes the
+ * pattern that now runs from its own value: B's SWING one up, not A's */
+TT_TEST(seq_turn_right_after_a_takeover_starts_from_the_new_pattern)
+{
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 2, 1100);      /* 11's SWING: 52 */
+    TT_CHECK_EQ(s->edit.swing_pct, SEQ_SWING_DEF + 2u);
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_render_to(0);
+    pattern_queue(play_patterns(&ui_p), 1);                  /* 12, empty: SWING 50 */
+    seq_render_to(15);
+    seq_render_to(0);                                         /* the pass ends: 12 takes over, no call since */
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 1300);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
+    TT_CHECK_EQ(s->edit.swing_pct, SEQ_SWING_DEF + 1u);
+}
+
 /* The header shows the tempo (>07 120 INT): a TEMPO turn redraws it, stopped or playing */
 TT_TEST(seq_tempo_turn_redraws_the_header)
 {
@@ -2073,6 +2093,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_redraws_whole_on_length_tie_and_rest);
     TT_RUN(seq_roll_stop_clears_the_playhead);
     TT_RUN(seq_roll_redraws_whole_when_the_next_pattern_takes_over);
+    TT_RUN(seq_turn_right_after_a_takeover_starts_from_the_new_pattern);
     TT_RUN(seq_tempo_turn_redraws_the_header);
     TT_RUN(seq_roll_wide_span_fits_once);
     TT_RUN(seq_select_and_the_pattern_page);
