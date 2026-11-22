@@ -14,6 +14,9 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import scorecard_cmd  # noqa: E402
+
 import numpy as np
 from scipy import signal
 
@@ -28,7 +31,7 @@ SCHEMA = 10  # history rows: bump when a field changes meaning (2: timings sampl
              # 10: so does each spectral section, so the floor isn't timbre either)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
-SR = 48000
+SR = scorecard_cmd.SR
 
 # BS.1770 K-weighting at 48 kHz: a high shelf, then a high pass
 _K1 = ([1.53512485958697, -2.69169618940638, 1.19839281085285], [1.0, -1.69065929318241, 0.73248077421585])
@@ -121,7 +124,7 @@ def air_db(x):
 
 def as_ours_int16(pg, ours, clip=True):
     """PG-8X's float render as ours would carry it: scaled to our RMS, put on 16 bits per channel as
-    engine.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
+    output.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
     hiss in it; scored against this, the floor is on both sides (#299). With clip False it is floored but
     not clipped: at our RMS PG-8X's peaks can pass full scale where ours don't, and clipped they'd gain
     harmonics neither render has (the spectral sections, s10)."""
@@ -384,8 +387,7 @@ def render_tones(tree, mid, work, bank=None):
     os.makedirs(d, exist_ok=True)
     for i, _, args in tone_args(tree, bank):
         path = os.path.join(d, f"{i:02d}.wav")
-        subprocess.run([os.path.join(tree, "build", "fm1-8p-render"), "-r", str(SR), "-t", "3000", "-v", "6",
-                        *args, mid, path], check=True, capture_output=True)
+        subprocess.run(scorecard_cmd.render_command(tree, args, mid, path), check=True, capture_output=True)
         yield i, path
 
 

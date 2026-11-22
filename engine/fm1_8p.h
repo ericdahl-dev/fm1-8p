@@ -37,6 +37,12 @@
  * sum of the voices is scaled by FM_MIX_GAIN_Q30 / voice_count, rounded
  * down, times the VCA LEVEL (#169). */
 #define FM_MIX_GAIN_Q30 386669466u
+/* The output stage's gain (#342, engine/output.c): the soft clip's int16
+ * times 2^shift, clamped at +-32767. 0 is the engine's own level (the
+ * default, what the gate and the scorecard render); the FM-1 module plays at
+ * FM_OUT_SHIFT_DEVICE (#320 picks its value). */
+#define FM_OUT_SHIFT_DEVICE 2
+#define FM_OUT_SHIFT_MAX 4
 
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
@@ -80,6 +86,7 @@ const fm_param_info *fm_param_info_get(uint16_t id);
 typedef struct {
     uint32_t sample_rate;
     uint8_t voice_count;
+    uint8_t out_shift; /* fm_engine_set_output_shift (#342) */
     int32_t params[FM_PARAM_COUNT];
     int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
     uint32_t stamp;   /* counts note ons and offs, to age the voices */
@@ -174,6 +181,13 @@ int32_t fm_engine_get_param(const fm_engine *e, uint16_t id);
  * once its release reaches silence.
  */
 uint8_t fm_engine_active_voices(const fm_engine *e);
+
+/*
+ * The output gain in doublings, 0..FM_OUT_SHIFT_MAX (FM_ERR_ARG past it):
+ * every sample from now on is the soft clip's output times 2^shift,
+ * clamped at +-32767. fm_engine_init sets 0.
+ */
+fm_status fm_engine_set_output_shift(fm_engine *e, uint8_t shift);
 
 /* Renders `frames` interleaved stereo frames (L, R) of signed 16-bit. */
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames);
