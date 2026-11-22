@@ -1494,12 +1494,12 @@ TT_TEST(synced_dc_leaves_no_comb_under_the_fundamental)
 
 /*
  * A setting set again to the value it has changes nothing: SYNC, RING and
- * X-MOD set again before every sample of a synced pair (as a knob at its end
+ * X-MOD set again before every sample (or block) of a synced pair (as a knob at its end
  * sets them, and the param asks' race, #349), the output is the same, sample
  * for sample, as with no set. A restart's second-sample correction is never
  * dropped.
  */
-static int32_t same_value_set_worst(int which)
+static int32_t same_value_set_worst(int which, int block)
 {
     static fm_osc_pair a, b;
     int32_t worst = 0;
@@ -1516,23 +1516,35 @@ static int32_t same_value_set_worst(int which)
         fm_osc_pair_set_pitch(ps[k], 45 << 16, 48000);
         fm_osc_pair_set_tune(ps[k], 1, 700 + 13, 45 << 16, 48000);
     }
-    for (i = 0; i < 24000; i++) {
-        int32_t d;
+    for (i = 0; i < 24000; i += block) {                    /* (block 1: sample by sample) */
+        static int32_t oa[16], ob[16];
+        int n = block, j;
         if (which == 0) fm_osc_pair_set_sync(&a, 1);
         if (which == 1) fm_osc_pair_set_ring(&a, 1);
         if (which == 2) fm_osc_pair_set_xmod(&a, FM_OSC_LEVEL_FULL / 4);
-        d = fm_osc_pair_next(&a) - fm_osc_pair_next(&b);
-        d = d < 0 ? -d : d;
-        if (d > worst) worst = d;
+        if (block == 1) {
+            oa[0] = fm_osc_pair_next(&a);
+            ob[0] = fm_osc_pair_next(&b);
+        } else {                                            /* the device's path: between blocks */
+            fm_osc_pair_render(&a, oa, (uint32_t)n);
+            fm_osc_pair_render(&b, ob, (uint32_t)n);
+        }
+        for (j = 0; j < n; j++) {
+            int32_t d = oa[j] - ob[j];
+            d = d < 0 ? -d : d;
+            if (d > worst) worst = d;
+        }
     }
     return worst;
 }
 
 TT_TEST(sync_ring_xmod_set_again_change_nothing)
 {
-    TT_CHECK_EQ(same_value_set_worst(0), 0);
-    TT_CHECK_EQ(same_value_set_worst(1), 0);
-    TT_CHECK_EQ(same_value_set_worst(2), 0);
+    int w;
+    for (w = 0; w < 3; w++) {
+        TT_CHECK_EQ(same_value_set_worst(w, 1), 0);
+        TT_CHECK_EQ(same_value_set_worst(w, 7), 0);        /* set between blocks, as apply_params does */
+    }
 }
 
 /*
