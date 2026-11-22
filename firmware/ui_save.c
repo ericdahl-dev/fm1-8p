@@ -163,12 +163,8 @@ static void write_slot(ui *u, uint32_t ms)
     if (u->save_delete) {                       /* a delete (#303) */
         u->save_delete = 0;
         if ((u->save_pattern ? pattern_delete(play_patterns(u->p), u->save_dest) : play_delete(u->p, u->save_dest)) == 0) {
-            if (u->save_pattern && u->save_dest == psnap_seen.running) {   /* its own slot: + EDITS against EMPTY */
-                pattern_seen v;
-                pattern_look(play_patterns(u->p), &v);
-                if (v.running == psnap_seen.running)   /* (its slot still runs: no takeover since) */
-                    psnap_seen.edited = v.edited;
-            }
+            if (u->save_pattern && u->save_dest == psnap_seen.running)   /* its own slot: + EDITS against EMPTY */
+                psnap_seen.edited = !seq_pattern_is_empty(&psnap);
             say(u, "DELETED", u->save_dest, ms, u->save_pattern);
         } else
             say(u, "DELETE FAILED", STORE_USER_SLOTS, ms, 0);

@@ -793,6 +793,22 @@ TT_TEST(seq_glides_do_not_depend_on_the_block_size)
     }
 }
 
+/* #324: an empty slot's pattern is empty, and any setting or step that plays differently is not */
+TT_TEST(seq_pattern_is_empty_as_it_plays)
+{
+    static seq_pattern p;
+    seq_pattern_empty(&p);
+    TT_CHECK(seq_pattern_is_empty(&p));
+    p.swing_pct = SEQ_SWING_DEF + 1u;
+    TT_CHECK(!seq_pattern_is_empty(&p));
+    seq_pattern_empty(&p);
+    p.step[SEQ_STEPS - 1u].kind = SEQ_TIE;
+    TT_CHECK(!seq_pattern_is_empty(&p));
+    seq_pattern_empty(&p);
+    p.step[3].glide = 1;
+    TT_CHECK(!seq_pattern_is_empty(&p));
+}
+
 /* #324: a takeover inside a step edit, after the edit synced and before it is published (handoff_test.h,
  * gap "edit" 1): the edit, of a, goes with a. From then on b plays, before any other main-loop call. */
 static void seq_gap_takeover(const char *where, uint32_t n)
@@ -828,6 +844,7 @@ TT_TEST(seq_takeover_inside_an_edit_plays_the_new_pattern)
 static void run_seq_tests(void)
 {
     TT_RUN(seq_takeover_inside_an_edit_plays_the_new_pattern);
+    TT_RUN(seq_pattern_is_empty_as_it_plays);
     TT_RUN(seq_starts_empty_and_stopped);
     TT_RUN(seq_edits_steps_length_and_tempo);
     TT_RUN(seq_steps_fire_at_their_exact_frames);

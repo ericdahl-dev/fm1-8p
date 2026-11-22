@@ -1038,6 +1038,34 @@ TT_TEST(save_delete_now_of_the_open_patterns_slot_shows_its_edits)
     TT_CHECK(ui_save_edited(&ui_u));                        /* "+ EDITS": its notes, against EMPTY */
 }
 
+/* #324, Codex P3 (round 2): SAVE opens on A, unedited, with B queued; a stop makes B take over while SAVE is
+ * open, and SAVE deletes A's slot at once (stopped, silent). "+ EDITS" is A's snapshot against that slot,
+ * now EMPTY: on */
+TT_TEST(save_delete_now_after_a_takeover_shows_the_snapshots_edits)
+{
+    static seq_pattern pat;
+    uint32_t k, t;
+    save_seq_setup();                                       /* step 1 C4 */
+    t = pattern_snapshot(play_patterns(&ui_p), &pat, 0);
+    TT_CHECK_EQ(pattern_save(play_patterns(&ui_p), 0, &pat, "A", t), 0);   /* 11: A, not edited */
+    seq_play(play_seq(&ui_p));
+    save_render(4);
+    pattern_queue(play_patterns(&ui_p), 1);                /* 12, empty: rests */
+    save_tap(UI_BTN_SAVE, 1000);                            /* SAVE opens on A */
+    TT_CHECK(!ui_save_edited(&ui_u));
+    seq_stop(play_seq(&ui_p));                              /* the stop loads B: it takes over, SAVE open */
+    for (k = 0; k < 4000u && !play_silent(&ui_p); k++)
+        save_render(1);
+    TT_CHECK(play_silent(&ui_p));
+    ui_event(&ui_u, UI_EV_BTN_DOWN | UI_BTN_SEL, 0, 3100);
+    ui_event(&ui_u, UI_EV_BTN_UP | UI_BTN_SEL, 0, 4700);   /* DELETE 11? */
+    save_tap(UI_BTN_SEL, 5000);                             /* silent: now */
+    TT_CHECK_EQ(ui_u.state, UI_SAVE);
+    TT_CHECK(!pat_slot_used(&save_plib, 0));
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
+    TT_CHECK(ui_save_edited(&ui_u));                        /* A's C4 against EMPTY */
+}
+
 /* #303: a delete whose flash write fails says DELETE FAILED and leaves the slot as it was */
 TT_TEST(save_failed_delete_says_so)
 {
@@ -1068,6 +1096,7 @@ static void run_ui_save_tests(void)
     TT_RUN(save_waiting_through_a_pattern_load_keeps_the_loaded_one);
     TT_RUN(save_open_through_a_takeover_writes_the_pattern_it_opened_on);
     TT_RUN(save_delete_now_of_the_open_patterns_slot_shows_its_edits);
+    TT_RUN(save_delete_now_after_a_takeover_shows_the_snapshots_edits);
     TT_RUN(save_failed_delete_says_so);
     TT_RUN(save_hammered_with_a_store_keeps_its_states);
     TT_RUN(save_tap_opens_save_at_the_first_empty_slot);

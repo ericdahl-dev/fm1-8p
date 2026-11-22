@@ -188,6 +188,8 @@ typedef struct {
 void seq_init(seq *s);
 /* p as the empty pattern: 16 rests, LENGTH 16, the default TEMPO, SWING and GATE (an empty pattern slot's) */
 void seq_pattern_empty(seq_pattern *p);
+/* 1 when p plays as seq_pattern_empty's does (seq_edited's comparison): an empty slot's pattern. */
+uint32_t seq_pattern_is_empty(const seq_pattern *p);
 
 /* main loop: the pattern. Each call publishes the edit (the interrupt takes it at a step's start). */
 uint32_t seq_length(const seq *s);

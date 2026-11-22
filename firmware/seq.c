@@ -486,6 +486,21 @@ static int same_pattern(const seq_pattern *a, const seq_pattern *b)
     return 1;
 }
 
+uint32_t seq_pattern_is_empty(const seq_pattern *p)
+{
+    uint32_t i;
+    if (p->length != SEQ_STEPS || p->tempo != SEQ_TEMPO_DEF || p->swing_pct != SEQ_SWING_DEF ||
+        p->gate_pct != SEQ_GATE_DEF)                /* (as seq_pattern_empty sets them, compared as same_pattern) */
+        return 0;
+    for (i = 0; i < SEQ_STEPS; i++) {
+        const seq_step *x = &p->step[i];
+        if (x->kind != SEQ_REST || x->n != 0 || x->vel != SEQ_VEL_DEF || x->bend != 0 || x->mod != 0 ||
+            x->glide != 0)
+            return 0;
+    }
+    return 1;
+}
+
 uint32_t seq_edited(const seq *s)
 {
     return !same_pattern(&s->edit, &s->stored);
