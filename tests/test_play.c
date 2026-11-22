@@ -289,8 +289,8 @@ TT_TEST(play_last_note_skips_a_note_the_full_queue_dropped)
 }
 
 /* The module's output gain is the engine's output stage at FM_OUT_SHIFT_DEVICE (#342): play_render
- * adds the engine's samples as they are, and they already reach the stage's clamp at +-32767 (a
- * loud chord at full velocity), never wrapping. */
+ * adds the engine's samples as they are. At shift 0 (#320) that is the engine's own level: a loud
+ * chord at full velocity holds under the soft clip's ceiling, never at the rails. */
 TT_TEST(play_output_is_the_engines_at_the_device_gain)
 {
     uint32_t i, k, clamped = 0;
@@ -309,8 +309,8 @@ TT_TEST(play_output_is_the_engines_at_the_device_gain)
             clamped |= pl_a.buf[i] == 32767 || pl_a.buf[i] == -32767;
         }
     }
-    TT_CHECK_EQ(FM_OUT_SHIFT_DEVICE, 2);        /* x4 (+12 dB) until #320 picks */
-    TT_CHECK(clamped);                          /* the device gain is in the engine's output */
+    TT_CHECK_EQ(FM_OUT_SHIFT_DEVICE, 0);        /* the engine's level (#320) */
+    TT_CHECK(!clamped);                         /* no module gain: the soft clip holds it under the rails */
 }
 
 /* The OCT- / OCT+ LEDs say where the octave is: OCT- lit below 0, OCT+ above, both dark at 0. */
