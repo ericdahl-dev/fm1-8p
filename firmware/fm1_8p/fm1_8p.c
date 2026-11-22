@@ -258,7 +258,7 @@ static void draw(uint32_t full)
         return;
     }
     ui_boot_loaded(&U);                         /* (all read: the boot screen may end) */
-    play_pattern_tick(&P);                      /* a queued pattern that took over (#40) */
+    (void)pattern_takeover(play_patterns(&P));  /* a queued pattern that took over (#40, #324) */
     seq_clock_poll(play_seq(&P), H->ticks());   /* a MIDI clock gone stops what it ran (#38) */
     (void)settings_tick(&U.set, &U.set_dirty, U.set_changed_ms, H->ms(), play_silent(&P), &SETTINGS);
     sense_curve();                              /* (G31, loaded or turned) */

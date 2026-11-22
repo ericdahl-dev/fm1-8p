@@ -12,6 +12,14 @@ static void pp_setup(void)
     while (play_store_tick(&sp_a)) {}            /* the first draws */
 }
 
+/* a SAVE that doesn't wait: the snapshot, written at once */
+static int pn_save_now(play *p, uint32_t dest, const char *name)
+{
+    static seq_pattern snap;
+    uint32_t t = pattern_snapshot(play_patterns(p), &snap, 0);
+    return pattern_save(play_patterns(p), dest, &snap, name, t);
+}
+
 static void pp_write(uint32_t slot, uint8_t note, uint32_t len, const char *name)
 {
     static seq_pattern p;
@@ -31,9 +39,9 @@ TT_TEST(play_pattern_starts_on_slot_0)
 {
     char name[STORE_NAME_LEN + 1u];
     (void)play_init(&sp_a);
-    TT_CHECK_EQ(play_pattern_prog(&sp_a), 0u);
-    TT_CHECK_EQ(play_pattern_next(&sp_a), -1);
-    play_pattern_name(&sp_a, name);
+    TT_CHECK_EQ(pattern_running(play_patterns(&sp_a), 0), 0u);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&sp_a), 0), -1);
+    (void)pattern_running(play_patterns(&sp_a), name);
     TT_CHECK_EQ(name[0], '\0');
 }
 
@@ -47,14 +55,14 @@ TT_TEST(play_pattern_first_draw_loads_slot_0)
     pp_setup();
     TT_CHECK_EQ(seq_length(play_seq(&sp_a)), 3u);
     TT_CHECK_EQ(seq_get_step(play_seq(&sp_a), 0)->note[0], 50u);
-    play_pattern_name(&sp_a, name);
+    (void)pattern_running(play_patterns(&sp_a), name);
     TT_CHECK(strcmp(name, "INTRO") == 0);
     TT_CHECK_EQ(seq_edited(play_seq(&sp_a)), 0u);
 }
 
 /* Saving writes the edit buffer to a pattern slot, never a patch slot (check 56); that slot is then the
  * pattern playing, not edited, and loading it gives it back. An empty slot loads as the empty pattern. */
-TT_TEST(play_pattern_save_then_load)
+TT_TEST(pattern_save_then_load)
 {
     uint8_t note = 66;
     char name[STORE_NAME_LEN + 1u];
@@ -65,24 +73,24 @@ TT_TEST(play_pattern_save_then_load)
     seq_set_step(s, 0, &note, 1, 100);
     seq_set_length(s, 5);
     TT_CHECK_EQ(seq_edited(s), 1u);
-    TT_CHECK_EQ(play_pattern_save(&sp_a, 12, "RIFF A"), 0);
+    TT_CHECK_EQ(pn_save_now(&sp_a, 12, "RIFF A"), 0);
     TT_CHECK_EQ(store_flash.len[1], -1);        /* no patch bank written */
-    TT_CHECK_EQ(play_pattern_prog(&sp_a), 12u);
-    play_pattern_name(&sp_a, name);
+    TT_CHECK_EQ(pattern_running(play_patterns(&sp_a), 0), 12u);
+    (void)pattern_running(play_patterns(&sp_a), name);
     TT_CHECK(strcmp(name, "RIFF A") == 0);
     TT_CHECK_EQ(seq_edited(s), 0u);
-    play_load_pattern(&sp_a, 30);               /* empty */
-    TT_CHECK_EQ(play_pattern_prog(&sp_a), 30u);
+    pattern_queue(play_patterns(&sp_a), 30);               /* empty */
+    TT_CHECK_EQ(pattern_running(play_patterns(&sp_a), 0), 30u);
     TT_CHECK_EQ(seq_length(s), SEQ_STEPS);
     TT_CHECK_EQ(seq_get_step(s, 0)->kind, SEQ_REST);
-    play_pattern_name(&sp_a, name);
+    (void)pattern_running(play_patterns(&sp_a), name);
     TT_CHECK_EQ(name[0], '\0');
-    play_load_pattern(&sp_a, 12);
+    pattern_queue(play_patterns(&sp_a), 12);
     TT_CHECK_EQ(seq_length(s), 5u);
     TT_CHECK_EQ(seq_get_step(s, 0)->note[0], 66u);
 }
 
-/* Playing, a load is queued (play_pattern_next) and takes over after the pass; the pattern number and
+/* Playing, a load is queued (pattern_queued) and takes over after the pass; the pattern number and
  * name follow once it has (checks 50, 51). */
 TT_TEST(play_pattern_load_while_playing_queues)
 {
@@ -96,16 +104,16 @@ TT_TEST(play_pattern_load_while_playing_queues)
     seq_set_tempo(play_seq(&sp_a), 3000);       /* a pass: one step, 2205 frames */
     seq_play(play_seq(&sp_a));
     sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
-    play_load_pattern(&sp_a, 7);
-    TT_CHECK_EQ(play_pattern_next(&sp_a), 7);
-    TT_CHECK_EQ(play_pattern_prog(&sp_a), 0u);
+    pattern_queue(play_patterns(&sp_a), 7);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&sp_a), 0), 7);
+    TT_CHECK_EQ(pattern_running(play_patterns(&sp_a), 0), 0u);
     for (k = 0; k < 12u; k++) {
         sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
-        play_pattern_tick(&sp_a);
+        (void)pattern_takeover(play_patterns(&sp_a));
     }
-    TT_CHECK_EQ(play_pattern_prog(&sp_a), 7u);
-    TT_CHECK_EQ(play_pattern_next(&sp_a), -1);
-    play_pattern_name(&sp_a, name);
+    TT_CHECK_EQ(pattern_running(play_patterns(&sp_a), 0), 7u);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&sp_a), 0), -1);
+    (void)pattern_running(play_patterns(&sp_a), name);
     TT_CHECK(strcmp(name, "TWO") == 0);
     TT_CHECK_EQ(seq_get_step(play_seq(&sp_a), 0)->note[0], 72u);
 }
@@ -121,15 +129,15 @@ TT_TEST(play_pattern_cancel_and_stop)
     pp_setup();
     seq_play(play_seq(&sp_a));
     sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
-    play_load_pattern(&sp_a, 3);
-    play_load_pattern(&sp_a, 0);                /* back to the running one */
-    TT_CHECK_EQ(play_pattern_next(&sp_a), -1);
+    pattern_queue(play_patterns(&sp_a), 3);
+    pattern_queue(play_patterns(&sp_a), 0);                /* back to the running one */
+    TT_CHECK_EQ(pattern_queued(play_patterns(&sp_a), 0), -1);
     TT_CHECK_EQ(seq_next_queued(play_seq(&sp_a)), 0u);
-    play_load_pattern(&sp_a, 3);
+    pattern_queue(play_patterns(&sp_a), 3);
     seq_stop(play_seq(&sp_a));
-    play_pattern_tick(&sp_a);
-    TT_CHECK_EQ(play_pattern_prog(&sp_a), 3u);
-    TT_CHECK_EQ(play_pattern_next(&sp_a), -1);
+    (void)pattern_takeover(play_patterns(&sp_a));
+    TT_CHECK_EQ(pattern_running(play_patterns(&sp_a), 0), 3u);
+    TT_CHECK_EQ(pattern_queued(play_patterns(&sp_a), 0), -1);
     TT_CHECK_EQ(seq_get_step(play_seq(&sp_a), 0)->note[0], 72u);
 }
 
@@ -151,7 +159,7 @@ TT_TEST(play_pattern_survives_a_patch_change)
     for (k = 0; k < 30u; k++)
         sp_render(&sp_a, sp_out_a, PLAY_BLOCK);
     TT_CHECK(seq_steps(s) > before);            /* it plays on */
-    TT_CHECK_EQ(play_pattern_prog(&sp_a), 0u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&sp_a), 0), 0u);
     TT_CHECK_EQ(seq_length(s), 4u);
     TT_CHECK_EQ(seq_tempo(s), SEQ_TEMPO_DEF);
 }
@@ -172,7 +180,7 @@ TT_TEST(play_store_reads_one_bank_a_draw)
     for (k = 1; k <= 4u; k++) {
         TT_CHECK_EQ(play_store_tick(&sp_a), 1u);
         TT_CHECK_EQ(store_flash.loads, k);
-        play_pattern_name(&sp_a, name);
+        (void)pattern_running(play_patterns(&sp_a), name);
         TT_CHECK_EQ(name[0] != '\0', k == 4u);   /* slot 0's pattern with the last bank */
     }
     TT_CHECK_EQ(play_store_tick(&sp_a), 0u);
@@ -185,7 +193,7 @@ static void run_play_patterns_tests(void)
     TT_RUN(play_pattern_starts_on_slot_0);
     TT_RUN(play_pattern_first_draw_loads_slot_0);
     TT_RUN(play_store_reads_one_bank_a_draw);
-    TT_RUN(play_pattern_save_then_load);
+    TT_RUN(pattern_save_then_load);
     TT_RUN(play_pattern_load_while_playing_queues);
     TT_RUN(play_pattern_cancel_and_stop);
     TT_RUN(play_pattern_survives_a_patch_change);
