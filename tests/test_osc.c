@@ -1493,6 +1493,49 @@ TT_TEST(synced_dc_leaves_no_comb_under_the_fundamental)
 }
 
 /*
+ * A setting set again to the value it has changes nothing: SYNC, RING and
+ * X-MOD set again before every sample of a synced pair (as a knob at its end
+ * sets them, and the param asks' race, #349), the output is the same, sample
+ * for sample, as with no set. A restart's second-sample correction is never
+ * dropped.
+ */
+static int32_t same_value_set_worst(int which)
+{
+    static fm_osc_pair a, b;
+    int32_t worst = 0;
+    int i, k;
+    fm_osc_pair *ps[2] = { &a, &b };
+    for (k = 0; k < 2; k++) {
+        fm_osc_pair_reset(ps[k], 1);
+        fm_osc_pair_set_wave(ps[k], 1, FM_WAVE_SAW);
+        fm_osc_pair_set_level(ps[k], 0, FM_OSC_LEVEL_FULL / 2);
+        fm_osc_pair_set_level(ps[k], 1, FM_OSC_LEVEL_FULL);
+        fm_osc_pair_set_sync(ps[k], 1);
+        fm_osc_pair_set_ring(ps[k], 1);
+        fm_osc_pair_set_xmod(ps[k], FM_OSC_LEVEL_FULL / 4);
+        fm_osc_pair_set_pitch(ps[k], 45 << 16, 48000);
+        fm_osc_pair_set_tune(ps[k], 1, 700 + 13, 45 << 16, 48000);
+    }
+    for (i = 0; i < 24000; i++) {
+        int32_t d;
+        if (which == 0) fm_osc_pair_set_sync(&a, 1);
+        if (which == 1) fm_osc_pair_set_ring(&a, 1);
+        if (which == 2) fm_osc_pair_set_xmod(&a, FM_OSC_LEVEL_FULL / 4);
+        d = fm_osc_pair_next(&a) - fm_osc_pair_next(&b);
+        d = d < 0 ? -d : d;
+        if (d > worst) worst = d;
+    }
+    return worst;
+}
+
+TT_TEST(sync_ring_xmod_set_again_change_nothing)
+{
+    TT_CHECK_EQ(same_value_set_worst(0), 0);
+    TT_CHECK_EQ(same_value_set_worst(1), 0);
+    TT_CHECK_EQ(same_value_set_worst(2), 0);
+}
+
+/*
  * The DC taken off a synced pair follows a sync sweep (osc2 pitched up two
  * octaves over half a second, the classic sweep a pitch envelope plays):
  * each osc1 cycle's own mean stays within 0.04 of full while it moves,
@@ -2942,6 +2985,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_just_short_of_its_wrap_has_low_aliasing);
     TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
     TT_RUN(synced_dc_leaves_no_comb_under_the_fundamental);
+    TT_RUN(sync_ring_xmod_set_again_change_nothing);
     TT_RUN(synced_dc_follows_a_sync_sweep);
     TT_RUN(synced_osc2_settles_to_no_dc_under_the_step);
     TT_RUN(synced_osc2_retuned_mid_note_has_no_dc);

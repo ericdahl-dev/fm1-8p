@@ -566,14 +566,18 @@ static FM_NOINLINE void update_special(fm_osc_pair *p)
     update_derived(p);
 }
 
+/* SYNC, RING and X-MOD: set to the value they have, nothing (update_special
+ * drops a restart's pending correction, a sample's step, #350) */
 void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on)
 {
+    if (p->sync == (on ? 1 : 0)) return;
     p->sync = on ? 1 : 0;
     update_special(p);
 }
 
 void fm_osc_pair_set_ring(fm_osc_pair *p, uint8_t on)
 {
+    if (p->ring == (on ? 1 : 0)) return;
     p->ring = on ? 1 : 0;
     update_special(p);
 }
@@ -582,6 +586,7 @@ void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth)
 {
     if (depth < 0) depth = 0;
     if (depth > FM_OSC_LEVEL_FULL) depth = FM_OSC_LEVEL_FULL;
+    if (p->xmod == depth) return;
     p->xmod = depth;
     update_special(p);
 }
