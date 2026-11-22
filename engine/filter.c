@@ -27,6 +27,7 @@
  * the input, so the fully open filter is an exact wire.
  */
 #include "filter.h"
+#include "cutoff_curve.h"
 
 /* Tables from tools/gen_filter_tables.py. */
 
@@ -135,16 +136,15 @@ static int32_t coef_for(int32_t cents, int32_t rate_cents)
 /*
  * PG-8X's cutoff curve (#253). PG-8X 2.0.13 adds VCF ENV and VCF KEY to
  * VCF FREQ in knob steps, then plays the sum through one curve, measured
- * as cents(K) = 0.0988 K^2 + 115.03 K - 1474 (tools/jx8p.py cutoff_cents).
- * The engine sums its cutoff sources linearly, in "linear cents": 115.03
- * of them a knob step, from -1474 at step 0. Then it bends the sum once
- * onto the curve: C(u) = u + A (u + 1474)^2, A = 0.0988 / 115.03^2. Below step 0
- * (u < -1474) the curve adds nothing. At or above the open cutoff the sum
- * is open either way (C(u) >= u), so a voice passes it as it is: no
- * multiply, and an open filter is untouched.
+ * as cents(K) = 0.0988 K^2 + 115.03 K - 1474 (tools/cutoff_curve.py, which
+ * generates cutoff_curve.h, #344). The engine sums its cutoff sources
+ * linearly, in "linear cents": 115.03 of them a knob step, from
+ * FM_CURVE_ZERO at step 0. Then it bends the sum once onto the curve:
+ * C(u) = u + A (u - FM_CURVE_ZERO)^2, A = 0.0988 / 115.03^2 (FM_CURVE_A_Q32).
+ * Below step 0 (u < FM_CURVE_ZERO) the curve adds nothing. At or above
+ * the open cutoff the sum is open either way (C(u) >= u), so a voice
+ * passes it as it is: no multiply, and an open filter is untouched.
  */
-#define CURVE_ZERO (-1474)  /* linear cents at knob step 0 */
-#define CURVE_A_Q32 32070   /* 0.0988 / 115.03^2 in Q32 */
 
 /* The curve itself: rising, for the inverse below. u is under twice
  * open there (and under open on a voice's path), so d is under 30275 and
@@ -152,10 +152,10 @@ static int32_t coef_for(int32_t cents, int32_t rate_cents)
 static int32_t curve_of(int32_t u)
 {
     uint32_t d, d2;
-    if (u <= CURVE_ZERO) return u;
-    d = (uint32_t)(u - CURVE_ZERO);
+    if (u <= FM_CURVE_ZERO) return u;
+    d = (uint32_t)(u - FM_CURVE_ZERO);
     d2 = d * d;
-    return u + (int32_t)(((uint64_t)d2 * CURVE_A_Q32 + (1ull << 31)) >> 32);
+    return u + (int32_t)(((uint64_t)d2 * FM_CURVE_A_Q32 + (1ull << 31)) >> 32);
 }
 
 /* The curve for a voice: open stays open without the multiply. */
@@ -186,18 +186,18 @@ int32_t fm_filter_linear_cents(int32_t cents)
     uint64_t y;
     uint32_t s;
     int32_t u;
-    if (cents <= CURVE_ZERO) return cents;
+    if (cents <= FM_CURVE_ZERO) return cents;
     if (cents > 2 * FM_FILTER_OPEN_CENTS) cents = 2 * FM_FILTER_OPEN_CENTS;
-    /* C(u) = cents: d = (sqrt(1 + 4 A Y) - 1) / 2A, Y = cents + 1474 */
-    y = (uint64_t)((int64_t)cents - CURVE_ZERO);
-    s = isqrt64((1ull << 32) + 4ull * CURVE_A_Q32 * y); /* Q16 */
+    /* C(u) = cents: d = (sqrt(1 + 4 A Y) - 1) / 2A, Y = cents - FM_CURVE_ZERO */
+    y = (uint64_t)((int64_t)cents - FM_CURVE_ZERO);
+    s = isqrt64((1ull << 32) + 4ull * FM_CURVE_A_Q32 * y); /* Q16 */
     /* s - 65536 is under 25000 (cents is held to 2 x open), so the
      * numerator stays under 8.2e8: a 32-bit divide */
-    u = CURVE_ZERO + (int32_t)(((s - 65536u) * 32768u + 16035u) / 32070u);
+    u = FM_CURVE_ZERO + (int32_t)(((s - 65536u) * 32768u + FM_CURVE_A_Q32_HALF) / FM_CURVE_A_Q32);
     /* the u whose curve value is nearest `cents` (the lower on a tie) */
     while (curve_of(u) < cents) u++;
-    while (u > CURVE_ZERO && curve_of(u - 1) >= cents) u--;
-    if (u > CURVE_ZERO && cents - curve_of(u - 1) <= curve_of(u) - cents) u--;
+    while (u > FM_CURVE_ZERO && curve_of(u - 1) >= cents) u--;
+    if (u > FM_CURVE_ZERO && cents - curve_of(u - 1) <= curve_of(u) - cents) u--;
     return u;
 }
 
