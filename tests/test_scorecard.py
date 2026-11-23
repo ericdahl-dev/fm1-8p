@@ -223,6 +223,26 @@ class MetricTest(unittest.TestCase):
         self.assertTrue(all(v == 0.0 for v in s["pitch_cents"].values()))
 
 
+    # The ruler's own noise: PG-8X's render scored against itself 10 ms later, per section. A section
+    # that reads a change in the sound that small isn't reading timbre. A held sine reads 0 everywhere;
+    # one that changes pitch inside v90's window reads there and nowhere else.
+    def test_the_ruler_noise_reads_only_where_the_sound_moves_within_10_ms(self):
+        np = self.np
+        t = np.arange(13 * SR) / SR
+        steady = 0.1 * np.sin(2 * np.pi * 440 * t)
+        self.assertTrue(all(v < 0.01 for v in self.sc.ruler_noise(steady).values()))
+        a, b = self.sc.SECTIONS["v90"]
+        f = np.where((t >= a + 0.2) & (t < b), 3000.0, 440.0)
+        moving = 0.1 * np.sin(2 * np.pi * np.cumsum(f) / SR)
+        n = self.sc.ruler_noise(moving)
+        self.assertGreater(n["v90"], 0.1)
+        self.assertTrue(all(v < 0.01 for k, v in n.items() if k != "v90"), n)
+
+    # The report's line for it: each section's mean over the tones, in SECTIONS' order.
+    def test_the_ruler_noise_line_is_each_sections_mean(self):
+        line = self.sc.noise_line([{"chord": 0.0, "v90": 1.0}, {"chord": 0.2, "v90": 0.5}])
+        self.assertEqual(line, "ruler noise (PG-8X against itself 10 ms later, dB): chord 0.10, v90 0.75")
+
     # A ring or cross-mod tone has no single pitch: the correlation lines up unrelated partials (WINDCHIMES
     # read +140 c with every partial within 6 c of PG-8X's, s7), so no pitch is reported for it.
     def test_an_inharmonic_tone_reports_no_pitch(self):

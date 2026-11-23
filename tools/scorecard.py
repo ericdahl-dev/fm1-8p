@@ -209,6 +209,24 @@ def score_tone(ours, pg, harmonic=True):
     }
 
 
+NOISE_SHIFT_S = 0.01
+
+
+def ruler_noise(pg):
+    """Each section's spectral distance between PG's render and itself NOISE_SHIFT_S later (dB): what the
+    ruler reads from a change that small, which isn't timbre (s11)."""
+    x, n = mono(pg), int(NOISE_SHIFT_S * SR)
+    return {k: round(spectral_distance(x[int(a * SR):int(b * SR)], x[int(a * SR) + n:int(b * SR) + n]), 2)
+            for k, (a, b) in SECTIONS.items()}
+
+
+def noise_line(noises):
+    """The report's line: each section's ruler noise, its mean over the tones' NOISES."""
+    keys = [k for k in SECTIONS if all(k in n for n in noises)]
+    return ("ruler noise (PG-8X against itself 10 ms later, dB): " +
+            ", ".join(f"{k} {sum(n[k] for n in noises) / len(noises):.2f}" for k in keys))
+
+
 def tone_row(commit, date, tone, name, score, ref, bank="factory"):
     """One history row for one tone of BANK at one commit (schema SCHEMA). A row without "bank" (written
     before banks) is the factory bank."""
@@ -431,8 +449,9 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
     date, ref_id = now(), man["midi_sha256"][:12]
     rows = []
     for i, path in render_tones(tree, mid, work, bank):
-        score = score_tone(read_wav(path), read_wav(os.path.join(ref, f"{i:02d}.wav")), harmonic=i not in odd)
-        rows.append(tone_row(commit, date, i, names[i], score, ref_id, bank_name))
+        pg = read_wav(os.path.join(ref, f"{i:02d}.wav"))
+        score = score_tone(read_wav(path), pg, harmonic=i not in odd)
+        rows.append({**tone_row(commit, date, i, names[i], score, ref_id, bank_name), "ruler_noise_db": ruler_noise(pg)})
     params = []
     if match:
         import glob
@@ -543,6 +562,8 @@ def main(argv=None):
     if asked and base is None:
         print(missing_base(a.history, a.base, rows[0]["ref"], a.bank_name))
     print(report(rows, base))
+    if rows and all("ruler_noise_db" in r for r in rows):
+        print("\n" + noise_line([r["ruler_noise_db"] for r in rows]))
     print(f"\n{len(rows)} tone rows{' and the parameter rows' if a.match else ''} appended to {a.history}")
     if asked and base is None:
         sys.exit(2)                              # (#335: asked to compare, and nothing was; the head's rows kept)
