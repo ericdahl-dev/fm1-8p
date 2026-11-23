@@ -20,7 +20,7 @@ import scorecard_cmd  # noqa: E402
 import numpy as np
 from scipy import signal
 
-SCHEMA = 10  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 11  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
@@ -28,7 +28,8 @@ SCHEMA = 10  # history rows: bump when a field changes meaning (2: timings sampl
              # 7: both 5 and 6, merged;
              # 8: no pitch for a ring or cross-mod tone without sync (it has none), #253;
              # 9: the air gap takes PG-8X's side at our level in int16, so our 16-bit floor isn't air, #299;
-             # 10: so does each spectral section, so the floor isn't timbre either)
+             # 10: so does each spectral section, so the floor isn't timbre either;
+             # 11: the phrase notes are 0.7 s, so every section reads 0.5 s or more; the reference is v6)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = scorecard_cmd.SR
@@ -169,9 +170,9 @@ def pitch_cents(ours, pg, span=200):
 # its note on. PG-8X puts a sub-230 Hz thump near -32 dBFS on every note on, a voice's first or not,
 # that dies down over about 120 ms (#146); our engine has none, so a section inside it reads a gap in
 # the lows that isn't timbre
-SECTIONS = {"chord": (0.55, 3.15), "v110": (4.38, 4.65), "v60": (4.88, 5.15), "v90": (5.38, 5.55),
-            "v40": (5.78, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}
-HIGH = (8.85, 10.25, 1046.50)   # the high C6: onset, note-off (s), f0 (Hz): about 1 ms a period
+SECTIONS = {"chord": (0.55, 3.15), "v110": (4.38, 4.95), "v60": (5.18, 5.75), "v90": (5.98, 6.55),
+            "v40": (6.78, 7.35), "low": (8.05, 9.35), "high": (10.25, 11.25)}
+HIGH = (9.95, 11.35, 1046.50)   # the high C6: onset, note-off (s), f0 (Hz): about 1 ms a period
 
 
 def _cut(x, a, b):
