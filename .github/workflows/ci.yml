@@ -5,10 +5,36 @@ on:
   pull_request:
 
 jobs:
+  # Which jobs a change needs (tools/ci_scope.sh): a change to the project page alone (site/ and its Pages
+  # workflow, #356) skips the build, tests and firmware but runs the page's own tests. build-test still runs,
+  # its other steps skipped, so the ruleset's required checks report.
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The base: a pull request's own base (its merge commit's first parent); a push's fork point from main,
+      # so a branch's earlier code changes count too (main's own pushes list nothing and run in full).
+      - id: scope
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            base=$(git rev-parse HEAD^1)
+          else
+            base=$(git merge-base origin/main HEAD) || base=
+          fi
+          scope=$(sh tools/ci_scope.sh "$base")
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
+          echo "CI scope: $scope (base ${base:-none})"
+
   # Ubuntu with gcc and clang, and macOS (Apple clang, arm64). The Ubuntu jobs keep the names
   # "build-test (gcc)" and "build-test (clang)": ruleset "main requires CI" requires them.
   build-test:
     name: ${{ matrix.os == 'ubuntu-latest' && format('build-test ({0})', matrix.cc) || format('build-test ({0}, {1})', matrix.os, matrix.cc) }}
+    needs: scope
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -23,52 +49,68 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: The project page's tests (a change to the page alone runs only these)
+        if: needs.scope.outputs.scope == 'page'
+        run: python3 -B -m unittest tests/test_site.py
+
       - name: Build
+        if: needs.scope.outputs.scope == 'full'
         run: make
 
       - name: Tests
+        if: needs.scope.outputs.scope == 'full'
         run: make test
 
       - name: Tests with AddressSanitizer and UBSan
+        if: needs.scope.outputs.scope == 'full'
         run: |
           make clean
           make test CFLAGS="-O1 -g -fsanitize=address,undefined -fno-sanitize-recover=all -DFM_CHECK_BUSY -DFM_CHECK_ENGINE"
           make clean
 
       - name: Long benchmark run under UBSan (the output buffer must not pile up)
+        if: needs.scope.outputs.scope == 'full'
         run: |
           make BUILD=build/ubsan CFLAGS="-O1 -g -fsanitize=undefined -fno-sanitize-recover=all" build/ubsan/fm1-8p-bench
           ./build/ubsan/fm1-8p-bench -b 100000 -r 1 -w all
 
       - name: Float-free engine check
+        if: needs.scope.outputs.scope == 'full'
         run: make check-float-free
 
       - name: FM-1 build script checks
+        if: needs.scope.outputs.scope == 'full'
         run: make check-fm1-build
 
       - name: Test runner and killed-build checks
+        if: needs.scope.outputs.scope == 'full'
         run: make check-runner
 
       - name: Factory patch converter (and firmware/patches.c up to date)
+        if: needs.scope.outputs.scope == 'full'
         run: make check-patches
       - name: Display font (generated, unedited, within 6 KB; #55)
+        if: needs.scope.outputs.scope == 'full'
         run: make check-font
       - name: Draw colors (all from the theme; #54)
+        if: needs.scope.outputs.scope == 'full'
         run: make check-draw-colors
 
       - name: Sample render
+        if: needs.scope.outputs.scope == 'full'
         run: |
           make render-demo
           ls -l build/demo.wav
 
       - name: Benchmark (short run; shared runners are too noisy to compare; prints the clock step)
+        if: needs.scope.outputs.scope == 'full'
         run: |
           make build/fm1-8p-bench
           ./build/fm1-8p-bench -h
           ./build/fm1-8p-bench -b 200 -r 3 -w all
 
       - name: Upload sample render
-        if: matrix.os == 'ubuntu-latest' && matrix.cc == 'gcc'
+        if: needs.scope.outputs.scope == 'full' && (matrix.os == 'ubuntu-latest' && matrix.cc == 'gcc')
         uses: actions/upload-artifact@v4
         with:
           name: demo-wav
@@ -78,6 +120,8 @@ jobs:
   # The FM-1 firmware: the playable synth (#44) and the CPU test (#12). Pinned fm1-dock, JieLi toolchain and SDK files, each
   # checked by hash; fm1-dock's safety checks must reject the canaries. Not a required check.
   fm1-firmware:
+    needs: scope
+    if: needs.scope.outputs.scope == 'full'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FM1-8P</title>
+  <meta name="description" content="FM1-8P: an original polyphonic analog-style synth firmware for the M-VAVE FM-1, with the 32 JX-8P factory tones.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>FM1-8P</h1>
+    <p class="lede">An original firmware that turns the M-VAVE FM-1 into a polyphonic analog-style synth,
+      inspired by mid-80s two-oscillator polysynths with a chorus.</p>
+    <p class="beta">Beta: not released yet. The first release, v0.1, comes after testing on a real FM-1.</p>
+  </header>
+
+  <main>
+    <section id="play">
+      <h2>Play it in the browser</h2>
+      <p>This is the current build running in <a href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a>,
+        Joakim Eriksson's FM-1 emulator. Press Start, then play it with the computer keyboard, the mouse, a touch screen or a MIDI keyboard
+        (Web MIDI: Chrome, Edge or Firefox).</p>
+      <div class="emu">
+        <iframe src="{{EMU_SRC}}" title="FM1-8P in the fm1-emu emulator" allow="midi; autoplay" loading="lazy"></iframe>
+      </div>
+    </section>
+
+    <section id="what">
+      <h2>What it plays</h2>
+      <ul>
+        <li>4 voices of two oscillators each: saw, pulse, square or noise, with octave, fine tune, pulse width, sync, cross-mod and a mix between them.</li>
+        <li>A resonant 24 dB lowpass with key tracking and its own envelope, and a 4-position highpass.</li>
+        <li>Two envelopes, for the amp and the filter, with velocity; pitch and the oscillator mix can follow either one.</li>
+        <li>An LFO with a delay, a unison mode, glide, and a chorus with three modes.</li>
+        <li>The FM-1's keys (with velocity) and MIDI over USB, Bluetooth or the jack: notes, sustain and pitch bend.</li>
+      </ul>
+      <p>KNOB1 to KNOB4 edit the patch, one page of four parameters at a time. PRESETS steps through the 32 tones.</p>
+    </section>
+
+    <section id="tones">
+      <h2>The 32 tones</h2>
+      <p>The JX-8P factory bank, converted to FM1-8P's parameters. It boots on 17, SOUNDTRACK.</p>
+      <ol class="tones">
+{{TONES}}
+      </ol>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <p>FM1-8P is not on the <a href="https://thefirmwarehub.com/">FM-1 Firmware Hub</a> yet. It will be
+        listed there with the v0.1 release, and you will be able to install it from the hub and go back to the
+        stock firmware (V15) the same way.</p>
+      <p>Developers can try the latest build from <code>main</code> now. It changes with every merge and is not a release:</p>
+      <ul>
+        <li><a href="fm1-8p.fwsc">fm1-8p.fwsc</a>: the firmware package, identity FM-1_948.</li>
+        <li><a href="fm1_8p.dock">fm1_8p.dock</a>: the module, for <a href="https://github.com/joakimeriksson/fm1-dock">fm1-dock</a>.</li>
+      </ul>
+      <p>To go back, install the stock firmware (V15) from the Firmware Hub. If an install goes wrong, switch the
+        FM-1 on while holding OCT- for the USB rescue, then install again; holding OCT+ at power-on is a safe start.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p><a href="https://github.com/ericdahl-dev/fm1-8p">Source on GitHub</a>, GPL-3.0.
+      The emulator is <a href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a> (MIT).
+      FM1-8P is not affiliated with or endorsed by Roland or M-VAVE.</p>
+  </footer>
+</body>
+</html>

@@ -238,6 +238,9 @@ the device (#13).
   `fm1_8p/` (the fm1-dock module); the CPU test, `cpu_test.[ch]` and `fm1_8p_cpu/`; `canary/`
   (modules the build must reject), `pins.env`.
 - `tests/` - tests, run with a small single-header runner (`tests/tinytest.h`).
+- `site/` - the project page, ericdahl-dev.github.io/fm1-8p (#356): `tools/site_build.py` adds the 32 tone
+  names and the fm1-emu embed, and `.github/workflows/pages.yml` publishes it with the `.fwsc` and `.dock`
+  built from `main`.
 - `tools/` - the float-free check, the FM-1 build (`fm1-build.sh`) and the scripts that
   generate the pitch table and `examples/demo.mid`.
 
