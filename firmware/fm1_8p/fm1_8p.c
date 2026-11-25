@@ -74,11 +74,11 @@ static void cc_send(void)
 
 /* G14 CLOCK OUT (#286): the clock, start and stop due, sent. Only the main loop may send, so this runs at
  * the start of every pass (draw, called each one) and after a clock byte comes in (midi): a tick waits
- * at most a pass */
-static void clock_out(void)
+ * at most a pass past its time (#306); all: everything now (release) */
+static void clock_out(uint32_t all)
 {
     uint8_t b;
-    while (seq_clock_out_take(play_seq(&P), &b))
+    while (seq_clock_out_take(play_seq(&P), H->ticks(), all, &b))
         H->midi_send(b, 0, 0);
 }
 
@@ -89,7 +89,7 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
         return;                                 /* G11: another channel's */
     if (st >= 0xF8u) {                          /* clock, start, continue, stop (#38), stamped as they come */
         seq_clock_in(play_seq(&P), st, H->ticks());
-        clock_out();                            /* (G14: a tick passed on at once, #286) */
+        clock_out(0);                           /* (G14: a tick passed on at once, #286) */
         return;
     }
     ui_midi_controls(&U, st, d1, d2);           /* the live bend and mod wheel, for a SEQ step written (#42) */
@@ -226,7 +226,7 @@ static const settings_io SETTINGS = { set_load, set_save, 0 };
 /* The host calls draw() from its main loop: the LEDs on a full redraw, then the screen (draw.c) */
 static void draw(uint32_t full)
 {
-    clock_out();                                /* (#286: first, before a draw call's time) */
+    clock_out(0);                               /* (#286: first, before a draw call's time) */
 #ifdef FM1_DEBUG
     if (rate_done == 1u) {                      /* #13: Hz = frames x 24000000 / ticks */
         rate_done = 2u;
@@ -331,7 +331,7 @@ static void release(void)
 {
     seq_clock_out_stop(play_seq(&P));           /* (#286: before seq_stop, so one stop, not two) */
     seq_stop(play_seq(&P));
-    clock_out();
+    clock_out(1);
 }
 
 /* no cc(): midi() takes every channel message */
