@@ -333,6 +333,7 @@ void seq_play(seq *s)
     s->clk_pending = 0;                         /* (a start come in with no clock: nothing to wait for) */
     s->want = 1;
     BARRIER();                                  /* the wish before the ask: never an ask with an old one */
+    HANDOFF_GAP("play", 1);
     s->ask_play++;
 }
 
@@ -349,6 +350,7 @@ void seq_stop(seq *s)
     s->clk_running = 0;
     s->want = 0;
     BARRIER();
+    HANDOFF_GAP("stop", 0);
     s->ask_stop++;
     HANDOFF_GAP("stop", 1);
     ask_close(s);
