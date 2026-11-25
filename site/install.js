@@ -16,6 +16,16 @@ const ask = async (q) => window.confirm(q);
 const requestMIDIAccess = (opts) => navigator.requestMIDIAccess(opts);
 let catalogOk = false;
 
+// the usage stats (site/analytics.js), loaded so that nothing here depends on them: blocked, failing to load or
+// throwing, the page works the same. Until they are there, track drops what it gets.
+let stats = null;
+const track = (event, props) => { try { if (stats) stats.track(event, props); } catch (_) { /* never ours */ } };
+const iframe = document.querySelector("#play iframe");
+import("./analytics.js").then((m) => {
+  stats = m.createAnalytics();
+  m.watchEmulatorStart(window, iframe, track);
+}).catch(() => {});
+
 function setBusy(busy) {
   fwBtn.disabled = dockBtn.disabled = !buttonsEnabled({ midi: support.ok, catalogOk, busy });
 }
@@ -50,7 +60,7 @@ fwBtn.addEventListener("click", () => guard.run(async () => {
   setBusy(true);
   fwBar.hidden = true; fwBar.value = 0;
   const { say, progress } = reporter(fwBar, fwSay);
-  say(await installFlow({ requestMIDIAccess, fetch, base, lib: { entryFor, checkPackage, installOn }, ask, say, progress, explain }));
+  say(await installFlow({ requestMIDIAccess, fetch, base, lib: { entryFor, checkPackage, installOn }, ask, say, progress, explain, track }));
   setBusy(false);
 }));
 
@@ -58,6 +68,6 @@ dockBtn.addEventListener("click", () => guard.run(async () => {
   setBusy(true);
   dockBar.hidden = true; dockBar.value = 0;
   const { say, progress } = reporter(dockBar, dockSay);
-  say(await addFlow({ requestMIDIAccess, fetch, base, lib: { moduleInfo, addModule }, ask, say, progress, explain }));
+  say(await addFlow({ requestMIDIAccess, fetch, base, lib: { moduleInfo, addModule }, ask, say, progress, explain, track }));
   setBusy(false);
 }));

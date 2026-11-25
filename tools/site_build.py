@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The project page (#356): site/ with the 32 factory tone names from data/jx8p-factory-1-32.syx and the
 fm1-emu embed pointed at our .fwsc, written to OUT with the browser installer (site/install.js, site/installer.js
-and fm1-dock's vendored code, site/vendor/fm1-dock) and the self-hosted fonts (site/fonts).
+and fm1-dock's vendored code, site/vendor/fm1-dock), the self-hosted fonts (site/fonts), and the cookie-free usage
+stats (site/analytics.js, with PostHog's library self-hosted in site/posthog-js).
 
 With the .fwsc and .dock it also writes OUT/fw/: both files and fw/index.json, the catalog site/install.js
 installs from (each file's SHA-256 and size, the package's identity, the module's ABI). It refuses a .fwsc whose
@@ -136,9 +137,9 @@ def build(root, out, base_url, packages=None):
         write_fw(root, out, packages)
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(html)
-    for name in ("style.css", "install.js", "installer.js"):
+    for name in ("style.css", "install.js", "installer.js", "analytics.js"):
         shutil.copy(os.path.join(src, name), out)
-    for folder in ("vendor", "fonts"):
+    for folder in ("vendor", "fonts", "posthog-js"):
         shutil.copytree(os.path.join(src, folder), os.path.join(out, folder), dirs_exist_ok=True)
 
 

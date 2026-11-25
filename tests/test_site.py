@@ -115,6 +115,33 @@ class VendoredTest(unittest.TestCase):
             self.assertIn("60a89df6554f6df3823f03a4c893b6715bfef9b5", fh.read())
 
 
+class PosthogVendoredTest(unittest.TestCase):
+    """site/posthog-js: PostHog's browser library, self-hosted unmodified at the version its VENDORED.md names."""
+    DIR = os.path.join(ROOT, "site", "posthog-js")
+
+    def note(self):
+        with open(os.path.join(self.DIR, "VENDORED.md"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_every_file_matches_the_sha256_its_note_records(self):
+        rows = re.findall(r"^\| `([^`]+)` \| `([0-9a-f]{64})` \|$", self.note(), re.M)
+        self.assertEqual(sorted(r[0] for r in rows), ["LICENSE", "module.slim.no-external.js"])
+        for rel, sha in rows:
+            with open(os.path.join(self.DIR, rel), "rb") as fh:
+                self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), sha, rel)
+
+    def test_the_note_names_the_pinned_version_and_its_npm_integrity(self):
+        note = self.note()
+        self.assertIn("posthog-js@1.447.10", note)
+        self.assertIn("sha512-KQnjJxd68NuYqLxK8nqIzII4DquMFQcrMwKrX2MGjfyLbIQKDJN/I3YyqHS1ffYyx3piICpDuz4k4nX9kw3EoQ==", note)
+
+    def test_the_license_is_posthogs_apache_2_0(self):
+        with open(os.path.join(self.DIR, "LICENSE"), encoding="utf-8") as fh:
+            lic = fh.read()
+        self.assertIn("Posthog", lic)
+        self.assertIn("Apache License", lic)
+
+
 class PageTest(unittest.TestCase):
     def build(self):
         d = tempfile.mkdtemp()
@@ -190,6 +217,25 @@ class PageTest(unittest.TestCase):
         for rel in ("install.js", "installer.js", "vendor/fm1-dock/dock.js", "vendor/fm1-dock/install/fm1install.js",
                     "vendor/fm1-dock/install/fm1ota.js", "vendor/fm1-dock/install/ports.js", "vendor/fm1-dock/LICENSE"):
             self.assertTrue(os.path.isfile(os.path.join(d, rel)), rel)
+
+    def test_copies_the_stats_module_and_the_posthog_library_with_its_license(self):
+        d, _ = self.build()
+        for rel in ("analytics.js", "posthog-js/module.slim.no-external.js", "posthog-js/LICENSE",
+                    "posthog-js/VENDORED.md"):
+            self.assertTrue(os.path.isfile(os.path.join(d, rel)), rel)
+
+    def test_the_page_loads_scripts_only_from_its_own_site(self):
+        _, html = self.build()
+        srcs = re.findall(r"<script\b[^>]*\bsrc=\"([^\"]*)\"", html)
+        self.assertEqual(srcs, ["install.js"])
+        self.assertEqual(re.findall(r"<script\b(?![^>]*\bsrc=)", html), [])
+
+    def test_the_footer_says_what_the_usage_stats_count(self):
+        _, html = self.build()
+        footer = html[html.index("<footer"):]
+        self.assertIn("Cookie-free usage stats via PostHog: page views, emulator starts, and whether installs succeed "
+                      "or fail. Nothing about your FM-1 beyond success or failure.",
+                      " ".join(re.sub(r"<[^>]+>", "", footer).split()))
 
     def install_section(self):
         _, html = self.build()

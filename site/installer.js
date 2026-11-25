@@ -124,6 +124,25 @@ export function oneAtATime() {
   return g;
 }
 
+// the usage stats a flow reports through track(event, props) (site/analytics.js's): <what>_started, _succeeded, and
+// _failed with the error's code only ("other" without one), never its message. A track that throws, or returns a
+// promise that rejects, changes nothing here, and nothing waits for it.
+const CANCELED = { code: "canceled" };
+function reporting(track, what) {
+  const send = (event, props) => {
+    if (typeof track !== "function") return;
+    try {
+      const r = props === undefined ? track(event) : track(event, props);
+      if (r && typeof r.then === "function") r.then(undefined, () => {});
+    } catch (_) { /* the stats are never the installer's problem */ }
+  };
+  return {
+    started: () => send(`${what}_started`),
+    succeeded: () => send(`${what}_succeeded`),
+    failed: (e) => send(`${what}_failed`, { error: e && typeof e.code === "string" ? e.code : "other" }),
+  };
+}
+
 const UPDATE_MODE = /^The FM-1 is in update mode/;   // fm1-dock's installOn: finishing an install that was cut off
 
 async function midiAccess(requestMIDIAccess) {
@@ -132,8 +151,10 @@ async function midiAccess(requestMIDIAccess) {
 
 // what the Install button does: MIDI access, installFirmware, and the status line it ends with (never throws).
 // progress(value 0..100 or null, text) follows fm1-dock's steps; explain: fm1-dock's (install/fm1install.js).
-export async function installFlow({ requestMIDIAccess, fetch, base, lib, ask, say, progress, explain }) {
+export async function installFlow({ requestMIDIAccess, fetch, base, lib, ask, say, progress, explain, track }) {
+  const note = reporting(track, "install");
   let resuming = false, reads = 1, bar = 0;
+  note.started();
   try {
     const midi = await midiAccess(requestMIDIAccess);
     say("Looking for the FM-1 …");
@@ -152,23 +173,30 @@ export async function installFlow({ requestMIDIAccess, fetch, base, lib, ask, sa
     };
     const askAndNote = (q) => { resuming = UPDATE_MODE.test(q); return ask(q); };
     const got = await installFirmware({ midi, fetch, base, lib: counted, ask: askAndNote, say, step });
-    if (got !== null) return `Done: the FM-1 runs FM1-8P (${got}).`;
+    if (got !== null) { note.succeeded(); return `Done: the FM-1 runs FM1-8P (${got}).`; }
+    note.failed(CANCELED);
     return resuming ? "Canceled. The FM-1 stays in update mode until an install is finished." : "Canceled: nothing was written.";
   } catch (e) {
+    note.failed(e);
     return messageFor(e, explain);
   }
 }
 
 // what the Add button does: MIDI access, addToDock, and the status line it ends with (never throws).
 // progress(value 0..100, text) while the module is sent.
-export async function addFlow({ requestMIDIAccess, fetch, base, lib, ask, say, progress, explain }) {
+export async function addFlow({ requestMIDIAccess, fetch, base, lib, ask, say, progress, explain, track }) {
+  const note = reporting(track, "dock_add");
+  note.started();
   try {
     const midi = await midiAccess(requestMIDIAccess);
     say("Looking for fm1-dock on the FM-1 …");
     const got = await addToDock({ midi, fetch, base, lib, ask,
       progress: (x, t) => progress(Math.round(x * 100), `Sending: ${t}`) });
-    return got === null ? "Canceled: nothing was sent." : `Done: ${got} is in fm1-dock. Hold HOME on the FM-1 and pick it.`;
+    if (got === null) { note.failed(CANCELED); return "Canceled: nothing was sent."; }
+    note.succeeded();
+    return `Done: ${got} is in fm1-dock. Hold HOME on the FM-1 and pick it.`;
   } catch (e) {
+    note.failed(e);
     return messageFor(e, explain);
   }
 }
