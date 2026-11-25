@@ -128,8 +128,24 @@ class PageTest(unittest.TestCase):
         names = site_build.tone_names(ROOT)
         self.assertEqual(len(names), 32)
         self.assertEqual(names[16], "SOUNDTRACK")
-        at = [html.index(f"<li>{site_build.escape(n)}</li>") for n in names]
+        at = [re.search(rf'<li(?: class="boot")?>{re.escape(site_build.escape(n))}</li>', html).start() for n in names]
         self.assertEqual(at, sorted(at))
+
+    def test_marks_tone_17_the_boot_tone_and_no_other(self):
+        _, html = self.build()
+        self.assertEqual(re.findall(r'<li class="boot">([^<]*)</li>', html), ["SOUNDTRACK"])
+
+    def test_the_panel_decoration_is_hidden_from_screen_readers(self):
+        # the window legends, the boot readout and the tone key repeat what the page says (#356 page design)
+        _, html = self.build()
+        tags = re.findall(r'<p class="(?:legend|readout|tone-key)"[^>]*>', html)
+        self.assertEqual(len(tags), 5)
+        for tag in tags:
+            self.assertIn('aria-hidden="true"', tag)
+
+    def test_the_heading_is_the_name(self):
+        _, html = self.build()
+        self.assertEqual(re.findall(r"<h1>([^<]*)</h1>", html), ["FM1-8P"])
 
     def test_embeds_the_emulator(self):
         _, html = self.build()
@@ -175,7 +191,8 @@ class PageTest(unittest.TestCase):
 
     def install_section(self):
         _, html = self.build()
-        return html[html.index('<section id="install">'):html.index("</section>", html.index('<section id="install">'))]
+        start = html.index('<section id="install"')
+        return html[start:html.index("</section>", start)]
 
     def test_install_section_says_the_installer_is_not_tested_on_hardware(self):
         self.assertIn("not been tested on an FM-1", self.install_section())
@@ -209,7 +226,7 @@ class PageTest(unittest.TestCase):
     def test_page_loads_the_installer_and_credits_the_vendored_code(self):
         _, html = self.build()
         self.assertIn('<script type="module" src="install.js"></script>', html)
-        footer = html[html.index("<footer>"):]
+        footer = html[html.index("<footer"):]
         self.assertIn("https://github.com/joakimeriksson/fm1-dock", footer)
         self.assertIn("Leo Kuroshita", footer)
         self.assertIn("GPL-3.0", footer)
@@ -234,3 +251,39 @@ class PageTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FontsTest(unittest.TestCase):
+    """The page's fonts are self-hosted under site/fonts/, one folder per family, each with its license (#356)."""
+
+    def font_urls(self):
+        with open(os.path.join(ROOT, "site", "style.css"), encoding="utf-8") as fh:
+            return re.findall(r'url\("?(fonts/[^")]+)"?\)', fh.read())
+
+    def test_the_stylesheet_uses_self_hosted_fonts(self):
+        self.assertTrue(self.font_urls())
+
+    def test_every_font_the_stylesheet_names_is_there_with_its_open_font_license(self):
+        for rel in self.font_urls():
+            with self.subTest(rel):
+                self.assertTrue(os.path.isfile(os.path.join(ROOT, "site", rel)))
+                lic = os.path.join(ROOT, "site", os.path.dirname(rel), "OFL.txt")
+                self.assertTrue(os.path.isfile(lic), lic)
+                with open(lic, encoding="utf-8") as fh:
+                    self.assertIn("SIL Open Font License, Version 1.1", fh.read())
+
+    def test_the_page_loads_no_font_from_another_site(self):
+        for name in ("index.html", "style.css"):
+            with open(os.path.join(ROOT, "site", name), encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertNotIn("fonts.googleapis.com", text, name)
+            self.assertNotIn("fonts.gstatic.com", text, name)
+
+    def test_the_build_copies_the_fonts_and_their_licenses(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        site_build.build(ROOT, d, BASE)
+        for rel in self.font_urls():
+            with self.subTest(rel):
+                self.assertTrue(os.path.isfile(os.path.join(d, rel)))
+                self.assertTrue(os.path.isfile(os.path.join(d, os.path.dirname(rel), "OFL.txt")))

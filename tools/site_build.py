@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The project page (#356): site/ with the 32 factory tone names from data/jx8p-factory-1-32.syx and the
 fm1-emu embed pointed at our .fwsc, written to OUT with the browser installer (site/install.js, site/installer.js
-and fm1-dock's vendored code, site/vendor/fm1-dock).
+and fm1-dock's vendored code, site/vendor/fm1-dock) and the self-hosted fonts (site/fonts).
 
 With the .fwsc and .dock it also writes OUT/fw/: both files and fw/index.json, the catalog site/install.js
 installs from (each file's SHA-256 and size, the package's identity, the module's ABI). It refuses a .fwsc whose
@@ -25,6 +25,7 @@ import jx8p  # noqa: E402
 EMU = "https://joakimeriksson.github.io/fm1-emu/"
 FWSC = "fm1-8p.fwsc"
 DOCK = "fm1_8p.dock"
+BOOT_TONE = 17  # the tone FM1-8P boots on, SOUNDTRACK: the page marks it
 
 
 def escape(s):
@@ -115,7 +116,9 @@ def build(root, out, base_url, packages=None):
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(src, "index.html"), encoding="utf-8") as fh:
         html = fh.read()
-    tones = "\n".join(f"        <li>{escape(n)}</li>" for n in tone_names(root))
+    boot = ' class="boot"'
+    tones = "\n".join(f"        <li{boot if i == BOOT_TONE else ''}>{escape(n)}</li>"
+                      for i, n in enumerate(tone_names(root), 1))
     html = html.replace("{{TONES}}", tones).replace("{{EMU_SRC}}", escape(emu_src(base_url)))
     if packages:
         write_fw(root, out, packages)
@@ -123,7 +126,8 @@ def build(root, out, base_url, packages=None):
         fh.write(html)
     for name in ("style.css", "install.js", "installer.js"):
         shutil.copy(os.path.join(src, name), out)
-    shutil.copytree(os.path.join(src, "vendor"), os.path.join(out, "vendor"), dirs_exist_ok=True)
+    for folder in ("vendor", "fonts"):
+        shutil.copytree(os.path.join(src, folder), os.path.join(out, folder), dirs_exist_ok=True)
 
 
 if __name__ == "__main__":
