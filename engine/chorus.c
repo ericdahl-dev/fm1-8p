@@ -7,9 +7,10 @@
  * linearly interpolated taps, one 64-bit multiply, one clamp of the dry
  * input and two dry-plus-wet adds. Divisions happen only in fm_chorus_set_mode.
  *
- * Modes I and II are matched to PG-8X 2.0.13's chorus (#104): dry plus
- * wet, 0.68 Hz, L/R correlation about 0.46, and a short delay, so the wet
- * stays in phase with the dry on a low note's bass, as on PG-8X.
+ * Modes I and II are matched to PG-8X 2.0.13's chorus I and II (#104,
+ * #312): dry plus wet, their rates, sweeps, centers and start phase, and a
+ * short delay, so the wet stays in phase with the dry on a low note's bass,
+ * as on PG-8X.
  */
 #include "chorus.h"
 #include "units.h"
@@ -24,8 +25,8 @@ typedef struct {
 
 static const mode_spec modes[FM_CHORUS_MODE_COUNT] = {
     { 0, 0, 0 },         /* off */
-    { 680, 2000, 1600 }, /* slow (I): PG-8X's rate, delay and width */
-    { 680, 2100, 2000 }, /* deep (II): the same rate, swept deeper */
+    { 680, 2150, 1380 },  /* slow (I): PG-8X 2.0.13's chorus I rate and width (#312) */
+    { 1020, 2140, 1360 }, /* deep (II): its chorus II, 1.5 times as fast (#312) */
     { 6000, 3000, 300 }, /* fast */
 };
 
@@ -44,7 +45,7 @@ void fm_chorus_silence(fm_chorus *c)
 void fm_chorus_init(fm_chorus *c, uint32_t sample_rate)
 {
     c->sample_rate = sample_rate;
-    c->lfo_phase = 0;
+    c->lfo_phase = 1u << 30; /* the triangle at 0, rising: PG-8X's start (#312) */
     c->lfo_inc = 0;
     c->center = 0;
     c->depth = 0;
