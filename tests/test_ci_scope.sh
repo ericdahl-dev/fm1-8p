@@ -22,6 +22,9 @@ check full '"site/caf\303\251.png"' "a quoted name (git quotes non-ASCII): full"
 check full "" "no list (a new branch, an unknown base): full"
 
 # With a BASE, the script lists the changes from BASE to HEAD itself, in a scratch repository.
+# The developer's own git config stays out: a global commit.gpgsign or core.hooksPath would
+# break or hook these commits.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 git -C "$T" init -q && git -C "$T" config user.email t@t && git -C "$T" config user.name t
