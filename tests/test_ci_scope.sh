@@ -29,6 +29,20 @@ check full "tests/README.md" "Markdown outside the README and docs/: full"
 check full "firmware/notes.md" "Markdown in the firmware: full"
 check page "README.md${nl}site/index.html" "docs and the page: the page (its tests run; docs need none)"
 check full "README.md${nl}engine/voice.c" "docs and code: full"
+check full "site/index.html${nl}docs/patches.md" "the page and a doc a check reads: full"
+
+# The docs scope skips every check, so no check may read a doc it lets through: each tracked Markdown file
+# the script classes as docs is named on no line of tests/, tools/, the Makefile or .github/ that reads a
+# file (open, fopen, read_text, read_bytes, cat, sed, grep). A new reader of such a doc fails here until
+# tools/ci_scope.sh classes that doc as full. CI_SCOPE (tests only) checks another copy of the script.
+SCRIPT=${CI_SCOPE:-$ROOT/tools/ci_scope.sh}
+for f in $(git -C "$ROOT" ls-files 'README.md' 'docs/*.md'); do
+    [ "$(printf '%s\n' "$f" | sh "$SCRIPT")" = docs ] || continue
+    b=${f##*/}
+    hits=$(git -C "$ROOT" grep -n -F "$b" -- tests tools Makefile .github ':!tests/test_ci_scope.sh' ':!tools/ci_scope.sh' |
+           grep -E 'open\(|fopen\(|read_text|read_bytes|cat |sed |grep ' || true)
+    report "$hits" "" "no check reads $f (classed docs)"
+done
 check full "site.html" "a name that only starts like site/: full"
 check full '"site/caf\303\251.png"' "a quoted name (git quotes non-ASCII): full"
 check full "" "no list (a new branch, an unknown base): full"
