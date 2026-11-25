@@ -1583,7 +1583,9 @@ TT_TEST(ring_xmod_moved_and_back_keep_the_restart_correction)
  * restart (RING and X-MOD off, so the plain path plays on and never reads
  * it), a few plain samples, then SYNC (`back` 0) or RING (1) on again. The
  * next samples are the same as a pair at the same phases with nothing
- * pending: no correction made for a jump long past.
+ * pending: no correction made for a jump long past. (RING on runs
+ * update_special too, so only SYNC back on pins the drop to SYNC off.)
+ * -1: the setup left no restart pending.
  */
 static int32_t sync_off_then_on_worst(int back, int block)
 {
@@ -1604,6 +1606,7 @@ static int32_t sync_off_then_on_worst(int back, int block)
         last = a.osc[0].phase;
         fm_osc_pair_next(&a);
     } while (a.osc[0].phase >= last);
+    if (!a.sync_pend) return -1;                            /* no restart pending: the test tests nothing */
     fm_osc_pair_set_sync(&a, 0);
     for (i = 0; i < 5; i++) fm_osc_pair_next(&a);           /* the plain path */
     b = a;
