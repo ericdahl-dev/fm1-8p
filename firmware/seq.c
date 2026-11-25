@@ -129,12 +129,9 @@ void seq_clock_out_stop(seq *s)
 {
     s->out_block = 1;                           /* (a PLAY asked and not yet taken starts no clock out) */
     BARRIER();
-    /* a play or stop asked and not yet taken: the interrupt sends this run's stop as it takes it (a
-     * restart turns clock out off, out_block), so the main loop sends none: checked before out_on, as
-     * an interrupt between our read of out_on and its clear would send one too (#349) */
-    if (*(volatile uint32_t *)&s->play_seen != s->ask_play ||
-        *(volatile uint32_t *)&s->stop_seen != s->ask_stop)
-        return;
+    /* the let-go's stop is the main loop's, sent now (nothing drains after a release): with out_block
+     * set, an interrupt that takes a pending stop or restart, here or between our read of out_on and
+     * its clear, sends none of its own, so one goes out (#349) */
     if (!s->out_on)
         return;
     HANDOFF_GAP("out_stop", 1);
@@ -1024,8 +1021,9 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             thr = step_len(s, fs);
             s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
         } else if (go) {
-            if (s->playing && s->out_on)
-                out_put(s, 0xFCu);              /* #286: a restart: stop, then start (never two starts) */
+            if (s->playing && s->out_on && !s->out_block)
+                out_put(s, 0xFCu);              /* #286: a restart: stop, then start (never two starts);
+                                                 * let go (out_block): the main loop sends it (#349) */
             s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* #286: G14 as it is at the start */
             if (s->out_on) {
                 out_put(s, 0xFAu);              /* start, then the first tick, with step 1 */
@@ -1038,8 +1036,8 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             s->playing = 1;
             cnt = start_step(s, ev, cnt, 0, voices);
         } else {
-            if (s->playing && s->out_on)
-                out_put(s, 0xFCu);              /* #286: stop */
+            if (s->playing && s->out_on && !s->out_block)
+                out_put(s, 0xFCu);              /* #286: stop (let go: the main loop's, #349) */
             s->out_on = 0;
             if (s->playing) {                   /* bend to center, mod to the live wheel (#42) */
                 cnt = put_ctl(ev, cnt, 0, SEQ_EV_BEND, 0);

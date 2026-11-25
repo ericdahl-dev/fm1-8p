@@ -821,6 +821,7 @@ TT_TEST(clock_out_stop_inside_a_pending_ask_sends_one_stop)
         handoff_gap = ck_gap_block;
         seq_clock_out_stop(&ck);                /* let go, the interrupt inside it */
         handoff_gap = 0;
+        TT_CHECK_EQ(ck_gap_hits, 1u);           /* (it did cut in there) */
         ck_run(1.0);
         TT_CHECK_EQ(ck_outs(0xFCu), 1u);
         TT_CHECK_EQ(ck_outs(0xFAu), 1u);        /* (and no start after it) */
@@ -1033,6 +1034,31 @@ TT_TEST(clock_out_ends_with_a_stop_when_let_go)
     TT_CHECK_EQ(ck_n_out, n);
 }
 
+/* #349: the same with a STOP, or a restart (PLAY again), asked just before the let-go and not yet taken
+ * by the interrupt: release sends what is due, once, with no block between (nothing drains after it),
+ * so the stop goes out then, once (FW review of f6609ec: it was left to an interrupt that never ran) */
+TT_TEST(clock_out_ends_with_a_stop_when_let_go_with_an_ask_pending)
+{
+    uint8_t b;
+    uint32_t k;
+    for (k = 0; k < 2u; k++) {
+        ck_fresh(SEQ_CLK_AUTO);
+        seq_set_clock_out(&ck, 1);
+        ck_msg_at(0.1, 0, CK_PLAY);
+        ck_run(0.5);
+        if (k == 0)
+            seq_stop(&ck);                     /* STOP, not yet taken */
+        else
+            seq_play(&ck);                     /* PLAY again, not yet taken */
+        seq_clock_out_stop(&ck);               /* release, as fm1_8p.c's: then seq_stop, then the drain */
+        seq_stop(&ck);
+        while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)
+            ck_out[ck_n_out++] = b;
+        TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+        TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+    }
+}
+
 /* the interrupt cutting in at a gap of the main loop's clock_tick start (handoff_test.h, gap
  * "clock_start" 1-4): one block */
 static uint32_t ck_hook_at, ck_hook_hits;
@@ -1119,6 +1145,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_hand_over_to_a_clock);
     TT_RUN(clock_out_a_followed_stop_before_a_new_start);
     TT_RUN(clock_out_ends_with_a_stop_when_let_go);
+    TT_RUN(clock_out_ends_with_a_stop_when_let_go_with_an_ask_pending);
     TT_RUN(clock_out_a_stop_pending_when_a_clock_starts);
     TT_RUN(clock_out_let_go_with_a_play_pending);
     TT_RUN(clock_lost_while_armed_disarms);
