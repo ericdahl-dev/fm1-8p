@@ -1497,7 +1497,7 @@ TT_TEST(synced_dc_leaves_no_comb_under_the_fundamental)
  * X-MOD set again before every sample (or block) of a synced pair (as a knob at its end
  * sets them, and the param asks' race, #349), the output is the same, sample
  * for sample, as with no set. A restart's second-sample correction is never
- * dropped.
+ * dropped. `which` 3 and 4 move RING and X-MOD and move them back instead.
  */
 static int32_t same_value_set_worst(int which, int block)
 {
@@ -1522,6 +1522,14 @@ static int32_t same_value_set_worst(int which, int block)
         if (which == 0) fm_osc_pair_set_sync(&a, 1);
         if (which == 1) fm_osc_pair_set_ring(&a, 1);
         if (which == 2) fm_osc_pair_set_xmod(&a, FM_OSC_LEVEL_FULL / 4);
+        if (which == 3) {                                   /* RING moved and back: real changes */
+            fm_osc_pair_set_ring(&a, 0);
+            fm_osc_pair_set_ring(&a, 1);
+        }
+        if (which == 4) {                                   /* X-MOD moved and back */
+            fm_osc_pair_set_xmod(&a, FM_OSC_LEVEL_FULL / 4 + 1);
+            fm_osc_pair_set_xmod(&a, FM_OSC_LEVEL_FULL / 4);
+        }
         if (block == 1) {
             oa[0] = fm_osc_pair_next(&a);
             ob[0] = fm_osc_pair_next(&b);
@@ -1544,6 +1552,22 @@ TT_TEST(sync_ring_xmod_set_again_change_nothing)
     for (w = 0; w < 3; w++) {
         TT_CHECK_EQ(same_value_set_worst(w, 1), 0);
         TT_CHECK_EQ(same_value_set_worst(w, 7), 0);        /* set between blocks, as apply_params does */
+    }
+}
+
+/*
+ * A real change of RING or X-MOD during a synced note keeps a restart's
+ * second-sample correction too: it belongs to osc2's jump, which happened
+ * whatever RING and X-MOD are next (#350's follow-up, FW review). RING (or
+ * X-MOD) moved and moved back before every sample (or block), the output
+ * is the same, sample for sample, as with neither.
+ */
+TT_TEST(ring_xmod_moved_and_back_keep_the_restart_correction)
+{
+    int w;
+    for (w = 3; w < 5; w++) {
+        TT_CHECK_EQ(same_value_set_worst(w, 1), 0);
+        TT_CHECK_EQ(same_value_set_worst(w, 7), 0);
     }
 }
 
@@ -2998,6 +3022,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_osc2_just_past_its_wrap_has_low_aliasing);
     TT_RUN(synced_dc_leaves_no_comb_under_the_fundamental);
     TT_RUN(sync_ring_xmod_set_again_change_nothing);
+    TT_RUN(ring_xmod_moved_and_back_keep_the_restart_correction);
     TT_RUN(synced_dc_follows_a_sync_sweep);
     TT_RUN(synced_osc2_settles_to_no_dc_under_the_step);
     TT_RUN(synced_osc2_retuned_mid_note_has_no_dc);
