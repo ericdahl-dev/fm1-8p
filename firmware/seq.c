@@ -129,9 +129,10 @@ void seq_clock_out_stop(seq *s)
 {
     s->out_block = 1;                           /* (a PLAY asked and not yet taken starts no clock out) */
     BARRIER();
-    /* the let-go's stop is the main loop's, sent now (nothing drains after a release): with out_block
-     * set, an interrupt that takes a pending stop or restart, here or between our read of out_on and
-     * its clear, sends none of its own, so one goes out (#349) */
+    HANDOFF_GAP("out_stop", 0);
+    /* the let-go's stop is the main loop's, sent now (nothing drains after a release). out_block is the
+     * gate: while it is set the interrupt neither writes out_on nor sends a start or stop, so an
+     * interrupt taking a pending stop or restart anywhere in here leaves out_on for us (#349) */
     if (!s->out_on)
         return;
     HANDOFF_GAP("out_stop", 1);
@@ -1021,14 +1022,15 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             thr = step_len(s, fs);
             s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
         } else if (go) {
-            if (s->playing && s->out_on && !s->out_block)
-                out_put(s, 0xFCu);              /* #286: a restart: stop, then start (never two starts);
-                                                 * let go (out_block): the main loop sends it (#349) */
-            s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* #286: G14 as it is at the start */
-            if (s->out_on) {
-                out_put(s, 0xFAu);              /* start, then the first tick, with step 1 */
-                s->out_acc = 0;
-                s->out_ticks++;
+            if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
+                if (s->playing && s->out_on)
+                    out_put(s, 0xFCu);          /* #286: a restart: stop, then start (never two starts) */
+                s->out_on = s->out_want;        /* #286: G14 as it is at the start */
+                if (s->out_on) {
+                    out_put(s, 0xFAu);          /* start, then the first tick, with step 1 */
+                    s->out_acc = 0;
+                    s->out_ticks++;
+                }
             }
             s->pos = s->acc = 0;
             s->cur_bend = s->cur_mod = 0;       /* (a first GLIDE moves from center and 0) */
@@ -1036,9 +1038,11 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             s->playing = 1;
             cnt = start_step(s, ev, cnt, 0, voices);
         } else {
-            if (s->playing && s->out_on && !s->out_block)
-                out_put(s, 0xFCu);              /* #286: stop (let go: the main loop's, #349) */
-            s->out_on = 0;
+            if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
+                if (s->playing && s->out_on)
+                    out_put(s, 0xFCu);          /* #286: stop */
+                s->out_on = 0;
+            }
             if (s->playing) {                   /* bend to center, mod to the live wheel (#42) */
                 cnt = put_ctl(ev, cnt, 0, SEQ_EV_BEND, 0);
                 cnt = put_ctl(ev, cnt, 0, SEQ_EV_MOD, SEQ_MOD_LIVE);

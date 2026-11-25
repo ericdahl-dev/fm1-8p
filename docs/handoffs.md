@@ -116,15 +116,19 @@ These don't fit one kind. Each is named here and in its field's comment.
   `want` decides (`clock_stop_then_play_inside_one_block_stops`). Not covered: three presses inside
   one block (a play asked, then STOP, then an armed PLAY) still start. The full answer is a payload
   written with each ask (which one came last), not `want`.
-- **`out_on`, two writers.** The interrupt sets it at a start and clears it at a stop; the main
-  loop clears it at `seq_stop` (a followed run), `seq_clock_out_stop` and `clock_tick` (a followed
-  start ends its own run first), and sets it at a followed start. At let go, `seq_clock_out_stop`
-  reads it and then clears it and sends the stop itself (`release` drains once, and nothing drains
-  after). An interrupt between the read and the clear (gap "out_stop" 1) that took a pending stop
-  or restart sent 0xFC too: two stops. Now `seq_clock_out_stop` sets `out_block` first, and the
-  interrupt sends no stop while it is set, so the one stop is the main loop's, whenever the
-  interrupt runs (`clock_out_stop_inside_a_pending_ask_sends_one_stop`,
-  `clock_out_ends_with_a_stop_when_let_go_with_an_ask_pending`).
+- **`out_on`, two writers, gated by `out_block`.** The interrupt sets it at a start and clears it
+  at a stop; the main loop clears it at `seq_stop` (a followed run), `seq_clock_out_stop` and
+  `clock_tick` (a followed start ends its own run first), and sets it at a followed start. The rule:
+  `out_block` is the gate. `seq_clock_out_stop` (let go) sets it first, and while it is set the
+  interrupt neither writes `out_on` nor sends a start or stop; `seq_play` clears it. So at let go
+  `out_on` and its stop are the main loop's: it reads `out_on`, clears it and sends the one stop
+  (`release` drains once, and nothing drains after), wherever an interrupt taking a pending stop or
+  restart lands (gaps "out_stop" 0 and 1). Two earlier tries on this branch each failed one order
+  (a stop left to an interrupt that never ran; an interrupt between `out_block` and the read), which
+  is why its test runs every order.
+  Open, older than this branch: `clock_tick`'s followed start reads `out_on` and then clears it with
+  `out_block` clear, the same shape; a pending own-clock stop taken between the two sends a second
+  stop. No gap covers it yet.
 - **`ext`, `ext_inc`: two kinds on one field.** Each is the payload of a followed start's ask
   (kind B), and afterwards a single word the interrupt reads every block (kind D): `ext_inc` moves
   with every clock tick. Both have one writer, the main loop.
@@ -150,6 +154,6 @@ is there for, red first or by a mutant.
 | C | pattern ask (`ask`, `took`) | "ask" 0-3, "sync" 1 | `pattern_a_pass_end_in_any_gap_of_the_handoff_takes_nothing` and the other `pattern_*` gap tests |
 | C | seqlock (`blk_seq`) | "blk" 1, inside `block_read` | `clock_read_of_the_block_time_inside_a_block_stays_on_the_grid` (no retry: 0.147 ms off the grid against 0.011) |
 | B and D | followed start (`ext*`, `ask_play`, `out_on`) | "clock_start" 1-4 | `clock_out_a_stop_pending_when_a_clock_starts` |
-| two writers | `out_on` at let go | "out_stop" 1; and no block before the drain | `clock_out_stop_inside_a_pending_ask_sends_one_stop` (no `out_block` check in the interrupt: two stops), `clock_out_ends_with_a_stop_when_let_go_with_an_ask_pending` (the stop left to the interrupt: none) |
+| two writers | `out_on` at let go | "out_stop" 0 and 1, and blocks before, between and after release's calls | `clock_out_let_go_in_every_order_ends_stopped`: 48 orders (no ask, STOP, restart, PLAY from stopped; six places for the block; own clock and followed), each must alternate starts and stops and end stopped. It catches all three wrong versions: the stop left to the interrupt (0 stops), no `out_block` check (2 stops at gap 1), the stop alone gated (0 stops at gap 0). Also `clock_out_stop_inside_a_pending_ask_sends_one_stop`, `clock_out_ends_with_a_stop_when_let_go_with_an_ask_pending` |
 
 Kind D needs no gap: one store, read whole either side of it.
