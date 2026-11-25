@@ -112,10 +112,6 @@ static void out_adv(seq *s, uint32_t d, uint32_t xi)
     }
 }
 
-void (*seq_test_hook)(seq *s, uint32_t point);
-
-#define TEST_POINT(s, n) do { if (seq_test_hook) seq_test_hook((s), (n)); } while (0)
-
 /* main loop: a followed clock's byte to pass on (dropped past SEQ_OUT_M untaken) */
 static void out_pass(seq *s, uint8_t st)
 {
@@ -593,6 +589,7 @@ static void block_read(const seq *s, uint32_t *t, uint32_t *u, uint32_t *inc, ui
         a = s->blk_seq;
         BARRIER();
         *t = s->blk_t;
+        HANDOFF_GAP("blk", 1);
         *u = s->blk_u;
         *inc = s->blk_inc;
         *fs = s->blk_fs;
@@ -736,7 +733,7 @@ static void clock_tick(seq *s, uint32_t t)
             BARRIER();
             out_pass(s, 0xFCu);
         }
-        TEST_POINT(s, 1);
+        HANDOFF_GAP("clock_start", 1);
         s->clk_started = 1;
         s->clk_pending = 0;
         s->clk_target = 0;
@@ -745,18 +742,18 @@ static void clock_tick(seq *s, uint32_t t)
         set_rate(s, 0, fs, 1);
         s->ext = 1;
         BARRIER();                              /* (following now: the interrupt counts no ticks of its own) */
-        TEST_POINT(s, 2);
+        HANDOFF_GAP("clock_start", 2);
         s->clk_running = 1;
         s->clk_armed = 0;
         s->want = 1;
         BARRIER();                              /* the rate and tick 0 before the ask */
         s->ask_play++;
-        TEST_POINT(s, 3);
+        HANDOFF_GAP("clock_start", 3);
         BARRIER();                              /* #286: G14 latched after the ask, so a stop ask still */
         s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* pending can't find it on and switch it off */
         if (s->out_on)
             out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
-        TEST_POINT(s, 4);
+        HANDOFF_GAP("clock_start", 4);
         s->ext_hold = 0;                        /* (the interrupt takes the ask before it would step) */
         return;
     }
