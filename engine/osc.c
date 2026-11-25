@@ -569,8 +569,8 @@ static FM_NOINLINE void update_special(fm_osc_pair *p)
     update_derived(p);
 }
 
-/* SYNC, RING and X-MOD: set to the value they have, nothing (update_special
- * drops a restart's pending correction, a sample's step, #350) */
+/* SYNC, RING and X-MOD: set to the value they have, nothing (update_special's
+ * work is not needed; it once dropped a restart's pending correction, #350) */
 void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on)
 {
     if (p->sync == (on ? 1 : 0)) return;

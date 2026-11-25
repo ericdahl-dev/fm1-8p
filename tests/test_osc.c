@@ -1497,7 +1497,9 @@ TT_TEST(synced_dc_leaves_no_comb_under_the_fundamental)
  * X-MOD set again before every sample (or block) of a synced pair (as a knob at its end
  * sets them, and the param asks' race, #349), the output is the same, sample
  * for sample, as with no set. A restart's second-sample correction is never
- * dropped. `which` 3 and 4 move RING and X-MOD and move them back instead.
+ * dropped. `which` 3 and 4 move RING and X-MOD and move them back instead;
+ * 5 and 6 do the same with X-MOD at 0, where a block renders through the
+ * sync and ring runs (pair_runs), not sample by sample.
  */
 static int32_t same_value_set_worst(int which, int block)
 {
@@ -1505,6 +1507,7 @@ static int32_t same_value_set_worst(int which, int block)
     int32_t worst = 0;
     int i, k;
     fm_osc_pair *ps[2] = { &a, &b };
+    const int32_t x0 = which >= 5 ? 0 : FM_OSC_LEVEL_FULL / 4;
     for (k = 0; k < 2; k++) {
         fm_osc_pair_reset(ps[k], 1);
         fm_osc_pair_set_wave(ps[k], 1, FM_WAVE_SAW);
@@ -1512,7 +1515,7 @@ static int32_t same_value_set_worst(int which, int block)
         fm_osc_pair_set_level(ps[k], 1, FM_OSC_LEVEL_FULL);
         fm_osc_pair_set_sync(ps[k], 1);
         fm_osc_pair_set_ring(ps[k], 1);
-        fm_osc_pair_set_xmod(ps[k], FM_OSC_LEVEL_FULL / 4);
+        fm_osc_pair_set_xmod(ps[k], x0);
         fm_osc_pair_set_pitch(ps[k], 45 << 16, 48000);
         fm_osc_pair_set_tune(ps[k], 1, 700 + 13, 45 << 16, 48000);
     }
@@ -1522,13 +1525,17 @@ static int32_t same_value_set_worst(int which, int block)
         if (which == 0) fm_osc_pair_set_sync(&a, 1);
         if (which == 1) fm_osc_pair_set_ring(&a, 1);
         if (which == 2) fm_osc_pair_set_xmod(&a, FM_OSC_LEVEL_FULL / 4);
-        if (which == 3) {                                   /* RING moved and back: real changes */
+        if (which == 3 || which == 5) {                     /* RING moved and back: real changes */
             fm_osc_pair_set_ring(&a, 0);
             fm_osc_pair_set_ring(&a, 1);
         }
         if (which == 4) {                                   /* X-MOD moved and back */
             fm_osc_pair_set_xmod(&a, FM_OSC_LEVEL_FULL / 4 + 1);
             fm_osc_pair_set_xmod(&a, FM_OSC_LEVEL_FULL / 4);
+        }
+        if (which == 6) {                                   /* X-MOD on and off again */
+            fm_osc_pair_set_xmod(&a, FM_OSC_LEVEL_FULL / 4);
+            fm_osc_pair_set_xmod(&a, 0);
         }
         if (block == 1) {
             oa[0] = fm_osc_pair_next(&a);
@@ -1565,7 +1572,7 @@ TT_TEST(sync_ring_xmod_set_again_change_nothing)
 TT_TEST(ring_xmod_moved_and_back_keep_the_restart_correction)
 {
     int w;
-    for (w = 3; w < 5; w++) {
+    for (w = 3; w < 7; w++) {
         TT_CHECK_EQ(same_value_set_worst(w, 1), 0);
         TT_CHECK_EQ(same_value_set_worst(w, 7), 0);
     }
