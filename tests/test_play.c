@@ -548,8 +548,35 @@ TT_TEST(play_param_set_again_by_the_asks_race_changes_nothing)
     TT_CHECK_EQ(n, 0u);
 }
 
+/* #349, kind A: the interrupt between an event's entry and the head that publishes it (gap "put" 1)
+ * sees no event yet; the next block plays it, once */
+static void pl_gap_block(const char *where, uint32_t n)
+{
+    (void)n;
+    if (strcmp(where, "put") == 0 && pl_gap_hits++ == 0)
+        pl_into(&pl_a, pl_ra);
+}
+TT_TEST(play_event_put_with_the_interrupt_inside_plays_once_next_block)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_load_patch(&pl_a, PATCH_SOUNDTRACK);
+    pl_into(&pl_a, pl_ra);
+    pl_gap_hits = 0;
+    handoff_gap = pl_gap_block;
+    play_note(&pl_a, 60, 100);
+    handoff_gap = 0;
+    TT_CHECK_EQ(pl_gap_hits, 1u);
+    TT_CHECK_EQ(pl_a.sounding, 0u);                         /* (that block: not yet) */
+    pl_into(&pl_a, pl_ra);
+    TT_CHECK_EQ(pl_a.sounding, 1u);                         /* the next: the note */
+    pl_into(&pl_a, pl_ra);
+    TT_CHECK_EQ(pl_a.sounding, 1u);                         /* and once */
+    TT_CHECK_EQ(pl_a.head, pl_a.tail);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_event_put_with_the_interrupt_inside_plays_once_next_block);
     TT_RUN(play_param_set_again_by_the_asks_race_changes_nothing);
     TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
     TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);

@@ -210,6 +210,7 @@ static void put(play *p, uint32_t st, uint32_t d1, uint32_t d2)
         return;
     }
     p->queue[h % PLAY_QUEUE] = st << 16 | d1 << 8 | d2;
+    HANDOFF_GAP("put", 1);
     BARRIER();
     p->head = h + 1u;                           /* after the entry: the ISR never reads it early */
     if (st == 0x90u && d2 != 0u)                /* queued: it will sound */
