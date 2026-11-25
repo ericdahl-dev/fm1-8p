@@ -207,7 +207,8 @@ export function buttonsEnabled({ midi, catalogOk, busy }) {
 }
 
 // the page's track before the usage stats (site/analytics.js, loaded by a dynamic import) are there: what it gets
-// is kept, at most LATE_MAX, and replayed in order by attach(stats); after that it forwards. attach(null), when the
+// is kept, at most LATE_MAX, and replayed in order by attach(stats); after that it forwards (only the first attach
+// counts). attach(null), when the
 // stats never load, drops what was kept and everything after. Never throws, returns nothing, never waits.
 const LATE_MAX = 50;
 export function lateTrack() {
@@ -229,6 +230,7 @@ export function lateTrack() {
     },
     attach(s) {
       try {
+        if (done) return;                          // only the first attach counts
         stats = s && typeof s.track === "function" ? s : null;
         done = true;
         const all = kept.splice(0);

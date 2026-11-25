@@ -414,3 +414,13 @@ test("lateTrack: stats that never load (attach(null)) drop what was kept and eve
   late.track("install_succeeded");
   assert.equal(late.pending, 0);
 });
+
+test("lateTrack: only the first attach counts (attach(stats), then attach(null), keeps the stats on)", () => {
+  const late = I.lateTrack(), got = [], other = [];
+  late.attach({ track: (e) => got.push(e) });
+  late.attach(null);
+  late.attach({ track: (e) => other.push(e) });
+  late.track("install_started");
+  assert.deepEqual(got, ["install_started"]);
+  assert.deepEqual(other, []);
+});

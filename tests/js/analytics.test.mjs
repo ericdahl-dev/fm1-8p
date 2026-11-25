@@ -132,7 +132,7 @@ test("before_send: the page's URL keeps only its utm_ parameters, without its fr
     $referrer: "https://www.facebook.com/", $raw_user_agent: "Mozilla/5.0 Chrome/158" } });
   assert.equal(ev.properties.$current_url, "https://ericdahl-dev.github.io/fm1-8p/?utm_source=facebook&utm_campaign=x32-group");
   assert.equal(ev.properties.$session_entry_url, "https://ericdahl-dev.github.io/fm1-8p/");
-  assert.equal(ev.properties.$referrer, "https://www.facebook.com/");
+  assert.equal(ev.properties.$referrer, "https://www.facebook.com");
   assert.equal(ev.properties.$raw_user_agent, "Mozilla/5.0 Chrome/158");
   assert.equal(ev.properties.site, "fm1-8p");
 });
@@ -156,4 +156,53 @@ test("config: every option is one the self-hosted PostHog bundle reads (capture_
     if (SLIM_NO_OP.includes(k)) assert.ok(!BUNDLE.includes(k), `${k} is read by the bundle now`);
     else assert.ok(BUNDLE.includes(k), `${k} is not in module.slim.no-external.js`);
   }
+});
+
+// ---- ad click IDs and other campaign keys PostHog sends as their own properties (#376 review M1)
+
+test("config: PostHog masks personal data properties itself", () => {
+  assert.equal(A.initConfig().mask_personal_data_properties, true);
+});
+
+test("before_send: ad click IDs are not sent, as properties or in the URL", () => {
+  const props = { $current_url: "https://ericdahl-dev.github.io/fm1-8p/?fbclid=SECRETF&gclid=SECRETG&msclkid=SECRETM&utm_source=fb",
+    fbclid: "SECRETF", gclid: "SECRETG", msclkid: "SECRETM", utm_source: "fb" };
+  for (const k of ["gclsrc", "dclid", "gbraid", "wbraid", "twclid", "li_fat_id", "igshid", "ttclid", "rdt_cid", "epik",
+    "qclid", "sccid", "oppref", "bfcid", "irclid", "_kx", "gad_source", "mc_cid"]) props[k] = `SECRET-${k}`;
+  const ev = A.initConfig().before_send({ event: "$pageview", properties: props });
+  assert.equal(ev.properties.$current_url, "https://ericdahl-dev.github.io/fm1-8p/?utm_source=fb");
+  assert.equal(ev.properties.utm_source, "fb");
+  assert.doesNotMatch(JSON.stringify(ev), /SECRET/);
+  for (const k of ["fbclid", "gclid", "msclkid", "gad_source", "mc_cid", "_kx"]) assert.ok(!(k in ev.properties), k);
+});
+
+test("the campaign keys dropped, with the five utm_ ones, are the bundle's whole campaign list", () => {
+  const m = /\["utm_source","utm_medium","utm_campaign","utm_content","utm_term",([^\]]*)\]/.exec(BUNDLE);
+  const c = /\["gclid"[^\]]*\]/.exec(BUNDLE);
+  assert.ok(m && c, "campaign lists not found in the bundle");
+  const listed = [...m[1].replace(/,?\.\.\.[A-Za-z_$]+/, "").matchAll(/"([^"]+)"/g), ...c[0].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  assert.deepEqual([...listed].sort(), [...A.CAMPAIGN_DROPPED].sort());
+});
+
+// ---- only the five standard utm_ keys (#376 review L1)
+
+test("before_send: only utm_source, utm_medium, utm_campaign, utm_content and utm_term stay, not lookalikes", () => {
+  const url = "https://ericdahl-dev.github.io/fm1-8p/?utm_source=fb&utm_serial=SECRET1&%75tm_x=SECRET2&%75tm_source=SECRET3" +
+    "&utm_medium=social&utm_campaign=x32&utm_content=a&utm_term=b";
+  const ev = A.initConfig().before_send({ event: "$pageview", properties: { $current_url: url, utm_serial: "SECRET1" } });
+  assert.equal(ev.properties.$current_url,
+    "https://ericdahl-dev.github.io/fm1-8p/?utm_source=fb&utm_medium=social&utm_campaign=x32&utm_content=a&utm_term=b");
+  assert.doesNotMatch(JSON.stringify(ev), /SECRET/);
+});
+
+// ---- the referrer: the site it came from, not the page (#376 review L2)
+
+test("before_send: the referrer is cut to its origin, $direct stays, one it cannot read is dropped", () => {
+  const send = (ref) => A.initConfig().before_send({ event: "$pageview", properties: { $referrer: ref, $initial_referrer: ref } }).properties;
+  const p = send("https://ericdahl-dev.github.io/other-repo/page.html?token=SECRET#SECRET");
+  assert.equal(p.$referrer, "https://ericdahl-dev.github.io");
+  assert.equal(p.$initial_referrer, "https://ericdahl-dev.github.io");
+  assert.equal(send("https://www.facebook.com/groups/x32/posts/1?fbclid=SECRET").$referrer, "https://www.facebook.com");
+  assert.equal(send("$direct").$referrer, "$direct");
+  assert.equal(send("not a url?x=SECRET").$referrer, undefined);
 });

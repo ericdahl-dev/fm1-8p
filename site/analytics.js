@@ -32,6 +32,7 @@ export function initConfig() {
     rageclick: false,
     disable_external_dependency_loading: true,
     advanced_disable_flags: true,
+    mask_personal_data_properties: true,   // PostHog masks the ad click IDs; before_send also drops them
     before_send: tagged,
   };
 }
@@ -41,26 +42,44 @@ export async function loadPosthog() {
   return (await import("./posthog-js/module.slim.no-external.js")).default;
 }
 
-// every event PostHog sends, its own page view too, carries site: fm1-8p, and the page's URL with only its utm_
-// parameters (no other query parameter, no fragment). $referrer and $raw_user_agent stay: the traffic source and
-// the browser.
+// every event PostHog sends, its own page view too, carries site: fm1-8p, and the page's URL with only the five
+// standard utm_ parameters (no other query parameter, no fragment), and the referrer cut to its origin. The ad click IDs
+// are dropped. $raw_user_agent stays: the browser.
 const URLS = ["$current_url", "$session_entry_url", "$initial_current_url"];
+// the campaign keys posthog-js 1.447.10 reads from the URL (its campaign list) besides the five utm_ ones: ad click
+// IDs and the like, never sent (mask_personal_data_properties masks them too; this holds if that option changes)
+export const CAMPAIGN_DROPPED = ["gad_source", "mc_cid", "gclid", "gclsrc", "dclid", "gbraid", "wbraid", "fbclid",
+  "msclkid", "twclid", "li_fat_id", "igshid", "ttclid", "rdt_cid", "epik", "qclid", "sccid", "oppref", "bfcid", "irclid",
+  "_kx"];
 function tagged(event) {
   try {
     if (!event) return event;
     const props = { ...event.properties, site: SITE };
+    for (const k of CAMPAIGN_DROPPED) delete props[k];
+    for (const k of Object.keys(props)) if (k.startsWith("utm_") && !UTM.includes(k)) delete props[k];
     for (const k of URLS) if (k in props) props[k] = utmOnly(props[k]);
+    for (const k of REFERRERS) if (k in props) props[k] = originOnly(props[k]);
     event.properties = props;
   } catch (_) { /* send it as it is */ }
   return event;
 }
 
-// a URL with only its utm_ parameters and no fragment; undefined for one that cannot be read
+// the referrer: its origin only (the site it came from, not the page); PostHog's "$direct" as it is; undefined for
+// one that cannot be read
+const REFERRERS = ["$referrer", "$initial_referrer"];
+function originOnly(ref) {
+  if (typeof ref === "string" && ref.startsWith("$")) return ref;
+  try { const o = new URL(ref).origin; return o && o !== "null" ? o : undefined; } catch (_) { return undefined; }
+}
+
+// a URL with only the five standard utm_ parameters and no fragment; undefined for one that cannot be read. The
+// keys are compared as written, so an encoded lookalike (%75tm_source) is dropped, not decoded into one.
+export const UTM = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"];
 function utmOnly(url) {
   let u;
   try { u = new URL(url); } catch (_) { return undefined; }
-  const keep = [...u.searchParams].filter(([k]) => k.startsWith("utm_"));
-  u.search = keep.length ? "?" + keep.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&") : "";
+  const keep = u.search.slice(1).split("&").filter((pair) => UTM.includes(pair.split("=", 1)[0]));
+  u.search = keep.length ? "?" + keep.join("&") : "";
   u.hash = "";
   return u.href;
 }
