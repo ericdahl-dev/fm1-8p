@@ -1,109 +1,461 @@
+/* The project page (#356): the charcoal front panel of a mid-80s polysynth, with glass only where the
+   instrument has a display: the header display, the tone memory and the emulator window. Display color: VFD
+   cyan-teal. Light scheme: a light-gray panel with "daylight LCD" glass. Fonts are self-hosted from fonts/,
+   each folder with its SIL Open Font License (fonts/README.md). */
+
+@font-face { font-family: "Doto"; font-weight: 800; font-display: swap;
+  src: url("fonts/doto/doto-latin-800-normal.woff2") format("woff2"); }
+@font-face { font-family: "Doto"; font-weight: 900; font-display: swap;
+  src: url("fonts/doto/doto-latin-900-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 400; font-display: swap;
+  src: url("fonts/atkinson-hyperlegible/atkinson-hyperlegible-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 700; font-display: swap;
+  src: url("fonts/atkinson-hyperlegible/atkinson-hyperlegible-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible Mono"; font-weight: 400; font-display: swap;
+  src: url("fonts/atkinson-hyperlegible-mono/atkinson-hyperlegible-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible Mono"; font-weight: 600; font-display: swap;
+  src: url("fonts/atkinson-hyperlegible-mono/atkinson-hyperlegible-mono-latin-600-normal.woff2") format("woff2"); }
+
 :root {
-  --bg: #14161a;
-  --panel: #1d2026;
-  --text: #e6e3dc;
-  --muted: #a7a39a;
-  --accent: #f0a23b;
-  --line: #2e323a;
+  /* panel */
+  --page: #26282b;
+  --panel: #303236;
+  --panel-hi: #3d4045;
+  --panel-lo: #1c1d20;
+  --line: #45484d;
+  --text: #efeee9;
+  --muted: #c0c1bc;
+  --link: #6ff5dc;
+  --code-bg: #232528;
+  --code-text: #8ff6e3;
+  --warn-bg: #282a2e;
+  --warn-edge: #ee8a2a;
+  --focus: #5cf2d6;
+
+  /* window bezel around the glass */
+  --bezel: #18191b;
+  --bezel-hi: #2c2e31;
+  --legend: #f3f2ec;
+
+  /* display glass */
+  --glass: #060a09;
+  --cell: #0e1b19;
+  --lit: #5cf2d6;
+  --lit-ink: #041311;
+  --g-muted: #8fb5ad;
+  --glow-1: rgb(92 242 214 / 0.55);
+  --glow-2: rgb(92 242 214 / 0.22);
+
+  /* membrane keys */
+  --key: #3c3f44;
+  --key-hi: #4c5056;
+  --key-edge: #17181a;
+  --key-text: #f3f2ec;
+  --key-text-off: #cfd0d2;
+
+  --tab-red: #d8402e;
+  --tab-orange: #ee8a2a;
+  --tab-blue: #3d7bd0;
+
+  --font-dot: "Doto", ui-monospace, "Courier New", monospace;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, Menlo, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --page: #d3d3cf;
+    --panel: #e2e2de;
+    --panel-hi: #f1f1ee;
+    --panel-lo: #b9b9b4;
+    --line: #bfbfba;
+    --text: #1c1d1f;
+    --muted: #45474a;
+    --link: #0b5446;
+    --code-bg: #d2d3ce;
+    --code-text: #1c1d1f;
+    --warn-bg: #d8d8d3;
+    --warn-edge: #a8501a;
+    --focus: #0b5446;
+
+    --bezel: #3a3c40;
+    --bezel-hi: #4a4d52;
+
+    --glass: #c9d4bf;
+    --cell: #bccab0;
+    --lit: #13221a;
+    --lit-ink: #d3ddc9;
+    --g-muted: #354539;
+    --glow-1: rgb(0 0 0 / 0.14);
+    --glow-2: transparent;
+  }
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
 
 body {
   margin: 0;
-  background: var(--bg);
   color: var(--text);
-  font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background-color: var(--page);
+  font: 17px/1.6 var(--font-body);
 }
 
-header, main, footer {
-  max-width: 960px;
+.page {
+  max-width: 1100px;
   margin: 0 auto;
-  padding: 0 16px;
+  padding: 28px 16px 48px;
 }
 
-header { padding-top: 48px; }
+/* ---------- Panel sections ---------- */
+.panel {
+  margin: 0 0 22px;
+  padding: 24px clamp(14px, 3vw, 34px) 26px;
+  background-color: var(--panel);
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 var(--panel-hi), 0 0 0 1px var(--panel-lo), 0 4px 14px rgb(0 0 0 / 0.22);
+}
 
+h2, h3 {
+  font-family: var(--font-body);
+  color: var(--text);
+  text-transform: uppercase;
+}
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 1.12rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.16em;
+}
+h2::before {
+  content: "";
+  flex: none;
+  width: 22px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--tab-red);
+  box-shadow: inset 0 -2px 0 rgb(0 0 0 / 0.25);
+}
+#what h2::before { background: var(--tab-orange); }
+#tones h2::before { background: var(--tab-blue); }
+#install h2::before { background: var(--tab-orange); }
+h3 {
+  margin: 30px 0 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.12em;
+}
+h3::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 6px;
+  margin: 0 10px 0.2em 0;
+  border-radius: 1px;
+  background: var(--tab-orange);
+  vertical-align: middle;
+}
+
+p, ul { margin: 0 0 14px; }
+ul { padding-left: 1.3em; }
+li { margin: 0 0 6px; }
+p, li { max-width: 46em; }
+.nw { white-space: nowrap; }
+
+a {
+  color: var(--link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+a:hover { text-decoration-thickness: 2px; }
+a:focus-visible, button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+code {
+  font: 600 0.92em var(--font-mono);
+  color: var(--code-text);
+  background-color: var(--code-bg);
+  padding: 0 0.2em;
+  border-radius: 2px;
+  overflow-wrap: anywhere;
+}
+.muted { color: var(--muted); }
+
+/* ---------- Display window: bezel + glass ---------- */
+.window {
+  position: relative;
+  padding: 24px 8px 8px;
+  background-color: var(--bezel);
+  border-radius: 4px;
+  box-shadow: inset 0 1px 0 var(--bezel-hi), 0 0 0 1px var(--panel-lo);
+}
+.legend {
+  position: absolute;
+  top: 5px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  max-width: none;
+  margin: 0;
+  font: 700 11px/14px var(--font-body);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--legend);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.legend .right { margin-left: auto; font-weight: 400; letter-spacing: 0.12em; }
+.glass {
+  background-color: var(--glass);
+  border-radius: 2px;
+  box-shadow: inset 0 2px 10px rgb(0 0 0 / 0.5), inset 0 0 0 1px rgb(0 0 0 / 0.5);
+  padding: 18px clamp(12px, 2.6vw, 26px) 20px;
+}
+
+/* dot-matrix type: h1, readout, tone names only */
+h1, .readout, .tones li {
+  font-family: var(--font-dot);
+  color: var(--lit);
+  text-shadow: 0 0 6px var(--glow-1), 0 0 18px var(--glow-2);
+}
+
+/* ---------- Header ---------- */
+.hero .glass { padding-top: 24px; padding-bottom: 24px; }
 h1 {
   margin: 0;
-  font-size: 2.6rem;
+  font-size: clamp(3.2rem, 13vw, 7.5rem);
+  font-weight: 900;
+  line-height: 1;
   letter-spacing: 0.04em;
-  color: var(--accent);
 }
-
-h2 {
-  margin: 48px 0 12px;
-  font-size: 1.35rem;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 6px;
+.readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin: 16px 0 0;
+  font-size: clamp(1.05rem, 3.6vw, 1.5rem);
+  font-weight: 800;
 }
+.readout .label {
+  font: 700 11px/1 var(--font-body);
+  letter-spacing: 0.16em;
+  color: var(--g-muted);
+  text-shadow: none;
+}
+.cells {
+  display: inline-block;
+  white-space: pre;
+  padding: 0 0 0 0.06ch;
+  background: repeating-linear-gradient(90deg, var(--cell) 0 0.9ch, transparent 0.9ch 1ch);
+  line-height: 1.35;
+}
+.cells.inv {
+  color: var(--lit-ink);
+  text-shadow: none;
+  padding: 0 0.15ch;
+  border-radius: 1px;
+  background: var(--lit);
+  box-shadow: 0 0 12px var(--glow-2);
+}
+.lede { font-size: 1.2rem; margin: 22px 0 10px; }
+.beta { color: var(--muted); margin: 0; }
 
-.lede { font-size: 1.15rem; max-width: 40em; }
-.beta { color: var(--muted); }
-
-a { color: var(--accent); }
-code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
-
+/* ---------- Emulator window: the biggest one ---------- */
+.window.emu-window { margin-top: 18px; padding: 26px 12px 12px; }
+.emu-window .glass { padding: 8px; }
 .emu {
   position: relative;
   width: 100%;
   aspect-ratio: 4 / 3;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  background-color: #000;
+  border-radius: 2px;
   overflow: hidden;
 }
+.emu iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 
-.emu iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-
+/* ---------- The 32 tones as a bank/tone readout ---------- */
+.tones-window { margin-top: 18px; }
 .tones {
-  columns: 4 12em;
-  column-gap: 24px;
-  padding-left: 2.2em;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 0.95rem;
+  list-style: none;
+  counter-reset: tone;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(16, auto);
+  grid-auto-flow: column;
+  gap: 6px 14px;
+  font-size: clamp(14px, 3.4vw, 1.2rem);
+  font-weight: 800;
+}
+.tones li {
+  counter-increment: tone;
+  display: flex;
+  align-items: center;
+  gap: 0.6ch;
+  justify-self: start;
+  width: 12.8ch;
+  max-width: none;
+  margin: 0;
+  white-space: pre;
+  line-height: 1.4;
+  /* name cells: always 10 cells wide, padded */
+  background:
+    repeating-linear-gradient(90deg, var(--cell) 0 0.9ch, transparent 0.9ch 1ch)
+    2.6ch 0 / 10ch 100% no-repeat;
+}
+.tones li::before {
+  content: counter(tone, decimal-leading-zero);
+  display: inline-block;
+  width: 2ch;
+  padding-left: 0.05ch;
+  color: var(--g-muted);
+  text-shadow: none;
+  background: repeating-linear-gradient(90deg, var(--cell) 0 0.9ch, transparent 0.9ch 1ch);
+}
+.tones li.boot {
+  color: var(--lit-ink);
+  text-shadow: none;
+  background: none;
+  background-color: var(--lit);
+  border-radius: 1px;
+}
+.tones li.boot::before { color: var(--lit-ink); background: none; }
+.tone-key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  font-size: 0.9rem;
+  color: var(--g-muted);
+}
+.tone-key .sw {
+  width: 18px; height: 12px; border-radius: 1px; background-color: var(--lit);
+  box-shadow: 0 0 8px var(--glow-2);
+}
+@media (min-width: 900px) {
+  .tones {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: repeat(8, auto);
+    gap: 8px 22px;
+  }
+}
+@media (max-width: 399px) {
+  .tones {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-auto-flow: row;
+    font-size: 16px;
+    gap: 5px;
+  }
 }
 
-.tones li { break-inside: avoid; }
-
-footer {
-  margin-top: 64px;
-  padding-bottom: 48px;
-  color: var(--muted);
-  font-size: 0.9rem;
+/* ---------- Install ---------- */
+.untested, .warn {
+  padding: 12px 14px 12px 16px;
+  background-color: var(--warn-bg);
+  border-left: 4px solid var(--warn-edge);
+  border-radius: 2px;
+}
+.rule {
+  height: 0;
+  margin: 28px 0 0;
   border-top: 1px solid var(--line);
 }
-
-h3 { margin: 28px 0 8px; font-size: 1.05rem; }
-.muted { color: var(--muted); }
-
-.untested, .warn {
-  border-left: 4px solid var(--accent);
-  background: var(--panel);
-  padding: 10px 14px;
-  border-radius: 4px;
+.installer {
+  margin: 14px 0 6px;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 3px;
+  max-width: 34em;
 }
-
-.installer { margin: 12px 0; }
-
+.installer p:empty { margin: 0; }
 .installer button {
-  font: inherit;
-  font-weight: 600;
-  color: var(--bg);
-  background: var(--accent);
-  border: 0;
-  border-radius: 6px;
-  padding: 10px 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 10px 18px 10px 12px;
+  font: 700 1rem/1.2 var(--font-body);
+  color: var(--key-text);
+  background-color: var(--key);
+  border: 1px solid var(--key-edge);
+  border-radius: 3px;
+  box-shadow: inset 0 1px 0 var(--key-hi), 0 2px 0 var(--key-edge);
   cursor: pointer;
+  text-align: left;
+}
+.installer button::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  align-self: stretch;
+  min-height: 24px;
+  border-radius: 1px;
+  background: var(--tab-red);
+  box-shadow: inset 0 -3px 0 rgb(0 0 0 / 0.25);
+}
+#fm1-add-btn::before { background: var(--tab-blue); }
+.installer button:disabled { color: var(--key-text-off); cursor: not-allowed; }
+.installer button:disabled::before { opacity: 0.65; }
+.installer progress {
+  display: block;
+  width: 100%;
+  height: 12px;
+  margin-top: 12px;
+  appearance: none;
+  border: 1px solid var(--bezel);
+  background-color: var(--glass);
+}
+.installer progress[hidden] { display: none; }
+.installer progress::-webkit-progress-bar { background-color: var(--glass); }
+.installer progress::-webkit-progress-value {
+  background: repeating-linear-gradient(90deg, var(--lit) 0 7px, transparent 7px 9px);
+}
+.installer progress::-moz-progress-bar {
+  background: repeating-linear-gradient(90deg, var(--lit) 0 7px, transparent 7px 9px);
+}
+.installer [role="status"] {
+  min-height: 1.5em;
+  margin: 10px 0 0;
+  font-family: var(--font-mono);
 }
 
-.installer button:disabled { opacity: 0.45; cursor: not-allowed; }
-.installer button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-.installer progress { display: block; width: 100%; max-width: 28em; margin-top: 10px; }
-.installer [role="status"] { min-height: 1.5em; margin: 8px 0 0; }
+/* ---------- Footer ---------- */
+footer.panel { padding-top: 18px; padding-bottom: 18px; }
+footer p { margin: 0; font-size: 0.92rem; color: var(--muted); max-width: none; }
+
+@media (max-width: 480px) {
+  body { font-size: 16px; }
+  .panel { padding: 20px 14px 22px; margin-bottom: 18px; }
+  .window { padding: 22px 6px 6px; }
+  .window.emu-window { padding: 22px 6px 6px; }
+  .emu-window .glass { padding: 4px; }
+  .legend { left: 10px; right: 10px; letter-spacing: 0.12em; }
+  .glass { padding: 14px 12px 16px; }
+  .emu { aspect-ratio: 3 / 4; }
+  h2 { letter-spacing: 0.12em; }
+}
+
+/* the header legend's long right-hand text does not fit beside "Display" under 390 px: it is decoration */
+@media (max-width: 389px) {
+  .hero .legend .right { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  h1, .readout, .tones li { text-shadow: none; }
+  .cells.inv, .tone-key .sw { box-shadow: none; }
+  * { transition: none !important; animation: none !important; }
+}
