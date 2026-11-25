@@ -212,7 +212,9 @@ class PageTest(unittest.TestCase):
         footer = html[html.index("<footer>"):]
         self.assertIn("https://github.com/joakimeriksson/fm1-dock", footer)
         self.assertIn("Leo Kuroshita", footer)
-        self.assertIn("GPL-3.0", footer)
+        self.assertIn("Source on GitHub</a>, GPL-3.0-or-later.", footer)   # FM1-8P's own code
+        self.assertIn("GPL-3.0-only", footer)                              # the vendored fm1-dock code
+
     def test_links_the_files_the_workflow_puts_beside_the_page(self):
         _, html = self.build()
         with open(os.path.join(ROOT, ".github", "workflows", "pages.yml"), encoding="utf-8") as fh:
