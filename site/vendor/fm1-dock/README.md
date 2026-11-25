@@ -23,5 +23,8 @@ files from a newer fm1-dock commit, update the commit and the table, and run `ma
 - `install/fm1ota.js`, the FM-1 USB-MIDI update protocol over Web MIDI: Leo Kuroshita (@kurogedelic),
   Hügelton Instruments, from Felucca (hugelton/Felucca), as adapted in fm1-dock.
 
-All are GPL-3.0-only (`LICENSE`, fm1-dock's). FM1-8P is GPL-3.0 too; FM1-8P's page uses them through
-its own `site/install.js` and `site/installer.js`.
+All are `GPL-3.0-only` (`LICENSE`, fm1-dock's; who made what in fm1-dock is in its
+[LICENSING.md at 60a89df](https://github.com/joakimeriksson/fm1-dock/blob/60a89df6554f6df3823f03a4c893b6715bfef9b5/LICENSING.md)).
+FM1-8P is `GPL-3.0-or-later` (its source files' SPDX headers; the license text is the repository's
+`LICENSE`), so the page, which uses them through its own `site/install.js` and `site/installer.js`, is
+distributed under GPL-3.0 as a whole.

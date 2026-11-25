@@ -193,7 +193,13 @@ class PageTest(unittest.TestCase):
         self.assertIn("https://thefirmwarehub.com/", sec)
         self.assertIn("V15", sec)
         self.assertIn("OCT-", sec)
-        self.assertIn("OCT+", sec)
+
+    def test_install_section_claims_nothing_untested_about_the_rescue(self):
+        # what the rescue and safe start do with this page's installer is not tested on a unit yet (#362 review M1)
+        sec = self.install_section()
+        self.assertNotIn("OCT+", sec)
+        self.assertNotIn("this page can install", sec)
+        self.assertNotIn("only a sine", sec)
 
     def test_install_section_names_the_browsers_and_the_identity(self):
         sec = self.install_section()

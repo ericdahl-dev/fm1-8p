@@ -192,3 +192,81 @@ test("one at a time: free again after a failure", async () => {
   await assert.rejects(one.run(async () => { throw new Error("boom"); }));
   assert.equal(one.busy, false);
 });
+
+// ---- installFlow: what the Install button does, start to the status line (site/install.js only wires it)
+
+const explainStub = (e) => `fm1-dock: ${e.code}`;
+const midiOk = async () => ({});
+
+function flowArgs(over = {}) {
+  return { requestMIDIAccess: midiOk, fetch: fakeFetch({ "fw/index.json": CATALOG, "fw/fm1-8p.fwsc": BYTES }), base: BASE,
+    ask: async () => true, say: () => {}, progress: () => {}, explain: explainStub, ...over };
+}
+
+test("installFlow: canceled at the install question, nothing was written", async () => {
+  const text = await I.installFlow(flowArgs({ lib: fakeLib([]), ask: async () => false }));
+  assert.equal(text, "Canceled: nothing was written.");
+});
+
+test("installFlow: canceled at the update-mode question, the FM-1 stays in update mode", async () => {
+  const lib = { ...fakeLib([]), installOn: async (midi, pkg, name, ask) =>
+    (await ask(`The FM-1 is in update mode: an install was cut off. Finish it with ${name}?`)) ? pkg.product : null };
+  const text = await I.installFlow(flowArgs({ lib, ask: async () => false }));
+  assert.equal(text, "Canceled. The FM-1 stays in update mode until an install is finished.");
+});
+
+test("installFlow: done names what the FM-1 runs", async () => {
+  assert.equal(await I.installFlow(flowArgs({ lib: fakeLib([]) })), "Done: the FM-1 runs FM1-8P (FM-1_948).");
+});
+
+test("installFlow: MIDI not allowed is fm1-dock's denied message, and nothing is fetched", async () => {
+  const fetch = fakeFetch({});
+  const text = await I.installFlow(flowArgs({ lib: fakeLib([]), fetch, requestMIDIAccess: async () => { throw new Error("no"); } }));
+  assert.equal(text, "fm1-dock: denied");
+  assert.deepEqual(fetch.asked, []);
+});
+
+test("installFlow: a refusal is put in words, not thrown", async () => {
+  const text = await I.installFlow(flowArgs({ lib: fakeLib([], { product: "FM-1_921" }) }));
+  assert.match(text, /FM-1_921/);
+});
+
+// ---- addFlow: what the Add button does
+
+function addArgs(over = {}) {
+  return { requestMIDIAccess: midiOk, fetch: fakeFetch({ "fw/index.json": DOCK_CATALOG, "fw/fm1_8p.dock": DOCK }), base: BASE,
+    lib: fakeDockLib([]), ask: async () => true, say: () => {}, progress: () => {}, explain: explainStub, ...over };
+}
+
+test("addFlow: done says how to pick it", async () => {
+  assert.equal(await I.addFlow(addArgs()), "Done: FM1-8P is in fm1-dock. Hold HOME on the FM-1 and pick it.");
+});
+
+test("addFlow: canceled, nothing was sent", async () => {
+  assert.equal(await I.addFlow(addArgs({ ask: async () => false })), "Canceled: nothing was sent.");
+});
+
+test("addFlow: no fm1-dock answering is put in words", async () => {
+  const lib = { ...fakeDockLib([]), addModule: async () => { throw Object.assign(new Error(""), { code: "nodock" }); } };
+  assert.equal(await I.addFlow(addArgs({ lib })), "fm1-dock: nodock");
+});
+
+test("buttons: enabled only with Web MIDI, a loaded catalog, and nothing running", () => {
+  assert.equal(I.buttonsEnabled({ midi: true, catalogOk: true, busy: false }), true);
+  assert.equal(I.buttonsEnabled({ midi: false, catalogOk: true, busy: false }), false);
+  assert.equal(I.buttonsEnabled({ midi: true, catalogOk: false, busy: false }), false);
+  assert.equal(I.buttonsEnabled({ midi: true, catalogOk: true, busy: true }), false);
+});
+
+test("messages: fm1-dock's room errors in our words, without fm1-dock's page controls", () => {
+  const explain = () => "fm1-dock's text (Remove in the meter below)";
+  const e = (code, message = "") => Object.assign(new Error(message), { code });
+  const addons = I.messageFor(e("addons", "CS-1, FM-1 SID."), explain);
+  assert.match(addons, /nothing was written/);
+  assert.match(addons, /CS-1, FM-1 SID\./);
+  assert.match(addons, /fm1-dock's own page/);
+  assert.match(I.messageFor(e("addonsota"), explain), /update mode/);
+  const space = I.messageFor(e("space", "FM1-8P needs 60 KB, fm1-dock has 40 KB free."), explain);
+  assert.match(space, /60 KB/);
+  for (const m of [addons, space, I.messageFor(e("addonsota"), explain)]) assert.doesNotMatch(m, /meter below|catalog/);
+});

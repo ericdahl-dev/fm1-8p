@@ -13,7 +13,8 @@
 #   make check-runner       test tools/run-tests.sh (make test fails on an empty or silent test binary)
 #                           and that a build killed partway leaves no empty output make would reuse
 #   make check-site-js      test the project page's browser installer (site/installer.js, the vendored
-#                           fm1-dock code it uses) with node --test; skipped when node is not installed
+#                           fm1-dock code it uses) with node --test; skipped when node is not installed,
+#                           except under CI (CI set), where that fails
 #   make check              test + check-runner + check-float-free + check-fm1-build + check-patches + check-site-js
 #   make gate BASE=<commit> [HEAD=<commit>]
 #                           the no-sound gate (tools/gate.sh): renders every gate clip on BASE and HEAD
@@ -133,6 +134,7 @@ check-runner:
 	sh tests/test_run_tests.sh
 	sh tests/test_build_outputs.sh
 	sh tests/test_ci_scope.sh
+	sh tests/test_check_site_js.sh
 
 # the files tools/params.py makes (engine/fm1_8p_params.h, engine/params.c) and firmware/patches.c
 generate:
@@ -151,10 +153,12 @@ check-font:
 check-draw-colors:
 	sh tests/test_draw_colors.sh
 
-# the project page's browser installer (#356): node is optional here (CI runs it)
+# the project page's browser installer (#356): node is optional on a desktop, required under CI (CI set)
 check-site-js:
 	@if command -v node >/dev/null 2>&1; then \
 		node --test tests/js/*.test.mjs; \
+	elif [ -n "$$CI" ]; then \
+		echo "check-site-js: node not found, and CI is set: the installer's tests must run" >&2; exit 1; \
 	else \
 		echo "check-site-js: node not found, skipped (CI runs it)"; \
 	fi
