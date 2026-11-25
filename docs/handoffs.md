@@ -117,7 +117,9 @@ These don't fit one kind. Each is named here and in its field's comment.
   ask before its count; the armed `seq_play` writes none. The interrupt starts only when a play's
   count is new, the last ask was a play and `want` is still set (a clock source change clears it with
   no ask); a stop's count alone always stops, even if a play's `ask_last` is already written (gap
-  "play" 1)
+  "play" 1, `seq_stop_then_play_with_the_interrupt_before_its_count_starts_once`). Open: the new
+  count is any play's, not the one that wrote `ask_last`, so PLAY, STOP, PLAY before one block with
+  the interrupt inside the second PLAY still starts twice (#377)
   (`clock_stop_then_play_inside_one_block_stops`, `clock_start_stop_then_play_inside_one_block_stays_armed`).
 - **`out_on`, two writers, gated by `out_block`.** The interrupt sets it at a start and clears it
   at a stop; the main loop clears it at `seq_stop` (a followed run), `seq_clock_out_stop` and
