@@ -210,6 +210,7 @@ static void put(play *p, uint32_t st, uint32_t d1, uint32_t d2)
         return;
     }
     p->queue[h % PLAY_QUEUE] = st << 16 | d1 << 8 | d2;
+    HANDOFF_GAP("put", 1);
     BARRIER();
     p->head = h + 1u;                           /* after the entry: the ISR never reads it early */
     if (st == 0x90u && d2 != 0u)                /* queued: it will sound */
@@ -270,9 +271,12 @@ void play_note_name(int32_t note, char *s)
 /* the engine's next value for id, which the ISR applies */
 static void set_target(play *p, uint16_t id, int32_t value)
 {
+    uint32_t a;
     p->target[id] = value;
     BARRIER();                                  /* the value before its bit: the ISR never sees an old one */
-    p->asked[id >> 5] = p->asked[id >> 5] | 1u << (id & 31u);
+    a = p->asked[id >> 5];                      /* (the read and the write of the |=, apart: the ISR may run */
+    HANDOFF_GAP("asked", 1);                    /* between them, handoff_test.h) */
+    p->asked[id >> 5] = a | 1u << (id & 31u);
 }
 
 void play_set_param(play *p, uint16_t id, int32_t value)
