@@ -270,3 +270,109 @@ test("messages: fm1-dock's room errors in our words, without fm1-dock's page con
   assert.match(space, /60 KB/);
   for (const m of [addons, space, I.messageFor(e("addonsota"), explain)]) assert.doesNotMatch(m, /meter below|catalog/);
 });
+
+// ---- the usage stats the flows report (site/analytics.js sends them): start, success, failure by error class
+
+function spy() {
+  const got = [];
+  const track = (event, props) => { got.push(props === undefined ? [event] : [event, props]); };
+  return { got, track };
+}
+
+test("installFlow reports start and success", async () => {
+  const { got, track } = spy();
+  await I.installFlow(flowArgs({ lib: fakeLib([]), track }));
+  assert.deepEqual(got, [["install_started"], ["install_succeeded"]]);
+});
+
+test("installFlow reports a cancel as a failure of class canceled, at either question", async () => {
+  const { got, track } = spy();
+  await I.installFlow(flowArgs({ lib: fakeLib([]), ask: async () => false, track }));
+  const lib = { ...fakeLib([]), installOn: async (midi, pkg, name, ask) =>
+    (await ask(`The FM-1 is in update mode: an install was cut off. Finish it with ${name}?`)) ? pkg.product : null };
+  await I.installFlow(flowArgs({ lib, ask: async () => false, track }));
+  assert.deepEqual(got, [["install_started"], ["install_failed", { error: "canceled" }],
+    ["install_started"], ["install_failed", { error: "canceled" }]]);
+});
+
+test("installFlow reports a failure by its error code only", async () => {
+  const { got, track } = spy();
+  await I.installFlow(flowArgs({ lib: fakeLib([], { product: "FM-1_921" }), track }));
+  await I.installFlow(flowArgs({ lib: fakeLib([]), requestMIDIAccess: async () => { throw new Error("no"); }, track }));
+  const lib = { ...fakeLib([]), installOn: async () => { throw Object.assign(new Error("serial 1234"), { code: "foreign" }); } };
+  await I.installFlow(flowArgs({ lib, track }));
+  const plain = { ...fakeLib([]), installOn: async () => { throw new Error("serial 1234"); } };
+  await I.installFlow(flowArgs({ lib: plain, track }));
+  assert.deepEqual(got.filter((g) => g[0] === "install_failed"), [["install_failed", { error: "identity" }],
+    ["install_failed", { error: "denied" }], ["install_failed", { error: "foreign" }], ["install_failed", { error: "other" }]]);
+});
+
+test("addFlow reports start, success, cancel and failure", async () => {
+  const { got, track } = spy();
+  await I.addFlow(addArgs({ track }));
+  await I.addFlow(addArgs({ ask: async () => false, track }));
+  const lib = { ...fakeDockLib([]), addModule: async () => { throw Object.assign(new Error("x"), { code: "nodock" }); } };
+  await I.addFlow(addArgs({ lib, track }));
+  assert.deepEqual(got, [["dock_add_started"], ["dock_add_succeeded"],
+    ["dock_add_started"], ["dock_add_failed", { error: "canceled" }],
+    ["dock_add_started"], ["dock_add_failed", { error: "nodock" }]]);
+});
+
+// ---- the page works the same without PostHog: blocked, failing to load, or throwing on every call
+
+import * as A from "../../site/analytics.js";
+
+// a PostHog whose every property throws, init and capture included
+const throwingPosthog = new Proxy({}, { get: () => { throw new Error("posthog broke"); } });
+const everyCallThrows = new Proxy({}, { get: () => () => { throw new Error("posthog broke"); } });
+
+const SCENARIOS = {
+  "install done": () => I.installFlow(flowArgs({ lib: fakeLib([]), track: T })),
+  "install canceled": () => I.installFlow(flowArgs({ lib: fakeLib([]), ask: async () => false, track: T })),
+  "install refused": () => I.installFlow(flowArgs({ lib: fakeLib([], { product: "FM-1_921" }), track: T })),
+  "install denied": () => I.installFlow(flowArgs({ lib: fakeLib([]), requestMIDIAccess: async () => { throw new Error("no"); }, track: T })),
+  "add done": () => I.addFlow(addArgs({ track: T })),
+  "add canceled": () => I.addFlow(addArgs({ ask: async () => false, track: T })),
+  "add no dock": () => I.addFlow(addArgs({ track: T, lib: { ...fakeDockLib([]),
+    addModule: async () => { throw Object.assign(new Error(""), { code: "nodock" }); } } })),
+};
+let T;   // the track the scenarios pass
+
+async function results(track) {
+  T = track;
+  const out = {};
+  for (const [name, run] of Object.entries(SCENARIOS)) out[name] = await run();
+  return out;
+}
+
+test("without PostHog (absent, failing to load, or throwing on every call) the flows end the same", async () => {
+  const unhandled = [];
+  const onRejection = (e) => unhandled.push(e);
+  process.on("unhandledRejection", onRejection);
+  try {
+    const want = await results(undefined);
+    const tracks = {
+      "no track": undefined,
+      "library blocked": A.createAnalytics({ load: () => Promise.reject(new TypeError("Failed to fetch")) }).track,
+      "load throws": A.createAnalytics({ load: () => { throw new Error("blocked"); } }).track,
+      "every property throws": A.createAnalytics({ load: async () => throwingPosthog }).track,
+      "every call throws": A.createAnalytics({ load: async () => everyCallThrows }).track,
+      "track throws": () => { throw new Error("track broke"); },
+      "track rejects": () => Promise.reject(new Error("track broke")),
+      "track never settles": () => new Promise(() => {}),
+    };
+    for (const [name, track] of Object.entries(tracks)) assert.deepEqual(await results(track), want, name);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", onRejection);
+  }
+});
+
+test("track returns nothing to wait for, loaded or not", async () => {
+  const slow = A.createAnalytics({ load: () => new Promise(() => {}) });
+  assert.equal(slow.track("install_started"), undefined);
+  const broken = A.createAnalytics({ load: async () => everyCallThrows });
+  await broken.ready;
+  assert.equal(broken.track("install_failed", { error: "lost" }), undefined);
+});
