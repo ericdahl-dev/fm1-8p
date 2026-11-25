@@ -244,7 +244,10 @@ the device (#13).
 - `tests/` - tests, run with a small single-header runner (`tests/tinytest.h`).
 - `site/` - the project page, [ericdahl-dev.github.io/fm1-8p](https://ericdahl-dev.github.io/fm1-8p/) (#356): `tools/site_build.py` adds the 32 tone
   names and the fm1-emu embed, and `.github/workflows/pages.yml` publishes it with the `.fwsc` and `.dock`
-  built from `main`.
+  built from `main` in `fw/`, with their catalog `fw/index.json`. Its browser installer (Web MIDI, Chrome or
+  Edge) is `site/install.js` and `site/installer.js` (tested by `tests/js`, `make check-site-js`) on
+  fm1-dock's own installer, vendored unmodified in `site/vendor/fm1-dock` (GPL-3.0-only; its VENDORED.md names
+  the commit). It is not tested on hardware yet.
 - `tools/` - the float-free check, the FM-1 build (`fm1-build.sh`) and the scripts that
   generate the pitch table and `examples/demo.mid`.
 

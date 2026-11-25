@@ -48,23 +48,59 @@
 
     <section id="install">
       <h2>Install</h2>
-      <p>FM1-8P is not on the <a href="https://thefirmwarehub.com/">FM-1 Firmware Hub</a> yet. It will be
-        listed there with the v0.1 release, and you will be able to install it from the hub and go back to the
-        stock firmware (V15) the same way.</p>
-      <p>Developers can try the latest build from <code>main</code> now. It changes with every merge and is not a release:</p>
+      <p class="untested"><strong>Not tested on hardware yet.</strong> This installer has not been tested on an FM-1
+        yet. Wait for the v0.1 release unless you know how to recover your FM-1.</p>
+      <p>FM1-8P is not on the <a href="https://thefirmwarehub.com/">FM-1 Firmware Hub</a> yet; it will be listed
+        there with v0.1. Until then this page installs the latest build from <code>main</code>. It changes with every
+        merge and is not a release.</p>
+
+      <h3>Install FM1-8P on the FM-1</h3>
+      <p>Over USB with Web MIDI, in Chrome or Edge on a computer. Other browsers cannot reach the FM-1.
+        The firmware identity of FM1-8P's package is <code>FM-1_948</code>: the installer checks the package
+        and shows its identity, version and what the FM-1 runs now before anything is written, and refuses a package
+        of any other identity. Do not unplug the FM-1 while it writes.</p>
+      <p id="fm1-browser" class="warn" role="alert" hidden></p>
+      <noscript><p class="warn">The installer needs JavaScript, and Chrome or Edge.</p></noscript>
+      <div class="installer">
+        <p id="fm1-package" class="muted"></p>
+        <button type="button" id="fm1-install-btn" disabled>Install FM1-8P on my FM-1</button>
+        <progress id="fm1-install-bar" max="100" value="0" hidden></progress>
+        <p id="fm1-install-status" role="status"></p>
+      </div>
+
+      <h3>Going back, and the rescue</h3>
       <ul>
-        <li><a href="fm1-8p.fwsc">fm1-8p.fwsc</a>: the firmware package, identity FM-1_948.</li>
-        <li><a href="fm1_8p.dock">fm1_8p.dock</a>: the module, for <a href="https://github.com/joakimeriksson/fm1-dock">fm1-dock</a>.</li>
+        <li>To go back to the stock firmware V15, install it from the
+          <a href="https://thefirmwarehub.com/">FM-1 Firmware Hub</a>.</li>
+        <li>Hold <strong>OCT-</strong> while you switch the FM-1 on for its USB rescue.</li>
       </ul>
-      <p>To go back, install the stock firmware (V15) from the Firmware Hub. If an install goes wrong, switch the
-        FM-1 on while holding OCT- for the USB rescue, then install again; holding OCT+ at power-on is a safe start.</p>
+
+      <h3>Already on fm1-dock?</h3>
+      <p>If your FM-1 runs <a href="https://github.com/joakimeriksson/fm1-dock">fm1-dock</a>, add FM1-8P to it as
+        a module instead: the other synths, the settings and the presets stay. Then hold HOME and pick FM1-8P.</p>
+      <div class="installer">
+        <button type="button" id="fm1-add-btn" disabled>Add FM1-8P to my fm1-dock</button>
+        <progress id="fm1-add-bar" max="100" value="0" hidden></progress>
+        <p id="fm1-add-status" role="status"></p>
+      </div>
+
+      <h3>The files</h3>
+      <ul>
+        <li><a href="fw/fm1-8p.fwsc">fm1-8p.fwsc</a>: the firmware package (identity <code>FM-1_948</code>).</li>
+        <li><a href="fw/fm1_8p.dock">fm1_8p.dock</a>: the module, for
+          <a href="https://github.com/joakimeriksson/fm1-dock">fm1-dock</a> (<code>tools/dock.py deploy</code>).</li>
+      </ul>
     </section>
   </main>
 
   <footer>
-    <p><a href="https://github.com/ericdahl-dev/fm1-8p">Source on GitHub</a>, GPL-3.0.
+    <p><a href="https://github.com/ericdahl-dev/fm1-8p">Source on GitHub</a>, GPL-3.0-or-later.
       The emulator is <a href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a> (MIT).
+      The installer uses <a href="https://github.com/joakimeriksson/fm1-dock">fm1-dock</a>'s browser installer by
+      Joakim Eriksson, with Leo Kuroshita's (Hügelton Instruments) FM-1 update code from Felucca, vendored unmodified
+      (GPL-3.0-only; <a href="vendor/fm1-dock/VENDORED.md">which files, from which commit</a>).
       FM1-8P is not affiliated with or endorsed by Roland or M-VAVE.</p>
   </footer>
+  <script type="module" src="install.js"></script>
 </body>
 </html>

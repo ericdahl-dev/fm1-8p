@@ -1,7 +1,8 @@
 name: Pages
 
-# The project page (#356), ericdahl-dev.github.io/fm1-8p: site/ with the factory tone list, and the .fwsc and
-# .dock built from this commit beside it (fm1-emu on the page plays that .fwsc). Nothing built is committed.
+# The project page (#356), ericdahl-dev.github.io/fm1-8p: site/ with the factory tone list and the browser
+# installer, and the .fwsc and .dock built from this commit in fw/ (fm1-emu on the page plays that .fwsc; the
+# installer installs it, or adds the .dock to fm1-dock). Nothing built is committed.
 # A pull request builds the site but does not deploy it.
 on:
   push:
@@ -22,6 +23,16 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The browser installer's tests (site/installer.js and the vendored fm1-dock code it uses; #356)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Installer tests (node --test)
+        run: |
+          node --version
+          make check-site-js
+
       - name: Python packages for fm1-dock
         run: pip install "Pillow==$(sed -n 's/^PILLOW_VERSION=//p' firmware/pins.env)"
 
@@ -41,12 +52,14 @@ jobs:
       - id: pages
         uses: actions/configure-pages@v5
 
+      # The page, the browser installer, and fw/: the .fwsc and .dock with fw/index.json, their catalog (it refuses
+      # a .fwsc whose identity is not firmware/pins.env's FM1_IDENTITY)
       - name: The site
         env:
           BASE_URL: ${{ steps.pages.outputs.base_url }}
         run: |
-          python3 -B tools/site_build.py build/site "$BASE_URL"
-          cp build/fm1/fm1-8p.fwsc build/fm1/fm1_8p.dock build/site/
+          python3 -B tools/site_build.py build/site "$BASE_URL" \
+            build/fm1/fm1-8p.fwsc build/fm1/fm1_8p.dock "${GITHUB_SHA::7}"
 
       - uses: actions/upload-pages-artifact@v3
         with:
