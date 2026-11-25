@@ -128,7 +128,9 @@ class PageTest(unittest.TestCase):
         names = site_build.tone_names(ROOT)
         self.assertEqual(len(names), 32)
         self.assertEqual(names[16], "SOUNDTRACK")
-        at = [re.search(rf'<li(?: class="boot")?>{re.escape(site_build.escape(n))}</li>', html).start() for n in names]
+        found = [re.search(rf'<li(?: class="boot")?>{re.escape(site_build.escape(n))}</li>', html) for n in names]
+        self.assertNotIn(None, found)
+        at = [m.start() for m in found]
         self.assertEqual(at, sorted(at))
 
     def test_marks_tone_17_the_boot_tone_and_no_other(self):
@@ -319,6 +321,18 @@ class FontsTest(unittest.TestCase):
         with open(os.path.join(ROOT, "site", "index.html"), encoding="utf-8") as fh:
             links = re.findall(r"<link\b[^>]*>", fh.read())
         self.assertEqual(links, ['<link rel="stylesheet" href="style.css">'])
+
+    def test_every_font_file_matches_the_sha256_recorded_beside_it(self):
+        # the files are Fontsource's, unmodified: SHA256SUMS beside them holds them to that
+        fonts = os.path.join(ROOT, "site", "fonts")
+        with open(os.path.join(fonts, "SHA256SUMS"), encoding="utf-8") as fh:
+            rows = dict((rel, sha) for sha, rel in re.findall(r"^([0-9a-f]{64})  (\S+\.woff2)$", fh.read(), re.M))
+        files = sorted(os.path.relpath(os.path.join(d, f), fonts).replace(os.sep, "/")
+                       for d, _, names in os.walk(fonts) for f in names if f.endswith(".woff2"))
+        self.assertEqual(sorted(rows), files)
+        for rel in files:
+            with open(os.path.join(fonts, rel), "rb") as fh:
+                self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), rows[rel], rel)
 
     def test_the_build_copies_the_fonts_and_their_licenses(self):
         d = tempfile.mkdtemp()

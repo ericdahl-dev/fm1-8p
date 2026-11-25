@@ -185,7 +185,7 @@ code {
   font: 600 0.92em var(--font-mono);
   color: var(--code-text);
   background-color: var(--code-bg);
-  padding: 0 5px;
+  padding: 0 0.2em;
   border-radius: 2px;
   overflow-wrap: anywhere;
 }

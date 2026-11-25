@@ -12,3 +12,6 @@ Version 1.1. The files come from the Fontsource npm packages, version 5.3.0.
 
 Doto, a dot-matrix face, is used only for the display windows: the heading FM1-8P, the boot readout and the
 tone names. Atkinson Hyperlegible sets the text, Atkinson Hyperlegible Mono the code and the installer's status.
+
+`SHA256SUMS` lists each file's SHA-256, as `sha256sum -c SHA256SUMS` checks it from this folder; so does
+tests/test_site.py.
