@@ -112,6 +112,59 @@ TT_TEST(init_rejects_bad_arguments)
     TT_CHECK_EQ(fm_engine_init(&eng, RATE, FM_MAX_VOICES), FM_OK);
 }
 
+TT_TEST(mix_gain_is_one_constant_at_init_and_at_full_vca_level)
+{
+    uint8_t n;
+    /* the value itself (0.25 times 3.17 dB in Q1.30, #102), so a change to it is red */
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 1), FM_OK);
+    TT_CHECK_EQ(eng.mix_gain, 386669466);
+    TT_CHECK_EQ(fm_engine_init(&eng, RATE, 8), FM_OK);
+    TT_CHECK_EQ(eng.mix_gain, 48333683);
+    for (n = 1; n <= FM_MAX_VOICES; n++) {
+        TT_CHECK_EQ(fm_engine_init(&eng, RATE, n), FM_OK);
+        TT_CHECK_EQ(eng.mix_gain, (int32_t)(FM_MIX_GAIN_Q30 / n));
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_LEVEL, 500), FM_OK);
+        TT_CHECK(eng.mix_gain < (int32_t)(FM_MIX_GAIN_Q30 / n));
+        TT_CHECK_EQ(fm_engine_set_param(&eng, FM_PARAM_AMP_LEVEL, 1000), FM_OK);
+        TT_CHECK_EQ(eng.mix_gain, (int32_t)(FM_MIX_GAIN_Q30 / n));
+    }
+}
+
+/* The output stage's gain (#342): the engine's output 2^shift louder, clamped at +-32767 (never
+ * wrapping); shift 0 (the default) is the engine's own level. Two engines, the same notes. */
+TT_TEST(output_shift_makes_the_output_louder_and_clamps_it)
+{
+    static fm_engine lo, hi;
+    static int16_t a[2 * 256], b[2 * 256];
+    uint32_t i, k, louder = 0, clamped = 0;
+    TT_CHECK_EQ(fm_engine_init(&lo, RATE, 4), FM_OK);
+    TT_CHECK_EQ(fm_engine_init(&hi, RATE, 4), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_output_shift(&hi, FM_OUT_SHIFT_MAX + 1), FM_ERR_ARG);
+    TT_CHECK_EQ(fm_engine_set_output_shift(&hi, 2), FM_OK);
+    for (k = 0; k < 2; k++) {
+        fm_engine *e = k ? &hi : &lo;
+        (void)fm_engine_set_param(e, FM_PARAM_FILTER_CUTOFF_CENTS, FM_FILTER_OPEN_CENTS);
+        (void)fm_engine_set_param(e, FM_PARAM_OSC2_LEVEL, 500);
+        (void)fm_engine_set_param(e, FM_PARAM_AMP_ATTACK_MS, 1);
+        (void)fm_engine_set_param(e, FM_PARAM_AMP_SUSTAIN, 1000);
+        for (i = 0; i < 4; i++)
+            fm_engine_note_on(e, (uint8_t)(40 + 7 * i), 127);
+    }
+    for (k = 0; k < 40; k++) {
+        fm_engine_render(&lo, a, 256);
+        fm_engine_render(&hi, b, 256);
+        for (i = 0; i < 2 * 256; i++) {
+            int32_t want = (int32_t)a[i] * 4;
+            want = want > 32767 ? 32767 : want < -32767 ? -32767 : want;
+            TT_CHECK_EQ(b[i], want);
+            louder |= b[i] != a[i];
+            clamped |= b[i] == 32767 || b[i] == -32767;
+        }
+    }
+    TT_CHECK(louder);
+    TT_CHECK(clamped);                          /* the clamp was reached, not skipped */
+}
+
 TT_TEST(all_notes_off_controller_releases_the_note)
 {
     size_t i;
@@ -765,6 +818,8 @@ static void run_engine_tests(void)
     TT_RUN(envelope_times_share_one_32_second_range);
     TT_RUN(set_param_clamps_to_range_and_rejects_unknown_ids);
     TT_RUN(init_rejects_bad_arguments);
+    TT_RUN(mix_gain_is_one_constant_at_init_and_at_full_vca_level);
+    TT_RUN(output_shift_makes_the_output_louder_and_clamps_it);
     TT_RUN(all_notes_off_controller_releases_the_note);
     TT_RUN(block_size_does_not_change_output);
     TT_RUN(extreme_settings_stay_bounded_and_release);

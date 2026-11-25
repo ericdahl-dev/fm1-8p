@@ -34,6 +34,7 @@
 #include "test_vfilter.c"
 #include "test_filter_oracle.c"
 #include "test_play.c"
+#include "test_headroom.c"
 #include "test_ui.c"
 #include "test_patches.c"
 #include "test_units.c"
@@ -49,6 +50,7 @@
 #include "test_seq_play.c"
 #include "test_seq_clock.c"
 #include "test_play_patterns.c"
+#include "test_pattern_now.c"
 #include "test_svf.c"
 #include "test_porta.c"
 #include "test_dfont.c"
@@ -77,6 +79,7 @@ int main(void)
     run_vfilter_tests();
     run_filter_oracle_tests();
     run_play_tests();
+    run_headroom_tests();
     run_ui_tests();
     run_patches_tests();
     run_units_tests();
@@ -92,6 +95,7 @@ int main(void)
     run_seq_play_tests();
     run_seq_clock_tests();
     run_play_patterns_tests();
+    run_pattern_now_tests();
     run_svf_tests();
     run_porta_tests();
     run_dfont_tests();

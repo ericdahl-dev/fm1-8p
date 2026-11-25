@@ -12,11 +12,15 @@ float tail under one step, where our idle engine reads exact 0, floors to 0 or -
 reads 1.5-6 dB in bands 55-60 dB down, about 0.1 dB on the section (AGOGO BELL's chord: 1.47 s9, 1.58 s10)."""
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import scorecard_cmd  # noqa: E402
 
 import numpy as np
 from scipy import signal
 
-SCHEMA = 10  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 11  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
@@ -24,10 +28,11 @@ SCHEMA = 10  # history rows: bump when a field changes meaning (2: timings sampl
              # 7: both 5 and 6, merged;
              # 8: no pitch for a ring or cross-mod tone without sync (it has none), #253;
              # 9: the air gap takes PG-8X's side at our level in int16, so our 16-bit floor isn't air, #299;
-             # 10: so does each spectral section, so the floor isn't timbre either)
+             # 10: so does each spectral section, so the floor isn't timbre either;
+             # 11: the phrase notes are 0.7 s, so every section reads 0.5 s or more; the reference is v6)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
-SR = 48000
+SR = scorecard_cmd.SR
 
 # BS.1770 K-weighting at 48 kHz: a high shelf, then a high pass
 _K1 = ([1.53512485958697, -2.69169618940638, 1.19839281085285], [1.0, -1.69065929318241, 0.73248077421585])
@@ -120,7 +125,7 @@ def air_db(x):
 
 def as_ours_int16(pg, ours, clip=True):
     """PG-8X's float render as ours would carry it: scaled to our RMS, put on 16 bits per channel as
-    engine.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
+    output.c's to_int16 does (floored, clipped to -32768..32767; read back over 32768), and scaled back. Our renders are int16, as the device's output is, so a quiet section has the 16-bit floor's
     hiss in it; scored against this, the floor is on both sides (#299). With clip False it is floored but
     not clipped: at our RMS PG-8X's peaks can pass full scale where ours don't, and clipped they'd gain
     harmonics neither render has (the spectral sections, s10)."""
@@ -165,9 +170,9 @@ def pitch_cents(ours, pg, span=200):
 # its note on. PG-8X puts a sub-230 Hz thump near -32 dBFS on every note on, a voice's first or not,
 # that dies down over about 120 ms (#146); our engine has none, so a section inside it reads a gap in
 # the lows that isn't timbre
-SECTIONS = {"chord": (0.55, 3.15), "v110": (4.38, 4.65), "v60": (4.88, 5.15), "v90": (5.38, 5.55),
-            "v40": (5.78, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}
-HIGH = (8.85, 10.25, 1046.50)   # the high C6: onset, note-off (s), f0 (Hz): about 1 ms a period
+SECTIONS = {"chord": (0.55, 3.15), "v110": (4.38, 4.95), "v60": (5.18, 5.75), "v90": (5.98, 6.55),
+            "v40": (6.78, 7.35), "low": (8.05, 9.35), "high": (10.25, 11.25)}
+HIGH = (9.95, 11.35, 1046.50)   # the high C6: onset, note-off (s), f0 (Hz): about 1 ms a period
 
 
 def _cut(x, a, b):
@@ -204,6 +209,24 @@ def score_tone(ours, pg, harmonic=True):
     }
 
 
+NOISE_SHIFT_S = 0.01
+
+
+def ruler_noise(pg):
+    """Each section's spectral distance between PG's render and itself NOISE_SHIFT_S later (dB): what the
+    ruler reads from a change that small, which isn't timbre (s11)."""
+    x, n = mono(pg), int(NOISE_SHIFT_S * SR)
+    return {k: round(spectral_distance(x[int(a * SR):int(b * SR)], x[int(a * SR) + n:int(b * SR) + n]), 2)
+            for k, (a, b) in SECTIONS.items()}
+
+
+def noise_line(noises):
+    """The report's line: each section's ruler noise, its mean over the tones' NOISES."""
+    keys = [k for k in SECTIONS if all(k in n for n in noises)]
+    return ("ruler noise (PG-8X against itself 10 ms later, dB): " +
+            ", ".join(f"{k} {sum(n[k] for n in noises) / len(noises):.2f}" for k in keys))
+
+
 def tone_row(commit, date, tone, name, score, ref, bank="factory"):
     """One history row for one tone of BANK at one commit (schema SCHEMA). A row without "bank" (written
     before banks) is the factory bank."""
@@ -234,12 +257,24 @@ def param_row(commit, date, result):
 def moved(base, head, eps=0.05):
     """Tones whose spectral mean or loudness gap changed between two runs (lists of tone rows), biggest
     spectral change first. verdict: closer / further (to PG-8X, by the spectral mean; by the loudness gap
-    when that alone moved)."""
+    when that alone moved); new / gone for a tone on the head only / the base only (#335: never dropped),
+    after the others, by tone, with None for the side it lacks. ValueError for a figure that is not a
+    finite number."""
+    import math
+    base, head = list(base), list(head)          # (read twice: a generator would be empty the second time)
+    for r in base + head:            # (a NaN would read as a verdict from the other figure)
+        for f in ("spectral_db_mean", "loudness_gap_lu"):
+            if isinstance(r[f], bool) or not isinstance(r[f], (int, float)) or not math.isfinite(r[f]):
+                raise ValueError(f"tone {r['tone']:02d} {r['name']}: {f} is {r[f]!r}, not a number")
     b = {r["tone"]: r for r in base}
-    out = []
+    hs = {h["tone"] for h in head}
+    out, sides = [], []
     for h in head:
         r = b.get(h["tone"])
         if r is None:
+            sides.append({"tone": h["tone"], "name": h["name"], "spectral_base": None,
+                          "spectral_head": h["spectral_db_mean"], "spectral_change": None,
+                          "gap_base": None, "gap_head": h["loudness_gap_lu"], "verdict": "new"})
             continue
         ds = h["spectral_db_mean"] - r["spectral_db_mean"]
         dl = abs(h["loudness_gap_lu"]) - abs(r["loudness_gap_lu"])
@@ -250,15 +285,21 @@ def moved(base, head, eps=0.05):
                     "spectral_head": h["spectral_db_mean"], "spectral_change": ds,
                     "gap_base": r["loudness_gap_lu"], "gap_head": h["loudness_gap_lu"],
                     "verdict": "closer" if key < 0 else "further"})
-    return sorted(out, key=lambda m: -abs(m["spectral_change"]))
+    for r in base:
+        if r["tone"] not in hs:
+            sides.append({"tone": r["tone"], "name": r["name"], "spectral_base": r["spectral_db_mean"],
+                          "spectral_head": None, "spectral_change": None,
+                          "gap_base": r["loudness_gap_lu"], "gap_head": None, "verdict": "gone"})
+    return sorted(out, key=lambda m: -abs(m["spectral_change"])) + sorted(sides, key=lambda m: m["tone"])
 
 
 def moved_table(rows):
     """Markdown: tones moved, for a PR body."""
     lines = ["| tone | spectral dB (base → head) | loudness gap LU (base → head) | |", "|---|---|---|---|"]
     for m in rows:
-        lines.append(f"| {m['tone']:02d} {m['name']} | {m['spectral_base']:.1f} → {m['spectral_head']:.1f} | "
-                     f"{m['gap_base']:+.1f} → {m['gap_head']:+.1f} | {m['verdict']} |")
+        lines.append(f"| {m['tone']:02d} {m['name']} | {_fmt(m['spectral_base'], '{:.1f}')} → "
+                     f"{_fmt(m['spectral_head'], '{:.1f}')} | "
+                     f"{_fmt(m['gap_base'], '{:+.1f}')} → {_fmt(m['gap_head'], '{:+.1f}')} | {m['verdict']} |")
     return "\n".join(lines)
 
 
@@ -365,8 +406,7 @@ def render_tones(tree, mid, work, bank=None):
     os.makedirs(d, exist_ok=True)
     for i, _, args in tone_args(tree, bank):
         path = os.path.join(d, f"{i:02d}.wav")
-        subprocess.run([os.path.join(tree, "build", "fm1-8p-render"), "-r", str(SR), "-t", "3000", "-v", "6",
-                        *args, mid, path], check=True, capture_output=True)
+        subprocess.run(scorecard_cmd.render_command(tree, args, mid, path), check=True, capture_output=True)
         yield i, path
 
 
@@ -409,8 +449,9 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
     date, ref_id = now(), man["midi_sha256"][:12]
     rows = []
     for i, path in render_tones(tree, mid, work, bank):
-        score = score_tone(read_wav(path), read_wav(os.path.join(ref, f"{i:02d}.wav")), harmonic=i not in odd)
-        rows.append(tone_row(commit, date, i, names[i], score, ref_id, bank_name))
+        pg = read_wav(os.path.join(ref, f"{i:02d}.wav"))
+        score = score_tone(read_wav(path), pg, harmonic=i not in odd)
+        rows.append({**tone_row(commit, date, i, names[i], score, ref_id, bank_name), "ruler_noise_db": ruler_noise(pg)})
     params = []
     if match:
         import glob
@@ -473,8 +514,9 @@ def report(head, base):
         out += ["", "tones moved: no base run to compare with"]
     else:
         m = moved(base, head)
-        out += ["", f"tones moved: {len(m)} ({sum(x['verdict'] == 'closer' for x in m)} closer, "
-                    f"{sum(x['verdict'] == 'further' for x in m)} further)"]
+        n = {v: sum(x["verdict"] == v for x in m) for v in ("closer", "further", "new", "gone")}
+        sides = "".join(f", {n[v]} {v}" for v in ("new", "gone") if n[v])   # (only when there are any)
+        out += ["", f"tones moved: {len(m)} ({n['closer']} closer, {n['further']} further{sides})"]
         if m:
             out += ["", moved_table(m)]
     return "\n".join(out)
@@ -511,15 +553,20 @@ def main(argv=None):
     if a.bank and a.bank_name == "factory":
         ap.error("--bank needs a --bank-name")
     rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match, a.bank, a.bank_name)
-    base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if a.base else None
+    asked = a.base is not None                   # (--base "" is a base asked for, and not found: exit 2)
+    base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if asked else None
     note = base_note(a.root, a.commit, a.base) if a.base and a.root else None
     if note:
         print(note)
     print(f"bank: {a.bank_name}")
-    if a.base and base is None:
+    if asked and base is None:
         print(missing_base(a.history, a.base, rows[0]["ref"], a.bank_name))
     print(report(rows, base))
+    if rows and all("ruler_noise_db" in r for r in rows):
+        print("\n" + noise_line([r["ruler_noise_db"] for r in rows]))
     print(f"\n{len(rows)} tone rows{' and the parameter rows' if a.match else ''} appended to {a.history}")
+    if asked and base is None:
+        sys.exit(2)                              # (#335: asked to compare, and nothing was; the head's rows kept)
 
 
 if __name__ == "__main__":

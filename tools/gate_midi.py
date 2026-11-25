@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The no-sound gate's MIDI files (tools/gate.sh, #140), written from note lists: original material.
-usage: python3 tools/gate_midi.py DIR    (writes DIR/chords.mid, unison.mid, vel.mid, ab.mid, controllers.mid)"""
+usage: python3 tools/gate_midi.py DIR    (writes DIR/chords.mid, unison.mid, vel.mid, ab.mid, controllers.mid,
+                                           score.mid, wide127.mid)"""
 import os
 import struct
 import sys
@@ -77,10 +78,17 @@ SCORE_START = 0.25
 
 def score():
     """The scorecard's MIDI (tools/scorecard.py SECTIONS): a held C major triad, a phrase at velocities
-    110, 60, 90, 40, a low C held, then a high C held, from SCORE_START."""
-    notes = [(60, 0, 3, 100), (64, 0, 3, 100), (67, 0, 3, 100), (67, 4.0, 4.4, 110), (72, 4.5, 4.9, 60),
-             (71, 5.0, 5.3, 90), (69, 5.4, 6.0, 40), (36, 6.4, 8.1, 100), (84, 8.6, 10.0, 100)]
+    110, 60, 90, 40, a low C held, then a high C held, from SCORE_START. Each phrase note is 0.7 s, so
+    each of its sections reads 0.57 s past the onset thump (s11; s10's notes were 0.3 to 0.6 s)."""
+    notes = [(60, 0, 3, 100), (64, 0, 3, 100), (67, 0, 3, 100), (67, 4.0, 4.7, 110), (72, 4.8, 5.5, 60),
+             (71, 5.6, 6.3, 90), (69, 6.4, 7.1, 40), (36, 7.5, 9.2, 100), (84, 9.7, 11.1, 100)]
     return [(n, SCORE_START + a, SCORE_START + b, v) for n, a, b, v in notes]
+
+
+def wide127():
+    """A wide four-note chord at velocity 127, held 6 s: the loudest everyday case, where the FM-1 module
+    clips (#320). Four notes, so on 4 voices no voice is stolen."""
+    return [(n, 0.25, 6.25, 127) for n in (36, 48, 79, 91)]
 
 
 def controllers():
@@ -100,7 +108,7 @@ def controllers():
 
 
 FILES = {"chords.mid": chords, "unison.mid": unison, "vel.mid": vel, "ab.mid": ab,
-         "controllers.mid": controllers, "score.mid": score}
+         "controllers.mid": controllers, "score.mid": score, "wide127.mid": wide127}
 
 if __name__ == "__main__":
     d = sys.argv[1]

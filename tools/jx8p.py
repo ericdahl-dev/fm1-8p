@@ -15,6 +15,7 @@ from collections import namedtuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import params  # noqa: E402  (tools/params.py: the param list)
+import cutoff_curve  # noqa: E402  (tools/cutoff_curve.py: VCF FREQ's curve)
 
 Tone = namedtuple("Tone", "name params")   # params: the 59 data bytes, PG-800 / SysEx numbering
 
@@ -302,6 +303,7 @@ def generated_params():
             "firmware/patch_fields.h": emit_patch_fields_h(),
             "firmware/patch_store_tags.h": emit_store_tags_h(),
             "firmware/ui_params.h": emit_ui_params_h(),
+            "engine/cutoff_curve.h": cutoff_curve.emit_h(),
             "docs/patches.md": emit_patches_md()}
 
 
@@ -472,18 +474,18 @@ def env_mode(v):
 
 def cutoff_cents(v):
     """VCF FREQ, 0..127 (or a knob-step sum, fractional), as the engine's cutoff in cents from MIDI
-    note 0: 0.0988 v^2 + 115.03 v - 1474, fitted so the engine's resonant peak lands on PG-8X 2.0.13's
-    (VCF RES 96-127, no key follow, C4; within 0.45 semitone over 48..112; docs/patches.md). Below 13
+    note 0: tools/cutoff_curve.py's curve, fitted so the engine's resonant peak lands on PG-8X 2.0.13's
+    (VCF RES 96-127, no key follow, C4; within 0.45 semitone over 48..96; docs/patches.md). Below 13
     it is under the engine's lowest cutoff, note 0 (8.2 Hz), and clamps there. The engine plays its
     cutoff sources' sum through the same curve (engine/filter.c, cutoff_curve, #253)."""
-    return max(0, rnd(0.0988 * v * v + 115.03 * v - 1474))
+    return max(0, rnd(cutoff_curve.cents(v)))
 
 
 # PG-8X 2.0.13 adds VCF ENV and VCF KEY to VCF FREQ in knob steps, then plays the sum through
 # cutoff_cents's curve (#253, measured on PG-8X 3.0: ENV 100 at sustain 65 adds 50.2-50.7 steps at FREQ
 # 19, 30, 40 and 56 alike; KEY 73 at C6 adds 27.8-28.2 at FREQ 40 and 70). The engine adds them in
 # linear cents, LINEAR_CENTS_PER_STEP a knob step, and bends the sum once onto the curve.
-LINEAR_CENTS_PER_STEP = 115.03
+LINEAR_CENTS_PER_STEP = cutoff_curve.cents_per_step()
 # VCF KEY's knob steps an octave above C2, per KEY unit: 0.0955 (KEY 127 adds 47.9-48.2 at C6, 4
 # octaves up; 73 adds 27.8-28.2), the same as the 1.29 octaves an octave match.py measured at KEY 127
 # (#95) on the curve's slope there
@@ -513,6 +515,13 @@ def hpf_step(v):
     (docs/patches.md): 0 is a bass boost, the engine's step 4 (#93); 1 is flat, step 0; 2 and 3
     are the engine's steps 2 and 3. The engine's step 1 (100 Hz) is no JX-8P position."""
     return (4, 0, 2, 3)[switch(v)]
+
+
+def dco_env_cents(v):
+    """DCO-1 or DCO-2 ENV, 0..127, as the pitch envelope's depth in cents at full envelope, as
+    PG-8X 2.0.13 plays it: 24.8 cents a step less 13 from byte 2 (3137 at 127; within 1.5 cents of
+    PG-8X's on both DCOs), byte 1 its own 4.72 (#328: the line would give 11.8), 0 at 0."""
+    return (0, 5)[v] if v < 2 else rnd(24.8 * v - 13)
 
 
 def tune_semis(v):
@@ -597,11 +606,11 @@ def to_engine(tone):
     e["LFO_PITCH_OSC2_CENTS"] = rnd(4.5 * p[DCO2_LFO])
     e["CHORUS_MODE"] = min(switch(p[CHORUS]), 2)
     e["AMP_DYNA"] = switch(p[VCA_DYNA])         # the DYNAMICS curve (engine/dyna.c), as PG-8X plays it
-    # DCO ENV (#58), PG-8X 2.0.13: at full envelope 24.8 cents a step less 13 (0 at 0, 3137 at
-    # 127), linear in the envelope, the same on every key; each moves its own oscillator
+    # DCO ENV (#58, #328): dco_env_cents at full envelope, linear in the envelope, the same on
+    # every key; each moves its own oscillator
     src, sign = env_mode(p[DCO_ENV_MODE])
     for n, byte in ((1, DCO1_ENV), (2, DCO2_ENV)):
-        e["PITCH_ENV_OSC%d_CENTS" % n] = sign * rnd(24.8 * p[byte] - 13) if p[byte] else 0
+        e["PITCH_ENV_OSC%d_CENTS" % n] = sign * dco_env_cents(p[byte])
     e["PITCH_ENV_SOURCE"] = 1 if src == ENV2 else 0   # as MIX ENV's
     e["PITCH_ENV_DYNA"] = switch(p[DCO_DYNA])     # the engine's DYNAMICS curve (engine/dyna.c)
     e["OSC_MIX_ENV_DYNA"] = switch(p[MIX_DYNA])  # the MIX ENV depth times the DYNAMICS share

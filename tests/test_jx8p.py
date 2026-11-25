@@ -9,6 +9,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 
+import cutoff_curve  # noqa: E402
 import jx8p  # noqa: E402
 
 SYX = os.path.join(ROOT, "data", "jx8p-factory-1-32.syx")
@@ -247,18 +248,19 @@ class MapTest(unittest.TestCase):
 
     # The engine's cutoff as it plays it (engine/filter.c, #253): its sources add in linear cents, then
     # bend once onto cutoff_cents's curve. curve() and linear() are fm_filter_voice_cents's curve and
-    # fm_filter_linear_cents, in floating point.
-    CURVE_A = 0.0988 / 115.03 ** 2
+    # fm_filter_linear_cents, in floating point, from tools/cutoff_curve.py's coefficients (#344).
+    CURVE_A = float(cutoff_curve.A2) / float(cutoff_curve.A1) ** 2
+    CURVE_ZERO = cutoff_curve.zero()
 
     @classmethod
     def curve(cls, u):
-        d = u + 1474
+        d = u - cls.CURVE_ZERO
         return u + cls.CURVE_A * d * d if d > 0 else u
 
     @classmethod
     def linear(cls, cents):
-        y = cents + 1474
-        return -1474 + ((1 + 4 * cls.CURVE_A * y) ** 0.5 - 1) / (2 * cls.CURVE_A) if y > 0 else cents
+        y = cents - cls.CURVE_ZERO
+        return cls.CURVE_ZERO + ((1 + 4 * cls.CURVE_A * y) ** 0.5 - 1) / (2 * cls.CURVE_A) if y > 0 else cents
 
     @classmethod
     def cutoff_at(cls, e, note, env_cents=0):
@@ -275,7 +277,7 @@ class MapTest(unittest.TestCase):
         e = jx8p.to_engine(jx8p.Tone("KEY 127", bytes(d)))
         f, k = d[jx8p.VCF_FREQ], jx8p.key_steps(127)
         for note, octaves in ((36, 0), (60, 2), (84, 4)):
-            want = 0.0988 * (f + octaves * k) ** 2 + 115.03 * (f + octaves * k) - 1474
+            want = cutoff_curve.cents(f + octaves * k)
             self.assertLess(abs(self.cutoff_at(e, note) - want), 5, note)
         self.assertLess(abs((self.cutoff_at(e, 60) - self.cutoff_at(e, 36)) / 2400 - 1.29), 0.05)
 
@@ -394,18 +396,31 @@ class MapTest(unittest.TestCase):
         self.assertEqual((e["CHORUS_MODE"], e["AMP_DYNA"]), (0, 3))
 
     # DCO-1 and DCO-2 ENV as PG-8X 2.0.13 plays them (#58): at full envelope 24.8 cents a step
-    # less 13 (0 at 0, 3137 at 127), linear, each moving its own oscillator, signed by DCO ENV MODE
+    # less 13 from byte 2 (3137 at 127), byte 1 its own 5 (#328), 0 at 0; each moving its own
+    # oscillator, signed by DCO ENV MODE
     def test_dco_env_depth_is_linear_as_pg8x_plays_it(self):
         fields = {f.name: f for f in jx8p.FIELDS}
         for n in (1, 2):
             self.assertEqual(fields["PITCH_ENV_OSC%d_CENTS" % n].param, "PITCH_ENV_OSC%d_CENTS" % n)
-        for b, want in ((0, 0), (1, 12), (64, 1574), (127, 3137)):
+        for b, want in ((0, 0), (1, 5), (2, 37), (64, 1574), (127, 3137)):
             e = patch_with("SOUNDTRACK", DCO1_ENV=b, DCO2_ENV=0, DCO_ENV_MODE=96)
             self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (want, 0))
             e = patch_with("SOUNDTRACK", DCO1_ENV=0, DCO2_ENV=b, DCO_ENV_MODE=64)
             self.assertEqual((e["PITCH_ENV_OSC1_CENTS"], e["PITCH_ENV_OSC2_CENTS"]), (0, -want))
         lo, hi = jx8p.engine_ranges()["PITCH_ENV_OSC1_CENTS"]
         self.assertTrue(lo <= -3137 and 3137 <= hi, (lo, hi))
+
+    # DCO ENV against PG-8X 2.0.13 (#328: one DCO, the envelope at full, C3, SELFNOISE 0; DCO-1 in
+    # ENV MODE 96, cents). Byte 1 plays 4.72, not the line's 11.8; from byte 2 the line is within 1.5
+    def test_dco_env_depth_is_pg8xs_from_byte_1(self):
+        pg = {1: 4.72, 2: 36.94, 3: 61.81, 4: 87.03, 8: 185.88, 16: 384.55, 32: 780.64, 64: 1574.27,
+              127: 3136.79}
+        for b, cents in pg.items():
+            tol = 0.5 if b == 1 else 1.5
+            e = patch_with("SOUNDTRACK", DCO1_ENV=b, DCO2_ENV=0, DCO_ENV_MODE=96)
+            self.assertLessEqual(abs(e["PITCH_ENV_OSC1_CENTS"] - cents), tol, (b, e["PITCH_ENV_OSC1_CENTS"]))
+            e = patch_with("SOUNDTRACK", DCO1_ENV=0, DCO2_ENV=b, DCO_ENV_MODE=64)    # inverted, DCO-2
+            self.assertLessEqual(abs(e["PITCH_ENV_OSC2_CENTS"] + cents), tol, (b, e["PITCH_ENV_OSC2_CENTS"]))
 
     # DCO ENV MODE: 0 ENV-2 inverted, 32 ENV-2, 64 ENV-1 inverted, 96 ENV-1 (inverted the exact
     # mirror). Like MIX ENV it follows the engine envelope that runs the JX-8P one it names: amp
