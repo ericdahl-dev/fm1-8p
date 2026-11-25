@@ -449,6 +449,11 @@ footer p { margin: 0; font-size: 0.92rem; color: var(--muted); max-width: none; 
   h2 { letter-spacing: 0.12em; }
 }
 
+/* the header legend's long right-hand text does not fit beside "Display" under 390 px: it is decoration */
+@media (max-width: 389px) {
+  .hero .legend .right { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   h1, .readout, .tones li { text-shadow: none; }
   .cells.inv, .tone-key .sw { box-shadow: none; }

@@ -240,7 +240,7 @@ class PageTest(unittest.TestCase):
 
     def test_escapes_tone_names_in_the_page(self):
         real = site_build.tone_names
-        site_build.tone_names = lambda root: ["A<B&C"]
+        site_build.tone_names = lambda root: ["A<B&C"] + real(root)[1:]
         self.addCleanup(setattr, site_build, "tone_names", real)
         _, html = self.build()
         self.assertIn("<li>A&lt;B&amp;C</li>", html)
@@ -249,16 +249,53 @@ class PageTest(unittest.TestCase):
         self.assertEqual(site_build.escape('A<B>&"'), "A&lt;B&gt;&amp;&quot;")
 
 
-if __name__ == "__main__":
-    unittest.main()
+class BootToneTest(unittest.TestCase):
+    """The tone the page marks as the boot tone is the one the firmware boots on: PATCH_SOUNDTRACK in
+    firmware/patches.h, 0-based, so tone PATCH_SOUNDTRACK + 1 (#356)."""
 
+    def fake_root(self, header):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        os.makedirs(os.path.join(d, "firmware"))
+        with open(os.path.join(d, "firmware", "patches.h"), "w", encoding="utf-8") as fh:
+            fh.write(header)
+        return d
+
+    def test_reads_the_boot_patch_from_the_firmware(self):
+        root = self.fake_root("#define PATCH_COUNT 32u\n#define PATCH_SOUNDTRACK 3u  /* tone 4 */\n")
+        self.assertEqual(site_build.boot_tone(root), 4)
+
+    def test_refuses_a_header_without_the_boot_patch(self):
+        with self.assertRaises(ValueError):
+            site_build.boot_tone(self.fake_root("#define PATCH_COUNT 32u\n"))
+
+    def test_refuses_a_boot_tone_outside_the_bank(self):
+        real = site_build.tone_names
+        site_build.tone_names = lambda root: real(root)[:8]
+        self.addCleanup(setattr, site_build, "tone_names", real)
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        with self.assertRaisesRegex(ValueError, "boot tone 17"):
+            site_build.build(ROOT, d, BASE)
+
+    def test_the_page_marks_reads_out_and_names_the_firmwares_boot_tone(self):
+        n = site_build.boot_tone(ROOT)
+        name = site_build.escape(site_build.tone_names(ROOT)[n - 1])
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        site_build.build(ROOT, d, BASE)
+        with open(os.path.join(d, "index.html"), encoding="utf-8") as fh:
+            html = fh.read()
+        self.assertEqual(re.findall(r'<li class="boot">([^<]*)</li>', html), [name])
+        self.assertIn(f'<span class="cells inv">{n}</span><span class="cells">{name}</span>', html)
+        self.assertIn(f"It boots on {n}, {name}.", html)
 
 class FontsTest(unittest.TestCase):
     """The page's fonts are self-hosted under site/fonts/, one folder per family, each with its license (#356)."""
 
     def font_urls(self):
         with open(os.path.join(ROOT, "site", "style.css"), encoding="utf-8") as fh:
-            return re.findall(r'url\("?(fonts/[^")]+)"?\)', fh.read())
+            return re.findall(r"""url\(\s*["']?(?:\./)?(fonts/[^"')]+)["']?\s*\)""", fh.read())
 
     def test_the_stylesheet_uses_self_hosted_fonts(self):
         self.assertTrue(self.font_urls())
@@ -272,12 +309,14 @@ class FontsTest(unittest.TestCase):
                 with open(lic, encoding="utf-8") as fh:
                     self.assertIn("SIL Open Font License, Version 1.1", fh.read())
 
-    def test_the_page_loads_no_font_from_another_site(self):
-        for name in ("index.html", "style.css"):
-            with open(os.path.join(ROOT, "site", name), encoding="utf-8") as fh:
-                text = fh.read()
-            self.assertNotIn("fonts.googleapis.com", text, name)
-            self.assertNotIn("fonts.gstatic.com", text, name)
+    def test_the_page_loads_no_font_or_style_from_another_site(self):
+        with open(os.path.join(ROOT, "site", "style.css"), encoding="utf-8") as fh:
+            css = fh.read()
+        self.assertEqual(re.findall(r"""url\(\s*["']?(?:[a-z]+:|//)""", css), [])
+        self.assertNotIn("@import", css)
+        with open(os.path.join(ROOT, "site", "index.html"), encoding="utf-8") as fh:
+            links = re.findall(r"<link\b[^>]*>", fh.read())
+        self.assertEqual(links, ['<link rel="stylesheet" href="style.css">'])
 
     def test_the_build_copies_the_fonts_and_their_licenses(self):
         d = tempfile.mkdtemp()
@@ -287,3 +326,7 @@ class FontsTest(unittest.TestCase):
             with self.subTest(rel):
                 self.assertTrue(os.path.isfile(os.path.join(d, rel)))
                 self.assertTrue(os.path.isfile(os.path.join(d, os.path.dirname(rel), "OFL.txt")))
+
+
+if __name__ == "__main__":
+    unittest.main()
