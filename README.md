@@ -269,4 +269,6 @@ the device (#13).
 
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE).
+fm1-8p's own code is GPL-3.0-or-later. See [LICENSE](LICENSE). Files from
+[fm1-dock](https://github.com/joakimeriksson/fm1-dock), which the FM-1 build fetches at a pinned commit,
+stay GPL-3.0-only.
