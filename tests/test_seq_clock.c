@@ -854,17 +854,18 @@ static void ck_mx_gap(const char *where, uint32_t n)
     if (strcmp(where, "out_stop") == 0 && n + 1u == ck_mx_where && !ck_mx_hits)
         ck_mx_block();
 }
-/* 1 when FA and FC alternate from an FA, as many of each */
+/* 1 when starts (FA, or a continue's FB) and stops (FC) alternate from a start, as many of each */
 static int ck_alternate(void)
 {
     uint32_t i, fa = 0, fc = 0;
     uint8_t last = 0xFCu;
     for (i = 0; i < ck_n_out; i++) {
-        if (ck_out[i] != 0xFAu && ck_out[i] != 0xFCu)
+        uint8_t st = ck_out[i] == 0xFBu ? 0xFAu : ck_out[i];
+        if (st != 0xFAu && st != 0xFCu)
             continue;
-        if (ck_out[i] == last)
+        if (st == last)
             return 0;
-        last = ck_out[i];
+        last = st;
         fa += last == 0xFAu;
         fc += last == 0xFCu;
     }
@@ -873,12 +874,12 @@ static int ck_alternate(void)
 TT_TEST(clock_out_let_go_in_every_order_ends_stopped)
 {
     uint8_t b;
-    uint32_t ext, ask, where, bad = 0, n = 0;
+    uint32_t ext, ask, where, bad = 0, n = 0, on;
     for (ext = 0; ext < 2u; ext++)
         for (ask = 0; ask < 4u; ask++)
-            for (where = 0; where < 6u; where++) {  /* 0 before, 1 gap 0, 2 gap 1 (only with out_on still set:
-                                                     * the call returns before it otherwise), 3 after, 4 before
-                                                     * the drain, 5 none */
+            for (where = 0; where < 6u; where++) {  /* 0 before, 1 gap 0, 2 gap 1 (there only with out_on set at
+                                                     * the call: it returns before it otherwise), 3 after, 4
+                                                     * before the drain, 5 none */
                 ck_fresh(SEQ_CLK_AUTO);
                 seq_set_clock_out(&ck, 1);
                 if (ext) {                          /* followed: a clock and its start */
@@ -903,6 +904,7 @@ TT_TEST(clock_out_let_go_in_every_order_ends_stopped)
                 ck_mx_hits = 0;
                 if (where == 0u)
                     ck_mx_block();
+                on = ck.out_on;                     /* (gap 1 is there only while it is set) */
                 handoff_gap = ck_mx_gap;
                 seq_clock_out_stop(&ck);            /* release, as fm1_8p.c's */
                 handoff_gap = 0;
@@ -914,7 +916,7 @@ TT_TEST(clock_out_let_go_in_every_order_ends_stopped)
                 while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)
                     ck_out[ck_n_out++] = b;
                 n++;
-                if ((where < 5u && where != 2u && ck_mx_hits != 1u) || ck_mx_hits > 1u || !ck_alternate() ||
+                if ((where < 5u && (where != 2u || on) && ck_mx_hits != 1u) || ck_mx_hits > 1u || !ck_alternate() ||
                     (ck_outs(0xFAu) && ck_out[ck_n_out - 1u] != 0xFCu)) {
                     bad++;
                     printf("    let go, %s, ask %u, block at %u: %u starts, %u stops, last %02X\n", ext ? "followed" : "own",
