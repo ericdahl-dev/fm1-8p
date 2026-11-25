@@ -55,23 +55,23 @@ static hr_stats hr_chord(const uint8_t *notes, int count, uint32_t seconds, uint
 }
 
 /*
- * A PIN, not a goal (#320): today's figures on main 248ff96, inside a band either way, so a change to the
+ * A PIN, not a goal (#320): the figures with PG-8X's chorus (#315), inside a band either way, so a change to the
  * level, the chorus (#319) or aftertouch (#61), up or down, shows as a measured difference and has to move
  * these on purpose. Through play_render the module's +12 dB saturates at +-32767 (a hard clip on the FM-1's
- * Q15 output): 17 to 33 % of these chords' samples today. The engine's own soft clip (past -2.85 dBFS) bends
+ * Q15 output): 16 to 33 % of these chords' samples. The engine's own soft clip (past -2.85 dBFS) bends
  * 0.1 to 0.5 % of its samples. Whether the level comes down is Eric's call (#320).
  */
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
     static const struct { uint8_t notes[4]; double sat_min, sat_max, knee_min, knee_max; } c[] = {
-        { { 48, 52, 55, 60 }, 16.8, 17.5, 0.09, 0.11 },  /* today 17.176 %, 0.100 % */
-        { { 36, 48, 79, 91 }, 24.5, 25.2, 0.17, 0.21 },  /* today 24.855 %, 0.191 % */
-        { { 24, 36, 96, 108 }, 32.8, 33.5, 0.47, 0.53 }, /* today 33.151 %, 0.500 % */
+        { { 48, 52, 55, 60 }, 15.75, 16.45, 0.07, 0.09 }, /* 16.113 %, 0.081 % (main 248ff96: 17.176, 0.100) */
+        { { 36, 48, 79, 91 }, 24.3, 25.0, 0.17, 0.21 },    /* 24.639 %, 0.187 % (main: 24.855, 0.191) */
+        { { 24, 36, 96, 108 }, 32.7, 33.4, 0.46, 0.52 },   /* 33.028 %, 0.492 % (main: 33.151, 0.500) */
     };
     size_t k;
     for (k = 0; k < sizeof c / sizeof c[0]; k++) {
         hr_stats s = hr_chord(c[k].notes, 4, 34, 127);
-        printf("    SOUNDTRACK %d %d %d %d at 127, held 34 s: module peak %+.2f dBFS, %.3f %% saturated (pin %.1f..%.1f); "
+        printf("    SOUNDTRACK %d %d %d %d at 127, held 34 s: module peak %+.2f dBFS, %.3f %% saturated (pin %.2f..%.2f); "
                "engine %.3f %% past its knee (pin %.2f..%.2f)\n", c[k].notes[0], c[k].notes[1], c[k].notes[2],
                c[k].notes[3], s.peak_dbfs, s.sat_pct, c[k].sat_min, c[k].sat_max, s.knee_pct, c[k].knee_min,
                c[k].knee_max);
@@ -82,7 +82,7 @@ TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 }
 
 /* The same pin for everyday playing at velocity 100 (#320), chords held 10 s: a 4-note chord saturates
- * 14.7 % of its samples today, a triad 2.0 %, one note none. */
+ * 13.6 % of its samples, a triad 1.4 %, one note none. */
 TT_TEST(headroom_soundtrack_velocity_100_pinned)
 {
     static const uint8_t one[] = { 60 }, triad[] = { 60, 64, 67 }, four[] = { 48, 52, 55, 60 };
@@ -91,15 +91,15 @@ TT_TEST(headroom_soundtrack_velocity_100_pinned)
     printf("    SOUNDTRACK C4 at 100: peak %+.2f dBFS, %.3f %% saturated\n", s.peak_dbfs, s.sat_pct);
     TT_CHECK(s.ok);
     TT_CHECK(s.sat_pct == 0);
-    TT_CHECK(s.peak_dbfs > -1.0);   /* today -0.35 dBFS: just under the rails */
+    TT_CHECK(s.peak_dbfs > -1.0);   /* -0.06 dBFS (main 248ff96: -0.35): just under the rails */
     s = hr_chord(triad, 3, 10, 100);
-    printf("    SOUNDTRACK C4 E4 G4 at 100: %.3f %% saturated (pin 1.8..2.2)\n", s.sat_pct);
+    printf("    SOUNDTRACK C4 E4 G4 at 100: %.3f %% saturated (pin 1.2..1.6)\n", s.sat_pct);
     TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct >= 1.8 && s.sat_pct <= 2.2);     /* today 2.022 % */
+    TT_CHECK(s.sat_pct >= 1.2 && s.sat_pct <= 1.6);     /* 1.422 % (main 248ff96: 2.022) */
     s = hr_chord(four, 4, 10, 100);
-    printf("    SOUNDTRACK C3 E3 G3 C4 at 100: %.3f %% saturated (pin 14.3..15.0)\n", s.sat_pct);
+    printf("    SOUNDTRACK C3 E3 G3 C4 at 100: %.3f %% saturated (pin 13.25..13.95)\n", s.sat_pct);
     TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct >= 14.3 && s.sat_pct <= 15.0);   /* today 14.655 % */
+    TT_CHECK(s.sat_pct >= 13.25 && s.sat_pct <= 13.95); /* 13.592 % (main 248ff96: 14.655) */
 }
 
 static void run_headroom_tests(void)
