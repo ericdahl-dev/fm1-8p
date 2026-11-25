@@ -132,6 +132,7 @@ check-fm1-build:
 check-runner:
 	sh tests/test_run_tests.sh
 	sh tests/test_build_outputs.sh
+	sh tests/test_ci_scope.sh
 
 # the files tools/params.py makes (engine/fm1_8p_params.h, engine/params.c) and firmware/patches.c
 generate:
