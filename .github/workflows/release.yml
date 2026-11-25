@@ -2,8 +2,9 @@
 # builds fm1-8p from this commit, attests the packages ("Built from source" on thefirmwarehub.com) and
 # publishes them as the tag's release (#356). The packages are the synth's solo .fwsc and its .dock,
 # staged alone in build/release/ by `tools/fm1-build.sh release` as fm1-8p-X.Y.fwsc and fm1_8p-X.Y.dock.
-# The tag is vX.Y, vX.Y.Z or vX.Y-suffix, one digit each (fm1-dock's --release); X.Y is the module's
-# version in the boot log and OPTIONS > ABOUT. The canaries run too: fm1-dock's safety checks must still
+# The tag is vX.Y, vX.Y.Z or vX.Y-suffix, one digit each (fm1-dock's --release); X.Y is the solo
+# .fwsc's version in the boot log and OPTIONS > ABOUT (the .dock's contents carry none: deployed over
+# USB, ABOUT shows the running fm1-dock's). The canaries run too: fm1-dock's safety checks must still
 # reject an unsafe module.
 #
 # Before the first public tag: check FM1_IDENTITY (firmware/pins.env) is still free on the Firmware Hub.

@@ -398,6 +398,7 @@ done
 for v in "" 10.1 0.1.2.3 0.0.0-rehearsal.1 v0.1 0.1-; do
     expect_fail "release version '$v' is refused" release_version_ok "$v"
 done
+expect_fail "a release version of two lines is refused" release_version_ok "$(printf '0.1\nzzz')"
 
 echo
 echo "$run tests, $failed failed"

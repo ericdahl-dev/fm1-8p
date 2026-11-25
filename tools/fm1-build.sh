@@ -354,7 +354,11 @@ build_firmware() {
 # release_version_ok V: V is a version fm1-dock's build.py --release takes: X.Y, X.Y.Z or X.Y-suffix,
 # one digit each, the suffix letters and digits (a tag v0.1 gives 0.1).
 release_version_ok() {
-    printf '%s\n' "$1" | grep -Eqx '[0-9]\.[0-9](\.[0-9])?(-[A-Za-z0-9]+)?' && return 0
+    case $1 in
+        *'
+'*) ;;                                      # two lines: grep would take each alone
+        *) printf '%s\n' "$1" | grep -Eqx '[0-9]\.[0-9](\.[0-9])?(-[A-Za-z0-9]+)?' && return 0 ;;
+    esac
     echo "fm1-build: release version '$1': use X.Y, X.Y.Z or X.Y-suffix, one digit each (tag vX.Y)" >&2
     return 1
 }
