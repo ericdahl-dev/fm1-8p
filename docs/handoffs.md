@@ -127,3 +127,25 @@ These don't fit one kind. Each is named here and in its field's comment.
 - **The clock start's gaps.** `clock_tick`'s start of a followed run is pinned by gaps
   "clock_start" 1-4 (`clock_out_a_stop_pending_when_a_clock_starts`). These were `seq_test_hook`'s
   `TEST_POINT`s, which stayed in the device build; `HANDOFF_GAP` is now the one mechanism.
+
+## Tests
+
+Each kind's tests run the interrupt (a block) at a gap between the main loop's stores, through
+`HANDOFF_GAP`, and check what the interrupt and the next blocks do. Each one fails on the bug it
+is there for, red first or by a mutant.
+
+| Kind | Handoff | Gap | Test |
+|---|---|---|---|
+| A | `play` events | "put" 1, between the entry and `head` | `play_event_put_with_the_interrupt_inside_plays_once_next_block` (the head written first: the note never sounds) |
+| A | `play` events, full queue | none | `play_queue_overflow_*` |
+| B | `asked[]` | "asked" 1, inside the `\|=` | `play_param_set_again_by_the_asks_race_changes_nothing` (found #350) |
+| B | `ask_stop`, `want` | none: two main-loop calls before one block | `clock_stop_then_play_inside_one_block_stops` |
+| B | `ask_stop` and the pattern ask | "stop" 1 | `pattern_a_takeover_inside_a_stop_loads_the_queued_one` |
+| C | patch load (`loading`, `loads`) | a block between `play_load_begin` and `play_load_end` | `play_load_patch_is_one_step_for_the_audio_interrupt` |
+| C | step edit (`editing`, `edits`) | "edit" 1 | `seq_takeover_inside_an_edit_plays_the_new_pattern`, `pattern_a_takeover_inside_a_step_edit_drops_the_edit` |
+| C | pattern ask (`ask`, `took`) | "ask" 0-3, "sync" 1 | `pattern_a_pass_end_in_any_gap_of_the_handoff_takes_nothing` and the other `pattern_*` gap tests |
+| C | seqlock (`blk_seq`) | "blk" 1, inside `block_read` | `clock_read_of_the_block_time_inside_a_block_stays_on_the_grid` (no retry: 0.147 ms off the grid against 0.011) |
+| B and D | followed start (`ext*`, `ask_play`, `out_on`) | "clock_start" 1-4 | `clock_out_a_stop_pending_when_a_clock_starts` |
+| two writers | `out_on` at let go | "out_stop" 1 | `clock_out_stop_inside_a_pending_ask_sends_one_stop` |
+
+Kind D needs no gap: one store, read whole either side of it.

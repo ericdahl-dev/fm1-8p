@@ -596,6 +596,7 @@ static void block_read(const seq *s, uint32_t *t, uint32_t *u, uint32_t *inc, ui
         a = s->blk_seq;
         BARRIER();
         *t = s->blk_t;
+        HANDOFF_GAP("blk", 1);
         *u = s->blk_u;
         *inc = s->blk_inc;
         *fs = s->blk_fs;
