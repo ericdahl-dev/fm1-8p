@@ -1,5 +1,6 @@
 #!/bin/sh
-# tools/ci_scope.sh: CI's full build runs unless every changed path is the project page's (#356).
+# tools/ci_scope.sh: CI's full build runs unless every changed path is the project page's (#356) or a
+# Markdown doc no check reads.
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 fail=0
@@ -16,7 +17,18 @@ check page "site/index.html${nl}site/style.css${nl}" "the same, ending in a newl
 check page ".github/workflows/pages.yml" "the Pages workflow only: the page"
 check full "site/index.html${nl}engine/voice.c" "the page and engine code: full"
 check full "tools/site_build.py" "the page's generator (tested by make check): full"
-check full "README.md" "anything else: full"
+check full "Makefile" "anything else: full"
+check docs "README.md" "the README only: docs"
+check docs "docs/voices.md${nl}docs/ui/visual.md" "docs Markdown only: docs"
+check docs "README.md${nl}docs/modulation.md${nl}" "the README and docs, ending in a newline: docs"
+check full "docs/patches.md" "docs/patches.md (tools/jx8p.py makes it, check-patches reads it): full"
+check full "docs/ui/interaction.md" "docs/ui/interaction.md (tests/test_ui.c reads it): full"
+check full "README.md${nl}docs/patches.md" "the README and a doc a check reads: full"
+check full "docs/hub/card.png" "a non-Markdown file under docs/: full"
+check full "tests/README.md" "Markdown outside the README and docs/: full"
+check full "firmware/notes.md" "Markdown in the firmware: full"
+check page "README.md${nl}site/index.html" "docs and the page: the page (its tests run; docs need none)"
+check full "README.md${nl}engine/voice.c" "docs and code: full"
 check full "site.html" "a name that only starts like site/: full"
 check full '"site/caf\303\251.png"' "a quoted name (git quotes non-ASCII): full"
 check full "" "no list (a new branch, an unknown base): full"
@@ -35,6 +47,8 @@ base=$(git -C "$T" rev-parse HEAD)
 scope() { (cd "$T" && sh "$ROOT/tools/ci_scope.sh" "$1"); }
 echo changed >"$T/site/index.html"; git -C "$T" commit -qam page
 report "$(scope "$base")" page "BASE: a page edit is the page"
+echo readme >"$T/README.md"; git -C "$T" add README.md; git -C "$T" commit -qm readme
+report "$(scope "$(git -C "$T" rev-parse HEAD~1)")" docs "BASE: a README edit is docs"
 git -C "$T" mv engine/a.c site/a.c; git -C "$T" commit -qm move
 report "$(scope "$base")" full "BASE: code moved into site/ is a code change (no rename detection)"
 report "$(scope 0000000000000000000000000000000000000000)" full "BASE: a base that isn't there runs everything"
