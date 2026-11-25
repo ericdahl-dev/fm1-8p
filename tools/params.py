@@ -140,6 +140,12 @@ PARAMS = [
     P(56, 'PORTAMENTO_MS', 'portamento_ms', '0', '10000', '0', 56,
       'portamento (#62): each note glides from the last one played, the distance left falling by 1/e '
       'every this many ms (PG-8X\'s exponential glide); 0 off'),
+    P(57, 'AT_VIB_CENTS', 'at_vib_cents', '0', '540', '0', 57,
+      'aftertouch (#61): vibrato depth at full pressure, at the LFO\'s rate on top of its own (PG-8X: 540 ct at full)'),
+    P(58, 'AT_BRI_CENTS', 'at_bri_cents', '0', '2360', '0', 58,
+      'aftertouch (#61): cents added to the cutoff at full pressure, whatever its base (PG-8X: about 2360 ct at full)'),
+    P(59, 'AT_VOL_PCT', 'at_vol_pct', '0', '100', '0', 59,
+      'aftertouch (#61): a voice\'s gain is 1 - d/2 + d x pressure/127 at d percent (PG-8X\'s, an untouched key 6 dB down at 100)'),
 ]
 
 
@@ -304,6 +310,9 @@ DISPLAY = {
     'WHEEL_PW_PCT': D('PLAIN', '%'),
     'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
     'PORTAMENTO_MS': D('MS_S', '', ('OFF',)),
+    'AT_VIB_CENTS': D('PLAIN', 'ct'),
+    'AT_BRI_CENTS': D('PLAIN', 'ct'),
+    'AT_VOL_PCT': D('PLAIN', '%'),
 }
 
 

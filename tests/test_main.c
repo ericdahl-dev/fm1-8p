@@ -55,6 +55,7 @@
 #include "test_dfont.c"
 #include "test_ui_boot.c"
 #include "test_ui_format.c"
+#include "test_at.c"
 
 int main(void)
 {
@@ -99,5 +100,6 @@ int main(void)
     run_dfont_tests();
     run_ui_boot_tests();
     run_ui_format_tests();
+    run_at_tests();
     return tt_report();
 }

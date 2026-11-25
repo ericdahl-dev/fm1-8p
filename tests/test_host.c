@@ -661,8 +661,47 @@ TT_TEST(render_swings_a_pattern)
     TT_CHECK(onset >= 8268u && onset < 8268u + 200u);   /* 1.5 steps in: 5512.5 x 1.5 */
 }
 
+/* A4 held 1 s; 0.25 s in, pressure 127: channel (0xD0, one data byte) or poly (0xA0 on A4) */
+static const uint8_t at_chan_note[] = { 0x00, 0x90, 69, 100, 0x81, 0x70, 0xD0, 127, 0x85, 0x50, 0x80, 69, 0 };
+static const uint8_t at_poly_note[] = { 0x00, 0x90, 69, 100, 0x81, 0x70, 0xA0, 69, 127, 0x85, 0x50, 0x80, 69, 0 };
+
+/* the level after the pressure over the level before it, at AT VOL 100 (sustain full: a flat level) */
+static double at_render_ratio(const uint8_t *body, size_t n)
+{
+    render_opts o;
+    uint32_t frames, rate;
+    int16_t *pcm;
+    double r;
+    memset(&o, 0, sizeof o);
+    o.sample_rate = 44100;
+    o.param_count = 2;
+    o.param_id[0] = FM_PARAM_AMP_SUSTAIN;
+    o.param_value[0] = 1000;
+    o.param_id[1] = FM_PARAM_AT_VOL_PCT;
+    o.param_value[1] = 100;
+    write_smf("build/at.mid", body, n);
+    if (render_midi_file("build/at.mid", "build/at.wav", &o) != 0) return -1.0;
+    pcm = read_wav_pcm("build/at.wav", &frames, &rate);
+    if (!pcm) return -1.0;
+    r = (double)peak_abs(pcm, 26460 - 2000, 26460) / peak_abs(pcm, 8820 - 2000, 8820);   /* 0.6 s / 0.2 s */
+    free(pcm);
+    return r;
+}
+
+/* #61: MIDI files' pressure reaches the engine, channel and poly (the gate's clips play it): at AT VOL 100
+ * full pressure is x3 the level of none */
+TT_TEST(render_plays_channel_and_poly_pressure)
+{
+    double c = at_render_ratio(at_chan_note, sizeof at_chan_note);
+    double p = at_render_ratio(at_poly_note, sizeof at_poly_note);
+    if (fabs(c - 3.0) > 0.1 || fabs(p - 3.0) > 0.1) printf("    channel x%.3f, poly x%.3f (want 3)\n", c, p);
+    TT_CHECK(fabs(c - 3.0) <= 0.1);
+    TT_CHECK(fabs(p - 3.0) <= 0.1);
+}
+
 static void run_host_tests(void)
 {
+    TT_RUN(render_plays_channel_and_poly_pressure);
     TT_RUN(slurp_fails_cleanly_on_missing_and_empty_files);
     TT_RUN(wav_header_has_requested_rate_and_length);
     TT_RUN(one_note_midi_file_renders_at_note_pitch);

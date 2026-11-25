@@ -32,7 +32,7 @@ TT_TEST(vfilter_base_below_open_closes_it)
     fm_vfilter *f = vf_reset();
     int32_t base = fm_filter_linear_cents(6000);
     fm_vfilter_set_base(f, base);
-    TT_CHECK(fm_vfilter_update(f, 0));
+    TT_CHECK(fm_vfilter_update(f, 0, 0));
     TT_CHECK(!fm_vfilter_is_wire(f));
     TT_CHECK_EQ(fm_vfilter_cutoff(f), fm_filter_voice_cents(base, 0, 0, 0));
 }
@@ -46,10 +46,10 @@ TT_TEST(vfilter_cutoff_follows_the_key)
     fm_vfilter_set_base(f, base);
     fm_vfilter_set_key_track(f, 1000);
     fm_vfilter_set_key(f, 60);
-    fm_vfilter_update(f, 0);
+    fm_vfilter_update(f, 0, 0);
     at60 = fm_vfilter_cutoff(f);
     fm_vfilter_set_key(f, 84);
-    TT_CHECK(fm_vfilter_update(f, 0));
+    TT_CHECK(fm_vfilter_update(f, 0, 0));
     at84 = fm_vfilter_cutoff(f);
     TT_CHECK_EQ(at60, fm_filter_voice_cents(base, 1000, 60, 0));
     TT_CHECK_EQ(at84, fm_filter_voice_cents(base, 1000, 84, 0));
@@ -63,9 +63,9 @@ TT_TEST(vfilter_modulation_adds_into_the_cutoff)
     fm_vfilter *f = vf_reset();
     int32_t base = fm_filter_linear_cents(7000);
     fm_vfilter_set_base(f, base);
-    fm_vfilter_update(f, 1200);
+    fm_vfilter_update(f, 1200, 0);
     TT_CHECK_EQ(fm_vfilter_cutoff(f), fm_filter_voice_cents(base, 0, 0, 1200));
-    fm_vfilter_update(f, -2400);
+    fm_vfilter_update(f, -2400, 0);
     TT_CHECK_EQ(fm_vfilter_cutoff(f), fm_filter_voice_cents(base, 0, 0, -2400));
     TT_CHECK(fm_vfilter_cutoff(f) < fm_filter_voice_cents(base, 0, 0, 0));
 }
@@ -76,9 +76,9 @@ TT_TEST(vfilter_same_cutoff_keeps_the_coefficients)
 {
     fm_vfilter *f = vf_reset();
     fm_vfilter_set_base(f, fm_filter_linear_cents(6000));
-    TT_CHECK(fm_vfilter_update(f, 300));
-    TT_CHECK(!fm_vfilter_update(f, 300));
-    TT_CHECK(fm_vfilter_update(f, 301));
+    TT_CHECK(fm_vfilter_update(f, 300, 0));
+    TT_CHECK(!fm_vfilter_update(f, 300, 0));
+    TT_CHECK(fm_vfilter_update(f, 301, 0));
 }
 
 /* 6. The cadence: a control point (an update is due) on the first sample
@@ -127,8 +127,8 @@ TT_TEST(vfilter_pass_keeps_the_last_sample_for_closing)
     fm_vfilter_pass(&b, 12345, 0); /* no samples: nothing to keep */
     fm_vfilter_set_base(&a, fm_filter_linear_cents(5000));
     fm_vfilter_set_base(&b, fm_filter_linear_cents(5000));
-    fm_vfilter_update(&a, 0);
-    fm_vfilter_update(&b, 0);
+    fm_vfilter_update(&a, 0, 0);
+    fm_vfilter_update(&b, 0, 0);
     for (i = 32; i < 64; i++) same &= fm_vfilter_run(&a, x[i]) == fm_vfilter_run(&b, x[i]);
     TT_CHECK(same);
 }
@@ -140,18 +140,18 @@ TT_TEST(vfilter_at_rest_means_set_to_its_settings)
 {
     fm_vfilter *f = vf_reset();
     TT_CHECK(!fm_vfilter_at_rest(f));
-    fm_vfilter_update(f, 0);
+    fm_vfilter_update(f, 0, 0);
     TT_CHECK(fm_vfilter_at_rest(f));
     fm_vfilter_set_base(f, fm_filter_linear_cents(6000));
     TT_CHECK(!fm_vfilter_at_rest(f));
-    fm_vfilter_update(f, 500);
+    fm_vfilter_update(f, 500, 0);
     TT_CHECK(!fm_vfilter_at_rest(f));
-    fm_vfilter_update(f, 0);
+    fm_vfilter_update(f, 0, 0);
     TT_CHECK(fm_vfilter_at_rest(f));
     fm_vfilter_set_key_track(f, 500);
     fm_vfilter_set_key(f, 90);
     TT_CHECK(!fm_vfilter_at_rest(f));
-    fm_vfilter_update(f, 0);
+    fm_vfilter_update(f, 0, 0);
     TT_CHECK(fm_vfilter_at_rest(f));
 }
 
@@ -165,7 +165,7 @@ TT_TEST(vfilter_resonance_and_highpass_pass_through)
     uint32_t i;
     int same = 1;
     fm_vfilter_set_base(f, fm_filter_linear_cents(6000));
-    fm_vfilter_update(f, 0);
+    fm_vfilter_update(f, 0, 0);
     fm_vfilter_set_resonance(f, 700);
     fm_filter_reset(&want);
     fm_filter_set_cutoff(&want, fm_vfilter_cutoff(f), rate);
@@ -193,7 +193,7 @@ TT_TEST(vfilter_clear_drops_the_state_keeps_the_settings)
     int silent = 1;
     fm_vfilter_set_base(f, fm_filter_linear_cents(5000));
     fm_vfilter_set_resonance(f, 900);
-    fm_vfilter_update(f, 0);
+    fm_vfilter_update(f, 0, 0);
     cut = fm_vfilter_cutoff(f);
     for (i = 0; i < 64; i++) fm_vfilter_run(f, (i & 8) ? 1 << 24 : -(1 << 24));
     fm_vfilter_clear(f);

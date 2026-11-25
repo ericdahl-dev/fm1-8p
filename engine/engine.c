@@ -265,6 +265,7 @@ static const uint8_t glide_id[FM_GLIDE_SETTINGS] = {
  * VCF FREQ 127 (tools/jx8p.py cutoff_cents), VCA LEVEL full (#169), the
  * rest 0 */
 static const int16_t glide_power_on[FM_GLIDE_SETTINGS] = { 1000, 0, 14728, 0, 0, 0, 0, 0, 1000 };
+#define AT_TAU_MS 16  /* aftertouch's one-pole (#61): PG-8X's, as the setting glide's */
 #define GLIDE_TAU_MS 16
 /* a glide steps every 4 control ticks (2.7 ms at 48 kHz, 6 steps a tau):
  * each step re-applies the settings that moved to every voice */
@@ -338,6 +339,11 @@ static void lfo_routes(fm_engine *e)
                      (c2 + add) * 65536 / 1200);
     fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
                      pw * 42949673);
+    /* aftertouch's vibrato (#61): both oscillators, cents at full pressure */
+    fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ATLFO, FM_MOD_PITCH1,
+                     e->params[FM_PARAM_AT_VIB_CENTS] * 65536 / 1200);
+    fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ATLFO, FM_MOD_PITCH2,
+                     e->params[FM_PARAM_AT_VIB_CENTS] * 65536 / 1200);
 }
 
 /* A control tick while the wheel moves: one step of its smoothing. */
@@ -446,6 +452,66 @@ static void porta_tick(fm_engine *e)
 }
 
 /* Recomputes the derived settings a parameter feeds. */
+/* Aftertouch's volume (#61), as PG-8X's: voice `i`'s gain is
+ * 1 - d/2 + d x pressure at at_vol_pct d (Q1.30; exactly full at d 0). */
+static int32_t at_gain(const fm_engine *e, uint8_t i)
+{
+    /* d as Q30, d / 100 by a multiply (no 64-bit divide: a library call on the FM-1), exact at 0 */
+    int32_t q = (int32_t)(((int64_t)e->params[FM_PARAM_AT_VOL_PCT] * 42949673) >> 2);
+    return FM_ENV_FULL - (q >> 1) + (int32_t)(((int64_t)q * e->at_now[i]) >> 30);
+}
+
+/* Nonzero while any aftertouch depth is up. */
+static int at_any(const fm_engine *e)
+{
+    return (e->params[FM_PARAM_AT_VIB_CENTS] | e->params[FM_PARAM_AT_BRI_CENTS] |
+            e->params[FM_PARAM_AT_VOL_PCT]) != 0;
+}
+
+/* A control tick while a pressure moves: each voice one step of its
+ * one-pole, rounded up on its size so it always lands (under 1/65536 of
+ * full: there) */
+static void at_tick(fm_engine *e)
+{
+    uint8_t i, moving = 0;
+    for (i = 0; i < e->voice_count; i++) {
+        int32_t d = e->at_to[i] - e->at_now[i];
+        if (!d) continue;
+        if (d > -(1 << 14) && d < (1 << 14))
+            e->at_now[i] = e->at_to[i];
+        else {
+            int64_t m = ((int64_t)(d < 0 ? -d : d) * e->at_k + 65535) >> 16;
+            e->at_now[i] += (int32_t)(d < 0 ? -m : m);
+            moving = 1;
+        }
+        fm_voice_set_gain(&e->voices[i], at_gain(e, i));
+        fm_voice_set_pressure(&e->voices[i], &e->mod, e->at_now[i]);
+    }
+    e->at_moving = moving;
+}
+
+/* Voice `i`'s pressure goes to `p` (Q1.30): by the one-pole, or, with
+ * every depth at 0, at once (it does nothing then, so costs nothing; a
+ * depth turned up later starts from it) */
+static void at_set(fm_engine *e, uint8_t i, int32_t p)
+{
+    e->at_to[i] = p;
+    if (at_any(e)) {
+        e->at_moving = 1;
+        return;
+    }
+    e->at_now[i] = p;
+    fm_voice_set_pressure(&e->voices[i], &e->mod, p);
+}
+
+/* Every voice takes its aftertouch gain. */
+static void at_gains(fm_engine *e)
+{
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++)
+        fm_voice_set_gain(&e->voices[i], at_gain(e, i));
+}
+
 static void apply_param(fm_engine *e, uint16_t id)
 {
     int32_t v = e->params[id];
@@ -542,7 +608,11 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_LFO_PITCH_OSC2_CENTS:
     case FM_PARAM_WHEEL_PITCH_CENTS:
     case FM_PARAM_WHEEL_PW_PCT:
+    case FM_PARAM_AT_VIB_CENTS:
         lfo_routes(e);
+        return;
+    case FM_PARAM_AT_VOL_PCT:
+        at_gains(e);
         return;
     case FM_PARAM_PITCH_ENV_OSC1_CENTS: /* cents -> Q16.16 octaves */
     case FM_PARAM_PITCH_ENV_OSC2_CENTS:
@@ -602,6 +672,8 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_ENV2, FM_MOD_CUTOFF,
                          env2 ? amount : 0);
     }
+    if (id == FM_PARAM_AT_BRI_CENTS) /* aftertouch's brilliance (#61) */
+        e->mod.at_bri_cents = v;
     if (id == FM_PARAM_FILTER_CUTOFF_CENTS) /* once for every voice (#253) */
         v = fm_filter_linear_cents(v);
     for (i = 0; i < e->voice_count; i++) {
@@ -618,6 +690,9 @@ static void apply_param(fm_engine *e, uint16_t id)
             break;
         case FM_PARAM_HIGHPASS_STEP:
             fm_voice_set_highpass(vc, (uint8_t)v);
+            break;
+        case FM_PARAM_AT_BRI_CENTS:
+            fm_voice_mark(vc, FM_BUSY_CUTOFF, 1);
             break;
         case FM_PARAM_FILTER_ENV_AMOUNT_CENTS:
             /* busy while the envelope reaches the cutoff, and after it
@@ -731,6 +806,14 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         e->porta_k = 0;
     }
     e->wheel_moving = 0;
+    e->at_chan = 0;                             /* no pressure (#61) */
+    for (i = 0; i < FM_MAX_VOICES; i++) e->at_now[i] = e->at_to[i] = 0;
+    e->at_moving = 0;
+    {   /* 1 - exp(-x), x one control tick over 16 ms (as glide_init's) */
+        int32_t x = (int32_t)((uint32_t)FM_LFO_TICK_FRAMES * (1000u * 65536u / AT_TAU_MS) / sample_rate);
+        int32_t x2 = (x * x) >> 16, x3 = (x2 * x) >> 16;
+        e->at_k = x - x2 / 2 + x3 / 6;
+    }
     /* all defaults first: some settings combine several parameters */
     for (id = 0; id < FM_PARAM_COUNT; id++)
         e->params[id] = fm_param_info_get(id)->def;
@@ -846,6 +929,25 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
     return (int32_t)peak;
 }
 
+/* A note starts on voice `i` (before the voice is told): at the last
+ * channel pressure (#61: a key's own poly pressure comes after its note
+ * on). From silence at once, no swell up from 0; on a voice still sounding
+ * (a restrike, a steal, a unison change) by the one-pole, as any change, so
+ * its level and cutoff never step: a stolen voice glides from the old key's
+ * pressure, as its envelopes carry on from their levels (#313). */
+static void at_start(fm_engine *e, uint8_t i)
+{
+    if (fm_voice_active(&e->voices[i])) {
+        at_set(e, i, e->at_chan);
+        return;
+    }
+    e->at_to[i] = e->at_chan;
+    e->at_now[i] = e->at_chan;
+    if (at_any(e)) /* (with every depth 0 the gain is already full: each note costs nothing more) */
+        fm_voice_set_gain(&e->voices[i], at_gain(e, i));
+    fm_voice_set_pressure(&e->voices[i], &e->mod, e->at_now[i]);
+}
+
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune
  * is 0), its glide set (porta_start, or one it brings along). */
 static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
@@ -853,6 +955,7 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
 {
     uint8_t i = (uint8_t)(v - e->voices);
     fm_voice_age(v, ++e->stamp);
+    at_start(e, i);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate);
 }
@@ -880,6 +983,7 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
         fm_voice *v = &e->voices[i];
         uint8_t was = fm_voice_note(v);
         fm_voice_age(v, ++e->stamp);
+        at_start(e, i);
         if (e->params[FM_PARAM_PORTAMENTO_MS] && fm_voice_active(v) && was != FM_VOICE_NO_NOTE) {
             /* sounding: on from where it is (no jump mid-glide) */
             e->porta[i] += ((int32_t)was - (int32_t)note) * 65536;
@@ -973,6 +1077,10 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
         e->wheel_to = controller == 1 ? (int32_t)(value & 127u) << 8 : 0;
         e->wheel_moving = (uint8_t)(e->wheel != e->wheel_to);
     }
+    if (controller == 121) { /* and every pressure to 0 (#61), smoothed */
+        e->at_chan = 0;
+        for (i = 0; i < e->voice_count; i++) at_set(e, i, 0);
+    }
     if (controller == 120 || controller == 123) unison_reset(e);
     if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
     for (i = 0; i < e->voice_count; i++) {
@@ -1000,6 +1108,31 @@ void fm_engine_pitch_bend(fm_engine *e, uint16_t value)
     apply_bend(e, e->bend_value);
 }
 
+/* MIDI pressure 0..127 as Q1.30 */
+static int32_t at_q30(uint8_t p)
+{
+    return (int32_t)(((int64_t)p << 30) / 127);
+}
+
+void fm_engine_channel_pressure(fm_engine *e, uint8_t pressure)
+{
+    uint8_t i;
+    if (e->sample_rate == 0 || pressure > 127) return;
+    e->at_chan = at_q30(pressure);
+    for (i = 0; i < e->voice_count; i++) at_set(e, i, e->at_chan);
+}
+
+void fm_engine_poly_pressure(fm_engine *e, uint8_t note, uint8_t pressure)
+{
+    uint8_t i;
+    if (e->sample_rate == 0 || note > 127 || pressure > 127) return;
+    for (i = 0; i < e->voice_count; i++) {      /* in unison, every voice plays it */
+        fm_voice *v = &e->voices[i];
+        if (fm_voice_active(v) && fm_voice_note(v) == note)
+            at_set(e, i, at_q30(pressure));
+    }
+}
+
 uint8_t fm_engine_active_voices(const fm_engine *e)
 {
     uint8_t i, n = 0;
@@ -1011,10 +1144,12 @@ uint8_t fm_engine_active_voices(const fm_engine *e)
 /* The LFO is live: it reaches some destination now, or the last tick
  * applied it (one more tick clears the offset it left). The one test of
  * whether the control ticks have work for the voices. */
+/* the sources the control ticks move: the LFO, the pitch envelope and aftertouch's vibrato */
+#define TICK_SOURCES (1u << FM_MOD_SRC_LFO | 1u << FM_MOD_SRC_PENV | 1u << FM_MOD_SRC_ATLFO)
+
 static int lfo_live(const fm_engine *e)
 {
-    return e->mod_on || fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
-           fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV);
+    return e->mod_on || (e->mod.routes.live & TICK_SOURCES);
 }
 
 /*
@@ -1031,14 +1166,14 @@ static void control_tick(fm_engine *e)
     if (e->glide_moving && !(e->ticks % GLIDE_TICKS)) glide_tick(e);
     if (e->wheel_moving) wheel_tick(e);
     if (e->porta_moving) porta_tick(e);
+    if (e->at_moving) at_tick(e);
     /* with every depth at 0 (after one tick that clears any offset still
      * applied) the voices have nothing to do */
     if (lfo_live(e))
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_tick(&e->voices[k], lfo, &e->mod, e->ticks);
-    e->mod_on = (uint8_t)(fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_LFO) ||
-                          fm_mod_source_routed(&e->mod.routes, FM_MOD_SRC_PENV));
+    e->mod_on = (uint8_t)((e->mod.routes.live & TICK_SOURCES) != 0);
 }
 
 /*
@@ -1055,7 +1190,8 @@ static uint32_t chunk_frames(fm_engine *e, uint32_t frames)
 {
     uint32_t n = frames < FM_MIX_FRAMES ? frames : FM_MIX_FRAMES;
     if (e->tick_left == 0) control_tick(e);
-    if ((lfo_live(e) || e->glide_moving || e->wheel_moving || e->porta_moving) && n > e->tick_left)
+    if ((lfo_live(e) || e->glide_moving || e->wheel_moving || e->porta_moving || e->at_moving) &&
+        n > e->tick_left)
         n = e->tick_left;
     return n;
 }
