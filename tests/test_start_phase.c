@@ -210,7 +210,9 @@ TT_TEST(start_phases_are_set_once_a_voice_life)
 }
 
 /* 6. with every table entry 0 the mechanism is neutral: the score renders bit for bit as before #154
- * (its FNV-1a at 2de60a2, #309 with main 80b8d9b: the base) */
+ * (its FNV-1a at 2de60a2, #309 with main 80b8d9b: the base; the same at 7b7a116, #309 with main 81185d7,
+ * since the score runs at the engine's default CHORUS_MODE 0. To re-pin after main moves the default render:
+ * build stp_score with STP_BASE defined on the base tree, in a driver that supplies #154's fm_start_table) */
 TT_TEST(an_all_zero_table_renders_as_before)
 {
     uint32_t h = stp_score(&tt_start_zero, 0);
