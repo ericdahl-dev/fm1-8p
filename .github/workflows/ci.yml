@@ -62,8 +62,10 @@ jobs:
         if: needs.scope.outputs.scope == 'full'
         run: make
 
-      - name: Tests
+      - name: Tests, the long sweeps too (TT_LONG=1, the asks race over every factory patch)
         if: needs.scope.outputs.scope == 'full'
+        env:
+          TT_LONG: 1
         run: make test
 
       - name: Tests with AddressSanitizer and UBSan
