@@ -1,0 +1,8 @@
+{
+  "what": "The Roland JX-8P on the FM-1, made in code: two DCOs with sync, ring and cross-mod, its filter, envelopes, LFO and chorus, with the 32 factory tones. Four voices, a step sequencer with patterns, and the four knobs edit what is on the screen.",
+  "kinds": [
+    "synth"
+  ],
+  "image": "docs/hub/card.png",
+  "color": "#FF8E39"
+}
