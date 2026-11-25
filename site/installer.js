@@ -63,7 +63,7 @@ async function loadBytes(fetch, base, file) {
 // package checked by fm1-dock's checkPackage (SHA-256, identity, update loader, every file's CRC) and by its identity
 // again here, the identity shown (say), then fm1-dock's installOn, which asks first (ask gets confirmText).
 // lib: { entryFor, checkPackage, installOn } from vendor/fm1-dock/install/fm1install.js.
-// -> the identity the FM-1 reports after the install, or null when cancelled
+// -> the identity the FM-1 reports after the install, or null when canceled
 export async function installFirmware({ midi, fetch, base, lib, ask, say, step }) {
   const entry = firmwareEntry(await loadCatalog(fetch, base));
   const want = await lib.entryFor(midi, entry);
@@ -81,7 +81,7 @@ async function sha256hex(bytes) {
 // FM1-8P's .dock into the fm1-dock on the FM-1 on midi: the catalog's module, checked against its SHA-256 and ABI
 // (as fm1-dock's loadModule does), then fm1-dock's addModule, which asks first and leaves the other synths, the
 // settings and the presets as they are. lib: { moduleInfo } from vendor/fm1-dock/dock.js, { addModule } from its
-// install/fm1install.js. -> the module's name, or null when cancelled
+// install/fm1install.js. -> the module's name, or null when canceled
 export async function addToDock({ midi, fetch, base, lib, ask, progress }) {
   const cat = await loadCatalog(fetch, base);
   const entry = cat && cat.modules && cat.modules[ID];

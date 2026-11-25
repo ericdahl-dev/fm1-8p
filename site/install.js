@@ -56,7 +56,7 @@ fwBtn.addEventListener("click", () => guard.run(async () => {
     const lib = { entryFor, installOn,
       checkPackage: async (raw, entry) => { const pkg = await checkPackage(raw, entry); reads = Math.ceil(pkg.image.length / 512); return pkg; } };
     const got = await installFirmware({ midi, fetch, base, lib, ask, step, say: (t) => { fwSay.textContent = t; } });
-    fwSay.textContent = got === null ? "Cancelled: nothing was written." : `Done: the FM-1 runs FM1-8P (${got}).`;
+    fwSay.textContent = got === null ? "Canceled: nothing was written." : `Done: the FM-1 runs FM1-8P (${got}).`;
   } catch (e) {
     fwSay.textContent = messageFor(e, explain);
     console.error(e);
@@ -71,7 +71,7 @@ dockBtn.addEventListener("click", () => guard.run(async () => {
     dockSay.textContent = "Looking for fm1-dock on the FM-1 …";
     const got = await addToDock({ midi, fetch, base, lib: { moduleInfo, addModule }, ask,
       progress: (x, t) => { dockBar.hidden = false; dockBar.value = Math.round(x * 100); dockSay.textContent = `Sending: ${t}`; } });
-    dockSay.textContent = got === null ? "Cancelled: nothing was sent."
+    dockSay.textContent = got === null ? "Canceled: nothing was sent."
       : `Done: ${got} is in fm1-dock. Hold HOME on the FM-1 and pick it.`;
   } catch (e) {
     dockSay.textContent = messageFor(e, explain);

@@ -119,7 +119,7 @@ test("install: no catalog on the site", async () => {
     ask: async () => true, say: () => {}, step: () => {} }), (e) => e.code === "nocatalog");
 });
 
-test("install: cancelled at the question, nothing is written", async () => {
+test("install: canceled at the question, nothing is written", async () => {
   const log = [];
   const fetch = fakeFetch({ "fw/index.json": CATALOG, "fw/fm1-8p.fwsc": BYTES });
   const got = await I.installFirmware({ midi: {}, fetch, base: BASE, lib: fakeLib(log),
