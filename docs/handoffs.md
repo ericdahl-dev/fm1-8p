@@ -147,7 +147,7 @@ is there for, red first or by a mutant.
 | A | `play` events | "put" 1, between the entry and `head` | `play_event_put_with_the_interrupt_inside_plays_once_next_block` (the head written first: the note never sounds) |
 | A | `play` events, full queue | none | `play_queue_overflow_*` |
 | B | `asked[]` | "asked" 1, inside the `\|=` | `play_param_set_again_by_the_asks_race_changes_nothing` (found #350): every param on the patches with a mode of their own at the attack; with `TT_LONG=1` (CI) every patch at three moments |
-| B | `ask_play`, `ask_stop` and their payload `want` | "play" 1 and "stop" 0, between `want` and the count | `seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once` (`seq_play` counting before `want`: no step plays; `seq_stop` the same way is covered by the stop rule below) |
+| B | `ask_play`, `ask_stop` and their payload `want` | "play" 1 and "stop" 0, between `want` and the count | `seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once` (`seq_play` counting before `want`: no step plays; `seq_stop` the same way is covered by the stop rule: `want`'s exception above, tested by `clock_stop_then_play_inside_one_block_stops`) |
 | B | `ask_stop`, `want` | none: two main-loop calls before one block | `clock_stop_then_play_inside_one_block_stops` |
 | B | `ask_stop` and the pattern ask | "stop" 1 | `pattern_a_takeover_inside_a_stop_loads_the_queued_one` |
 | C | patch load (`loading`, `loads`) | a block between `play_load_begin` and `play_load_end` | `play_load_patch_is_one_step_for_the_audio_interrupt` |

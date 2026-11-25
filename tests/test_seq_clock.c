@@ -469,15 +469,18 @@ TT_TEST(clock_read_of_the_block_time_inside_a_block_stays_on_the_grid)
  * 0), on its own clock, PLAY and STOP called between blocks as the main loop does. That block takes no ask
  * (the counter hasn't moved), so it plays on or stays stopped; the next takes the ask: PLAY starts from
  * step 1, once, and STOP stops. */
-static uint32_t ck_b_hits;
+static uint32_t ck_b_hits, ck_b_on;
 static const char *ck_b_where;
 static uint32_t ck_b_n;
 static void ck_gap_b(const char *where, uint32_t n)
 {
     static seq_event ev[SEQ_EVENTS];
+    uint32_t got, k;
     if (strcmp(where, ck_b_where) == 0 && n == ck_b_n && ck_b_hits++ == 0) {
         seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
-        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+        got = seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+        for (k = 0; k < got; k++)               /* (that block's note-ons, which ck_run doesn't see) */
+            ck_b_on += ev[k].kind == SEQ_EV_NOTE && ev[k].vel;
         ck_done += CK_BLOCK;
     }
 }
@@ -487,14 +490,15 @@ TT_TEST(seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once)
     double t;
     ck_fresh(SEQ_CLK_AUTO);                     /* no clock coming: its own */
     ck_run(0.2);
-    ck_b_where = "play", ck_b_n = 1, ck_b_hits = 0;
+    ck_b_where = "play", ck_b_n = 1, ck_b_hits = 0, ck_b_on = 0;
     handoff_gap = ck_gap_b;
     seq_play(&ck);                              /* PLAY, the interrupt between want and ask_play */
     handoff_gap = 0;
     TT_CHECK_EQ(ck_b_hits, 1u);                 /* (it did cut in there) */
+    TT_CHECK_EQ(ck_b_on, 0u);                   /* that block, no ask yet: nothing plays (no start twice) */
     t = (double)ck_done / CK_FS;
     ck_run(t + 1.0);                            /* 120 BPM: a step 125 ms */
-    TT_CHECK(seq_playing(&ck));
+    TT_CHECK(ck.playing);
     TT_CHECK(ck_n_on >= 7u && ck_n_on <= 9u);   /* step 1 at once, then one every 125 ms */
     TT_CHECK(ck_n_on && ck_on[0] - t < (double)CK_BLOCK / CK_FS + 1e-9);   /* the next block */
     TT_CHECK(ck_n_on && ck_note[0] == 48u);     /* from step 1 */
@@ -505,7 +509,7 @@ TT_TEST(seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once)
     TT_CHECK_EQ(ck_b_hits, 1u);
     n = ck_n_on;
     ck_run((double)ck_done / CK_FS + 1.0);
-    TT_CHECK(!seq_playing(&ck));
+    TT_CHECK(!ck.playing);
     TT_CHECK_EQ(ck_n_on, n);                    /* stopped: no step after */
 }
 
