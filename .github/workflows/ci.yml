@@ -6,8 +6,9 @@ on:
 
 jobs:
   # Which jobs a change needs (tools/ci_scope.sh): a change to the project page alone (site/ and its Pages
-  # workflow, #356) skips the build, tests and firmware but runs the page's own tests. build-test still runs,
-  # its other steps skipped, so the ruleset's required checks report.
+  # workflow, #356), with or without docs, skips the build, tests and firmware but runs the page's own tests;
+  # a change to Markdown docs no check reads (README.md, docs/**/*.md but the two a check reads) skips them
+  # all. build-test still runs, its other steps skipped, so the ruleset's required checks report.
   scope:
     runs-on: ubuntu-latest
     outputs:
@@ -52,6 +53,10 @@ jobs:
       - name: The project page's tests (a change to the page alone runs only these)
         if: needs.scope.outputs.scope == 'page'
         run: python3 -B -m unittest tests/test_site.py
+
+      - name: Docs only (no check reads them; nothing to build or test)
+        if: needs.scope.outputs.scope == 'docs'
+        run: echo "CI scope docs - the build, tests and firmware are skipped"
 
       - name: Build
         if: needs.scope.outputs.scope == 'full'
