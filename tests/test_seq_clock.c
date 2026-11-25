@@ -465,6 +465,50 @@ TT_TEST(clock_read_of_the_block_time_inside_a_block_stays_on_the_grid)
     TT_CHECK(ck_worst_ms(t0, 120.0, 4) < 0.05);   /* (0.011; a read with no retry, 0.147) */
 }
 
+/* #349, kind B: the interrupt between an ask's payload (`want`) and its counter (gaps "play" 1 and "stop"
+ * 0), on its own clock, PLAY and STOP called between blocks as the main loop does. That block takes no ask
+ * (the counter hasn't moved), so it plays on or stays stopped; the next takes the ask: PLAY starts from
+ * step 1, once, and STOP stops. */
+static uint32_t ck_b_hits;
+static const char *ck_b_where;
+static uint32_t ck_b_n;
+static void ck_gap_b(const char *where, uint32_t n)
+{
+    static seq_event ev[SEQ_EVENTS];
+    if (strcmp(where, ck_b_where) == 0 && n == ck_b_n && ck_b_hits++ == 0) {
+        seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+        ck_done += CK_BLOCK;
+    }
+}
+TT_TEST(seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once)
+{
+    uint32_t n;
+    double t;
+    ck_fresh(SEQ_CLK_AUTO);                     /* no clock coming: its own */
+    ck_run(0.2);
+    ck_b_where = "play", ck_b_n = 1, ck_b_hits = 0;
+    handoff_gap = ck_gap_b;
+    seq_play(&ck);                              /* PLAY, the interrupt between want and ask_play */
+    handoff_gap = 0;
+    TT_CHECK_EQ(ck_b_hits, 1u);                 /* (it did cut in there) */
+    t = (double)ck_done / CK_FS;
+    ck_run(t + 1.0);                            /* 120 BPM: a step 125 ms */
+    TT_CHECK(seq_playing(&ck));
+    TT_CHECK(ck_n_on >= 7u && ck_n_on <= 9u);   /* step 1 at once, then one every 125 ms */
+    TT_CHECK(ck_n_on && ck_on[0] - t < (double)CK_BLOCK / CK_FS + 1e-9);   /* the next block */
+    TT_CHECK(ck_n_on && ck_note[0] == 48u);     /* from step 1 */
+    ck_b_where = "stop", ck_b_n = 0, ck_b_hits = 0;
+    handoff_gap = ck_gap_b;
+    seq_stop(&ck);                              /* STOP, the interrupt between want and ask_stop */
+    handoff_gap = 0;
+    TT_CHECK_EQ(ck_b_hits, 1u);
+    n = ck_n_on;
+    ck_run((double)ck_done / CK_FS + 1.0);
+    TT_CHECK(!seq_playing(&ck));
+    TT_CHECK_EQ(ck_n_on, n);                    /* stopped: no step after */
+}
+
 /* SWING and GATE under clock: at 66 % the second step of each pair starts 1.32 steps into it, and a
  * 25 % gate lets go a quarter step in, of the clock's step (within 0.5 ms once locked) */
 TT_TEST(clock_swing_and_gate_follow_the_clock)
@@ -1265,6 +1309,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_lost_stops_and_the_internal_clock_takes_over);
     TT_RUN(clock_source_int_midi_and_auto);
     TT_RUN(clock_read_of_the_block_time_inside_a_block_stays_on_the_grid);
+    TT_RUN(seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once);
     TT_RUN(clock_stop_then_play_inside_one_block_stops);
     TT_RUN(clock_swing_and_gate_follow_the_clock);
     TT_RUN(clock_rides_out_a_burst_of_late_ticks);
