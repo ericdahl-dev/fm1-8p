@@ -407,6 +407,43 @@ TT_TEST(clock_source_int_midi_and_auto)
     TT_CHECK(!seq_waiting(&ck) && !seq_playing(&ck));
 }
 
+/* #349, kind C (the seqlock, the interrupt writing): the interrupt runs a block inside the main loop's
+ * read of the block's time, once, mid-run (gap "blk" 1). The read takes the record again, whole, so the
+ * steps stay on the steady clock's grid as with no gap: within 0.05 ms once locked (no jitter here) */
+static uint32_t ck_blk_hits;
+static void ck_gap_blk(const char *where, uint32_t n)
+{
+    static seq_event ev[SEQ_EVENTS];
+    (void)n;
+    if (strcmp(where, "blk") == 0 && ck_blk_hits++ == 0) {
+        seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+        ck_done += CK_BLOCK;
+    }
+}
+TT_TEST(clock_read_of_the_block_time_inside_a_block_stays_on_the_grid)
+{
+    const double t0 = 0.1, dt = 60.0 / 120.0 / SEQ_CLK_PPQN;
+    const uint32_t gap = 24u * 8u + 3u;           /* a tick mid-step (no step starts in its block) */
+    uint32_t i;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_msg_at(0.05, 0, 0xFAu);
+    for (i = 0; i < 24u * 20u; i++)
+        if (i != gap)
+            ck_msg_at(t0 + i * dt, 0, 0xF8u);
+    ck_run(t0 + gap * dt);                        /* to the gap's tick, then it by hand */
+    ck_blk_hits = 0;
+    handoff_gap = ck_gap_blk;
+    seq_clock_in(&ck, 0xF8u, ck_host(t0 + gap * dt));
+    handoff_gap = 0;
+    ck_run(t0 + 24u * 20u * dt - 0.012);
+    printf("    a block inside the read of the block time: %u steps, worst %.3f ms off the grid\n",
+           ck_n_on, ck_worst_ms(t0, 120.0, 4));
+    TT_CHECK(ck_blk_hits >= 1u);                  /* (it did cut in) */
+    TT_CHECK(ck_n_on == 80u);
+    TT_CHECK(ck_worst_ms(t0, 120.0, 4) < 0.05);   /* (0.011; a read with no retry, 0.147) */
+}
+
 /* SWING and GATE under clock: at 66 % the second step of each pair starts 1.32 steps into it, and a
  * 25 % gate lets go a quarter step in, of the clock's step (within 0.5 ms once locked) */
 TT_TEST(clock_swing_and_gate_follow_the_clock)
@@ -939,14 +976,16 @@ TT_TEST(clock_out_ends_with_a_stop_when_let_go)
     TT_CHECK_EQ(ck_n_out, n);
 }
 
-/* the interrupt cutting in at a point of the main loop's clock_tick start (seq_test_hook): one block */
-static uint32_t ck_hook_at;
-static void ck_hook(seq *s, uint32_t point)
+/* the interrupt cutting in at a gap of the main loop's clock_tick start (handoff_test.h, gap
+ * "clock_start" 1-4): one block */
+static uint32_t ck_hook_at, ck_hook_hits;
+static void ck_hook(const char *where, uint32_t point)
 {
     static seq_event ev[SEQ_EVENTS];
-    if (point == ck_hook_at) {
-        seq_block_time(s, ck_host((double)ck_done / CK_FS));
-        (void)seq_render(s, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+    if (strcmp(where, "clock_start") == 0 && point == ck_hook_at) {
+        ck_hook_hits++;
+        seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
         ck_done += CK_BLOCK;
     }
 }
@@ -966,9 +1005,11 @@ TT_TEST(clock_out_a_stop_pending_when_a_clock_starts)
         seq_stop(&ck);                         /* STOP: asked, not yet taken */
         seq_clock_in(&ck, 0xFAu, ck_host(0.5));
         ck_hook_at = at;
-        seq_test_hook = ck_hook;
+        ck_hook_hits = 0;
+        handoff_gap = ck_hook;
         seq_clock_in(&ck, 0xF8u, ck_host(0.501));   /* the start's tick: the interrupt cuts in at `at` */
-        seq_test_hook = 0;
+        handoff_gap = 0;
+        TT_CHECK_EQ(ck_hook_hits, 1u);         /* (it did cut in there) */
         ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
         ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
         for (i = 0, fa_at = 9999u; i < ck_n_out; i++)
@@ -1037,6 +1078,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_start_stop_and_continue);
     TT_RUN(clock_lost_stops_and_the_internal_clock_takes_over);
     TT_RUN(clock_source_int_midi_and_auto);
+    TT_RUN(clock_read_of_the_block_time_inside_a_block_stays_on_the_grid);
     TT_RUN(clock_swing_and_gate_follow_the_clock);
     TT_RUN(clock_rides_out_a_burst_of_late_ticks);
     TT_RUN(clock_edits_act_as_on_the_internal_clock);
