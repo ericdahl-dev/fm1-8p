@@ -11,6 +11,9 @@
 #   build      the synth (FM1-8P) and the CPU test, each as a .dock (USB deploy) and a solo .fwsc,
 #              (FM1_DEBUG=1: the debug variant, with timing in the log; FM1_THEME=night: Night Panel)
 #              into build/fm1/
+#   release V  build with the synth's version V (X.Y, X.Y.Z or X.Y-suffix, one digit each), then its .fwsc
+#              and .dock alone in build/release/ (fm1-8p-V.fwsc, fm1_8p-V.dock): the packages the Firmware
+#              Hub's workflow attests and publishes on a tag vV (.github/workflows/release.yml, #356)
 #   canaries   each module in firmware/canary/ breaks an fm1-dock safety rule; its build must fail
 #   emu        run the CPU test in fm1-emu's strict timing mode; worst load per voice count
 #              into build/fm1/emu-report.md (report only)
@@ -318,30 +321,60 @@ dock() {        # run one of fm1-dock's tools from its checkout
     (cd "$FM1_DOCK" && JIELI_TOOLCHAIN=$JIELI_TOOLCHAIN AC79_SDK=$AC79_SDK "$PYTHON" "tools/$tool" "$@")
 }
 
-# build_module DIR NAME APP: firmware/DIR as a .dock (USB deploy) and a solo .fwsc NAME.fwsc, into $OUT.
+# build_module DIR NAME APP [VERSION]: firmware/DIR as a .dock (USB deploy) and a solo .fwsc NAME.fwsc, into $OUT.
+# VERSION (a release's, release_version_ok) is fm1-dock's build.py --release: the module's APP_VER (boot log,
+# OPTIONS > ABOUT); build.py then names the .fwsc NAME-VERSION.fwsc, copied to $OUT as NAME.fwsc all the same.
 # Every step checks its own status: a caller's `||` turns `set -e` off in here, and a failed compile
 # would otherwise leave the last build's ELF to pass the symbol check and its .dock to be copied.
 build_module() {
     stage_module "$ROOT/firmware/$1" "$OUT/modules/$1" "$ROOT/engine" || return 1
     dock hbmod.py "$OUT/modules/$1" || return 1
     check_module_symbols "$FM1_DOCK/build/modules/$1" || return 1
-    dock build.py --modules "$OUT/modules/$1" --name "$2" --app-name "$3" --identity "$FM1_IDENTITY" ||
-        return 1
-    cp "$FM1_DOCK/build/modules/$1.dock" "$FM1_DOCK/build/$2.fwsc" "$OUT/" || return 1
+    dock build.py --modules "$OUT/modules/$1" --name "$2" --app-name "$3" --identity "$FM1_IDENTITY" \
+        ${4:+--release "$4"} || return 1
+    cp "$FM1_DOCK/build/modules/$1.dock" "$OUT/" || return 1
+    cp "$FM1_DOCK/build/$2${4:+-$4}.fwsc" "$OUT/$2.fwsc" || return 1
     echo "fm1-build: $OUT/$1.dock $OUT/$2.fwsc ($FM1_IDENTITY)"
 }
 
+# build_firmware [VERSION]: every module; VERSION (a release's) goes to the synth only.
 build_firmware() {
     check_inputs || return 1
     ulimit -n 8192 2>/dev/null || true         # the parallel compiles open many files
     mkdir -p "$OUT" || return 1
-    build_module fm1_8p fm1-8p "FM1-8P" || return 1             # the playable synth
+    build_module fm1_8p fm1-8p "FM1-8P" "${1:-}" || return 1    # the playable synth
     build_module fm1_8p_cpu fm1-8p-cpu "FM1-8P CPU" || return 1
     # the CPU rows' modules too (emu, emu-ui, emu-seq), so a source one of them lacks fails here and in CI,
     # not only when the gate runs (#236's ui row didn't link and the gate said only "ui: no report")
     build_module fm1_8p_cpu_quick fm1-8p-cpu-quick "FM1-8P CPU" || return 1
     build_module fm1_8p_cpu_ui fm1-8p-cpu-ui "FM1-8P CPU" || return 1
     build_module fm1_8p_cpu_seq fm1-8p-cpu-seq "FM1-8P CPU" || return 1
+}
+
+# release_version_ok V: V is a version fm1-dock's build.py --release takes: X.Y, X.Y.Z or X.Y-suffix,
+# one digit each, the suffix letters and digits (a tag v0.1 gives 0.1).
+release_version_ok() {
+    case $1 in
+        *'
+'*) ;;                                      # two lines: grep would take each alone
+        *) printf '%s\n' "$1" | grep -Eqx '[0-9]\.[0-9](\.[0-9])?(-[A-Za-z0-9]+)?' && return 0 ;;
+    esac
+    echo "fm1-build: release version '$1': use X.Y, X.Y.Z or X.Y-suffix, one digit each (tag vX.Y)" >&2
+    return 1
+}
+
+# stage_release OUT REL VERSION: the packages a release publishes, the synth's .fwsc and .dock as `build`
+# made them in OUT, alone in REL (emptied first) as fm1-8p-VERSION.fwsc and fm1_8p-VERSION.dock, so the
+# Firmware Hub's workflow takes one glob, REL/* (#356). Never the CPU test's packages. Fails when either
+# is missing, or with no VERSION.
+stage_release() {
+    [ -n "${3:-}" ] || { echo "fm1-build: stage_release: no version" >&2; return 1; }
+    for f in fm1-8p.fwsc fm1_8p.dock; do
+        [ -f "$1/$f" ] || { echo "fm1-build: no $1/$f: run build first" >&2; return 1; }
+    done
+    rm -rf "$2" && mkdir -p "$2" || return 1
+    cp "$1/fm1-8p.fwsc" "$2/fm1-8p-$3.fwsc" && cp "$1/fm1_8p.dock" "$2/fm1_8p-$3.dock" || return 1
+    echo "fm1-build: $2: fm1-8p-$3.fwsc fm1_8p-$3.dock (${FM1_IDENTITY:-})"
 }
 
 run_canaries() {
@@ -491,6 +524,7 @@ case "${1:-}" in
     fetch)    fetch_fm1_dock; fetch_toolchain; fetch_sdk; check_inputs ;;
     fetch-emu) fetch_emu ;;
     build)    build_firmware ;;
+    release)  release_version_ok "${2:-}"; build_firmware "$2"; stage_release "$OUT" "$ROOT/build/release" "$2" ;;
     canaries) run_canaries ;;
     emu)      run_emu fm1_8p_cpu_quick emu ;;
     emu-ui)   run_emu fm1_8p_cpu_ui emu-ui ;;
@@ -498,5 +532,5 @@ case "${1:-}" in
     emu-play) run_emu_play ;;
     emu-save) run_emu_save ;;
     all)      fetch_fm1_dock; fetch_toolchain; fetch_sdk; build_firmware; run_canaries ;;
-    *)        sed -n '2,31s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+    *)        sed -n '2,/^$/s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
 esac

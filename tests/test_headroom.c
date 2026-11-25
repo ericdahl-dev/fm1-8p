@@ -55,23 +55,23 @@ static hr_stats hr_chord(const uint8_t *notes, int count, uint32_t seconds, uint
 }
 
 /*
- * A PIN, not a goal (#320): today's figures with PG-8X's start phases (#310, on main 80b8d9b), inside a band either way, so a change to the
+ * A PIN, not a goal (#320): the figures with PG-8X's chorus (#315) and start phases (#310), inside a band either way, so a change to the
  * level, the chorus (#319) or aftertouch (#61), up or down, shows as a measured difference and has to move
  * these on purpose. Through play_render the module's +12 dB saturates at +-32767 (a hard clip on the FM-1's
- * Q15 output): 15 to 29 % of these chords' samples today. The engine's own soft clip (past -2.85 dBFS) bends
- * 0.08 to 0.4 % of its samples. Whether the level comes down is Eric's call (#320).
+ * Q15 output): 14 to 29 % of these chords' samples. The engine's own soft clip (past -2.85 dBFS) bends
+ * 0.04 to 0.4 % of its samples. Whether the level comes down is Eric's call (#320).
  */
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
     static const struct { uint8_t notes[4]; double sat_min, sat_max, knee_min, knee_max; } c[] = {
-        { { 48, 52, 55, 60 }, 15.1, 15.9, 0.065, 0.085 }, /* today 15.499 %, 0.076 % */
-        { { 36, 48, 79, 91 }, 20.7, 21.4, 0.09, 0.11 },   /* today 21.061 %, 0.100 % */
-        { { 24, 36, 96, 108 }, 28.6, 29.4, 0.36, 0.42 }, /* today 28.985 %, 0.387 % */
+        { { 48, 52, 55, 60 }, 14.1, 14.8, 0.03, 0.05 },   /* 14.436 %, 0.040 % (#309 alone: 16.113, 0.081) */
+        { { 36, 48, 79, 91 }, 20.5, 21.25, 0.085, 0.105 }, /* 20.879 %, 0.095 % (#309 alone: 24.639, 0.187) */
+        { { 24, 36, 96, 108 }, 28.55, 29.3, 0.36, 0.42 }, /* 28.917 %, 0.392 % (#309 alone: 33.028, 0.492) */
     };
     size_t k;
     for (k = 0; k < sizeof c / sizeof c[0]; k++) {
         hr_stats s = hr_chord(c[k].notes, 4, 34, 127);
-        printf("    SOUNDTRACK %d %d %d %d at 127, held 34 s: module peak %+.2f dBFS, %.3f %% saturated (pin %.1f..%.1f); "
+        printf("    SOUNDTRACK %d %d %d %d at 127, held 34 s: module peak %+.2f dBFS, %.3f %% saturated (pin %.2f..%.2f); "
                "engine %.3f %% past its knee (pin %.2f..%.2f)\n", c[k].notes[0], c[k].notes[1], c[k].notes[2],
                c[k].notes[3], s.peak_dbfs, s.sat_pct, c[k].sat_min, c[k].sat_max, s.knee_pct, c[k].knee_min,
                c[k].knee_max);
@@ -82,7 +82,7 @@ TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 }
 
 /* The same pin for everyday playing at velocity 100 (#320), chords held 10 s: a 4-note chord saturates
- * 14.2 % of its samples today, a triad 1.9 %, one note 0.05 %. */
+ * 13.2 % of its samples, a triad 1.5 %, one note none. */
 TT_TEST(headroom_soundtrack_velocity_100_pinned)
 {
     static const uint8_t one[] = { 60 }, triad[] = { 60, 64, 67 }, four[] = { 48, 52, 55, 60 };
@@ -90,16 +90,16 @@ TT_TEST(headroom_soundtrack_velocity_100_pinned)
     s = hr_chord(one, 1, 10, 100);
     printf("    SOUNDTRACK C4 at 100: peak %+.2f dBFS, %.3f %% saturated\n", s.peak_dbfs, s.sat_pct);
     TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct >= 0.03 && s.sat_pct <= 0.08); /* today 0.051 %: it just reaches the rails */
-    TT_CHECK(s.peak_dbfs > -1.0);   /* today +0.00 dBFS: on the rails */
+    TT_CHECK(s.sat_pct == 0);
+    TT_CHECK(s.peak_dbfs > -1.5 && s.peak_dbfs < 0.0); /* -1.07 dBFS (#309 alone: -0.06): under the rails */
     s = hr_chord(triad, 3, 10, 100);
-    printf("    SOUNDTRACK C4 E4 G4 at 100: %.3f %% saturated (pin 1.8..2.2)\n", s.sat_pct);
+    printf("    SOUNDTRACK C4 E4 G4 at 100: %.3f %% saturated (pin 1.25..1.65)\n", s.sat_pct);
     TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct >= 1.8 && s.sat_pct <= 2.2);     /* today 1.885 % */
+    TT_CHECK(s.sat_pct >= 1.25 && s.sat_pct <= 1.65);   /* 1.467 % (#309 alone: 1.422) */
     s = hr_chord(four, 4, 10, 100);
-    printf("    SOUNDTRACK C3 E3 G3 C4 at 100: %.3f %% saturated (pin 13.9..14.6)\n", s.sat_pct);
+    printf("    SOUNDTRACK C3 E3 G3 C4 at 100: %.3f %% saturated (pin 12.9..13.55)\n", s.sat_pct);
     TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct >= 13.9 && s.sat_pct <= 14.6);   /* today 14.212 % */
+    TT_CHECK(s.sat_pct >= 12.9 && s.sat_pct <= 13.55);  /* 13.221 % (#309 alone: 13.592) */
 }
 
 static void run_headroom_tests(void)

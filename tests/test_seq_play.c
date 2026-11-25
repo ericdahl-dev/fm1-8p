@@ -154,6 +154,8 @@ TT_TEST(seq_play_step_velocity_sets_the_level)
     (void)play_init(&sp_a);
     play_set_param(&sp_a, FM_PARAM_AMP_VELOCITY, 100);
     play_set_param(&sp_a, FM_PARAM_AMP_RELEASE_MS, 5);   /* (no tail into the next step) */
+    play_set_param(&sp_a, FM_PARAM_OSC2_LEVEL, 0);       /* one oscillator, no chorus: osc2's start phase (#154) */
+    play_set_param(&sp_a, FM_PARAM_CHORUS_MODE, 0);      /* and the chorus's (#315) move a step's early peak on their own */
     s = play_seq(&sp_a);
     seq_set_tempo(s, 600);                      /* a step 11025 frames: 43 blocks */
     seq_set_gate(s, 50);

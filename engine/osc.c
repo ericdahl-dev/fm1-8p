@@ -557,23 +557,31 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
     if (p->wave[i] == FM_WAVE_SPIKE) update_spike(p, i);
 }
 
-/* sync or cross-mod on: fm_osc_pair_next takes the slower path */
+/* sync or cross-mod on: fm_osc_pair_next takes the slower path. A
+ * restart's pending correction stays while sync is on: it belongs to
+ * osc2's jump, already made, whatever RING and X-MOD are next. Sync off
+ * drops it (the plain path never reads it, so it would come back stale). */
 static FM_NOINLINE void update_special(fm_osc_pair *p)
 {
     p->special = (uint8_t)(p->sync || p->xmod || (p->ring && p->level[1]));
-    p->sync_pend = 0;
+    if (!p->sync) p->sync_pend = 0;
     update_only1(p);
     update_derived(p);
 }
 
+/* SYNC, RING and X-MOD: set to the value they have, nothing (update_special's
+ * work is not needed; it once dropped a restart's pending correction on every
+ * set, #350; now only SYNC off drops it) */
 void fm_osc_pair_set_sync(fm_osc_pair *p, uint8_t on)
 {
+    if (p->sync == (on ? 1 : 0)) return;
     p->sync = on ? 1 : 0;
     update_special(p);
 }
 
 void fm_osc_pair_set_ring(fm_osc_pair *p, uint8_t on)
 {
+    if (p->ring == (on ? 1 : 0)) return;
     p->ring = on ? 1 : 0;
     update_special(p);
 }
@@ -582,6 +590,7 @@ void fm_osc_pair_set_xmod(fm_osc_pair *p, int32_t depth)
 {
     if (depth < 0) depth = 0;
     if (depth > FM_OSC_LEVEL_FULL) depth = FM_OSC_LEVEL_FULL;
+    if (p->xmod == depth) return;
     p->xmod = depth;
     update_special(p);
 }
