@@ -999,10 +999,13 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
     uint32_t cnt = 0, t = 0, thr, inc, gate, target, j, next, glide, xi;
     s->fs = fs;
     if (s->ask_play != s->play_seen || s->ask_stop != s->stop_seen) {
-        s->play_seen = s->ask_play;             /* the latest ask wins: play (again, from step 1) or stop */
+        /* the latest ask wins: play (again, from step 1) or stop. A stop with no play asked since stops,
+         * whatever `want` says now: an armed seq_play sets it with no ask of its own (#349) */
+        uint32_t go = s->want && !(s->ask_stop != s->stop_seen && s->ask_play == s->play_seen);
+        s->play_seen = s->ask_play;
         s->stop_seen = s->ask_stop;
         cnt = let_go(s, ev, cnt, 0);
-        if (s->want && s->ext) {                /* #38: the clock's start (or continue) */
+        if (go && s->ext) {                     /* #38: the clock's start (or continue) */
             uint32_t late;
             int32_t f = frames_q8((int32_t)(s->blk_t - s->ext_t0), fs);   /* tick 0 was this long ago */
             f = f < 0 ? 0 : f;
@@ -1016,7 +1019,7 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             cnt = start_step(s, ev, cnt, 0, voices);
             thr = step_len(s, fs);
             s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
-        } else if (s->want) {
+        } else if (go) {
             if (s->playing && s->out_on)
                 out_put(s, 0xFCu);              /* #286: a restart: stop, then start (never two starts) */
             s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* #286: G14 as it is at the start */

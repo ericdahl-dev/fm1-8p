@@ -407,6 +407,27 @@ TT_TEST(clock_source_int_midi_and_auto)
     TT_CHECK(!seq_waiting(&ck) && !seq_playing(&ck));
 }
 
+/* #349: a stop and then PLAY (armed, the clock in charge) inside one block. The interrupt takes the
+ * stop ask, and must stop: the transport waits for the next MIDI start, not plays on from the stop
+ * (seq_play's armed path sets `want` with no ask of its own). */
+TT_TEST(clock_stop_then_play_inside_one_block_stops)
+{
+    double at;
+    uint32_t n;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 100.0, 100.0, 0, 1, 24u * 16u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[24 + 6 * 4] - 0.012);
+    TT_CHECK(seq_playing(&ck) && ck_n_on == 4u);
+    at = ck_tick_at[24 + 6 * 4] - 0.006;          /* two presses before the same block */
+    ck_msg_at(at, 0, CK_PLAY);
+    ck_msg_at(at + 0.0001, 0, CK_PLAY);
+    n = ck_n_on;
+    ck_run(ck_tick_at[24 + 6 * 12]);               /* the clock ticks on, no MIDI start */
+    TT_CHECK(seq_waiting(&ck));                    /* armed (seq_playing says so too) */
+    TT_CHECK_EQ(ck_n_on, n);                       /* and no step played */
+}
+
 /* SWING and GATE under clock: at 66 % the second step of each pair starts 1.32 steps into it, and a
  * 25 % gate lets go a quarter step in, of the clock's step (within 0.5 ms once locked) */
 TT_TEST(clock_swing_and_gate_follow_the_clock)
@@ -1037,6 +1058,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_start_stop_and_continue);
     TT_RUN(clock_lost_stops_and_the_internal_clock_takes_over);
     TT_RUN(clock_source_int_midi_and_auto);
+    TT_RUN(clock_stop_then_play_inside_one_block_stops);
     TT_RUN(clock_swing_and_gate_follow_the_clock);
     TT_RUN(clock_rides_out_a_burst_of_late_ticks);
     TT_RUN(clock_edits_act_as_on_the_internal_clock);
