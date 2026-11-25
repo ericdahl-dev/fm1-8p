@@ -14,6 +14,15 @@ if ! cmp -s "$tmp/display_font.h" "$here/docs/ui/mockups/display_font.h"; then
     diff "$here/docs/ui/mockups/display_font.h" "$tmp/display_font.h" | head -20 >&2
     exit 1
 fi
+spdx='/* SPDX-License-Identifier: GPL-3.0-or-later */'   # fm1-8p's own code (Eric, 2026-11-25)
+if [ "$(head -n 1 "$tmp/display_font.h")" != "$spdx" ]; then
+    echo "display_font.h: render.py writes '$(head -n 1 "$tmp/display_font.h")', not '$spdx'" >&2
+    exit 1
+fi
+if [ "$(sed -n 2p "$here/docs/ui/mockups/render.py")" != "# SPDX-License-Identifier: GPL-3.0-or-later" ]; then
+    echo "render.py's own SPDX line: '$(sed -n 2p "$here/docs/ui/mockups/render.py")', not GPL-3.0-or-later" >&2
+    exit 1
+fi
 bytes=$(echo "$out" | sed -n 's/^display font: \([0-9]*\) bytes$/\1/p')
 if [ -z "$bytes" ] || [ "$bytes" -gt 6144 ]; then
     echo "display font: ${bytes:-?} bytes, over the 6144 budget (#55)" >&2

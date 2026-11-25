@@ -85,23 +85,29 @@ typedef struct {
 #define SEQ_EVENTS (4u * SEQ_NOTES + 2u * (SEQ_BLOCK / SEQ_GLIDE_FRAMES) + 4u)
 
 typedef struct {
-    /* main loop: the pattern being edited, and its version (+1 per edit published). While `editing`
-     * is set the interrupt doesn't take it (play's `loading`), so a step never plays half an edit. */
+    /* Fields both contexts touch are handoffs, each of one kind (A queue, B ask counter, C gated
+     * publish, D single word): docs/handoffs.md has the rules and every field.
+     * kind C, main loop: the pattern being edited, and its version (+1 per edit published). While
+     * `editing` is set the interrupt doesn't take it (play's `loading`), so a step never plays half an
+     * edit. */
     seq_pattern edit;
     volatile uint32_t editing;
     volatile uint32_t edits;
-    /* main loop: asks; the interrupt acts at its next block */
+    /* kind B, main loop: asks; the interrupt acts at its next block */
     volatile uint32_t ask_play;         /* +1 per play asked */
     volatile uint32_t ask_stop;         /* +1 per stop asked */
-    volatile uint32_t want;             /* main loop writes (1 from seq_play to seq_stop), ISR reads */
-    volatile int32_t transpose;         /* main loop writes: semitones, taken at a step's start */
+    volatile uint32_t want;             /* the asks' payload, main loop writes (seq_play, seq_stop,
+                                         * clock_tick), ISR reads at an ask; also written with no ask
+                                         * (an armed seq_play, seq_set_clock_source): docs/handoffs.md */
+    volatile int32_t transpose;         /* kind D, main loop writes: semitones, taken at a step's start */
     uint8_t key_transpose;              /* main loop only: KEY TRANSPOSE (S3), keys set the transpose */
     /* pattern loads (#40, #324): the copy last loaded or saved (main loop: seq_edited), and the queued
-     * pattern, handed to the interrupt with one writer per field. The main loop writes `ask` (a
+     * pattern, handed to the interrupt with one writer per field (kind C). The main loop writes `ask` (a
      * generation: odd while it is being written, when the interrupt takes nothing), `ask_kind` and
      * `next`; it changes them only by closing `ask`, syncing, writing, then opening the next even one.
-     * The interrupt writes only `took` (the last ask it acted on) and `took_pattern` (the last it
-     * switched patterns on): after the pass's last step, an open ask it hasn't acted on. */
+     * The interrupt writes only `took` (the last ask it acted on, kind D) and `took_pattern` (the last
+     * it switched patterns on, kind B back to the main loop): after the pass's last step, an open ask
+     * it hasn't acted on. */
     seq_pattern stored;
     seq_pattern next;
     volatile uint32_t ask;
@@ -110,8 +116,9 @@ typedef struct {
     volatile uint32_t took_pattern;
     uint32_t took_seen;                 /* main loop: the last took_pattern adopted into `edit` */
     uint32_t adopted;                   /* main loop: the ask that last became the running pattern */
-    volatile uint32_t edit_base;        /* main loop: the takeover `edit` is based on (the interrupt
-                                         * takes an edit only of the pattern it plays) */
+    volatile uint32_t edit_base;        /* kind C payload, main loop writes: the takeover `edit` is
+                                         * based on (the interrupt reads it: it takes an edit only of
+                                         * the pattern it plays) */
     /* interrupt only */
     int32_t run_transpose;              /* the transpose playing */
     seq_pattern run;                    /* the pattern playing, taken from edit at a step's start */
@@ -150,18 +157,19 @@ typedef struct {
                                                  * 2: and more came bunched after it) */
     uint32_t clk_raw;                   /* when the last tick came (clk_t has when it was taken) */
     /* main loop writes, interrupt reads: follow the clock at ext_inc units a frame, a start's
-     * first tick at host time ext_t0 */
+     * first tick at host time ext_t0. The payload of a followed start's ask (kind B); ext and ext_inc
+     * are also read every block, and ext_inc moves with each tick (kind D): two kinds on one field */
     volatile uint32_t ext;
     volatile uint32_t ext_inc;
     volatile uint32_t ext_t0;
     volatile uint32_t ext_cont;         /* the ask is a continue: on from the step after the last */
-    volatile uint32_t ext_hold;         /* a start is coming: no next step till it does */
-    /* interrupt writes at each block's start (seq_block_time), main loop reads, as a whole while
-     * blk_seq is even (a seqlock) */
+    volatile uint32_t ext_hold;         /* kind D: a start is coming: no next step till it does */
+    /* kind C (a seqlock): interrupt writes at each block's start (seq_block_time), main loop reads,
+     * as a whole while blk_seq is even */
     volatile uint32_t blk_seq, blk_t, blk_u, blk_inc, blk_fs;
     uint32_t upos;                      /* interrupt: units since a start's tick 0, wrapping */
     uint32_t fs;                        /* interrupt: the rate of the last render */
-    /* interrupt writes, main loop reads */
+    /* kind D: interrupt writes, main loop reads */
     volatile uint32_t playing;          /* 1 while the transport runs */
     volatile int32_t step_now;          /* the step playing, 0 .. length-1; -1 stopped */
     volatile uint32_t steps;            /* +1 per step played: the UI polls it to redraw */
@@ -169,15 +177,20 @@ typedef struct {
      * change waits for the next PLAY). On its own clock the interrupt counts the ticks due, 24 a quarter
      * (out_acc, unswung), and puts each start and stop in out_ev stamped with the tick count then; the
      * main loop takes them in order (seq_clock_out_take) and sends them, as only it may. */
-    uint8_t out_want;                   /* main loop: G14 */
-    volatile uint8_t out_on;            /* this transport sends: latched at its start */
-    volatile uint8_t out_block;         /* main loop: let go (release): no start sends till the next PLAY */
+    uint8_t out_want;                   /* kind D, main loop writes: G14 (the interrupt reads it at a start) */
+    volatile uint8_t out_on;            /* this transport sends: latched at its start (two writers: the
+                                         * interrupt, and the main loop at a stop; docs/handoffs.md) */
+    volatile uint8_t out_block;         /* the gate, main loop writes: let go (release) sets it, the next
+                                         * PLAY clears it; while set the interrupt neither writes out_on
+                                         * nor sends a start or stop (docs/handoffs.md) */
     uint32_t out_acc;                   /* interrupt: the clock since the last tick, as acc counts it */
-    volatile uint32_t out_ticks;        /* interrupt: ticks due, all told */
+    volatile uint32_t out_ticks;        /* kind D, interrupt writes: ticks due, all told */
     uint32_t out_sent;                  /* main loop: ticks sent */
-    struct { uint8_t st; uint32_t at; } out_ev[SEQ_OUT_EV];   /* interrupt: a start or stop, at a tick count */
-    volatile uint32_t out_w;            /* interrupt: out_ev written */
-    uint32_t out_r;                     /* main loop: out_ev taken */
+    struct { uint8_t st; uint32_t at; } out_ev[SEQ_OUT_EV];   /* kind A, interrupt: a start or stop, at a
+                                         * tick count */
+    volatile uint32_t out_w;            /* kind A, interrupt writes: out_ev written */
+    uint32_t out_r;                     /* kind A, main loop writes: out_ev taken (the interrupt reads it,
+                                         * its full check) */
     struct { uint8_t st; uint32_t w, t; } out_m[SEQ_OUT_M];   /* main loop: bytes it queued (a followed
                                          * clock's, Eric Q2), each with out_w and out_ticks as they were then,
                                          * so seq_clock_out_take puts both queues out in the order things happened */
@@ -274,9 +287,6 @@ void seq_set_clock_out(seq *s, uint32_t on);
 int seq_clock_out_take(seq *s, uint8_t *st);
 /* main loop: clock out stops now (the module let go, release): a stop after what's due, then nothing */
 void seq_clock_out_stop(seq *s);
-/* tests only (0 in the firmware): called at points of clock_tick's start where the interrupt may cut in,
- * so a test can run a block there (point 1, 2, 3 ...) */
-extern void (*seq_test_hook)(seq *s, uint32_t point);
 /* audio interrupt, before seq_render: the block's start, at host time t */
 void seq_block_time(seq *s, uint32_t t);
 

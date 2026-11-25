@@ -112,10 +112,6 @@ static void out_adv(seq *s, uint32_t d, uint32_t xi)
     }
 }
 
-void (*seq_test_hook)(seq *s, uint32_t point);
-
-#define TEST_POINT(s, n) do { if (seq_test_hook) seq_test_hook((s), (n)); } while (0)
-
 /* main loop: a followed clock's byte to pass on (dropped past SEQ_OUT_M untaken) */
 static void out_pass(seq *s, uint8_t st)
 {
@@ -133,8 +129,13 @@ void seq_clock_out_stop(seq *s)
 {
     s->out_block = 1;                           /* (a PLAY asked and not yet taken starts no clock out) */
     BARRIER();
+    HANDOFF_GAP("out_stop", 0);
+    /* the let-go's stop is the main loop's, sent now (nothing drains after a release). out_block is the
+     * gate: while it is set the interrupt neither writes out_on nor sends a start or stop, so an
+     * interrupt taking a pending stop or restart anywhere in here leaves out_on for us (#349) */
     if (!s->out_on)
         return;
+    HANDOFF_GAP("out_stop", 1);
     s->out_on = 0;                              /* (the interrupt counts and stops no more for this run) */
     BARRIER();
     out_pass(s, 0xFCu);
@@ -593,6 +594,7 @@ static void block_read(const seq *s, uint32_t *t, uint32_t *u, uint32_t *inc, ui
         a = s->blk_seq;
         BARRIER();
         *t = s->blk_t;
+        HANDOFF_GAP("blk", 1);
         *u = s->blk_u;
         *inc = s->blk_inc;
         *fs = s->blk_fs;
@@ -736,7 +738,7 @@ static void clock_tick(seq *s, uint32_t t)
             BARRIER();
             out_pass(s, 0xFCu);
         }
-        TEST_POINT(s, 1);
+        HANDOFF_GAP("clock_start", 1);
         s->clk_started = 1;
         s->clk_pending = 0;
         s->clk_target = 0;
@@ -745,18 +747,18 @@ static void clock_tick(seq *s, uint32_t t)
         set_rate(s, 0, fs, 1);
         s->ext = 1;
         BARRIER();                              /* (following now: the interrupt counts no ticks of its own) */
-        TEST_POINT(s, 2);
+        HANDOFF_GAP("clock_start", 2);
         s->clk_running = 1;
         s->clk_armed = 0;
         s->want = 1;
         BARRIER();                              /* the rate and tick 0 before the ask */
         s->ask_play++;
-        TEST_POINT(s, 3);
+        HANDOFF_GAP("clock_start", 3);
         BARRIER();                              /* #286: G14 latched after the ask, so a stop ask still */
         s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* pending can't find it on and switch it off */
         if (s->out_on)
             out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
-        TEST_POINT(s, 4);
+        HANDOFF_GAP("clock_start", 4);
         s->ext_hold = 0;                        /* (the interrupt takes the ask before it would step) */
         return;
     }
@@ -999,10 +1001,13 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
     uint32_t cnt = 0, t = 0, thr, inc, gate, target, j, next, glide, xi;
     s->fs = fs;
     if (s->ask_play != s->play_seen || s->ask_stop != s->stop_seen) {
-        s->play_seen = s->ask_play;             /* the latest ask wins: play (again, from step 1) or stop */
+        /* the latest ask wins: play (again, from step 1) or stop. A stop with no play asked since stops,
+         * whatever `want` says now: an armed seq_play sets it with no ask of its own (#349) */
+        uint32_t go = s->want && !(s->ask_stop != s->stop_seen && s->ask_play == s->play_seen);
+        s->play_seen = s->ask_play;
         s->stop_seen = s->ask_stop;
         cnt = let_go(s, ev, cnt, 0);
-        if (s->want && s->ext) {                /* #38: the clock's start (or continue) */
+        if (go && s->ext) {                     /* #38: the clock's start (or continue) */
             uint32_t late;
             int32_t f = frames_q8((int32_t)(s->blk_t - s->ext_t0), fs);   /* tick 0 was this long ago */
             f = f < 0 ? 0 : f;
@@ -1016,14 +1021,16 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             cnt = start_step(s, ev, cnt, 0, voices);
             thr = step_len(s, fs);
             s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
-        } else if (s->want) {
-            if (s->playing && s->out_on)
-                out_put(s, 0xFCu);              /* #286: a restart: stop, then start (never two starts) */
-            s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* #286: G14 as it is at the start */
-            if (s->out_on) {
-                out_put(s, 0xFAu);              /* start, then the first tick, with step 1 */
-                s->out_acc = 0;
-                s->out_ticks++;
+        } else if (go) {
+            if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
+                if (s->playing && s->out_on)
+                    out_put(s, 0xFCu);          /* #286: a restart: stop, then start (never two starts) */
+                s->out_on = s->out_want;        /* #286: G14 as it is at the start */
+                if (s->out_on) {
+                    out_put(s, 0xFAu);          /* start, then the first tick, with step 1 */
+                    s->out_acc = 0;
+                    s->out_ticks++;
+                }
             }
             s->pos = s->acc = 0;
             s->cur_bend = s->cur_mod = 0;       /* (a first GLIDE moves from center and 0) */
@@ -1031,9 +1038,11 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             s->playing = 1;
             cnt = start_step(s, ev, cnt, 0, voices);
         } else {
-            if (s->playing && s->out_on)
-                out_put(s, 0xFCu);              /* #286: stop */
-            s->out_on = 0;
+            if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
+                if (s->playing && s->out_on)
+                    out_put(s, 0xFCu);          /* #286: stop */
+                s->out_on = 0;
+            }
             if (s->playing) {                   /* bend to center, mod to the live wheel (#42) */
                 cnt = put_ctl(ev, cnt, 0, SEQ_EV_BEND, 0);
                 cnt = put_ctl(ev, cnt, 0, SEQ_EV_MOD, SEQ_MOD_LIVE);
