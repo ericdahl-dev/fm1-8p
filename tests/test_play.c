@@ -1,5 +1,6 @@
 /* The playable module's logic (firmware/play.c): keys and MIDI into the engine, run on the desktop. */
 #include "../firmware/play.h"
+#include <stdlib.h>
 
 static play pl_a;
 static int32_t pl_out[2 * PLAY_BLOCK];
@@ -528,15 +529,33 @@ static uint32_t pl_race(uint32_t patch, uint16_t x, uint32_t before, int32_t *wo
     }
     return first;
 }
+/* 1 for a patch whose oscillators or voices play in a mode of their own (sync, cross-mod, ring, noise,
+ * unison): the cut sweep's patches */
+static int pl_patch_has_a_mode(uint32_t t)
+{
+    (void)play_init(&pl_a);
+    play_load_patch(&pl_a, t);
+    return play_get_param(&pl_a, FM_PARAM_OSC_SYNC) || play_get_param(&pl_a, FM_PARAM_OSC_XMOD) ||
+           play_get_param(&pl_a, FM_PARAM_OSC_RING) || play_get_param(&pl_a, FM_PARAM_OSC1_WAVE) == FM_WAVE_NOISE ||
+           play_get_param(&pl_a, FM_PARAM_OSC2_WAVE) == FM_WAVE_NOISE ||
+           play_get_param(&pl_a, FM_PARAM_VOICE_MODE) != FM_VOICE_MODE_POLY;
+}
+/* The full sweep (every patch, three moments) takes about a minute: CI runs it (TT_LONG=1, the build-test
+ * jobs). A plain `make test` runs every param on the patches with a mode of their own, at the attack. */
 TT_TEST(play_param_set_again_by_the_asks_race_changes_nothing)
 {
     static const uint32_t BEFORE[] = { 2, 40, PL_SECOND + 4u };   /* attack, decay; released 4 blocks */
-    uint32_t b, n = 0, t;
+    const char *e = getenv("TT_LONG");
+    int full = e && *e && strcmp(e, "0") != 0;
+    uint32_t b, n = 0, t, races = 0;
     uint16_t x;
     int32_t worst, peak;
-    for (t = 0; t < PATCH_COUNT; t++)                       /* every factory patch: its envelopes, modes */
-        for (b = 0; b < sizeof BEFORE / sizeof BEFORE[0]; b++)
+    for (t = 0; t < PATCH_COUNT; t++) {                     /* every factory patch: its envelopes, modes */
+        if (!full && !pl_patch_has_a_mode(t))
+            continue;
+        for (b = 0; b < (full ? sizeof BEFORE / sizeof BEFORE[0] : 1u); b++)
             for (x = 0; x < FM_PARAM_COUNT; x++) {
+                races++;
                 uint32_t f = pl_race(t, x, BEFORE[b], &worst, &peak);
                 if (f) {
                     n++;
@@ -545,6 +564,9 @@ TT_TEST(play_param_set_again_by_the_asks_race_changes_nothing)
                            (int)worst, (int)peak);
                 }
             }
+    }
+    printf("    asks race: %u races (%s)\n", (unsigned)races, full ? "TT_LONG: every patch, three moments"
+                                                                   : "patches with a mode, the attack");
     TT_CHECK_EQ(n, 0u);
 }
 
