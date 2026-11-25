@@ -1,0 +1,35 @@
+# Release: on a v* tag, the FM-1 Firmware Hub's shared workflow (zvenson/fm1-build, a reviewed tag)
+# builds fm1-8p from this commit, attests the packages ("Built from source" on thefirmwarehub.com) and
+# publishes them as the tag's release (#356). The packages are the synth's solo .fwsc and its .dock,
+# staged alone in build/release/ by `tools/fm1-build.sh release`.
+#
+# The build uses this repository's pinned, hash-checked inputs (firmware/pins.env), not the ones the
+# shared workflow installs: JIELI_TOOLCHAIN is unset so `fetch` downloads and checks the pinned
+# toolchain, and the SDK clone is skipped (`fetch` takes the three pinned SDK files itself).
+#
+# Releases never carry PG-8X renders, presets or binaries, or any user bank: the packages are only what
+# `build` makes from this tree.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+jobs:
+  build:
+    uses: zvenson/fm1-build/.github/workflows/build.yml@v1
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    with:
+      sdk: false
+      build: >-
+        unset JIELI_TOOLCHAIN &&
+        python3 -m pip install "Pillow==$(sed -n 's/^PILLOW_VERSION=//p' firmware/pins.env)" &&
+        tools/fm1-build.sh fetch &&
+        tools/fm1-build.sh release
+      test: make test
+      packages: build/release/*

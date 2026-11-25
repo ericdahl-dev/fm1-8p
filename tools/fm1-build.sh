@@ -11,6 +11,8 @@
 #   build      the synth (FM1-8P) and the CPU test, each as a .dock (USB deploy) and a solo .fwsc,
 #              (FM1_DEBUG=1: the debug variant, with timing in the log; FM1_THEME=night: Night Panel)
 #              into build/fm1/
+#   release    build, then the synth's .fwsc and .dock alone in build/release/, the packages the Firmware
+#              Hub's workflow attests and publishes on a v* tag (.github/workflows/release.yml, #356)
 #   canaries   each module in firmware/canary/ breaks an fm1-dock safety rule; its build must fail
 #   emu        run the CPU test in fm1-emu's strict timing mode; worst load per voice count
 #              into build/fm1/emu-report.md (report only)
@@ -344,6 +346,18 @@ build_firmware() {
     build_module fm1_8p_cpu_seq fm1-8p-cpu-seq "FM1-8P CPU" || return 1
 }
 
+# stage_release OUT REL: the packages a release publishes, the synth's .fwsc and .dock as `build` made
+# them in OUT, alone in REL (emptied first), so the Firmware Hub's workflow takes one glob, REL/* (#356).
+# Never the CPU test's packages. Fails when either is missing.
+stage_release() {
+    for f in fm1-8p.fwsc fm1_8p.dock; do
+        [ -f "$1/$f" ] || { echo "fm1-build: no $1/$f: run build first" >&2; return 1; }
+    done
+    rm -rf "$2" && mkdir -p "$2" || return 1
+    cp "$1/fm1-8p.fwsc" "$1/fm1_8p.dock" "$2/" || return 1
+    echo "fm1-build: $2: fm1-8p.fwsc fm1_8p.dock (${FM1_IDENTITY:-})"
+}
+
 run_canaries() {
     check_inputs
     rc=0
@@ -491,6 +505,7 @@ case "${1:-}" in
     fetch)    fetch_fm1_dock; fetch_toolchain; fetch_sdk; check_inputs ;;
     fetch-emu) fetch_emu ;;
     build)    build_firmware ;;
+    release)  build_firmware; stage_release "$OUT" "$ROOT/build/release" ;;
     canaries) run_canaries ;;
     emu)      run_emu fm1_8p_cpu_quick emu ;;
     emu-ui)   run_emu fm1_8p_cpu_ui emu-ui ;;

@@ -378,6 +378,17 @@ for c in firmware/canary/*/; do
     expect_ok "canary $(basename "$c") names the check it targets" test -s "$c/expect"
 done
 
+# release: the packages the Firmware Hub's workflow attests and publishes (#356) are the synth's
+# .fwsc and .dock only, never the CPU test's, in a folder of their own (one glob, `build/release/*`).
+mkdir -p "$T/built" "$T/rel"
+for f in fm1-8p.fwsc fm1_8p.dock fm1-8p-cpu.fwsc fm1_8p_cpu.dock; do printf '%s\n' "$f" >"$T/built/$f"; done
+: >"$T/rel/old.fwsc"
+expect_ok   "a release stages the synth's packages" stage_release "$T/built" "$T/rel"
+expect_ok   "... exactly the .fwsc and the .dock" test "$(LC_ALL=C ls "$T/rel" | tr '\n' ' ')" = "fm1-8p.fwsc fm1_8p.dock "
+expect_ok   "... as built" cmp -s "$T/built/fm1_8p.dock" "$T/rel/fm1_8p.dock"
+rm "$T/built/fm1_8p.dock"
+expect_fail "a release with a package missing fails" stage_release "$T/built" "$T/rel"
+
 echo
 echo "$run tests, $failed failed"
 [ "$failed" -eq 0 ]
