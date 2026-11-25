@@ -1,7 +1,12 @@
 # Release: on a v* tag, the FM-1 Firmware Hub's shared workflow (zvenson/fm1-build, a reviewed tag)
 # builds fm1-8p from this commit, attests the packages ("Built from source" on thefirmwarehub.com) and
 # publishes them as the tag's release (#356). The packages are the synth's solo .fwsc and its .dock,
-# staged alone in build/release/ by `tools/fm1-build.sh release`.
+# staged alone in build/release/ by `tools/fm1-build.sh release` as fm1-8p-X.Y.fwsc and fm1_8p-X.Y.dock.
+# The tag is vX.Y, vX.Y.Z or vX.Y-suffix, one digit each (fm1-dock's --release); X.Y is the module's
+# version in the boot log and OPTIONS > ABOUT. The canaries run too: fm1-dock's safety checks must still
+# reject an unsafe module.
+#
+# Before the first public tag: check FM1_IDENTITY (firmware/pins.env) is still free on the Firmware Hub.
 #
 # The build uses this repository's pinned, hash-checked inputs (firmware/pins.env), not the ones the
 # shared workflow installs: JIELI_TOOLCHAIN is unset so `fetch` downloads and checks the pinned
@@ -30,6 +35,7 @@ jobs:
         unset JIELI_TOOLCHAIN &&
         python3 -m pip install "Pillow==$(sed -n 's/^PILLOW_VERSION=//p' firmware/pins.env)" &&
         tools/fm1-build.sh fetch &&
-        tools/fm1-build.sh release
+        tools/fm1-build.sh release "${GITHUB_REF_NAME#v}" &&
+        tools/fm1-build.sh canaries
       test: make test
       packages: build/release/*

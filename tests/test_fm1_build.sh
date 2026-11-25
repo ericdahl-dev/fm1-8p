@@ -383,11 +383,21 @@ done
 mkdir -p "$T/built" "$T/rel"
 for f in fm1-8p.fwsc fm1_8p.dock fm1-8p-cpu.fwsc fm1_8p_cpu.dock; do printf '%s\n' "$f" >"$T/built/$f"; done
 : >"$T/rel/old.fwsc"
-expect_ok   "a release stages the synth's packages" stage_release "$T/built" "$T/rel"
-expect_ok   "... exactly the .fwsc and the .dock" test "$(LC_ALL=C ls "$T/rel" | tr '\n' ' ')" = "fm1-8p.fwsc fm1_8p.dock "
-expect_ok   "... as built" cmp -s "$T/built/fm1_8p.dock" "$T/rel/fm1_8p.dock"
+expect_ok   "a release stages the synth's packages" stage_release "$T/built" "$T/rel" 0.1
+expect_ok   "... exactly the .fwsc and the .dock, named with the version" \
+            test "$(LC_ALL=C ls "$T/rel" | tr '\n' ' ')" = "fm1-8p-0.1.fwsc fm1_8p-0.1.dock "
+expect_ok   "... as built" cmp -s "$T/built/fm1_8p.dock" "$T/rel/fm1_8p-0.1.dock"
+expect_fail "a release with no version fails" stage_release "$T/built" "$T/rel" ""
 rm "$T/built/fm1_8p.dock"
-expect_fail "a release with a package missing fails" stage_release "$T/built" "$T/rel"
+expect_fail "a release with a package missing fails" stage_release "$T/built" "$T/rel" 0.1
+# The version a tag gives (v0.1 -> 0.1) is what fm1-dock's build.py --release takes, checked before the
+# build: X.Y, X.Y.Z or X.Y-suffix, one digit each (the boot log's and OPTIONS > ABOUT's APP_VER).
+for v in 0.1 1.0 0.1.2 0.1-beta 0.0-rehearsal1; do
+    expect_ok   "release version $v is taken" release_version_ok "$v"
+done
+for v in "" 10.1 0.1.2.3 0.0.0-rehearsal.1 v0.1 0.1-; do
+    expect_fail "release version '$v' is refused" release_version_ok "$v"
+done
 
 echo
 echo "$run tests, $failed failed"
