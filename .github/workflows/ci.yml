@@ -6,8 +6,8 @@ on:
 
 jobs:
   # Which jobs a change needs (tools/ci_scope.sh): a change to the project page alone (site/ and its Pages
-  # workflow, #356) skips the build, tests and firmware. build-test still runs, its steps skipped, so the
-  # ruleset's required checks report.
+  # workflow, #356) skips the build, tests and firmware but runs the page's own tests. build-test still runs,
+  # its other steps skipped, so the ruleset's required checks report.
   scope:
     runs-on: ubuntu-latest
     outputs:
@@ -17,17 +17,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The base: a pull request's own base (its merge commit's first parent); a push's fork point from main,
+      # so a branch's earlier code changes count too (main's own pushes list nothing and run in full).
       - id: scope
-        env:
-          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            scope=$(git diff --name-only "$BASE" HEAD | sh tools/ci_scope.sh)
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            base=$(git rev-parse HEAD^1)
           else
-            scope=full   # a new branch or an unknown base
+            base=$(git merge-base origin/main HEAD) || base=
           fi
+          scope=$(sh tools/ci_scope.sh "$base")
           echo "scope=$scope" >> "$GITHUB_OUTPUT"
-          echo "CI scope: $scope"
+          echo "CI scope: $scope (base ${base:-none})"
 
   # Ubuntu with gcc and clang, and macOS (Apple clang, arm64). The Ubuntu jobs keep the names
   # "build-test (gcc)" and "build-test (clang)": ruleset "main requires CI" requires them.
@@ -47,7 +48,10 @@ jobs:
       CC: ${{ matrix.cc }}
     steps:
       - uses: actions/checkout@v4
-        if: needs.scope.outputs.scope == 'full'
+
+      - name: The project page's tests (a change to the page alone runs only these)
+        if: needs.scope.outputs.scope == 'page'
+        run: python3 -B -m unittest tests/test_site.py
 
       - name: Build
         if: needs.scope.outputs.scope == 'full'
