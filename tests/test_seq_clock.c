@@ -428,6 +428,35 @@ TT_TEST(clock_stop_then_play_inside_one_block_stops)
     TT_CHECK_EQ(ck_n_on, n);                       /* and no step played */
 }
 
+/* #373: three asks before one block, under MIDI clock: a start (0xFA, then its tick: clock_tick asks to
+ * play), then STOP, then PLAY (the clock in charge, so it only arms: `want` = 1, no ask). The interrupt
+ * takes both asks at once and must not start: the last ask was the stop. The transport waits, armed, for
+ * the next MIDI start; none comes, so no step plays. The presses go as ui_seq_transport's: STOP while
+ * `want` is set, PLAY when it isn't. */
+TT_TEST(clock_start_stop_then_play_inside_one_block_stays_armed)
+{
+    const double t0 = 0.1, dt = 60.0 / 100.0 / SEQ_CLK_PPQN;
+    const uint32_t at = 24u;                      /* the start's tick, delivered by hand */
+    uint32_t i;
+    ck_fresh(SEQ_CLK_MIDI);
+    for (i = 0; i < 24u * 8u; i++)
+        if (i != at)
+            ck_msg_at(t0 + i * dt, 0, 0xF8u);
+    ck_run(t0 + at * dt);                         /* a running clock, not followed yet */
+    TT_CHECK_EQ(ck_n_on, 0u);
+    seq_clock_in(&ck, 0xFAu, ck_host(t0 + at * dt - 0.001));   /* the main loop, before one block: */
+    seq_clock_in(&ck, 0xF8u, ck_host(t0 + at * dt));           /* a start and its tick ask to play */
+    TT_CHECK(ck.want);
+    seq_stop(&ck);                                /* STOP (want was set) */
+    TT_CHECK(!ck.want);
+    seq_play(&ck);                                /* PLAY: the clock in charge, so it arms */
+    TT_CHECK(seq_waiting(&ck));
+    ck_run(t0 + 24u * 8u * dt);                   /* the clock ticks on, no MIDI start */
+    TT_CHECK(seq_waiting(&ck));                   /* still armed */
+    TT_CHECK(!ck.playing);
+    TT_CHECK_EQ(ck_n_on, 0u);                     /* and no step played */
+}
+
 /* #349, kind C (the seqlock, the interrupt writing): the interrupt runs a block inside the main loop's
  * read of the block's time, once, mid-run (gap "blk" 1). The read takes the record again, whole, so the
  * steps stay on the steady clock's grid as with no gap: within 0.05 ms once locked (no jitter here) */
@@ -1315,6 +1344,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_read_of_the_block_time_inside_a_block_stays_on_the_grid);
     TT_RUN(seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once);
     TT_RUN(clock_stop_then_play_inside_one_block_stops);
+    TT_RUN(clock_start_stop_then_play_inside_one_block_stays_armed);
     TT_RUN(clock_swing_and_gate_follow_the_clock);
     TT_RUN(clock_rides_out_a_burst_of_late_ticks);
     TT_RUN(clock_edits_act_as_on_the_internal_clock);

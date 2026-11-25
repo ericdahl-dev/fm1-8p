@@ -62,6 +62,7 @@ void seq_init(seq *s)
     s->editing = 0;
     s->edits = s->edits_seen = 0;
     s->ask_play = s->ask_stop = s->play_seen = s->stop_seen = 0;
+    s->ask_last = SEQ_LAST_STOP;
     s->want = 0;
     s->transpose = s->run_transpose = 0;
     s->key_transpose = 0;
@@ -332,6 +333,7 @@ void seq_play(seq *s)
     s->ext = 0;                                 /* (its own clock) */
     s->clk_pending = 0;                         /* (a start come in with no clock: nothing to wait for) */
     s->want = 1;
+    s->ask_last = SEQ_LAST_PLAY;
     BARRIER();                                  /* the wish before the ask: never an ask with an old one */
     HANDOFF_GAP("play", 1);
     s->ask_play++;
@@ -349,6 +351,7 @@ void seq_stop(seq *s)
     s->clk_pending = 0;
     s->clk_running = 0;
     s->want = 0;
+    s->ask_last = SEQ_LAST_STOP;
     BARRIER();
     HANDOFF_GAP("stop", 0);
     s->ask_stop++;
@@ -753,6 +756,7 @@ static void clock_tick(seq *s, uint32_t t)
         s->clk_running = 1;
         s->clk_armed = 0;
         s->want = 1;
+        s->ask_last = SEQ_LAST_PLAY;
         BARRIER();                              /* the rate and tick 0 before the ask */
         s->ask_play++;
         HANDOFF_GAP("clock_start", 3);
@@ -1003,9 +1007,11 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
     uint32_t cnt = 0, t = 0, thr, inc, gate, target, j, next, glide, xi;
     s->fs = fs;
     if (s->ask_play != s->play_seen || s->ask_stop != s->stop_seen) {
-        /* the latest ask wins: play (again, from step 1) or stop. A stop with no play asked since stops,
-         * whatever `want` says now: an armed seq_play sets it with no ask of its own (#349) */
-        uint32_t go = s->want && !(s->ask_stop != s->stop_seen && s->ask_play == s->play_seen);
+        /* the latest ask wins: play (again, from step 1) or stop. It is ask_last, written with each ask, not
+         * `want`: an armed seq_play sets `want` with no ask of its own, so a stop then an armed PLAY (#349),
+         * or a play, a stop and an armed PLAY (#373), are a stop. `want` must still be set, as a clock
+         * source change clears it with no ask */
+        uint32_t go = s->ask_last == SEQ_LAST_PLAY && s->want;
         s->play_seen = s->ask_play;
         s->stop_seen = s->ask_stop;
         cnt = let_go(s, ev, cnt, 0);
