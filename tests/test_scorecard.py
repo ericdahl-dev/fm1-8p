@@ -223,6 +223,26 @@ class MetricTest(unittest.TestCase):
         self.assertTrue(all(v == 0.0 for v in s["pitch_cents"].values()))
 
 
+    # The ruler's own noise: PG-8X's render scored against itself 10 ms later, per section. A section
+    # that reads a change in the sound that small isn't reading timbre. A held sine reads 0 everywhere;
+    # one that changes pitch inside v90's window reads there and nowhere else.
+    def test_the_ruler_noise_reads_only_where_the_sound_moves_within_10_ms(self):
+        np = self.np
+        t = np.arange(13 * SR) / SR
+        steady = 0.1 * np.sin(2 * np.pi * 440 * t)
+        self.assertTrue(all(v < 0.01 for v in self.sc.ruler_noise(steady).values()))
+        a, b = self.sc.SECTIONS["v90"]
+        f = np.where((t >= a + 0.2) & (t < b), 3000.0, 440.0)
+        moving = 0.1 * np.sin(2 * np.pi * np.cumsum(f) / SR)
+        n = self.sc.ruler_noise(moving)
+        self.assertGreater(n["v90"], 0.1)
+        self.assertTrue(all(v < 0.01 for k, v in n.items() if k != "v90"), n)
+
+    # The report's line for it: each section's mean over the tones, in SECTIONS' order.
+    def test_the_ruler_noise_line_is_each_sections_mean(self):
+        line = self.sc.noise_line([{"chord": 0.0, "v90": 1.0}, {"chord": 0.2, "v90": 0.5}])
+        self.assertEqual(line, "ruler noise (PG-8X against itself 10 ms later, dB): chord 0.10, v90 0.75")
+
     # A ring or cross-mod tone has no single pitch: the correlation lines up unrelated partials (WINDCHIMES
     # read +140 c with every partial within 6 c of PG-8X's, s7), so no pitch is reported for it.
     def test_an_inharmonic_tone_reports_no_pitch(self):
@@ -275,7 +295,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 10)
+        self.assertEqual(row["schema"], 11)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -324,7 +344,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (10, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (11, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -564,12 +584,22 @@ class ScoreMidiTest(unittest.TestCase):
         want = {"chord": (60, 100), "v110": (67, 110), "v60": (72, 60), "v90": (71, 90), "v40": (69, 40),
                 "low": (36, 100), "high": (84, 100)}
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "scorecard.py")).read()
-        for name, (a, b) in {"chord": (0.55, 3.15), "v110": (4.38, 4.65), "v60": (4.88, 5.15), "v90": (5.38, 5.55),
-                             "v40": (5.78, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}.items():
+        for name, (a, b) in {"chord": (0.55, 3.15), "v110": (4.38, 4.95), "v60": (5.18, 5.75), "v90": (5.98, 6.55),
+                             "v40": (6.78, 7.35), "low": (8.05, 9.35), "high": (10.25, 11.25)}.items():
             self.assertIn(f'"{name}": ({a}, {b})', src)
             note, vel = want[name]
             self.assertTrue(any(n == note and v == vel and s <= a and b <= e + 0.001 for n, s, e, v in notes),
                             (name, a, b))
+
+    @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
+    def test_every_section_is_long_enough_to_read(self):
+        """A section reads one Hann-windowed spectrum. At 170 ms (v90, s10) its gap read 5.0 dB on the 32
+        factory tones where v40 cut to the same 170 ms read 4.7 and in full 3.1, and PG-8X against itself
+        10 ms later read 0.96 there against 0.06 on the chord: the window's length, not the sound
+        (2026-11-23). Every section is 0.5 s or longer (s11)."""
+        import scorecard as sc
+        for name, (a, b) in sc.SECTIONS.items():
+            self.assertGreaterEqual(round(b - a, 3), 0.5, name)
 
     @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
     def test_each_section_starts_past_pg8xs_onset_thump(self):
