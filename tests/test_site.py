@@ -98,11 +98,11 @@ class CatalogTest(unittest.TestCase):
 
 
 class VendoredTest(unittest.TestCase):
-    """site/vendor/fm1-dock: fm1-dock's installer, unmodified, at the commit its README names."""
+    """site/vendor/fm1-dock: fm1-dock's installer, unmodified, at the commit its VENDORED.md names."""
     DIR = os.path.join(ROOT, "site", "vendor", "fm1-dock")
 
-    def test_every_file_matches_the_sha256_its_readme_records(self):
-        with open(os.path.join(self.DIR, "README.md"), encoding="utf-8") as fh:
+    def test_every_file_matches_the_sha256_its_note_records(self):
+        with open(os.path.join(self.DIR, "VENDORED.md"), encoding="utf-8") as fh:
             rows = re.findall(r"^\| `([^`]+)` \| `([0-9a-f]{64})` \|$", fh.read(), re.M)
         self.assertEqual(sorted(r[0] for r in rows),
                          ["LICENSE", "dock.js", "install/fm1install.js", "install/fm1ota.js", "install/ports.js"])
@@ -110,8 +110,8 @@ class VendoredTest(unittest.TestCase):
             with open(os.path.join(self.DIR, rel), "rb") as fh:
                 self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), sha, rel)
 
-    def test_the_readme_names_the_pinned_commit(self):
-        with open(os.path.join(self.DIR, "README.md"), encoding="utf-8") as fh:
+    def test_the_note_names_the_pinned_commit(self):
+        with open(os.path.join(self.DIR, "VENDORED.md"), encoding="utf-8") as fh:
             self.assertIn("60a89df6554f6df3823f03a4c893b6715bfef9b5", fh.read())
 
 

@@ -12,7 +12,7 @@ relative layout as fm1-dock's `docs/` (`install/fm1install.js` imports `../dock.
 | `install/ports.js` | `cc093304e3d609b47151663c3d0915daddc4f70b1ceddf107afbb6255d8e0a2b` |
 | `LICENSE` | `3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986` |
 
-`tests/test_site.py` checks every file against this table: do not edit them here. To update, copy the
+This note is FM1-8P's, not fm1-dock's. `tests/test_site.py` checks every file against this table: do not edit them here. To update, copy the
 files from a newer fm1-dock commit, update the commit and the table, and run `make check`
 (`tests/js/vendor.test.mjs` checks what `site/install.js` relies on).
 
