@@ -195,7 +195,7 @@ class MetricTest(unittest.TestCase):
         s = self.sc.score_tone(np.stack([ours, ours], 1), np.stack([pg, pg], 1), harmonic=False)
         self.assertLess(s["spectral_db"]["low"], 0.5, s["spectral_db"])
 
-    # PG-8X's side lands on our renderer's grid: engine.c to_int16 floors (an arithmetic >> 8) and clips
+    # PG-8X's side lands on our renderer's grid: output.c to_int16 floors (an arithmetic >> 8) and clips
     # to -32768..32767, and the reader divides by 32768.
     def test_pg_at_our_level_is_floored_and_clipped_as_our_renderer(self):
         np = self.np
@@ -223,6 +223,26 @@ class MetricTest(unittest.TestCase):
         self.assertTrue(all(v == 0.0 for v in s["pitch_cents"].values()))
 
 
+    # The ruler's own noise: PG-8X's render scored against itself 10 ms later, per section. A section
+    # that reads a change in the sound that small isn't reading timbre. A held sine reads 0 everywhere;
+    # one that changes pitch inside v90's window reads there and nowhere else.
+    def test_the_ruler_noise_reads_only_where_the_sound_moves_within_10_ms(self):
+        np = self.np
+        t = np.arange(13 * SR) / SR
+        steady = 0.1 * np.sin(2 * np.pi * 440 * t)
+        self.assertTrue(all(v < 0.01 for v in self.sc.ruler_noise(steady).values()))
+        a, b = self.sc.SECTIONS["v90"]
+        f = np.where((t >= a + 0.2) & (t < b), 3000.0, 440.0)
+        moving = 0.1 * np.sin(2 * np.pi * np.cumsum(f) / SR)
+        n = self.sc.ruler_noise(moving)
+        self.assertGreater(n["v90"], 0.1)
+        self.assertTrue(all(v < 0.01 for k, v in n.items() if k != "v90"), n)
+
+    # The report's line for it: each section's mean over the tones, in SECTIONS' order.
+    def test_the_ruler_noise_line_is_each_sections_mean(self):
+        line = self.sc.noise_line([{"chord": 0.0, "v90": 1.0}, {"chord": 0.2, "v90": 0.5}])
+        self.assertEqual(line, "ruler noise (PG-8X against itself 10 ms later, dB): chord 0.10, v90 0.75")
+
     # A ring or cross-mod tone has no single pitch: the correlation lines up unrelated partials (WINDCHIMES
     # read +140 c with every partial within 6 c of PG-8X's, s7), so no pitch is reported for it.
     def test_an_inharmonic_tone_reports_no_pitch(self):
@@ -249,6 +269,17 @@ class MetricTest(unittest.TestCase):
         self.assertNotIn(20, odd)    # WAVEAURA: osc2 -14 c
         self.assertNotIn(32, odd)    # PSYCHMELLO: osc2 -12 c
 
+# The scorecard scores PG-8X against the engine's own level (#342): its renders never take -d, the FM-1
+# module's output gain, so moving that gain (#320) leaves the ruler (v5/s10) as it is. Needs no numpy.
+class RenderCommandTest(unittest.TestCase):
+    def test_the_scorecard_renders_at_the_engines_level_without_d(self):
+        import scorecard_cmd
+        cmd = scorecard_cmd.render_command("/t", ["-s", "osc1_level_permille=1000"], "a.mid", "b.wav")
+        self.assertNotIn("-d", cmd)
+        self.assertEqual(cmd, [os.path.join("/t", "build", "fm1-8p-render"), "-r", "48000", "-t", "3000", "-v", "6",
+                               "-s", "osc1_level_permille=1000", "a.mid", "b.wav"])
+
+
 @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
 class HistoryTest(unittest.TestCase):
     def setUp(self):
@@ -264,7 +295,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 10)
+        self.assertEqual(row["schema"], 11)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -313,7 +344,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (10, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (11, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -335,6 +366,48 @@ class HistoryTest(unittest.TestCase):
         text = self.sc.moved_table(got)
         self.assertIn("| 02 T2 |", text)
         self.assertIn("20.0 → 12.0", text)
+
+    def test_a_tone_the_base_lacks_is_new_not_dropped(self):
+        got = self.sc.moved(self.rows([10.0, 20.0]), self.rows([10.0, 20.0, 15.0]))
+        self.assertEqual([(m["tone"], m["verdict"]) for m in got], [(3, "new")])
+        self.assertEqual(got[0]["spectral_head"], 15.0)
+        self.assertIsNone(got[0]["spectral_base"])
+        self.assertIn("| 03 T3 | - → 15.0 |", self.sc.moved_table(got))
+
+    def test_a_tone_the_head_lacks_is_gone_not_dropped(self):
+        got = self.sc.moved(self.rows([10.0, 20.0, 15.0]), self.rows([10.0, 20.0]))
+        self.assertEqual([(m["tone"], m["verdict"]) for m in got], [(3, "gone")])
+        self.assertIn("| 03 T3 | 15.0 → - |", self.sc.moved_table(got))
+
+    def test_the_report_counts_new_and_gone_tones(self):
+        head = self.rows([5, 30, 1])
+        for r in head:
+            r.update({"spectral_db": {"chord": r["spectral_db_mean"]}, "timing_gap_ms": {},
+                      "pitch_cents": {"low": 0.0, "high": 0.0}})
+        base = self.rows([5, 30, 1, 7])[1:]
+        text = self.sc.report(head, base)
+        self.assertIn("tones moved: 2 (0 closer, 0 further, 1 new, 1 gone)", text)
+
+    def test_with_none_new_or_gone_the_count_line_is_as_before(self):
+        head = self.rows([5, 30])
+        for r in head:
+            r.update({"spectral_db": {"chord": r["spectral_db_mean"]}, "timing_gap_ms": {},
+                      "pitch_cents": {"low": 0.0, "high": 0.0}})
+        self.assertIn("tones moved: 1 (1 closer, 0 further)\n", self.sc.report(head, self.rows([5, 31])) + "\n")
+
+    def test_a_figure_that_is_not_a_number_is_an_error(self):
+        nan = float("nan")
+        for base, head in (([10.0], [nan]), ([nan], [10.0])):
+            with self.subTest(base=base, head=head), self.assertRaises(ValueError):
+                self.sc.moved(self.rows(base, [2.0]), self.rows(head, [1.0]))
+        with self.assertRaises(ValueError):
+            self.sc.moved(self.rows([10.0], [nan]), self.rows([10.0], [1.0]))
+        with self.assertRaises(ValueError):
+            self.sc.moved(self.rows([10.0]), [dict(self.rows([10.0])[0], spectral_db_mean=True)])
+
+    def test_a_base_given_as_a_generator_is_read_once(self):
+        got = self.sc.moved((r for r in self.rows([10.0, 20.0])), self.rows([10.0, 12.0]))
+        self.assertEqual([m["tone"] for m in got], [2])
 
     def test_the_report_has_every_tone_the_worst_five_and_what_moved(self):
         head = self.rows([5, 30, 1, 25, 9, 40, 2])
@@ -511,12 +584,22 @@ class ScoreMidiTest(unittest.TestCase):
         want = {"chord": (60, 100), "v110": (67, 110), "v60": (72, 60), "v90": (71, 90), "v40": (69, 40),
                 "low": (36, 100), "high": (84, 100)}
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "scorecard.py")).read()
-        for name, (a, b) in {"chord": (0.55, 3.15), "v110": (4.38, 4.65), "v60": (4.88, 5.15), "v90": (5.38, 5.55),
-                             "v40": (5.78, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}.items():
+        for name, (a, b) in {"chord": (0.55, 3.15), "v110": (4.38, 4.95), "v60": (5.18, 5.75), "v90": (5.98, 6.55),
+                             "v40": (6.78, 7.35), "low": (8.05, 9.35), "high": (10.25, 11.25)}.items():
             self.assertIn(f'"{name}": ({a}, {b})', src)
             note, vel = want[name]
             self.assertTrue(any(n == note and v == vel and s <= a and b <= e + 0.001 for n, s, e, v in notes),
                             (name, a, b))
+
+    @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
+    def test_every_section_is_long_enough_to_read(self):
+        """A section reads one Hann-windowed spectrum. At 170 ms (v90, s10) its gap read 5.0 dB on the 32
+        factory tones where v40 cut to the same 170 ms read 4.7 and in full 3.1, and PG-8X against itself
+        10 ms later read 0.96 there against 0.06 on the chord: the window's length, not the sound
+        (2026-11-23). Every section is 0.5 s or longer (s11)."""
+        import scorecard as sc
+        for name, (a, b) in sc.SECTIONS.items():
+            self.assertGreaterEqual(round(b - a, 3), 0.5, name)
 
     @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
     def test_each_section_starts_past_pg8xs_onset_thump(self):
@@ -530,5 +613,102 @@ class ScoreMidiTest(unittest.TestCase):
             self.assertGreaterEqual(round(a - on, 3), 0.13, name)
 
 
+class ScriptBaseTest(unittest.TestCase):
+    """tools/scorecard.sh stops on a BASE that is not a commit, before it builds anything (#335: it passed
+    --base "" and printed a report with nothing compared). Run from a scratch repo holding only the
+    script, so a regression can't build into this checkout."""
+
+    def test_a_base_that_is_not_a_commit_stops_it(self):
+        self.run_it(lambda t: os.environ)
+
+    def test_and_a_git_hook_environment_reaches_neither_git_nor_the_script(self):
+        # A hook's GIT_DIR and GIT_INDEX_FILE, aimed at a bait repo (never the real one): it has a commit
+        # tagged as the BASE, so a script that read GIT_DIR would find it and not stop; and its HEAD and
+        # the index file must be as they were.
+        import subprocess
+        state = {}
+
+        def outer(t):
+            bait = os.path.join(t, "bait")
+            os.makedirs(bait)
+            g = lambda *a: subprocess.run(["git", "-C", bait, *a], check=True, capture_output=True, text=True,
+                                          env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+            g("init", "-q")
+            open(os.path.join(bait, "keep"), "w").write("bait\n")
+            g("add", ".")
+            g("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "bait")
+            g("tag", "no-such-commit-335")
+            state.update(g=g, head=g("rev-parse", "HEAD").stdout, index=os.path.join(t, "hook-index"))
+            return dict(os.environ, GIT_DIR=os.path.join(bait, ".git"), GIT_INDEX_FILE=state["index"])
+
+        self.run_it(outer, after=lambda: (
+            self.assertEqual(state["g"]("rev-parse", "HEAD").stdout, state["head"], "a commit reached the bait"),
+            self.assertFalse(os.path.exists(state["index"]), "an index was written at the hook's path")))
+
+    def run_it(self, outer_env, after=lambda: None):
+        import shutil
+        import subprocess
+        import tempfile
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        with tempfile.TemporaryDirectory() as t:
+            outer = outer_env(t)
+            root, ref = os.path.join(t, "repo"), os.path.join(t, "ref")
+            os.makedirs(os.path.join(root, "tools"))
+            os.makedirs(ref)
+            shutil.copy(os.path.join(here, "tools/scorecard.sh"), os.path.join(root, "tools"))
+            clean = {k: v for k, v in outer.items() if not k.startswith("GIT_")}   # (a hook's GIT_DIR, GIT_INDEX_FILE)
+            git = lambda *a: subprocess.run(["git", "-C", root, *a], check=True, capture_output=True, env=clean)
+            git("init", "-q")
+            git("add", ".")
+            git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "t")
+            open(os.path.join(ref, "manifest.json"), "w").write("{}")
+            env = dict(clean, SCORECARD_REF=ref, SCORECARD_HISTORY=os.path.join(ref, "h.jsonl"))
+            p = subprocess.run(["sh", os.path.join(root, "tools/scorecard.sh"), "HEAD", "no-such-commit-335"],
+                               env=env, capture_output=True, text=True, timeout=120)
+            built = os.path.exists(os.path.join(root, "build"))
+            self.assertEqual(p.returncode, 2, p.stderr[-500:])
+            self.assertIn("no-such-commit-335: not a commit", p.stderr)
+            self.assertFalse(built, "it archived or built before checking BASE")
+            after()
+
+
+@unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
+class MainBaseTest(unittest.TestCase):
+    """main() with --base: a base with no rows in the history is told, and is exit 2 (#335: it printed
+    "no base run to compare with" and exited 0), after the head's rows are kept."""
+
+    def test_a_base_with_no_rows_is_exit_2_and_the_head_is_kept(self):
+        self.main_with_base("nobase")
+
+    def test_an_empty_base_is_exit_2_not_no_base(self):
+        self.main_with_base("")
+
+    def main_with_base(self, base):
+        import contextlib
+        import io
+        import tempfile
+        import scorecard as sc
+        with tempfile.TemporaryDirectory() as t:
+            hist = os.path.join(t, "h.jsonl")
+            row = sc.tone_row("head1", "2026-11-21T00:00:00-05:00", 1, "T1",
+                              {"spectral_db_mean": 3.0, "loudness_gap_lu": 0.0, "spectral_db": {"chord": 3.0},
+                               "timing_gap_ms": {}, "pitch_cents": {"low": 0.0, "high": 0.0}}, "r")
+
+            def fake_run(tree, commit, ref, history, *a, **k):
+                sc.append_rows(history, [row])
+                return [row]
+            real, sc.run = sc.run, fake_run
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as e:
+                    sc.main(["--tree", t, "--commit", "head1", "--ref", t, "--history", hist, "--base", base])
+            finally:
+                sc.run = real
+            self.assertEqual(e.exception.code, 2)
+            self.assertIn("no rows", out.getvalue())
+            self.assertEqual(len(open(hist).read().splitlines()), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
+

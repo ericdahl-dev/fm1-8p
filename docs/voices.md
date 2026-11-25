@@ -21,9 +21,8 @@ On a note on, in this order:
 
 1. **Same note.** If a voice is already sounding that note (held, held by
    the pedal, or releasing), it plays it again: its attack restarts from the
-   current level, so there is no click and no second voice. The same goes for
-   a voice that a steal is still fading that note out on (see below). So at
-   most one voice ever has a given note.
+   current level, so there is no click and no second voice. So at most one
+   voice ever has a given note.
 2. **Its last voice.** Otherwise, if the voice that last played this note is
    idle and no other note has played on it since, it gets that voice back, as
    PG-8X 2.0.13 does ([#164](https://github.com/ericdahl-dev/fm1-8p/issues/164),
@@ -43,26 +42,36 @@ On a note on, in this order:
    recent one, any release before a pedal-held note, and a held note only when
    every voice is held, the oldest first.
 
-A stolen voice is not cut. Its old note fades from its current level to
-silence over **3 ms** (`STEAL_FADE_MS`, 132 samples at 44.1 kHz). Then the new
-note starts from silence with its own attack, so it sounds the same as a note
-on an idle voice, just 3 ms late. The new note always sounds: its key is
-remembered during the fade. If its key comes up before the fade ends, the
-note still starts after the fade, holds for 3 ms (as long as it waited), then
-releases; if the pedal is down, it is held.
+A stolen voice starts the new note **at once, from the levels its envelopes
+are at**, as PG-8X 2.0.13 does. The amp envelope restarts its attack from its
+current level, toward the new note's peak. The filter envelope does the same,
+so the new note is as bright as the stolen one was, and goes on from there.
+This is the same as playing a note again on its own voice, only with a new
+pitch, except that the LFO's delay starts again, as on PG-8X (a stolen
+voice's vibrato drops away for the new note and builds back over the delay).
 
-If the stolen note is played again during the fade, the steal is called off:
-the voice takes that note back and restarts its attack from the current
-(partly faded) level, so it never sounds on two voices. The note that was
-waiting for the voice then gets one by the rules above, which may steal
-another voice. On a 1-voice engine there is none, so the newest note wins and
-the waiting note is dropped; it is also dropped if its key already came up
-(and the pedal is up).
+There is no fade and no gap, and the oscillators keep their phase, so the
+level and the waveform carry straight on (`a_steal_does_not_click`). The
+filter's key tracking and the pitch move to the new note at once. The LFO
+starting again moves a pulse width the LFO was sweeping back to its center
+at once, as on PG-8X, whose LFO starts again too (that step itself is not
+measured on PG-8X).
 
-If yet another note arrives while every voice is busy and the chosen voice is
-already fading, that voice just switches to the newer note; the note it was
-waiting for never starts. That takes more notes at once than there are
-voices plus one, and the newest notes win.
+PG-8X 2.0.13 was measured on 2026-11-20 (SELFNOISE 0, 6 voices all busy,
+chorus off, the stolen voice alone through a 700 Hz highpass). A releasing
+voice that gets stolen keeps its level through the steal with no dip, and the
+new note's first 20 ms are as bright as the old note's: −6.6 dB against
+−6.3 dB, where a fresh voice is at −15.9 dB. PG-8X takes the same voice the
+rules above take: a released voice before a held one, the one released
+longest ago, and among held voices the oldest.
+
+Until this change, the engine faded the old note out over 3 ms and then
+started the new note from silence, with both envelopes at 0. On a chord
+change, SOUNDTRACK came out about 19 dB darker than PG-8X above 1 kHz.
+
+A note played again right after another note stole its voice is not on any
+voice, so it gets one by the rules above: on a 1-voice engine it steals it
+back and carries on from the level there.
 
 Ages are kept as a counter of note ons and offs (`stamp`), compared as a
 wrapping 32-bit difference, so they never overflow in practice (2^31 events).
@@ -72,8 +81,8 @@ wrapping 32-bit difference, so they never overflow in practice (2^31 events).
 A note off starts the release (unless the pedal holds the note). When the
 release reaches zero the voice goes idle: it costs nothing to render and is
 the first choice for the next note. `fm_engine_active_voices()` counts
-voices that are sounding or fading, so a caller (or the CPU test) can see
-voices free up.
+voices that are sounding, so a caller (or the CPU test) can see voices free
+up.
 
 ## Start phase
 
@@ -143,8 +152,7 @@ least significant first). Values above 16383 are ignored.
   semitone and an in-between value within 1 cent;
   `tuned_increment_matches_exact_pitch` checks every cent over two octaves
   each way within 0.01 cent.
-- A bend retunes every sounding note at once and applies to new notes. A
-  stolen voice's old note keeps its pitch for the 3 ms it is fading.
+- A bend retunes every sounding note at once and applies to new notes.
 - Changing `bend_range_semitones` applies the last bend value again with the
   new range.
 
@@ -162,15 +170,14 @@ control tick (32 samples) a gliding voice's offset falls by
   for everything it is sent, so sequencer notes and live keys glide from
   each other (`porta_sequencer_and_keys_share_the_last_note`).
 - **The same note struck again mid-glide lands at once:** the last note
-  played is itself (`porta_same_note_again_mid_glide_lands`). A note struck
-  again while its voice fades for a steal glides from the last note too.
-- **A note waiting for a stolen voice** keeps its glide if it moves to
-  another voice (`porta_moved_waiting_note_keeps_its_glide`).
+  played is itself (`porta_same_note_again_mid_glide_lands`).
+- **A note that steals a voice** glides from the last note played
+  (`porta_stealing_note_glides_from_the_last_note`), and keeps gliding when
+  the stolen key comes back on another voice
+  (`porta_stealing_note_keeps_its_glide_when_the_stolen_key_comes_back`).
 - **Unison:** the voices glide on from where they are, for a new note and
   for the legato return.
-- A voice that goes quiet stops gliding. A voice fading out for a steal is
-  not quiet: its waiting note's glide goes on
-  (`porta_stealing_note_glides_through_the_fade`).
+- A voice that goes quiet stops gliding.
 - **Unmeasured on PG-8X:** which note it glides from for a chord, or for a
   new note while two are held. The rule above covers both.
 
@@ -220,7 +227,7 @@ first (up to 16, `FM_HELD_MAX`; past that the oldest is forgotten):
 
 - **Note on: retrigger.** The new note always wins. Every voice moves to it
   and its envelope restarts its attack from the current level, the same as
-  playing a note again in poly. There is no steal fade: the oscillators keep
+  playing a note again in poly. Nothing fades: the oscillators keep
   their phase and only their increment changes, so the waveform has no jump
   and the level only rises from where it was.
 - **Note off of the sounding note: legato.** If other keys are still down,
@@ -278,10 +285,19 @@ saturates (see [Gain staging](#gain-staging) and #24).
 | Filter output | Q8.24 | the input's level with the filter open or no resonance (linear, to the hold's +-8.0); with high resonance about the feedback clip's +-4.0 |
 | Voice: filter output times amp envelope | Q8.24 | as the filter output |
 | Sum of voices (`fm_engine.mix`) | Q8.24 | 2 x `voice_count` with no resonance (both oscillators full); at most the filter's hold, 8.0 x 8 = 64.0, which uses all 7 headroom bits (Q8.24's +-128.0) |
-| Mix gain | Q1.30 | `0.36 / voice_count` = `386669466 / voice_count`, rounded down: 0.25 times 3.17 dB, PG-8X's level (#102); times the VCA LEVEL in Q30 (`level_gain`, exact at full, live and gliding, #169) |
+| Mix gain | Q1.30 | `FM_MIX_GAIN_Q30 / voice_count` (`engine/fm1_8p.h`: 386669466, about 0.36), rounded down: 0.25 times 3.17 dB, PG-8X's level (#102); times the VCA LEVEL in Q30 (`level_gain`, exact at full, live and gliding, #169) |
 | Output before conversion | Q8.24 | 0.72 with no resonance; more with high resonance |
 | Chorus, when on (dry plus wet, #104) | Q8.24 | up to the output plus its delayed copy: 1.0 (full scale) with no resonance; 8 voices in phase measure -0.1 dBFS at most |
-| Output makeup and soft clip (#24, #102) | Q8.24 to `int16_t` | x 2 (+6 dB), a pure gain up to the knee at 23600 (-2.85 dBFS); above it the soft clip bends toward full scale and holds at 0.966 of it (31653, -0.3 dBFS), so the output never reaches the rails |
+| Output makeup and soft clip (#24, #102; `engine/output.c`) | Q8.24 to `int16_t` | x 2 (+6 dB), a pure gain up to the knee at 23600 (-2.85 dBFS); above it the soft clip bends toward full scale and holds at 0.966 of it (31642, -0.3 dBFS), so at output shift 0 the output never reaches the rails |
+| Output gain (`fm_engine_set_output_shift`, #342; `engine/output.c`) | `int16_t` | x 2^shift, then a hard clamp at +-32767. Shift 0 (the default) is the engine's own level. At shift 1 and up the soft clip never shapes a sample: anything at its knee is past the clamp after one doubling, so the device hard-clips (at shift 2, everything over 8191 at the engine's level, -12 dBFS), and the stage computes it as the makeup's plain shift, doubled and clamped. The FM-1 module plays at `FM_OUT_SHIFT_DEVICE`, 2 (x 4, +12 dB) until #320 picks: there SOUNDTRACK's velocity-127 chords (4 voices, held 34 s) saturate 17.2 to 33.2 % of their samples, a 4-note chord at velocity 100 14.7 %, and one C4 at velocity 100 peaks at -0.35 dBFS (`tests/test_headroom.c`) |
+| To the DAC | `int32_t` | `play_render` adds the engine's samples, as they are, into fm1-dock's output buffer (`firmware/fm1_8p/fm1_8p.c`); what fm1-dock does after that is outside this repo |
+
+Every stage up to the output gain is in the engine, so every render path
+runs it: the device (`play_render`, at `FM_OUT_SHIFT_DEVICE`), the render
+tool (`fm1-8p-render`: the engine's level, or the device's with `-d`), the
+gate and `cpu_test`. The scorecard renders at the engine's level and never
+takes `-d` (`tools/scorecard_cmd.py`, pinned by a test), so its PG-8X
+comparisons don't move with the module gain.
 
 Each voice is scaled by `1 / voice_count`, then a fixed -8.83 dB: the
 -12 dB of #24 (a voice's two oscillators at full peak at 2.0, as they sum on
@@ -340,9 +356,8 @@ filter-envelope step, five 32x32->64 multiplies for the 4-pole lowpass plus
 one for the highpass when it is on, and a cutoff update every 16 samples;
 wide open, as by default, it is four compares, and with no envelope amount
 the envelope is not stepped; see [fixed-point.md](fixed-point.md#filter)),
-one 64-bit multiply for the amp,
-an add into the mix buffer, and a test for a queued release (the steal fade
-case above). The oscillator pair and the filter are most of a voice's
+one 64-bit multiply for the amp, and
+an add into the mix buffer. The oscillator pair and the filter are most of a voice's
 per-sample cost; a unison note pays both once per voice, like a chord. The
 LFO and velocity add nothing per sample; their per-tick cost is in
 [modulation.md](modulation.md#cost). Idle voices are skipped. Per sample for

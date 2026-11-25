@@ -24,6 +24,11 @@ die() { echo "scorecard: $*" >&2; exit 2; }
 [ -f "$SCORECARD_REF/manifest.json" ] || die "$SCORECARD_REF: no manifest.json (the PG-8X reference: v5)"
 c=$(git -C "$ROOT" rev-parse --verify --quiet "$1^{commit}") || die "$1: not a commit"
 s=$(git -C "$ROOT" rev-parse --short "$c")
+b=   # BASE's short hash, resolved before any work: a BASE that is not a commit stops here (#335), not as --base ""
+if [ $# -ge 2 ]; then
+    b=$(git -C "$ROOT" rev-parse --verify --quiet "$2^{commit}") || die "$2: not a commit"
+    b=$(git -C "$ROOT" rev-parse --short "$b") && [ -n "$b" ] || die "$2: cannot shorten its hash"
+fi
 W=$ROOT/build/scorecard/$s
 if [ ! -f "$W/src/.complete" ]; then
     rm -rf "$W/src" && mkdir -p "$W/src" && git -C "$ROOT" archive "$c" | tar -x -C "$W/src" || die "cannot archive $1"
@@ -41,4 +46,4 @@ fi
 ${SCORECARD_PYTHON:-python3} -B "$ROOT/tools/scorecard.py" --tree "$W/src" --commit "$s" --ref "$SCORECARD_REF" \
     --history "${SCORECARD_HISTORY:-$ROOT/build/scorecard/history.jsonl}" --work "$W/work${SCORECARD_BANK_NAME:+-$SCORECARD_BANK_NAME}" $match \
     ${SCORECARD_BANK:+--bank "$SCORECARD_BANK" --bank-name "${SCORECARD_BANK_NAME:?set SCORECARD_BANK_NAME}"} \
-    ${2:+--base "$(git -C "$ROOT" rev-parse --short "$2")" --root "$ROOT"}
+    ${b:+--base "$b" --root "$ROOT"}

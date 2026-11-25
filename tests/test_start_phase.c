@@ -198,7 +198,7 @@ static uint32_t stp_score(const fm_start_table *first, const fm_start_table *aft
     return h;
 }
 
-#define STP_BASE_HASH 0x1dfcb6f7u
+#define STP_BASE_HASH 0x5ed5f11du
 
 /* 5. the phases are set once a voice's life: swapping the table after every voice's first note changes
  * nothing that follows (a steal, a take back, the same key again, a retrigger, all sound off, unison) */
@@ -210,7 +210,7 @@ TT_TEST(start_phases_are_set_once_a_voice_life)
 }
 
 /* 6. with every table entry 0 the mechanism is neutral: the score renders bit for bit as before #154
- * (its FNV-1a at 94636ac, the base) */
+ * (its FNV-1a at 2de60a2, #309 with main 80b8d9b: the base) */
 TT_TEST(an_all_zero_table_renders_as_before)
 {
     uint32_t h = stp_score(&tt_start_zero, 0);

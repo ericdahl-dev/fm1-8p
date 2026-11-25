@@ -409,6 +409,8 @@ void ui_init(ui *u, play *p)
     u->now_ms = 0;
     u->shown_edited = 0;
     u->save_waiting = 0;
+    u->save_delete = 0;
+    u->save_open_ms = 0;
     u->save_home_armed = 0;
     u->save_draft_prog = UI_SAVE_NO_DRAFT;
     u->jump = -1;
@@ -1398,8 +1400,10 @@ uint32_t ui_take(ui *u, uint32_t ms)
     if (u->state == UI_SEQ)                     /* SEQ view: the playhead, the armed step's blink */
         ui_seq_tick(u, ms);
     if (u->state == UI_SEQ) {                   /* its footer: the pattern, the next one, edited */
-        uint32_t f = play_pattern_prog(u->p) | (uint32_t)(play_pattern_next(u->p) + 1) << 8 |
-                     seq_edited(play_seq(u->p)) << 16;
+        pattern_seen v;                         /* one look: no takeover between its parts */
+        uint32_t f;
+        pattern_look(play_patterns(u->p), &v);
+        f = v.running | (uint32_t)(v.queued + 1) << 8 | v.edited << 16;
         const seq *q = play_seq(u->p);
         uint32_t c = seq_clock_external(q) | seq_waiting(q) << 1 | (uint32_t)ui_seq_no_clock(u) << 2 |
                      ui_seq_tempo_shown(u) << 3;
@@ -1462,7 +1466,8 @@ uint32_t ui_led(const ui *u, uint32_t button)
     case UI_BTN_LFO:                            /* lit while a page of its ring shows */
         if (u->state == UI_SEQ)                 /* SEQ view: REST, TIE, MOVE (#42), and BACK in REC */
             return button != UI_BTN_FX || u->seq_rec ? UI_LED_GLOW : UI_LED_OFF;
-        if (u->state == UI_SAVE || u->state == UI_GLO)   /* they do nothing there: off (interaction.md) */
+        if (u->state == UI_SAVE || u->state == UI_GLO)   /* off there: they do nothing, but SAVE's SEL
+                                                          * held, which deletes (#303), a hold unlit */
             return UI_LED_OFF;
         return u->state == UI_EDIT && ring_at(r, u->page) >= 0 ? UI_LED_LIT : UI_LED_GLOW;
     case UI_BTN_GLO:                            /* lit in GLO; it glows where a tap opens it */

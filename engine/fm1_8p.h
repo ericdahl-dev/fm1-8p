@@ -32,6 +32,18 @@
 #include "voice.h"
 
 #define FM_MAX_VOICES 8
+/* The mix gain over the voice count, Q1.30: 0.25 (the -12 dB of headroom of
+ * #24) times PG-8X 2.0.13's 3.17 dB (#102), about 0.360, to the nearest. The
+ * sum of the voices is scaled by FM_MIX_GAIN_Q30 / voice_count, rounded
+ * down, times the VCA LEVEL (#169). */
+#define FM_MIX_GAIN_Q30 386669466u
+/* The output stage's gain (#342, engine/output.c): the soft clip's int16
+ * times 2^shift, clamped at +-32767. 0 is the engine's own level (the
+ * default, what the gate and the scorecard render); the FM-1 module plays at
+ * FM_OUT_SHIFT_DEVICE (#320 picks its value). */
+#define FM_OUT_SHIFT_DEVICE 2
+#define FM_OUT_SHIFT_MAX 4
+
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
 #define FM_MIX_FRAMES 64
 /* settings that glide with setting_glide (#146) */
@@ -74,10 +86,10 @@ const fm_param_info *fm_param_info_get(uint16_t id);
 typedef struct {
     uint32_t sample_rate;
     uint8_t voice_count;
+    uint8_t out_shift; /* fm_engine_set_output_shift (#342) */
     int32_t params[FM_PARAM_COUNT];
     int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
     uint32_t stamp;   /* counts note ons and offs, to age the voices */
-    uint32_t fade_samples; /* fast fade of a stolen voice */
     fm_env_settings amp_set;    /* every voice's amp envelope reads these */
     fm_env_settings filter_set; /* and its filter envelope these (#19) */
     fm_env_settings gate_set;   /* the amp envelope's with amp_gate (#63) */
@@ -171,10 +183,17 @@ fm_status fm_engine_set_param(fm_engine *e, uint16_t id, int32_t value);
 int32_t fm_engine_get_param(const fm_engine *e, uint16_t id);
 
 /*
- * Number of voices sounding (attack through release, or fading after a
- * steal). A voice goes idle once its release reaches silence.
+ * Number of voices sounding (attack through release). A voice goes idle
+ * once its release reaches silence.
  */
 uint8_t fm_engine_active_voices(const fm_engine *e);
+
+/*
+ * The output gain in doublings, 0..FM_OUT_SHIFT_MAX (FM_ERR_ARG past it):
+ * every sample from now on is the soft clip's output times 2^shift,
+ * clamped at +-32767. fm_engine_init sets 0.
+ */
+fm_status fm_engine_set_output_shift(fm_engine *e, uint8_t shift);
 
 /* Renders `frames` interleaved stereo frames (L, R) of signed 16-bit. */
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames);

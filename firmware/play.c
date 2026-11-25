@@ -47,6 +47,7 @@ int play_load_prog(play *p, uint32_t q)
         p->stored[f] = s.v[f];
     load_stored(p);
     p->prog = q;
+    p->prog_gone = 0;
     set_name(p, s.name);
     play_load_end(p);
     return 0;
@@ -82,7 +83,7 @@ uint32_t play_store_tick(play *p)
             p->plib = p->plib_attached;
             p->plib_attached = 0;
             p->store_bank = 0;
-            play_load_pattern(p, p->pat_prog);
+            pattern_attach(&p->pat, p->plib, p->io);   /* and the running slot (0) loads */
         }
         return 1;
     }
@@ -94,90 +95,18 @@ uint32_t play_store_progress(const play *p)
     return p->store_read;
 }
 
-uint32_t play_pattern_prog(const play *p)
+pattern_now *play_patterns(play *p)
 {
-    return p->pat_prog;
+    return &p->pat;
 }
 
-void play_pattern_name(const play *p, char *name)
+int play_delete(play *p, uint32_t dest)
 {
-    uint32_t i;
-    for (i = 0; i <= STORE_NAME_LEN; i++)
-        name[i] = p->pat_name[i];
-}
-
-int32_t play_pattern_next(const play *p)
-{
-    return p->pat_next;
-}
-
-static void copy_name(char *to, const char *from)
-{
-    uint32_t i;
-    for (i = 0; i < STORE_NAME_LEN && from[i]; i++)
-        to[i] = from[i];
-    for (; i <= STORE_NAME_LEN; i++)
-        to[i] = '\0';
-}
-
-void play_load_pattern(play *p, uint32_t q)
-{
-    static seq_pattern pat;                     /* (main loop only: kept off its stack) */
-    char name[STORE_NAME_LEN + 1u];
-    if (q >= PAT_SLOTS)
-        return;
-    if (p->seq.want && p->seq.playing && q == p->pat_prog) {
-        seq_cancel_next(&p->seq);               /* back to the running one: nothing queued */
-        p->pat_next = -1;
-        return;
-    }
-    if (p->plib)
-        (void)pat_slot_read(p->plib, q, &pat, name);
-    else {
-        seq_pattern_empty(&pat);
-        name[0] = '\0';
-    }
-    seq_load_pattern(&p->seq, &pat);
-    if (seq_next_queued(&p->seq)) {
-        p->pat_next = (int32_t)q;
-        copy_name(p->pat_next_name, name);
-    } else {
-        p->pat_prog = q;
-        p->pat_next = -1;
-        copy_name(p->pat_name, name);
-    }
-}
-
-void play_pattern_tick(play *p)
-{
-    (void)seq_main_tick(&p->seq);
-    if (p->pat_next >= 0 && !seq_next_queued(&p->seq)) {   /* taken over, or loaded by a stop */
-        p->pat_prog = (uint32_t)p->pat_next;
-        copy_name(p->pat_name, p->pat_next_name);
-        p->pat_next = -1;
-    }
-}
-
-void play_pattern_snapshot(const play *p, seq_pattern *snap)
-{
-    *snap = p->seq.edit;
-}
-
-int play_pattern_write(play *p, uint32_t dest, const seq_pattern *snap, const char *name)
-{
-    if (!p->plib || !p->io || dest >= PAT_SLOTS || pat_slot_write(p->plib, p->io, dest, snap, name) != 0)
+    if (!p->lib || !p->io || dest >= STORE_USER_SLOTS || store_slot_clear(p->lib, p->io, dest) != 0)
         return -1;
-    p->pat_prog = dest;
-    copy_name(p->pat_name, name);
-    p->seq.stored = *snap;                      /* edited now only by what changed since the snapshot */
+    if (dest == p->prog)                        /* what plays stays, no longer a saved patch */
+        p->prog_gone = 1;
     return 0;
-}
-
-int play_pattern_save(play *p, uint32_t dest, const char *name)
-{
-    static seq_pattern snap;
-    play_pattern_snapshot(p, &snap);
-    return play_pattern_write(p, dest, &snap, name);
 }
 
 uint32_t play_silent(const play *p)
@@ -213,6 +142,7 @@ int play_save(play *p, uint32_t dest, const store_patch *s)
         for (i = 0; i < FM_PARAM_COUNT; i++)
             p->stored[i] = s->v[i];
         p->prog = dest;
+        p->prog_gone = 0;
         set_name(p, s->name);
     }
     return 0;
@@ -248,13 +178,13 @@ int play_init(play *p)
     seq_init(&p->seq);
     p->plib = p->plib_attached = 0;
     p->store_bank = p->store_read = 0;
-    p->pat_prog = 0;
-    p->pat_next = -1;
-    p->pat_name[0] = p->pat_next_name[0] = '\0';
-    if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK)
+    pattern_init(&p->pat, &p->seq);
+    if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK ||
+        fm_engine_set_output_shift(&p->engine, FM_OUT_SHIFT_DEVICE) != FM_OK)   /* the module's gain (#342) */
         return -1;
     p->patch = &PATCHES[PATCH_SOUNDTRACK];
     p->prog = PLAY_PROG_P + PATCH_SOUNDTRACK;
+    p->prog_gone = 0;
     set_name(p, p->patch->name);
     patch_values(p->patch, p->stored);
     for (i = 0; i < FM_PARAM_COUNT; i++) {
@@ -400,6 +330,7 @@ void play_load_begin(play *p, uint32_t i)
     load_stored(p);
     p->patch = t;
     p->prog = PLAY_PROG_P + i % PATCH_COUNT;
+    p->prog_gone = 0;
     set_name(p, t->name);
 }
 
@@ -480,10 +411,8 @@ void play_render(play *p, int32_t *out, uint32_t n)
         fm_engine_render(&p->engine, p->buf + 2u * at, n - at);
     }
     p->sounding = fm_engine_active_voices(&p->engine);   /* (for play_silent) */
-    for (i = 0; i < 2u * n; i++) {
-        int32_t v = (int32_t)p->buf[i] * (1 << PLAY_GAIN_SHIFT);
-        out[i] += v > 32767 ? 32767 : v < -32767 ? -32767 : v;     /* saturate, never wrap */
-    }
+    for (i = 0; i < 2u * n; i++)    /* at the module's gain already: the engine's output stage */
+        out[i] += p->buf[i];
 }
 
 void play_compare_begin(play *p)
@@ -514,6 +443,8 @@ uint32_t play_edited(const play *p)
 {
     uint32_t i;
     const volatile int32_t *buf = p->comparing ? p->edit : p->target;   /* compare: the buffer kept */
+    if (p->prog_gone)
+        return 1;
     for (i = 0; i < FM_PARAM_COUNT; i++)
         if (buf[i] != p->stored[i])
             return 1;

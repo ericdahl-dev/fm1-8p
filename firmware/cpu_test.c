@@ -79,7 +79,8 @@ static int start(cpu_test *t, uint8_t voices, patch_kind patch)
     t->held = 0;
     t->worst[voices] = 0;                       /* a count started again measures afresh */
     t->voices = voices;
-    if (fm_engine_init(&t->engine, CT_FS, engine_voices) != FM_OK)
+    if (fm_engine_init(&t->engine, CT_FS, engine_voices) != FM_OK ||
+        fm_engine_set_output_shift(&t->engine, FM_OUT_SHIFT_DEVICE) != FM_OK)  /* the device's stage (#342) */
         rc = FM_ERR_ARG;
     else if (patch == PATCH_UNISON)
         rc = fm_engine_set_param(&t->engine, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);

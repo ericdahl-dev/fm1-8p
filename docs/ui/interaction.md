@@ -431,6 +431,31 @@ view. The flow is the same for both; only the slots differ.
      snapshot. Otherwise EDITED stays.
    - A failed write shows `SAVE FAILED` and keeps the edit buffer dirty.
 
+7. **Delete (#303):** SEL held 1.5 s (on its release, as SEQ view's clear) on
+   a destination that holds a patch (or pattern) asks `DELETE 23 <NAME>?`,
+   `SEL AGAIN TO DELETE` and `HOME CANCELS` (30 characters at most: SEQ's SAVE
+   screen already says it is a pattern). On an
+   `EMPTY` slot, and on a short tap, SEL does nothing. P slots can't be
+   reached (PRESETS walks the user slots).
+   - **A second SEL tap** deletes it. Silent, at once: `DELETED 23` (or
+     `DELETED PATTERN 23`) shows for 1.5 s, and SAVE stays open on the slot,
+     now `EMPTY`. Otherwise it waits as a write does: `DELETING 23 WHEN
+     SILENT`, back where SAVE was pressed, SAVE held forces it, HOME twice
+     cancels it. A pattern that is playing plays on until then.
+   - A waiting delete has its own cancel words: `HOME AGAIN TO CANCEL DELETE`,
+     then `DELETE CANCELED`. `HOLD SAVE: NOW` stays (SAVE held forces it). SEL's
+     LED stays off in SAVE (the delete starts with a hold).
+   - **HOME** cancels the question only (SAVE stays open), and turning PRESETS
+     to another slot does too. A SAVE tap while it shows asks `REPLACE` as on
+     any slot that holds one.
+   - The slot is then empty, in flash too (a power cycle keeps it so): PRESETS
+     skips it, ALGORITHM finds it, a program change to it is ignored.
+     Deleting the slot that is loaded leaves what plays as it is, shown
+     edited (for a pattern: edited against the empty pattern the slot now
+     loads). Deleting the queued pattern's slot cancels the queue (see
+     [Running, queued and stored patterns](#running-queued-and-stored-patterns)).
+     A failed delete shows `DELETE FAILED`.
+
 A patch never includes a pattern, and a pattern never includes a sound
 (decision Q2).
 
@@ -798,6 +823,36 @@ Patterns have their own slots, separate from patches (decision Q2).
     sound, and the running pattern plays on (decision Q8).
   - A pattern change changes only the notes.
 
+#### Running, queued and stored patterns
+
+Four words for what plays and what is saved (#324; Eric, 2026-11-21):
+
+- **Running pattern:** what the sequencer plays now. Its slot and name are in
+  the footer (`PTN 12 NAME`), and edits are edits of it.
+- **Queued pattern:** the slot chosen, while playing, to take over at the end
+  of the pass (`NEXT 23`). The queue means "slot 23 next".
+- **Stored pattern:** what the running pattern's slot holds. PATTERN EDITED
+  (`*`) means the running pattern differs from it.
+- **Takeover:** the moment, after the running pattern's last step, when the
+  queued pattern becomes the running one.
+
+What follows from them:
+
+| Case | What happens |
+|---|---|
+| A slot's pattern is saved while it is queued | The takeover plays what the slot holds now, and the screen shows the slot's new name. |
+| A queued slot is deleted | The queue is canceled. The running pattern plays on and `NEXT` clears. |
+| A takeover while the running pattern is edited | Its edits are dropped. Queueing it already warned. |
+| Another pattern takes over while SAVE is open | SAVE saves the pattern it opened on, as it was then, into the slot and under the name it offered. The pattern that took over stays the running one, unedited (Eric, 2026-11-21). |
+| A SAVE waiting for silence when another pattern takes over | The save writes the snapshot it took. The pattern that took over stays the running one, unedited. |
+| The same, saved into the slot of the pattern that took over | That pattern shows edited: what plays differs from what its slot now holds. |
+| The running pattern's slot is deleted | It plays on, edited against the empty slot. |
+
+Every screen, SAVE, PRESETS turn and step edit sees a takeover as soon as it
+happens, not only from the next redraw. SAVE in SEQ view always offers the
+running pattern's slot, and takes the pattern, its slot and its name together
+when it opens.
+
 ### Playing
 
 - **PLAY** starts from step 1, or stops. It works in every state, including
@@ -894,6 +949,9 @@ Everywhere, unless the state says otherwise:
   - `SAVING 23 WHEN SILENT`, `HOLD SAVE: NOW` (by turns, while a write waits)
   - `HOME AGAIN TO CANCEL SAVE`
   - `SAVE FAILED`
+  - `DELETED 23`, `DELETED PATTERN 23`, `DELETE FAILED` (#303)
+  - `DELETING 23 WHEN SILENT`, `HOLD SAVE: NOW` (by turns, while a delete waits)
+  - `HOME AGAIN TO CANCEL DELETE`, `DELETE CANCELED`
   - `TEMPO FOLLOWS MIDI CLOCK`
   - `COMPARE: RELEASE EDIT`
   - `NEXT PATTERN 23`
@@ -941,7 +999,8 @@ Everywhere, unless the state says otherwise:
   - the destination slot number;
   - the name currently in that slot, or EMPTY;
   - the new name with the cursor position;
-  - the step: editing, confirm replace, waiting for silence, saved, or failed.
+  - the step: editing, confirm replace, confirm delete, waiting for silence,
+    saved, deleted, or failed.
 - **Must:** which controls do what: PRESETS for the slot, SELECT for the
   cursor, K1 for the character, K2 for insert or delete, SAVE to write, HOME to
   cancel.
@@ -1053,7 +1112,7 @@ stateDiagram-v2
 
 | Button | PLAY | EDIT | SEQ | SAVE | GLO |
 | --- | --- | --- | --- | --- | --- |
-| SEL | tap: DCO ring; hold: number jump | same | REST or clear step; hold 1.5 s: clear pattern | - | - |
+| SEL | tap: DCO ring; hold: number jump | same | REST or clear step; hold 1.5 s: clear pattern | hold 1.5 s: delete the slot (asks); tap: confirms it (#303) | - |
 | ENV | VCF/VCA ring | same | TIE | - | - |
 | LFO | LFO ring | same | JUMP or GLIDE | - | - |
 | FX | CTRL page | same | BACK (in REC) | - | - |

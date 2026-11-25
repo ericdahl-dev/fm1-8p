@@ -23,6 +23,7 @@ static const fm_start_table tt_start_zero;
 #include "test_poly.c"
 #include "test_last_voice.c"
 #include "test_start_phase.c"
+#include "test_steal.c"
 #include "test_unison.c"
 #include "test_cpu_test.c"
 #include "test_bench.c"
@@ -38,6 +39,7 @@ static const fm_start_table tt_start_zero;
 #include "test_vfilter.c"
 #include "test_filter_oracle.c"
 #include "test_play.c"
+#include "test_headroom.c"
 #include "test_ui.c"
 #include "test_patches.c"
 #include "test_units.c"
@@ -53,6 +55,7 @@ static const fm_start_table tt_start_zero;
 #include "test_seq_play.c"
 #include "test_seq_clock.c"
 #include "test_play_patterns.c"
+#include "test_pattern_now.c"
 #include "test_svf.c"
 #include "test_porta.c"
 #include "test_dfont.c"
@@ -66,6 +69,7 @@ int main(void)
     run_poly_tests();
     run_last_voice_tests();
     run_start_phase_tests();
+    run_steal_tests();
     run_unison_tests();
     run_cpu_test_tests();
     run_bench_tests();
@@ -81,6 +85,7 @@ int main(void)
     run_vfilter_tests();
     run_filter_oracle_tests();
     run_play_tests();
+    run_headroom_tests();
     run_ui_tests();
     run_patches_tests();
     run_units_tests();
@@ -96,6 +101,7 @@ int main(void)
     run_seq_play_tests();
     run_seq_clock_tests();
     run_play_patterns_tests();
+    run_pattern_now_tests();
     run_svf_tests();
     run_porta_tests();
     run_dfont_tests();

@@ -2,10 +2,17 @@
 /* fm1-8p SAVE: the destination, the name and the write (interaction.md, SAVE). */
 #include "ui_save.h"
 
-/* the slot playing: the patch's, or the pattern's */
+static store_patch snap;                        /* the patch a confirming tap took (main loop) */
+static seq_pattern psnap;                       /* or the pattern, as SAVE opened on it, and its name */
+static char psnap_name[STORE_NAME_LEN + 1u];
+static uint32_t psnap_token;                   /* pattern_snapshot's: a takeover since keeps what runs */
+static pattern_seen psnap_seen;                /* its slot, name and edited, from the same look */
+
+/* the slot playing: the patch's, or the pattern SAVE opened on (Eric on #324: a takeover while SAVE is
+ * open doesn't change what it saves) */
 static uint32_t current(const ui *u)
 {
-    return u->save_pattern ? play_pattern_prog(u->p) : play_prog(u->p);
+    return u->save_pattern ? psnap_seen.running : play_prog(u->p);
 }
 
 /* the draft's key for the slot playing (a pattern's has UI_SAVE_PATTERN_DRAFT on) */
@@ -38,15 +45,20 @@ int ui_save_slot_used(const ui *u, uint32_t s, char *name)
 
 uint32_t ui_save_edited(const ui *u)
 {
-    return u->save_pattern ? seq_edited(play_seq(u->p)) : play_edited(u->p);
+    return u->save_pattern ? psnap_seen.edited : play_edited(u->p);   /* (the pattern's: as SAVE opened) */
 }
 
 void ui_save_open(ui *u, uint32_t ms)
 {
     uint32_t q, s;
-    (void)ms;
+    u->save_open_ms = ms;
     u->save_from = u->state;
     u->save_pattern = u->state == UI_SEQ;
+    if (u->save_pattern) {                      /* the pattern, its slot, name and edited: one look */
+        psnap_token = pattern_snapshot(play_patterns(u->p), &psnap, &psnap_seen);
+        for (s = 0; s <= STORE_NAME_LEN; s++)
+            u->save_name[s] = psnap_seen.name[s];
+    }
     q = current(u);
     if (u->save_pattern) {
         u->save_dest = q;                       /* the pattern slot playing (always one: 11..88) */
@@ -60,9 +72,7 @@ void ui_save_open(ui *u, uint32_t ms)
     if (u->save_draft_prog == draft_key(u))     /* a canceled SAVE of this patch (pattern): its name again */
         for (s = 0; s <= STORE_NAME_LEN; s++)
             u->save_name[s] = u->save_draft[s];
-    else if (u->save_pattern)
-        play_pattern_name(u->p, u->save_name);
-    else
+    else if (!u->save_pattern)                  /* (a pattern's name came with its snapshot) */
         play_prog_name(u->p, u->save_name);
     for (s = 0; s < STORE_NAME_LEN; s++)        /* all 12 places editable: spaces past the end */
         if (!u->save_name[s])
@@ -78,9 +88,6 @@ void ui_save_open(ui *u, uint32_t ms)
 static const char CHARS[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-";
 #define N_CHARS (sizeof CHARS - 1u)
 
-static store_patch snap;                        /* the patch a confirming tap took (main loop) */
-static seq_pattern psnap;                       /* or the pattern, and its name */
-static char psnap_name[STORE_NAME_LEN + 1u];
 
 /* "SAVED 23" and the like into u->save_msg, as the banner; "SAVED PATTERN 23" with pattern */
 static void say(ui *u, const char *what, uint32_t slot, uint32_t ms, uint32_t pattern)
@@ -103,14 +110,15 @@ static void say(ui *u, const char *what, uint32_t slot, uint32_t ms, uint32_t pa
     u->dirty |= UI_D_FOOT;
 }
 
-/* "REPLACE 23 NAME?" into u->save_msg: the screen asks it, with SAVE AGAIN under it */
-static void replace_prompt(ui *u)
+/* "REPLACE 23 NAME?" (or, `what` "DELETE ", "DELETE 23 NAME?") into u->save_msg: the screen asks it, at
+ * step `step` */
+static void ask(ui *u, const char *what, uint32_t step)
 {
     char there[STORE_NAME_LEN + 1u];
-    const char *w = "REPLACE ";
+    const char *w = what;
     char *s = u->save_msg;
     uint32_t i;
-    while (*w)
+    while (*w)                                  /* (no PATTERN: SEQ's SAVE says it, and 30 characters fit) */
         *s++ = *w++;
     ui_prog_number(u->save_dest, s);
     s += 2;                                     /* a user slot: two digits (a scan here is strlen to clang) */
@@ -120,11 +128,17 @@ static void replace_prompt(ui *u)
         *s++ = there[i];
     *s++ = '?';
     *s = 0;
-    u->save_step = UI_SAVE_CONFIRM;
+    u->save_step = step;
     u->dirty |= UI_D_ALL & ~UI_D_FULL;
 }
 
-/* the edit buffer (or the pattern) and the name, trailing spaces trimmed, into snap (psnap) */
+static void replace_prompt(ui *u)
+{
+    ask(u, "REPLACE ", UI_SAVE_CONFIRM);
+}
+
+/* the edit buffer and the name, trailing spaces trimmed, into snap; or the name only into psnap_name (the
+ * pattern is the one SAVE opened on) */
 static void take_snapshot(ui *u)
 {
     char name[STORE_NAME_LEN + 1u];
@@ -134,7 +148,6 @@ static void take_snapshot(ui *u)
     for (i = (int32_t)STORE_NAME_LEN - 1; i >= 0 && name[i] == ' '; i--)
         name[i] = 0;
     if (u->save_pattern) {
-        play_pattern_snapshot(u->p, &psnap);
         for (i = 0; i <= (int32_t)STORE_NAME_LEN; i++)
             psnap_name[i] = name[i];
     } else {
@@ -143,11 +156,21 @@ static void take_snapshot(ui *u)
 }
 
 /* writes the snapshot to its slot and says how it went */
-static void write(ui *u, uint32_t ms)
+static void write_slot(ui *u, uint32_t ms)
 {
     u->save_waiting = 0;
     u->save_home_armed = 0;
-    if ((u->save_pattern ? play_pattern_write(u->p, u->save_dest, &psnap, psnap_name)
+    if (u->save_delete) {                       /* a delete (#303) */
+        u->save_delete = 0;
+        if ((u->save_pattern ? pattern_delete(play_patterns(u->p), u->save_dest) : play_delete(u->p, u->save_dest)) == 0) {
+            if (u->save_pattern && u->save_dest == psnap_seen.running)   /* its own slot: + EDITS against EMPTY */
+                psnap_seen.edited = !seq_pattern_is_empty(&psnap);
+            say(u, "DELETED", u->save_dest, ms, u->save_pattern);
+        } else
+            say(u, "DELETE FAILED", STORE_USER_SLOTS, ms, 0);
+        return;
+    }
+    if ((u->save_pattern ? pattern_save(play_patterns(u->p), u->save_dest, &psnap, psnap_name, psnap_token)
                          : play_save(u->p, u->save_dest, &snap)) == 0) {
         u->save_draft_prog = UI_SAVE_NO_DRAFT;  /* written: no draft to offer */
         say(u, "SAVED", u->save_dest, ms, u->save_pattern);
@@ -155,20 +178,44 @@ static void write(ui *u, uint32_t ms)
         say(u, "SAVE FAILED", STORE_USER_SLOTS, ms, 0);
 }
 
+/* the longest wait message, with its NUL, fits save_wait_msg (Codex P3 on #314: a longer verb would
+ * overflow it) */
+#define WAIT_SAVING "SAVING "
+#define WAIT_DELETING "DELETING "
+#define WAIT_WHEN " WHEN SILENT"
+typedef char ui_require_wait_msg_fits[sizeof WAIT_DELETING "23" WAIT_WHEN <= sizeof ((ui *)0)->save_wait_msg &&
+                                      sizeof WAIT_SAVING "23" WAIT_WHEN <= sizeof ((ui *)0)->save_wait_msg ? 1 : -1];
+
+/* "SAVING 23 WHEN SILENT" (or DELETING) into u->save_wait_msg: the verbs are SAVING and DELETING only */
+static void wait_msg(ui *u, const char *what)
+{
+    char *w = u->save_wait_msg;
+    const char *t = what;
+    while (*t)
+        *w++ = *t++;
+    ui_prog_number(u->save_dest, w);
+    w += 2;                                     /* a user slot: two digits (a scan is strlen to clang) */
+    for (t = WAIT_WHEN; *t; )
+        *w++ = *t++;
+    *w = 0;
+}
+
 static const char HOLD[] = "HOLD SAVE: NOW";
 static const char HOME_AGAIN[] = "HOME AGAIN TO CANCEL SAVE";
+static const char HOME_AGAIN_DELETE[] = "HOME AGAIN TO CANCEL DELETE";   /* a waiting delete's (#303) */
 
 void ui_save_home(ui *u, uint32_t ms)
 {
     if (u->save_home_armed && ms - u->save_home_ms < UI_BANNER_MS) {
+        say(u, u->save_delete ? "DELETE CANCELED" : "SAVE CANCELED", STORE_USER_SLOTS, ms, 0);
         u->save_waiting = 0;
+        u->save_delete = 0;                     /* (a waiting delete too, #303) */
         u->save_home_armed = 0;
-        say(u, "SAVE CANCELED", STORE_USER_SLOTS, ms, 0);
         return;
     }
     u->save_home_armed = 1;                     /* the first tap only asks */
     u->save_home_ms = ms;
-    u->banner = HOME_AGAIN;
+    u->banner = u->save_delete ? HOME_AGAIN_DELETE : HOME_AGAIN;
     u->banner_ms = ms;
     u->dirty |= UI_D_FOOT;
 }
@@ -180,7 +227,7 @@ void ui_save_tick(ui *u, uint32_t ms)
         return;
     if (play_silent(u->p) ||
         (u->held >> UI_BTN_SAVE & 1u && ms - u->down_ms[UI_BTN_SAVE] >= UI_FORCE_MS)) {
-        write(u, ms);                           /* silent, or forced: SAVE held (the sound stalls) */
+        write_slot(u, ms);                      /* silent, or forced: SAVE held (the sound stalls) */
         return;
     }
     if (!(!*u->banner || u->banner == u->save_wait_msg || u->banner == HOLD ||
@@ -251,6 +298,11 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         }
         u->dirty |= UI_D_ALL & ~UI_D_FULL;
     }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap && u->save_step == UI_SAVE_DELETE) {   /* #303: the question only */
+        u->save_step = UI_SAVE_EDITING;
+        u->dirty |= UI_D_ALL & ~UI_D_FULL;
+        return;
+    }
     if (ev == (UI_EV_BTN_UP | UI_BTN_HOME) && tap) {   /* canceled: nothing written, the name kept */
         uint32_t i;
         for (i = 0; i <= STORE_NAME_LEN; i++)
@@ -261,8 +313,31 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         say(u, "SAVE CANCELED", STORE_USER_SLOTS, ms, 0);
         return;
     }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && tap && u->save_step == UI_SAVE_DELETE) {   /* the delete (#303) */
+        u->save_step = UI_SAVE_EDITING;
+        u->save_delete = 1;
+        u->dirty |= UI_D_ALL & ~UI_D_FULL;
+        if (play_silent(u->p)) {                /* now: SAVE stays, on the slot now EMPTY */
+            write_slot(u, ms);
+            return;
+        }
+        u->state = u->save_from;                /* or when silent, as a save waits */
+        u->dirty |= UI_D_FULL;
+        u->save_waiting = 1;
+        u->save_wait_ms = ms;
+        u->save_home_armed = 0;
+        wait_msg(u, WAIT_DELETING);
+        ui_save_tick(u, ms);
+        return;
+    }
+    if (ev == (UI_EV_BTN_UP | UI_BTN_SEL) && ms - u->down_ms[UI_BTN_SEL] >= UI_DELETE_MS &&
+        u->down_ms[UI_BTN_SEL] - u->save_open_ms < 0x80000000u &&   /* pressed in SAVE (wrap-safe) */
+        ui_save_slot_used(u, u->save_dest, NULL)) {   /* held, on a slot that holds one: ask (#303) */
+        ask(u, "DELETE ", UI_SAVE_DELETE);
+        return;
+    }
     if (ev == (UI_EV_BTN_UP | UI_BTN_SAVE) && tap) {
-        if (u->save_step == UI_SAVE_EDITING && u->save_dest != current(u) &&
+        if (u->save_step != UI_SAVE_CONFIRM && u->save_dest != current(u) &&
             ui_save_slot_used(u, u->save_dest, NULL)) {   /* another patch (pattern) is there: ask first */
             replace_prompt(u);
             return;
@@ -273,17 +348,7 @@ void ui_save_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->save_waiting = 1;
         u->save_wait_ms = ms;
         u->save_home_armed = 0;
-        {
-            char *w = u->save_wait_msg;         /* SAVING 23 WHEN SILENT */
-            const char *t = "SAVING ";
-            while (*t)
-                *w++ = *t++;
-            ui_prog_number(u->save_dest, w);
-            w += 2;                             /* a user slot: two digits (a scan is strlen to clang) */
-            for (t = " WHEN SILENT"; *t; )
-                *w++ = *t++;
-            *w = 0;
-        }
+        wait_msg(u, WAIT_SAVING);
         ui_save_tick(u, ms);                    /* silent now: written now */
     }
 }

@@ -223,17 +223,6 @@ void fm_env_gate_off(fm_env *e)
     e->seg = 0;
 }
 
-void fm_env_fade(fm_env *e, uint32_t samples)
-{
-    catch_up(e);
-    if (e->stage == FM_ENV_IDLE) return;
-    e->stage = FM_ENV_FADE;
-    e->seg = 0;
-    /* down by a whole step, rounded up so it never takes longer than asked */
-    e->step = -(int32_t)(samples ? ((uint32_t)e->level + samples - 1) / samples
-                                 : (uint32_t)e->level);
-    if (e->step == 0) e->step = -1;
-}
 
 /* Into the DECAY stage: exponential from the current level to sustain, in
  * either direction, the decay time its tau; the next call starts its first
@@ -332,15 +321,6 @@ int32_t fm_env_next(fm_env *e)
         e->seg--;
         e->level += e->step - rem;
         break;
-    case FM_ENV_FADE:
-        if (e->level <= -e->step) {
-            e->level = 0;
-            e->stage = FM_ENV_IDLE;
-            hold(e);
-        } else {
-            e->level += e->step;
-        }
-        break;
     case FM_ENV_SUSTAIN: /* holds; fm_env_retime starts a glide on change */
         hold(e);
         break;
@@ -364,15 +344,6 @@ static int32_t advance(fm_env *e, uint32_t n)
             e->level += (int32_t)m * e->step;
             e->seg = (uint8_t)(e->seg - m);
             n -= m;
-        } else if (e->stage == FM_ENV_FADE) {
-            /* the calls before the one that lands: level > (j + 1) x step */
-            uint32_t S = (uint32_t)-e->step;
-            uint32_t c = e->level > 0 ? ((uint32_t)e->level - 1) / S : 0;
-            if (n <= c) return e->level -= (int32_t)(n * S);
-            e->level = 0;
-            e->stage = FM_ENV_IDLE;
-            hold(e);
-            return 0;
         } else { /* a segment starts, or a stage lands */
             fm_env_next(e);
             n--;
