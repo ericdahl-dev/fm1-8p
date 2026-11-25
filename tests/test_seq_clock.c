@@ -996,14 +996,16 @@ TT_TEST(clock_out_ends_with_a_stop_when_let_go)
     TT_CHECK_EQ(ck_n_out, n);
 }
 
-/* the interrupt cutting in at a point of the main loop's clock_tick start (seq_test_hook): one block */
-static uint32_t ck_hook_at;
-static void ck_hook(seq *s, uint32_t point)
+/* the interrupt cutting in at a gap of the main loop's clock_tick start (handoff_test.h, gap
+ * "clock_start" 1-4): one block */
+static uint32_t ck_hook_at, ck_hook_hits;
+static void ck_hook(const char *where, uint32_t point)
 {
     static seq_event ev[SEQ_EVENTS];
-    if (point == ck_hook_at) {
-        seq_block_time(s, ck_host((double)ck_done / CK_FS));
-        (void)seq_render(s, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+    if (strcmp(where, "clock_start") == 0 && point == ck_hook_at) {
+        ck_hook_hits++;
+        seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
         ck_done += CK_BLOCK;
     }
 }
@@ -1023,9 +1025,11 @@ TT_TEST(clock_out_a_stop_pending_when_a_clock_starts)
         seq_stop(&ck);                         /* STOP: asked, not yet taken */
         seq_clock_in(&ck, 0xFAu, ck_host(0.5));
         ck_hook_at = at;
-        seq_test_hook = ck_hook;
+        ck_hook_hits = 0;
+        handoff_gap = ck_hook;
         seq_clock_in(&ck, 0xF8u, ck_host(0.501));   /* the start's tick: the interrupt cuts in at `at` */
-        seq_test_hook = 0;
+        handoff_gap = 0;
+        TT_CHECK_EQ(ck_hook_hits, 1u);         /* (it did cut in there) */
         ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
         ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
         for (i = 0, fa_at = 9999u; i < ck_n_out; i++)

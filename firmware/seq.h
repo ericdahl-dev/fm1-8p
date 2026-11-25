@@ -286,9 +286,6 @@ void seq_set_clock_out(seq *s, uint32_t on);
 int seq_clock_out_take(seq *s, uint8_t *st);
 /* main loop: clock out stops now (the module let go, release): a stop after what's due, then nothing */
 void seq_clock_out_stop(seq *s);
-/* tests only (0 in the firmware): called at points of clock_tick's start where the interrupt may cut in,
- * so a test can run a block there (point 1, 2, 3 ...) */
-extern void (*seq_test_hook)(seq *s, uint32_t point);
 /* audio interrupt, before seq_render: the block's start, at host time t */
 void seq_block_time(seq *s, uint32_t t);
 

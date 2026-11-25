@@ -124,6 +124,6 @@ These don't fit one kind. Each is named here and in its field's comment.
 - **`ext`, `ext_inc`: two kinds on one field.** Each is the payload of a followed start's ask
   (kind B), and afterwards a single word the interrupt reads every block (kind D): `ext_inc` moves
   with every clock tick. Both have one writer, the main loop.
-- **The clock start's test points.** `clock_tick`'s start is pinned by `seq_test_hook` points 1-4
-  (`TEST_POINT`, tests/test_seq_clock.c), which stay in the device build. They move to
-  `HANDOFF_GAP` (#349).
+- **The clock start's gaps.** `clock_tick`'s start of a followed run is pinned by gaps
+  "clock_start" 1-4 (`clock_out_a_stop_pending_when_a_clock_starts`). These were `seq_test_hook`'s
+  `TEST_POINT`s, which stayed in the device build; `HANDOFF_GAP` is now the one mechanism.
