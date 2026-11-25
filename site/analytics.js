@@ -22,7 +22,7 @@ export function initConfig() {
     disable_session_recording: true,
     enable_recording_console_log: false,
     autocapture: false,
-    capture_heatmaps: false,
+    capture_heatmaps: false,          // a no-op in the slim bundle (no heatmaps in it); kept in case it ever has them
     disable_surveys: true,
     capture_pageview: true,
     capture_pageleave: false,
@@ -41,10 +41,28 @@ export async function loadPosthog() {
   return (await import("./posthog-js/module.slim.no-external.js")).default;
 }
 
-// every event PostHog sends, its own page view too, carries site: fm1-8p
+// every event PostHog sends, its own page view too, carries site: fm1-8p, and the page's URL with only its utm_
+// parameters (no other query parameter, no fragment). $referrer and $raw_user_agent stay: the traffic source and
+// the browser.
+const URLS = ["$current_url", "$session_entry_url", "$initial_current_url"];
 function tagged(event) {
-  try { if (event) event.properties = { ...event.properties, site: SITE }; } catch (_) { /* send it as it is */ }
+  try {
+    if (!event) return event;
+    const props = { ...event.properties, site: SITE };
+    for (const k of URLS) if (k in props) props[k] = utmOnly(props[k]);
+    event.properties = props;
+  } catch (_) { /* send it as it is */ }
   return event;
+}
+
+// a URL with only its utm_ parameters and no fragment; undefined for one that cannot be read
+function utmOnly(url) {
+  let u;
+  try { u = new URL(url); } catch (_) { return undefined; }
+  const keep = [...u.searchParams].filter(([k]) => k.startsWith("utm_"));
+  u.search = keep.length ? "?" + keep.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&") : "";
+  u.hash = "";
+  return u.href;
 }
 
 // our events: the only ones track() sends

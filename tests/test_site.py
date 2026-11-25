@@ -233,8 +233,9 @@ class PageTest(unittest.TestCase):
     def test_the_footer_says_what_the_usage_stats_count(self):
         _, html = self.build()
         footer = html[html.index("<footer"):]
-        self.assertIn("Cookie-free usage stats via PostHog: page views, emulator starts, and whether installs succeed "
-                      "or fail. Nothing about your FM-1 beyond success or failure.",
+        self.assertIn("Cookie-free usage stats via PostHog: page visits with your browser and the referring site, "
+                      "emulator starts, and whether installs succeed or fail. Nothing about your FM-1 beyond success "
+                      "or failure.",
                       " ".join(re.sub(r"<[^>]+>", "", footer).split()))
 
     def install_section(self):

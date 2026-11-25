@@ -124,3 +124,36 @@ test("emulator_start: a track that throws, or no iframe, changes nothing", () =>
   assert.doesNotThrow(() => A.watchEmulatorStart(fakeWindow(), null, () => {}));
   assert.doesNotThrow(() => A.watchEmulatorStart(undefined, undefined, undefined));
 });
+
+test("before_send: the page's URL keeps only its utm_ parameters, without its fragment", () => {
+  const ev = A.initConfig().before_send({ event: "$pageview", properties: {
+    $current_url: "https://ericdahl-dev.github.io/fm1-8p/?utm_source=facebook&email=a%40b.c&utm_campaign=x32-group#serial-1234",
+    $session_entry_url: "https://ericdahl-dev.github.io/fm1-8p/?token=secret#top",
+    $referrer: "https://www.facebook.com/", $raw_user_agent: "Mozilla/5.0 Chrome/158" } });
+  assert.equal(ev.properties.$current_url, "https://ericdahl-dev.github.io/fm1-8p/?utm_source=facebook&utm_campaign=x32-group");
+  assert.equal(ev.properties.$session_entry_url, "https://ericdahl-dev.github.io/fm1-8p/");
+  assert.equal(ev.properties.$referrer, "https://www.facebook.com/");
+  assert.equal(ev.properties.$raw_user_agent, "Mozilla/5.0 Chrome/158");
+  assert.equal(ev.properties.site, "fm1-8p");
+});
+
+test("before_send: a URL it cannot read is dropped, the event still sent", () => {
+  const ev = A.initConfig().before_send({ event: "install_started", properties: { $current_url: "not a url?x=1" } });
+  assert.equal(ev.event, "install_started");
+  assert.equal(ev.properties.$current_url, undefined);
+  assert.equal(ev.properties.site, "fm1-8p");
+});
+
+import { readFileSync } from "node:fs";
+const BUNDLE = readFileSync(new URL("../../site/posthog-js/module.slim.no-external.js", import.meta.url), "utf8");
+
+// capture_heatmaps is the one exception: the slim bundle has no heatmaps (they are an extension it leaves out), so
+// it never reads it. If a newer bundle does read it, this fails, and the comment in initConfig() needs a look.
+const SLIM_NO_OP = ["capture_heatmaps"];
+
+test("config: every option is one the self-hosted PostHog bundle reads (capture_heatmaps: a no-op in slim)", () => {
+  for (const k of Object.keys(A.initConfig())) {
+    if (SLIM_NO_OP.includes(k)) assert.ok(!BUNDLE.includes(k), `${k} is read by the bundle now`);
+    else assert.ok(BUNDLE.includes(k), `${k} is not in module.slim.no-external.js`);
+  }
+});

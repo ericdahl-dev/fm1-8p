@@ -205,3 +205,35 @@ export async function addFlow({ requestMIDIAccess, fetch, base, lib, ask, say, p
 export function buttonsEnabled({ midi, catalogOk, busy }) {
   return midi && catalogOk && !busy;
 }
+
+// the page's track before the usage stats (site/analytics.js, loaded by a dynamic import) are there: what it gets
+// is kept, at most LATE_MAX, and replayed in order by attach(stats); after that it forwards. attach(null), when the
+// stats never load, drops what was kept and everything after. Never throws, returns nothing, never waits.
+const LATE_MAX = 50;
+export function lateTrack() {
+  let stats, done = false;
+  const kept = [];
+  const send = (event, props) => {
+    try {
+      const r = stats.track(event, props);
+      if (r && typeof r.then === "function") r.then(undefined, () => {});
+    } catch (_) { /* the stats are never the page's problem */ }
+  };
+  return {
+    get pending() { return kept.length; },
+    track(event, props) {
+      try {
+        if (done) { if (stats) send(event, props); return; }
+        if (kept.length < LATE_MAX) kept.push([event, props]);
+      } catch (_) { /* never the page's problem */ }
+    },
+    attach(s) {
+      try {
+        stats = s && typeof s.track === "function" ? s : null;
+        done = true;
+        const all = kept.splice(0);
+        if (stats) for (const [event, props] of all) send(event, props);
+      } catch (_) { /* never the page's problem */ }
+    },
+  };
+}
