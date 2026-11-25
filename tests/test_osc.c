@@ -1579,6 +1579,72 @@ TT_TEST(ring_xmod_moved_and_back_keep_the_restart_correction)
 }
 
 /*
+ * SYNC off drops a restart's pending correction: off right after a
+ * restart (RING and X-MOD off, so the plain path plays on and never reads
+ * it), a few plain samples, then SYNC (`back` 0) or RING (1) on again. The
+ * next samples are the same as a pair at the same phases with nothing
+ * pending: no correction made for a jump long past. (RING on runs
+ * update_special too, so only SYNC back on pins the drop to SYNC off.)
+ * -1: the setup left no restart pending.
+ */
+static int32_t sync_off_then_on_worst(int back, int block)
+{
+    static fm_osc_pair a, b;
+    static int32_t oa[16], ob[16];
+    uint32_t last;
+    int32_t worst = 0;
+    int i, j;
+    fm_osc_pair_reset(&a, 1);
+    fm_osc_pair_set_wave(&a, 1, FM_WAVE_SAW);
+    fm_osc_pair_set_level(&a, 0, FM_OSC_LEVEL_FULL / 2);
+    fm_osc_pair_set_level(&a, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&a, 1);
+    fm_osc_pair_set_pitch(&a, 45 << 16, 48000);
+    fm_osc_pair_set_tune(&a, 1, 700 + 13, 45 << 16, 48000);
+    for (i = 0; i < 2000; i++) fm_osc_pair_next(&a);
+    do {                                                    /* on to a restart: osc1 wraps */
+        last = a.osc[0].phase;
+        fm_osc_pair_next(&a);
+    } while (a.osc[0].phase >= last);
+    if (!a.sync_pend) return -1;                            /* no restart pending: the test tests nothing */
+    fm_osc_pair_set_sync(&a, 0);
+    for (i = 0; i < 5; i++) fm_osc_pair_next(&a);           /* the plain path */
+    b = a;
+    b.sync_pend = 0;                                        /* the same phases, nothing pending */
+    if (back == 0) {
+        fm_osc_pair_set_sync(&a, 1);
+        fm_osc_pair_set_sync(&b, 1);
+    } else {
+        fm_osc_pair_set_ring(&a, 1);
+        fm_osc_pair_set_ring(&b, 1);
+    }
+    for (i = 0; i < 4; i++) {
+        if (block == 1) {
+            oa[0] = fm_osc_pair_next(&a);
+            ob[0] = fm_osc_pair_next(&b);
+        } else {
+            fm_osc_pair_render(&a, oa, (uint32_t)block);
+            fm_osc_pair_render(&b, ob, (uint32_t)block);
+        }
+        for (j = 0; j < block; j++) {
+            int32_t d = oa[j] - ob[j];
+            d = d < 0 ? -d : d;
+            if (d > worst) worst = d;
+        }
+    }
+    return worst;
+}
+
+TT_TEST(sync_off_drops_the_restart_correction)
+{
+    int back;
+    for (back = 0; back < 2; back++) {
+        TT_CHECK_EQ(sync_off_then_on_worst(back, 1), 0);
+        TT_CHECK_EQ(sync_off_then_on_worst(back, 7), 0);
+    }
+}
+
+/*
  * The DC taken off a synced pair follows a sync sweep (osc2 pitched up two
  * octaves over half a second, the classic sweep a pitch envelope plays):
  * each osc1 cycle's own mean stays within 0.04 of full while it moves,
@@ -3030,6 +3096,7 @@ static void run_osc_tests(void)
     TT_RUN(synced_dc_leaves_no_comb_under_the_fundamental);
     TT_RUN(sync_ring_xmod_set_again_change_nothing);
     TT_RUN(ring_xmod_moved_and_back_keep_the_restart_correction);
+    TT_RUN(sync_off_drops_the_restart_correction);
     TT_RUN(synced_dc_follows_a_sync_sweep);
     TT_RUN(synced_osc2_settles_to_no_dc_under_the_step);
     TT_RUN(synced_osc2_retuned_mid_note_has_no_dc);
