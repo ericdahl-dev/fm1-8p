@@ -1,5 +1,6 @@
 """tools/site_build.py: the project page (#356) built from site/ and the factory bank."""
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -33,6 +34,7 @@ class EmulatorUrlTest(unittest.TestCase):
 class PageTest(unittest.TestCase):
     def build(self):
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
         site_build.build(ROOT, d, BASE)
         with open(os.path.join(d, "index.html"), encoding="utf-8") as fh:
             return d, fh.read()
@@ -53,6 +55,21 @@ class PageTest(unittest.TestCase):
         d, html = self.build()
         self.assertNotIn("{{", html)
         self.assertTrue(os.path.isfile(os.path.join(d, "style.css")))
+
+    def test_links_the_files_the_workflow_puts_beside_the_page(self):
+        _, html = self.build()
+        with open(os.path.join(ROOT, ".github", "workflows", "pages.yml"), encoding="utf-8") as fh:
+            workflow = fh.read()
+        for name in (site_build.FWSC, "fm1_8p.dock"):
+            self.assertIn(f'href="{name}"', html)
+            self.assertIn(f"build/fm1/{name}", workflow)
+
+    def test_escapes_tone_names_in_the_page(self):
+        real = site_build.tone_names
+        site_build.tone_names = lambda root: ["A<B&C"]
+        self.addCleanup(setattr, site_build, "tone_names", real)
+        _, html = self.build()
+        self.assertIn("<li>A&lt;B&amp;C</li>", html)
 
     def test_escapes_names(self):
         self.assertEqual(site_build.escape('A<B>&"'), "A&lt;B&gt;&amp;&quot;")
