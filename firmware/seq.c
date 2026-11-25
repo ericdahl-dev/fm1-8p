@@ -1009,9 +1009,10 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
     if (s->ask_play != s->play_seen || s->ask_stop != s->stop_seen) {
         /* the latest ask wins: play (again, from step 1) or stop. It is ask_last, written with each ask, not
          * `want`: an armed seq_play sets `want` with no ask of its own, so a stop then an armed PLAY (#349),
-         * or a play, a stop and an armed PLAY (#373), are a stop. `want` must still be set, as a clock
-         * source change clears it with no ask */
-        uint32_t go = s->ask_last == SEQ_LAST_PLAY && s->want;
+         * or a play, a stop and an armed PLAY (#373), are a stop. A play wins only with its own count new:
+         * ask_last is written before the count, so a stop's block can see a play's ask_last early (gap
+         * "play" 1). `want` must still be set, as a clock source change clears it with no ask */
+        uint32_t go = s->ask_play != s->play_seen && s->ask_last == SEQ_LAST_PLAY && s->want;
         s->play_seen = s->ask_play;
         s->stop_seen = s->ask_stop;
         cnt = let_go(s, ev, cnt, 0);

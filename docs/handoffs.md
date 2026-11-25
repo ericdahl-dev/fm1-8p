@@ -114,8 +114,10 @@ These don't fit one kind. Each is named here and in its field's comment.
   takes an ask, not as it was when the ask was made: a `seq_stop` and then an armed `seq_play`
   inside one block had the stop ask taken as a start (#349), and so did a play asked, then STOP, then
   an armed PLAY (#373). So which ask came last is a payload of its own, `ask_last`, written with each
-  ask before its count; the armed `seq_play` writes none. The interrupt starts only when the last ask
-  was a play and `want` is still set (a clock source change clears it with no ask)
+  ask before its count; the armed `seq_play` writes none. The interrupt starts only when a play's
+  count is new, the last ask was a play and `want` is still set (a clock source change clears it with
+  no ask); a stop's count alone always stops, even if a play's `ask_last` is already written (gap
+  "play" 1)
   (`clock_stop_then_play_inside_one_block_stops`, `clock_start_stop_then_play_inside_one_block_stays_armed`).
 - **`out_on`, two writers, gated by `out_block`.** The interrupt sets it at a start and clears it
   at a stop; the main loop clears it at `seq_stop` (a followed run), `seq_clock_out_stop` and
@@ -148,7 +150,7 @@ is there for, red first or by a mutant.
 | A | `play` events | "put" 1, between the entry and `head` | `play_event_put_with_the_interrupt_inside_plays_once_next_block` (the head written first: the note never sounds) |
 | A | `play` events, full queue | none | `play_queue_overflow_*` |
 | B | `asked[]` | "asked" 1, inside the `\|=` | `play_param_set_again_by_the_asks_race_changes_nothing` (found #350): every param on the patches with a mode of their own at the attack; with `TT_LONG=1` (CI) every patch at three moments |
-| B | `ask_play`, `ask_stop` and their payload `want` | "play" 1 and "stop" 0, between `want` and the count | `seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once` (`seq_play` counting before `want`: no step plays; `seq_stop` the same way is covered by the stop rule: `want`'s exception above, tested by `clock_stop_then_play_inside_one_block_stops`) |
+| B | `ask_play`, `ask_stop` and their payload `ask_last` and `want` | "play" 1 and "stop" 0, between the payload and the count | `seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once` (`seq_play` counting before `want`: no step plays; `seq_stop` the same way is covered by the stop rule in `want`'s exception above); `seq_stop_then_play_with_the_interrupt_before_its_count_starts_once` (a stop's block seeing a play's `ask_last` early: one start, not two) |
 | B | `ask_stop`, `want`, `ask_last` | none: two or three main-loop calls before one block | `clock_stop_then_play_inside_one_block_stops`, `clock_start_stop_then_play_inside_one_block_stays_armed` (#373) |
 | B | `ask_stop` and the pattern ask | "stop" 1 | `pattern_a_takeover_inside_a_stop_loads_the_queued_one` |
 | C | patch load (`loading`, `loads`) | a block between `play_load_begin` and `play_load_end` | `play_load_patch_is_one_step_for_the_audio_interrupt` |
