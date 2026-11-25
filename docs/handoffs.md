@@ -111,12 +111,16 @@ These don't fit one kind. Each is named here and in its field's comment.
 - **`want`, written outside its asks.** An armed `seq_play` (the clock in charge) sets `want = 1`
   with no ask; `seq_set_clock_source` clears it with no ask. The interrupt reads `want` when it
   takes an ask, not as it was when the ask was made: a `seq_stop` and then an armed `seq_play`
-  inside one block would have the stop ask taken as a start. Open: a test, red first (#349).
+  inside one block had the stop ask taken as a start. So a stop ask with no play asked since stops,
+  whatever `want` says (every `seq_stop` writes `want = 0` before its ask); with both new, the latest
+  `want` decides (`clock_stop_then_play_inside_one_block_stops`).
 - **`out_on`, two writers.** The interrupt sets it at a start and clears it at a stop; the main
   loop clears it at `seq_stop` (a followed run) and `seq_clock_out_stop`, and sets it at a followed
-  start. `seq_clock_out_stop` reads it and then clears it: an interrupt between the two that takes
-  a stop ask sends 0xFC, and then the main loop sends a second. Open: a test at that gap, red first
-  (#349).
+  start. `seq_clock_out_stop` reads it and then clears it: an interrupt between the two (gap
+  "out_stop" 1) that took a pending stop or restart ask sent 0xFC, and then the main loop sent a
+  second. So with an ask pending, `seq_clock_out_stop` leaves the stop to the interrupt; with none,
+  nothing can change `out_on` between its read and its clear
+  (`clock_out_stop_inside_a_pending_ask_sends_one_stop`).
 - **`ext`, `ext_inc`: two kinds on one field.** Each is the payload of a followed start's ask
   (kind B), and afterwards a single word the interrupt reads every block (kind D): `ext_inc` moves
   with every clock tick. Both have one writer, the main loop.

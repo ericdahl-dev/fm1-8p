@@ -133,8 +133,15 @@ void seq_clock_out_stop(seq *s)
 {
     s->out_block = 1;                           /* (a PLAY asked and not yet taken starts no clock out) */
     BARRIER();
+    /* a play or stop asked and not yet taken: the interrupt sends this run's stop as it takes it (a
+     * restart turns clock out off, out_block), so the main loop sends none: checked before out_on, as
+     * an interrupt between our read of out_on and its clear would send one too (#349) */
+    if (*(volatile uint32_t *)&s->play_seen != s->ask_play ||
+        *(volatile uint32_t *)&s->stop_seen != s->ask_stop)
+        return;
     if (!s->out_on)
         return;
+    HANDOFF_GAP("out_stop", 1);
     s->out_on = 0;                              /* (the interrupt counts and stops no more for this run) */
     BARRIER();
     out_pass(s, 0xFCu);

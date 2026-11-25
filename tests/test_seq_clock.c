@@ -754,6 +754,42 @@ TT_TEST(clock_out_start_and_stop)
     TT_CHECK_EQ(ck_outs(0xFCu), 2u);
 }
 
+/* #349: G14 on, its own clock, a STOP and then the module let go (seq_clock_out_stop) inside one block,
+ * with the interrupt cutting in between its read of out_on and its clear (gap "out_stop" 1): one MIDI
+ * stop, not two. The same with a restart (PLAY asked again) pending instead of the stop. */
+static uint32_t ck_gap_hits;
+static void ck_gap_block(const char *where, uint32_t n)
+{
+    static seq_event ev[SEQ_EVENTS];
+    (void)n;
+    if (strcmp(where, "out_stop") == 0 && ck_gap_hits++ == 0) {
+        seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+    }
+}
+TT_TEST(clock_out_stop_inside_a_pending_ask_sends_one_stop)
+{
+    uint32_t k;
+    for (k = 0; k < 2u; k++) {
+        ck_fresh(SEQ_CLK_AUTO);
+        seq_set_clock_out(&ck, 1);
+        ck_msg_at(0.1, 0, CK_PLAY);
+        ck_run(0.5);
+        TT_CHECK_EQ(ck_outs(0xFAu), 1u);
+        if (k == 0)
+            seq_stop(&ck);                      /* STOP: the interrupt is to send its stop */
+        else
+            seq_play(&ck);                      /* PLAY again: a restart, stop then start */
+        ck_gap_hits = 0;
+        handoff_gap = ck_gap_block;
+        seq_clock_out_stop(&ck);                /* let go, the interrupt inside it */
+        handoff_gap = 0;
+        ck_run(1.0);
+        TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+        TT_CHECK_EQ(ck_outs(0xFAu), 1u);        /* (and no start after it) */
+    }
+}
+
 /* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
  * start: never two starts in a row (#286) */
 TT_TEST(clock_out_restart_stops_first)
@@ -1032,6 +1068,7 @@ TT_TEST(clock_out_let_go_with_a_play_pending)
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_out_ticks_with_the_steps);
+    TT_RUN(clock_out_stop_inside_a_pending_ask_sends_one_stop);
     TT_RUN(clock_out_start_and_stop);
     TT_RUN(clock_out_restart_stops_first);
     TT_RUN(clock_out_off_and_changed_while_playing);
