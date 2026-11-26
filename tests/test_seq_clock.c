@@ -1027,6 +1027,46 @@ TT_TEST(clock_out_let_go_in_every_order_ends_stopped)
     TT_CHECK_EQ(bad, 0u);
 }
 
+/* #364: G14 on, its own clock playing, a STOP (or a restart) asked and not yet taken when a MIDI start and
+ * its tick come in: clock_tick's followed start stops the own run's clock out first. The interrupt cuts
+ * in between its read of out_on and its clear (gap "clock_start" 0) and takes the pending ask. One MIDI
+ * stop between the own run's start and the followed run's, never two: FA FC FA. */
+TT_TEST(clock_start_with_an_ask_pending_sends_one_stop)
+{
+    uint32_t k;
+    for (k = 0; k < 2u; k++) {
+        ck_fresh(SEQ_CLK_AUTO);                 /* no clock yet: its own */
+        seq_set_clock_out(&ck, 1);
+        ck_msg_at(0.1, 0, CK_PLAY);
+        ck_run(0.5);
+        TT_CHECK_EQ(ck_outs(0xFAu), 1u);
+        if (k == 0)
+            seq_stop(&ck);                      /* STOP, not taken yet */
+        else
+            seq_play(&ck);                      /* PLAY again (a restart), not taken yet */
+        seq_clock_in(&ck, 0xFAu, ck_host(0.5)); /* a MIDI start, then its tick: */
+        ck_b_where = "clock_start", ck_b_n = 0, ck_b_hits = 0, ck_b_on = 0;
+        handoff_gap = ck_gap_b;
+        seq_clock_in(&ck, 0xF8u, ck_host(0.501));   /* clock_tick's start, the interrupt inside it */
+        handoff_gap = 0;
+        TT_CHECK_EQ(ck_b_hits, 1u);             /* (it did cut in there) */
+        ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
+        ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
+        {                                       /* the starts and stops, ticks left out: FA FC FA */
+            uint32_t q, m = 0;
+            uint8_t seen[4] = { 0, 0, 0, 0 };
+            for (q = 0; q < ck_n_out; q++)
+                if (ck_out[q] != 0xF8u && m < 4u)
+                    seen[m++] = ck_out[q];
+            if (m != 3u || seen[0] != 0xFAu || seen[1] != 0xFCu || seen[2] != 0xFAu)
+                printf("    %s pending: %u starts and stops, %02X %02X %02X %02X\n", k ? "a restart" : "a stop",
+                       (unsigned)m, seen[0], seen[1], seen[2], seen[3]);
+            TT_CHECK_EQ(m, 3u);                 /* the own run's start, its stop once, the followed start */
+            TT_CHECK(seen[0] == 0xFAu && seen[1] == 0xFCu && seen[2] == 0xFAu);
+        }
+    }
+}
+
 /* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
  * start: never two starts in a row (#286) */
 TT_TEST(clock_out_restart_stops_first)
@@ -1336,6 +1376,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_ticks_with_the_steps);
     TT_RUN(clock_out_stop_inside_a_pending_ask_sends_one_stop);
     TT_RUN(clock_out_start_and_stop);
+    TT_RUN(clock_start_with_an_ask_pending_sends_one_stop);
     TT_RUN(clock_out_restart_stops_first);
     TT_RUN(clock_out_off_and_changed_while_playing);
     TT_RUN(clock_out_follows_tempo_changes);

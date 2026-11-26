@@ -131,9 +131,11 @@ These don't fit one kind. Each is named here and in its field's comment.
   restart lands (gaps "out_stop" 0 and 1). Two earlier tries on this branch each failed one order
   (a stop left to an interrupt that never ran; an interrupt between `out_block` and the read), which
   is why its test runs every order.
-  Open, older than this fix: `clock_tick`'s followed start reads `out_on` and then clears it with
-  `out_block` clear, the same shape; a pending own-clock stop taken between the two sends a second
-  stop (#364).
+  `clock_tick`'s followed start, which ends the own run's clock out first, had the same read and
+  clear with `out_block` clear: a pending stop or restart taken between the two sent a second stop
+  (#364). It now holds the gate for that read and clear and puts `out_block` back as it was before it
+  latches G14, so a let-go stays let go (gap "clock_start" 0,
+  `clock_start_with_an_ask_pending_sends_one_stop`).
 - **`ext`, `ext_inc`: two kinds on one field.** Each is the payload of a followed start's ask
   (kind B), and afterwards a single word the interrupt reads every block (kind D): `ext_inc` moves
   with every clock tick. Both have one writer, the main loop.
@@ -159,7 +161,7 @@ is there for, red first or by a mutant.
 | C | step edit (`editing`, `edits`) | "edit" 1 | `seq_takeover_inside_an_edit_plays_the_new_pattern`, `pattern_a_takeover_inside_a_step_edit_drops_the_edit` |
 | C | pattern ask (`ask`, `took`) | "ask" 0-3, "sync" 1 | `pattern_a_pass_end_in_any_gap_of_the_handoff_takes_nothing` and the other `pattern_*` gap tests |
 | C | seqlock (`blk_seq`) | "blk" 1, inside `block_read` | `clock_read_of_the_block_time_inside_a_block_stays_on_the_grid` (no retry: 0.147 ms off the grid against 0.011) |
-| B and D | followed start (`ext*`, `ask_play`, `out_on`) | "clock_start" 1-4 | `clock_out_a_stop_pending_when_a_clock_starts` |
+| B and D | followed start (`ext*`, `ask_play`, `out_on`) | "clock_start" 0-4 | `clock_out_a_stop_pending_when_a_clock_starts`; at 0 (#364), `clock_start_with_an_ask_pending_sends_one_stop`: a stop or a restart pending, FA FC FA (main: FA FC FC FA, FA FC FA FC) |
 | two writers | `out_on` at let go | "out_stop" 0 and 1, and blocks before, between and after release's calls | `clock_out_let_go_in_every_order_ends_stopped`: 48 orders (no ask, STOP, restart, PLAY from stopped; six places for the block; own clock and followed), each must alternate starts and stops and end stopped. It catches all three wrong versions: the stop left to the interrupt (0 stops), no `out_block` check (2 stops at gap 1), the stop alone gated (0 stops at gap 0). Also `clock_out_stop_inside_a_pending_ask_sends_one_stop`, `clock_out_ends_with_a_stop_when_let_go_with_an_ask_pending` |
 
 Kind D needs no gap: one store, read whole either side of it.

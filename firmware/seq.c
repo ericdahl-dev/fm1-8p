@@ -670,6 +670,7 @@ static void hold_whole(seq *s)
 static void clock_tick(seq *s, uint32_t t)
 {
     uint32_t bt, bu, binc, fs, held = 0;
+    uint8_t blocked;
     if (!s->clk_present) {
         s->clk_present = 1;
         s->clk_win = 0;
@@ -738,8 +739,12 @@ static void clock_tick(seq *s, uint32_t t)
             s->clk_shown = 0;                   /* (the second tick measures it outright) */
         }                       /* the start's tick 0 */
         s->ext_cont = s->clk_pending == 2u;
-        if (s->playing && s->out_on) {          /* #286: its own run (or the last) stops first, and off: */
-            s->out_on = 0;                      /* a stop ask the interrupt takes now sends no second one */
+        blocked = s->out_block;                 /* #364: out_block is the gate (#349): while it is set the */
+        s->out_block = 1;                       /* interrupt neither writes out_on nor sends a start or stop, */
+        BARRIER();                              /* so out_on and the own run's stop are ours till the latch */
+        if (s->out_on) {                        /* #286: its own run (or the last) stops first, and off (not */
+            HANDOFF_GAP("clock_start", 0);      /* `playing`: a gated interrupt may have stopped the run and */
+            s->out_on = 0;                      /* left out_on for us) */
             BARRIER();
             out_pass(s, 0xFCu);
         }
@@ -761,7 +766,9 @@ static void clock_tick(seq *s, uint32_t t)
         s->ask_play++;
         HANDOFF_GAP("clock_start", 3);
         BARRIER();                              /* #286: G14 latched after the ask, so a stop ask still */
-        s->out_on = (uint8_t)(s->out_want && !s->out_block);   /* pending can't find it on and switch it off */
+        s->out_block = blocked;                 /* pending can't find it on and switch it off; the gate back */
+        BARRIER();                              /* as it was (let go stays let go) */
+        s->out_on = (uint8_t)(s->out_want && !s->out_block);
         if (s->out_on)
             out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
         HANDOFF_GAP("clock_start", 4);
