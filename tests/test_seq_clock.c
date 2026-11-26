@@ -1168,6 +1168,32 @@ TT_TEST(seq_a_last_ask_ahead_of_its_count_starts_once)
     TT_CHECK_EQ(ck_outs(0xFCu), 1u);
 }
 
+/* #380: G14 on, stopped, MIDI clock: a MIDI start and its tick start the followed run (the main loop
+ * sends its start, FA, and asks to play), then the clock source goes to INT before the interrupt takes the
+ * ask (ext 0, no ask of its own). The run goes on on its own clock, and clock out says so once: one FA, its
+ * ticks after it, no second start. */
+TT_TEST(clock_source_to_int_with_a_start_pending_sends_one_start)
+{
+    uint32_t q, fa = 0, f8_after = 0;
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, 1);
+    ck_run(0.2);
+    seq_clock_in(&ck, 0xFAu, ck_host(0.2));
+    seq_clock_in(&ck, 0xF8u, ck_host(0.201));   /* the followed start: FA, and the ask */
+    seq_set_clock_source(&ck, SEQ_CLK_INT);     /* before one block: INT */
+    ck_run(1.0);
+    TT_CHECK(ck.playing && !ck.ext);            /* on, on its own clock */
+    for (q = 0; q < ck_n_out; q++) {
+        fa += ck_out[q] == 0xFAu || ck_out[q] == 0xFBu;
+        f8_after += fa && ck_out[q] == 0xF8u;
+    }
+    if (fa != 1u)
+        printf("    INT with a start pending: %u starts\n", (unsigned)fa);
+    TT_CHECK_EQ(fa, 1u);                        /* one start, */
+    TT_CHECK(f8_after > 0u);                    /* and its clock after it */
+    TT_CHECK_EQ(ck_outs(0xFCu), 0u);
+}
+
 /* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
  * start: never two starts in a row (#286) */
 TT_TEST(clock_out_restart_stops_first)
@@ -1477,6 +1503,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_ticks_with_the_steps);
     TT_RUN(clock_out_stop_inside_a_pending_ask_sends_one_stop);
     TT_RUN(clock_out_start_and_stop);
+    TT_RUN(clock_source_to_int_with_a_start_pending_sends_one_start);
     TT_RUN(clock_start_with_an_ask_pending_sends_one_stop);
     TT_RUN(clock_start_in_every_order_alternates);
     TT_RUN(seq_a_last_ask_ahead_of_its_count_starts_once);
