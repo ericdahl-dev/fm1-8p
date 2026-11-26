@@ -265,7 +265,7 @@ void seq_set_swing(seq *s, uint32_t pct);              /* clamped to 50..75 */
  * the step fields (VEL, BEND in % of the range, MOD, MOVE) act on step i only while it is a note or chord */
 enum { SEQ_NUDGE_TEMPO, SEQ_NUDGE_LENGTH, SEQ_NUDGE_SWING, SEQ_NUDGE_GATE,
        SEQ_NUDGE_VEL, SEQ_NUDGE_BEND_PCT, SEQ_NUDGE_MOD, SEQ_NUDGE_MOVE };
-void seq_nudge(seq *s, uint32_t what, uint32_t i, int32_t delta);   /* (i: the step; the pattern's ignore it) */
+void seq_nudge(seq *s, uint32_t what, uint32_t i, int32_t delta);   /* (i: the step; the pattern fields ignore it) */
 /* main loop: MOVE on step i switched, JUMP <-> GLIDE, inside the edit as seq_nudge (#348): a note or chord
  * only */
 void seq_toggle_glide(seq *s, uint32_t i);
