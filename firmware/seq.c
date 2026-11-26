@@ -330,10 +330,10 @@ void seq_play(seq *s)
             s->clk_pending = 1;
         return;
     }
+    s->ask_last = SEQ_LAST_PLAY_AT(s->ask_play + 1u);   /* first: till its count, a stop to the interrupt */
     s->ext = 0;                                 /* (its own clock) */
     s->clk_pending = 0;                         /* (a start come in with no clock: nothing to wait for) */
     s->want = 1;
-    s->ask_last = SEQ_LAST_PLAY;
     BARRIER();                                  /* the wish before the ask: never an ask with an old one */
     HANDOFF_GAP("play", 1);
     s->ask_play++;
@@ -755,13 +755,14 @@ static void clock_tick(seq *s, uint32_t t)
         s->clk_k = 0;
         s->ext_t0 = t;
         set_rate(s, 0, fs, 1);
+        s->ask_last = SEQ_LAST_PLAY_AT(s->ask_play + 1u);   /* before ext: an ask pending now is no start */
+        BARRIER();
         s->ext = 1;
         BARRIER();                              /* (following now: the interrupt counts no ticks of its own) */
         HANDOFF_GAP("clock_start", 2);
         s->clk_running = 1;
         s->clk_armed = 0;
         s->want = 1;
-        s->ask_last = SEQ_LAST_PLAY;
         BARRIER();                              /* the rate and tick 0 before the ask */
         s->ask_play++;
         HANDOFF_GAP("clock_start", 3);
@@ -1014,12 +1015,12 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
     uint32_t cnt = 0, t = 0, thr, inc, gate, target, j, next, glide, xi;
     s->fs = fs;
     if (s->ask_play != s->play_seen || s->ask_stop != s->stop_seen) {
-        /* the latest ask wins: play (again, from step 1) or stop. It is ask_last, written with each ask, not
-         * `want`: an armed seq_play sets `want` with no ask of its own, so a stop then an armed PLAY (#349),
-         * or a play, a stop and an armed PLAY (#373), are a stop. A play wins only with its own count new:
-         * ask_last is written before the count, so a stop's block can see a play's ask_last early (gap
-         * "play" 1). `want` must still be set, as a clock source change clears it with no ask */
-        uint32_t go = s->ask_play != s->play_seen && s->ask_last == SEQ_LAST_PLAY && s->want;
+        /* the latest ask wins: play (again, from step 1) or stop. It is ask_last, written first in each ask,
+         * not `want`: an armed seq_play sets `want` with no ask of its own (#349, #373). A play wins only
+         * when ask_last is a play whose count is the one now here: written before its count, a last ask
+         * not yet counted is a stop to this block, whatever earlier counts are new (#377), and the next
+         * block takes it. `want` must still be set, as a clock source change clears it with no ask */
+        uint32_t go = s->ask_play != s->play_seen && s->ask_last == SEQ_LAST_PLAY_AT(s->ask_play) && s->want;
         s->play_seen = s->ask_play;
         s->stop_seen = s->ask_stop;
         cnt = let_go(s, ev, cnt, 0);
