@@ -600,10 +600,11 @@ def to_engine(tone):
     # PG-8X flattens near 0.05 Hz (0.050 Hz measured at 16): the curve stops there (at 25)
     e["LFO_RATE_CENTIHZ"] = max(5, rnd(53.7 * 2.664 ** ((p[LFO_RATE] - 64) / 16)))
     e["LFO_DELAY_MS"] = rnd(3000 * (p[LFO_DELAY] / 127) ** 3)
-    # a vibrato depth per oscillator (#58). PG-8X 2.0.13: linear, 4.5 cents per step (572 cents
-    # at 127), the same law for both
-    e["LFO_PITCH_CENTS"] = rnd(4.5 * p[DCO1_LFO])
-    e["LFO_PITCH_OSC2_CENTS"] = rnd(4.5 * p[DCO2_LFO])
+    # a vibrato depth per oscillator (#58). PG-8X 2.0.13: linear, 4.72 cents of peak per step (599
+    # cents at 127), the same law for both. #330: the 2..98 % spread read 4.5 a step, but it reads a
+    # triangle's peak about 0.95 low; the same measure on ours read 0.952 of PG-8X's at bytes 32, 64, 127
+    e["LFO_PITCH_CENTS"] = rnd(4.72 * p[DCO1_LFO])
+    e["LFO_PITCH_OSC2_CENTS"] = rnd(4.72 * p[DCO2_LFO])
     e["CHORUS_MODE"] = min(switch(p[CHORUS]), 2)
     e["AMP_DYNA"] = switch(p[VCA_DYNA])         # the DYNAMICS curve (engine/dyna.c), as PG-8X plays it
     # DCO ENV (#58, #328): dco_env_cents at full envelope, linear in the envelope, the same on

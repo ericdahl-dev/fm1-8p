@@ -165,7 +165,7 @@ no work and changes no sample.
 for multiples of 75 cents and otherwise off by under 1/65536 of an octave),
 the depth of the LFO's route to osc 1's pitch, and to osc 2's unless
 `lfo_pitch_osc2_cents` gives osc 2 its own (the JX-8P's DCO-1 and DCO-2 LFO;
-PG-8X plays both at 4.5 cents a step).
+PG-8X plays both at 4.72 cents of peak a step, #330).
 
 The pitch envelope routes to each oscillator's pitch the same way, at
 `pitch_env_osc1_cents` and `pitch_env_osc2_cents`: linear in the envelope's
