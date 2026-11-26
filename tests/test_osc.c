@@ -559,6 +559,7 @@ TT_TEST(osc2_coarse_change_retunes_a_held_note_without_a_restart)
 static void render_levels(int16_t *out, int32_t l1, int32_t l2)
 {
     osc_init();
+    eng.start = &tt_start_zero; /* both at phase 0 (#154): at full the pair stays under the soft clip's knee */
     fm_engine_set_param(&eng, FM_PARAM_AMP_SUSTAIN, 500);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_OCTAVE, 1);
     fm_engine_set_param(&eng, FM_PARAM_OSC1_LEVEL, l1);
@@ -1064,6 +1065,7 @@ static void render_mix(int16_t *out, size_t frames, osc_setting o1,
                        osc_setting o2, int32_t mix)
 {
     osc_init();
+    eng.start = &tt_start_zero; /* both DCOs at phase 0 (#154), so swapping their settings swaps them exactly */
     fm_engine_set_param(&eng, FM_PARAM_OSC1_WAVE, o1.wave);
     fm_engine_set_param(&eng, FM_PARAM_OSC1_PULSE_WIDTH_PCT, o1.width);
     fm_engine_set_param(&eng, FM_PARAM_OSC1_OCTAVE, o1.octave);
@@ -1861,11 +1863,13 @@ TT_TEST(xmod_follows_osc2_coarse_changed_on_a_held_note)
     size_t i;
     int same = 1;
     slave_init(RATE, FM_WAVE_SAW);
+    eng.start = &tt_start_zero; /* (#154: a start phase reads the tune at note on, so a tune changed after it could not match) */
     fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
     fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 500);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_render(&eng, first, 4096);
     slave_init(RATE, FM_WAVE_SAW);
+    eng.start = &tt_start_zero; /* (#154: a start phase reads the tune at note on, so a tune changed after it could not match) */
     fm_engine_set_param(&eng, FM_PARAM_OSC_XMOD, 500);
     fm_engine_note_on(&eng, 57, 100);
     fm_engine_set_param(&eng, FM_PARAM_OSC2_COARSE_SEMIS, 7); /* on the held note */

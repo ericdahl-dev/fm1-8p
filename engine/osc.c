@@ -1301,3 +1301,26 @@ void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
     wave_run(p, 0, out, n, p->level[0], 0);
     wave_run(p, 1, out, n, p->level[1], 1);
 }
+
+/* 2^(m / 12) in Q2.30, m 0..11 (rounded) */
+static const uint32_t semitone_q30[12] = {
+    1073741824u, 1137589835u, 1205234447u, 1276901417u, 1352829926u, 1433273380u,
+    1518500250u, 1608794974u, 1704458901u, 1805811301u, 1913190429u, 2026954652u
+};
+
+/* 2^(tune / 12) in Q16.16 for a tune in Q16.16 semitones (set_tune keeps
+ * it within 128 semitones: whole octaves -11..10, so the shift is 4..25) */
+static uint32_t tune_ratio_q16(int32_t tune)
+{
+    int32_t n = tune >> 16; /* floor: the fraction below is 0..1 up */
+    int32_t oct = n >= 0 ? n / 12 : -((11 - n) / 12);
+    uint64_t q = ((uint64_t)semitone_q30[n - 12 * oct] * semitone_ratio_q30((uint32_t)tune & 0xFFFFu)) >> 30;
+    return (uint32_t)q >> (14 - oct); /* q < 2^32: 2^(11 / 12) x 2^(1 / 12) in Q30 */
+}
+
+void fm_osc_pair_start_phase(fm_osc_pair *p, uint8_t which, uint32_t a, int32_t slope)
+{
+    if (which >= 2 || slope < 0) return;
+    /* Q16.16 times Q16.16 is Q32: its low 32 bits are the fraction of a cycle */
+    p->osc[which].phase = a + (uint32_t)((uint64_t)(uint32_t)slope * tune_ratio_q16(p->tune[which]));
+}

@@ -667,6 +667,23 @@ static void end_mode(fm_engine *e)
     unison_reset(e);
 }
 
+/*
+ * PG-8X 2.0.13's voices' start phases (#154, measured 2026-11-19 at
+ * SELFNOISE 0, on a 512-sample render host): voice k's DCO-1 and DCO-2, a
+ * and b of a + b r fitted over r 0.25..8 (rms 0.010..0.019 cycle). b adds
+ * 0.0643 = 0.000287 x 224: PG-8X's phase also moves with where the note-on
+ * falls in the host's block, taken at 224 samples (the scorecard's most
+ * common). The wave's term: square 0.733, PG-8X's pulse (spike) 0.738;
+ * saw 0; pulse not measured (0); noise keeps its phase.
+ */
+const fm_start_table fm_start_pg8x = {
+    { { 4050583657u, 2423220548u }, { 3953087899u, 2620359547u }, { 3825097874u, 3922593631u },
+      { 1175962046u, 1361934130u }, { 3420941451u, 1506674527u }, { 2977700826u, 2860877716u } },
+    { { 62645, 62553 }, { 63012, 62933 }, { 62986, 62920 },
+      { 63078, 63012 }, { 63536, 63471 }, { 63471, 63418 } },
+    { 0, 0, 48038, 0, 48366 } /* saw, pulse, square, noise, spike */
+};
+
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count)
 {
@@ -685,6 +702,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
      * the filter, the highpass, the VCA modes) */
     e->mix_gain = (int32_t)(FM_MIX_GAIN_Q30 / voice_count);
     e->stamp = 0;
+    e->start = &fm_start_pg8x;
     e->pedal_down = 0;
     e->bend = 0;
     e->bend_value = 0;
@@ -852,6 +870,10 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
                       uint8_t velocity)
 {
     uint8_t i = (uint8_t)(v - e->voices);
+    /* its first note, from silence: PG-8X's start phases (#154). They read the DCOs' tune, which is
+     * patch-level; if a per-note tune ever comes in (key follow, velocity to pitch), this must follow it */
+    if (fm_voice_fresh(v))
+        fm_voice_start_phases(v, fm_voice_active(v) ? 0 : e->start, i);
     fm_voice_age(v, ++e->stamp);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate);
@@ -898,6 +920,8 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         uint8_t was = fm_voice_note(v);
+        if (fm_voice_fresh(v)) /* played now, from phase 0: PG-8X's unison start is not measured (#154) */
+            fm_voice_start_phases(v, 0, i);
         fm_voice_age(v, ++e->stamp);
         if (e->params[FM_PARAM_PORTAMENTO_MS] && fm_voice_active(v) && was != FM_VOICE_NO_NOTE) {
             /* sounding: on from where it is (no jump mid-glide) */
