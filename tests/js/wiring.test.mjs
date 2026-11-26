@@ -46,3 +46,11 @@ test("analytics.js loads the self-hosted PostHog library, nothing from another s
   assert.match(STATS, /import\("\.\/posthog-js\/module\.slim\.no-external\.js"\)/);
   assert.doesNotMatch(STATS, /import\("https?:/);
 });
+
+test("install.js keeps what it tracks before the stats load and replays it (lateTrack), or drops it if they fail", () => {
+  assert.match(SRC, /import \{[^}]*\blateTrack\b[^}]*\} from "\.\/installer\.js";/);
+  assert.match(SRC, /const late = lateTrack\(\);/);
+  assert.match(SRC, /import\("\.\/analytics\.js"\)\.then\(\(m\) => \{[^}]*late\.attach\(m\.createAnalytics\(\)\)/s);
+  assert.match(SRC, /\.catch\(\(\) => late\.attach\(null\)\)/);
+  assert.doesNotMatch(SRC, /let stats\b/);
+});

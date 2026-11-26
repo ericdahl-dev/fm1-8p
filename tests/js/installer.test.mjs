@@ -376,3 +376,51 @@ test("track returns nothing to wait for, loaded or not", async () => {
   await broken.ready;
   assert.equal(broken.track("install_failed", { error: "lost" }), undefined);
 });
+
+// ---- the page's track before analytics.js has loaded: kept (at most 50), replayed once it is there
+
+test("lateTrack: an install_started tracked before the stats load is delivered after", () => {
+  const late = I.lateTrack(), got = [];
+  late.track("install_started");
+  late.track("install_failed", { error: "denied" });
+  assert.deepEqual(got, []);
+  late.attach({ track: (e, p) => got.push(p === undefined ? [e] : [e, p]) });
+  late.track("install_succeeded");
+  assert.deepEqual(got, [["install_started"], ["install_failed", { error: "denied" }], ["install_succeeded"]]);
+});
+
+test("lateTrack: it keeps at most 50 before the stats load", () => {
+  const late = I.lateTrack(), got = [];
+  for (let i = 0; i < 80; i++) late.track("emulator_start", { i });
+  late.attach({ track: (e, p) => got.push(p.i) });
+  assert.deepEqual(got, [...Array(50).keys()]);
+});
+
+test("lateTrack: never throws and returns nothing, whatever the stats do", () => {
+  const late = I.lateTrack();
+  assert.equal(late.track("install_started"), undefined);
+  assert.doesNotThrow(() => late.attach({ track: () => { throw new Error("broke"); } }));
+  assert.equal(late.track("install_succeeded"), undefined);
+  const rejects = I.lateTrack();
+  rejects.attach({ track: () => Promise.reject(new Error("broke")) });
+  assert.equal(rejects.track("install_started"), undefined);
+});
+
+test("lateTrack: stats that never load (attach(null)) drop what was kept and everything after", () => {
+  const late = I.lateTrack();
+  late.track("install_started");
+  assert.doesNotThrow(() => late.attach(null));
+  assert.equal(late.pending, 0);
+  late.track("install_succeeded");
+  assert.equal(late.pending, 0);
+});
+
+test("lateTrack: only the first attach counts (attach(stats), then attach(null), keeps the stats on)", () => {
+  const late = I.lateTrack(), got = [], other = [];
+  late.attach({ track: (e) => got.push(e) });
+  late.attach(null);
+  late.attach({ track: (e) => other.push(e) });
+  late.track("install_started");
+  assert.deepEqual(got, ["install_started"]);
+  assert.deepEqual(other, []);
+});

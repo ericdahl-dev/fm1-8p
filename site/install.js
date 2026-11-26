@@ -4,7 +4,7 @@
 import { entryFor, checkPackage, installOn, addModule, explain } from "./vendor/fm1-dock/install/fm1install.js";
 import { moduleInfo } from "./vendor/fm1-dock/dock.js";
 import { webMidiSupport, loadCatalog, firmwareEntry, installLabel, installFlow, addFlow, messageFor, oneAtATime,
-  buttonsEnabled } from "./installer.js";
+  buttonsEnabled, lateTrack } from "./installer.js";
 
 const base = new URL("./", location.href);
 const $ = (id) => document.getElementById(id);
@@ -17,14 +17,15 @@ const requestMIDIAccess = (opts) => navigator.requestMIDIAccess(opts);
 let catalogOk = false;
 
 // the usage stats (site/analytics.js), loaded so that nothing here depends on them: blocked, failing to load or
-// throwing, the page works the same. Until they are there, track drops what it gets.
-let stats = null;
-const track = (event, props) => { try { if (stats) stats.track(event, props); } catch (_) { /* never ours */ } };
+// throwing, the page works the same. Until they are there, lateTrack keeps what track gets (at most 50) and
+// replays it; if they fail to load, it drops it.
+const late = lateTrack();
+const track = late.track;
 const iframe = document.querySelector("#play iframe");
 import("./analytics.js").then((m) => {
-  stats = m.createAnalytics();
+  late.attach(m.createAnalytics());
   m.watchEmulatorStart(window, iframe, track);
-}).catch(() => {});
+}).catch(() => late.attach(null));
 
 function setBusy(busy) {
   fwBtn.disabled = dockBtn.disabled = !buttonsEnabled({ midi: support.ok, catalogOk, busy });
