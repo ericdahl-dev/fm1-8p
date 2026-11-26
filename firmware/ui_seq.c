@@ -211,16 +211,6 @@ const ui_seq_slot UI_SEQ_SLOTS[UI_SEQ_PAGES][4] = {
     {{"TRANSP", "TRANSPOSE", 1}, {"KEYTR", "KEY TRANSPOSE", 1}, {0, 0, 0}, {0, 0, 0}},
 };
 
-/* a step's bend (-8192..8191) as -100..+100 % of the bend range, and back: the ends are exact both ways */
-static int32_t bend_pct(int32_t bend)
-{
-    return bend < 0 ? -((-bend * 100 + 4096) / 8192) : (bend * 100 + 4095) / 8191;
-}
-
-static int32_t pct_bend(int32_t pct)
-{
-    return pct < 0 ? pct * 8192 / 100 : pct * 8191 / 100;
-}
 
 int32_t ui_seq_value(const ui *u, uint32_t k)
 {
@@ -232,7 +222,7 @@ int32_t ui_seq_value(const ui *u, uint32_t k)
     case 2: return s->edit.swing_pct;
     case 3: return s->edit.gate_pct;
     case 4: return st->kind == SEQ_NOTES_ON ? st->vel : 0;
-    case 5: return bend_pct(st->bend);
+    case 5: return seq_bend_pct(st->bend);
     case 6: return st->mod;
     case 7: return st->glide;
     case 8: return seq_transpose(s);
@@ -246,59 +236,40 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
 {
     seq *s = play_seq(u->p);
     int32_t fast = clicks >= 3 || clicks <= -3, v;
-    const seq_step *st;
     (void)pattern_running(play_patterns(u->p), 0);   /* a takeover first: the value is the running one's */
     v = ui_seq_value(u, k);
     if (!UI_SEQ_SLOTS[u->seq_page][k].live)
         return;
     HANDOFF_GAP("turn", 1);                     /* (#348: a takeover here, before the setter's take-in) */
-    switch (u->seq_page * 4u + k) {
+    switch (u->seq_page * 4u + k) {           /* (a pattern's value: added inside seq, after the take-in, #348) */
     case 0:                                     /* (the header and the footer show it too) */
         if (seq_clock_external(s)) {            /* the clock sets it: nothing, and why (case 48) */
             banner(u, "TEMPO FOLLOWS MIDI CLOCK", u->now_ms);
             break;
         }
-        v += clicks * (fast ? 100 : 10);
-        seq_set_tempo(s, (uint32_t)(v < 0 ? 0 : v));
+        seq_nudge(s, SEQ_NUDGE_TEMPO, 0, clicks * (fast ? 100 : 10));
         u->dirty |= UI_D_FOOT | UI_D_HEAD;
         break;
     case 1:
-        v += clicks;
-        seq_set_length(s, (uint32_t)(v < 1 ? 1 : v));
+        seq_nudge(s, SEQ_NUDGE_LENGTH, 0, clicks);
         if (u->seq_cursor >= seq_length(s))     /* (the cursor stays inside the pattern) */
             u->seq_cursor = seq_length(s) - 1u;
         roll(u, ROLL_ALL);
         break;
-    case 2: v += clicks * (fast ? 5 : 1); seq_set_swing(s, (uint32_t)(v < 0 ? 0 : v)); break;
-    case 3: v += clicks * (fast ? 5 : 1); seq_set_gate(s, (uint32_t)(v < 0 ? 0 : v)); break;
-    case 4:                                     /* the cursor step's velocity, only it: a note or chord only */
-        st = seq_get_step(s, u->seq_cursor);
-        if (st->kind != SEQ_NOTES_ON)
-            return;
-        v += clicks * (fast ? 10 : 1);
-        seq_set_step_vel(s, u->seq_cursor, (uint32_t)(v < 1 ? 1 : v));
+    case 2: seq_nudge(s, SEQ_NUDGE_SWING, 0, clicks * (fast ? 5 : 1)); break;
+    case 3: seq_nudge(s, SEQ_NUDGE_GATE, 0, clicks * (fast ? 5 : 1)); break;
+    case 4:                                     /* the cursor step's velocity: a note or chord only (seq checks) */
+        seq_nudge(s, SEQ_NUDGE_VEL, u->seq_cursor, clicks * (fast ? 10 : 1));
         roll(u, ROLL_AT(u->seq_cursor));
         break;
     case 5:                                     /* BEND, 1 % of the range a click (#42): a note or chord only */
-        st = seq_get_step(s, u->seq_cursor);
-        if (st->kind != SEQ_NOTES_ON)
-            return;
-        v += clicks * (fast ? 10 : 1);
-        seq_set_step_bend_mod(s, u->seq_cursor, pct_bend(v < -100 ? -100 : v > 100 ? 100 : v), st->mod, st->glide);
+        seq_nudge(s, SEQ_NUDGE_BEND_PCT, u->seq_cursor, clicks * (fast ? 10 : 1));
         break;
     case 6:                                     /* MOD, 0..127 (#42): a note or chord only */
-        st = seq_get_step(s, u->seq_cursor);
-        if (st->kind != SEQ_NOTES_ON)
-            return;
-        v += clicks * (fast ? 10 : 1);
-        seq_set_step_bend_mod(s, u->seq_cursor, st->bend, v, st->glide);
+        seq_nudge(s, SEQ_NUDGE_MOD, u->seq_cursor, clicks * (fast ? 10 : 1));
         break;
     case 7:                                     /* MOVE: JUMP (0) or GLIDE (1), held at the ends */
-        st = seq_get_step(s, u->seq_cursor);
-        if (st->kind != SEQ_NOTES_ON)
-            return;
-        v += clicks;
-        seq_set_step_bend_mod(s, u->seq_cursor, st->bend, st->mod, v > 0);
+        seq_nudge(s, SEQ_NUDGE_MOVE, u->seq_cursor, clicks);
         break;
     case 8: v += clicks; seq_set_transpose(s, v); break;
     case 9: v += clicks; seq_set_key_transpose(s, v > 0); break;   /* KEY TRANSPOSE: OFF, ON (held at the ends) */

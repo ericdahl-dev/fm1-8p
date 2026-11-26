@@ -316,6 +316,55 @@ void seq_set_swing(seq *s, uint32_t pct)
     edit_end(s);
 }
 
+int32_t seq_bend_pct(int32_t bend)
+{
+    return bend < 0 ? -((-bend * 100 + 4096) / 8192) : (bend * 100 + 4095) / 8191;
+}
+
+int32_t seq_pct_bend(int32_t pct)
+{
+    return pct < 0 ? pct * 8192 / 100 : pct * 8191 / 100;
+}
+
+static int32_t clamp(int32_t v, int32_t lo, int32_t hi)
+{
+    return v < lo ? lo : v > hi ? hi : v;
+}
+
+void seq_nudge(seq *s, uint32_t what, uint32_t i, int32_t delta)
+{
+    seq_step *st;
+    edit_begin(s);                              /* the takeover first: the value is the running one's */
+    st = i < SEQ_STEPS ? &s->edit.step[i] : 0;
+    switch (what) {
+    case SEQ_NUDGE_TEMPO:
+        s->edit.tempo = (uint16_t)clamp((int32_t)s->edit.tempo + delta, SEQ_TEMPO_MIN, SEQ_TEMPO_MAX);
+        break;
+    case SEQ_NUDGE_LENGTH:
+        s->edit.length = (uint8_t)clamp((int32_t)s->edit.length + delta, 1, SEQ_STEPS);
+        break;
+    case SEQ_NUDGE_SWING:
+        s->edit.swing_pct = (uint8_t)clamp((int32_t)s->edit.swing_pct + delta, 50, 75);
+        break;
+    case SEQ_NUDGE_GATE:
+        s->edit.gate_pct = (uint8_t)clamp((int32_t)s->edit.gate_pct + delta, SEQ_GATE_MIN, 100);
+        break;
+    default:                                    /* a step's: only a note or chord */
+        if (!st || st->kind != SEQ_NOTES_ON)
+            break;
+        if (what == SEQ_NUDGE_VEL)
+            st->vel = (uint8_t)clamp((int32_t)st->vel + delta, 1, 127);
+        else if (what == SEQ_NUDGE_BEND_PCT)
+            st->bend = (int16_t)seq_pct_bend(clamp(seq_bend_pct(st->bend) + delta, -100, 100));
+        else if (what == SEQ_NUDGE_MOD)
+            st->mod = (uint8_t)clamp((int32_t)st->mod + delta, 0, 127);
+        else if (what == SEQ_NUDGE_MOVE)
+            st->glide = (uint8_t)((int32_t)st->glide + delta > 0);
+        break;
+    }
+    edit_end(s);
+}
+
 void seq_play(seq *s)
 {
     s->out_block = 0;                           /* (#286: a PLAY after a let-go sends again) */

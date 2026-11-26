@@ -260,6 +260,15 @@ uint32_t seq_tempo(const seq *s);
 void seq_set_tempo(seq *s, uint32_t tenths_bpm);       /* clamped to SEQ_TEMPO_MIN..MAX */
 void seq_set_gate(seq *s, uint32_t pct);               /* clamped to SEQ_GATE_MIN..100 */
 void seq_set_swing(seq *s, uint32_t pct);              /* clamped to 50..75 */
+/* main loop: a knob turn, `delta` added to the edit's own value inside the edit, after a takeover is taken
+ * in, so the value read and the value written are the same pattern's (#348). Clamped as the setters do;
+ * the step fields (VEL, BEND in % of the range, MOD, MOVE) act on step i only while it is a note or chord */
+enum { SEQ_NUDGE_TEMPO, SEQ_NUDGE_LENGTH, SEQ_NUDGE_SWING, SEQ_NUDGE_GATE,
+       SEQ_NUDGE_VEL, SEQ_NUDGE_BEND_PCT, SEQ_NUDGE_MOD, SEQ_NUDGE_MOVE };
+void seq_nudge(seq *s, uint32_t what, uint32_t i, int32_t delta);
+/* a step's bend (-8192..8191) as -100..+100 % of the bend range, and back: the ends are exact both ways */
+int32_t seq_bend_pct(int32_t bend);
+int32_t seq_pct_bend(int32_t pct);
 
 /* main loop: the transport. play starts at step 1; stop lets go of every note the sequencer started, and
  * loads a queued pattern at once. */
