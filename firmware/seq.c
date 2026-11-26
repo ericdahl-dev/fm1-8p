@@ -350,8 +350,8 @@ void seq_stop(seq *s)
     s->clk_armed = 0;
     s->clk_pending = 0;
     s->clk_running = 0;
-    s->want = 0;
     s->ask_last = SEQ_LAST_STOP;
+    s->want = 0;
     BARRIER();
     HANDOFF_GAP("stop", 0);
     s->ask_stop++;
@@ -738,6 +738,8 @@ static void clock_tick(seq *s, uint32_t t)
             s->clk_dt = CLK_TENTHS_COUNTS / s->edit.tempo;
             s->clk_shown = 0;                   /* (the second tick measures it outright) */
         }                       /* the start's tick 0 */
+        s->ask_last = SEQ_LAST_PLAY_AT(s->ask_play + 1u);   /* first: an ask pending now is no start */
+        BARRIER();
         s->ext_cont = s->clk_pending == 2u;
         blocked = s->out_block;                 /* #364: out_block is the gate (#349): while it is set the */
         s->out_block = 1;                       /* interrupt neither writes out_on nor sends a start or stop, */
@@ -755,8 +757,6 @@ static void clock_tick(seq *s, uint32_t t)
         s->clk_k = 0;
         s->ext_t0 = t;
         set_rate(s, 0, fs, 1);
-        s->ask_last = SEQ_LAST_PLAY_AT(s->ask_play + 1u);   /* before ext: an ask pending now is no start */
-        BARRIER();
         s->ext = 1;
         BARRIER();                              /* (following now: the interrupt counts no ticks of its own) */
         HANDOFF_GAP("clock_start", 2);

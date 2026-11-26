@@ -69,7 +69,7 @@ Writes in `play_init` and `seq_init` come before the interrupt runs and are left
 | `editing` | C (the gate) | main: `edit_begin`, `edit_end`, `take_in` | interrupt | |
 | `edits` | C (the generation) | main: `edit_end` | interrupt, against `edits_seen` | A takeover drops an edit of the old pattern (`edits_seen = edits`). |
 | `ask_play`, `ask_stop` | B | main: `seq_play`, `seq_stop`, `clock_tick` (a followed start) | interrupt: `seq_render` | Payload: `ask_last` and `want`, and at a followed start `ext`, `ext_t0`, `ext_cont`, `ext_inc`. |
-| `ask_last` | payload of `ask_play`/`ask_stop` (B) | main: first in each ask | interrupt, at an ask | Which ask came last: STOP, or PLAY with the count it publishes; an armed `seq_play` writes none (#373, #377). |
+| `ask_last` | payload of `ask_play`/`ask_stop` (B) | main: first in each ask, before `want`, `ext*` and the count | interrupt, at an ask | Which ask came last: STOP, or PLAY with the count it publishes; an armed `seq_play` writes none (#373, #377). |
 | `want` | payload of `ask_play`/`ask_stop` (B) | main | interrupt, at an ask | Also written with no ask; see "Exceptions". |
 | `transpose` | D | main: `seq_set_transpose` | interrupt: `start_step` | |
 | `next`, `ask_kind` | C (payload) | main, while `ask` is odd | interrupt: `start_step` | |
@@ -118,8 +118,9 @@ These don't fit one kind. Each is named here and in its field's comment.
   (`SEQ_LAST_PLAY_AT`, its low 7 bits: still one byte), so the interrupt starts only on a play whose
   count it already sees, with `want` still set (a clock source change clears it with no ask). A last
   ask not yet counted is a stop to that block, whatever earlier counts are new; the next block takes
-  it (#377). `clock_tick` writes it before `ext`, so an own restart pending at a followed start isn't
-  taken as the followed start early
+  it (#377). `clock_tick` writes it before `ext_cont`, `ext_t0`, `ext_inc` and `ext`, so an ask pending
+  at a followed start (an own restart, or an earlier followed start) isn't taken with this start's
+  payload
   (`clock_stop_then_play_inside_one_block_stops`, `clock_start_stop_then_play_inside_one_block_stays_armed`,
   `seq_stop_then_play_with_the_interrupt_before_its_count_starts_once`,
   `seq_a_last_ask_ahead_of_its_count_starts_once`).

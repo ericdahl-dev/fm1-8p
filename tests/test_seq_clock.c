@@ -1161,6 +1161,11 @@ TT_TEST(seq_a_last_ask_ahead_of_its_count_starts_once)
     handoff_gap = 0;
     TT_CHECK_EQ(ck_b_hits, 1u);
     TT_CHECK_EQ(ck_b_on, 0u);                   /* that block: not the followed run yet, nor the restart */
+    ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
+    ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
+    TT_CHECK(ck.playing && ck.ext);             /* then the followed run, */
+    TT_CHECK_EQ(ck_outs(0xFAu), 2u);            /* started once: FA (own) FC FA (followed) */
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
 }
 
 /* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
