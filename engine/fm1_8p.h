@@ -65,8 +65,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 6768u     /* +4: the source lowpass's last input (#299) */
-#define FM_ENGINE_BUDGET_BASE_64 6940u     /* +8: the source lowpass's last input (#299), plus 4 B of padding */
+#define FM_ENGINE_BUDGET_BASE_32 6764u     /* +48: portamento (#62): a glide a voice (8), its step, the note glided from and the newest, 2 flags */
+#define FM_ENGINE_BUDGET_BASE_64 6932u     /* +48: portamento (#62): as on 32-bit, less the 4 B the 64-bit layout had spare, plus 4 B of padding */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
@@ -90,6 +90,7 @@ typedef struct {
     int32_t params[FM_PARAM_COUNT];
     int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
     int32_t source_lp; /* the source lowpass's last input, Q8.24 (engine/output.h, #299) */
+    int32_t source_lp_a; /* and its weight for this sample rate, Q15 */
     uint32_t stamp;   /* counts note ons and offs, to age the voices */
     fm_env_settings amp_set;    /* every voice's amp envelope reads these */
     fm_env_settings filter_set; /* and its filter envelope these (#19) */

@@ -7,6 +7,34 @@
 #include "output.h"
 
 /*
+ * The source lowpass's weight by sample rate (output.h): the two fitted points, 44.1 and 48 kHz, and a line
+ * through the points either side: 1.0 (a wire) at 32 kHz and below, 0.5 (the two taps' most) at 88.2 kHz and
+ * above. Each slope is Q15 a Hz in Q16, so no divide; the fitted rates return their constants exactly.
+ */
+int32_t fm_out_source_lp_weight(uint32_t sample_rate)
+{
+    int32_t hz = (int32_t)sample_rate;
+    if (hz <= 32000) return 32768;
+    if (hz >= 88200) return 16384;
+    if (hz < 44100)  /* 32768 at 32 kHz to 22774: -0.82595 a Hz */
+        return FM_OUT_SOURCE_LP_A_44K1 + (int32_t)(((int64_t)(44100 - hz) * 54130) >> 16);
+    if (hz <= 48000) /* 22774 to 21381 at 48 kHz: -0.35718 a Hz */
+        return hz == 48000 ? FM_OUT_SOURCE_LP_A_48K
+                           : FM_OUT_SOURCE_LP_A_44K1 - (int32_t)(((int64_t)(hz - 44100) * 23408) >> 16);
+    /* 21381 to 16384 at 88.2 kHz: -0.12430 a Hz */
+    return FM_OUT_SOURCE_LP_A_48K - (int32_t)(((int64_t)(hz - 48000) * 8146) >> 16);
+}
+
+void fm_out_mix_block(int32_t *mix, uint32_t n, int32_t gain, int32_t a, int32_t *last)
+{
+    int32_t prev = *last;
+    uint32_t i;
+    for (i = 0; i < n; i++)
+        mix[i] = fm_out_source_lp((int32_t)(((int64_t)mix[i] * gain) >> 30), a, &prev);
+    *last = prev;
+}
+
+/*
  * Q8.24 to int16 with +6 dB of output makeup (#24), then a soft clip.
  * The mix plays 3.17 dB over the old -12 dB of headroom, at PG-8X 2.0.13's
  * level (#102); the makeup gives 6 dB back. Up to the knee at -2.85 dBFS

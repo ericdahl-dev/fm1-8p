@@ -235,7 +235,7 @@ static int32_t mul_q30(int32_t a, int32_t b)
 }
 
 /* The output is held to +-U_MAX (FM_FILTER_HOLD, 16.0): past anything
- * the pair plays (3.855, a ringed spike) through the bass boost (2.28 x)
+ * the pair plays (3.932, a ringed spike) through the bass boost (2.28 x)
  * at a level of 1.0. */
 #define U_MAX FM_FILTER_HOLD
 

@@ -79,17 +79,16 @@ typedef struct {
     int32_t sync_after; /* polyBLEP terms due on osc2's sample after a restart, Q8.24 */
     int64_t dc_sum;    /* synced: the pair's samples so far in this osc1 cycle, Q8.24 */
     int32_t dc;        /* synced: the last osc1 cycle's mean, taken off this one's samples */
-    /* the spike (FM_WAVE_SPIKE, #150): from the sample rate (on events),
-     * the lowpass's decay per sample (Q16 log2) and the impulse area times
-     * the rate (for the mean); from the pitch as played (on events and the
-     * pitch modulation's control ticks), the decay per 2^32 of phase (Q16
-     * log2), 1 / (1 - q) and the earlier cycles' share (Q16, q its decay
-     * over a cycle), and its mean, Q8.24 */
+    /* the spike (FM_WAVE_SPIKE, #150, #387): from the sample rate (on events),
+     * the first lowpass's decay per sample (Q16 log2) and the impulse area
+     * times the rate (for the mean); from the pitch as played (on events and
+     * the pitch modulation's control ticks), that decay per 2^32 of phase (Q16
+     * log2), each pole's term (q its decay over a cycle), and the mean, Q8.24 */
     uint32_t sp_kq;
     uint32_t sp_ar;
     uint32_t sp_g[2];
-    int32_t sp_p1[2];                   /* the spike's slope on u / tau (log2), Q26: KA ln2 / (1 - q) */
-    int32_t sp_zc[2];                   /* and its constant, Q22: KA (T / tau) q / (1 - q)^2 */
+    int32_t sp_c1[2];                   /* the first pole's term, Q26: KC / (1 - q1) */
+    int32_t sp_c2[2];                   /* and the second's: KC / (1 - q2) */
     int32_t sp_mean[2];
 } fm_osc_pair;
 

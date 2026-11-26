@@ -2854,13 +2854,13 @@ static uint32_t golden_engine_hash(int step)
  * retaken when every amp attack began to ease in (#274: the first few samples of each note), and
  * when the saw began to fall, as PG-8X's (#260: both patches play a saw, negated before the output's
  * int16 floor, so within 1-2 LSB of the old render negated). All five retaken with the source
- * lowpass on the voices' sum (#299: every sample a 0.66 / 0.34 blend of itself and the one before,
- * so every sample moves; the filter is unchanged, highpass_steps_0_to_3_are_bit_for_bit_what_they_were).
+ * lowpass on the voices' sum (#299: every sample a 0.695 / 0.305 blend of itself and the one before
+ * at this rate, 44.1 kHz, so every sample moves; the filter is unchanged, highpass_steps_0_to_3_are_bit_for_bit_what_they_were).
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {
-    static const uint32_t golden[5] = { 0x4626D03Du, 0xC3DA4749u, 0x13F6C9CDu, 0xAC3FDC79u,
-                                        0x321155ADu };
+    static const uint32_t golden[5] = { 0x277C1DC1u, 0x0F8349BDu, 0xE144340Du, 0x622F4C25u,
+                                        0xC2C674BDu };
     int step, same = 1;
     for (step = -1; step < 4; step++) {
         uint32_t h = golden_engine_hash(step);

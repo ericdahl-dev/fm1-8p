@@ -83,19 +83,41 @@ and a full chord with the chorus on still never reaches the rails.
 The scaled sum then passes the source lowpass (#299 option A, engine/output.h),
 before the chorus: PG-8X 2.0.13's fixed top-band roll-off, which every source
 carries (saw, square, synced DCO-2, noise) at every pitch. It is the two-tap
-lowpass y[n] = a x[n] + (1 - a) x[n-1] with a = 0.66 (Q15 21627), fitted to
-PG-8X minus ours (saw and square at six pitches, harmonics at each render's
-measured f0): within 0.34 dB rms from 1 to 20 kHz at 48 kHz, 0.62 dB at
-44.1 kHz. Every 1-pole form fits worse. Its DC gain is exactly 1, and each
-output lies between the two inputs it weighs, so it adds no peak for the soft
-clip and never wraps. Everything before it is linear below the filter's hold,
-so on the sum it plays almost as it would on each voice: on the scorecard
-MIDI, 28 of the 32 factory tones are within 0.13 dB of the per-voice placement
-in every third-octave band, and the other four within 1.4 dB in one band (in
-decays near the int16 floor, or in a fast attack's first samples, where the amp
-envelope moves within the lowpass's one-sample memory). Per sample: one 32 x 32 -> 64 multiply and its state, one
-int32, cleared on all sound off. The spike below was fitted with PG-8X's
-roll-off in it, so under the lowpass its top band reads darker (#387).
+lowpass y[n] = a x[n] + (1 - a) x[n-1]. The weight a is fitted at each sample
+rate against PG-8X rendered at that rate (PG-8X minus ours, saw and square at
+six pitches, harmonics at each render's measured f0, 1 to 20 kHz):
+
+| rate | a | Q15 | rms left | rms with no lowpass |
+|---|---|---|---|---|
+| 44.1 kHz (the FM-1) | 0.6950 | 22774 | 0.29 dB | 3.67 dB |
+| 48 kHz | 0.6525 | 21381 | 0.32 dB | 3.69 dB |
+
+- **One weight does not serve both rates.** A fixed two-tap filter's response
+  moves with the rate: 0.66 at both left 0.62 dB rms at 44.1 kHz and read 1.2
+  dB dark from 16 to 20 kHz there.
+- **Every 1-pole form fits worse**, at 44.1 / 48 kHz: `y += k (x - y)` at 8400
+  Hz 0.96 / 0.76 dB, the bilinear 1-pole at 14300 Hz 1.17 / 0.84 dB.
+- **Other rates** take a line between fitted points
+  (`fm_out_source_lp_weight`, at init, with no divide). At 32 kHz and below
+  PG-8X minus ours asks for no lowpass (best a 0.985, 1.09 dB rms against 1.11
+  without), so a is 1 there: a wire. At 88.2 kHz and above two taps cannot
+  reach the roll-off: a is 0.5, their most, and 3.5 dB rms is still left
+  (best 3.49 at 88.2 kHz, 3.68 at 96 kHz). The FM-1 does not run those rates.
+- **No peak, no wrap.** Its DC gain is exactly 1, and each output lies between
+  the two inputs it weighs, so it adds no peak for the soft clip.
+- **Placement.** Everything before it is linear below the filter's hold, but
+  not all of it is time-invariant (the amp envelope, a swept VCF). So on the
+  sum it plays almost as it would on each voice: on the scorecard MIDI, 28 of
+  the 32 factory tones are within 0.13 dB of the per-voice placement in every
+  third-octave band, and the other four within 1.4 dB in one band (decays near
+  the int16 floor, or a fast attack's first samples, where the amp envelope
+  moves within the lowpass's one-sample memory).
+- **Cost, per sample:** one 32-bit subtract, one 32 x 32 -> 64 multiply, a
+  shift and an add (`fm_out_mix_block`, with the mix gain's multiply). The
+  scaled sum stays within +-2^30 for any int32 sum, because the mix gain is at
+  most 0.5 (the engine's largest is 0.36; checked at compile time), so the
+  difference of two samples fits int32.
+- **State:** one int32, cleared at init and on all sound off, and the weight.
 
 The pulse is the difference of two saws, `saw(t) - saw(t + width)`, so it has
 no DC (like an AC-coupled analog pulse): it sits at +2(1 - w) for the last
@@ -107,28 +129,37 @@ At 50 % the gain is 1 (the square is +-1.0). The mix sums the two at their
 levels, so both at full peak at 2.0, as on PG-8X's mixer.
 
 The spike (`FM_WAVE_SPIKE`, #150) is PG-8X 2.0.13's PULSE, which is not a
-fixed duty. Fitted to #150's measurements (its level against the square at C2
-to C6 and its partials at C4, C5 and C6, within 0.81 dB rms), it is an impulse
-train of area 2.93e-4 (the square's amplitude times seconds) through two
-one-pole lowpasses at 3050 Hz, in its periodic steady state, less its mean.
-With u the time since the impulse, tau the lowpasses' time constant, T the
-period and q = e^(-T / tau):
+fixed duty. It is an impulse train of area 2.96e-4 (the square's amplitude
+times seconds) through two one-pole lowpasses, at 1800 Hz and 1060 / 256 of
+that (7453 Hz), in its periodic steady state, less its mean. With u the time
+since the impulse, tau1 and tau2 the lowpasses' time constants, T the period
+and q1, q2 = e^(-T / tau1), e^(-T / tau2):
 
-    y(u) = (A / tau) e^(-u / tau) (u / tau / (1 - q) + (T / tau) q / (1 - q)^2) - A / T
+    y(u) = A / (tau1 - tau2) (e^(-u / tau1) / (1 - q1) - e^(-u / tau2) / (1 - q2)) - A / T
+
+It was first fitted (#150) to PG-8X's output as two poles at 3050 Hz, with
+PG-8X's top-band roll-off in it. The source lowpass above now adds that
+roll-off to every source, so the spike's own shape is refitted without it
+(#387): against PG-8X's PULSE at six pitches, harmonics from 1 to 20 kHz, the
+spike under the lowpass is within 1.12 dB rms at 44.1 kHz and 1.18 at 48 kHz
+(two poles at 3050 Hz with no lowpass: 1.80 and 1.41; the same under the
+lowpass: 2.47 and 2.72).
 
 That's a closed form of the phase, so it has no state: every path that reads
-a wave at its phase plays it alike, sync and the ring included. It starts from
-0 at each impulse (continuous), so it needs no polyBLEP, and at note 96 its
-aliasing is under the limit above.
+a wave at its phase plays it alike, sync and the ring included. The two
+terms' steps at the impulse cancel (it is continuous), so it needs no
+polyBLEP, and at note 96 its aliasing is under the limit above.
 - **Constants:** two from the sample rate, on events (a divide there): the
-  decay per sample and the impulse area times the rate. The rest come from the
-  pitch as played, on events and on the pitch modulation's control ticks (only
-  the oscillator whose modulation moved), with no division: the decay per
-  2^32 of phase (1 / dt by Newton's reciprocal), 1 / (1 - q) (Newton
-  again), the earlier cycles' share, and the mean.
-- **Per sample:** six 32 x 32 -> 64 multiplies, two of them in a 2^-x table
-  lookup with interpolation (65 entries, Q30). Past 30 halvings of the decay,
-  only the mean is left.
+  first lowpass's decay per sample and the impulse area times the rate. The
+  rest come from the pitch as played, on events and on the pitch modulation's
+  control ticks (only the oscillator whose modulation moved), with no
+  division: that decay per 2^32 of phase (1 / dt by Newton's reciprocal),
+  each pole's 1 / (1 - q) (Newton again), and the mean.
+- **Per sample:** three 32 x 32 -> 64 multiplies (the decay's place, and each
+  pole's term), one 32-bit multiply (the second pole's place from the
+  first's) and two reads of a 2^-x table (1024 entries, no interpolation).
+  Past 30 halvings of the first decay, only the mean is left. Against the
+  closed form in double it is within -51 dB of its peak.
 - **Not band-limited:** a sync restart that lands inside the spike, where the
   wave is far from its start value, steps without a polyBLEP. That's a
   follow-up.

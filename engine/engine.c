@@ -242,6 +242,8 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
  * in Q30 is permille x 2^30 / 1000 in 32 bits, exact at 1000 (so a full
  * level leaves the gain as it was). Event rate.
  */
+typedef char fm_require_mix_gain_within_the_lowpass_range[   /* fm_out_mix_block's bound (output.h) */
+    FM_MIX_GAIN_Q30 <= (uint32_t)FM_OUT_MIX_GAIN_MAX ? 1 : -1];
 static int32_t level_gain(const fm_engine *e, int32_t permille)
 {
     uint32_t p = (uint32_t)permille, q = p * 1073741u + p * 824u / 1000u;
@@ -685,6 +687,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
      * the filter, the highpass, the VCA modes) */
     e->mix_gain = (int32_t)(FM_MIX_GAIN_Q30 / voice_count);
     e->source_lp = 0;
+    e->source_lp_a = fm_out_source_lp_weight(sample_rate);
     e->stamp = 0;
     e->pedal_down = 0;
     e->bend = 0;
@@ -1085,8 +1088,7 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30), through the source lowpass (#299) */
-        for (i = 0; i < n; i++)
-            e->mix[i] = fm_out_source_lp((int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30), &e->source_lp);
+        fm_out_mix_block(e->mix, n, e->mix_gain, e->source_lp_a, &e->source_lp);
         if (fm_chorus_is_on(&e->chorus)) {
             fm_chorus_process_block(&e->chorus, e->mix, e->mix_right, n);
             fm_out_block(out, e->mix, e->mix_right, n, e->out_shift);

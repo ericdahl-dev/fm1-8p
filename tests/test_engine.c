@@ -672,13 +672,14 @@ static int saws_peak(int32_t osc1, int32_t osc2)
  * alone (1995429) and the old mix gain, so twice that, times the mix
  * gain's 3.17 dB (#102), within the 1 LSB of rounding: 16012. Retaken with
  * the source lowpass (#299), which takes the saw's top band off and with
- * it some of the overshoot at its fall: 15906 (-0.06 dB).
+ * it some of the overshoot at its fall: 15900 (-0.06 dB) at 44.1 kHz's
+ * weight, 0.695.
  */
 TT_TEST(output_makeup_is_6_db_below_the_knee)
 {
     int p = saws_peak(800, 0);
     printf("    one saw at level 800: peak %d (%.3f of full scale)\n", p, p / 32768.0);
-    TT_CHECK(abs(p - 15906) <= 1);
+    TT_CHECK(abs(p - 15900) <= 1);
 }
 
 /*

@@ -218,20 +218,24 @@ static double held_rms(uint8_t wave, uint8_t note)
 }
 
 /*
- * The spike against its closed form in double (#150's model: an impulse of
- * area A through two one-poles at 3050 Hz, steady state, less its mean),
+ * The spike against its closed form in double (an impulse of area A through
+ * two one-poles, at 1800 Hz and 1060 / 256 of that, 7453 Hz, steady state,
+ * less its mean: #387's refit of #150's model, with PG-8X's top-band
+ * roll-off left to the source lowpass),
  * osc1 alone at full, notes 24..108 at 48 kHz and 120..132 at 192 kHz: the
- * largest error is under -58 dB of the spike's peak at 48 kHz (-45 dB at
- * 192 kHz's high notes), so a cheaper way to the same form stays as close to
- * the fit (0.81 dB rms) as the closed form itself. Past about 27 kHz (notes
+ * largest error is under -50 dB of the spike's peak at 48 kHz (-37 dB at
+ * 192 kHz's high notes; measured -51.4: it was -58 with one pole pair and
+ * one table read, and the two reads' rounding no longer cancels where the
+ * two terms do, at the impulse), so a cheaper way to the same form stays as
+ * close to the fit as the closed form itself. Past about 32 kHz (notes
  * 144..168 at 192 kHz, to its pitch limit) it keeps that pitch's shape, so
  * it stays within the spike's own peak (2.3) and never runs away.
  */
 static double spike_ref(double u, double T)
 {
-    const double A = 2.9317e-4, tau = 1.0 / (2.0 * AN_PI * 3050.0);
-    double q = exp(-T / tau);
-    return A / tau * exp(-u / tau) * (u / tau / (1 - q) + T / tau * q / ((1 - q) * (1 - q))) - A / T;
+    const double A = 2.96e-4, f1 = 1800.0, f2 = f1 * 1060.0 / 256.0;
+    const double t1 = 1.0 / (2.0 * AN_PI * f1), t2 = 1.0 / (2.0 * AN_PI * f2);
+    return A / (t1 - t2) * (exp(-u / t1) / (1 - exp(-T / t1)) - exp(-u / t2) / (1 - exp(-T / t2))) - A / T;
 }
 
 TT_TEST(spike_matches_its_closed_form)
@@ -269,7 +273,7 @@ TT_TEST(spike_matches_its_closed_form)
     }
     printf("    spike against its closed form: worst %.1f dB of its peak (192 kHz's high notes 13 dB looser)\n",
            worst);
-    TT_CHECK(worst < -58.0);
+    TT_CHECK(worst < -50.0);
     for (n = 0; n < sizeof past / sizeof past[0]; n++) {
         double big = 0;
         fm_osc_pair_reset(&p, 1);
@@ -330,18 +334,16 @@ static double held_partials(uint8_t which, uint8_t wave, uint8_t note, double *d
 /*
  * PG-8X's PULSE rolls off smoothly, with no sinc nulls (#150): partials
  * h1..h16 against h1 at C4, C5 and C6, as measured. The spike keeps to
- * them within 2.5 dB at C4, 3.0 at C5 and 5.5 at C6. All three were within
- * 2.5 until the source lowpass (#299): the spike was fitted to PG-8X's
- * output, which already carries that roll-off, so under the lowpass its
- * top partials read darker than PG-8X's, worst 1.41 / 2.81 / 5.41 dB at
- * C4 / C5 / C6 (44.1 kHz). A refit of the spike under the lowpass is #387.
+ * them within 2.5 dB, under the source lowpass (#299), which is PG-8X's
+ * top-band roll-off on every source: the spike's own shape is PG-8X's
+ * PULSE without it (#387).
  */
 TT_TEST(spike_partials_follow_pg8x)
 {
-    static const struct { uint8_t note; double tol, db[16]; } want[] = {
-        { 60, 2.5, { 0, 0, 0, -1, -1, -1, -2, -2, -3, -4, -5, -5, -6, -8, -9, -10 } },
-        { 72, 3.0, { 0, 0, -1, -2, -4, -5, -7, -10, -12, -13, -14, -15, -15, -15, -16, -17 } },
-        { 84, 5.5, { 0, -2, -5, -9, -13, -14, -15, -17, -20, -21, -22, -24, -26, -27, -28, -30 } },
+    static const struct { uint8_t note; double db[16]; } want[] = {
+        { 60, { 0, 0, 0, -1, -1, -1, -2, -2, -3, -4, -5, -5, -6, -8, -9, -10 } },
+        { 72, { 0, 0, -1, -2, -4, -5, -7, -10, -12, -13, -14, -15, -15, -15, -16, -17 } },
+        { 84, { 0, -2, -5, -9, -13, -14, -15, -17, -20, -21, -22, -24, -26, -27, -28, -30 } },
     };
     size_t n;
     int k;
@@ -351,7 +353,7 @@ TT_TEST(spike_partials_follow_pg8x)
         for (k = 0; k < 16; k++)
             if (fabs(db[k] - want[n].db[k]) > worst) worst = fabs(db[k] - want[n].db[k]);
         printf("    spike partials at note %u: worst %.2f dB off PG-8X\n", want[n].note, worst);
-        TT_CHECK(worst < want[n].tol);
+        TT_CHECK(worst < 2.5);
     }
 }
 
@@ -624,7 +626,8 @@ static void render_level_change(int16_t *out, uint32_t at, int32_t l)
  * scale at most, about -40 dB), with no transient of its own: from the
  * sample after the change, since the source lowpass (#299) weighs each
  * sample with the one before it, so the change's own sample is the two
- * levels' blend (measured: 59 LSB off 0.99 x there, within 2 after).
+ * levels' blend (59 LSB off 0.99 x there with a 0.66 weight; after it the
+ * worst is 1 LSB, and the check allows 2).
  */
 TT_TEST(a_level_step_on_a_held_note_is_a_pure_gain_step)
 {
@@ -1138,8 +1141,8 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
  * Noise stays within full scale and does not repeat: over a 0.2 s window
  * no lag from 2 to 4096 samples correlates with the signal by more than 0.1.
  * A pitched wave fails this at its period. Lag 1 is the source lowpass's
- * own (#299): a (1 - a) / (a^2 + (1 - a)^2) = 0.407 for white noise
- * (measured 0.410), within 0.05 of it.
+ * own (#299): a (1 - a) / (a^2 + (1 - a)^2) for white noise, 0.368 at
+ * 44.1 kHz's weight, 0.695; within 0.05 of it.
  */
 TT_TEST(noise_is_bounded_and_not_periodic)
 {
@@ -1167,8 +1170,8 @@ TT_TEST(noise_is_bounded_and_not_periodic)
         for (i = 0; i + lag < NOISE_FRAMES; i++) r += x[i] * x[i + lag];
         r = fabs(r) / energy;
         if (lag == 1) {
-            printf("    noise: lag-1 autocorrelation %.3f (the source lowpass's 0.407)\n", r);
-            TT_CHECK(fabs(r - 0.407) < 0.05);
+            printf("    noise: lag-1 autocorrelation %.3f (the source lowpass's 0.368)\n", r);
+            TT_CHECK(fabs(r - 0.368) < 0.05);
         } else if (r > worst) {
             worst = r;
         }
@@ -2752,7 +2755,7 @@ TT_TEST(ring_stays_within_four)
         }
     }
     printf("    ring: largest sample %.3f\n", peak / RING_ONE);
-    /* under the hold, not at it: nothing is cut (3.855 at worst: a ringed spike, #261; 3.503
+    /* under the hold, not at it: nothing is cut (3.932 at worst: a ringed spike, #261; 3.503
      * without it) */
     TT_CHECK(peak < (int32_t)(3.95 * RING_ONE));
 }
@@ -2977,14 +2980,16 @@ static uint32_t pair_hash(fm_osc_pair *p, uint32_t n)
  * spikes, DCO-2 two octaves down and ringed) among them: pinned bit for bit
  * to their renders before it. Square, spike and pulse, free, synced and
  * ringed (SYNC 2).
+ * The four with a spike retaken with the spike's refit (#387: its shape, so
+ * every sample of it; the pulse and square pair is as it was).
  */
 TT_TEST(pairs_without_a_saw_are_unchanged_by_the_saw_flip)
 {
     static const struct { uint8_t w1, w2, sync, ring; int32_t semis; uint32_t want; } c[] = {
-        { FM_WAVE_SPIKE, FM_WAVE_SPIKE, 0, 1, -2400, 0xb8dfb1eau },  /* BUBBLES */
-        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 0, 500, 0x501c0af7u },
-        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 1, 500, 0xbb16c07fu },
-        { FM_WAVE_SPIKE, FM_WAVE_SQUARE, 1, 1, 700, 0x40a3da68u },
+        { FM_WAVE_SPIKE, FM_WAVE_SPIKE, 0, 1, -2400, 0xa5d0e292u },  /* BUBBLES */
+        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 0, 500, 0x77da1b04u },
+        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 1, 500, 0x14297b4fu },
+        { FM_WAVE_SPIKE, FM_WAVE_SQUARE, 1, 1, 700, 0x6324bba1u },
         { FM_WAVE_PULSE, FM_WAVE_SQUARE, 1, 0, 1200, 0x6eecd1abu },
     };
     static fm_osc_pair p;
