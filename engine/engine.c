@@ -863,12 +863,13 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
     return (int32_t)peak;
 }
 
-/* Frames rendered since init, mod 2^32: control ticks run every
- * FM_LFO_TICK_FRAMES from init, tick_left before the next */
-static uint32_t engine_frame(const fm_engine *e)
-{
-    return e->ticks * FM_LFO_TICK_FRAMES - e->tick_left;
-}
+/* After the render code, so the code before it keeps its place (#154). */
+static uint32_t engine_frame(const fm_engine *e);
+#if defined(__GNUC__) || defined(__clang__)
+static void wake(fm_engine *e, fm_voice *v) __attribute__((noinline));
+#else
+static void wake(fm_engine *e, fm_voice *v);
+#endif
 
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune
  * is 0), its glide set (porta_start, or one it brings along). */
@@ -876,7 +877,7 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
                       uint8_t velocity)
 {
     uint8_t i = (uint8_t)(v - e->voices);
-    if (!fm_voice_active(v)) fm_voice_wake(v, engine_frame(e)); /* on from where its DCOs ran to */
+    wake(e, v);
     fm_voice_age(v, ++e->stamp);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate);
@@ -923,7 +924,7 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         uint8_t was = fm_voice_note(v);
-        if (!fm_voice_active(v)) fm_voice_wake(v, engine_frame(e)); /* on from where its DCOs ran to */
+        wake(e, v);
         fm_voice_age(v, ++e->stamp);
         if (e->params[FM_PARAM_PORTAMENTO_MS] && fm_voice_active(v) && was != FM_VOICE_NO_NOTE) {
             /* sounding: on from where it is (no jump mid-glide) */
@@ -1144,4 +1145,17 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         out += 2 * n;
         frames -= n;
     }
+}
+
+/* Frames rendered since init, mod 2^32: control ticks run every
+ * FM_LFO_TICK_FRAMES from init, tick_left before the next */
+static uint32_t engine_frame(const fm_engine *e)
+{
+    return e->ticks * FM_LFO_TICK_FRAMES - e->tick_left;
+}
+
+/* Before an idle voice plays: its DCOs on from where they ran to (#154). */
+static void wake(fm_engine *e, fm_voice *v)
+{
+    if (!fm_voice_active(v)) fm_voice_wake(v, engine_frame(e));
 }
