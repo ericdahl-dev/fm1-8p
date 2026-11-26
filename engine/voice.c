@@ -252,7 +252,7 @@ static void start(fm_voice *v, const fm_voice_mod *m, uint32_t sample_rate,
 }
 
 /* The voice now plays `note` at `pitch`, held by its key. */
-static void hold(fm_voice *v, uint8_t note, int32_t pitch)
+FM_HOT static void hold(fm_voice *v, uint8_t note, int32_t pitch)
 {
     v->note = note;
     v->next_key = note;
@@ -457,7 +457,7 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
 #endif
     if (osc_chunk_safe(v) && frames) {
         /* the note plays the whole chunk: the oscillators all at once */
-        fm_osc_pair_render(&v->osc, osc, frames);
+        FM_FAR(fm_osc_pair_render)(&v->osc, osc, frames);
         for (i = 0; i < frames; i++)
             mix[i] += (int32_t)(((int64_t)osc[i] * fm_env_step(&v->amp_env)) >> 30);
         last = osc[frames - 1];
@@ -469,7 +469,7 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
          * within the filter's hold (+-8.0), sync and cross-mod included
          * (extreme_osc_settings_stay_bounded_and_release,
          * max_xmod_and_sync_stay_in_range) */
-        last = fm_osc_pair_next(&v->osc);
+        last = FM_FAR(fm_osc_pair_next)(&v->osc);
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)last * level) >> 30);
     }
@@ -486,7 +486,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
     int whole;
     if (render_plain(v, m, mix, osc, frames)) return;
     whole = osc_chunk_safe(v);
-    if (whole) fm_osc_pair_render(&v->osc, osc, frames);
+    if (whole) FM_FAR(fm_osc_pair_render)(&v->osc, osc, frames);
     for (i = 0; i < frames; i++) {
         int32_t level, fenv, out;
         if (v->amp_env.stage == FM_ENV_IDLE) { /* the release ended */
@@ -517,7 +517,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         }
         if (v->mix_step)
             fm_osc_pair_set_level(&v->osc, 1, v->osc.req[1] + v->mix_step);
-        out = fm_vfilter_run(&v->vf, whole ? osc[i] : fm_osc_pair_next(&v->osc));
+        out = fm_vfilter_run(&v->vf, whole ? osc[i] : FM_FAR(fm_osc_pair_next)(&v->osc));
         /* Q8.24 * Q1.30 -> Q8.24 */
         mix[i] += (int32_t)(((int64_t)out * level) >> 30);
     }

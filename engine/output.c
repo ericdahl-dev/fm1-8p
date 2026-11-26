@@ -45,7 +45,7 @@ static const int32_t out_clip[129] = {
     4109771, 4113801, 4117777,
 };
 
-static int16_t to_int16(int32_t q24)
+FM_HOT static int16_t to_int16(int32_t q24)
 {
     int64_t u, a, d;
     uint32_t k;
@@ -84,13 +84,13 @@ static int16_t to_int16(int32_t q24)
  * table and no 64-bit math. At shift 0 the soft clip is the output as it is
  * (it holds at 31642, so no clamp acts).
  */
-static int16_t gained(int32_t q24, uint8_t shift)
+FM_HOT static int16_t gained(int32_t q24, uint8_t shift)
 {
     int32_t v = (q24 >> 8) * (1 << shift);   /* |q24 >> 8| < 2^23: no overflow at shift 4 */
     return (int16_t)(v > 32767 ? 32767 : v < -32767 ? -32767 : v);
 }
 
-void fm_out_block(int16_t *out, const int32_t *left, const int32_t *right, uint32_t n, uint8_t shift)
+FM_HOT void fm_out_block(int16_t *out, const int32_t *left, const int32_t *right, uint32_t n, uint8_t shift)
 {
     uint32_t i;
     if (shift == 0) {           /* the engine's own level: the soft clip */

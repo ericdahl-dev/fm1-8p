@@ -7,6 +7,7 @@
 #define FM_OSC_H
 
 #include <stdint.h>
+#include "placement.h"
 
 typedef struct {
     uint32_t phase; /* Q0.32, one full cycle = 2^32 */

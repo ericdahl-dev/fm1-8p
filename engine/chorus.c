@@ -80,14 +80,14 @@ void fm_chorus_set_mode(fm_chorus *c, uint8_t mode)
 }
 
 /* Triangle from the LFO phase, Q1.30, -1.0 .. just under +1.0. */
-static int32_t triangle(uint32_t phase)
+FM_HOT static int32_t triangle(uint32_t phase)
 {
     uint32_t x = phase < 0x80000000u ? phase : ~phase; /* 0 .. 2^31 - 1 */
     return (int32_t)x - (1 << 30);
 }
 
 /* Delay-line value `delay` (Q16.16, >= 1.0) samples back, as Q8.24. */
-static int32_t tap(const fm_chorus *c, int32_t delay)
+FM_HOT static int32_t tap(const fm_chorus *c, int32_t delay)
 {
     uint32_t whole = (uint32_t)delay >> 16;
     int32_t frac = (int32_t)(((uint32_t)delay & 0xFFFFu) >> 1); /* Q0.15 */
@@ -107,7 +107,7 @@ static int32_t tap(const fm_chorus *c, int32_t delay)
 #define DRY_MAX (INT32_MAX - (1 << 25))
 
 /* One sample with the chorus on. */
-static void process_on(fm_chorus *c, int32_t in, int32_t *left,
+FM_HOT static void process_on(fm_chorus *c, int32_t in, int32_t *left,
                        int32_t *right)
 {
     int32_t q, sweep, dry;
@@ -137,7 +137,7 @@ void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
     process_on(c, in, left, right);
 }
 
-void fm_chorus_process_block(fm_chorus *c, int32_t *left, int32_t *right,
+FM_HOT void fm_chorus_process_block(fm_chorus *c, int32_t *left, int32_t *right,
                              uint32_t frames)
 {
     uint32_t i;

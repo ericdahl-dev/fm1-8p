@@ -273,7 +273,7 @@ static void update_spike(fm_osc_pair *p, uint8_t i)
  * mean. Three 32 x 32 -> 64 multiplies: past 30 halvings of the decay (v
  * at 30 << 16) the impulse's tail is 0 and only the mean is left, and
  * under it v is under 2^21, so v a fits 64 bits and w 32. */
-static int32_t spike_at(const fm_osc_pair *p, uint8_t i, uint32_t t)
+FM_HOT static int32_t spike_at(const fm_osc_pair *p, uint8_t i, uint32_t t)
 {
     uint32_t v = (uint32_t)(((uint64_t)t * p->sp_g[i]) >> 32); /* u / tau in log2, Q16 */
     int32_t e, w;
@@ -284,7 +284,7 @@ static int32_t spike_at(const fm_osc_pair *p, uint8_t i, uint32_t t)
 }
 
 /* polyBLEP rising saw at phase t with increment dt, Q8.24 (the pulse's and square's two). */
-static int32_t saw_at(uint32_t t, uint32_t dt)
+FM_HOT static int32_t saw_at(uint32_t t, uint32_t dt)
 {
     /* naive saw 2t - 1 as Q0.31: -1.0 at t = 0, rising to +1.0 */
     int64_t v = (int32_t)(t ^ 0x80000000u);
@@ -314,7 +314,7 @@ static int32_t saw_at(uint32_t t, uint32_t dt)
  * line: inlined at -Os, it makes wave_next save four more registers on
  * every call, the saw's included (+1.7 % at 8 voices in fm1-emu).
  */
-static FM_NOINLINE int32_t pulse_at(uint32_t t, uint32_t dt0, uint32_t dt, uint32_t width)
+FM_HOT static FM_NOINLINE int32_t pulse_at(uint32_t t, uint32_t dt0, uint32_t dt, uint32_t width)
 {
     return saw_at(t, dt0) - saw_at(t + width, dt);
 }
@@ -325,7 +325,7 @@ static FM_NOINLINE int32_t pulse_at(uint32_t t, uint32_t dt0, uint32_t dt, uint3
  * that can't be heard, as the phase between the DCOs drifts; sync and the
  * ring hold it, and there the direction shapes the tone.
  */
-static inline int32_t saw_fall(uint32_t t, uint32_t dt)
+FM_HOT static inline int32_t saw_fall(uint32_t t, uint32_t dt)
 {
     return -saw_at(t, dt);
 }
@@ -648,7 +648,7 @@ void fm_osc_pair_set_pitch(fm_osc_pair *p, int32_t pitch, uint32_t sample_rate)
  * White noise from a xorshift32 generator (period 2^32 - 1, three shifts
  * and three XORs a sample), as Q8.24 in -1.0..+1.0. Pitch has no effect.
  */
-static int32_t noise_next(fm_osc_pair *p)
+FM_HOT static int32_t noise_next(fm_osc_pair *p)
 {
     uint32_t x = p->noise;
     x ^= x << 13;
@@ -659,7 +659,7 @@ static int32_t noise_next(fm_osc_pair *p)
 }
 
 /* Oscillator `which`'s wave at phase t without band-limiting, Q8.24 (noise: 0). */
-static int32_t naive_at(const fm_osc_pair *p, uint8_t which, uint32_t t)
+FM_HOT static int32_t naive_at(const fm_osc_pair *p, uint8_t which, uint32_t t)
 {
     int32_t saw = (int32_t)(t ^ 0x80000000u) >> 7;
     uint32_t w = p->wave[which] == FM_WAVE_PULSE ? p->pw[which] : 0x80000000u;
@@ -678,8 +678,8 @@ static int32_t naive_at(const fm_osc_pair *p, uint8_t which, uint32_t t)
     }
 }
 
-static int32_t wave_at(fm_osc_pair *p, uint8_t which);
-static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0);
+FM_HOT static int32_t wave_at(fm_osc_pair *p, uint8_t which);
+FM_HOT static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0);
 
 /*
  * osc2's sample, with the polyBLEP of a sync reset in the last sample.
@@ -687,7 +687,7 @@ static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0);
  * already treats the reset as a full wrap (a step of -2.0); sync_after
  * replaces that with the real jump.
  */
-static int32_t osc2_at(fm_osc_pair *p)
+FM_HOT static int32_t osc2_at(fm_osc_pair *p)
 {
     int32_t v;
     if (!p->sync_pend)
@@ -704,7 +704,7 @@ static int32_t osc2_at(fm_osc_pair *p)
  * increment the polyBLEP of the saw that starts at the phase uses (0: none);
  * a pulse's second saw always uses the oscillator's increment.
  */
-static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0)
+FM_HOT static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0)
 {
     fm_osc *o = &p->osc[which];
     uint32_t t = o->phase;
@@ -724,7 +724,7 @@ static int32_t wave_at_dt(fm_osc_pair *p, uint8_t which, uint32_t dt0)
 }
 
 /* Oscillator `which`'s sample at its current phase, Q8.24. */
-static int32_t wave_at(fm_osc_pair *p, uint8_t which)
+FM_HOT static int32_t wave_at(fm_osc_pair *p, uint8_t which)
 {
     return wave_at_dt(p, which, p->osc[which].inc);
 }
@@ -733,14 +733,14 @@ static int32_t wave_at(fm_osc_pair *p, uint8_t which)
  * How far the next sample is past an osc1 wrap that left osc1 at phase t:
  * t / osc1's increment in Q16 (0..1), from the reciprocal (no division).
  */
-static uint64_t restart_x(const fm_osc_pair *p, uint32_t t)
+FM_HOT static uint64_t restart_x(const fm_osc_pair *p, uint32_t t)
 {
     return ((uint64_t)t * p->recip0) >> p->recip0_sh;
 }
 
 /* A polyBLEP term of osc2's first saw (Q8.24 at unit gain, the rising saw's) at osc2's gain and
  * direction: the saw wave falls, so its own term is negated. */
-static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
+FM_HOT static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
 {
     /* noise has no polyBLEP, and the spike no step at its wrap */
     if (p->wave[1] == FM_WAVE_NOISE || p->wave[1] == FM_WAVE_SPIKE) return 0;
@@ -755,7 +755,7 @@ static int32_t osc2_gain(const fm_osc_pair *p, int64_t v)
  * there), times the wave's gain and, for the saw, its falling sign
  * (osc2_gain).
  */
-static int32_t unwrap_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
+FM_HOT static int32_t unwrap_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
 {
     int64_t x = (int64_t)(((uint64_t)(0u - t) << 16) / dt);
     return osc2_gain(p, (((x * x) >> 16) - 2 * x + 65536) * 256); /* Q16 -> Q8.24 */
@@ -766,7 +766,7 @@ static int32_t unwrap_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
  * past it: what saw_at would have added on the next sample, had a restart
  * not followed the wrap within the sample (one division, as there).
  */
-static int32_t wrap_after_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
+FM_HOT static int32_t wrap_after_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
 {
     int64_t x = (int64_t)(((uint64_t)t << 16) / dt);
     return osc2_gain(p, -(2 * x - ((x * x) >> 16) - 65536) * 256);
@@ -779,7 +779,7 @@ static int32_t wrap_after_blep(const fm_osc_pair *p, uint32_t t, uint32_t dt)
  * Returns the correction for the sample just computed. Once per osc1
  * cycle, so kept out of the per-sample path.
  */
-static FM_NOINLINE int32_t sync_reset(fm_osc_pair *p, uint32_t t)
+FM_HOT static FM_NOINLINE int32_t sync_reset(fm_osc_pair *p, uint32_t t)
 {
     /* osc2's increment this sample (bent, with cross-mod) for both ends */
     uint32_t inc2 = p->osc[1].inc, cont = p->osc[1].phase + inc2, now;
@@ -806,7 +806,7 @@ static FM_NOINLINE int32_t sync_reset(fm_osc_pair *p, uint32_t t)
 }
 
 /* Moves both oscillators on one sample; returns sync's correction for it (0 without). */
-static int32_t advance(fm_osc_pair *p)
+FM_HOT static int32_t advance(fm_osc_pair *p)
 {
     uint32_t t = p->osc[0].phase + p->osc[0].inc;
     if (p->sync && t < p->osc[0].phase)
@@ -817,7 +817,7 @@ static int32_t advance(fm_osc_pair *p)
 }
 
 /* x times a level (Q1.30); full passes x through untouched */
-static inline int32_t gain(int32_t x, int32_t level)
+FM_HOT static inline int32_t gain(int32_t x, int32_t level)
 {
     return level == FM_OSC_LEVEL_FULL ? x : (int32_t)(((int64_t)x * level) >> 30);
 }
@@ -863,7 +863,7 @@ static void ring_coef(fm_osc_pair *p)
 }
 
 #define RING_MAX (4 << 24)
-static int32_t ring(const fm_osc_pair *p, int32_t x, int32_t m)
+FM_HOT static int32_t ring(const fm_osc_pair *p, int32_t x, int32_t m)
 {
     uint8_t w = p->wave[0];
     int32_t g = p->ring_ab[0] + (int32_t)(((int64_t)p->ring_ab[1] * m) >> 24);
@@ -886,7 +886,7 @@ static int32_t ring(const fm_osc_pair *p, int32_t x, int32_t m)
  * up mid-cycle and cycle_mean holds it at +-4.0; v less it then fits
  * 32 bits with room).
  */
-static int32_t cycle_mean(int64_t sum, uint32_t inc)
+FM_HOT static int32_t cycle_mean(int64_t sum, uint32_t inc)
 {
     /* sum * inc >> 32 in two halves: a cycle osc1 was held in (pitched
      * down to a stop, then back) can sum past what the product holds */
@@ -918,7 +918,7 @@ static int32_t cycle_mean(int64_t sum, uint32_t inc)
  * sample, no state.
  */
 #define SYNC_DC_SLOW 5 /* the jitter's share moves the offset by 1/2^5 a cycle */
-static inline int32_t sync_dc(fm_osc_pair *p, int32_t v, int wrapped)
+FM_HOT static inline int32_t sync_dc(fm_osc_pair *p, int32_t v, int wrapped)
 {
     int32_t y = v - p->dc;
     y = y > RING_MAX ? RING_MAX : y < -RING_MAX ? -RING_MAX : y;
@@ -941,7 +941,7 @@ static inline int32_t sync_dc(fm_osc_pair *p, int32_t v, int wrapped)
  * put back after. With osc2 at level 0 neither changes the sound, but
  * osc2 still moves with sync so its phase is right when its level changes.
  */
-static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
+FM_HOT static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
 {
     uint32_t inc = p->osc[1].inc, t0 = p->osc[0].phase;
     int32_t a = 0, b;
@@ -976,7 +976,7 @@ static FM_NOINLINE int32_t next_special(fm_osc_pair *p)
 }
 
 /* Oscillator `which`'s sample, then its phase moves on (no sync). */
-static int32_t wave_next(fm_osc_pair *p, uint8_t which)
+FM_HOT static int32_t wave_next(fm_osc_pair *p, uint8_t which)
 {
     fm_osc *o = &p->osc[which];
     uint32_t t = o->phase;
@@ -1002,7 +1002,7 @@ static int32_t wave_next(fm_osc_pair *p, uint8_t which)
  * without sync or cross-mod, the most common setting, is the first test,
  * so it costs no more than before those existed.
  */
-int32_t fm_osc_pair_next(fm_osc_pair *p)
+FM_HOT int32_t fm_osc_pair_next(fm_osc_pair *p)
 {
     int32_t a, b;
     if (p->only1) {
@@ -1032,7 +1032,7 @@ int32_t fm_osc_pair_next(fm_osc_pair *p)
  * one wave's own, the pulse's two saws inline (pulse_at stays out of
  * line for the per-sample paths, where inlining it costs 8 voices).
  */
-static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
+FM_HOT static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
                             uint32_t n, int32_t level, int add)
 {
     fm_osc *o = &p->osc[which];
@@ -1080,7 +1080,7 @@ static inline void wave_run(fm_osc_pair *p, uint8_t which, int32_t *out,
  * Samples before osc1's next wrap at its current phase, at most `left`:
  * no restart of osc2 falls in them. One divide per osc1 cycle.
  */
-static uint32_t until_wrap(const fm_osc_pair *p, uint32_t left)
+FM_HOT static uint32_t until_wrap(const fm_osc_pair *p, uint32_t left)
 {
     uint32_t inc0 = p->osc[0].inc, m;
     if (inc0 == 0) return left; /* osc1 stopped: it never wraps */
@@ -1088,14 +1088,14 @@ static uint32_t until_wrap(const fm_osc_pair *p, uint32_t left)
     return m < left ? m : left;
 }
 
-static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n);
-static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b);
+FM_HOT static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n);
+FM_HOT static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b);
 
 /*
  * sync_dc over a run of `n` samples in out[] with no wrap of osc1 in it:
  * each less the offset, held to +-4.0, into the cycle's sum.
  */
-static void sync_dc_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+FM_HOT static void sync_dc_run(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     int64_t sum = 0;
     int32_t dc = p->dc;
@@ -1118,7 +1118,7 @@ static void sync_dc_run(fm_osc_pair *p, int32_t *out, uint32_t n)
  * next_special's own steps. One loop for sync and the ring: the test of
  * `ring` is per run and per wrap, not per sample.
  */
-static void pair_runs(fm_osc_pair *p, int32_t *out, uint32_t n, int ring)
+FM_HOT static void pair_runs(fm_osc_pair *p, int32_t *out, uint32_t n, int ring)
 {
     uint32_t inc0 = p->osc[0].inc, i = 0, m, t;
     int32_t level = p->level[1], b;
@@ -1149,7 +1149,7 @@ static void pair_runs(fm_osc_pair *p, int32_t *out, uint32_t n, int ring)
  * makes them (0 at level 0, where it isn't drawn: a noise keeps its
  * generator). Leaves osc1's phase moved on by n.
  */
-static void sync_osc1(fm_osc_pair *p, int32_t *out, uint32_t n)
+FM_HOT static void sync_osc1(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     uint32_t i;
     if (p->level[0]) {
@@ -1170,7 +1170,7 @@ static void sync_osc1(fm_osc_pair *p, int32_t *out, uint32_t n)
  * next_special's own steps. At level 0 osc2 only moves its phase: by m
  * increments, or a restart.
  */
-static void sync_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+FM_HOT static void sync_run(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     uint32_t t0 = p->osc[0].phase, inc0 = p->osc[0].inc, i = 0, m;
     int32_t level = p->level[1];
@@ -1201,7 +1201,7 @@ static void sync_run(fm_osc_pair *p, int32_t *out, uint32_t n)
  * osc1's raw sample a and osc2's b as next_special sums a ring pair: osc1
  * at its level plus the ringed osc2 at its own, held to +-4.0.
  */
-static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b)
+FM_HOT static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b)
 {
     int32_t v = gain(a, p->level[0]) + gain(ring(p, b, a), p->req[1]);
     return v > RING_MAX ? RING_MAX : v < -RING_MAX ? -RING_MAX : v;
@@ -1215,7 +1215,7 @@ static inline int32_t ring_sum(const fm_osc_pair *p, int32_t a, int32_t b)
  * time, which saves two more copies of the ring's loop (the FM-1 runs
  * from a 32 KB cache).
  */
-static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+FM_HOT static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     fm_osc *o = &p->osc[1];
     uint32_t t = o->phase, dt = o->inc, i;
@@ -1244,7 +1244,7 @@ static void ring_wave_run(fm_osc_pair *p, int32_t *out, uint32_t n)
  * without sync, between osc1's wraps with it; the wrap's two samples take
  * next_special's own steps, as in sync_run.
  */
-static void ring_run(fm_osc_pair *p, int32_t *out, uint32_t n)
+FM_HOT static void ring_run(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     uint32_t t0 = p->osc[0].phase;
     wave_run(p, 0, out, n, FM_OSC_LEVEL_FULL, 0);
@@ -1259,7 +1259,7 @@ static void ring_run(fm_osc_pair *p, int32_t *out, uint32_t n)
  * its phase, by n increments at once. Two noises go a sample at a time, as
  * they share one generator and fm_osc_pair_next draws them in turn.
  */
-void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
+FM_HOT void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
 {
     uint32_t i;
     int noises = p->wave[0] == FM_WAVE_NOISE && p->wave[1] == FM_WAVE_NOISE;
