@@ -36,6 +36,30 @@ TT_TEST(lfo_to_pitch_moves_the_pitch_by_the_depth)
     TT_CHECK_NEAR(down, -100, 1);
 }
 
+/* #330: the triangle swings to the set depth at its peaks, as the square does above. The JX-8P import's
+ * 4.72 cents a step rests on it: PG-8X's depth is read as its peak. 2 ms windows across one 1 Hz cycle
+ * of A8 (about 14 cycles a window), set to 300 cents: the highest window reads within 3 cents of +300 (a
+ * 2 ms window near a triangle's peak averages at most 2.4 cents below it), the lowest within 3 of -300. */
+TT_TEST(lfo_triangle_swings_to_the_depth_at_its_peaks)
+{
+    double hi = -1e9, lo = 1e9;
+    int w;
+    TT_CHECK_EQ(fm_engine_init(&mod_eng, MOD_RATE, 1), FM_OK);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_TRIANGLE);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 100); /* 1 Hz */
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 300);
+    fm_engine_note_on(&mod_eng, 117, 100);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE);
+    for (w = 0; w < 495; w++) {
+        double c = cents(hz_between(mod_buf, 2.0 * w, 2.0 * w + 2.0), note_hz(117));
+        if (c > hi) hi = c;
+        if (c < lo) lo = c;
+    }
+    if (hi < 297 || hi > 303 || lo > -297 || lo < -303) printf("    triangle peaks %+.1f / %+.1f cents\n", hi, lo);
+    TT_CHECK(hi >= 297 && hi <= 303);
+    TT_CHECK(lo <= -297 && lo >= -303);
+}
+
 /* A short phrase on 3 voices with a steal, a bend and a pedal, rendered
  * into `out` in uneven blocks. Returns the frames rendered. */
 static size_t mod_phrase(int16_t *out)
@@ -818,6 +842,7 @@ TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 static void run_mod_tests(void)
 {
     TT_RUN(lfo_to_pitch_moves_the_pitch_by_the_depth);
+    TT_RUN(lfo_triangle_swings_to_the_depth_at_its_peaks);
     TT_RUN(zero_pitch_depth_leaves_the_output_untouched);
     TT_RUN(lfo_delay_holds_modulation_at_zero_then_fades_it_in);
     TT_RUN(block_size_does_not_change_lfo_output);
