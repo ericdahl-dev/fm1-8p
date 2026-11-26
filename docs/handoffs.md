@@ -138,7 +138,10 @@ These don't fit one kind. Each is named here and in its field's comment.
   clear with `out_block` clear: a pending stop or restart taken between the two sent a second stop
   (#364). It now holds the gate for that read and clear and puts `out_block` back as it was before it
   latches G14, so a let-go stays let go (gap "clock_start" 0,
-  `clock_start_with_an_ask_pending_sends_one_stop`).
+  `clock_start_with_an_ask_pending_sends_one_stop`). `out_on` set with nothing playing means the main
+  loop has already sent this start (a followed start's latch), so the interrupt taking it on its own
+  clock sends no second FA, only the first tick: a clock source change to INT before that block took
+  it had sent FA FA (#380, `clock_source_to_int_with_a_start_pending_sends_one_start`).
 - **`ext`, `ext_inc`: two kinds on one field.** Each is the payload of a followed start's ask
   (kind B), and afterwards a single word the interrupt reads every block (kind D): `ext_inc` moves
   with every clock tick. Both have one writer, the main loop.
