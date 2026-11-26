@@ -129,37 +129,58 @@ At 50 % the gain is 1 (the square is +-1.0). The mix sums the two at their
 levels, so both at full peak at 2.0, as on PG-8X's mixer.
 
 The spike (`FM_WAVE_SPIKE`, #150) is PG-8X 2.0.13's PULSE, which is not a
-fixed duty. It is an impulse train of area 2.96e-4 (the square's amplitude
-times seconds) through two one-pole lowpasses, at 1800 Hz and 1060 / 256 of
-that (7453 Hz), in its periodic steady state, less its mean. With u the time
-since the impulse, tau1 and tau2 the lowpasses' time constants, T the period
-and q1, q2 = e^(-T / tau1), e^(-T / tau2):
+fixed duty. Fitted to #150's measurements (its level against the square at C2
+to C6 and its partials at C4, C5 and C6), it is an impulse train of area
+2.865e-4 (the square's amplitude times seconds) through two one-pole lowpasses
+at 3050 Hz, in its periodic steady state, less its mean. With u the time since
+the impulse, tau the lowpasses' time constant, T the period and
+q = e^(-T / tau):
 
-    y(u) = A / (tau1 - tau2) (e^(-u / tau1) / (1 - q1) - e^(-u / tau2) / (1 - q2)) - A / T
-
-It was first fitted (#150) to PG-8X's output as two poles at 3050 Hz, with
-PG-8X's top-band roll-off in it. The source lowpass above now adds that
-roll-off to every source, so the spike's own shape is refitted without it
-(#387): against PG-8X's PULSE at six pitches, harmonics from 1 to 20 kHz, the
-spike under the lowpass is within 1.12 dB rms at 44.1 kHz and 1.18 at 48 kHz
-(two poles at 3050 Hz with no lowpass: 1.80 and 1.41; the same under the
-lowpass: 2.47 and 2.72).
+    y(u) = (A / tau) e^(-u / tau) (u / tau / (1 - q) + (T / tau) q / (1 - q)^2) - A / T
 
 That's a closed form of the phase, so it has no state: every path that reads
-a wave at its phase plays it alike, sync and the ring included. The two
-terms' steps at the impulse cancel (it is continuous), so it needs no
-polyBLEP, and at note 96 its aliasing is under the limit above.
-- **Constants:** two from the sample rate, on events (a divide there): the
-  first lowpass's decay per sample and the impulse area times the rate. The
-  rest come from the pitch as played, on events and on the pitch modulation's
-  control ticks (only the oscillator whose modulation moved), with no
-  division: that decay per 2^32 of phase (1 / dt by Newton's reciprocal),
-  each pole's 1 / (1 - q) (Newton again), and the mean.
-- **Per sample:** three 32 x 32 -> 64 multiplies (the decay's place, and each
-  pole's term), one 32-bit multiply (the second pole's place from the
-  first's) and two reads of a 2^-x table (1024 entries, no interpolation).
-  Past 30 halvings of the first decay, only the mean is left. Against the
-  closed form in double it is within -51 dB of its peak.
+a wave at its phase plays it alike, sync and the ring included. It starts from
+0 at each impulse (continuous), so it needs no polyBLEP, and at note 96 its
+aliasing is under the limit above.
+
+**The pre-emphasis (#387).** That fit was made on PG-8X's output, which has
+PG-8X's top-band roll-off in it, and the source lowpass above now adds that
+roll-off to every source. Left alone, the spike would get it twice: 2.47 dB
+rms off PG-8X's PULSE at 44.1 kHz and 2.72 at 48 kHz (six pitches, harmonics
+from 1 to 20 kHz), where it was 1.80 and 1.41 on main with no lowpass. So the
+spike takes most of the lowpass back off itself:
+
+    y'(u) = (1 + c) y(u) - c y(u - one sample),  c = 0.62 (1 - a) / a
+
+with a the lowpass's weight at the sample rate: c is 0.27 at 44.1 kHz and 0.33
+at 48 kHz, the values fitted at each rate, and 0 where the lowpass is a wire.
+Under the lowpass the spike is then within 0.90 dB rms of PG-8X's PULSE at
+44.1 kHz and 0.83 at 48 kHz, and from 250 Hz to 8 kHz it reads as it did on
+main within 0.2 dB a band. The area fell from 2.9317e-4 to hold its level
+against the square (the pre-emphasis adds 0.2 dB).
+
+- It is the same closed form: e^(-u / tau) is common to both terms, so only
+  the two constants change, on events. It is still a function of the phase
+  alone and still continuous, and no less band-limited than y, since it is a
+  filter of the samples.
+- Only the sample right after the impulse differs: the sample before it came
+  before the impulse, so that impulse's own response is taken back off there.
+  One compare a sample, and two more multiplies once a cycle.
+- Moving the two poles instead (to 1800 and 7453 Hz) fitted the top as well
+  (1.12 / 1.18 dB rms) but bent the spike's body: 250 Hz to 8 kHz went from
+  1.08 to 1.39 dB rms, and the scorecard's PULSE tones moved away from PG-8X
+  (05 ARCOSTRING 1.82 to 2.22, 10 ORGAN 2 1.14 to 1.36).
+
+- **Constants:** from the sample rate, on events (two divides there): the
+  decay per sample, the impulse area times the rate, and the pre-emphasis's c
+  and c e^(one sample / tau). The rest come from the pitch as played, on
+  events and on the pitch modulation's control ticks (only the oscillator
+  whose modulation moved), with no division: the decay per 2^32 of phase
+  (1 / dt by Newton's reciprocal), 1 / (1 - q) (Newton again), the earlier
+  cycles' share, and the mean.
+- **Per sample:** three 32 x 32 -> 64 multiplies, one read of a 2^-x table
+  (1024 entries, no interpolation) and one compare. Past 30 halvings of the
+  decay, only the mean is left.
 - **Not band-limited:** a sync restart that lands inside the spike, where the
   wave is far from its start value, steps without a polyBLEP. That's a
   follow-up.

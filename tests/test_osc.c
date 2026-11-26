@@ -218,24 +218,32 @@ static double held_rms(uint8_t wave, uint8_t note)
 }
 
 /*
- * The spike against its closed form in double (an impulse of area A through
- * two one-poles, at 1800 Hz and 1060 / 256 of that, 7453 Hz, steady state,
- * less its mean: #387's refit of #150's model, with PG-8X's top-band
- * roll-off left to the source lowpass),
+ * The spike against its closed form in double (#150's model: an impulse of
+ * area A through two one-poles at 3050 Hz, steady state, less its mean;
+ * then #387's pre-emphasis, (1 + c) y(u) - c y(u - one sample) with
+ * c = 0.62 (1 - a) / a, a the source lowpass's weight at the rate),
  * osc1 alone at full, notes 24..108 at 48 kHz and 120..132 at 192 kHz: the
- * largest error is under -50 dB of the spike's peak at 48 kHz (-37 dB at
- * 192 kHz's high notes; measured -51.4: it was -58 with one pole pair and
- * one table read, and the two reads' rounding no longer cancels where the
- * two terms do, at the impulse), so a cheaper way to the same form stays as
- * close to the fit as the closed form itself. Past about 32 kHz (notes
+ * largest error is under -58 dB of the spike's peak at 48 kHz (-45 dB at
+ * 192 kHz's high notes), so a cheaper way to the same form stays as close to
+ * the fit (0.81 dB rms) as the closed form itself. Past about 27 kHz (notes
  * 144..168 at 192 kHz, to its pitch limit) it keeps that pitch's shape, so
  * it stays within the spike's own peak (2.3) and never runs away.
  */
+static double spike_body(double u, double T)
+{
+    const double A = 2.865e-4, tau = 1.0 / (2.0 * AN_PI * 3050.0);
+    double q = exp(-T / tau);
+    return A / tau * exp(-u / tau) * (u / tau / (1 - q) + T / tau * q / ((1 - q) * (1 - q))) - A / T;
+}
+
+#include "../engine/output.h"
+static double spike_ref_rate; /* the sample rate spike_ref's pre-emphasis is for */
 static double spike_ref(double u, double T)
 {
-    const double A = 2.96e-4, f1 = 1800.0, f2 = f1 * 1060.0 / 256.0;
-    const double t1 = 1.0 / (2.0 * AN_PI * f1), t2 = 1.0 / (2.0 * AN_PI * f2);
-    return A / (t1 - t2) * (exp(-u / t1) / (1 - exp(-T / t1)) - exp(-u / t2) / (1 - exp(-T / t2))) - A / T;
+    double a = fm_out_source_lp_weight((uint32_t)spike_ref_rate) / 32768.0, c = 0.62 * (1 - a) / a;
+    double before = u - 1.0 / spike_ref_rate;
+    while (before < 0) before += T;
+    return (1 + c) * spike_body(u, T) - c * spike_body(before, T);
 }
 
 TT_TEST(spike_matches_its_closed_form)
@@ -253,6 +261,7 @@ TT_TEST(spike_matches_its_closed_form)
         uint32_t rate = at[n].rate;
         double peak = 0, err0 = 0, err1 = 0, g, T;
         uint32_t inc, t;
+        spike_ref_rate = rate;
         fm_osc_pair_reset(&p, 1);
         fm_osc_pair_set_wave(&p, 0, FM_WAVE_SPIKE);
         fm_osc_pair_set_pitch(&p, pitch, rate);
@@ -273,7 +282,7 @@ TT_TEST(spike_matches_its_closed_form)
     }
     printf("    spike against its closed form: worst %.1f dB of its peak (192 kHz's high notes 13 dB looser)\n",
            worst);
-    TT_CHECK(worst < -50.0);
+    TT_CHECK(worst < -58.0);
     for (n = 0; n < sizeof past / sizeof past[0]; n++) {
         double big = 0;
         fm_osc_pair_reset(&p, 1);
@@ -334,9 +343,9 @@ static double held_partials(uint8_t which, uint8_t wave, uint8_t note, double *d
 /*
  * PG-8X's PULSE rolls off smoothly, with no sinc nulls (#150): partials
  * h1..h16 against h1 at C4, C5 and C6, as measured. The spike keeps to
- * them within 2.5 dB, under the source lowpass (#299), which is PG-8X's
- * top-band roll-off on every source: the spike's own shape is PG-8X's
- * PULSE without it (#387).
+ * them within 2.5 dB under the source lowpass (#299), PG-8X's top-band
+ * roll-off on every source: the spike was fitted with that roll-off in it,
+ * so its one-sample pre-emphasis takes most of the lowpass back off (#387).
  */
 TT_TEST(spike_partials_follow_pg8x)
 {
@@ -1142,7 +1151,7 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
  * no lag from 2 to 4096 samples correlates with the signal by more than 0.1.
  * A pitched wave fails this at its period. Lag 1 is the source lowpass's
  * own (#299): a (1 - a) / (a^2 + (1 - a)^2) for white noise, 0.368 at
- * 44.1 kHz's weight, 0.695; within 0.05 of it.
+ * 44.1 kHz's weight, 0.695 (measured 0.372); within 0.05 of it.
  */
 TT_TEST(noise_is_bounded_and_not_periodic)
 {
@@ -2755,7 +2764,7 @@ TT_TEST(ring_stays_within_four)
         }
     }
     printf("    ring: largest sample %.3f\n", peak / RING_ONE);
-    /* under the hold, not at it: nothing is cut (3.932 at worst: a ringed spike, #261; 3.503
+    /* under the hold, not at it: nothing is cut (3.930 at worst: a ringed spike, #261; 3.503
      * without it) */
     TT_CHECK(peak < (int32_t)(3.95 * RING_ONE));
 }
@@ -2980,16 +2989,16 @@ static uint32_t pair_hash(fm_osc_pair *p, uint32_t n)
  * spikes, DCO-2 two octaves down and ringed) among them: pinned bit for bit
  * to their renders before it. Square, spike and pulse, free, synced and
  * ringed (SYNC 2).
- * The four with a spike retaken with the spike's refit (#387: its shape, so
- * every sample of it; the pulse and square pair is as it was).
+ * The four with a spike retaken with the spike's pre-emphasis and area
+ * (#387: every sample of it; the pulse and square pair is as it was).
  */
 TT_TEST(pairs_without_a_saw_are_unchanged_by_the_saw_flip)
 {
     static const struct { uint8_t w1, w2, sync, ring; int32_t semis; uint32_t want; } c[] = {
-        { FM_WAVE_SPIKE, FM_WAVE_SPIKE, 0, 1, -2400, 0xa5d0e292u },  /* BUBBLES */
-        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 0, 500, 0x77da1b04u },
-        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 1, 500, 0x14297b4fu },
-        { FM_WAVE_SPIKE, FM_WAVE_SQUARE, 1, 1, 700, 0x6324bba1u },
+        { FM_WAVE_SPIKE, FM_WAVE_SPIKE, 0, 1, -2400, 0xb3757125u },  /* BUBBLES */
+        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 0, 500, 0x60593774u },
+        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 1, 500, 0xb9af6863u },
+        { FM_WAVE_SPIKE, FM_WAVE_SQUARE, 1, 1, 700, 0xbe3a8493u },
         { FM_WAVE_PULSE, FM_WAVE_SQUARE, 1, 0, 1200, 0x6eecd1abu },
     };
     static fm_osc_pair p;

@@ -9,6 +9,7 @@
  * PG-8X's does (#260); the pulse and square are made of rising ones.
  */
 #include "osc.h"
+#include "output.h"
 
 /* Keeps a rare path out of line so the per-sample path around it stays small. */
 #if defined(__GNUC__) || defined(__clang__)
@@ -86,25 +87,40 @@ void fm_osc_set_inc(fm_osc *o, uint32_t inc)
 }
 
 /*
- * The spike (FM_WAVE_SPIKE, #150): PG-8X 2.0.13's PULSE, without PG-8X's
- * top-band roll-off, which the source lowpass adds to every source (#299;
- * the spike was first fitted with that roll-off in it, #387). It is an
- * impulse train of area SPIKE_AREA (in the square's amplitude x seconds)
- * through two one-pole lowpasses, at SPIKE_LP_HZ and SPIKE_LP2 times that
- * (1900 and 7251 Hz), in its periodic steady state, less its mean. With u
- * the time since the impulse, tau1 and tau2 the lowpasses' time constants,
- * T the period and q1, q2 = e^(-T / tau1), e^(-T / tau2):
- *   y(u) = A / (tau1 - tau2) (e^(-u / tau1) / (1 - q1) - e^(-u / tau2) / (1 - q2)) - A / T
+ * The spike (FM_WAVE_SPIKE, #150): PG-8X 2.0.13's PULSE. Fitted to #150's
+ * measurements (its level against the square at C2..C6 and its partials
+ * at C4, C5 and C6, within 0.81 dB rms), it is an impulse train of area
+ * SPIKE_AREA (in the square's amplitude x seconds) through two one-pole
+ * lowpasses at SPIKE_LP_HZ, in its periodic steady state, less its mean.
+ * With u the time since the impulse, tau the lowpasses' time constant, T
+ * the period and q = e^(-T / tau):
+ *   y(u) = (A / tau) e^(-u / tau) (u / tau / (1 - q) + (T / tau) q / (1 - q)^2) - A / T
  * A closed form of the phase, so the spike has no state: every path that
- * reads a wave at its phase plays it alike. The two terms' steps at the
- * impulse cancel (it is continuous), so it needs no polyBLEP. The constants
- * come from the unmodulated pitch, on events, with no division per sample.
+ * reads a wave at its phase plays it alike. It starts from 0 at each
+ * impulse (continuous), so it needs no polyBLEP. The constants come from
+ * the unmodulated pitch, on events, with no division per sample.
+ *
+ * The pre-emphasis (#387). That fit was made on PG-8X's output, so it has
+ * PG-8X's top-band roll-off in it, and the source lowpass (#299, output.h)
+ * now adds that roll-off to every source: the spike would get it twice (2.5
+ * to 2.7 dB rms off PG-8X's PULSE over 1-20 kHz). So the spike takes most of
+ * the lowpass back off itself, as a one-sample pre-emphasis:
+ *   y'(u) = (1 + c) y(u) - c y(u - one sample),  c = SPIKE_PRE (1 - a) / a
+ * with a the lowpass's weight at the sample rate (c is 0 where the lowpass
+ * is a wire). Fitted to PG-8X's PULSE at six pitches, c is 0.27 at 44.1 kHz
+ * and 0.33 at 48 kHz, 0.62 (1 - a) / a at both. It is the same closed form:
+ * e^(-u / tau) is common to both terms, so only the two constants change
+ * (update_spike), and y' is still a function of the phase alone, continuous,
+ * and no less band-limited than y: it is a filter of the samples. Only the
+ * sample right after the impulse differs: the sample before it came before
+ * the impulse, whose own response the closed form must not count there
+ * (spike_at's one branch).
  */
-#define SPIKE_LP_HZ 1800u
-#define SPIKE_LP2_Q8 1060    /* the second lowpass's corner over the first's, Q8: 4.141 (7453 Hz) */
-#define SPIKE_KQ 1069317915u /* 2 pi SPIKE_LP_HZ / ln 2 x 2^16 */
-#define SPIKE_KC 74048079    /* A / (tau1 - tau2) in Q8.24: 4.4136 */
-#define SPIKE_A_Q24 4966u    /* A x 2^24 (A = 2.9600e-04 s) */
+#define SPIKE_PRE_Q30 665719931u /* 0.62, Q30 */
+#define SPIKE_LP_HZ 3050u
+#define SPIKE_KQ 1811899801u /* 2 pi SPIKE_LP_HZ / ln 2 x 2^16 */
+#define SPIKE_KA 92113701    /* A 2 pi SPIKE_LP_HZ (A / tau) in Q8.24: 5.490 */
+#define SPIKE_A_Q24 4807u    /* A x 2^24 (A = 2.865e-4 s: 2.9317e-4 before the pre-emphasis, which adds 0.2 dB) */
 #define LN2_Q16 45426u
 
 /* 2^(-i / 64), Q30, i = 0..64 */
@@ -229,64 +245,76 @@ static uint32_t recip_of(uint32_t dt, uint8_t *sh)
  * division. */
 static void update_spike(fm_osc_pair *p, uint8_t i)
 {
-    uint32_t dt = p->osc[i].inc, r;
-    uint64_t g, g0;
-    int64_t m;
-    uint8_t sh, k;
+    uint32_t dt = p->osc[i].inc, r, q;
+    uint64_t g, g0, tt;
+    int64_t p1, m;
+    uint8_t sh;
     if (!dt || !p->sp_kq) {
         p->sp_g[i] = 0;
-        p->sp_c1[i] = p->sp_c2[i] = p->sp_mean[i] = 0;
+        p->sp_p1[i] = p->sp_zc[i] = p->sp_mean[i] = 0;
         return;
     }
-    /* the first lowpass's decay per 2^32 of phase, Q16 log2: (1 / dt) x
-     * 2^32 x the decay per sample (sp_kq: 2 pi f / (rate ln 2)) */
+    /* the decay per 2^32 of phase, Q16 log2: (1 / dt) x 2^32 x the decay
+     * per sample (sp_kq: 2 pi f / (rate ln 2)) */
     if (dt < 4u) dt = 4u; /* keeps the shift below non-negative */
     r = recip_of(dt, &sh); /* 1 / dt = r x 2^(sh - 62) */
     g = ((uint64_t)p->sp_kq * r) >> (30 - sh);
     if (g > 0xFFFFFFFFu) g = 0xFFFFFFFFu;
     g0 = g;
-    if (g < (1u << 15))                         /* past about 32 kHz (96 kHz rates and up): its shape at
-                                                 * that pitch, half a halving a period (q1 0.71), where
-                                                 * 1 / (1 - q) below stays in its reciprocal's range, and
-                                                 * the mean below that period's; bounded, and above hearing */
-        g = 1u << 15;
+    if (g < (1u << 16))                         /* past about 27 kHz (96 kHz rates and up): its shape at
+                                                 * that pitch, one halving a period (q 0.5), where 1 / (1 - q)
+                                                 * below stays in its reciprocal's range, and the mean
+                                                 * below that period's; bounded, and above hearing */
+        g = 1u << 16;
     p->sp_g[i] = (uint32_t)g;
-    /* each pole's term, KC / (1 - q), Q26: 1 / (1 - q) in Q16 by Newton's reciprocal, whose range is
-     * 0.5..1: 1 - q is 0.29..1 for both (q1 at most 0.71, q2 under q1), so under 0.5 it is doubled
-     * and the reciprocal with it. Each term is under 3.42 KC: 1.02e9 */
-    for (k = 0; k < 2; k++) {
-        uint64_t gk = k ? (g * SPIKE_LP2_Q8) >> 8 : g;
-        uint8_t dbl;
-        m = (int64_t)((1u << 30) - (uint32_t)exp2_neg(gk));  /* 1 - e^(-T / tau), Q30 */
-        dbl = (uint8_t)(m < (1 << 29));
-        m <<= dbl;
-        m = (recip_step(m, recip_step(m, recip_seed(m))) >> 14) << dbl;
-        *(k ? &p->sp_c2[i] : &p->sp_c1[i]) = (int32_t)(((int64_t)SPIKE_KC * m) >> 14);
+    q = (uint32_t)exp2_neg(g);                 /* e^(-T / tau), Q30 */
+    /* 1 / (1 - q), Q16, by Newton's reciprocal: 1 - q is 0.5..1 for any
+     * pitch under 27 kHz (q under 0.5 while T / tau is over 0.69) */
+    m = (int64_t)((1u << 30) - q);
+    p1 = recip_step(m, recip_step(m, recip_seed(m))) >> 14;
+    tt = (g * LN2_Q16) >> 16;                  /* T / tau, Q16 */
+    {
+        /* spike_at's two terms, folded: KA ln2 / (1 - q) on u / tau in log2 (Q26: 1 / (1 - q) is at
+         * most 5.5 at the pitch limit, half the rate, so this is under 21.4: 1.44e9), and KA z's
+         * constant (T / tau) q / (1 - q)^2 (Q22) */
+        int64_t zc = ((((int64_t)((tt * q) >> 30)) * p1 >> 16) * p1) >> 16;   /* Q16 */
+        p->sp_p1[i] = (int32_t)((((int64_t)SPIKE_KA * LN2_Q16) * p1) >> 30);
+        p->sp_zc[i] = (int32_t)(((int64_t)SPIKE_KA * zc) >> 18);
+    }
+    if (p->sp_c) {
+        /* the pre-emphasis: (1 + c) y(u) - c y(u - d), d one sample: both constants times
+         * G = 1 + c - c e^(d / tau) (0.49..1), and c e^(d / tau) (d / tau) of the slope's
+         * 1 / (1 - q) onto the constant (sp_kq is d / tau in log2, as the slope is on u / tau) */
+        int64_t gq = (1ll << 30) + p->sp_c - p->sp_ce;
+        int64_t add = ((((int64_t)p->sp_p1[i] * p->sp_ce) >> 30) * p->sp_kq) >> 20;   /* Q26 -> Q22 */
+        p->sp_p1[i] = (int32_t)(((int64_t)p->sp_p1[i] * gq) >> 30);
+        p->sp_zc[i] = (int32_t)((((int64_t)p->sp_zc[i] * gq) >> 30) + add);
     }
     m = (int64_t)(((uint64_t)p->sp_ar * dt) >> 32);  /* A / T */
-    p->sp_mean[i] = (int32_t)(g0 < g ? (m * (int64_t)g0) >> 15 : m);   /* (clamped, g is 2^15: the shape's T) */
-}
-
-/* e^(-x) for x in log2 Q16 (v halvings), Q30: spike_exp with no interpolation; 0 past 30 halvings. */
-static inline int32_t spike_decay(uint32_t v)
-{
-    if (v >= (30u << 16)) return 0;
-    return (int32_t)(((uint32_t)spike_exp[(v >> 6) & 1023u] << 15) >> (v >> 16));
+    p->sp_mean[i] = (int32_t)(g0 < g ? (m * (int64_t)g0) >> 16 : m);   /* (clamped, g is 2^16: the shape's T) */
 }
 
 /* The spike of oscillator `i` at phase t (the time since its impulse),
- * Q8.24: the first pole's e^(-u / tau1) times its term less the second's
- * (its decay is the first's times SPIKE_LP2, a 32-bit multiply: v is under
- * 2^21), less the mean. Three 32 x 32 -> 64 multiplies: past 30 halvings of
- * the first decay both tails are 0 and only the mean is left. */
+ * Q8.24: e^(-u / tau) (spike_exp, no interpolation) times its linear term
+ * w = a v + b (sp_p1, Q26, and sp_zc, Q22: w in Q9.22, under 128), less the
+ * mean. Three 32 x 32 -> 64 multiplies: past 30 halvings of the decay (v
+ * at 30 << 16) the impulse's tail is 0 and only the mean is left, and
+ * under it v is under 2^21, so v a fits 64 bits and w 32. */
 static int32_t spike_at(const fm_osc_pair *p, uint8_t i, uint32_t t)
 {
-    uint32_t v = (uint32_t)(((uint64_t)t * p->sp_g[i]) >> 32); /* u / tau1 in log2, Q16 */
-    int32_t y;
+    uint32_t v = (uint32_t)(((uint64_t)t * p->sp_g[i]) >> 32); /* u / tau in log2, Q16 */
+    int32_t e, w;
     if (v >= (30u << 16)) return -p->sp_mean[i];
-    y = (int32_t)(((int64_t)spike_decay(v) * p->sp_c1[i]) >> 32) -
-        (int32_t)(((int64_t)spike_decay((v * SPIKE_LP2_Q8) >> 8) * p->sp_c2[i]) >> 32);
-    return y - p->sp_mean[i];
+    e = (int32_t)(((uint32_t)spike_exp[(v >> 6) & 1023u] << 15) >> (v >> 16));   /* e^(-u / tau), Q30 */
+    w = (int32_t)(((int64_t)v * p->sp_p1[i]) >> 20) + p->sp_zc[i];
+    if (t < p->osc[i].inc && p->sp_c) {
+        /* the sample right after the impulse: the one before it had no share of this impulse,
+         * so c e^(d / tau) KA (u - d) / tau comes back off (negative: u is under d). Once a
+         * cycle. */
+        int64_t f1 = ((((int64_t)SPIKE_KA * LN2_Q16) >> 14) * p->sp_ce) >> 30;   /* Q26, on v */
+        w += (int32_t)(((int64_t)v * f1) >> 20) - (int32_t)((f1 * p->sp_kq) >> 20);
+    }
+    return (int32_t)(((int64_t)e * w) >> 28) - p->sp_mean[i];
 }
 
 /* polyBLEP rising saw at phase t with increment dt, Q8.24 (the pulse's and square's two). */
@@ -368,9 +396,10 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->recip0_sh = 0;
     p->noise = seed ? seed : 0x2545F491u;
     p->sp_kq = p->sp_ar = 0;
+    p->sp_c = p->sp_ce = 0;
     for (i = 0; i < 2; i++) {
         p->sp_g[i] = 0;
-        p->sp_c1[i] = p->sp_c2[i] = p->sp_mean[i] = 0;
+        p->sp_p1[i] = p->sp_zc[i] = p->sp_mean[i] = 0;
     }
     ring_coef(p);
 }
@@ -555,8 +584,18 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
 {
     p->base[i] = fm_osc_pitch_inc(pitch + p->tune[i], sample_rate);
     if (p->sp_ar != SPIKE_A_Q24 * sample_rate) { /* the spike's rate terms: a divide, on events */
+        int32_t a = fm_out_source_lp_weight(sample_rate);
         p->sp_kq = sample_rate ? SPIKE_KQ / sample_rate : 0;
         p->sp_ar = SPIKE_A_Q24 * sample_rate;
+        /* the pre-emphasis's c = 0.62 (1 - a) / a (a is 0.5..1: c 0..0.62) and c e^(d / tau), the
+         * reciprocal of the decay over a sample: over 0.5 wherever c is not 0 (rates above
+         * 32 kHz: the decay is 0.55 there), the range of Newton's reciprocal */
+        p->sp_c = (int32_t)(((uint64_t)(32768 - a) * SPIKE_PRE_Q30) / (uint32_t)a);
+        p->sp_ce = 0;
+        if (p->sp_c) {
+            int64_t m = exp2_neg(p->sp_kq);
+            p->sp_ce = (int32_t)((p->sp_c * recip_step(m, recip_step(m, recip_step(m, recip_seed(m))))) >> 30);
+        }
     }
     fm_osc_set_inc(&p->osc[i], mod_inc(p->base[i], p->mod_oct[i]));
     update_pw(p, i);
