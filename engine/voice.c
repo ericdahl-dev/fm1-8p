@@ -252,7 +252,7 @@ static void start(fm_voice *v, const fm_voice_mod *m, uint32_t sample_rate,
 }
 
 /* The voice now plays `note` at `pitch`, held by its key. */
-FM_HOT static void hold(fm_voice *v, uint8_t note, int32_t pitch)
+static void hold(fm_voice *v, uint8_t note, int32_t pitch)
 {
     v->note = note;
     v->next_key = note;
