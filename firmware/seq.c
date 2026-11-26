@@ -1101,14 +1101,18 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
                 if (s->playing && s->out_on)
                     out_put(s, 0xFCu);          /* #286: a restart: stop, then start (never two starts) */
-                if (s->playing || !s->out_on) { /* (out_on with nothing playing: the main loop has sent */
-                    s->out_on = s->out_want;    /* this start already, a followed start's, its source */
-                    if (s->out_on)              /* changed to INT before this block took it, #380) */
-                        out_put(s, 0xFAu);      /* #286: G14 as it is at the start; start, then */
-                }
-                if (s->out_on) {                /* the first tick, with step 1 */
+                if (s->playing || !s->out_on) { /* #286: G14 as it is at the start */
+                    s->out_on = s->out_want;
+                    if (s->out_on) {
+                        out_put(s, 0xFAu);      /* start, then the first tick, with step 1 */
+                        s->out_acc = 0;
+                        s->out_ticks++;
+                    }
+                } else {                        /* out_on with nothing playing: the main loop has sent this
+                                                 * start and its tick 0 already (a followed start's, its source
+                                                 * changed to INT before this block took it, #380): the clock
+                                                 * from here, tick 1 a unit on */
                     s->out_acc = 0;
-                    s->out_ticks++;
                 }
             }
             s->pos = s->acc = 0;
@@ -1118,8 +1122,9 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             cnt = start_step(s, ev, cnt, 0, voices);
         } else {
             if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
-                if (s->playing && s->out_on)
-                    out_put(s, 0xFCu);          /* #286: stop */
+                if (s->out_on)
+                    out_put(s, 0xFCu);          /* #286: stop (also of a start the main loop sent that never
+                                                 * played, #380) */
                 s->out_on = 0;
             }
             if (s->playing) {                   /* bend to center, mod to the live wheel (#42) */

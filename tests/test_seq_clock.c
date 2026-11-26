@@ -1192,6 +1192,37 @@ TT_TEST(clock_source_to_int_with_a_start_pending_sends_one_start)
     TT_CHECK_EQ(fa, 1u);                        /* one start, */
     TT_CHECK(f8_after > 0u);                    /* and its clock after it */
     TT_CHECK_EQ(ck_outs(0xFCu), 0u);
+    {                                           /* tick 0 once: the main loop passed it on with the start, */
+        uint32_t first = 0, n0 = 0;             /* so no second tick in the same block (FW review) */
+        for (q = 0; q < ck_n_out; q++)
+            if (ck_out[q] == 0xF8u) {
+                if (!n0++)
+                    first = q;
+                else if (ck_out_t[q] - ck_out_t[first] < 1e-9)
+                    printf("    INT with a start pending: a second tick with tick 0\n");
+            }
+        TT_CHECK(n0 >= 2u && ck_out_t[first + 1u] - ck_out_t[first] > 1e-9);
+    }
+    seq_stop(&ck);                              /* and a stop after it closes the run */
+    ck_run(1.2);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+}
+
+/* #380 (FW review): the same start pending, INT, and then STOP before the interrupt takes either. The
+ * start went out (the main loop sent it): one stop closes it, FA FC. */
+TT_TEST(clock_source_to_int_then_stop_with_a_start_pending_closes_it)
+{
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, 1);
+    ck_run(0.2);
+    seq_clock_in(&ck, 0xFAu, ck_host(0.2));
+    seq_clock_in(&ck, 0xF8u, ck_host(0.201));
+    seq_set_clock_source(&ck, SEQ_CLK_INT);
+    seq_stop(&ck);                              /* all before one block */
+    ck_run(0.6);
+    TT_CHECK(!ck.playing);
+    TT_CHECK_EQ(ck_outs(0xFAu), 1u);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);            /* the start closed */
 }
 
 /* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
@@ -1504,6 +1535,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_stop_inside_a_pending_ask_sends_one_stop);
     TT_RUN(clock_out_start_and_stop);
     TT_RUN(clock_source_to_int_with_a_start_pending_sends_one_start);
+    TT_RUN(clock_source_to_int_then_stop_with_a_start_pending_closes_it);
     TT_RUN(clock_start_with_an_ask_pending_sends_one_stop);
     TT_RUN(clock_start_in_every_order_alternates);
     TT_RUN(seq_a_last_ask_ahead_of_its_count_starts_once);

@@ -139,12 +139,17 @@ These don't fit one kind. Each is named here and in its field's comment.
   (#364). It now holds the gate for that read and clear and puts `out_block` back as it was before it
   latches G14, so a let-go stays let go (gap "clock_start" 0,
   `clock_start_with_an_ask_pending_sends_one_stop`). `out_on` set with nothing playing means the main
-  loop has already sent this start (a followed start's latch), so the interrupt taking it on its own
-  clock sends no second FA, only the first tick: a clock source change to INT before that block took
-  it had sent FA FA (#380, `clock_source_to_int_with_a_start_pending_sends_one_start`).
+  loop has already sent this start and its tick 0 (a followed start's latch, then the MIDI tick passed
+  on). If the interrupt then takes it on its own clock (the source changed to INT first, see `ext`
+  below), it sends neither again and counts its next tick a unit on; and a stop taken there closes it
+  with FC. Before, that order sent FA FA and a second tick 0, and a stop sent no FC (#380,
+  `clock_source_to_int_with_a_start_pending_sends_one_start`,
+  `clock_source_to_int_then_stop_with_a_start_pending_closes_it`).
 - **`ext`, `ext_inc`: two kinds on one field.** Each is the payload of a followed start's ask
   (kind B), and afterwards a single word the interrupt reads every block (kind D): `ext_inc` moves
-  with every clock tick. Both have one writer, the main loop.
+  with every clock tick. Both have one writer, the main loop. `seq_set_clock_source` (to INT, or AUTO
+  with the clock gone) clears `ext` with no ask of its own, so an ask already made under `ext` 1 is
+  taken on the own-clock path; the start branch allows for it (`out_on` above, #380).
 - **The clock start's gaps.** `clock_tick`'s start of a followed run is pinned by gaps
   "clock_start" 1-4 (`clock_out_a_stop_pending_when_a_clock_starts`). These were `seq_test_hook`'s
   `TEST_POINT`s, which stayed in the device build; `HANDOFF_GAP` is now the one mechanism.
