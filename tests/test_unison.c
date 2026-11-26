@@ -19,7 +19,6 @@ static void init_unison(uint8_t voices, int32_t cents)
 static void worst_unison_setup(int mode, int32_t res, int32_t cents, int mix_env)
 {
     init_unison(8, 0);
-    tt_phases_zero(&poly); /* in phase: the worst case (#154 starts each voice at its own phase) */
     fm_engine_set_param(&poly, FM_PARAM_CHORUS_MODE, mode);
     fm_engine_set_param(&poly, FM_PARAM_OSC2_LEVEL, 1000);
     fm_engine_set_param(&poly, FM_PARAM_FILTER_RESONANCE, res);
@@ -94,8 +93,7 @@ TT_TEST(mix_env_past_full_adds_nothing_to_the_worst_case)
 
 /*
  * One note in unison sounds on every voice, and on no more than the
- * engine has: with no detune and the voices started in phase (tt_phases_zero:
- * from their own start phases, #154, 4 voices read 2.48 of 4), the note is
+ * engine has: with no detune the voices start in phase, so the note is
  * exactly voice_count times as loud as the same note in poly mode.
  */
 TT_TEST(unison_note_uses_every_voice_and_no_more)
@@ -105,7 +103,6 @@ TT_TEST(unison_note_uses_every_voice_and_no_more)
     for (c = 0; c < sizeof counts; c++) {
         double ref = solo_amp(counts[c], 60);
         init_unison(counts[c], 0);
-        tt_phases_zero(&poly);
         fm_engine_note_on(&poly, 60, 100);
         TT_CHECK_EQ(fm_engine_active_voices(&poly), counts[c]);
         fm_engine_render(&poly, pbuf, 2205 + DFT_N);
@@ -159,8 +156,6 @@ TT_TEST(new_note_retriggers_and_release_returns_legato_to_held_note)
 {
     int sustain, dip, rise, after;
     init_unison(4, 0);
-    tt_phases_zero(&poly); /* in phase, so the pitch reads as one voice's (#154: from their own start phases,
-                            * the four read an octave up, 1202 cents) */
     fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 100);
     fm_engine_set_param(&poly, FM_PARAM_AMP_DECAY_MS, 100);
     fm_engine_set_param(&poly, FM_PARAM_AMP_SUSTAIN, 300);
@@ -204,7 +199,6 @@ TT_TEST(new_note_retriggers_and_release_returns_legato_to_held_note)
 TT_TEST(unison_note_changes_do_not_click)
 {
     init_unison(4, 10);
-    tt_phases_zero(&poly); /* in phase at 0, as above (#154: from their own start phases, 8206 LSB as a saw wraps) */
     fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 15);
     fm_engine_set_param(&poly, FM_PARAM_AMP_DECAY_MS, 50);
     fm_engine_set_param(&poly, FM_PARAM_AMP_SUSTAIN, 500);

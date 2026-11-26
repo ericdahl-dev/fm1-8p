@@ -1302,31 +1302,25 @@ void fm_osc_pair_render(fm_osc_pair *p, int32_t *out, uint32_t n)
     wave_run(p, 1, out, n, p->level[1], 1);
 }
 
-void fm_osc_pair_set_phases(fm_osc_pair *p, uint32_t phase1, uint32_t phase2)
+/* 2^(m / 12) in Q2.30, m 0..11 (rounded) */
+static const uint32_t semitone_q30[12] = {
+    1073741824u, 1137589835u, 1205234447u, 1276901417u, 1352829926u, 1433273380u,
+    1518500250u, 1608794974u, 1704458901u, 1805811301u, 1913190429u, 2026954652u
+};
+
+/* 2^(tune / 12) in Q16.16 for a tune in Q16.16 semitones (set_tune keeps
+ * it within 128 semitones: whole octaves -11..10, so the shift is 4..25) */
+static uint32_t tune_ratio_q16(int32_t tune)
 {
-    p->osc[0].phase = phase1;
-    p->osc[1].phase = phase2;
+    int32_t n = tune >> 16; /* floor: the fraction below is 0..1 up */
+    int32_t oct = n >= 0 ? n / 12 : -((11 - n) / 12);
+    uint64_t q = ((uint64_t)semitone_q30[n - 12 * oct] * semitone_ratio_q30((uint32_t)tune & 0xFFFFu)) >> 30;
+    return (uint32_t)q >> (14 - oct); /* q < 2^32: 2^(11 / 12) x 2^(1 / 12) in Q30 */
 }
 
-/*
- * An idle voice's oscillators run on (#89, #154): `n` samples of each one's
- * increment, and no sound. With sync, osc2 sits where osc1's last restart
- * left it, osc1's phase over osc1's increment times osc2's (as next_special
- * moves it unheard), which depends on osc1's phase only, so any chunks give
- * the same. A wrap of osc1 ends the cycle sync's DC sum was taking, so the
- * sum starts again at 0 (the offset, the last whole cycle's mean, stays). A
- * restart's correction was due on a sample that went by unheard. Once a
- * chunk: one 32 x 32 multiply per oscillator, no division.
- */
-void fm_osc_pair_idle(fm_osc_pair *p, uint32_t n)
+void fm_osc_pair_start_phase(fm_osc_pair *p, uint8_t which, uint32_t a, int32_t slope)
 {
-    uint64_t end = (uint64_t)p->osc[0].phase + (uint64_t)p->osc[0].inc * n;
-    p->osc[0].phase = (uint32_t)end;
-    if (p->sync)
-        p->osc[1].phase = (uint32_t)((restart_x(p, p->osc[0].phase) * p->osc[1].inc) >> 16);
-    else
-        p->osc[1].phase += n * p->osc[1].inc;
-    if (end >> 32) p->dc_sum = 0;
-    p->sync_pend = 0;
-    p->sync_after = 0;
+    if (which >= 2 || slope < 0) return;
+    /* Q16.16 times Q16.16 is Q32: its low 32 bits are the fraction of a cycle */
+    p->osc[which].phase = a + (uint32_t)((uint64_t)(uint32_t)slope * tune_ratio_q16(p->tune[which]));
 }

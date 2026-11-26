@@ -254,8 +254,7 @@ static int retrigger_at(uint8_t again, int *level)
 {
     int jump;
     fm_engine_init(&mod_eng, MOD_RATE, 1);
-    tt_phases_zero(&mod_eng); /* phase 0, so the 9 Hz saw doesn't wrap in the frames checked (#154: from voice
-                               * 1's own start phase it does, a 14510 LSB step) */
+    mod_eng.start = &tt_start_zero; /* phase 0 (#154): the 9 Hz saw doesn't wrap in the frames checked */
     fm_engine_set_param(&mod_eng, FM_PARAM_AMP_VELOCITY, 100);
     /* one voice peaks at the knee (KNEE_LSB), so a 20 ms attack keeps the
      * start under CLICK_LSB too. Note 2 (9 Hz): its saw changes by about 7 LSB per

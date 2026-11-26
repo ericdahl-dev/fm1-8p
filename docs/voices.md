@@ -84,28 +84,34 @@ the first choice for the next note. `fm_engine_active_voices()` counts
 voices that are sounding, so a caller (or the CPU test) can see voices free
 up.
 
-## Free-running DCOs
+## Start phase
 
-A voice's DCOs run free, as PG-8X 2.0.13's do
-([#89](https://github.com/ericdahl-dev/fm1-8p/issues/89),
-[#154](https://github.com/ericdahl-dev/fm1-8p/issues/154)). Each keeps
-advancing at its own increment, even while its voice is idle, and a note-on
-never resets it. A note starts wherever its DCOs have run to.
+A voice's oscillators keep their phase from note to note, and stand still
+while the voice is idle. Only a voice's first note after init sets where they
+start. There each DCO starts where PG-8X 2.0.13's voice of the same number
+starts it ([#154](https://github.com/ericdahl-dev/fm1-8p/issues/154),
+measured 2026-11-19 at SELFNOISE 0):
 
-- **At init**, voice k's DCO-1 starts at PG-8X's fitted DCO-1 intercept for
-  its voice k (voices 1 to 6, measured 2026-11-19), so unison voices don't
-  start in phase. Voices 7 and 8 start at 0, because PG-8X has 6.
-- **DCO-2** starts 0.616 cycle after DCO-1 on every voice. With two saws
-  locked (no detune), PG-8X's DCO2 − DCO1 reads 0.615 to 0.617 on every note
-  and voice, and every voice plays at one level (a spread of 0.01 dB,
-  measured 2026-11-25).
-- **Idle**, a voice moves each DCO on by its last increment times the
-  chunk's frames, once a chunk. With sync on, DCO-2 sits where DCO-1's last
-  restart left it. A voice that has never sounded keeps its phases from init.
-- PG-8X's note history also moves its phases a little: a C4 alternating
-  with a G4 starts at other phases than a C4 alone. That isn't modeled.
+    phase = a + (b + w) r   cycles of the DCO's fundamental
 
-The FM-1's 4 voices are PG-8X's voices 1 to 4.
+- r is the DCO's pitch over the played note's (its RANGE, TUNE and FINE).
+- a and b are that voice's and that DCO's (`fm_start_pg8x` in `engine/engine.c`).
+- w is the wave's term: 0.733 for the square, 0.738 for PG-8X's pulse (our
+  spike), and 0 for the saw. Our pulse isn't measured and gets 0.
+
+PG-8X's start phase also moves with where the note-on falls in its render
+host's audio block, by 0.000287 r cycle a sample. b takes that as a fixed 224
+samples (+0.0643), the scorecard's most common place: the FM-1 has no such
+block.
+
+These voices start at phase 0, as before:
+- voices 7 and 8, because PG-8X has 6;
+- a noise DCO;
+- unison. PG-8X's unison start isn't measured, and out-of-phase voices would
+  also change the unison's level. A unison note counts as each voice's first,
+  so back in poly they run on.
+
+The FM-1's 4 voices use PG-8X's voices 1 to 4.
 
 ## Sustain pedal (CC 64)
 
