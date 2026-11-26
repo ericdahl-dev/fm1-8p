@@ -1120,6 +1120,49 @@ TT_TEST(clock_start_in_every_order_alternates)
     TT_CHECK_EQ(bad, 0u);
 }
 
+/* #377: an ask's last-ask record ahead of its count, trusted on another ask's count. Own clock, G14 on.
+ * (1) Stopped; PLAY, STOP, PLAY before one block (ui_seq_transport's toggle: want 0, 1, 0), the interrupt
+ * inside the second PLAY (gap "play" 1): that block sees the first play's and the stop's counts, with the
+ * second play's record already written, and must start nothing; one start follows. (2) Playing, a restart
+ * asked when a MIDI start and its tick come in, the interrupt at "clock_start" 2 (the followed start's
+ * payload written, its count not yet): that block must not start the followed run early; one start does. */
+TT_TEST(seq_a_last_ask_ahead_of_its_count_starts_once)
+{
+    uint32_t fa;
+    ck_fresh(SEQ_CLK_AUTO);                     /* (1) its own clock */
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_msg_at(0.3, 0, CK_PLAY);                 /* stop: stopped */
+    ck_run(0.5);
+    TT_CHECK(!ck.playing && !ck.want);
+    fa = ck_outs(0xFAu);
+    seq_play(&ck);                              /* PLAY */
+    TT_CHECK(ck.want);
+    seq_stop(&ck);                              /* STOP */
+    TT_CHECK(!ck.want);
+    ck_b_where = "play", ck_b_n = 1, ck_b_hits = 0, ck_b_on = 0;
+    handoff_gap = ck_gap_b;
+    seq_play(&ck);                              /* PLAY, the interrupt before its count */
+    handoff_gap = 0;
+    TT_CHECK_EQ(ck_b_hits, 1u);
+    TT_CHECK_EQ(ck_b_on, 0u);                   /* that block: no start */
+    ck_run((double)ck_done / CK_FS + 0.5);
+    TT_CHECK(ck.playing);
+    TT_CHECK_EQ(ck_outs(0xFAu), fa + 1u);       /* one start */
+    ck_fresh(SEQ_CLK_AUTO);                     /* (2) playing on its own clock */
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.5);
+    seq_play(&ck);                              /* PLAY again: a restart, not taken yet */
+    seq_clock_in(&ck, 0xFAu, ck_host(0.5));
+    ck_b_where = "clock_start", ck_b_n = 2, ck_b_hits = 0, ck_b_on = 0;
+    handoff_gap = ck_gap_b;
+    seq_clock_in(&ck, 0xF8u, ck_host(0.501));   /* clock_tick's start, the interrupt at gap 2 */
+    handoff_gap = 0;
+    TT_CHECK_EQ(ck_b_hits, 1u);
+    TT_CHECK_EQ(ck_b_on, 0u);                   /* that block: not the followed run yet, nor the restart */
+}
+
 /* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
  * start: never two starts in a row (#286) */
 TT_TEST(clock_out_restart_stops_first)
@@ -1431,6 +1474,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_start_and_stop);
     TT_RUN(clock_start_with_an_ask_pending_sends_one_stop);
     TT_RUN(clock_start_in_every_order_alternates);
+    TT_RUN(seq_a_last_ask_ahead_of_its_count_starts_once);
     TT_RUN(clock_out_restart_stops_first);
     TT_RUN(clock_out_off_and_changed_while_playing);
     TT_RUN(clock_out_follows_tempo_changes);
