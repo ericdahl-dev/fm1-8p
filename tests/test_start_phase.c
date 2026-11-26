@@ -1,24 +1,22 @@
 /*
- * A voice's first note starts its DCOs at PG-8X 2.0.13's phases (#154,
- * measured 2026-11-19, SELFNOISE 0): voice k (1..6) starts each DCO at
- * a + (b + w) r cycles of the saw's fundamental, r the DCO's pitch over the
- * note's (2^(tune / 12)), w the wave's term (square 0.733, PG-8X's pulse
- * 0.738, saw 0). b holds the note-on's place in PG-8X's render host block
- * as a fixed 224 samples (+0.0643). Later notes on the voice run on from
- * where it is. Voices 7 and 8 (PG-8X has 6), noise and unison start at 0.
+ * Free-running DCOs (#89, #154), as PG-8X 2.0.13's run (measured 2026-11-25 at SELFNOISE 0, two 8' saws
+ * locked, C4 rotating through its voices): every DCO keeps advancing at its own increment, idle or not, and a
+ * note-on never resets it. At init voice k's DCO-1 starts at a per-voice phase (#154's DCO-1 intercepts for
+ * voices 1..6, 0 past them) and DCO-2 0.616 cycle after it on every voice: PG-8X's DCO2 - DCO1 at lock reads
+ * 0.615..0.617 on all 18 notes, and every note on every voice plays at one level (a spread of 0.01 dB).
  */
 #include "../engine/fm1_8p.h"
+#include <math.h>
 
 #define STP_RATE 48000u
+#define STP_BLOCK (STP_RATE / 100u) /* stp_buf's frames */
 
 static fm_engine stp_eng;
-static int16_t stp_buf[STP_RATE / 100 * 2];
+static int16_t stp_buf[STP_BLOCK * 2];
 
-/* #154's table: a (cycles) and b (cycles per unit r, the 224-sample offset in), DCO-1 then DCO-2 */
-static const double stp_a[6][2] = { { .9431, .5642 }, { .9204, .6101 }, { .8906, .9133 },
-                                   { .2738, .3171 }, { .7965, .3508 }, { .6933, .6661 } };
-static const double stp_b[6][2] = { { .9559, .9545 }, { .9615, .9603 }, { .9611, .9601 },
-                                   { .9625, .9615 }, { .9695, .9685 }, { .9685, .9677 } };
+/* each voice's DCO-1 phase at init (cycles): #154's fitted DCO-1 intercepts, voices 1..6; 7 and 8 at 0 */
+static const double stp_init_a[8] = { .9431, .9204, .8906, .2738, .7965, .6933, 0, 0 };
+#define STP_OFFSET 0.616 /* DCO2 - DCO1, cycles */
 
 static void stp_run(uint32_t ms)
 {
@@ -47,186 +45,198 @@ static int stp_voice(uint8_t note)
 /* oscillator `d`'s phase on voice `v`, cycles */
 static double stp_phase(int v, int d)
 {
-    return v < 0 ? -1.0 : stp_eng.voices[v].osc.osc[d].phase / 4294967296.0;
+    return stp_eng.voices[v].osc.osc[d].phase / 4294967296.0;
+}
+
+/* DCO2 - DCO1 on voice `v`, cycles 0..1 */
+static double stp_rel(int v)
+{
+    return (uint32_t)(stp_eng.voices[v].osc.osc[1].phase - stp_eng.voices[v].osc.osc[0].phase) / 4294967296.0;
 }
 
 /* distance of `x` from `want` (cycles, mod 1) */
 static double stp_off(double x, double want)
 {
     double d = x - want;
-    d -= (double)(long)d;
-    if (d > 0.5) d -= 1.0;
-    if (d < -0.5) d += 1.0;
-    return d < 0 ? -d : d;
+    d -= floor(d);
+    return d > 0.5 ? 1.0 - d : d;
 }
 
-/* PG-8X voice k's start phase for DCO d at r, plus wave term w */
-static double stp_want(int k, int d, double r, double w)
+/* two 8' saws at full, locked: the same pitch, no detune, no chorus */
+static void stp_lock(void)
 {
-    return stp_a[k][d] + (stp_b[k][d] + w) * r;
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SAW), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_WAVE, FM_WAVE_SAW), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC1_OCTAVE, 0), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_OCTAVE, 0), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_COARSE_SEMIS, 0), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_FINE_CENTS, 0), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC1_LEVEL, 1000), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_LEVEL, 1000), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_CHORUS_MODE, 0), FM_OK);
 }
 
-/* 1. six new keys, one each 50 ms: voice k's DCOs start at PG-8X voice k's phases; DCO-1 16', DCO-2 a fifth
- * above 8' (r 0.5 and 2^(7/12)), both saws */
-TT_TEST(each_voices_first_note_starts_at_pg8xs_phases)
+/*
+ * C4 again on the next voice: a repeated key gets its last voice back (#164), so a voice-mode switch to
+ * unison and back first clears every voice's last note; C4 then takes the oldest idle voice, which rotates.
+ */
+static int stp_c4_next(void)
 {
-    int k;
-    double r2 = 1.4983070768766815;
+    if (fm_engine_set_param(&stp_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON) != FM_OK ||
+        fm_engine_set_param(&stp_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY) != FM_OK)
+        return -1;
+    fm_engine_note_on(&stp_eng, 60, 127);
+    return stp_voice(60);
+}
+
+/* 1. two saws locked: C4 rotating through all six voices plays at one level on each (PG-8X: 0.01 dB) */
+TT_TEST(two_saws_locked_play_one_level_on_every_voice)
+{
+    double db[6], lo = 1e9, hi = -1e9;
+    int k, n, seen = 0;
     stp_init(6);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC1_OCTAVE, -1), FM_OK);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_COARSE_SEMIS, 7), FM_OK);
+    stp_lock();
+    stp_run(50);
     for (k = 0; k < 6; k++) {
-        uint8_t note = (uint8_t)(48 + 2 * k);
-        int v;
-        fm_engine_note_on(&stp_eng, note, 100);
-        v = stp_voice(note);
-        TT_CHECK_EQ(v, k);
-        if (stp_off(stp_phase(v, 0), stp_want(k, 0, 0.5, 0)) > 1e-4 || stp_off(stp_phase(v, 1), stp_want(k, 1, r2, 0)) > 1e-4)
-            printf("    voice %d: %.4f %.4f, want %.4f %.4f\n", k + 1, stp_phase(v, 0), stp_phase(v, 1),
-                   stp_want(k, 0, 0.5, 0) - (long)stp_want(k, 0, 0.5, 0), stp_want(k, 1, r2, 0) - (long)stp_want(k, 1, r2, 0));
-        TT_CHECK(stp_off(stp_phase(v, 0), stp_want(k, 0, 0.5, 0)) < 1e-4);
-        TT_CHECK(stp_off(stp_phase(v, 1), stp_want(k, 1, r2, 0)) < 1e-4);
-        stp_run(50);
+        double sum = 0;
+        int v = stp_c4_next();
+        TT_CHECK(v >= 0);
+        if (v < 0) return;
+        seen |= 1 << v;
+        stp_run(100); /* past the attack */
+        for (n = 0; n < 20; n++) { /* 200 ms held */
+            uint32_t i;
+            fm_engine_render(&stp_eng, stp_buf, STP_BLOCK);
+            for (i = 0; i < STP_BLOCK; i++) sum += (double)stp_buf[2 * i] * stp_buf[2 * i];
+        }
+        db[v] = 10.0 * log10(sum / (20.0 * STP_BLOCK) + 1e-9);
+        fm_engine_note_off(&stp_eng, 60);
+        stp_run(500);
+        TT_CHECK_EQ(fm_engine_active_voices(&stp_eng), 0);
     }
+    TT_CHECK_EQ(seen, 0x3F);
+    for (k = 0; k < 6; k++) {
+        if (db[k] < lo) lo = db[k];
+        if (db[k] > hi) hi = db[k];
+    }
+    printf("    locked saws, C4 on voices 1-6: %.3f %.3f %.3f %.3f %.3f %.3f dB, spread %.3f dB\n", db[0], db[1],
+           db[2], db[3], db[4], db[5], hi - lo);
+    TT_CHECK(hi - lo < 0.1);
 }
 
-/* 2. the wave's term: DCO-1 square 4' (r 2) and DCO-2 PG-8X's pulse (spike) 8' with FINE +50 cents; noise
- * stays at 0 */
-TT_TEST(the_wave_adds_its_term_and_noise_starts_at_zero)
-{
-    double r2 = 1.0293022366434921; /* 2^(50 / 1200) */
-    stp_init(6);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SQUARE), FM_OK);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC1_OCTAVE, 1), FM_OK);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_WAVE, FM_WAVE_SPIKE), FM_OK);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_FINE_CENTS, 50), FM_OK);
-    fm_engine_note_on(&stp_eng, 60, 100);
-    TT_CHECK(stp_off(stp_phase(0, 0), stp_want(0, 0, 2.0, 0.733)) < 1e-4);
-    TT_CHECK(stp_off(stp_phase(0, 1), stp_want(0, 1, r2, 0.738)) < 1e-4);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_WAVE, FM_WAVE_NOISE), FM_OK);
-    fm_engine_note_on(&stp_eng, 62, 100);
-    TT_CHECK_EQ(stp_voice(62), 1);
-    TT_CHECK(stp_off(stp_phase(1, 0), stp_want(1, 0, 2.0, 0.733)) < 1e-4);
-    TT_CHECK_EQ(stp_eng.voices[1].osc.osc[1].phase, 0);
-}
-
-/* 3. voices 7 and 8 have no PG-8X voice: they start at 0 */
-TT_TEST(voices_past_pg8xs_six_start_at_zero)
+/* 2. DCO2 - DCO1 is 0.616 cycle on every voice, at init and at every note-on after it */
+TT_TEST(dco2_runs_0_616_cycle_after_dco1_on_every_voice)
 {
     int k;
+    double worst = 0;
     stp_init(8);
-    for (k = 0; k < 8; k++) fm_engine_note_on(&stp_eng, (uint8_t)(48 + k), 100);
-    TT_CHECK_EQ(stp_voice(54), 6);
-    TT_CHECK_EQ(stp_voice(55), 7);
-    TT_CHECK_EQ(stp_eng.voices[6].osc.osc[0].phase, 0);
-    TT_CHECK_EQ(stp_eng.voices[6].osc.osc[1].phase, 0);
-    TT_CHECK_EQ(stp_eng.voices[7].osc.osc[0].phase, 0);
-    TT_CHECK_EQ(stp_eng.voices[7].osc.osc[1].phase, 0);
+    for (k = 0; k < 8; k++) {
+        TT_CHECK(stp_off(stp_phase(k, 0), stp_init_a[k]) < 1e-4);
+        TT_CHECK(stp_off(stp_rel(k), STP_OFFSET) < 0.002);
+    }
+    stp_lock();
+    stp_run(50);
+    for (k = 0; k < 16; k++) {
+        int v = stp_c4_next();
+        TT_CHECK(v >= 0);
+        if (v < 0) return;
+        if (stp_off(stp_rel(v), STP_OFFSET) > worst) worst = stp_off(stp_rel(v), STP_OFFSET);
+        TT_CHECK(stp_off(stp_rel(v), STP_OFFSET) < 0.002);
+        stp_run(100);
+        fm_engine_note_off(&stp_eng, 60);
+        stp_run(137);
+    }
+    printf("    DCO2 - DCO1 at 16 note-ons over 8 voices: within %.6f cycle of %.3f\n", worst, STP_OFFSET);
 }
 
-/* 4. unison keeps phase 0 (PG-8X's unison start is not measured: its voices out of phase would also change
- * the unison's level and the pitch it reads as) and marks its voices played: back in poly, they run on */
-TT_TEST(unison_keeps_phase_zero_and_marks_its_voices_played)
+/* 3. a voice runs on while idle: its phase moves by its increment x the frames, and a note-on never resets
+ * it; a voice that never played keeps its phase from init (its increment is 0) */
+TT_TEST(an_idle_voice_runs_on_and_a_note_on_keeps_its_phase)
 {
-    int k;
+    static const uint32_t blocks[5] = { 1, 37, 256, STP_BLOCK, 129 };
+    uint32_t p0, p1, i0, i1, left = 23456, b = 0, never0, never1;
     stp_init(6);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON), FM_OK);
-    fm_engine_note_on(&stp_eng, 60, 100);
-    for (k = 0; k < 6; k++) {
-        TT_CHECK_EQ(stp_eng.voices[k].osc.osc[0].phase, 0);
-        TT_CHECK_EQ(stp_eng.voices[k].osc.osc[1].phase, 0);
-        TT_CHECK(!fm_voice_fresh(&stp_eng.voices[k]));
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_LEVEL, 1000), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_FINE_CENTS, 13), FM_OK);
+    never0 = stp_eng.voices[5].osc.osc[0].phase;
+    never1 = stp_eng.voices[5].osc.osc[1].phase;
+    fm_engine_note_on(&stp_eng, 57, 100);
+    TT_CHECK_EQ(stp_voice(57), 0);
+    stp_run(100);
+    fm_engine_note_off(&stp_eng, 57);
+    stp_run(100);
+    TT_CHECK(!fm_voice_active(&stp_eng.voices[0]));
+    p0 = stp_eng.voices[0].osc.osc[0].phase;
+    p1 = stp_eng.voices[0].osc.osc[1].phase;
+    i0 = stp_eng.voices[0].osc.osc[0].inc;
+    i1 = stp_eng.voices[0].osc.osc[1].inc;
+    TT_CHECK(i0 != 0 && i1 != i0);
+    while (left) { /* idle, at odd block sizes */
+        uint32_t n = blocks[b++ % 5];
+        n = n < left ? n : left;
+        fm_engine_render(&stp_eng, stp_buf, n);
+        left -= n;
     }
+    TT_CHECK_EQ(stp_eng.voices[0].osc.osc[0].phase, p0 + i0 * 23456u);
+    TT_CHECK_EQ(stp_eng.voices[0].osc.osc[1].phase, p1 + i1 * 23456u);
+    fm_engine_note_on(&stp_eng, 57, 100); /* its voice again: on from where it is */
+    TT_CHECK_EQ(stp_voice(57), 0);
+    TT_CHECK_EQ(stp_eng.voices[0].osc.osc[0].phase, p0 + i0 * 23456u);
+    TT_CHECK_EQ(stp_eng.voices[0].osc.osc[1].phase, p1 + i1 * 23456u);
+    TT_CHECK_EQ(stp_eng.voices[5].osc.osc[0].phase, never0);
+    TT_CHECK_EQ(stp_eng.voices[5].osc.osc[1].phase, never1);
 }
 
-/* A score that reaches every note path: new keys, a steal, a take back during its fade, the same key again
- * (released and idle), a retrigger while it sounds, all sound off, unison and back. FNV-1a of the output. */
-static uint32_t stp_score(const fm_start_table *first, const fm_start_table *after)
+/* `frames` of output in blocks of `block` (1..STP_BLOCK) into FNV-1a hash `h` */
+static uint32_t stp_hash_run(uint32_t frames, uint32_t block, uint32_t h)
 {
-    static const uint8_t keys[8] = { 48, 52, 55, 59, 62, 65, 69, 72 };
-    uint32_t h = 2166136261u;
-    int k, n;
-    if (fm_engine_init(&stp_eng, STP_RATE, 4) != FM_OK) return 0;
-#ifndef STP_BASE
-    if (first) stp_eng.start = first;
-#else
-    (void)first;
-#endif
-    (void)fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_WAVE, FM_WAVE_SQUARE);
-    (void)fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
-    (void)fm_engine_set_param(&stp_eng, FM_PARAM_AMP_RELEASE_MS, 20);
-#define STP_STEP(ms) do { int s_; for (s_ = 0; s_ < (ms); s_++) { \
-        fm_engine_render(&stp_eng, stp_buf, STP_RATE / 1000u); \
-        for (n = 0; n < (int)(2 * STP_RATE / 1000u); n++) h = (h ^ (uint16_t)stp_buf[n]) * 16777619u; } } while (0)
-    for (k = 0; k < 4; k++) {                   /* every voice's first note */
-        fm_engine_note_on(&stp_eng, keys[k], 100);
-        STP_STEP(30);
+    while (frames) {
+        uint32_t n = frames < block ? frames : block, i;
+        fm_engine_render(&stp_eng, stp_buf, n);
+        for (i = 0; i < 2 * n; i++) h = (h ^ (uint16_t)stp_buf[i]) * 16777619u;
+        frames -= n;
     }
-#ifndef STP_BASE
-    if (after) stp_eng.start = after;
-#else
-    (void)after;
-#endif
-    fm_engine_note_on(&stp_eng, keys[4], 100);   /* steals the oldest held */
-    STP_STEP(1);
-    fm_engine_note_on(&stp_eng, keys[0], 100);   /* takes it back in the fade */
-    STP_STEP(40);
-    for (k = 0; k < 5; k++) fm_engine_note_off(&stp_eng, keys[k]);
-    STP_STEP(200);
-    fm_engine_note_on(&stp_eng, keys[1], 90);    /* its idle voice again */
-    STP_STEP(30);
-    fm_engine_note_on(&stp_eng, keys[1], 120);   /* again while it sounds */
-    STP_STEP(30);
-    fm_engine_controller(&stp_eng, 120, 0);
-    fm_engine_note_on(&stp_eng, keys[5], 100);
-    STP_STEP(30);
-    fm_engine_note_off(&stp_eng, keys[1]);
-    fm_engine_note_off(&stp_eng, keys[5]);
-    STP_STEP(100);
-    (void)fm_engine_set_param(&stp_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
-    fm_engine_note_on(&stp_eng, keys[6], 100);
-    STP_STEP(30);
-    fm_engine_note_on(&stp_eng, keys[7], 100);   /* a unison retrigger */
-    STP_STEP(30);
-    fm_engine_note_off(&stp_eng, keys[7]);
-    fm_engine_note_off(&stp_eng, keys[6]);
-    STP_STEP(100);
-    (void)fm_engine_set_param(&stp_eng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_POLY);
-    fm_engine_note_on(&stp_eng, keys[2], 100);
-    STP_STEP(50);
-#undef STP_STEP
     return h;
 }
 
-#define STP_BASE_HASH 0x5ed5f11du
-
-/* 5. the phases are set once a voice's life: swapping the table after every voice's first note changes
- * nothing that follows (a steal, a take back, the same key again, a retrigger, all sound off, unison) */
-TT_TEST(start_phases_are_set_once_a_voice_life)
+/* Notes with idle gaps between, sync on for the second half (osc2 restarting while idle), in blocks of `block` */
+static uint32_t stp_gaps(uint32_t block)
 {
-    uint32_t kept = stp_score(0, 0), swapped = stp_score(0, &tt_start_zero);
-    if (kept != swapped) printf("    table kept %08x, swapped after the first notes %08x\n", kept, swapped);
-    TT_CHECK_EQ(kept, swapped);
+    uint32_t h = 2166136261u;
+    int k;
+    if (fm_engine_init(&stp_eng, STP_RATE, 4) != FM_OK) return 0;
+    (void)fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_LEVEL, 1000);
+    (void)fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_COARSE_SEMIS, 7);
+    (void)fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_FINE_CENTS, 9);
+    (void)fm_engine_set_param(&stp_eng, FM_PARAM_AMP_RELEASE_MS, 20);
+    for (k = 0; k < 12; k++) {
+        uint8_t note = (uint8_t)(48 + 5 * (k % 3));
+        if (k == 6) (void)fm_engine_set_param(&stp_eng, FM_PARAM_OSC_SYNC, 1);
+        fm_engine_note_on(&stp_eng, note, 100);
+        h = stp_hash_run(4801, block, h);
+        fm_engine_note_off(&stp_eng, note);
+        h = stp_hash_run(4801u + 113u * (uint32_t)k, block, h);
+    }
+    return h;
 }
 
-/* 6. with every table entry 0 the mechanism is neutral: the score renders bit for bit as before #154
- * (its FNV-1a at 2de60a2, #309 with main 80b8d9b: the base; the same at 7b7a116, #309 with main 81185d7,
- * since the score runs at the engine's default CHORUS_MODE 0. To re-pin after main moves the default render:
- * build stp_score with STP_BASE defined on the base tree, in a driver that supplies #154's fm_start_table) */
-TT_TEST(an_all_zero_table_renders_as_before)
+/* 4. the idle runs are the same at any block size, with sync too */
+TT_TEST(idle_runs_do_not_depend_on_block_size)
 {
-    uint32_t h = stp_score(&tt_start_zero, 0);
-    if (h != STP_BASE_HASH) printf("    all-zero table %08x, base %08x\n", h, STP_BASE_HASH);
-    TT_CHECK_EQ(h, STP_BASE_HASH);
+    uint32_t a = stp_gaps(STP_BLOCK), b = stp_gaps(37), c = stp_gaps(1);
+    if (a != b || a != c) printf("    blocks %u %08x, 37 %08x, 1 %08x\n", STP_BLOCK, a, b, c);
+    TT_CHECK_EQ(a, b);
+    TT_CHECK_EQ(a, c);
 }
 
-/* 7. no click at a note's start on PG-8X's phases (Codex P3 on #310): a lone note, attack 0, on each voice 1..6
- * and each wave (both DCOs at full, DCO-2 a fifth up). Its amp onset eases in over 8 samples (env.c RAMP_SEGS x
- * RAMP_SAMPLES, #274): the first sample within 16 LSB of silence, and no step in those 8 over STP_CLICK_LSB
- * (after them the level is up and a square's or spike's own edge steps by hundreds, as from any phase) */
+/* 5. no click at a note's start from wherever its DCOs run (Codex P3 on #310): a lone note, attack 0, on each
+ * voice 1..6 twice (from init, then from where it ran to) and each wave (both DCOs at full, DCO-2 a fifth up).
+ * Its amp onset eases in over 8 samples (env.c RAMP_SEGS x RAMP_SAMPLES, #274): the first sample within 16 LSB
+ * of silence, and no step in those 8 over STP_CLICK_LSB (after them the level is up and a square's or spike's
+ * own edge steps by hundreds, as from any phase) */
 #define STP_CLICK_LSB 128
 #define STP_EASE 8
-TT_TEST(a_first_note_on_pg8xs_phases_eases_in_without_a_click)
+TT_TEST(a_note_from_a_free_running_phase_eases_in_without_a_click)
 {
     static const uint8_t waves[4] = { FM_WAVE_SAW, FM_WAVE_PULSE, FM_WAVE_SQUARE, FM_WAVE_SPIKE };
     int w, k, n, worst = 0, first = 0;
@@ -238,11 +248,11 @@ TT_TEST(a_first_note_on_pg8xs_phases_eases_in_without_a_click)
         TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_LEVEL, 1000), FM_OK);
         TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_COARSE_SEMIS, 7), FM_OK);
         stp_run(50); /* past the start-up glides */
-        for (k = 0; k < 6; k++) {
+        for (k = 0; k < 12; k++) {
             int prev = 0;
             uint8_t note = (uint8_t)(48 + 2 * k);
             fm_engine_note_on(&stp_eng, note, 127);
-            TT_CHECK_EQ(stp_voice(note), k);
+            TT_CHECK_EQ(stp_voice(note), k % 6);
             fm_engine_render(&stp_eng, stp_buf, STP_EASE);
             if (abs(stp_buf[0]) > first) first = abs(stp_buf[0]);
             for (n = 0; n < STP_EASE; n++) {
@@ -251,38 +261,20 @@ TT_TEST(a_first_note_on_pg8xs_phases_eases_in_without_a_click)
                 prev = stp_buf[2 * n];
             }
             fm_engine_note_off(&stp_eng, note);
-            stp_run(50);
+            stp_run((uint32_t)(50 + 7 * k));
         }
     }
-    printf("    a first note's onset, voices 1-6, 4 waves: first sample at most %d LSB, largest step %d\n", first, worst);
+    printf("    a note's onset, voices 1-6 twice, 4 waves: first sample at most %d LSB, largest step %d\n", first,
+           worst);
     TT_CHECK(first <= 16);
     TT_CHECK(worst <= STP_CLICK_LSB);
 }
 
-/* 8. a DCO tuned down by less than an octave: DCO-1 COARSE -5 (r 2^(-5/12)) and DCO-2 FINE -50 cents
- * (r 2^(-50/1200)) take the next octave down and its semitone (FW review on #310) */
-TT_TEST(a_dco_tuned_down_within_an_octave_starts_at_pg8xs_phase)
-{
-    double r1 = 0.7491535384383408, r2 = 0.9715319411536059;
-    stp_init(6);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC1_COARSE_SEMIS, -5), FM_OK);
-    TT_CHECK_EQ(fm_engine_set_param(&stp_eng, FM_PARAM_OSC2_FINE_CENTS, -50), FM_OK);
-    fm_engine_note_on(&stp_eng, 60, 100);
-    if (stp_off(stp_phase(0, 0), stp_want(0, 0, r1, 0)) > 1e-4 || stp_off(stp_phase(0, 1), stp_want(0, 1, r2, 0)) > 1e-4)
-        printf("    %.4f %.4f, want %.4f %.4f\n", stp_phase(0, 0), stp_phase(0, 1),
-               stp_want(0, 0, r1, 0) - (long)stp_want(0, 0, r1, 0), stp_want(0, 1, r2, 0) - (long)stp_want(0, 1, r2, 0));
-    TT_CHECK(stp_off(stp_phase(0, 0), stp_want(0, 0, r1, 0)) < 1e-4);
-    TT_CHECK(stp_off(stp_phase(0, 1), stp_want(0, 1, r2, 0)) < 1e-4);
-}
-
 static void run_start_phase_tests(void)
 {
-    TT_RUN(each_voices_first_note_starts_at_pg8xs_phases);
-    TT_RUN(the_wave_adds_its_term_and_noise_starts_at_zero);
-    TT_RUN(voices_past_pg8xs_six_start_at_zero);
-    TT_RUN(unison_keeps_phase_zero_and_marks_its_voices_played);
-    TT_RUN(start_phases_are_set_once_a_voice_life);
-    TT_RUN(an_all_zero_table_renders_as_before);
-    TT_RUN(a_first_note_on_pg8xs_phases_eases_in_without_a_click);
-    TT_RUN(a_dco_tuned_down_within_an_octave_starts_at_pg8xs_phase);
+    TT_RUN(two_saws_locked_play_one_level_on_every_voice);
+    TT_RUN(dco2_runs_0_616_cycle_after_dco1_on_every_voice);
+    TT_RUN(an_idle_voice_runs_on_and_a_note_on_keeps_its_phase);
+    TT_RUN(idle_runs_do_not_depend_on_block_size);
+    TT_RUN(a_note_from_a_free_running_phase_eases_in_without_a_click);
 }

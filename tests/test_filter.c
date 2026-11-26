@@ -1056,6 +1056,8 @@ TT_TEST(unison_retrigger_restarts_the_filter_envelope_and_legato_does_not)
 {
     double settled, retriggered, legato;
     fm_engine_init(&feng, FRATE, 4);
+    tt_phases_zero(&feng); /* in phase, as the voices started before #154: from their own start phases the
+                            * four (20 cents apart) comb the saw's harmonics as they drift, legato 0.81 of settled */
     fm_engine_set_param(&feng, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
     fm_engine_set_param(&feng, FM_PARAM_AMP_ATTACK_MS, 0);
     fm_engine_set_param(&feng, FM_PARAM_AMP_SUSTAIN, 1000);
@@ -2853,13 +2855,14 @@ static uint32_t golden_engine_hash(int step)
  * lowpass (#162) and its cheaper per-sample form; the default patch, a wire, is unchanged. All five
  * retaken when every amp attack began to ease in (#274: the first few samples of each note), and
  * when the saw began to fall, as PG-8X's (#260: both patches play a saw, negated before the output's
- * int16 floor, so within 1-2 LSB of the old render negated). All five retaken when each voice's first
- * note began at PG-8X's start phases (#154): with the all-zero start table they read as before.
+ * int16 floor, so within 1-2 LSB of the old render negated). All five retaken when the DCOs began to run
+ * free from each voice's own start phase (#154): with every voice's phases zeroed after init they read the
+ * five above exactly (checked), so the start phase is the only change.
  */
 TT_TEST(default_patch_and_highpass_steps_render_what_they_did)
 {
-    static const uint32_t golden[5] = { 0x9AFF306Du, 0x62843855u, 0x0B106209u, 0x1FB3A0B5u,
-                                        0xA3C1B025u };
+    static const uint32_t golden[5] = { 0x57A9852Du, 0x973AA9A5u, 0x7FAFA151u, 0xD0943A49u,
+                                        0x7D2985F1u };
     int step, same = 1;
     for (step = -1; step < 4; step++) {
         uint32_t h = golden_engine_hash(step);

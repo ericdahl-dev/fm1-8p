@@ -668,21 +668,19 @@ static void end_mode(fm_engine *e)
 }
 
 /*
- * PG-8X 2.0.13's voices' start phases (#154, measured 2026-11-19 at
- * SELFNOISE 0, on a 512-sample render host): voice k's DCO-1 and DCO-2, a
- * and b of a + b r fitted over r 0.25..8 (rms 0.010..0.019 cycle). b adds
- * 0.0643 = 0.000287 x 224: PG-8X's phase also moves with where the note-on
- * falls in the host's block, taken at 224 samples (the scorecard's most
- * common). The wave's term: square 0.733, PG-8X's pulse (spike) 0.738;
- * saw 0; pulse not measured (0); noise keeps its phase.
+ * Each voice's DCO phases at init (#154), Q0.32 of a cycle; from there they
+ * run free (#89), idle or not, and no note resets them. DCO-1: PG-8X
+ * 2.0.13's DCO-1 intercepts for its voices 1..6 (measured 2026-11-19), so
+ * unison voices don't start in phase; voices 7 and 8 (PG-8X has 6) at 0.
+ * DCO-2 0.616 cycle after DCO-1 on every voice: PG-8X's DCO2 - DCO1 at
+ * lock (two saws, no detune) reads 0.615..0.617 on every note and voice
+ * (measured 2026-11-25), so at lock every voice plays one level.
  */
-const fm_start_table fm_start_pg8x = {
-    { { 4050583657u, 2423220548u }, { 3953087899u, 2620359547u }, { 3825097874u, 3922593631u },
-      { 1175962046u, 1361934130u }, { 3420941451u, 1506674527u }, { 2977700826u, 2860877716u } },
-    { { 62645, 62553 }, { 63012, 62933 }, { 62986, 62920 },
-      { 63078, 63012 }, { 63536, 63471 }, { 63471, 63418 } },
-    { 0, 0, 48038, 0, 48366 } /* saw, pulse, square, noise, spike */
+#define START_VOICES 6
+static const uint32_t start_dco1[START_VOICES] = {
+    4050583657u, 3953087899u, 3825097874u, 1175962046u, 3420941451u, 2977700826u
 };
+#define START_DCO2_AFTER 2645699854u /* 0.616 cycle */
 
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count)
@@ -702,7 +700,6 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
      * the filter, the highpass, the VCA modes) */
     e->mix_gain = (int32_t)(FM_MIX_GAIN_Q30 / voice_count);
     e->stamp = 0;
-    e->start = &fm_start_pg8x;
     e->pedal_down = 0;
     e->bend = 0;
     e->bend_value = 0;
@@ -732,8 +729,10 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
     {
         int32_t rate_cents = fm_filter_rate_cents(sample_rate);
         for (i = 0; i < FM_MAX_VOICES; i++) {
+            uint32_t a = i < START_VOICES ? start_dco1[i] : 0;
             fm_voice_reset(&e->voices[i], (uint32_t)(i + 1) * 0x9E3779B9u,
                            rate_cents, &e->amp_set, &e->filter_set);
+            fm_osc_pair_set_phases(&e->voices[i].osc, a, a + START_DCO2_AFTER);
             e->detune[i] = 0;
         }
     }
@@ -870,8 +869,6 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
                       uint8_t velocity)
 {
     uint8_t i = (uint8_t)(v - e->voices);
-    if (fm_voice_fresh(v)) /* its first note, from silence: PG-8X's start phases (#154) */
-        fm_voice_start_phases(v, fm_voice_active(v) ? 0 : e->start, i);
     fm_voice_age(v, ++e->stamp);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate);
@@ -918,8 +915,6 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         uint8_t was = fm_voice_note(v);
-        if (fm_voice_fresh(v)) /* played now, from phase 0: PG-8X's unison start is not measured (#154) */
-            fm_voice_start_phases(v, 0, i);
         fm_voice_age(v, ++e->stamp);
         if (e->params[FM_PARAM_PORTAMENTO_MS] && fm_voice_active(v) && was != FM_VOICE_NO_NOTE) {
             /* sounding: on from where it is (no jump mid-glide) */
@@ -1122,6 +1117,8 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n);
+            else /* its DCOs run free (#89, #154) */
+                fm_voice_idle(&e->voices[k], n);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);

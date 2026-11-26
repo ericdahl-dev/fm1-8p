@@ -154,8 +154,10 @@ TT_TEST(seq_play_step_velocity_sets_the_level)
     (void)play_init(&sp_a);
     play_set_param(&sp_a, FM_PARAM_AMP_VELOCITY, 100);
     play_set_param(&sp_a, FM_PARAM_AMP_RELEASE_MS, 5);   /* (no tail into the next step) */
-    play_set_param(&sp_a, FM_PARAM_OSC2_LEVEL, 0);       /* one oscillator, no chorus: osc2's start phase (#154) */
-    play_set_param(&sp_a, FM_PARAM_CHORUS_MODE, 0);      /* and the chorus's (#315) move a step's early peak on their own */
+    /* one oscillator, no chorus: on SOUNDTRACK osc2's free-running phase against osc1's (#154) and the chorus
+     * (#315) move a step's early peak on their own; so the steps read 1392 and 440 */
+    play_set_param(&sp_a, FM_PARAM_OSC2_LEVEL, 0);
+    play_set_param(&sp_a, FM_PARAM_CHORUS_MODE, 0);
     s = play_seq(&sp_a);
     seq_set_tempo(s, 600);                      /* a step 11025 frames: 43 blocks */
     seq_set_gate(s, 50);
@@ -171,6 +173,7 @@ TT_TEST(seq_play_step_velocity_sets_the_level)
                 peak[k / 43u] = v > peak[k / 43u] ? v : peak[k / 43u];
             }
     }
+    printf("    step peaks: velocity 127 %d, 40 %d\n", (int)peak[0], (int)peak[1]);
     TT_CHECK(peak[0] > 0);
     TT_CHECK(peak[1] < peak[0] / 2);
 }

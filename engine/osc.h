@@ -99,12 +99,11 @@ typedef struct {
  * voice its own so noise chords don't sum in step.
  */
 void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed);
-/*
- * Sets oscillator `which`'s (0 or 1) phase to a + slope * r cycles, r its
- * pitch over the played note's (2^(tune / 12)): a in Q0.32, slope in
- * Q16.16 cycles per unit r (a fresh voice's start phase, #154).
- */
-void fm_osc_pair_start_phase(fm_osc_pair *p, uint8_t which, uint32_t a, int32_t slope);
+/* Sets the oscillators' phases, Q0.32 of a cycle (at init: #154). */
+void fm_osc_pair_set_phases(fm_osc_pair *p, uint32_t phase1, uint32_t phase2);
+/* Moves both oscillators on `n` samples without a sound: an idle voice's
+ * DCOs run free (#89). Once a chunk, not per sample. */
+void fm_osc_pair_idle(fm_osc_pair *p, uint32_t n);
 /* Selects oscillator `which`'s (0 or 1) waveform; others are ignored. */
 void fm_osc_pair_set_wave(fm_osc_pair *p, uint8_t which, uint8_t wave);
 /* Pulse duty of oscillator `which`, in percent of a cycle (1..99; values

@@ -184,8 +184,8 @@ static int max_jump(const int16_t *stereo, size_t from, size_t to)
  * (8 to 10 Hz) have periods over 4000 samples, so on a 4-voice engine
  * (voice peak 4096) their saws change by under 2 LSB per sample, and a
  * 5 ms attack or a release adds at most 19 per voice. Every voice here
- * starts at phase 0 (the all-zero start table, #154) and no saw wraps
- * inside the 4000 frames checked.
+ * starts at phase 0 (tt_phases_zero: each voice's own start phase, #154,
+ * can sit just before a wrap) and no saw wraps inside the 4000 frames checked.
  * Cutting or restarting a voice anywhere else in its cycle jumps by
  * hundreds or thousands of LSB.
  */
@@ -195,7 +195,7 @@ TT_TEST(no_click_when_a_voice_starts_is_stolen_or_ends)
 {
     int n;
     init_poly(4);
-    poly.start = &tt_start_zero; /* every voice at phase 0, as below (#154) */
+    tt_phases_zero(&poly); /* every voice at phase 0, as below (#154: from its own, 8268 LSB as a saw wraps) */
     fm_engine_set_param(&poly, FM_PARAM_AMP_ATTACK_MS, 5);
     fm_engine_set_param(&poly, FM_PARAM_AMP_RELEASE_MS, 20);
     for (n = 0; n < 4; n++) { /* starts */

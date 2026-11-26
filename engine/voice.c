@@ -40,7 +40,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->lfo_start = 0;
     v->velocity = 127;
     v->note = FM_VOICE_NO_NOTE; /* no last note yet (#164) */
-    v->fresh = 1;
+    v->played = 0;
     v->key_down = 0;
     v->sustained = 0;
     fm_vfilter_reset(&v->vf, rate_cents);
@@ -179,6 +179,7 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
  * idle voice, whatever level it was left at. */
 static void gate_on(fm_voice *v)
 {
+    v->played = 1;
     if (v->amp_env.stage == FM_ENV_IDLE) {
         fm_env_reset(&v->filter_env);
         fm_env_reset(&v->env2);
@@ -476,6 +477,7 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
     }
     fm_vfilter_pass(&v->vf, last, i);
     lazy_envs_pass(v, i);
+    if (i < frames) fm_osc_pair_idle(&v->osc, frames - i); /* idle from where the release ended */
     return 1;
 }
 
@@ -492,6 +494,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
         int32_t level, fenv, out;
         if (v->amp_env.stage == FM_ENV_IDLE) { /* the release ended */
             lazy_envs_pass(v, i - told);
+            if (!whole) fm_osc_pair_idle(&v->osc, frames - i); /* idle from here (whole ran them all) */
             return;
         }
         level = fm_env_step(&v->amp_env);
@@ -525,14 +528,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
     lazy_envs_pass(v, frames - told);
 }
 
-void fm_voice_start_phases(fm_voice *v, const fm_start_table *t, uint8_t k)
+void fm_voice_idle(fm_voice *v, uint32_t frames)
 {
-    uint8_t i;
-    v->fresh = 0;
-    if (!t || k >= FM_START_VOICES) return;
-    for (i = 0; i < 2; i++) {
-        uint8_t w = v->osc.wave[i];
-        if (w == FM_WAVE_NOISE || w >= FM_WAVE_COUNT) continue;
-        fm_osc_pair_start_phase(&v->osc, i, t->a[k][i], t->b[k][i] + t->wave[w]);
-    }
+    if (v->played) fm_osc_pair_idle(&v->osc, frames);
 }

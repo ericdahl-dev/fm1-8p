@@ -52,7 +52,7 @@ static uint32_t ch_render_golden_phrase(int set_mode, int32_t mode,
 {
     memset(ch_buf, 0, 2 * 20000 * sizeof ch_buf[0]);
     fm_engine_init(&ch_eng, CH_RATE, 8);
-    ch_eng.start = &tt_start_zero; /* the pre-chorus engine started every voice at phase 0 (#154) */
+    tt_phases_zero(&ch_eng); /* the pre-chorus engine started every voice at phase 0 (#154) */
     if (was_on) {
         fm_engine_set_param(&ch_eng, FM_PARAM_CHORUS_MODE, FM_CHORUS_DEEP);
         fm_engine_render(&ch_eng, ch_buf, 3000);
