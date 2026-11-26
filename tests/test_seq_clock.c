@@ -1067,6 +1067,59 @@ TT_TEST(clock_start_with_an_ask_pending_sends_one_stop)
     }
 }
 
+/* #364: the followed start in every order. Before a MIDI start and its tick: nothing pending, a STOP, a
+ * restart, or a let-go (seq_clock_out_stop); the interrupt cuts into clock_tick's start at each of its gaps
+ * "clock_start" 0..4. Starts (FA, FB) and stops (FC) alternate from a start; with a run going the last is
+ * the followed run's start, one stop fewer than starts; after a let-go nothing more goes out (FA FC). */
+TT_TEST(clock_start_in_every_order_alternates)
+{
+    uint32_t ask, gap, bad = 0;
+    for (ask = 0; ask < 4u; ask++)
+        for (gap = 0; gap < 5u; gap++) {
+            uint32_t q, m = 0, fa = 0, fc = 0, ok = 1;
+            uint8_t last = 0xFCu;
+            ck_fresh(SEQ_CLK_AUTO);
+            seq_set_clock_out(&ck, 1);
+            ck_msg_at(0.1, 0, CK_PLAY);
+            ck_run(0.5);
+            if (ask == 1u)
+                seq_stop(&ck);
+            else if (ask == 2u)
+                seq_play(&ck);
+            else if (ask == 3u)
+                seq_clock_out_stop(&ck);
+            seq_clock_in(&ck, 0xFAu, ck_host(0.5));
+            ck_b_where = "clock_start", ck_b_n = gap, ck_b_hits = 0, ck_b_on = 0;
+            handoff_gap = ck_gap_b;
+            seq_clock_in(&ck, 0xF8u, ck_host(0.501));
+            handoff_gap = 0;
+            ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
+            ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
+            for (q = 0; q < ck_n_out; q++) {
+                uint8_t st = ck_out[q] == 0xFBu ? 0xFAu : ck_out[q];
+                if (st != 0xFAu && st != 0xFCu)
+                    continue;
+                ok &= st != last;
+                last = st;
+                fa += st == 0xFAu;
+                fc += st == 0xFCu;
+                m++;
+            }
+            if (ask == 3u)
+                ok &= fa == 1u && fc == 1u;         /* let go: FA FC, then nothing */
+            else
+                ok &= last == 0xFAu && fc + 1u == fa;   /* the followed run's start last */
+            ok &= ck_b_hits == ((ask == 3u && gap == 0u) ? 0u : 1u);   /* (gap 0 needs out_on set) */
+            if (!ok) {
+                bad++;
+                printf("    clock start, ask %u, gap %u: %u starts, %u stops, %u hits\n", (unsigned)ask,
+                       (unsigned)gap, (unsigned)fa, (unsigned)fc, (unsigned)ck_b_hits);
+            }
+            (void)m;
+        }
+    TT_CHECK_EQ(bad, 0u);
+}
+
 /* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
  * start: never two starts in a row (#286) */
 TT_TEST(clock_out_restart_stops_first)
@@ -1377,6 +1430,7 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_stop_inside_a_pending_ask_sends_one_stop);
     TT_RUN(clock_out_start_and_stop);
     TT_RUN(clock_start_with_an_ask_pending_sends_one_stop);
+    TT_RUN(clock_start_in_every_order_alternates);
     TT_RUN(clock_out_restart_stops_first);
     TT_RUN(clock_out_off_and_changed_while_playing);
     TT_RUN(clock_out_follows_tempo_changes);

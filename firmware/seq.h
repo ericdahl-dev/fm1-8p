@@ -186,8 +186,9 @@ typedef struct {
     volatile uint8_t out_on;            /* this transport sends: latched at its start (two writers: the
                                          * interrupt, and the main loop at a stop; docs/handoffs.md) */
     volatile uint8_t out_block;         /* the gate, main loop writes: let go (release) sets it, the next
-                                         * PLAY clears it; while set the interrupt neither writes out_on
-                                         * nor sends a start or stop (docs/handoffs.md) */
+                                         * PLAY clears it, and clock_tick's followed start holds it while it
+                                         * ends the own run's clock out (#364); while set the interrupt
+                                         * neither writes out_on nor sends a start or stop (docs/handoffs.md) */
     uint32_t out_acc;                   /* interrupt: the clock since the last tick, as acc counts it */
     volatile uint32_t out_ticks;        /* kind D, interrupt writes: ticks due, all told */
     uint32_t out_sent;                  /* main loop: ticks sent */

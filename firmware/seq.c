@@ -768,7 +768,7 @@ static void clock_tick(seq *s, uint32_t t)
         BARRIER();                              /* #286: G14 latched after the ask, so a stop ask still */
         s->out_block = blocked;                 /* pending can't find it on and switch it off; the gate back */
         BARRIER();                              /* as it was (let go stays let go) */
-        s->out_on = (uint8_t)(s->out_want && !s->out_block);
+        s->out_on = (uint8_t)(s->out_want && !blocked);
         if (s->out_on)
             out_pass(s, s->ext_cont ? 0xFBu : 0xFAu);
         HANDOFF_GAP("clock_start", 4);
