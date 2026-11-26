@@ -391,6 +391,7 @@ void seq_play(seq *s)
     }
     s->ask_last = SEQ_LAST_PLAY_AT(s->ask_play + 1u);   /* first: till its count, a stop to the interrupt */
     s->ext = 0;                                 /* (its own clock) */
+    s->ext_cont = 0;                            /* (a PLAY is from step 1, not a continue asked before, #380) */
     s->clk_pending = 0;                         /* (a start come in with no clock: nothing to wait for) */
     s->want = 1;
     BARRIER();                                  /* the wish before the ask: never an ask with an old one */
@@ -1098,7 +1099,6 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             thr = step_len(s, fs);
             s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
         } else if (go) {
-            uint32_t passed = 0;                /* a start the main loop already passed on (#380) */
             if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
                 if (s->playing && s->out_on)
                     out_put(s, 0xFCu);          /* #286: a restart: stop, then start (never two starts) */
@@ -1114,11 +1114,11 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
                                                  * changed to INT before this block took it, #380): the clock
                                                  * from here, tick 1 a unit on */
                     s->out_acc = 0;
-                    passed = 1;
                 }
             }
-            s->pos = passed && s->ext_cont ? s->pos + 1u : 0;   /* (a continue passed on: on from the step
-                                                 * after the last, as the gear down the line was told) */
+            s->pos = s->ext_cont ? s->pos + 1u : 0;     /* a continue asked (a followed one, its source changed
+                                                 * to INT before this block, #380): on from the step after the
+                                                 * last, as the followed branch; start_step wraps it */
             s->acc = 0;
             s->cur_bend = s->cur_mod = 0;       /* (a first GLIDE moves from center and 0) */
             s->glide_on = 0;

@@ -1208,14 +1208,15 @@ TT_TEST(clock_source_to_int_with_a_start_pending_sends_one_start)
     TT_CHECK_EQ(ck_outs(0xFCu), 1u);
 }
 
-/* #380 (FW review): a MIDI continue passed on (FB), then INT before the interrupt took it: the run goes on
- * from the step after the last, as the continue told the gear down the line, not from step 1 */
-TT_TEST(clock_source_to_int_with_a_continue_pending_goes_on)
+/* #380 (FW review): a MIDI continue (FB), then INT before the interrupt took it: the run goes on from the
+ * step after the last, as a continue says, with clock out on (the FB passed on) or off. And a PLAY after
+ * them, before the same block, is the last ask: from step 1. */
+static uint32_t ck_continue_then_int(uint32_t out, uint32_t play_too)
 {
     static const uint8_t N[4] = {60, 62, 64, 65};
     uint32_t k, at;
     ck_fresh(SEQ_CLK_MIDI);
-    seq_set_clock_out(&ck, 1);
+    seq_set_clock_out(&ck, out);
     seq_set_length(&ck, 4);
     for (k = 0; k < 4u; k++)
         seq_set_step(&ck, k, &N[k], 1, 100);  /* 60 62 64 65: each step its own */
@@ -1224,15 +1225,25 @@ TT_TEST(clock_source_to_int_with_a_continue_pending_goes_on)
     ck_run(ck_tick_at[6] + 0.005);              /* steps 1 and 2 played (60, 62) */
     ck_msg_at(ck_tick_at[6] + 0.006, 0, 0xFCu);
     ck_run(ck_tick_at[6] + 0.1);                /* stopped after step 2 */
-    TT_CHECK(!ck.playing);
+    if (ck.playing)
+        return 0;
     at = ck_n_on;
-    seq_clock_in(&ck, 0xFBu, ck_host(0.5));     /* a continue, its tick: passed on, asked */
+    seq_clock_in(&ck, 0xFBu, ck_host(0.5));     /* a continue, its tick: asked */
     seq_clock_in(&ck, 0xF8u, ck_host(0.501));
     seq_set_clock_source(&ck, SEQ_CLK_INT);     /* before one block */
+    if (play_too) {
+        seq_stop(&ck);                          /* PLAY twice as the UI toggles: STOP (want set), PLAY */
+        seq_play(&ck);
+    }
     ck_run(0.6);
-    TT_CHECK(ck_n_on > at);
-    TT_CHECK_EQ(ck_note[at], 64u);              /* step 3, the one after the last: 64, not step 1's 60 */
-    TT_CHECK(ck_n_on > at + 1u && ck_note[at + 1u] == 65u);
+    return ck_n_on > at ? ck_note[at] : 0u;
+}
+TT_TEST(clock_source_to_int_with_a_continue_pending_goes_on)
+{
+    TT_CHECK_EQ(ck_continue_then_int(1, 0), 64u);   /* step 3, the one after the last, clock out on, */
+    TT_CHECK_EQ(ck_continue_then_int(0, 0), 64u);   /* and off */
+    TT_CHECK_EQ(ck_continue_then_int(1, 1), 60u);   /* a PLAY after it: from step 1 */
+    TT_CHECK_EQ(ck_continue_then_int(0, 1), 60u);
 }
 
 /* #380 (FW review): the same start pending, INT, and then STOP before the interrupt takes either. The

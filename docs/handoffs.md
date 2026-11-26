@@ -141,9 +141,10 @@ These don't fit one kind. Each is named here and in its field's comment.
   `clock_start_with_an_ask_pending_sends_one_stop`). `out_on` set with nothing playing means the main
   loop has already sent this start and its tick 0 (a followed start's latch, then the MIDI tick passed
   on). If the interrupt then takes it on its own clock (the source changed to INT first, see `ext`
-  below), it sends neither again and counts its next tick a unit on, and a continue passed on (FB)
-  goes on from the step after the last, as the gear down the line was told; a stop taken there closes
-  it with FC. Before, that order sent FA FA and a second tick 0, restarted a continue at step 1, and a
+  below), it sends neither again and counts its next tick a unit on; a stop taken there closes it with
+  FC. And a continue asked that way (FB) goes on from the step after the last, clock out on or off, as
+  on the followed path: `ext_cont` is the continue's payload, and `seq_play` clears it with its own
+  ask, so a PLAY is from step 1. Before, that order sent FA FA and a second tick 0, restarted a continue at step 1, and a
   stop sent no FC (#380, `clock_source_to_int_with_a_start_pending_sends_one_start`,
   `clock_source_to_int_with_a_continue_pending_goes_on`,
   `clock_source_to_int_then_stop_with_a_start_pending_closes_it`).
