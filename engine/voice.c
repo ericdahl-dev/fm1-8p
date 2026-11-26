@@ -41,6 +41,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->velocity = 127;
     v->note = FM_VOICE_NO_NOTE; /* no last note yet (#164) */
     v->played = 0;
+    v->idle_at = 0;
     v->key_down = 0;
     v->sustained = 0;
     fm_vfilter_reset(&v->vf, rate_cents);
@@ -528,7 +529,11 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
     lazy_envs_pass(v, frames - told);
 }
 
-void fm_voice_idle(fm_voice *v, uint32_t frames)
+void fm_voice_wake(fm_voice *v, uint32_t now)
 {
-    if (v->played) fm_osc_pair_idle(&v->osc, frames);
+    /* a uint32 difference: a gap of 2^32 frames or more (24.8 h at 48 kHz) counts
+     * mod 2^32, and inc x 2^32 is a whole number of cycles, so the phases still land
+     * exactly; only sync's DC sum may miss the wrap that clears it */
+    if (v->played) fm_osc_pair_idle(&v->osc, now - v->idle_at);
+    v->idle_at = now;
 }

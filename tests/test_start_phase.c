@@ -164,8 +164,8 @@ TT_TEST(an_idle_voice_runs_on_and_a_note_on_keeps_its_phase)
     TT_CHECK_EQ(stp_voice(57), 0);
     stp_run(100);
     fm_engine_note_off(&stp_eng, 57);
-    stp_run(100);
-    TT_CHECK(!fm_voice_active(&stp_eng.voices[0]));
+    while (fm_voice_active(&stp_eng.voices[0])) /* a frame at a time, to the frame it goes idle */
+        fm_engine_render(&stp_eng, stp_buf, 1);
     p0 = stp_eng.voices[0].osc.osc[0].phase;
     p1 = stp_eng.voices[0].osc.osc[1].phase;
     i0 = stp_eng.voices[0].osc.osc[0].inc;
@@ -177,14 +177,28 @@ TT_TEST(an_idle_voice_runs_on_and_a_note_on_keeps_its_phase)
         fm_engine_render(&stp_eng, stp_buf, n);
         left -= n;
     }
-    TT_CHECK_EQ(stp_eng.voices[0].osc.osc[0].phase, p0 + i0 * 23456u);
-    TT_CHECK_EQ(stp_eng.voices[0].osc.osc[1].phase, p1 + i1 * 23456u);
     fm_engine_note_on(&stp_eng, 57, 100); /* its voice again: on from where it is */
     TT_CHECK_EQ(stp_voice(57), 0);
     TT_CHECK_EQ(stp_eng.voices[0].osc.osc[0].phase, p0 + i0 * 23456u);
     TT_CHECK_EQ(stp_eng.voices[0].osc.osc[1].phase, p1 + i1 * 23456u);
     TT_CHECK_EQ(stp_eng.voices[5].osc.osc[0].phase, never0);
     TT_CHECK_EQ(stp_eng.voices[5].osc.osc[1].phase, never1);
+    stp_run(100);
+    fm_engine_controller(&stp_eng, 120, 0); /* all sound off: idle from here */
+    TT_CHECK(!fm_voice_active(&stp_eng.voices[0]));
+    p0 = stp_eng.voices[0].osc.osc[0].phase;
+    p1 = stp_eng.voices[0].osc.osc[1].phase;
+    left = 7777;
+    while (left) {
+        uint32_t n = blocks[b++ % 5];
+        n = n < left ? n : left;
+        fm_engine_render(&stp_eng, stp_buf, n);
+        left -= n;
+    }
+    fm_engine_note_on(&stp_eng, 57, 100);
+    TT_CHECK_EQ(stp_voice(57), 0);
+    TT_CHECK_EQ(stp_eng.voices[0].osc.osc[0].phase, p0 + i0 * 7777u);
+    TT_CHECK_EQ(stp_eng.voices[0].osc.osc[1].phase, p1 + i1 * 7777u);
 }
 
 /* `frames` of output in blocks of `block` (1..STP_BLOCK) into FNV-1a hash `h` */

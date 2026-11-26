@@ -863,12 +863,20 @@ static int32_t velocity_peak(const fm_engine *e, uint8_t velocity)
     return (int32_t)peak;
 }
 
+/* Frames rendered since init, mod 2^32: control ticks run every
+ * FM_LFO_TICK_FRAMES from init, tick_left before the next */
+static uint32_t engine_frame(const fm_engine *e)
+{
+    return e->ticks * FM_LFO_TICK_FRAMES - e->tick_left;
+}
+
 /* Poly: voice `v` plays `note` at amp peak `peak` (in poly every detune
  * is 0), its glide set (porta_start, or one it brings along). */
 static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
                       uint8_t velocity)
 {
     uint8_t i = (uint8_t)(v - e->voices);
+    if (!fm_voice_active(v)) fm_voice_wake(v, engine_frame(e)); /* on from where its DCOs ran to */
     fm_voice_age(v, ++e->stamp);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
                      e->ticks + 1, e->sample_rate);
@@ -915,6 +923,7 @@ static void unison_play(fm_engine *e, uint8_t note, int retrigger,
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         uint8_t was = fm_voice_note(v);
+        if (!fm_voice_active(v)) fm_voice_wake(v, engine_frame(e)); /* on from where its DCOs ran to */
         fm_voice_age(v, ++e->stamp);
         if (e->params[FM_PARAM_PORTAMENTO_MS] && fm_voice_active(v) && was != FM_VOICE_NO_NOTE) {
             /* sounding: on from where it is (no jump mid-glide) */
@@ -1019,6 +1028,7 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
             if (!e->pedal_down && fm_voice_holding(v) == FM_VOICE_PEDAL) release(e, v);
             break;
         case 120: /* all sound off: silent now */
+            if (fm_voice_active(v)) v->idle_at = engine_frame(e); /* idle from here (#154) */
             fm_voice_silence(v);
             break;
         case 123: /* all notes off: release, even notes the pedal holds */
@@ -1110,15 +1120,17 @@ static void advance_ticks(fm_engine *e, uint32_t n)
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
 {
     while (frames) {
-        uint32_t n, i;
+        uint32_t n, i, end;
         uint8_t k;
         n = chunk_frames(e, frames);
+        end = engine_frame(e) + n;
         for (i = 0; i < n; i++) e->mix[i] = 0;
         for (k = 0; k < e->voice_count; k++)
-            if (fm_voice_active(&e->voices[k]))
+            if (fm_voice_active(&e->voices[k])) {
                 fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n);
-            else /* its DCOs run free (#89, #154) */
-                fm_voice_idle(&e->voices[k], n);
+                if (!fm_voice_active(&e->voices[k])) /* its release ended: idle from the chunk's end (#154) */
+                    e->voices[k].idle_at = end;
+            }
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
