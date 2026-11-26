@@ -882,6 +882,59 @@ TT_TEST(seq_turn_right_after_a_takeover_starts_from_the_new_pattern)
     TT_CHECK_EQ(s->edit.swing_pct, SEQ_SWING_DEF + 1u);
 }
 
+/* #348: a takeover between a knob turn's read and its write (gap "turn" 1, after turn()'s sync and read,
+ * before the setter's take-in). The turn changes the pattern that now runs, from its own value: B's SWING
+ * one up, not A's value plus one written into B; and a step the new pattern has as a rest stays a rest (its
+ * BEND isn't A's step's bend). */
+static uint32_t seq_turn_hits;
+static void seq_gap_turn(const char *where, uint32_t n)
+{
+    (void)n;
+    if (strcmp(where, "turn") == 0 && seq_turn_hits++ == 0) {
+        seq_render_to(15);
+        seq_render_to(0);                                     /* the pass ends: 12 takes over */
+    }
+}
+TT_TEST(seq_turn_with_a_takeover_before_its_write_changes_the_new_pattern)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 2, 1100);      /* 11's SWING: 52 */
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_render_to(0);
+    pattern_queue(play_patterns(&ui_p), 1);                  /* 12, empty: SWING 50 */
+    seq_turn_hits = 0;
+    handoff_gap = seq_gap_turn;
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB3, 1, 1300);      /* the takeover inside the turn */
+    handoff_gap = 0;
+    TT_CHECK_EQ(seq_turn_hits, 1u);                          /* (it did cut in there) */
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
+    TT_CHECK_EQ(s->edit.swing_pct, SEQ_SWING_DEF + 1u);     /* 12's 50 + 1, not 11's 52 + 1 */
+
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C, 1, 100);
+    seq_set_step_bend_mod(s, 0, 4096, 0, 0);                  /* 11's step 1: a C4, bent +50 % */
+    ui_tap(UI_BTN_SEQ, 1000);
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_ALGORITHM, 1, 1100);  /* S2 STEP, the cursor on step 1 */
+    TT_CHECK_EQ(ui_u.seq_page, 1u);
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_render_to(0);
+    pattern_queue(play_patterns(&ui_p), 1);                  /* 12, empty: step 1 a rest */
+    seq_turn_hits = 0;
+    handoff_gap = seq_gap_turn;
+    ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB2, 1, 1300);      /* BEND, the takeover inside the turn */
+    handoff_gap = 0;
+    TT_CHECK_EQ(seq_turn_hits, 1u);
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
+    TT_CHECK(seq_get_step(s, 0)->kind != SEQ_NOTES_ON);       /* 12's rest, */
+    TT_CHECK_EQ(seq_get_step(s, 0)->bend, 0);                 /* not bent by 11's step */
+}
+
 /* the second look of a call takes the takeover (handoff_test.h, gap "sync" 1): from the first pattern call
  * to the second */
 static uint32_t seq_look_hits;
@@ -2127,6 +2180,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_stop_clears_the_playhead);
     TT_RUN(seq_roll_redraws_whole_when_the_next_pattern_takes_over);
     TT_RUN(seq_turn_right_after_a_takeover_starts_from_the_new_pattern);
+    TT_RUN(seq_turn_with_a_takeover_before_its_write_changes_the_new_pattern);
     TT_RUN(seq_footer_is_one_look_through_a_takeover);
     TT_RUN(seq_tempo_turn_redraws_the_header);
     TT_RUN(seq_roll_wide_span_fits_once);

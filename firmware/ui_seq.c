@@ -251,6 +251,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks)
     v = ui_seq_value(u, k);
     if (!UI_SEQ_SLOTS[u->seq_page][k].live)
         return;
+    HANDOFF_GAP("turn", 1);                     /* (#348: a takeover here, before the setter's take-in) */
     switch (u->seq_page * 4u + k) {
     case 0:                                     /* (the header and the footer show it too) */
         if (seq_clock_external(s)) {            /* the clock sets it: nothing, and why (case 48) */
