@@ -89,7 +89,7 @@ expect_ok "check_inputs says when the toolchain has no nm" grep -q "no nm in $T/
 mkdir -p "$T/nm/mod"
 printf '#!/bin/sh\nfor f; do case "$f" in -*) ;; *) cat "$f.nm" ;; esac; done\n' >"$T/nm/nm"; chmod +x "$T/nm/nm"
 : >"$T/nm/mod/module_02200000.elf"; : >"$T/nm/mod/a.o"
-printf '02200000 T render\n02200100 t helper\n02200200 T __udivdi3\n02200300 T hb_module\n02200400 t _hb_text_end\n' >"$T/nm/mod/module_02200000.elf.nm"
+printf '02200000 T render\n02200100 t helper\n02200200 T __udivdi3\n02200300 T hb_module\n02200400 t _hb_text_end\n01c04000 T _hb_rt_start\n01c06000 T _hb_rt_end\n' >"$T/nm/mod/module_02200000.elf.nm"
 printf '00000000 T render\n00000010 t helper\n         U __udivdi3\n' >"$T/nm/mod/a.o.nm"
 mkdir -p "$T/nm/tc/pi32v2/lib"                 # the toolchain's libraries, as nm lists them
 for l in compiler_rt m c; do : >"$T/nm/tc/pi32v2/lib/lib$l.a"; done
@@ -122,6 +122,24 @@ cp "$T/nm/clean.nm" "$T/nm/locals/module_02200000.elf.nm"
 printf '02200700 d .L_MergedGlobals\n02200800 r .GJTIE2_0_0_\n02200900 t shared_local\n' >>"$T/nm/locals/module_02200000.elf.nm"
 printf 'x.o:\n00000000 d .L_MergedGlobals\n00000000 r .GJTIE2_0_0_\n00000000 t shared_local\n' >>"$T/nm/tc/pi32v2/lib/libc.a.nm"
 expect_ok "a module whose local labels a library also has locally passes" with_nm check_module_symbols "$T/nm/locals"
+# #304: the render loops run from the module's RAM text (FM_RAM_TEXT), away from the flash cache. A module
+# built with it must have them there, and within the budget (FM1_RAM_TEXT_BUDGET, default 12 KiB of
+# fm1-dock's 16): a cflags edit that drops the flag, or an engine that outgrows the RAM, fails the build.
+mkdir -p "$T/rt/mod" && : >"$T/rt/mod/module_02200000.elf"
+printf 'name = x\ncflags = -O2 -DFM_RAM_TEXT\n' >"$T/rt/hot.cfg"
+printf 'name = x\ncflags = -O2\n' >"$T/rt/cold.cfg"
+rt_syms() { printf '01c04000 T _hb_rt_start\n%s T _hb_rt_end\n02200000 T render\n' "$1" >"$T/rt/mod/module_02200000.elf.nm"; }
+rt_syms 01c06190
+expect_ok   "a module with its render loops in RAM text passes" with_nm check_ram_text "$T/rt/mod" "$T/rt/hot.cfg"
+rt_syms 01c04000
+expect_fail "a module built with FM_RAM_TEXT but nothing in RAM text fails" with_nm check_ram_text "$T/rt/mod" "$T/rt/hot.cfg"
+expect_ok   "... and one built without it passes with none" with_nm check_ram_text "$T/rt/mod" "$T/rt/cold.cfg"
+rt_syms 01c07001
+expect_fail "RAM text over the 12 KiB budget fails" with_nm check_ram_text "$T/rt/mod" "$T/rt/hot.cfg"
+rt_syms 01c07000
+expect_ok   "... and at the budget passes" with_nm check_ram_text "$T/rt/mod" "$T/rt/hot.cfg"
+rt_syms 01c07001
+expect_ok   "FM1_RAM_TEXT_BUDGET moves the budget" env FM1_BUILD_LIB=1 FM1_RAM_TEXT_BUDGET=16384 JIELI_TOOLCHAIN="$T/nm/tc" sh -c '. tools/fm1-build.sh && check_ram_text "$1" "$2"' x "$T/rt/mod" "$T/rt/hot.cfg"
 mkdir -p "$T/nm/none" && cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/none/"
 expect_fail "a module with no linked image fails it (nm can't read it)" with_nm check_module_symbols "$T/nm/none"
 # ... and a build runs it on the module it links: fm1-dock's tools stand in, linking the module in
