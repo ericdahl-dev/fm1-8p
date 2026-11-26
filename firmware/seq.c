@@ -1098,6 +1098,7 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             thr = step_len(s, fs);
             s->acc = late < thr ? late : thr - 1u;  /* the step is as far on as tick 0 is gone */
         } else if (go) {
+            uint32_t passed = 0;                /* a start the main loop already passed on (#380) */
             if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
                 if (s->playing && s->out_on)
                     out_put(s, 0xFCu);          /* #286: a restart: stop, then start (never two starts) */
@@ -1113,9 +1114,12 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
                                                  * changed to INT before this block took it, #380): the clock
                                                  * from here, tick 1 a unit on */
                     s->out_acc = 0;
+                    passed = 1;
                 }
             }
-            s->pos = s->acc = 0;
+            s->pos = passed && s->ext_cont ? s->pos + 1u : 0;   /* (a continue passed on: on from the step
+                                                 * after the last, as the gear down the line was told) */
+            s->acc = 0;
             s->cur_bend = s->cur_mod = 0;       /* (a first GLIDE moves from center and 0) */
             s->glide_on = 0;
             s->playing = 1;
