@@ -348,31 +348,33 @@ class MapTest(unittest.TestCase):
         self.assertEqual({v: e["OSC_MIX_ENV_DYNA"] for v, e in got.items()}, {0: 3, 32: 2, 64: 1, 96: 0})
 
     # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
-    # depth to pitch linear to 572 cents (below), one per oscillator
+    # depth to pitch linear to 599 cents (below), one per oscillator
     def test_lfo_shape_rate_delay_and_vibrato_depth(self):
         e = patch("SOUNDTRACK")                 # triangle, delay 78, rate 103, depths 0
         self.assertEqual((e["LFO_WAVE"], e["LFO_RATE_CENTIHZ"], e["LFO_DELAY_MS"]), (0, 585, 695))
         self.assertEqual(e["LFO_PITCH_CENTS"], 0)
         self.assertEqual(patch("CLAV")["LFO_WAVE"], 3)          # 0: random (engine FM_LFO_RANDOM)
         self.assertEqual(patch("ORGAN 2")["LFO_WAVE"], 2)       # 32: square
-        self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 572)
+        self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 599)
         e = patch("CELLO SECT")                 # DCO-1 2 (a trace), DCO-2 34: mostly DCO-2 wobbles
-        self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (9, 153))
+        self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (9, 160))
 
-    # DCO-1 LFO as PG-8X 2.0.13 plays it: linear, 4.5 cents per step (127 = 572 cents)
+    # DCO-1 LFO as PG-8X 2.0.13 plays it: linear, 4.72 cents of peak per step (127 = 599 cents; #330: the
+    # 2..98 % depth read 4.5 a step, but that reads a triangle's peak 0.95 low on both synths, and ours with
+    # 4.5 read 0.952 of PG-8X's on the same measure, at bytes 32, 64 and 127)
     def test_vibrato_depth_is_linear_as_pg8x_plays_it(self):
         depth = {b: patch_with("SOUNDTRACK", DCO1_LFO=b)["LFO_PITCH_CENTS"] for b in (0, 16, 64, 127)}
-        self.assertEqual(depth, {0: 0, 16: 72, 64: 288, 127: 572})
+        self.assertEqual(depth, {0: 0, 16: 76, 64: 302, 127: 599})
         lo, hi = jx8p.engine_ranges()["LFO_PITCH_CENTS"]
-        self.assertTrue(lo <= 0 and 572 <= hi, (lo, hi))
+        self.assertTrue(lo <= 0 and 599 <= hi, (lo, hi))
 
-    # DCO-2 LFO the same (agent2, PG-8X 2.0.13: 4.5 cents a step, 572 at 127), on osc 2 alone
+    # DCO-2 LFO the same (PG-8X 2.0.13: 4.72 cents of peak a step, 599 at 127, #330), on osc 2 alone
     def test_dco2_vibrato_depth_is_linear_on_osc2(self):
         fields = {f.name: f for f in jx8p.FIELDS}
         self.assertEqual(fields["LFO_PITCH_OSC2_CENTS"].param, "LFO_PITCH_OSC2_CENTS")
         depth = {b: patch_with("SOUNDTRACK", DCO1_LFO=0, DCO2_LFO=b)["LFO_PITCH_OSC2_CENTS"]
                  for b in (0, 16, 64, 127)}
-        self.assertEqual(depth, {0: 0, 16: 72, 64: 288, 127: 572})
+        self.assertEqual(depth, {0: 0, 16: 76, 64: 302, 127: 599})
 
     # LFO RATE as PG-8X 2.0.13 plays it: 0.537 Hz at 64, x 2.664 every 16 steps, from 32 up
     # (0.076 Hz at 32, 25.4 Hz at 127)
