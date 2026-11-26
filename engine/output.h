@@ -28,10 +28,11 @@
  */
 #define FM_OUT_SOURCE_LP_A 21627 /* a, Q15: 0.66 */
 
-/* One sample x of the source lowpass; *last holds the input before it (0 after init: silence). */
+/* One sample x of the source lowpass; *last holds the input before it (0 after init: silence). The sum
+ * is taken in 64 bits: between the rails the step alone passes int32 (0.66 x 2^32), the result never. */
 static inline int32_t fm_out_source_lp(int32_t x, int32_t *last)
 {
-    int32_t y = *last + (int32_t)((((int64_t)x - *last) * FM_OUT_SOURCE_LP_A) >> 15);
+    int32_t y = (int32_t)(*last + ((((int64_t)x - *last) * FM_OUT_SOURCE_LP_A) >> 15));
     *last = x;
     return y;
 }
