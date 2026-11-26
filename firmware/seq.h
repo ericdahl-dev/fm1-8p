@@ -29,7 +29,8 @@
 #define SEQ_GATE_DEF 50u
 #define SEQ_SWING_DEF 50u               /* swing, %: 50 straight .. 75 (the even steps late by half a step) */
 #define SEQ_LAST_STOP 0u                /* ask_last: the last ask was a stop (#373) */
-#define SEQ_LAST_PLAY 1u                /* ... a play */
+#define SEQ_LAST_PLAY 1u                /* ... a play, with the count it publishes in bits 1..7 (#377): */
+#define SEQ_LAST_PLAY_AT(count) ((uint8_t)(SEQ_LAST_PLAY | ((count) & 0x7Fu) << 1))
 #define SEQ_OUT_EV 8u                   /* #286: starts and stops the main loop has yet to send */
 #define SEQ_OUT_M 16u                   /* #286: a followed clock's bytes, between two takes */
 #define SEQ_TRANSPOSE_MAX 24            /* transpose, semitones: -24..+24 (interaction.md, S3 PLAY) */
@@ -103,9 +104,10 @@ typedef struct {
                                          * (an armed seq_play, seq_set_clock_source): docs/handoffs.md */
     volatile int32_t transpose;         /* kind D, main loop writes: semitones, taken at a step's start */
     uint8_t key_transpose;              /* main loop only: KEY TRANSPOSE (S3), keys set the transpose */
-    volatile uint8_t ask_last;          /* kind B payload, main loop writes before each ask: SEQ_LAST_PLAY or
-                                         * SEQ_LAST_STOP, the last ask made (an armed seq_play makes none);
-                                         * the interrupt starts only when it is a play (#373) */
+    volatile uint8_t ask_last;          /* kind B payload, main loop writes first in each ask: SEQ_LAST_STOP,
+                                         * or SEQ_LAST_PLAY_AT(the ask_play it will publish); the last ask
+                                         * made (an armed seq_play makes none). The interrupt starts only on
+                                         * a play whose count it already sees (#373, #377) */
     /* pattern loads (#40, #324): the copy last loaded or saved (main loop: seq_edited), and the queued
      * pattern, handed to the interrupt with one writer per field (kind C). The main loop writes `ask` (a
      * generation: odd while it is being written, when the interrupt takes nothing), `ask_kind` and
