@@ -32,7 +32,8 @@ static hr_stats hr_chord(const uint8_t *notes, int count, uint32_t seconds, uint
     if (play_init(&hr_p) != 0 || play_init(&hr_q) != 0 || fm_engine_set_output_shift(&hr_q.engine, 0) != FM_OK)
         return s;
     /* every voice at phase 0 (#154): only a voice's first note after power-on takes PG-8X's start phases,
-     * and two saws in phase are the loudest case a held chord can reach, so the pins below read that */
+     * and for SOUNDTRACK's two saws, in phase is the loudest case a held chord can reach, so the pins below
+     * read that; other wave pairs (square, pulse, spike) aren't covered: their loudest start need not be 0 */
     hr_p.engine.start = hr_q.engine.start = &tt_start_zero;
     s.ok = 1;
     for (k = 0; k < count; k++) {

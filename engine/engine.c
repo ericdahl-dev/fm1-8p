@@ -870,7 +870,9 @@ static void poly_play(fm_engine *e, fm_voice *v, uint8_t note, int32_t peak,
                       uint8_t velocity)
 {
     uint8_t i = (uint8_t)(v - e->voices);
-    if (fm_voice_fresh(v)) /* its first note, from silence: PG-8X's start phases (#154) */
+    /* its first note, from silence: PG-8X's start phases (#154). They read the DCOs' tune, which is
+     * patch-level; if a per-note tune ever comes in (key follow, velocity to pitch), this must follow it */
+    if (fm_voice_fresh(v))
         fm_voice_start_phases(v, fm_voice_active(v) ? 0 : e->start, i);
     fm_voice_age(v, ++e->stamp);
     fm_voice_note_on(v, &e->mod, note, voice_pitch(e, i, note), peak, velocity,
