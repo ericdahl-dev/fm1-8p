@@ -211,7 +211,6 @@ const ui_seq_slot UI_SEQ_SLOTS[UI_SEQ_PAGES][4] = {
     {{"TRANSP", "TRANSPOSE", 1}, {"KEYTR", "KEY TRANSPOSE", 1}, {0, 0, 0}, {0, 0, 0}},
 };
 
-
 int32_t ui_seq_value(const ui *u, uint32_t k)
 {
     seq *s = play_seq(u->p);
@@ -378,9 +377,7 @@ void ui_seq_event(ui *u, uint32_t ev, int32_t arg, uint32_t ms)
         u->dirty |= UI_D_FOCUS | STEP_COLS;
         roll(u, ROLL_ALL);                      /* (a rest ends the ties after it) */
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_LFO) && tap) {   /* MOVE on the cursor step, in REC too (#42) */
-        const seq_step *st = seq_get_step(s, u->seq_cursor);
-        if (st->kind == SEQ_NOTES_ON)
-            seq_set_step_bend_mod(s, u->seq_cursor, st->bend, st->mod, !st->glide);
+        seq_toggle_glide(s, u->seq_cursor);     /* (read and switched inside seq, after a takeover, #348) */
         u->dirty |= UI_D_FOCUS | UI_D_COL(3);   /* (MOVE's column, if S2 shows) */
     } else if (ev == (UI_EV_BTN_UP | UI_BTN_ENV) && tap) {
         seq_toggle_tie(s, u->seq_cursor);

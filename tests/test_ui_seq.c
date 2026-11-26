@@ -935,6 +935,31 @@ TT_TEST(seq_turn_with_a_takeover_before_its_write_changes_the_new_pattern)
     TT_CHECK_EQ(seq_get_step(s, 0)->bend, 0);                 /* not bent by 11's step */
 }
 
+/* #348 (FW review): the LFO button's MOVE toggle right after a takeover, before any other main-loop call,
+ * toggles the step of the pattern that now runs: a step 12 has as a rest stays a rest, not bent and
+ * glided with 11's step's values */
+TT_TEST(seq_lfo_move_right_after_a_takeover_toggles_the_new_pattern)
+{
+    static const uint8_t C[1] = {60};
+    seq *s;
+    ui_setup();
+    s = play_seq(&ui_p);
+    seq_set_step(s, 0, C, 1, 100);
+    seq_set_step_bend_mod(s, 0, 4096, 20, 0);                 /* 11's step 1: a C4, bent, mod 20, JUMP */
+    ui_tap(UI_BTN_SEQ, 1000);
+    TT_CHECK_EQ(ui_u.seq_cursor, 0u);
+    ui_tap(UI_BTN_PLAY, 1200);
+    seq_render_to(0);
+    pattern_queue(play_patterns(&ui_p), 1);                  /* 12, empty: step 1 a rest */
+    seq_render_to(15);
+    seq_render_to(0);                                         /* the pass ends: 12 takes over, no call since */
+    ui_tap(UI_BTN_LFO, 1300);                                 /* MOVE */
+    TT_CHECK_EQ(pattern_running(play_patterns(&ui_p), 0), 1u);
+    TT_CHECK(seq_get_step(s, 0)->kind != SEQ_NOTES_ON);       /* 12's rest, */
+    TT_CHECK_EQ(seq_get_step(s, 0)->bend, 0);                 /* not 11's step's */
+    TT_CHECK_EQ(seq_get_step(s, 0)->glide, 0u);
+}
+
 /* the second look of a call takes the takeover (handoff_test.h, gap "sync" 1): from the first pattern call
  * to the second */
 static uint32_t seq_look_hits;
@@ -2181,6 +2206,7 @@ static void run_ui_seq_tests(void)
     TT_RUN(seq_roll_redraws_whole_when_the_next_pattern_takes_over);
     TT_RUN(seq_turn_right_after_a_takeover_starts_from_the_new_pattern);
     TT_RUN(seq_turn_with_a_takeover_before_its_write_changes_the_new_pattern);
+    TT_RUN(seq_lfo_move_right_after_a_takeover_toggles_the_new_pattern);
     TT_RUN(seq_footer_is_one_look_through_a_takeover);
     TT_RUN(seq_tempo_turn_redraws_the_header);
     TT_RUN(seq_roll_wide_span_fits_once);

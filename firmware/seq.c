@@ -316,6 +316,16 @@ void seq_set_swing(seq *s, uint32_t pct)
     edit_end(s);
 }
 
+void seq_toggle_glide(seq *s, uint32_t i)
+{
+    if (i >= SEQ_STEPS)
+        return;
+    edit_begin(s);                              /* the takeover first: the step is the running one's */
+    if (s->edit.step[i].kind == SEQ_NOTES_ON)
+        s->edit.step[i].glide = (uint8_t)!s->edit.step[i].glide;
+    edit_end(s);
+}
+
 int32_t seq_bend_pct(int32_t bend)
 {
     return bend < 0 ? -((-bend * 100 + 4096) / 8192) : (bend * 100 + 4095) / 8191;
