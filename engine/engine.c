@@ -684,6 +684,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
      * over it, the same on every path (#102: one DCO or two, any notes,
      * the filter, the highpass, the VCA modes) */
     e->mix_gain = (int32_t)(FM_MIX_GAIN_Q30 / voice_count);
+    e->source_lp = 0;
     e->stamp = 0;
     e->pedal_down = 0;
     e->bend = 0;
@@ -974,7 +975,10 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
         e->wheel_moving = (uint8_t)(e->wheel != e->wheel_to);
     }
     if (controller == 120 || controller == 123) unison_reset(e);
-    if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
+    if (controller == 120) { /* no wet tail, nor a last sample in the source lowpass */
+        fm_chorus_silence(&e->chorus);
+        e->source_lp = 0;
+    }
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         switch (controller) {
@@ -1080,9 +1084,9 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n);
-        /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
+        /* sum of the voices (Q8.24) times the mix gain (Q1.30), through the source lowpass (#299) */
         for (i = 0; i < n; i++)
-            e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
+            e->mix[i] = fm_out_source_lp((int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30), &e->source_lp);
         if (fm_chorus_is_on(&e->chorus)) {
             fm_chorus_process_block(&e->chorus, e->mix, e->mix_right, n);
             fm_out_block(out, e->mix, e->mix_right, n, e->out_shift);

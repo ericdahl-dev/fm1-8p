@@ -330,14 +330,18 @@ static double held_partials(uint8_t which, uint8_t wave, uint8_t note, double *d
 /*
  * PG-8X's PULSE rolls off smoothly, with no sinc nulls (#150): partials
  * h1..h16 against h1 at C4, C5 and C6, as measured. The spike keeps to
- * them within 2.5 dB.
+ * them within 2.5 dB at C4, 3.0 at C5 and 5.5 at C6. All three were within
+ * 2.5 until the source lowpass (#299): the spike was fitted to PG-8X's
+ * output, which already carries that roll-off, so under the lowpass its
+ * top partials read darker than PG-8X's, worst 1.41 / 2.81 / 5.41 dB at
+ * C4 / C5 / C6 (44.1 kHz). A refit of the spike under the lowpass is #387.
  */
 TT_TEST(spike_partials_follow_pg8x)
 {
-    static const struct { uint8_t note; double db[16]; } want[] = {
-        { 60, { 0, 0, 0, -1, -1, -1, -2, -2, -3, -4, -5, -5, -6, -8, -9, -10 } },
-        { 72, { 0, 0, -1, -2, -4, -5, -7, -10, -12, -13, -14, -15, -15, -15, -16, -17 } },
-        { 84, { 0, -2, -5, -9, -13, -14, -15, -17, -20, -21, -22, -24, -26, -27, -28, -30 } },
+    static const struct { uint8_t note; double tol, db[16]; } want[] = {
+        { 60, 2.5, { 0, 0, 0, -1, -1, -1, -2, -2, -3, -4, -5, -5, -6, -8, -9, -10 } },
+        { 72, 3.0, { 0, 0, -1, -2, -4, -5, -7, -10, -12, -13, -14, -15, -15, -15, -16, -17 } },
+        { 84, 5.5, { 0, -2, -5, -9, -13, -14, -15, -17, -20, -21, -22, -24, -26, -27, -28, -30 } },
     };
     size_t n;
     int k;
@@ -347,7 +351,7 @@ TT_TEST(spike_partials_follow_pg8x)
         for (k = 0; k < 16; k++)
             if (fabs(db[k] - want[n].db[k]) > worst) worst = fabs(db[k] - want[n].db[k]);
         printf("    spike partials at note %u: worst %.2f dB off PG-8X\n", want[n].note, worst);
-        TT_CHECK(worst < 2.5);
+        TT_CHECK(worst < want[n].tol);
     }
 }
 
@@ -617,7 +621,10 @@ static void render_level_change(int16_t *out, uint32_t at, int32_t l)
  * With no envelope routed a level change snaps, as osc_mix did. A knob step
  * (10 per mille) on a held note is a pure gain step: from the change on,
  * the output is 0.99 of the unchanged one sample for sample (1 % of full
- * scale at most, about -40 dB), with no transient of its own.
+ * scale at most, about -40 dB), with no transient of its own: from the
+ * sample after the change, since the source lowpass (#299) weighs each
+ * sample with the one before it, so the change's own sample is the two
+ * levels' blend (measured: 59 LSB off 0.99 x there, within 2 after).
  */
 TT_TEST(a_level_step_on_a_held_note_is_a_pure_gain_step)
 {
@@ -628,6 +635,7 @@ TT_TEST(a_level_step_on_a_held_note_is_a_pure_gain_step)
     for (i = 0; i < 2 * 4096; i++) {
         double want = i < 2 * 2000 ? same[i] : same[i] * 0.99;
         int d = abs(buf[i] - (int)lround(want));
+        if (i / 2 == 2000) continue; /* the change's own sample, blended by the source lowpass */
         if (d > worst) worst = d;
     }
     printf("    largest error against 0.99 x unchanged: %d\n", worst);
@@ -1128,8 +1136,10 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
 
 /*
  * Noise stays within full scale and does not repeat: over a 0.2 s window
- * no lag up to 4096 samples correlates with the signal by more than 0.1.
- * A pitched wave fails this at its period.
+ * no lag from 2 to 4096 samples correlates with the signal by more than 0.1.
+ * A pitched wave fails this at its period. Lag 1 is the source lowpass's
+ * own (#299): a (1 - a) / (a^2 + (1 - a)^2) = 0.407 for white noise
+ * (measured 0.410), within 0.05 of it.
  */
 TT_TEST(noise_is_bounded_and_not_periodic)
 {
@@ -1156,9 +1166,14 @@ TT_TEST(noise_is_bounded_and_not_periodic)
         double r = 0;
         for (i = 0; i + lag < NOISE_FRAMES; i++) r += x[i] * x[i + lag];
         r = fabs(r) / energy;
-        if (r > worst) worst = r;
+        if (lag == 1) {
+            printf("    noise: lag-1 autocorrelation %.3f (the source lowpass's 0.407)\n", r);
+            TT_CHECK(fabs(r - 0.407) < 0.05);
+        } else if (r > worst) {
+            worst = r;
+        }
     }
-    printf("    noise: worst autocorrelation %.3f\n", worst);
+    printf("    noise: worst autocorrelation, lags 2..%d: %.3f\n", NOISE_LAGS, worst);
     TT_CHECK(worst < 0.1);
 #undef NOISE_FRAMES
 #undef NOISE_LAGS

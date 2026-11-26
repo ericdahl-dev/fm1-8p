@@ -80,6 +80,23 @@ The chorus (below) adds its wet signal to the dry one, as PG-8X's does (#104),
 so it can raise the peak by up to 6 dB; past the knee the soft clip takes it,
 and a full chord with the chorus on still never reaches the rails.
 
+The scaled sum then passes the source lowpass (#299 option A, engine/output.h),
+before the chorus: PG-8X 2.0.13's fixed top-band roll-off, which every source
+carries (saw, square, synced DCO-2, noise) at every pitch. It is the two-tap
+lowpass y[n] = a x[n] + (1 - a) x[n-1] with a = 0.66 (Q15 21627), fitted to
+PG-8X minus ours (saw and square at six pitches, harmonics at each render's
+measured f0): within 0.34 dB rms from 1 to 20 kHz at 48 kHz, 0.62 dB at
+44.1 kHz. Every 1-pole form fits worse. Its DC gain is exactly 1, and each
+output lies between the two inputs it weighs, so it adds no peak for the soft
+clip and never wraps. Everything before it is linear below the filter's hold,
+so on the sum it plays almost as it would on each voice: on the scorecard
+MIDI, 28 of the 32 factory tones are within 0.13 dB of the per-voice placement
+in every third-octave band, and the other four within 1.4 dB in one band (in
+decays near the int16 floor, or in a fast attack's first samples, where the amp
+envelope moves within the lowpass's one-sample memory). Per sample: one 32 x 32 -> 64 multiply and its state, one
+int32, cleared on all sound off. The spike below was fitted with PG-8X's
+roll-off in it, so under the lowpass its top band reads darker (#387).
+
 The pulse is the difference of two saws, `saw(t) - saw(t + width)`, so it has
 no DC (like an AC-coupled analog pulse): it sits at +2(1 - w) for the last
 fraction w of the cycle and at -2w for the rest, so a narrow pulse would peak
