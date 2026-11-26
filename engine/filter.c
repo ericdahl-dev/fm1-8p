@@ -239,7 +239,7 @@ FM_HOT static int32_t mul_q30(int32_t a, int32_t b)
  * at a level of 1.0. */
 #define U_MAX FM_FILTER_HOLD
 
-FM_HOT static int32_t hold(int32_t u)
+static FM_BOTH int32_t hold(int32_t u)
 {
     return u > U_MAX ? U_MAX : u < -U_MAX ? -U_MAX : u;
 }

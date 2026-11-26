@@ -126,7 +126,7 @@ FM_HOT static void process_on(fm_chorus *c, int32_t in, int32_t *left,
     *right = dry + tap(c, c->center - sweep);
 }
 
-void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
+FM_HOT void fm_chorus_process(fm_chorus *c, int32_t in, int32_t *left,
                        int32_t *right)
 {
     if (c->mode == FM_CHORUS_OFF) {

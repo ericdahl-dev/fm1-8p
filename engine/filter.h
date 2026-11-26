@@ -100,7 +100,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in);
 
 /* Nonzero while the filter is a wire (fully open, highpass off): the one
  * place that decides it. */
-FM_HOT static inline int fm_filter_is_wire(const fm_filter *f)
+static FM_BOTH int fm_filter_is_wire(const fm_filter *f)
 {
     return f->fade == 0 && f->hp_g == 0;
 }

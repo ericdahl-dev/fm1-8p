@@ -16,8 +16,11 @@
 #define FM_HOT __attribute__((section(".ram_text")))
 static inline void *fm_far_(void *p) { void *volatile q = p; return q; }
 #define FM_FAR(fn) ((__typeof__(&fn))fm_far_((void *)&fn))
+/* a small helper both sides call: inlined into each caller, so it needs no call */
+#define FM_BOTH inline __attribute__((always_inline))
 #else
 #define FM_HOT
+#define FM_BOTH inline
 #define FM_FAR(fn) (&fn)
 #endif
 
