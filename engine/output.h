@@ -8,6 +8,7 @@
 #define FM_OUTPUT_H
 
 #include <stdint.h>
+#include "placement.h"
 
 /*
  * Writes n interleaved stereo frames to `out` from the Q8.24 sums `left`

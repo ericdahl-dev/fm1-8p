@@ -102,7 +102,7 @@ expect_ok "check_inputs says when the toolchain has no nm" grep -q "no nm in $T/
 mkdir -p "$T/nm/mod"
 printf '#!/bin/sh\nfor f; do case "$f" in -*) ;; *) cat "$f.nm" ;; esac; done\n' >"$T/nm/nm"; chmod +x "$T/nm/nm"
 : >"$T/nm/mod/module_02200000.elf"; : >"$T/nm/mod/a.o"
-printf '02200000 T render\n02200100 t helper\n02200200 T __udivdi3\n02200300 T hb_module\n02200400 t _hb_text_end\n' >"$T/nm/mod/module_02200000.elf.nm"
+printf '02200000 T render\n02200100 t helper\n02200200 T __udivdi3\n02200300 T hb_module\n02200400 t _hb_text_end\n01c04000 T _hb_rt_start\n01c06000 T _hb_rt_end\n01c04010 T fm_osc_pair_render\n01c04010 T fm_osc_pair_next\n01c04010 T fm_filter_process\n01c04010 T fm_chorus_process_block\n01c04010 T fm_out_block\n' >"$T/nm/mod/module_02200000.elf.nm"
 printf '00000000 T render\n00000010 t helper\n         U __udivdi3\n' >"$T/nm/mod/a.o.nm"
 mkdir -p "$T/nm/tc/pi32v2/lib"                 # the toolchain's libraries, as nm lists them
 for l in compiler_rt m c; do : >"$T/nm/tc/pi32v2/lib/lib$l.a"; done
@@ -135,8 +135,60 @@ cp "$T/nm/clean.nm" "$T/nm/locals/module_02200000.elf.nm"
 printf '02200700 d .L_MergedGlobals\n02200800 r .GJTIE2_0_0_\n02200900 t shared_local\n' >>"$T/nm/locals/module_02200000.elf.nm"
 printf 'x.o:\n00000000 d .L_MergedGlobals\n00000000 r .GJTIE2_0_0_\n00000000 t shared_local\n' >>"$T/nm/tc/pi32v2/lib/libc.a.nm"
 expect_ok "a module whose local labels a library also has locally passes" with_nm check_module_symbols "$T/nm/locals"
+# #304: the render loops run from the module's RAM text, away from the flash cache. The check reads the
+# linked image, not the cflags: any of the render's entry points the image holds must lie inside its RAM
+# text, so dropping FM_RAM_TEXT (or misspelling it) fails the build, and the RAM text stays within its
+# budget (FM1_RAM_TEXT_BUDGET, default 12 KiB of fm1-dock's 16).
+mkdir -p "$T/rt/mod" && : >"$T/rt/mod/module_02200000.elf"
+# rt_syms END [FLASH_ENTRY|none]: RAM text from 01c04000 to END, the entry points at its start; FLASH_ENTRY
+# (one of them) at a flash address instead, or "none" for a module that links none of them
+rt_syms() {
+    printf '01c04000 T _hb_rt_start\n%s T _hb_rt_end\n02200000 T render\n' "$1" >"$T/rt/mod/module_02200000.elf.nm"
+    [ "${2:-}" = none ] && return 0
+    for f in fm_osc_pair_render fm_osc_pair_next fm_filter_process fm_chorus_process_block fm_out_block; do
+        [ "$f" = "${2:-}" ] && printf '02201000 T %s\n' "$f" || printf '01c04010 T %s\n' "$f"
+    done >>"$T/rt/mod/module_02200000.elf.nm"
+}
+rtc() { with_nm check_ram_text "$T/rt/mod"; }
+rt_syms 01c06190
+expect_ok   "a module with its render entry points in RAM text passes" rtc
+rt_syms 01c06190 fm_filter_process
+expect_fail "a render entry point left in flash fails" rtc
+rt_syms 01c04000 fm_out_block
+expect_fail "... and with the RAM text empty (FM_RAM_TEXT dropped from the cflags) too" rtc
+rt_syms 01c04000 none
+expect_ok   "a module that links none of the render's entry points passes with no RAM text" rtc
+rt_syms 01c06190
+grep -v ' fm_chorus_process_block$' "$T/rt/mod/module_02200000.elf.nm" >"$T/rt/nm.tmp" && mv "$T/rt/nm.tmp" "$T/rt/mod/module_02200000.elf.nm"
+expect_fail "a module missing one entry point of the set fails" rtc
+rt_syms 01c06190
+grep -v ' fm_osc_pair_next$' "$T/rt/mod/module_02200000.elf.nm" >"$T/rt/nm.tmp" && mv "$T/rt/nm.tmp" "$T/rt/mod/module_02200000.elf.nm"
+printf '01c06190 T fm_osc_pair_next\n' >>"$T/rt/mod/module_02200000.elf.nm"
+expect_fail "an entry point at the RAM text's end is outside it" rtc
+rt_syms 01c06190
+grep -v ' fm_out_block$' "$T/rt/mod/module_02200000.elf.nm" >"$T/rt/nm.tmp" && mv "$T/rt/nm.tmp" "$T/rt/mod/module_02200000.elf.nm"
+printf '01c03ff0 T fm_out_block\n' >>"$T/rt/mod/module_02200000.elf.nm"
+expect_fail "... and one below its start" rtc
+rt_syms 01c07001
+expect_fail "RAM text over the 12 KiB budget fails" rtc
+rt_syms 01c07000
+expect_ok   "... and at the budget passes" rtc
+rt_syms 01c07001
+expect_ok   "FM1_RAM_TEXT_BUDGET moves the budget" env FM1_BUILD_LIB=1 FM1_RAM_TEXT_BUDGET=16384 JIELI_TOOLCHAIN="$T/nm/tc" sh -c '. tools/fm1-build.sh && check_ram_text "$1"' x "$T/rt/mod"
+printf '01c04000 T _hb_rt_start\n02200000 T render\n' >"$T/rt/mod/module_02200000.elf.nm"
+expect_fail "a module with no RAM text bounds fails" rtc
+rt_syms 01c06190 fm_filter_process
+expect_fail "with FM1_NM the RAM text check reads the module too (a render entry point in flash fails)" env FM1_BUILD_LIB=1 JIELI_TOOLCHAIN="$T/nm/tc2" FM1_NM="$T/nm/nm" sh -c '. tools/fm1-build.sh && check_ram_text "$1"' x "$T/rt/mod"
+rt_syms 01c06190
+expect_ok   "... and passes a good one" env FM1_BUILD_LIB=1 JIELI_TOOLCHAIN="$T/nm/tc2" FM1_NM="$T/nm/nm" sh -c '. tools/fm1-build.sh && check_ram_text "$1"' x "$T/rt/mod"
 mkdir -p "$T/nm/none" && cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/none/"
 expect_fail "a module with no linked image fails it (nm can't read it)" with_nm check_module_symbols "$T/nm/none"
+# FM1_NM: another nm reads the module and the libraries, for a host the toolchain's Linux nm can't run on
+# (macOS: its own llvm-nm reads the ELF). Here the toolchain has no nm at all.
+mkdir -p "$T/nm/tc2/pi32v2/lib" && cp "$T/nm/tc/pi32v2/lib/"* "$T/nm/tc2/pi32v2/lib/"
+with_fm1_nm() { JIELI_TOOLCHAIN="$T/nm/tc2" FM1_NM="$T/nm/nm" "$@"; }
+expect_ok "FM1_NM reads a module where the toolchain's nm isn't there" with_fm1_nm check_module_symbols "$T/nm/locals"
+expect_fail "with FM1_NM a soft-float helper still fails it" with_fm1_nm check_module_symbols "$T/nm/mod"
 # ... and a build runs it on the module it links: fm1-dock's tools stand in, linking the module in
 # directory $1 (a clean one builds, so the soft-float one fails on the symbol check alone).
 build_with() (
@@ -154,6 +206,9 @@ build_with() (
 mkdir -p "$T/nm/clean" && cp "$T/nm/mod/module_02200000.elf" "$T/nm/clean/" && cp "$T/nm/clean.nm" "$T/nm/clean/module_02200000.elf.nm"
 expect_ok   "a build whose module links only integer helpers succeeds" build_with "$T/nm/clean"
 expect_fail "a build whose module links a soft-float helper fails" build_with "$T/nm/mod"
+mkdir -p "$T/nm/cold" && cp "$T/nm/clean/module_02200000.elf" "$T/nm/cold/"
+sed 's/^01c04010 T fm_filter_process$/02201000 T fm_filter_process/' "$T/nm/clean/module_02200000.elf.nm" >"$T/nm/cold/module_02200000.elf.nm"
+expect_fail "a build whose module has a render entry point in flash fails (#304)" build_with "$T/nm/cold"
 # A compile error: hbmod fails, leaving the last build's clean ELF and .dock in place. The build must
 # fail, not check the stale ELF and ship the old .dock.
 build_failing() (
@@ -207,6 +262,9 @@ expect_ok "an emulator run whose quick module links only integer helpers starts 
 rm -f "$T/emu-ran.called"
 emu_with "$T/nm/mod" >/dev/null 2>&1
 expect_ok "an emulator run whose quick module links a soft-float helper never starts the emulator" test ! -e "$T/emu-ran.called"
+rm -f "$T/emu-ran.called"
+emu_with "$T/nm/cold" >/dev/null 2>&1
+expect_ok "... and one whose module has a render entry point in flash never starts it (#304)" test ! -e "$T/emu-ran.called"
 
 for m in firmware/fm1_8p firmware/fm1_8p_cpu firmware/fm1_8p_cpu_quick; do
     expect_ok "$m takes the engine's sources from engine/" grep -q '@ENGINE_SOURCES@' "$m/module.cfg"

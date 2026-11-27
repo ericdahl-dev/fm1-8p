@@ -1108,16 +1108,16 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
         if (fm_chorus_is_on(&e->chorus)) {
-            fm_chorus_process_block(&e->chorus, e->mix, e->mix_right, n);
+            FM_FAR(fm_chorus_process_block)(&e->chorus, e->mix, e->mix_right, n);
             if (fm_reverb_is_on(&e->reverb))
-                fm_reverb_process_block(&e->reverb, e->mix, e->mix_right, n);
-            fm_out_block(out, e->mix, e->mix_right, n, e->out_shift);
+                FM_FAR(fm_reverb_process_block)(&e->reverb, e->mix, e->mix_right, n);
+            FM_FAR(fm_out_block)(out, e->mix, e->mix_right, n, e->out_shift);
         } else if (fm_reverb_is_on(&e->reverb)) { /* the reverb makes the mono mix stereo */
             for (i = 0; i < n; i++) e->mix_right[i] = e->mix[i];
-            fm_reverb_process_block(&e->reverb, e->mix, e->mix_right, n);
-            fm_out_block(out, e->mix, e->mix_right, n, e->out_shift);
+            FM_FAR(fm_reverb_process_block)(&e->reverb, e->mix, e->mix_right, n);
+            FM_FAR(fm_out_block)(out, e->mix, e->mix_right, n, e->out_shift);
         } else {
-            fm_out_block(out, e->mix, NULL, n, e->out_shift);
+            FM_FAR(fm_out_block)(out, e->mix, NULL, n, e->out_shift);
         }
         advance_ticks(e, n);
         out += 2 * n;

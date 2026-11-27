@@ -229,7 +229,7 @@ void fm_filter_reset(fm_filter *f)
     f->hp_g = 0;
 }
 
-static int32_t mul_q30(int32_t a, int32_t b)
+FM_HOT static int32_t mul_q30(int32_t a, int32_t b)
 {
     return (int32_t)(((int64_t)a * b) >> 30);
 }
@@ -239,7 +239,7 @@ static int32_t mul_q30(int32_t a, int32_t b)
  * at a level of 1.0. */
 #define U_MAX FM_FILTER_HOLD
 
-static int32_t hold(int32_t u)
+static FM_BOTH int32_t hold(int32_t u)
 {
     return u > U_MAX ? U_MAX : u < -U_MAX ? -U_MAX : u;
 }
@@ -476,7 +476,7 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
 #define WITHIN_32(v) ((uint32_t)(v) + (1u << 29) < (1u << 30)) /* -32.0 <= v < 32.0 */
 #define WITHIN_16(v) ((uint32_t)(v) + (1u << 28) < (1u << 29)) /* -16.0 <= v < 16.0 */
 
-static int32_t clamp_in(int32_t x)
+FM_HOT static int32_t clamp_in(int32_t x)
 {
     return x > IN_MAX ? IN_MAX : x < -IN_MAX ? -IN_MAX : x;
 }
@@ -515,12 +515,12 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents)
 }
 
 /* section 2's states held to +-SEC2_MAX */
-static inline int32_t sec_hold(int32_t v)
+FM_HOT static inline int32_t sec_hold(int32_t v)
 {
     return v > SEC2_MAX ? SEC2_MAX : v < -SEC2_MAX ? -SEC2_MAX : v;
 }
 
-int32_t fm_filter_process(fm_filter *f, int32_t in)
+FM_HOT int32_t fm_filter_process(fm_filter *f, int32_t in)
 {
     int32_t x;
     if (fm_filter_is_wire(f)) { /* the default patch: a wire (see leave_open) */
