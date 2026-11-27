@@ -21,7 +21,13 @@ longer depends on the start (scored from offsets 0, 2/16 .. 14/16 against 1/16 .
 bank's sections agree within 0.21 dB). A reference can be several draws in the same way (manifest
 shifts_ticks: the scorecard MIDI that many ticks late, 960 a second, its files NN.wav, NN-1.wav ..); PG-8X's
 DCOs run free, so a later start meets them at another beat phase. With one draw the PG-8X side is that one
-draw, beat and all; with one draw on both sides every figure is s11's."""
+draw, beat and all; with one draw on both sides every figure is s11's.
+
+Clock phase (s13, #392): what runs on the clock from the render's start (the chorus's LFO, the LFO, on both
+sides) also meets a section at a phase set by when the MIDI starts. Against a reference of several draws,
+ours render at the same leads, 4 DCO-2 offsets at each (scorecard_cmd.draw_plan): averaged over 16 leads
+PG-8X's chorus was at 16 phases and ours at one, so the chorus tones scored 0.56 dB further on v7 than v6
+while the others moved -0.05. One draw (v6) reads as s12."""
 import json
 import os
 import sys
@@ -32,7 +38,7 @@ import scorecard_cmd  # noqa: E402
 import numpy as np
 from scipy import signal
 
-SCHEMA = 12  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 13  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
@@ -43,7 +49,9 @@ SCHEMA = 12  # history rows: bump when a field changes meaning (2: timings sampl
              # 10: so does each spectral section, so the floor isn't timbre either;
              # 11: the phrase notes are 0.7 s, so every section reads 0.5 s or more; the reference is v6;
              # 12: every figure over draws, power averaged: ours at 8 DCO-2 start offsets, PG-8X's at its
-             #     reference's shifts, so a slow beat's start phase isn't scored, #382)
+             #     reference's shifts, so a slow beat's start phase isn't scored, #382;
+             # 13: our draw j renders the reference's draw j's lead, with DCO-2 j / K of a cycle on, so what runs
+             #     on the clock (the chorus's LFO, the LFO) meets PG-8X's phases; v6 (one draw) reads as s12, #392)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = scorecard_cmd.SR
@@ -469,24 +477,31 @@ def inharmonic_tones(tree, bank=None):
             if e.get("XMOD_AM") and not e.get("OSC_SYNC") and off_whole(e) > WHOLE_RATIO_CENTS}
 
 
-def render_tones(tree, mid, work, bank=None):
-    """Renders the 32 tones with TREE's build/fm1-8p-render (48 kHz, 3 s tail, 6 voices), each at every
-    DCO-2 offset of scorecard_cmd.OFFSETS_MILLI (s12); yields (tone number, [wav path per offset])."""
+def render_tones(tree, work, bank=None, plan=None):
+    """Renders the 32 tones with TREE's build/fm1-8p-render (48 kHz, 3 s tail, 6 voices), a draw for each
+    (lead ticks, DCO-2 offset) of PLAN (scorecard_cmd.draw_plan; default a one-draw reference's, s12's 8
+    offsets at lead 0): the scorecard MIDI that late, DCO-2 that far on; yields (tone number, [wav path per
+    draw])."""
     import subprocess
+    from concurrent.futures import ThreadPoolExecutor
+    plan = plan or scorecard_cmd.draw_plan([0])
     d = os.path.join(work, "ours")
     os.makedirs(d, exist_ok=True)
-    for i, _, args in tone_args(tree, bank):
-        paths = []
-        for j, o in enumerate(scorecard_cmd.OFFSETS_MILLI):
-            path = os.path.join(d, draw_file(i, j))
-            r = subprocess.run(scorecard_cmd.render_command(tree, args, mid, path, o), capture_output=True, text=True)
-            if r.returncode == 2 and "usage: fm1-8p-render" in r.stderr and "-o MILLI" not in r.stderr:
-                raise SystemExit(f"scorecard: {tree}'s renderer has no -o (DCO-2 start offset, #382): s12 scores a "
-                                 "tree that has it; merge main into it first")
-            if r.returncode != 0:
-                raise SystemExit(f"scorecard: tone {i:02d} at offset {o} did not render: {r.stderr.strip()}")
-            paths.append(path)
-        yield i, paths
+    mids = {t: write_midi(work, t) for t in {t for t, _ in plan}}
+
+    def one(job):   # (a tone's draws render side by side: 64 a tone against a 16-draw reference, s13)
+        i, args, j, t, o = job
+        path = os.path.join(d, draw_file(i, j))
+        r = subprocess.run(scorecard_cmd.render_command(tree, args, mids[t], path, o), capture_output=True, text=True)
+        if r.returncode == 2 and "usage: fm1-8p-render" in r.stderr and "-o MILLI" not in r.stderr:
+            raise SystemExit(f"scorecard: {tree}'s renderer has no -o (DCO-2 start offset, #382): s12 scores a "
+                             "tree that has it; merge main into it first")
+        if r.returncode != 0:
+            raise SystemExit(f"scorecard: tone {i:02d} at offset {o} did not render: {r.stderr.strip()}")
+        return path
+    with ThreadPoolExecutor(max(1, min(8, os.cpu_count() or 1))) as ex:
+        for i, _, args in tone_args(tree, bank):
+            yield i, list(ex.map(one, [(i, args, j, t, o) for j, (t, o) in enumerate(plan)]))
 
 
 def read_wav(path):
@@ -536,13 +551,16 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
                if not os.path.isfile(os.path.join(ref, draw_file(i, j)))]
     if missing:
         raise SystemExit(f"scorecard: {ref}: no {', '.join(missing[:4])}{' ..' if len(missing) > 4 else ''}")
-    draw_info = {"ours_offsets_milli": list(scorecard_cmd.OFFSETS_MILLI), "pg_shifts_ticks": list(shifts)}
+    plan = scorecard_cmd.draw_plan(shifts)
+    draw_info = {"ours_leads_ticks": [t for t, _ in plan], "ours_offsets_milli": [o for _, o in plan],
+                 "pg_shifts_ticks": list(shifts)}
     odd = inharmonic_tones(tree, bank)
     date, ref_id = now(), man["midi_sha256"][:12]
     rows = []
-    for i, paths in render_tones(tree, mid, work, bank):
+    for i, paths in render_tones(tree, work, bank, plan):
         pg = [(read_wav(os.path.join(ref, draw_file(i, j))), lead_seconds(t)) for j, t in enumerate(shifts)]
-        score = score_tone([read_wav(p) for p in paths], pg, harmonic=i not in odd)
+        ours = [(read_wav(p), lead_seconds(t)) for p, (t, _) in zip(paths, plan)]
+        score = score_tone(ours, pg, harmonic=i not in odd)
         rows.append({**tone_row(commit, date, i, names[i], score, ref_id, bank_name), "ruler_noise_db": ruler_noise(pg),
                      "draws": draw_info})
     params = []
