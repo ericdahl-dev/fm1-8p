@@ -635,6 +635,7 @@ class RunTest(unittest.TestCase):
 
     # A reference whose draws have leads: ours render them (4 offsets a lead), and the rows say so
     def test_a_reference_with_leads_is_met_at_its_leads(self):
+        import shutil
         import scorecard_cmd
         ref = os.path.join(self.tmp.name, "leads")
         os.makedirs(ref)
@@ -647,7 +648,20 @@ class RunTest(unittest.TestCase):
         self.sc.write_manifest(ref, mid, shifts_ticks=[0, 480])
         rows = self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "hl.jsonl"),
                            work=os.path.join(self.tmp.name, "wl1"))
-        self.assertTrue(all(r["spectral_db_mean"] < 10 for r in rows))
+        mean = sum(r["spectral_db_mean"] for r in rows) / len(rows)
+        print(f"\n    leads 0 and 480: our own renders score {mean:.3f}")
+        # the negative: the lead-480 draw swapped for a lead-0 render (its sound half a second early) reads far
+        # worse, so the leads are what lines the two sides up
+        bad = os.path.join(self.tmp.name, "leads-bad")
+        shutil.copytree(ref, bad)
+        for i in range(1, 33):
+            shutil.copy(os.path.join(ref, self.sc.draw_file(i, 0)), os.path.join(bad, self.sc.draw_file(i, 1)))
+        wrong = self.sc.run(self.repo, "deadbee", bad, os.path.join(self.tmp.name, "hlb.jsonl"),
+                            work=os.path.join(self.tmp.name, "wl2"))
+        worse = sum(r["spectral_db_mean"] for r in wrong) / len(wrong)
+        print(f"    with draw 1 rendered at lead 0: {worse:.3f}")
+        self.assertLess(mean, 0.5)
+        self.assertGreater(worse, mean + 1.0)
         self.assertEqual(rows[0]["draws"], {"ours_leads_ticks": [t for t, _ in plan], "ours_offsets_milli": [o for _, o in plan],
                                             "pg_shifts_ticks": [0, 480]})
 
@@ -671,7 +685,20 @@ class RunTest(unittest.TestCase):
         rows = self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "h7.jsonl"),
                            work=os.path.join(self.tmp.name, "w7"))
         self.assertEqual(rows[0]["draws"]["pg_shifts_ticks"], [0])
-        self.assertTrue(all(r["spectral_db_mean"] < 10 for r in rows))
+        mean = sum(r["spectral_db_mean"] for r in rows) / len(rows)
+        print(f"\n    leads 0 and 480: our own renders score {mean:.3f}")
+        # the negative: the lead-480 draw swapped for a lead-0 render (its sound half a second early) reads far
+        # worse, so the leads are what lines the two sides up
+        bad = os.path.join(self.tmp.name, "leads-bad")
+        shutil.copytree(ref, bad)
+        for i in range(1, 33):
+            shutil.copy(os.path.join(ref, self.sc.draw_file(i, 0)), os.path.join(bad, self.sc.draw_file(i, 1)))
+        wrong = self.sc.run(self.repo, "deadbee", bad, os.path.join(self.tmp.name, "hlb.jsonl"),
+                            work=os.path.join(self.tmp.name, "wl2"))
+        worse = sum(r["spectral_db_mean"] for r in wrong) / len(wrong)
+        print(f"    with draw 1 rendered at lead 0: {worse:.3f}")
+        self.assertLess(mean, 0.5)
+        self.assertGreater(worse, mean + 1.0)
 
     # Each draw of a reference names the MIDI it was rendered from: the scorecard MIDI with its lead
     def test_a_draw_rendered_from_other_midi_is_refused(self):

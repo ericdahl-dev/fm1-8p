@@ -50,8 +50,8 @@ SCHEMA = 13  # history rows: bump when a field changes meaning (2: timings sampl
              # 11: the phrase notes are 0.7 s, so every section reads 0.5 s or more; the reference is v6;
              # 12: every figure over draws, power averaged: ours at 8 DCO-2 start offsets, PG-8X's at its
              #     reference's shifts, so a slow beat's start phase isn't scored, #382;
-             # 13: our draw j renders the reference's draw j's lead, with DCO-2 j / K of a cycle on, so what runs
-             #     on the clock (the chorus's LFO, the LFO) meets PG-8X's phases; v6 (one draw) reads as s12, #392)
+             # 13: ours render each of the reference's K leads with 4 DCO-2 offsets (4K draws, draw_plan), so
+             #     what runs on the clock (the chorus's LFO, the LFO) meets PG-8X's phases; v6 reads as s12, #392)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = scorecard_cmd.SR

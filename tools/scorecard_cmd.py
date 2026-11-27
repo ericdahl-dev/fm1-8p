@@ -16,9 +16,9 @@ PER_LEAD = 4
 
 def draw_plan(leads):
     """Our draws for a reference whose draws start LEADS ticks late (s13, #392): [(lead, DCO-2 offset)].
-    Draw j takes the reference's draw j's lead, so what runs on the clock (the chorus's LFO, the LFO) meets
-    the phases PG-8X's draw met; at each, PER_LEAD DCO-2 offsets a quarter cycle apart (draw j's set
-    staggered by j / (PER_LEAD K)), so the beat cancels at every lead on its own instead of pairing with the
+    Ours render each of the reference's K leads, so what runs on the clock (the chorus's LFO, the LFO) meets
+    the phases PG-8X's draws met: at lead j, PER_LEAD DCO-2 offsets a quarter cycle apart, staggered by
+    j / (PER_LEAD K) (PER_LEAD K draws in all, an even grid of offsets), so the beat cancels at every lead on its own instead of pairing with the
     chorus's phase there (one offset a lead left 1.6 dB of that pairing's luck on a slow-beating chorus
     tone; four, 0.03). One draw (v6), or draws all at one lead,
     keeps s12's: OFFSETS_MILLI at that lead."""
