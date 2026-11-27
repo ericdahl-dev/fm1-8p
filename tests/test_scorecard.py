@@ -304,6 +304,43 @@ class BeatPhaseTest(unittest.TestCase):
         self.assertEqual(self.sc.score_tone(ours, late), self.sc.score_tone(ours, pg))
         self.assertEqual(self.sc.ruler_noise(late), self.sc.ruler_noise(pg))
 
+    def engine(self, lead_s, offset, seconds=16.0):
+        """A toy synth with what s13 is about: a detuned pair started `offset` of a cycle apart at its note,
+        0.25 s past a MIDI start `lead_s` late, through a chorus whose LFO (0.68 Hz) runs on the clock from
+        the start of the render, as both engines' do"""
+        np = self.np
+        t = np.arange(int(seconds * SR)) / SR
+        u = np.maximum(t - 0.25 - lead_s, 0)
+        x = 0.01 * sum((np.sin(2 * np.pi * k * 220.0 * u) + np.sin(2 * np.pi * k * (220.3 * u + offset))) / k
+                       for k in range(1, 13)) * (t >= 0.25 + lead_s)
+        d = (0.0022 + 0.0014 * np.sin(2 * np.pi * 0.68 * t)) * SR          # the chorus tap, samples
+        i = np.arange(len(t)) - d
+        wet = np.interp(i, np.arange(len(t)), x, left=0)
+        y = x + wet
+        return np.stack([y, y], axis=1)
+
+    # The chorus's phase at a section runs on the clock: ours all at lead 0 meets one phase, PG-8X's 16 leads
+    # meet 16, and the same synth scores far from itself; at the reference's own leads it scores about 0
+    def test_draws_at_the_references_leads_meet_its_chorus_phases(self):
+        import scorecard_cmd
+        leads = [0, 232, 280, 468, 864, 973, 1011, 1077, 1215, 1291, 1694, 2354, 2535, 2714, 2806, 2825]
+        pg = [(self.engine(self.sc.lead_seconds(t), 0.37 + j / 16), self.sc.lead_seconds(t))
+              for j, t in enumerate(leads)]
+        plan = scorecard_cmd.draw_plan(leads)
+        L = self.sc.lead_seconds
+        ours = [(self.engine(L(t), o / 1000), L(t)) for t, o in plan]
+        moved = [(self.engine(L(t), (o / 1000 + 0.31) % 1), L(t)) for t, o in plan]   # our offsets from elsewhere
+        at_zero = [self.engine(0.0, o / 1000) for o in scorecard_cmd.OFFSETS_MILLI]
+        matched = self.sc.score_tone(ours, pg)["spectral_db"]
+        other = self.sc.score_tone(moved, pg)["spectral_db"]
+        unmatched = self.sc.score_tone(at_zero, pg)["spectral_db"]
+        # where our offsets start no longer matters (with 1 offset a lead, as 16 draws: 1.56 dB here) ...
+        for k in matched:
+            self.assertAlmostEqual(matched[k], other[k], delta=0.1, msg=k)
+        # ... and the chorus's phases are met: far closer than ours all at lead 0. What is left is PG-8X's side:
+        # each of its draws pairs a chorus phase with one beat phase (more PG draws would average it)
+        self.assertLess(max(matched.values()), max(unmatched.values()) / 2, (matched, unmatched))
+
     def test_the_loudness_gap_over_spread_offsets_does_not_depend_on_where_they_start(self):
         pg = self.pair(0.3, beat=0.05)
         one = [self.sc.score_tone(self.pair(o, beat=0.05), pg)["loudness_gap_lu"] for o in (0.0, 0.25, 0.5)]
@@ -365,6 +402,23 @@ class RenderCommandTest(unittest.TestCase):
 # meets them at another beat phase. The scorecard MIDI with a lead of N ticks (960 a second) is the same
 # notes N ticks later. Needs no numpy.
 class LeadTest(unittest.TestCase):
+    # s13 (#392): our draws render the reference's leads, so whatever runs on the clock (the chorus's LFO,
+    # the LFO: both free-run from init on both sides) meets the phases PG-8X's draws met; at each lead, 4
+    # DCO-2 offsets a quarter cycle apart (staggered by 1 / 4K from lead to lead), so the DCO beat cancels at
+    # every lead on its own and doesn't pair with the chorus's phase; a one-draw reference keeps s12's 8
+    # offsets at lead 0
+    def test_our_draws_follow_the_references_leads(self):
+        import scorecard_cmd
+        self.assertEqual(scorecard_cmd.draw_plan([0]), [(0, o) for o in scorecard_cmd.OFFSETS_MILLI])
+        self.assertEqual(scorecard_cmd.draw_plan([96] * 8), [(96, o) for o in scorecard_cmd.OFFSETS_MILLI])
+        self.assertEqual(scorecard_cmd.draw_plan([0, 480]),
+                         [(0, 0), (0, 250), (0, 500), (0, 750), (480, 125), (480, 375), (480, 625), (480, 875)])
+        leads = [0, 232, 280, 468, 864, 973, 1011, 1077, 1215, 1291, 1694, 2354, 2535, 2714, 2806, 2825]
+        plan = scorecard_cmd.draw_plan(leads)
+        self.assertEqual(len(plan), 64)
+        self.assertEqual([t for t, _ in plan], [t for t in leads for _ in range(4)])
+        self.assertEqual(plan[4:8], [(232, 16), (232, 266), (232, 516), (232, 766)])
+
     def test_a_lead_moves_every_event_by_whole_ticks(self):
         import gate_midi
         a, b = gate_midi.smf(gate_midi.score()), gate_midi.smf(gate_midi.score(), lead=96)
@@ -390,7 +444,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 12)
+        self.assertEqual(row["schema"], 13)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -439,7 +493,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (12, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (13, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -560,7 +614,8 @@ class RunTest(unittest.TestCase):
         work = os.path.join(cls.tmp.name, "w0")
         mid = scorecard.write_midi(work)
         os.makedirs(cls.ref)
-        for i, paths in scorecard.render_tones(cls.repo, mid, work):
+        import scorecard_cmd
+        for i, paths in scorecard.render_tones(cls.repo, work, None, scorecard_cmd.draw_plan([0] * 8)):
             for j, path in enumerate(paths):
                 os.replace(path, os.path.join(cls.ref, scorecard.draw_file(i, j)))
         scorecard.write_manifest(cls.ref, mid, shifts_ticks=[0] * len(paths))
@@ -578,11 +633,83 @@ class RunTest(unittest.TestCase):
             got = [json.loads(line) for line in fh]
         self.assertEqual(len([r for r in got if r["kind"] == "tone" and r["commit"] == "deadbee"]), 32)
 
+    # A reference whose draws have leads: ours render them (4 offsets a lead), and the rows say so
+    def test_a_reference_with_leads_is_met_at_its_leads(self):
+        import shutil
+        import scorecard_cmd
+        ref = os.path.join(self.tmp.name, "leads")
+        os.makedirs(ref)
+        work = os.path.join(self.tmp.name, "wl0")
+        mid = self.sc.write_midi(work)
+        plan = scorecard_cmd.draw_plan([0, 480])
+        for i, paths in self.sc.render_tones(self.repo, work, None, [(0, 0), (480, 500)]):
+            for j, path in enumerate(paths):
+                os.replace(path, os.path.join(ref, self.sc.draw_file(i, j)))
+        self.sc.write_manifest(ref, mid, shifts_ticks=[0, 480])
+        rows = self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "hl.jsonl"),
+                           work=os.path.join(self.tmp.name, "wl1"))
+        mean = sum(r["spectral_db_mean"] for r in rows) / len(rows)
+        print(f"\n    leads 0 and 480: our own renders score {mean:.3f}")
+        # the negative: the lead-480 draw swapped for a lead-0 render (its sound half a second early) reads far
+        # worse, so the leads are what lines the two sides up
+        bad = os.path.join(self.tmp.name, "leads-bad")
+        shutil.copytree(ref, bad)
+        for i in range(1, 33):
+            shutil.copy(os.path.join(ref, self.sc.draw_file(i, 0)), os.path.join(bad, self.sc.draw_file(i, 1)))
+        wrong = self.sc.run(self.repo, "deadbee", bad, os.path.join(self.tmp.name, "hlb.jsonl"),
+                            work=os.path.join(self.tmp.name, "wl2"))
+        worse = sum(r["spectral_db_mean"] for r in wrong) / len(wrong)
+        print(f"    with draw 1 rendered at lead 0: {worse:.3f}")
+        self.assertLess(mean, 0.5)
+        self.assertGreater(worse, mean + 1.0)
+        self.assertEqual(rows[0]["draws"], {"ours_leads_ticks": [t for t, _ in plan], "ours_offsets_milli": [o for _, o in plan],
+                                            "pg_shifts_ticks": [0, 480]})
+
+    # A tone's score is cached under the hash of what decides it: our draws' wavs, the reference's draws and
+    # manifest, and the scorecard's code. A second run whose renders are the same (main as every PR's base,
+    # or a PR that doesn't touch the sound) reads it back instead of scoring it again, row for row
+    def test_a_second_run_with_the_same_renders_reads_its_scores_from_the_cache(self):
+        cache = os.path.join(self.tmp.name, "cache")
+        first = self.sc.run(self.repo, "c0ffee1", self.ref, os.path.join(self.tmp.name, "hc1.jsonl"),
+                            work=os.path.join(self.tmp.name, "wc1"), cache=cache)
+        real = self.sc.score_tone
+        def refuse(*a, **k):
+            raise AssertionError("scored again")
+        self.sc.score_tone = refuse
+        try:
+            second = self.sc.run(self.repo, "c0ffee2", self.ref, os.path.join(self.tmp.name, "hc2.jsonl"),
+                                 work=os.path.join(self.tmp.name, "wc2"), cache=cache)
+        finally:
+            self.sc.score_tone = real
+        strip = lambda r: {k: v for k, v in r.items() if k not in ("commit", "date")}
+        self.assertEqual([strip(r) for r in first], [strip(r) for r in second])
+        self.assertEqual({r["commit"] for r in second}, {"c0ffee2"})
+
+    def test_the_cache_key_changes_with_any_byte_of_a_draw(self):
+        import shutil
+        d = os.path.join(self.tmp.name, "keys")
+        os.makedirs(d, exist_ok=True)
+        a, b = os.path.join(d, "a.wav"), os.path.join(d, "b.wav")
+        shutil.copy(os.path.join(self.ref, self.sc.draw_file(5, 0)), a)
+        shutil.copy(a, b)
+        man = {"midi_sha256": "x", "selfnoise": 0}
+        k1 = self.sc.tone_key([a], [b], man, True)
+        self.assertEqual(k1, self.sc.tone_key([a], [b], man, True))
+        with open(b, "r+b") as fh:
+            fh.seek(-1, 2)
+            last = fh.read(1)
+            fh.seek(-1, 2)
+            fh.write(bytes([last[0] ^ 1]))
+        self.assertNotEqual(k1, self.sc.tone_key([a], [b], man, True))
+        self.assertNotEqual(k1, self.sc.tone_key([a], [a], man, False))
+        self.assertNotEqual(k1, self.sc.tone_key([a], [a], dict(man, shifts_ticks=[0]), True))
+
     def test_a_row_says_which_draws_it_was_scored_over(self):
         rows = self.sc.run(self.repo, "deadbee", self.ref, os.path.join(self.tmp.name, "hd.jsonl"),
                            work=os.path.join(self.tmp.name, "wd"))
-        self.assertEqual(rows[0]["schema"], 12)
-        self.assertEqual(rows[0]["draws"], {"ours_offsets_milli": [0, 125, 250, 375, 500, 625, 750, 875],
+        self.assertEqual(rows[0]["schema"], 13)
+        self.assertEqual(rows[0]["draws"], {"ours_leads_ticks": [0] * 8,
+                                            "ours_offsets_milli": [0, 125, 250, 375, 500, 625, 750, 875],
                                             "pg_shifts_ticks": [0] * 8})
 
     # A one-draw reference (v6) is still read: the PG-8X side is then that one draw

@@ -10,6 +10,9 @@
 #                       cents flat at C4 and 2.1 at C6, where 0.5 is exact. Ours stays exact: Eric, #260).
 #   SCORECARD_HISTORY   history.jsonl to append to (default build/scorecard/history.jsonl)
 #   SCORECARD_PYTHON    a Python with numpy and scipy (default python3)
+#   SCORECARD_CACHE     a folder for each tone's score, kept by the hash of its renders, the reference and the
+#                       scorecard's code, so a commit whose sound didn't change scores in the time of its
+#                       renders (default build/scorecard/cache; SCORECARD_CACHE= turns it off)
 #   SCORECARD_MATCH     the match harness's match.py, and SCORECARD_MATCH_PYTHON and SCORECARD_MATCH_CACHE
 #                       to run it with: adds a row per tone parameter. Skipped when unset (CI).
 #   SCORECARD_BANK      another bank of 32 tones (.syx) to score instead of the factory bank, with
@@ -43,8 +46,9 @@ if [ -n "${SCORECARD_MATCH:-}" ] && [ -z "${SCORECARD_BANK:-}" ]; then
         ${SCORECARD_MATCH_CACHE:+--cache "$SCORECARD_MATCH_CACHE"} >"$W/match.log" 2>&1 || die "the match harness failed (see $W/match.log)"
     match="--match $W/match"
 fi
+cache=${SCORECARD_CACHE-$ROOT/build/scorecard/cache}   # (set and empty: no cache)
 # shellcheck disable=SC2086 # $match is two words or none
 ${SCORECARD_PYTHON:-python3} -B "$ROOT/tools/scorecard.py" --tree "$W/src" --commit "$s" --ref "$SCORECARD_REF" \
     --history "${SCORECARD_HISTORY:-$ROOT/build/scorecard/history.jsonl}" --work "$W/work${SCORECARD_BANK_NAME:+-$SCORECARD_BANK_NAME}" $match \
     ${SCORECARD_BANK:+--bank "$SCORECARD_BANK" --bank-name "${SCORECARD_BANK_NAME:?set SCORECARD_BANK_NAME}"} \
-    ${b:+--base "$b" --root "$ROOT"}
+    ${b:+--base "$b" --root "$ROOT"} ${cache:+--cache "$cache"}
