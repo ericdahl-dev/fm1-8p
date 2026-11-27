@@ -220,8 +220,9 @@ static double held_rms(uint8_t wave, uint8_t note)
 /*
  * The spike against its closed form in double (#150's model: an impulse of
  * area A through two one-poles at 3050 Hz, steady state, less its mean;
- * then #387's pre-emphasis, (1 + c) y(u) - c y(u - one sample) with
- * c = 0.62 (1 - a) / a, a the source lowpass's weight at the rate),
+ * then #387's pre-emphasis, s ((1 + c) y(u) - c y(u - one sample)) with
+ * c = 0.45 (1 - a) / a and s = 1 - 0.175 c, a the source lowpass's weight
+ * at the rate),
  * osc1 alone at full, notes 24..108 at 48 kHz and 120..132 at 192 kHz: the
  * largest error is under -58 dB of the spike's peak at 48 kHz (-45 dB at
  * 192 kHz's high notes), so a cheaper way to the same form stays as close to
@@ -304,7 +305,10 @@ TT_TEST(spike_matches_its_closed_form)
  * duty (#150): its level against the square rises about 2.8 dB an octave
  * with pitch. DCO-1 alone, steady RMS, PG-8X: pulse minus square -12.9 dB
  * at C3, -10.0 at C4, -7.2 at C5, -4.5 at C6. The spike wave keeps to
- * that within a dB.
+ * that within 0.4 dB at this rate, 44.1 kHz: it reads -13.12, -10.16, -7.34
+ * and -4.75, so 0.14 to 0.25 dB under. That is its pre-emphasis's level
+ * trim (#387), which keeps a ringed pair of spikes' peak at main's; main
+ * ad0f34d read -12.81, -9.87, -7.07 and -4.53, within 0.13.
  */
 TT_TEST(spike_level_rises_with_pitch_as_pg8x)
 {
@@ -317,7 +321,7 @@ TT_TEST(spike_level_rises_with_pitch_as_pg8x)
                                  held_rms(FM_WAVE_SQUARE, want[k].note));
         printf("    spike re square at note %u: %+.2f dB (PG-8X %+.1f)\n", want[k].note, db,
                want[k].db);
-        TT_CHECK(fabs(db - want[k].db) < 1.0);
+        TT_CHECK(fabs(db - want[k].db) < 0.4);
     }
 }
 
@@ -347,7 +351,7 @@ static double held_partials(uint8_t which, uint8_t wave, uint8_t note, double *d
  * h1..h16 against h1 at C4, C5 and C6, as measured. The spike keeps to
  * them within 2.5 dB under the source lowpass (#299), PG-8X's top-band
  * roll-off on every source: the spike was fitted with that roll-off in it,
- * so its one-sample pre-emphasis takes most of the lowpass back off (#387).
+ * so its one-sample pre-emphasis takes part of the lowpass back off (#387).
  */
 TT_TEST(spike_partials_follow_pg8x)
 {
@@ -2766,7 +2770,7 @@ TT_TEST(ring_stays_within_four)
     static const int32_t notes[] = { 0, 48, 60, 127 };
     /* the spike's sweep (#387): its pre-emphasis sharpens its peak, most at low notes and at the rates
      * that have it, and the cross-mod bends the increment its first sample is found by */
-    static const uint32_t sp_rates[] = { 8000, 44100, 48000, 192000 };
+    static const uint32_t sp_rates[] = { 8000, 36000, 44100, 48000, 192000 };
     static const int32_t sp_notes[] = { 0, 5, 11, 48, 60, 127 };
     static const int32_t sp_tunes[] = { 3737, 0, -2400 };
     static const int32_t xmods[] = { 0, FM_OSC_LEVEL_FULL / 2, FM_OSC_LEVEL_FULL };
@@ -2783,7 +2787,7 @@ TT_TEST(ring_stays_within_four)
         if (v > peak) peak = v;
     }
     for (l1 = 0; l1 < 2; l1++)
-    for (r = 0; r < 4; r++)
+    for (r = 0; r < 5; r++)
     for (n = 0; n < 6; n++)
     for (w1 = 0; w1 < FM_WAVE_COUNT; w1++)
     for (w2 = 0; w2 < FM_WAVE_COUNT; w2++)
@@ -2791,17 +2795,20 @@ TT_TEST(ring_stays_within_four)
     for (x = 0; x < 3; x++)
     for (t = 0; t < 3; t++) {
         if (w1 != FM_WAVE_SPIKE && w2 != FM_WAVE_SPIKE) continue;
-        if (sp_rates[r] == 8000 && x) continue; /* main's own: see below */
+        if (sp_rates[r] == 8000 && x) continue; /* at 8 kHz the pair reaches the hold on main too: see below */
         v = ring_peak((uint8_t)w1, (uint8_t)w2, sp_notes[n], sp_tunes[t], sp_rates[r], (int)l1, (uint8_t)sy, xmods[x]);
         if (v > sp_peak) sp_peak = v;
     }
     printf("    ring: largest sample %.3f; with a spike in the pair %.3f\n", peak / RING_ONE, sp_peak / RING_ONE);
-    /* Under the hold, not at it: nothing is cut. Measured 3.855 and 3.868 (a ringed pair of spikes,
-     * DCO-2 at DCO-1's pitch, synced, at note 0 to 11): main's own worst, 3.868, which the spike's
-     * pre-emphasis is trimmed to keep (#387; untrimmed it was 3.950 at 44.1 kHz and 3.958 at 48 kHz, and
+    /* Under the hold, not at it: nothing is cut. Measured 3.855 and 3.874. The second is a ringed pair of
+     * spikes, DCO-2 at DCO-1's pitch, synced, at note 0 to 11: 3.874 at 36 kHz, a rate between the fitted
+     * ones (main ad0f34d 3.867 there), and 3.868 at 44.1 kHz, main's own worst, which the spike's
+     * pre-emphasis is trimmed to keep (#387; untrimmed it was 3.950 at 44.1 kHz and 3.959 at 48 kHz, and
      * with the cross-mod bending the increment its first sample went by, 4.2: cut).
-     * Not in the sweep: 8 kHz with the cross-mod on, where main itself reaches the hold (a true peak of
-     * 4.098 with the hold lifted, the same with and without #387: no pre-emphasis at that rate). */
+     * Not held to this: at 8 kHz a synced pair of spikes reaches the hold, cross-mod on or off (main's
+     * own behavior, identical on head, where that rate has no pre-emphasis: with the hold lifted, a true
+     * peak of 4.078 with DCO-2 7 cents up and the cross-mod off, 4.098 with it on). The sweep's 8 kHz
+     * cases (cross-mod off, tunes 3737, 0 and -2400) stay under it. No issue was opened for it. */
     TT_CHECK(peak < (int32_t)(3.90 * RING_ONE));
     TT_CHECK(sp_peak < (int32_t)(3.90 * RING_ONE));
 }
