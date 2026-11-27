@@ -90,9 +90,11 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
  *
  * The handover is 22 per mille wide and takes the output from a wire to a filter, and a RES knob step is 10:
  * taken at once that is a click (4.8 % of the output's peak for 90 -> 100 at an open cutoff). So a resonance
- * turned on a sounding voice (fm_filter_turn_resonance) leaves f->ur where it plays, and
- * fm_filter_handover_step, once a control point, moves it FM_FILTER_UR_STEP at most: all of it in 32 control
- * points (512 samples, 11.6 ms at 44.1 kHz), about PG-8X's own 16 ms glide of a setting.
+ * turned on a sounding voice (fm_filter_turn_resonance) to or from the inside of the handover leaves f->ur
+ * where it plays, and fm_filter_handover_step, once a control point, moves it FM_FILTER_UR_STEP at most: all
+ * of it in 32 control points (512 samples, 11.6 ms at 44.1 kHz), about PG-8X's own 16 ms glide of a setting.
+ * A move clear across it in one go (from 90 or under to 112 or over, or back) takes it along at once, with
+ * every other coefficient.
  */
 #define FM_FILTER_TOP_RES_LO 90
 #define FM_FILTER_TOP_RES_HI 112
@@ -111,6 +113,18 @@ static inline int32_t fm_filter_ur_target(const fm_filter *f)
 static inline int fm_filter_handover_moving(const fm_filter *f)
 {
     return f->ur != fm_filter_ur_target(f);
+}
+
+/* The handover one step on, without the coefficients: for a caller that sets them next anyway
+ * (fm_filter_set_cutoff). Returns 0 if it was there already, else 1, plus 2 while there is further to go. */
+static inline int fm_filter_handover_advance(fm_filter *f)
+{
+    int32_t to = fm_filter_ur_target(f), d = to - f->ur;
+    if (!d) return 0;
+    if (d > FM_FILTER_UR_STEP) d = FM_FILTER_UR_STEP;
+    if (d < -FM_FILTER_UR_STEP) d = -FM_FILTER_UR_STEP;
+    f->ur = (int16_t)(f->ur + d);
+    return f->ur != to ? 3 : 1;
 }
 
 /* Resonance, per mille: the sections' Q, PG-8X 2.0.13's (0.69 at 0, 6.7
@@ -132,7 +146,7 @@ static inline int fm_filter_handover_moving(const fm_filter *f)
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
 /* The same on a sounding voice: every coefficient at once, as fm_filter_set_resonance, but the handover
- * (f->ur) stays where it plays, for fm_filter_handover_step to move. */
+ * (f->ur) stays where it plays, for fm_filter_handover_step to move, unless the move is clear across it. */
 void fm_filter_turn_resonance(fm_filter *f, int32_t permille);
 
 /* Once a control point while fm_filter_handover_moving: the handover one step on, and the coefficients with

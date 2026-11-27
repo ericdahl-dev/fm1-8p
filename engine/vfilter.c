@@ -67,8 +67,12 @@ int fm_vfilter_at_rest(const fm_vfilter *vf)
 int fm_vfilter_update(fm_vfilter *vf, int32_t mod_cents)
 {
     int32_t cents = fm_filter_voice_cents(vf->base, vf->key_track, vf->key, mod_cents);
-    if (cents == vf->cutoff) return 0; /* the coefficients stand */
+    /* the resonant top's handover, a step on while it is on its way (#168): here, inside the one call the
+     * voice's loop already makes at a control point, and with the one setting of the coefficients a moved
+     * cutoff makes anyway (a note that starts as its resonance glides in has both moving) */
+    int moved = fm_filter_handover_advance(&vf->f);
+    if (cents == vf->cutoff && !moved) return 0; /* the coefficients stand */
     vf->cutoff = cents;
     fm_filter_set_cutoff(&vf->f, cents, vf->rate_cents);
-    return 1;
+    return moved | 1;
 }

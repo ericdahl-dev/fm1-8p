@@ -58,7 +58,8 @@ static double oracle_snr_db(int32_t base, int32_t amount, int32_t res, uint8_t h
     return oracle_snr_db_via(base, amount, res, hp, 0);
 }
 
-/* The full patch (CPU test step F): cutoff 10500 swept +3600 cents, resonance 700, highpass step 1. */
+/* The full patch as CPU test step F had it until #168 (its resonance is 90 now): cutoff 10500 swept +3600
+ * cents, resonance 700, highpass step 1. */
 TT_TEST(filter_matches_the_reference_on_the_full_patch)
 {
     double snr = oracle_snr_db(10500, 3600, 700, 1);

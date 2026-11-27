@@ -72,8 +72,11 @@ void fm_vfilter_set_highpass(fm_vfilter *vf, uint8_t step);
 /*
  * Composes the cutoff from the settings, the key and `mod_cents` (the
  * voice's modulation of the cutoff, engine/mod.h) and sets the filter to
- * it if it moved. The one place the cutoff is composed. Returns 1 if the
- * filter was set, 0 if its coefficients stand.
+ * it if it moved. The one place the cutoff is composed. It also moves the
+ * resonant top's handover a step on while that is on its way (#168,
+ * fm_filter_handover_step). Returns 0 if the filter's coefficients stand,
+ * else 1 (the filter was set), plus 2 while the handover has further to
+ * go: the voice then keeps its control points coming.
  */
 int fm_vfilter_update(fm_vfilter *vf, int32_t mod_cents);
 
@@ -140,13 +143,6 @@ static inline const fm_filter *fm_vfilter_filter(const fm_vfilter *vf)
 static inline int fm_vfilter_handover_moving(const fm_vfilter *vf)
 {
     return fm_filter_handover_moving(&vf->f);
-}
-
-/* A control point: the handover one step on if it is on its way (fm_filter_handover_step: 0 if not, else 1,
- * plus 2 while there is further to go). The compare is inline; the step is control-rate flash code. */
-static inline int fm_vfilter_handover_step(fm_vfilter *vf)
-{
-    return fm_filter_handover_moving(&vf->f) ? fm_filter_handover_step(&vf->f) : 0;
 }
 
 /* Nonzero while the filter is a wire. */

@@ -386,6 +386,34 @@ TT_TEST(res_top_resonance_change_at_open_is_heard)
 }
 
 /*
+ * A resonance turned into the handover on a held note arrives: the voice keeps its control points coming until
+ * the handover is there (FM_BUSY_CUTOFF), with nothing else moving the cutoff. Two engines, a held C3 at an
+ * open cutoff: one has resonance 112 from the start, the other is turned 91 -> 112 at 0.1 s (31 control
+ * points to go: 11 ms). From 0.2 s on they are the same within 4 LSB. (With the control points not kept
+ * coming, or the step not made, the second stays where it was: hundreds of LSB apart.)
+ */
+TT_TEST(res_top_turned_resonance_arrives)
+{
+    static int16_t a[2 * 4410], b[2 * 4410];
+    int i, worst = 0;
+    rt_setup(&rt_eng, 44100, FM_FILTER_OPEN_CENTS, 112);
+    rt_setup(&rt_eng2, 44100, FM_FILTER_OPEN_CENTS, 91);
+    fm_engine_note_on(&rt_eng, 48, 100);
+    fm_engine_note_on(&rt_eng2, 48, 100);
+    fm_engine_render(&rt_eng, a, 4410);
+    fm_engine_render(&rt_eng2, b, 4410);
+    fm_engine_set_param(&rt_eng2, FM_PARAM_FILTER_RESONANCE, 112);
+    fm_engine_render(&rt_eng, a, 4410);
+    fm_engine_render(&rt_eng2, b, 4410);
+    fm_engine_render(&rt_eng, a, 4410);
+    fm_engine_render(&rt_eng2, b, 4410);
+    for (i = 0; i < 2 * 4410; i++) worst = abs(a[i] - b[i]) > worst ? abs(a[i] - b[i]) : worst;
+    printf("    0.2 to 0.3 s: the largest difference %d LSB (of a peak of %d)\n", worst, peak_abs(a, 0, 4410));
+    TT_CHECK(peak_abs(a, 0, 4410) > 1000);
+    TT_CHECK(worst <= 4);
+}
+
+/*
  * The same between notes, on a voice that isn't sounding: the resonance is set at once, the handover with it,
  * and the voice is told whether the filter now runs. One voice, the default patch (open): a C3 played and let
  * go, resonance 0 -> 400 while nothing sounds, the C3 again: 4.6 dB down, within 1 dB. (Not told, the voice
@@ -413,12 +441,12 @@ TT_TEST(res_top_resonance_set_between_notes_is_heard)
 
 /*
  * A handover left on its way when its voice fell silent is where it goes before the next note sounds: the
- * note does not start in the middle of it. One voice, twice: the first with resonance 400 from the start; the
- * second with resonance 0, turned to 400 on the sounding note 64 samples before it is let go (4 control points
- * of the handover's 32). The amp envelope's release is 1 ms, so the voice is silent long before the next
- * note, 0.1 s on: that note is the same in both within 4 LSB (the filter's states are not cleared between
- * notes, and the two got here by different roads: 1 LSB apart; started 4/32 of the way through the handover,
- * hundreds).
+ * note does not start in the middle of it. One voice, twice: the first with resonance 112 from the start; the
+ * second with resonance 91, turned to 112 on the sounding note 16 samples before it is let go (a control point
+ * of the 31 it has to go). The amp envelope's release is 0, so the voice is silent at once and the handover
+ * stops where it was: the next note, 0.1 s on, is the same in both within 4 LSB (the filter's states are not
+ * cleared between notes, and the two got here by different roads). Started where the handover was left, it
+ * is 1199 LSB apart (of a peak of 21182).
  */
 TT_TEST(res_top_handover_is_there_when_a_silent_voice_starts)
 {
@@ -429,12 +457,12 @@ TT_TEST(res_top_handover_is_there_when_a_silent_voice_starts)
     for (i = 0; i < 2; i++) {
         fm_engine_init(e[i], 44100, 1);
         fm_engine_set_param(e[i], FM_PARAM_AMP_SUSTAIN, 1000);
-        fm_engine_set_param(e[i], FM_PARAM_AMP_RELEASE_MS, 1);
-        if (i == 0) fm_engine_set_param(e[i], FM_PARAM_FILTER_RESONANCE, 400);
+        fm_engine_set_param(e[i], FM_PARAM_AMP_RELEASE_MS, 0);
+        fm_engine_set_param(e[i], FM_PARAM_FILTER_RESONANCE, i == 0 ? 112 : 91);
         fm_engine_note_on(e[i], 48, 100);
-        fm_engine_render(e[i], out[i], 4416 - 64);
-        if (i == 1) fm_engine_set_param(e[i], FM_PARAM_FILTER_RESONANCE, 400);
-        fm_engine_render(e[i], out[i], 64);
+        fm_engine_render(e[i], out[i], 4416 - 16);
+        if (i == 1) fm_engine_set_param(e[i], FM_PARAM_FILTER_RESONANCE, 112);
+        fm_engine_render(e[i], out[i], 16);
         fm_engine_note_off(e[i], 48);
         fm_engine_render(e[i], out[i], 4410);
         TT_CHECK(peak_abs(out[i], 2205, 4410) == 0);
@@ -479,15 +507,16 @@ static double rt_res_step(int32_t cutoff, int32_t r1, int32_t r2)
  * shelf, 22 per mille for all of it, and a RES knob step is 10. So on a sounding voice the handover's weight
  * moves no faster than 1/32 a control tick (16 samples: 12 ms for all of it), and the sections take their new
  * coefficients as fast as the old top is faded out, so what the weight moves is only the fade.
- * A knob step through the handover, at cutoffs open, 14100 and 13475: the output's first frame after it is
- * within 2 % of the output's peak of where it would have been. (The low-resonance top's own worst knob step,
- * before #168: 3.7 %, at 14100 from resonance 100 to 90. Without the limit: 4.8 % at an open cutoff from 90 to
- * 100, 8.6 % at 14100 from 100 to 90.)
+ * A knob step into, inside or out of the handover, at cutoffs open, 14100 and 13475: the output's first frame
+ * after it is within 2 % of the output's peak of where it would have been. (The low-resonance top's own
+ * worst knob step, before #168: 3.7 %, at 14100 from resonance 100 to 90. Without the limit: 4.8 % at an open
+ * cutoff from 90 to 100, 8.6 % at 14100 from 100 to 90.) A move clear across the handover in one go is not
+ * such a step: it goes at once (res_top_move_clear_across_the_handover_goes_at_once).
  */
 TT_TEST(res_top_knob_step_makes_no_click)
 {
     static const int32_t cut[] = { FM_FILTER_OPEN_CENTS, 14100, 13475 };
-    static const int32_t step[][2] = { { 90, 100 }, { 100, 110 }, { 110, 120 }, { 120, 110 }, { 110, 100 }, { 100, 90 }, { 120, 0 } };
+    static const int32_t step[][2] = { { 90, 100 }, { 100, 110 }, { 110, 120 }, { 120, 110 }, { 110, 100 }, { 100, 90 } };
     size_t c, s;
     for (c = 0; c < sizeof cut / sizeof cut[0]; c++) {
         double worst = 0;
@@ -508,34 +537,39 @@ static int32_t rt_saw(double *ph)
 }
 
 /*
- * The handover itself, at the filter: resonance turned 0 -> 120 at an open cutoff leaves the wire a wire until
- * the next control point, then takes FM_FILTER_UR_STEP a control point (16 samples): 32 steps to all of it, each
- * moving the output's next sample by less than 0.8 % of the input's peak, and the same back to a wire on 120
- * -> 0. (Set, not turned, it is there at once: fm_filter_set_resonance, for a voice that isn't sounding.)
+ * The handover itself, at the filter, at an open cutoff. Resonance turned 0 -> 100 (into the handover) leaves
+ * the wire a wire until the next control point, then takes FM_FILTER_UR_STEP a control point (16 samples); 100
+ * -> 120 (out of it) takes it the rest of the way: 32 or 33 steps for all of it, each moving the output's next
+ * sample by less than 0.8 % of the input's peak. The same back to a wire on 120 -> 100 -> 0. (Set, not turned,
+ * it is there at once: fm_filter_set_resonance, for a voice that isn't sounding.)
  */
 TT_TEST(res_top_handover_moves_a_step_a_control_point)
 {
+    static const int16_t via[2][2] = { { 100, 120 }, { 100, 0 } };
     static fm_filter f, g;
     int32_t rate = fm_filter_rate_cents(44100);
     double ph = 0.123, worst = 0;
-    int dir, n, steps;
+    int dir, leg, n, steps;
     fm_filter_reset(&f);
     fm_filter_set_cutoff(&f, FM_FILTER_OPEN_CENTS, rate);
     for (n = 0; n < 4410; n++) fm_filter_run(&f, rt_saw(&ph));
     for (dir = 0; dir < 2; dir++) {
-        fm_filter_turn_resonance(&f, dir ? 0 : 120);
-        TT_CHECK(fm_filter_handover_moving(&f));
-        TT_CHECK(fm_filter_is_wire(&f) == !dir);            /* nothing yet: the coefficients' own change only */
-        for (steps = 0; fm_filter_handover_moving(&f) && steps < 1000; steps++) {
-            int32_t x;
-            g = f;
-            TT_CHECK(fm_filter_handover_step(&f) & 1);
-            x = rt_saw(&ph);
-            worst = fmax(worst, fabs((double)fm_filter_run(&f, x) - (double)fm_filter_run(&g, x)) / 16777216.0);
-            for (n = 1; n < 16; n++) fm_filter_run(&f, rt_saw(&ph));
+        steps = 0;
+        for (leg = 0; leg < 2; leg++) {
+            fm_filter_turn_resonance(&f, via[dir][leg]);
+            TT_CHECK(fm_filter_handover_moving(&f));
+            if (!leg) TT_CHECK(fm_filter_is_wire(&f) == !dir);  /* nothing yet: the coefficients' own change only */
+            for (; fm_filter_handover_moving(&f) && steps < 1000; steps++) {
+                int32_t x;
+                g = f;
+                TT_CHECK(fm_filter_handover_step(&f) & 1);
+                x = rt_saw(&ph);
+                worst = fmax(worst, fabs((double)fm_filter_run(&f, x) - (double)fm_filter_run(&g, x)) / 16777216.0);
+                for (n = 1; n < 16; n++) fm_filter_run(&f, rt_saw(&ph));
+            }
         }
-        printf("    resonance %s at an open cutoff: %d control points\n", dir ? "120 -> 0" : "0 -> 120", steps);
-        TT_CHECK_EQ(steps, 32);
+        printf("    resonance %s at an open cutoff: %d control points\n", dir ? "120 -> 100 -> 0" : "0 -> 100 -> 120", steps);
+        TT_CHECK(steps == 32 || steps == 33);            /* (33: the stop at 100 ends a step short) */
         TT_CHECK(fm_filter_handover_step(&f) == 0);
         TT_CHECK(fm_filter_is_wire(&f) == dir);
         for (n = 0; n < 4410; n++) fm_filter_run(&f, rt_saw(&ph));
@@ -547,6 +581,29 @@ TT_TEST(res_top_handover_moves_a_step_a_control_point)
     fm_filter_set_resonance(&f, 120);
     TT_CHECK(!fm_filter_handover_moving(&f));
     TT_CHECK(!fm_filter_is_wire(&f));
+}
+
+/*
+ * A move clear across the handover in one go (from resonance 90 or under to 112 or over, or back) takes the
+ * handover along at once, as it takes every other coefficient. A jump that size steps the output whatever the
+ * handover does (0 -> 400 at cutoff 13475: 53 % of the peak on the low-resonance top alone, before #168), and a
+ * patch whose resonance glides in over it is not held 32 control points between the two tops while its
+ * cutoff moves: there every control point works out both tops, which cost the CPU gate's F rows 2.6 points of
+ * a block for those 12 ms. A move that lands inside the handover or starts there is not clear across.
+ */
+TT_TEST(res_top_move_clear_across_the_handover_goes_at_once)
+{
+    static const int16_t move[][3] = { { 0, 400, 1 }, { 90, 112, 1 }, { 400, 0, 1 }, { 112, 90, 1 },
+                                       { 90, 111, 0 }, { 91, 400, 0 }, { 400, 91, 0 }, { 111, 0, 0 } };
+    static fm_filter f;
+    size_t m;
+    for (m = 0; m < sizeof move / sizeof move[0]; m++) {
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, move[m][0]);
+        fm_filter_set_cutoff(&f, FM_FILTER_OPEN_CENTS, fm_filter_rate_cents(44100));
+        fm_filter_turn_resonance(&f, move[m][1]);
+        TT_CHECK(fm_filter_handover_moving(&f) == !move[m][2]);
+    }
 }
 
 /* One hash over a1, a2, a3, t, z3, zt, fade and the level at `res`'s resonances, cutoffs `from`..open by 7. */
@@ -660,10 +717,12 @@ static void run_res_top_tests(void)
     TT_RUN(res_top_gain_is_bounded);
     TT_RUN(res_top_goes_on_past_res_127);
     TT_RUN(res_top_resonance_change_at_open_is_heard);
+    TT_RUN(res_top_turned_resonance_arrives);
     TT_RUN(res_top_resonance_set_between_notes_is_heard);
     TT_RUN(res_top_handover_is_there_when_a_silent_voice_starts);
     TT_RUN(res_top_knob_step_makes_no_click);
     TT_RUN(res_top_handover_moves_a_step_a_control_point);
+    TT_RUN(res_top_move_clear_across_the_handover_goes_at_once);
     TT_RUN(res_top_leaves_the_low_resonance_top_as_it_was);
     TT_RUN(res_top_is_as_before_outside_the_fitted_rates);
     TT_RUN(res_top_steps_no_coefficient);

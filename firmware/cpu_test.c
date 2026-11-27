@@ -22,9 +22,12 @@ static const cpu_test_param FULL_PATCH[] = {
     /* the filter never on fm_filter_run's wide-open fast path: a resonant lowpass whose envelope sweeps
      * it from 10500 up to 14100 cents, into the fade at the top of its range (the costlier general path),
      * and the highpass's bass boost (step 4, the JX-8P's HPF 0: 23 of 32 factory tones, and its costliest path). The envelope adds in linear cents (#253): 3030 of them on 10500's
-     * base come to 14100, as 3600 cents did before */
+     * base come to 14100, as 3600 cents did before.
+     * Resonance 90 (700 until #168): the most that still has that fade. With more, the top of the range is
+     * PG-8X's resonant one, which has no fade and so skips its multiply: at 700 F would no longer time the
+     * costlier path. Up to 90 the filter is the one it was, coefficient for coefficient, so F reads as it did */
     {FM_PARAM_FILTER_CUTOFF_CENTS, 10500},
-    {FM_PARAM_FILTER_RESONANCE, 700},
+    {FM_PARAM_FILTER_RESONANCE, 90},
     {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3030},
     {FM_PARAM_HIGHPASS_STEP, FM_FILTER_HIGHPASS_BOOST},
     {FM_PARAM_SETTING_GLIDE, 1},
