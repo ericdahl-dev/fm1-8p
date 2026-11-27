@@ -688,28 +688,28 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "10.0 s | 10.0 s",         /* portamento_ms 10000 */
         "OFF | OFF",               /* portamento_ms 0, the default */
     }},
-    {57, "lfo_cutoff_cents", 4805u, 0xF46E29EDu, {
+    {57, "lfo_cutoff_cents", 5605u, 0xE4EE8222u, {
         "0 ct | 0 ct",             /* lfo_cutoff_cents 0 */
-        "600 ct | 600 ct",         /* lfo_cutoff_cents 600 */
-        "1200 ct | 1200 ct",       /* lfo_cutoff_cents 1200 */
-        "1800 ct | 1800 ct",       /* lfo_cutoff_cents 1800 */
-        "2400 ct | 2400 ct",       /* lfo_cutoff_cents 2400 */
-        "3000 ct | 3000 ct",       /* lfo_cutoff_cents 3000 */
-        "3600 ct | 3600 ct",       /* lfo_cutoff_cents 3600 */
+        "700 ct | 700 ct",         /* lfo_cutoff_cents 700 */
+        "1400 ct | 1400 ct",       /* lfo_cutoff_cents 1400 */
+        "2100 ct | 2100 ct",       /* lfo_cutoff_cents 2100 */
+        "2800 ct | 2800 ct",       /* lfo_cutoff_cents 2800 */
+        "3500 ct | 3500 ct",       /* lfo_cutoff_cents 3500 */
         "4200 ct | 4200 ct",       /* lfo_cutoff_cents 4200 */
-        "4800 ct | 4800 ct",       /* lfo_cutoff_cents 4800 */
+        "4900 ct | 4900 ct",       /* lfo_cutoff_cents 4900 */
+        "5600 ct | 5600 ct",       /* lfo_cutoff_cents 5600 */
         "0 ct | 0 ct",             /* lfo_cutoff_cents 0, the default */
     }},
-    {58, "wheel_cutoff_cents", 4805u, 0xF46E29EDu, {
+    {58, "wheel_cutoff_cents", 5605u, 0xE4EE8222u, {
         "0 ct | 0 ct",             /* wheel_cutoff_cents 0 */
-        "600 ct | 600 ct",         /* wheel_cutoff_cents 600 */
-        "1200 ct | 1200 ct",       /* wheel_cutoff_cents 1200 */
-        "1800 ct | 1800 ct",       /* wheel_cutoff_cents 1800 */
-        "2400 ct | 2400 ct",       /* wheel_cutoff_cents 2400 */
-        "3000 ct | 3000 ct",       /* wheel_cutoff_cents 3000 */
-        "3600 ct | 3600 ct",       /* wheel_cutoff_cents 3600 */
+        "700 ct | 700 ct",         /* wheel_cutoff_cents 700 */
+        "1400 ct | 1400 ct",       /* wheel_cutoff_cents 1400 */
+        "2100 ct | 2100 ct",       /* wheel_cutoff_cents 2100 */
+        "2800 ct | 2800 ct",       /* wheel_cutoff_cents 2800 */
+        "3500 ct | 3500 ct",       /* wheel_cutoff_cents 3500 */
         "4200 ct | 4200 ct",       /* wheel_cutoff_cents 4200 */
-        "4800 ct | 4800 ct",       /* wheel_cutoff_cents 4800 */
+        "4900 ct | 4900 ct",       /* wheel_cutoff_cents 4900 */
+        "5600 ct | 5600 ct",       /* wheel_cutoff_cents 5600 */
         "0 ct | 0 ct",             /* wheel_cutoff_cents 0, the default */
     }},
 };

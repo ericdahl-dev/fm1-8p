@@ -140,9 +140,9 @@ PARAMS = [
     P(56, 'PORTAMENTO_MS', 'portamento_ms', '0', '10000', '0', 56,
       'portamento (#62): each note glides from the last one played, the distance left falling by 1/e '
       'every this many ms (PG-8X\'s exponential glide); 0 off'),
-    P(57, 'LFO_CUTOFF_CENTS', 'lfo_cutoff_cents', '0', '4800', '0', 57,
+    P(57, 'LFO_CUTOFF_CENTS', 'lfo_cutoff_cents', '0', '5600', '0', 57,
       'the VCF LFO (#172): the LFO at full moves the cutoff this many cents each way'),
-    P(58, 'WHEEL_CUTOFF_CENTS', 'wheel_cutoff_cents', '0', '4800', '0', 58,
+    P(58, 'WHEEL_CUTOFF_CENTS', 'wheel_cutoff_cents', '0', '5600', '0', 58,
       'the mod wheel (CC1) at full adds this to the VCF LFO\'s depth (#172; 0: the JX-8P has no wheel)'),
 ]
 

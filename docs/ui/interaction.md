@@ -147,7 +147,7 @@ both 15 and 27.
 | 51 | K1 | `highpass_step` | HPF | BOOST, FLAT, 240 Hz, 560 Hz (JX order, #138) | 1 / 1 |
 | 52 | K2 | `filter_cutoff_cents` | CUTOFF | Hz, 3 significant digits; `OPEN` at 14400 | 100 ct / 400 ct |
 | 53 | K3 | `filter_resonance_permille` | RES | 0..100 (100 self-oscillates) | 1 / 5 |
-| 54 | K4 | `lfo_cutoff_cents` (#172): the LFO at full moves the cutoff this much each way | LFO | 0..4800 ct | 10 / 100 |
+| 54 | K4 | `lfo_cutoff_cents` (#172): the LFO at full moves the cutoff this much each way | LFO | 0..5600 ct | 10 / 100 |
 | 55 | K1 | `filter_env_amount_cents` (its size) | ENV | 0..164 st | 1 st / 6 st |
 | 56 | K2 | `filter_key_track_permille` | KEY | 0..130 % | 1 / 10 |
 | 57 | K3 | `filter_env_dyna` | DYNA | OFF, 1, 2, 3 | 1 / 1 |
@@ -226,7 +226,7 @@ but LFO's ring and SELECT do. The LED window shows only the digit (a 7-segment W
 | --- | --- | --- | --- | --- | --- |
 | W1 | K1 | `wheel_pitch_cents`: the wheel at full adds this to the vibrato depth | PITCH | 0..1200 ct | 1 / 10 |
 | W2 | K2 | `wheel_pw_pct`: the wheel at full adds this to the PW depth | PW | 0..49 % | 1 / 5 |
-| W3 | K3 | `wheel_cutoff_cents`: the wheel at full adds this to the VCF LFO's depth (#172) | CUTOFF | 0..4800 ct | 10 / 100 |
+| W3 | K3 | `wheel_cutoff_cents`: the wheel at full adds this to the VCF LFO's depth (#172) | CUTOFF | 0..5600 ct | 10 / 100 |
 
 ### Units and value tables
 
