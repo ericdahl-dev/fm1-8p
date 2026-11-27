@@ -220,6 +220,40 @@ TT_TEST(reverb_without_memory_is_off_and_turning_on_starts_silent)
     }
 }
 
+/* The output, pinned: an FNV-1a hash of both sides over a burst and its tail, for each design, at block
+ * sizes 16 (the engine's chunks), 7 and 256. Taken from the first working loop (814156b) before it was
+ * made block-wise (#197): a rewrite for speed must keep every sample. */
+static uint32_t rv_hash(uint8_t design, uint32_t block)
+{
+    static int32_t l[256], r[256];
+    uint32_t h = 2166136261u, done = 0, total = RV_RATE * 3u, i;
+    fm_reverb_init(&rv, design, RV_RATE, rv_mem, sizeof rv_mem / sizeof rv_mem[0]);
+    fm_reverb_set(&rv, 70, 2500, 60);
+    rv_seed = 7;
+    while (done < total) {
+        uint32_t n = total - done < block ? total - done : block;
+        for (i = 0; i < n; i++) l[i] = r[i] = done + i < RV_RATE / 4u ? rv_noise() / 2 : 0;
+        fm_reverb_process_block(&rv, l, r, n);
+        for (i = 0; i < n; i++) {
+            uint32_t k;
+            for (k = 0; k < 4u; k++) { h ^= ((uint32_t)l[i] >> (8u * k)) & 255u; h *= 16777619u; }
+            for (k = 0; k < 4u; k++) { h ^= ((uint32_t)r[i] >> (8u * k)) & 255u; h *= 16777619u; }
+        }
+        done += n;
+    }
+    return h;
+}
+
+TT_TEST(reverb_output_is_pinned)
+{
+    static const uint32_t blocks[3] = {16, 7, 256};
+    static const uint32_t want[2][3] = {{0x225CC3A9u, 0x79C4AFD6u, 0x650B108Eu}, {0x6A55B65Du, 0xF5242E73u, 0xF869CE70u}};
+    uint32_t d, b;
+    for (d = 0; d < 2u; d++)
+        for (b = 0; b < 3u; b++)
+            TT_CHECK_EQ(rv_hash(RV_DESIGNS[d], blocks[b]), want[d][b]);
+}
+
 /* ---- in the engine ---- */
 
 static fm_engine rv_eng;
@@ -310,6 +344,7 @@ static void run_reverb_tests(void)
     TT_RUN(reverb_the_sides_are_decorrelated);
     TT_RUN(reverb_full_scale_input_saturates_and_does_not_wrap);
     TT_RUN(reverb_without_memory_is_off_and_turning_on_starts_silent);
+    TT_RUN(reverb_output_is_pinned);
     TT_RUN(reverb_params_are_ours_with_mix_off_by_default);
     TT_RUN(reverb_off_renders_as_without_it);
     TT_RUN(reverb_on_rings_after_the_release_and_needs_its_memory);
