@@ -152,6 +152,10 @@ rt_syms 01c06190
 grep -v ' fm_osc_pair_next$' "$T/rt/mod/module_02200000.elf.nm" >"$T/rt/nm.tmp" && mv "$T/rt/nm.tmp" "$T/rt/mod/module_02200000.elf.nm"
 printf '01c06190 T fm_osc_pair_next\n' >>"$T/rt/mod/module_02200000.elf.nm"
 expect_fail "an entry point at the RAM text's end is outside it" rtc
+rt_syms 01c06190
+grep -v ' fm_out_block$' "$T/rt/mod/module_02200000.elf.nm" >"$T/rt/nm.tmp" && mv "$T/rt/nm.tmp" "$T/rt/mod/module_02200000.elf.nm"
+printf '01c03ff0 T fm_out_block\n' >>"$T/rt/mod/module_02200000.elf.nm"
+expect_fail "... and one below its start" rtc
 rt_syms 01c07001
 expect_fail "RAM text over the 12 KiB budget fails" rtc
 rt_syms 01c07000
