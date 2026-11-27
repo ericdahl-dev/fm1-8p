@@ -138,3 +138,10 @@ main > #steps[data-moment]:not(.is-live) { min-height: 200svh; }
   #seq .seq__screen { aspect-ratio: auto; height: calc(100svh - 600px); }
   #seq .seq__screen > img { object-fit: contain; }
 }
+
+/* the FM-1's screens sit on their own black glass, edge to edge: no lit ground (sage) round them */
+#sound .sound__grid .panel.screen, [data-moment="pinned-chapters"] .mo-pc__visual.mo-pc__visual--lit {
+  --ground-bg: #0b0d12; background: #0b0d12 !important; background-image: none !important; box-shadow: none; border-color: transparent; }
+#sound .sound__grid .panel.screen:not(.screen--corner) > img { object-fit: cover; object-position: 50% 0; }
+#sound .sound__grid .panel.screen--corner > img { left: var(--s-5); top: 0; border-radius: 0; }
+@media (min-width: 1024px) { #sound .sound__grid .panel.screen { min-height: 0; height: auto; aspect-ratio: 1; flex: none; } }
