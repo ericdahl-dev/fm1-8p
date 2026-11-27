@@ -66,8 +66,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 6992u     /* +228: the reverb's state (#197): its lines' offsets and lengths (48), taps, gains, filters and phases; its lines are the caller's */
-#define FM_ENGINE_BUDGET_BASE_64 7040u     /* +108 on the 64-bit layout's figure: the reverb's state, its 3 pointers 8 B each, in padding the layout had */
+#define FM_ENGINE_BUDGET_BASE_32 6996u     /* +232: the reverb's state (#197): its lines' offsets and lengths (48), taps, gains, filters and phases; its lines are the caller's */
+#define FM_ENGINE_BUDGET_BASE_64 7048u     /* +116 on the 64-bit layout's figure: the reverb's state, its 3 pointers 8 B each, in padding the layout had */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
@@ -178,7 +178,8 @@ void fm_engine_pitch_bend(fm_engine *e, uint16_t value);
  * lifetime. fm_engine_reverb_words says how many it needs at the engine's
  * sample rate; with none, or too few, reverb_mix_pct does nothing. Call
  * after fm_engine_init (which forgets it) and before playing. Returns
- * FM_ERR_ARG for a null engine.
+ * FM_ERR_ARG for a null engine, or memory too small for the lines (the
+ * reverb then stays off); null memory is no reverb, and FM_OK.
  */
 fm_status fm_engine_set_reverb_memory(fm_engine *e, int16_t *mem, uint32_t words);
 

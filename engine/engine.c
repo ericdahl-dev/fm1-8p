@@ -679,7 +679,8 @@ fm_status fm_engine_set_reverb_memory(fm_engine *e, int16_t *mem, uint32_t words
     fm_reverb_init(&e->reverb, FM_REVERB_DESIGN, e->sample_rate, mem, words);
     fm_reverb_set(&e->reverb, e->params[FM_PARAM_REVERB_MIX], e->params[FM_PARAM_REVERB_TIME_MS],
                   e->params[FM_PARAM_REVERB_TONE]);
-    return FM_OK;
+    /* memory too small to hold the lines: the reverb stays off, and the caller hears of it */
+    return mem && words < fm_reverb_words(FM_REVERB_DESIGN, e->sample_rate) ? FM_ERR_ARG : FM_OK;
 }
 
 uint32_t fm_engine_reverb_words(uint32_t sample_rate)

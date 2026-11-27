@@ -122,11 +122,14 @@ TT_TEST(reverb_a_lower_tone_darkens_the_tail)
  * limit cycle holding a tone a few LSB up, no DC */
 TT_TEST(reverb_the_longest_tail_ends_in_silence)
 {
-    uint32_t d, s, i;
+    /* damped too, and at the default TIME: a lowpass's dead band held a DC there (#408's review) */
+    static const int32_t tones[4] = {100, 60, 0, 60}, times[4] = {10000, 10000, 10000, 2500};
+    uint32_t d, s, i, t;
+    for (t = 0; t < 4u; t++)
     for (d = 0; d < 2u; d++) {
         int32_t peak = 0;
         fm_reverb_init(&rv, RV_DESIGNS[d], RV_RATE, rv_mem, sizeof rv_mem / sizeof rv_mem[0]);
-        fm_reverb_set(&rv, 100, 10000, 100);
+        fm_reverb_set(&rv, 100, times[t], tones[t]);
         rv_burst(&rv, 1);
         for (s = 0; s < 60u; s++) {
             for (i = 0; i < RV_RATE; i++) rv_l[i] = rv_r[i] = 0;
@@ -136,7 +139,8 @@ TT_TEST(reverb_the_longest_tail_ends_in_silence)
             int32_t a = rv_l[i] < 0 ? -rv_l[i] : rv_l[i], b = rv_r[i] < 0 ? -rv_r[i] : rv_r[i];
             peak = a > peak ? a : b > peak ? b : peak;
         }
-        printf("    design %u: 61 s after a burst at TIME 10 s, the wet peaks at %d (Q8.24)\n", (unsigned)RV_DESIGNS[d], (int)peak);
+        printf("    design %u, tone %d, time %d: 61 s after a burst, the wet peaks at %d (Q8.24)\n",
+               (unsigned)RV_DESIGNS[d], (int)tones[t], (int)times[t], (int)peak);
         TT_CHECK_EQ(peak, 0);
     }
 }
@@ -210,7 +214,9 @@ TT_TEST(reverb_without_memory_is_off_and_turning_on_starts_silent)
         fm_reverb_set(&rv, 100, 4000, 100);
         TT_CHECK(fm_reverb_is_on(&rv));
         rv_burst(&rv, 1);                       /* a tail in the lines ... */
-        fm_reverb_set(&rv, 0, 4000, 100);       /* ... off ... */
+        fm_reverb_set(&rv, 0, 4000, 100);       /* ... off (once its level has glided to 0) ... */
+        for (i = 0; i < RV_RATE / 10u; i++) rv_l[i] = rv_r[i] = 0;
+        fm_reverb_process_block(&rv, rv_l, rv_r, RV_RATE / 10u);
         TT_CHECK(!fm_reverb_is_on(&rv));
         fm_reverb_set(&rv, 100, 4000, 100);     /* ... and on: silence in, silence out */
         for (i = 0; i < RV_RATE; i++) rv_l[i] = rv_r[i] = 0;
@@ -271,14 +277,17 @@ static uint32_t rv_hash_twice(uint8_t design)
 
 TT_TEST(reverb_output_through_a_silence_is_pinned)
 {
-    TT_CHECK_EQ(rv_hash_twice(FM_REVERB_FDN4), 0x02F6B3AEu);   /* (taken before the idle skip existed) */
-    TT_CHECK_EQ(rv_hash_twice(FM_REVERB_PLATE), 0x4E66BEE9u);
+    /* (pinned again after #408's review, from runs that match the same runs with the skip held off, sample for
+     * sample, at tone 60 and tone 0) */
+    TT_CHECK_EQ(rv_hash_twice(FM_REVERB_FDN4), 0x82F276B1u);
+    TT_CHECK_EQ(rv_hash_twice(FM_REVERB_PLATE), 0x7C262396u);
 }
 
 TT_TEST(reverb_output_is_pinned)
 {
     static const uint32_t blocks[3] = {16, 7, 256};
-    static const uint32_t want[2][3] = {{0x225CC3A9u, 0x79C4AFD6u, 0x650B108Eu}, {0x6A55B65Du, 0xF5242E73u, 0xF869CE70u}};
+    /* (pinned again after #408's review: the damping's dead band, the MIX glide, the plate's loop length) */
+    static const uint32_t want[2][3] = {{0x387AC3FDu, 0x3C69E1FAu, 0xE5E40E18u}, {0x49B8D40Du, 0x49FA66D9u, 0x8B990BC8u}};
     uint32_t d, b;
     for (d = 0; d < 2u; d++)
         for (b = 0; b < 3u; b++)
@@ -313,6 +322,38 @@ TT_TEST(reverb_idles_once_its_tail_has_ended)
         TT_CHECK(!idle_early);
         TT_CHECK(idle_late);
         TT_CHECK(woke);
+    }
+}
+
+/* MIX glides (#408's review): set to 0 while a tail rings, the wet fades over tens of ms instead of
+ * stopping at the next block, a click when a dry patch loads mid-tail; and it stays on until it has */
+TT_TEST(reverb_mix_glides_and_a_tail_fades_out)
+{
+    uint32_t d, b, i;
+    for (d = 0; d < 2u; d++) {
+        int32_t before = 0, first = 0, gone_at = -1;
+        fm_reverb_init(&rv, RV_DESIGNS[d], RV_RATE, rv_mem, sizeof rv_mem / sizeof rv_mem[0]);
+        fm_reverb_set(&rv, 100, 4000, 60);
+        rv_burst(&rv, 1);                        /* a burst and its first second: a loud tail */
+        for (b = 0; b < 4u; b++) {               /* the tail's level: the last block of 16 before MIX goes to 0 */
+            before = 0;
+            for (i = 0; i < 16u; i++) rv_l[i] = rv_r[i] = 0;
+            fm_reverb_process_block(&rv, rv_l, rv_r, 16);
+            for (i = 0; i < 16u; i++) before = rv_l[i] < 0 ? (-rv_l[i] > before ? -rv_l[i] : before) : (rv_l[i] > before ? rv_l[i] : before);
+        }
+        fm_reverb_set(&rv, 0, 4000, 60);
+        for (b = 0; b < 400u; b++) {
+            int32_t peak = 0;
+            for (i = 0; i < 16u; i++) rv_l[i] = rv_r[i] = 0;
+            fm_reverb_process_block(&rv, rv_l, rv_r, 16);
+            for (i = 0; i < 16u; i++) peak = (rv_l[i] < 0 ? -rv_l[i] : rv_l[i]) > peak ? (rv_l[i] < 0 ? -rv_l[i] : rv_l[i]) : peak;
+            if (b == 0) first = peak;
+            if (gone_at < 0 && !fm_reverb_is_on(&rv)) gone_at = (int32_t)b;
+        }
+        printf("    design %u: tail peak %d, the block after MIX 0 %d; off after %d blocks of 16\n",
+               (unsigned)RV_DESIGNS[d], (int)before, (int)first, (int)gone_at);
+        TT_CHECK(first > before / 2);            /* no cut: the first block still carries most of it */
+        TT_CHECK(gone_at >= 32 && gone_at <= 256);   /* off within 12 .. 93 ms */
     }
 }
 
@@ -354,6 +395,9 @@ TT_TEST(reverb_params_are_ours_with_mix_off_by_default)
     TT_CHECK(fm_engine_reverb_words(RV_RATE) > 0u);
     TT_CHECK_EQ(fm_engine_reverb_words(44100u), FM_REVERB_WORDS_44K);   /* the device's buffer, sized at build */
     TT_CHECK(fm_engine_reverb_words(RV_RATE) <= sizeof rv_emem / sizeof rv_emem[0]);
+    TT_CHECK_EQ(fm_engine_init(&rv_eng, RV_RATE, 4), FM_OK);   /* too little memory: an error, and no reverb */
+    TT_CHECK_EQ(fm_engine_set_reverb_memory(&rv_eng, rv_emem, fm_engine_reverb_words(RV_RATE) - 1u), FM_ERR_ARG);
+    TT_CHECK_EQ(fm_engine_set_reverb_memory(&rv_eng, NULL, 0), FM_OK);
 }
 
 /* MIX 0, the default, renders byte for byte as with no reverb memory at all: the engine skips it */
@@ -409,6 +453,7 @@ static void run_reverb_tests(void)
     TT_RUN(reverb_output_is_pinned);
     TT_RUN(reverb_output_through_a_silence_is_pinned);
     TT_RUN(reverb_idles_once_its_tail_has_ended);
+    TT_RUN(reverb_mix_glides_and_a_tail_fades_out);
     TT_RUN(reverb_params_are_ours_with_mix_off_by_default);
     TT_RUN(reverb_off_renders_as_without_it);
     TT_RUN(reverb_on_rings_after_the_release_and_needs_its_memory);

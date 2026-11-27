@@ -161,6 +161,9 @@ uint32_t play_prog_step(const play *p, uint32_t from, int32_t clicks)
     return q;
 }
 
+/* the reverb's lines are sized for 44.1 kHz at build (FM_REVERB_WORDS_44K): the device's rate */
+typedef char play_fs_is_the_reverbs[PLAY_FS == 44100u ? 1 : -1];
+
 int play_init(play *p)
 {
     uint32_t i;

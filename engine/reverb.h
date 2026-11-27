@@ -56,6 +56,6 @@ void fm_reverb_process_block(fm_reverb *r, int32_t *left, int32_t *right,
 int fm_reverb_idle(const fm_reverb *r);
 
 /* Whether it sounds (the engine skips it entirely when not). */
-#define fm_reverb_is_on(r) ((r)->mix != 0 && (r)->ready)
+#define fm_reverb_is_on(r) (((r)->mix != 0 || (r)->mix_to != 0) && (r)->ready)
 
 #endif /* FM_REVERB_H */
