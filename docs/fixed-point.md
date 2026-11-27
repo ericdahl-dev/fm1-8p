@@ -309,7 +309,11 @@ resonant 4-pole (24 dB/octave) lowpass.
   coefficient (about 0.957). Across the top 600 cents of the range (13800 to
   14400) the stage zero, the feedback and `1 - g` fade linearly to zero, so
   the maximum cutoff (14400, the default) is an exact wire and the default
-  patch sounds exactly as it did before the filter.
+  patch sounds exactly as it did before the filter. At resonance 0 the top
+  is fitted to PG-8X 2.0.13's (#151, `engine/filter.c`): the sections' f0
+  stops at 0.306 of the sample rate, they take 0.5 more damping, and the
+  output fades to the input over the top 2210 cents (from 12190). That is
+  all control-rate math; resonances from 389 per mille up are as before.
 - **Highpass.** `x - lowpass(x)` with a one-pole lowpass, so it cannot
   resonate. Turning it on clears that lowpass, so the output starts equal to
   the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240

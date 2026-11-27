@@ -82,7 +82,9 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
 /* Resonance, per mille: the sections' Q, PG-8X 2.0.13's (0.69 at 0, 6.7
  * at 935, its RES 127), and the passband with it (Q0 / Q); past 935 on to
  * Q 13.4 at 1000, ringing long but never self-oscillating (as PG-8X). The
- * output fades to the input over the top 600 cents of cutoff. */
+ * output fades to the input over the top 600 cents of cutoff; at resonance 0
+ * over the top 2210, as PG-8X's top opens (#151; in between up to resonance
+ * 388). */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
 /* Highpass position 0..4 (higher is clamped to 4): 0 is off (a wire),

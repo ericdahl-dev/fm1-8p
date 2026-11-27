@@ -405,33 +405,42 @@ TT_TEST(svf_is_bounded_at_every_rate)
     TT_CHECK(st <= 32 << 23);
 }
 
-/* (j) The top of the range: a cutoff swept a cent a sample from 13000 to the top (14400) on a 440 Hz
- * sine never steps more than the sine itself moves plus 0.001 (-60 dB), and at the top the filter is
- * a wire: its output is its input, exactly */
+/* (j) The top of the range: a cutoff swept a cent a sample from 12000 to the top (14400) on a 440 Hz
+ * sine adds no step of its own. The output's second difference (what a step shows in, whatever the filter's
+ * delay) stays within the sine's own, 0.00166, times the passband's level (under 1 at resonance 500, 1.138
+ * at resonance 0: taken as 1.2), plus 0.001 (-60 dB). And at the top the filter is a wire: its output is its
+ * input, exactly. At resonance 500, and at resonance 0, whose fade starts at 12190 and whose damping moves
+ * from 12510 to 12870 (#151). (Until #151 this compared first differences after 4800 samples, which the
+ * sweep never reached.) */
 TT_TEST(svf_fades_to_the_wire_at_the_top)
 {
+    static const int16_t res[] = { 500, 0 };
     static fm_filter f;
-    int32_t rate = fm_filter_rate_cents(SVF_RATE), prev = 0, px = 0, worst = 0;
-    int32_t c;
-    int exact = 1;
-    uint32_t i = 0;
-    fm_filter_reset(&f);
-    fm_filter_set_resonance(&f, 500);
-    fm_filter_set_cutoff(&f, 13000, rate);
-    for (c = 13000; c <= FM_FILTER_OPEN_CENTS + 200; c++, i++) {
-        int32_t x = (int32_t)lround(0.5 * 16777216.0 * sin(2 * AN_PI * 440.0 * i / SVF_RATE)), y, d;
-        fm_filter_set_cutoff(&f, c, rate);
-        y = fm_filter_run(&f, x);
-        d = (y > prev ? y - prev : prev - y) - (x > px ? x - px : px - x);
-        if (i > 4800 && d > worst) worst = d;
-        if (c >= FM_FILTER_OPEN_CENTS && y != x) exact = 0;
-        prev = y;
-        px = x;
+    int32_t rate = fm_filter_rate_cents(SVF_RATE);
+    double own = 0.5 * 16777216.0 * pow(2 * sin(AN_PI * 440.0 / SVF_RATE), 2);
+    size_t r;
+    for (r = 0; r < sizeof res / sizeof res[0]; r++) {
+        int32_t prev = 0, pp = 0, c;
+        double worst = 0;
+        int exact = 1;
+        uint32_t i = 0;
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, res[r]);
+        fm_filter_set_cutoff(&f, 12000, rate);
+        for (c = 12000; c <= FM_FILTER_OPEN_CENTS + 200; c++, i++) {
+            int32_t x = (int32_t)lround(0.5 * 16777216.0 * sin(2 * AN_PI * 440.0 * i / SVF_RATE)), y;
+            fm_filter_set_cutoff(&f, c, rate);
+            y = fm_filter_run(&f, x);
+            if (i > 480) worst = fmax(worst, fabs((double)y - 2.0 * prev + pp));
+            if (c >= FM_FILTER_OPEN_CENTS && y != x) exact = 0;
+            pp = prev;
+            prev = y;
+        }
+        printf("    resonance %d, cutoff swept to the top: largest second difference %.5f (the sine's own %.5f); "
+               "open is a wire: %s\n", res[r], worst / 16777216.0, own / 16777216.0, exact ? "yes" : "no");
+        TT_CHECK(worst < 1.2 * own + (1 << 24) / 1000);
+        TT_CHECK(exact);
     }
-    printf("    cutoff swept to the top: largest step past the sine's own %.5f; open is a wire: %s\n",
-           worst / 16777216.0, exact ? "yes" : "no");
-    TT_CHECK(worst < (1 << 24) / 1000);
-    TT_CHECK(exact);
 }
 
 /* (k) A cutoff change starts nothing of its own: a 1-sample 3000-cent jump at resonance 935 on a
@@ -628,7 +637,9 @@ TT_TEST(svf_top_slope_is_pg8x_at_resonance_0)
 
 /* The SVF's output, bit for bit, at cutoffs on both sides of Z1_T1 (section 1's zeros on, and gone at the top
  * of the range where F's sweep spends its time) and at resonances 0, 756 and 935: a speed cut must leave it as
- * it is. One hash over golden_input (tests/test_filter.c) through each setting; taken on 2fc0c99. */
+ * it is. One hash over golden_input (tests/test_filter.c) through each setting; taken on 2fc0c99, and again
+ * with #151: resonance 0's top (12500, 13600 and 14100 here) moved on purpose; every resonance from 389 up
+ * has the coefficients it had, at every cutoff (checked on both trees, 0..14400 by 7 cents). */
 TT_TEST(svf_output_holds_bit_for_bit)
 {
     static const int16_t cuts[] = { 6769, 8717, 10844, 12500, 13600, 14100 };
@@ -649,7 +660,7 @@ TT_TEST(svf_output_holds_bit_for_bit)
             }
         }
     printf("    svf output hash 0x%08Xu\n", (unsigned)h);
-    TT_CHECK_EQ(h, 0xED82D709u);
+    TT_CHECK_EQ(h, 0xBC57AB7Du);
 }
 
 static void run_svf_tests(void)
