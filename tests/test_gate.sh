@@ -188,6 +188,18 @@ expect_ok "a CPU mean over the limit (exit 1) fails the gate: exit 1, never 0" s
 printf '[ "$1" = --tools ] && { echo "{}"; exit 0; }\necho "plain: crashed"\nexit 3\n' >"$T/cpu-stub-3.sh"
 expect_ok "any other CPU exit stops it too (exit 2)" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-3.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; r=$?; rm -rf "$1/gate/cpu"; [ $r -eq 2 ]' - "$T"
 expect_fail "and not kept" sh -c "ls '$T/gate/cpu/'*/rows.txt"
+# #179: a CPU run that exits 0 with no rows ran nothing: the gate can't pass on it, nor keep it for later
+printf '[ "$1" = --tools ] && { echo "{}"; exit 0; }\nexit 0\n' >"$T/cpu-stub-0.sh"
+expect_ok "a CPU run with no rows (exit 0) stops the gate: exit 2, never 0 (#179)" sh -c 'rm -rf "$1/gate/cpu"; env GATE_CPU="$1/cpu-stub-0.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same"; [ $? -eq 2 ]' - "$T"
+expect_ok "and says why" grep -q "no rows" "$T/out.last"
+expect_fail "and keeps nothing" sh -c "ls '$T/gate/cpu/'*/rows.txt"
+rm -rf "$T/gate/cpu"
+# and an empty rows.txt an older gate kept is run again, not shown as the rows (#179)
+stub_gate >/dev/null 2>&1
+for f in "$T"/gate/cpu/*/rows.txt; do : >"$f"; done
+expect_ok "a kept rows.txt that is empty is run again (#179)" sh -c 'env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" sh tools/gate.sh "$1/base" "$1/same" >"$1/er" && sed -n "/^head:/,\$p" "$1/er" | grep -q "^plain      F"' - "$T"
+expect_ok "and kept with its rows" sh -c 'for f in "$1"/gate/cpu/*/rows.txt; do [ -s "$f" ] || exit 1; done' - "$T"
+rm -rf "$T/gate/cpu"
 expect_ok "GATE_CPU_HINOTE=0's rows are kept apart" stub_gate GATE_CPU_HINOTE=0
 expect_ok "and another GATE_CPU_LIMIT's" sh -c 'n=$(ls -d "$1"/gate/cpu/*/ | wc -l); env GATE_CPU="$1/cpu-stub.sh" GATE_COVERAGE=0 FM1_DOCK="$1/fm1/dock" GATE_CPU_LIMIT=50 sh tools/gate.sh "$1/base" "$1/same" >/dev/null && test "$(ls -d "$1"/gate/cpu/*/ | wc -l)" -gt "$n"' - "$T"
 cp tools/gate_pad.c "$T/gate_pad.c.keep"
