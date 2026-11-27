@@ -2,6 +2,7 @@
  * the module has: the FDN4 and the plate, picked at init (the device builds one). */
 #include <math.h>
 
+#include "../engine/fm1_8p.h"
 #include "../engine/reverb.h"
 
 #define RV_RATE 44100u
@@ -219,6 +220,87 @@ TT_TEST(reverb_without_memory_is_off_and_turning_on_starts_silent)
     }
 }
 
+/* ---- in the engine ---- */
+
+static fm_engine rv_eng;
+static int16_t rv_out[RV_RATE * 2u];
+static int16_t rv_emem[24000];
+
+/* A C4 at velocity 100 for 0.5 s, then 1.5 s after its release: the summed |samples| of the last second */
+static uint32_t rv_play(int mem, int32_t mix, int chorus)
+{
+    uint32_t i, s;
+    uint64_t tail = 0;
+    if (fm_engine_init(&rv_eng, RV_RATE, 4) != FM_OK) return 0;
+    if (mem && fm_engine_set_reverb_memory(&rv_eng, rv_emem, sizeof rv_emem / sizeof rv_emem[0]) != FM_OK) return 0;
+    fm_engine_set_param(&rv_eng, FM_PARAM_CHORUS_MODE, chorus);
+    fm_engine_set_param(&rv_eng, FM_PARAM_AMP_RELEASE_MS, 50);
+    fm_engine_set_param(&rv_eng, FM_PARAM_REVERB_MIX, mix);
+    fm_engine_note_on(&rv_eng, 60, 100);
+    fm_engine_render(&rv_eng, rv_out, RV_RATE / 2u);
+    fm_engine_note_off(&rv_eng, 60);
+    for (s = 0; s < 3u; s++) {
+        fm_engine_render(&rv_eng, rv_out, RV_RATE / 2u);
+        if (s)
+            for (i = 0; i < RV_RATE; i++) tail += (uint32_t)(rv_out[i] < 0 ? -rv_out[i] : rv_out[i]);
+    }
+    return (uint32_t)(tail > 0xFFFFFFFFu ? 0xFFFFFFFFu : tail);
+}
+
+TT_TEST(reverb_params_are_ours_with_mix_off_by_default)
+{
+    const fm_param_info *m = fm_param_info_get(FM_PARAM_REVERB_MIX), *t = fm_param_info_get(FM_PARAM_REVERB_TIME_MS),
+                        *o = fm_param_info_get(FM_PARAM_REVERB_TONE);
+    TT_CHECK(m && t && o);
+    TT_CHECK(m && m->min == 0 && m->max == 100 && m->def == 0);
+    TT_CHECK(t && t->min == 300 && t->max == 10000 && t->def == 2500);
+    TT_CHECK(o && o->min == 0 && o->max == 100 && o->def == 60);
+    TT_CHECK(fm_engine_reverb_words(RV_RATE) > 0u);
+    TT_CHECK(fm_engine_reverb_words(RV_RATE) <= sizeof rv_emem / sizeof rv_emem[0]);
+}
+
+/* MIX 0, the default, renders byte for byte as with no reverb memory at all: the engine skips it */
+TT_TEST(reverb_off_renders_as_without_it)
+{
+    static int16_t a[RV_RATE * 2u];
+    uint32_t c;
+    for (c = 0; c < 2u; c++) {
+        rv_play(0, 0, (int)c);
+        memcpy(a, rv_out, sizeof a);
+        rv_play(1, 0, (int)c);
+        TT_CHECK(memcmp(a, rv_out, sizeof a) == 0);
+    }
+}
+
+/* With memory and MIX up the note rings on after its release (chorus on and off: off, the reverb makes
+ * the mono mix stereo); with no memory MIX does nothing */
+TT_TEST(reverb_on_rings_after_the_release_and_needs_its_memory)
+{
+    uint32_t c;
+    for (c = 0; c < 2u; c++) {
+        uint32_t dry = rv_play(1, 0, (int)c), wet = rv_play(1, 60, (int)c), none = rv_play(0, 60, (int)c);
+        int differ = 0, i;
+        printf("    chorus %u: the last second's |sum|: dry %u, MIX 60 %u, MIX 60 without memory %u\n", (unsigned)c,
+               (unsigned)dry, (unsigned)wet, (unsigned)none);
+        TT_CHECK(wet > dry * 4u + 1000u);
+        TT_CHECK_EQ(none, dry);
+        rv_play(1, 60, (int)c);
+        for (i = 0; i < (int)RV_RATE; i++) differ |= rv_out[2 * i] != rv_out[2 * i + 1];
+        TT_CHECK(differ);   /* stereo */
+    }
+}
+
+/* All sound off (controller 120) empties the reverb too: no tail after it */
+TT_TEST(reverb_all_sound_off_cuts_its_tail)
+{
+    uint32_t i, peak = 0;
+    rv_play(1, 60, 0);
+    fm_engine_controller(&rv_eng, 120, 0);
+    fm_engine_render(&rv_eng, rv_out, RV_RATE / 2u);
+    for (i = 0; i < RV_RATE; i++) peak |= (uint32_t)(rv_out[i] < 0 ? -rv_out[i] : rv_out[i]);
+    TT_CHECK_EQ(peak, 0u);
+}
+
 static void run_reverb_tests(void)
 {
     TT_RUN(reverb_tail_falls_60_db_in_its_time);
@@ -227,4 +309,8 @@ static void run_reverb_tests(void)
     TT_RUN(reverb_the_sides_are_decorrelated);
     TT_RUN(reverb_full_scale_input_saturates_and_does_not_wrap);
     TT_RUN(reverb_without_memory_is_off_and_turning_on_starts_silent);
+    TT_RUN(reverb_params_are_ours_with_mix_off_by_default);
+    TT_RUN(reverb_off_renders_as_without_it);
+    TT_RUN(reverb_on_rings_after_the_release_and_needs_its_memory);
+    TT_RUN(reverb_all_sound_off_cuts_its_tail);
 }

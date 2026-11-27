@@ -2,7 +2,7 @@
  * tests/ui_format_walk.h: edit the display, then make it again and review the rows that moved.
  * Each param: its id, name, the values walked (min - 2 .. max + 2), their hash, then the text at
  * its min, 1/8 .. 7/8 of the way, max and default, as "focus row | knob column". */
-#define UFW_GOLDEN_N 57u
+#define UFW_GOLDEN_N 60u
 static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
     {0, "amp_attack_ms", 32005u, 0xC4FE2AF3u, {
         "0 ms | 0 ms",             /* amp_attack_ms 0 */
@@ -687,5 +687,41 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "8.75 s | 8.75 s",         /* portamento_ms 8750 */
         "10.0 s | 10.0 s",         /* portamento_ms 10000 */
         "OFF | OFF",               /* portamento_ms 0, the default */
+    }},
+    {57, "reverb_mix_pct", 105u, 0xF58CDE38u, {
+        "0 % | 0 %",               /* reverb_mix_pct 0 */
+        "12 % | 12 %",             /* reverb_mix_pct 12 */
+        "25 % | 25 %",             /* reverb_mix_pct 25 */
+        "37 % | 37 %",             /* reverb_mix_pct 37 */
+        "50 % | 50 %",             /* reverb_mix_pct 50 */
+        "62 % | 62 %",             /* reverb_mix_pct 62 */
+        "75 % | 75 %",             /* reverb_mix_pct 75 */
+        "87 % | 87 %",             /* reverb_mix_pct 87 */
+        "100 % | 100 %",           /* reverb_mix_pct 100 */
+        "0 % | 0 %",               /* reverb_mix_pct 0, the default */
+    }},
+    {58, "reverb_time_ms", 9705u, 0xB1ED62A0u, {
+        "300 ms | 300 ms",         /* reverb_time_ms 300 */
+        "1.51 s | 1.51 s",         /* reverb_time_ms 1512 */
+        "2.73 s | 2.73 s",         /* reverb_time_ms 2725 */
+        "3.94 s | 3.94 s",         /* reverb_time_ms 3937 */
+        "5.15 s | 5.15 s",         /* reverb_time_ms 5150 */
+        "6.36 s | 6.36 s",         /* reverb_time_ms 6362 */
+        "7.58 s | 7.58 s",         /* reverb_time_ms 7575 */
+        "8.79 s | 8.79 s",         /* reverb_time_ms 8787 */
+        "10.0 s | 10.0 s",         /* reverb_time_ms 10000 */
+        "2.50 s | 2.50 s",         /* reverb_time_ms 2500, the default */
+    }},
+    {59, "reverb_tone_pct", 105u, 0xF58CDE38u, {
+        "0 % | 0 %",               /* reverb_tone_pct 0 */
+        "12 % | 12 %",             /* reverb_tone_pct 12 */
+        "25 % | 25 %",             /* reverb_tone_pct 25 */
+        "37 % | 37 %",             /* reverb_tone_pct 37 */
+        "50 % | 50 %",             /* reverb_tone_pct 50 */
+        "62 % | 62 %",             /* reverb_tone_pct 62 */
+        "75 % | 75 %",             /* reverb_tone_pct 75 */
+        "87 % | 87 %",             /* reverb_tone_pct 87 */
+        "100 % | 100 %",           /* reverb_tone_pct 100 */
+        "60 % | 60 %",             /* reverb_tone_pct 60, the default */
     }},
 };

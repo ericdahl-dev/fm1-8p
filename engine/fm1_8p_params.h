@@ -123,6 +123,12 @@ typedef enum {
     /* portamento (#62): each note glides from the last one played, the distance left falling
      * by 1/e every this many ms (PG-8X's exponential glide); 0 off */
     FM_PARAM_PORTAMENTO_MS,
+    /* the reverb's wet level after the chorus (#197), percent; 0 off (the engine skips it) */
+    FM_PARAM_REVERB_MIX,
+    /* its decay to -60 dB */
+    FM_PARAM_REVERB_TIME_MS,
+    /* its damping: 100 none, lower darker (a lowpass in the tank, 1 kHz at 0 to 16 kHz) */
+    FM_PARAM_REVERB_TONE,
     FM_PARAM_COUNT
 } fm_param_id;
 

@@ -126,7 +126,7 @@ void fm_reverb_init(fm_reverb *r, uint8_t design, uint32_t sample_rate,
     r->ph_inc[1] = fm_rate_to_phase_inc(790u, 1000u, rate, 0);  /* 0.79 Hz */
     r->ph[1] = 1u << 30;
     if (design == FM_REVERB_PLATE) {
-        for (i = 0; i < 14u; i++) r->tap[i] = scaled(PL_TAP_AT[i], rate, PLATE_RATE);
+        for (i = 0; i < 14u; i++) r->tap[i] = (uint16_t)scaled(PL_TAP_AT[i], rate, PLATE_RATE);
         r->exc = scaled(PL_EXC, rate, PLATE_RATE);
     }
     r->ready = 1;

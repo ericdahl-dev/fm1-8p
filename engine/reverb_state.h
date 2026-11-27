@@ -46,7 +46,7 @@ typedef struct {
     uint32_t exc;       /* the plate: its allpasses' excursion, samples */
     int32_t yl, yr;     /* the plate: the newest output pair */
     int32_t pl, pr;     /* the plate: the one before it */
-    uint32_t tap[14];   /* the plate's output taps, scaled to its rate */
+    uint16_t tap[14];   /* the plate's output taps, scaled to its rate */
     fm_rv_line line[FM_REVERB_LINES];
 } fm_reverb;
 

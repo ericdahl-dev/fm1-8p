@@ -43,6 +43,14 @@ typedef struct {
 int render_midi_file(const char *midi_path, const char *wav_path,
                      const render_opts *o);
 
+/*
+ * Gives `e` its reverb's memory (#197), sized for `sample_rate`, from one
+ * buffer kept for the process (grown when a higher rate needs more; an
+ * engine given it before keeps it until its next init). 0, or -1 when out
+ * of memory.
+ */
+int render_give_reverb(fm_engine *e, uint32_t sample_rate);
+
 /* What a render used, for the summary the tool prints. */
 typedef struct {
     uint32_t voice_count; /* after the default is applied */

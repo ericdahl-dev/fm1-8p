@@ -699,6 +699,39 @@ TT_TEST(render_offset_moves_a_free_dco2_and_leaves_a_synced_one)
     free(d);
 }
 
+/* #197: the renderer gives the engine its reverb's memory, so -s reverb_mix_pct=N rings on after the song
+ * (the tail); at the default 0 the render is as before */
+TT_TEST(render_gives_the_reverb_its_memory)
+{
+    render_opts o;
+    uint32_t frames, rate, i, f0 = 0;
+    uint64_t dry = 0, wet = 0;
+    int16_t *a, *b;
+    memset(&o, 0, sizeof o);
+    o.sample_rate = 44100;
+    o.tail_ms = 1500;
+    o.param_count = 1;
+    o.param_id[0] = FM_PARAM_AMP_RELEASE_MS;
+    o.param_value[0] = 20;
+    write_smf("build/rv-note.mid", one_note, sizeof one_note);
+    TT_CHECK_EQ(render_midi_file("build/rv-note.mid", "build/rv-dry.wav", &o), 0);
+    o.param_count = 2;
+    o.param_id[1] = FM_PARAM_REVERB_MIX;
+    o.param_value[1] = 60;
+    TT_CHECK_EQ(render_midi_file("build/rv-note.mid", "build/rv-wet.wav", &o), 0);
+    a = read_wav_pcm("build/rv-dry.wav", &frames, &rate);
+    b = read_wav_pcm("build/rv-wet.wav", &f0, &rate);
+    TT_CHECK(a != NULL && b != NULL && frames == f0);
+    for (i = frames - 44100u; a && b && i < frames; i++) {   /* the last second: the tail */
+        dry += (uint64_t)abs(a[2 * i]);
+        wet += (uint64_t)abs(b[2 * i]);
+    }
+    free(a);
+    free(b);
+    printf("    the last second's |sum|: dry %llu, reverb 60 %% %llu\n", (unsigned long long)dry, (unsigned long long)wet);
+    TT_CHECK(wet > dry * 10u + 1000u);
+}
+
 static void run_host_tests(void)
 {
     TT_RUN(slurp_fails_cleanly_on_missing_and_empty_files);
@@ -709,6 +742,7 @@ static void run_host_tests(void)
     TT_RUN(render_at_the_device_gain_is_the_engines_render_louder);
     TT_RUN(same_midi_file_renders_byte_identical_wav);
     TT_RUN(render_offset_moves_a_free_dco2_and_leaves_a_synced_one);
+    TT_RUN(render_gives_the_reverb_its_memory);
     TT_RUN(render_rejects_bad_input);
     TT_RUN(smf_accepts_a_well_formed_file);
     TT_RUN(smf_rejects_header_longer_than_file);
