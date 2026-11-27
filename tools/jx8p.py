@@ -615,8 +615,11 @@ def to_engine(tone):
     e["PITCH_ENV_SOURCE"] = 1 if src == ENV2 else 0   # as MIX ENV's
     e["PITCH_ENV_DYNA"] = switch(p[DCO_DYNA])     # the engine's DYNAMICS curve (engine/dyna.c)
     e["OSC_MIX_ENV_DYNA"] = switch(p[MIX_DYNA])  # the MIX ENV depth times the DYNAMICS share
-    # waiting for LFO to cutoff and filter velocity (#8), a VCA level
-    e["FILTER_LFO_PERMILLE"] = permille(p[VCF_LFO])
+    # VCF LFO (#172): 43 cents a step at full LFO, each way, summed before the cutoff curve as PG-8X
+    # 2.0.13 does (its swing grows with VCF FREQ). #98 read 0.37 st a step; the match harness on 25ff44a
+    # (FREQ 64 and 80, bytes 16..64) read PG-8X's swing 1.16 times 37 cents a step's, with VCF ENV
+    # matched there, so the scale is the LFO's own
+    e["LFO_CUTOFF_CENTS"] = rnd(43 * p[VCF_LFO])
     e["FILTER_ENV_DYNA"] = switch(p[VCF_DYNA])    # the engine's DYNAMICS curve (engine/dyna.c)
     e["AMP_LEVEL_PERMILLE"] = amp_level_permille(p[VCA_LEVEL])
     return e

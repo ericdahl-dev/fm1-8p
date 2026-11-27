@@ -66,8 +66,8 @@ typedef enum {
     PATCH_OSC_MIX_ENV_SOURCE,
     /* MIX DYNAMICS: 0 off .. 3 */
     PATCH_OSC_MIX_ENV_DYNA,
-    /* waits #8: LFO to cutoff */
-    PATCH_FILTER_LFO_PERMILLE,
+    /* VCF LFO: the LFO to the cutoff, cents each way at full (#172) */
+    PATCH_LFO_CUTOFF_CENTS,
     /* VCF DYNAMICS: 0 off .. 3 */
     PATCH_FILTER_ENV_DYNA,
     /* ENV-2 KEY: 260 per mille a position (#60) */

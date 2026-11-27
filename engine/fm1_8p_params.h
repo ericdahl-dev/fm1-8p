@@ -123,6 +123,11 @@ typedef enum {
     /* portamento (#62): each note glides from the last one played, the distance left falling
      * by 1/e every this many ms (PG-8X's exponential glide); 0 off */
     FM_PARAM_PORTAMENTO_MS,
+    /* the VCF LFO (#172): the LFO at full moves the cutoff this many cents each way */
+    FM_PARAM_LFO_CUTOFF_CENTS,
+    /* the mod wheel (CC1) at full adds this to the VCF LFO's depth (#172; 0: the JX-8P has no
+     * wheel) */
+    FM_PARAM_WHEEL_CUTOFF_CENTS,
     FM_PARAM_COUNT
 } fm_param_id;
 

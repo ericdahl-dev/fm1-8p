@@ -322,9 +322,11 @@ static void apply_param(fm_engine *e, uint16_t id);
 /* The LFO's route depths: the patch's, plus the wheel's share. Pitch in
  * cents -> Q16.16 octaves (exact for multiples of 75 cents); osc 2 has its
  * own depth, or (-1) osc 1's. Pulse width in percent -> Q0.32, at most
- * 0.49 in all. */
+ * 0.49 in all. The cutoff in cents (#172): a voice it reaches is busy, so
+ * its cutoff follows the LFO at the control rate (update_cutoff). */
 static void lfo_routes(fm_engine *e)
 {
+    uint8_t i;
     int32_t add = e->params[FM_PARAM_WHEEL_PITCH_CENTS] * e->wheel / WHEEL_FULL;
     int32_t c1 = e->params[FM_PARAM_LFO_PITCH_CENTS];
     int32_t c2 = e->params[FM_PARAM_LFO_PITCH_OSC2_CENTS];
@@ -338,6 +340,11 @@ static void lfo_routes(fm_engine *e)
                      (c2 + add) * 65536 / 1200);
     fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_PW,
                      pw * 42949673);
+    fm_mod_set_route(&e->mod.routes, FM_MOD_SRC_LFO, FM_MOD_CUTOFF,
+                     e->params[FM_PARAM_LFO_CUTOFF_CENTS] +
+                         e->params[FM_PARAM_WHEEL_CUTOFF_CENTS] * e->wheel / WHEEL_FULL);
+    for (i = 0; i < e->voice_count; i++)
+        fm_voice_mark(&e->voices[i], FM_BUSY_CUTOFF, 1);
 }
 
 /* A control tick while the wheel moves: one step of its smoothing. */
@@ -542,6 +549,8 @@ static void apply_param(fm_engine *e, uint16_t id)
     case FM_PARAM_LFO_PITCH_OSC2_CENTS:
     case FM_PARAM_WHEEL_PITCH_CENTS:
     case FM_PARAM_WHEEL_PW_PCT:
+    case FM_PARAM_LFO_CUTOFF_CENTS:
+    case FM_PARAM_WHEEL_CUTOFF_CENTS:
         lfo_routes(e);
         return;
     case FM_PARAM_PITCH_ENV_OSC1_CENTS: /* cents -> Q16.16 octaves */

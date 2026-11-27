@@ -531,10 +531,12 @@ class MapTest(unittest.TestCase):
             self.assertEqual(e["OSC1_LEVEL_PERMILLE"], 0, name)
             self.assertEqual(abs(e["OSC_MIX_ENV_PERMILLE"]), 1000, name)
 
-    # Kept for LFO to cutoff (#8)
-    def test_other_features_the_engine_lacks_are_kept_for_later(self):
-        e = patch("SOUNDTRACK")
-        self.assertEqual(e["FILTER_LFO_PERMILLE"], 0)
+    # VCF LFO (#172): the LFO at full moves the cutoff 43 cents a step each way. PG-8X 2.0.13's swing is
+    # 1.16 times 37 cents a step's (the match harness on 25ff44a, FREQ 64 and 80, bytes 16..64: 1.160,
+    # sd 0.017), where VCF ENV already matches within about 1 % (so the cutoff curve isn't it)
+    def test_vcf_lfo_moves_the_cutoff_43_cents_a_step(self):
+        depth = {b: patch_with("SOUNDTRACK", VCF_LFO=b)["LFO_CUTOFF_CENTS"] for b in (0, 16, 24, 127)}
+        self.assertEqual(depth, {0: 0, 16: 688, 24: 1032, 127: 5461})
 
 
 class RangeTest(unittest.TestCase):

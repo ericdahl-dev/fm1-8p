@@ -140,6 +140,10 @@ PARAMS = [
     P(56, 'PORTAMENTO_MS', 'portamento_ms', '0', '10000', '0', 56,
       'portamento (#62): each note glides from the last one played, the distance left falling by 1/e '
       'every this many ms (PG-8X\'s exponential glide); 0 off'),
+    P(57, 'LFO_CUTOFF_CENTS', 'lfo_cutoff_cents', '0', '5600', '0', 57,
+      'the VCF LFO (#172): the LFO at full moves the cutoff this many cents each way'),
+    P(58, 'WHEEL_CUTOFF_CENTS', 'wheel_cutoff_cents', '0', '5600', '0', 58,
+      'the mod wheel (CC1) at full adds this to the VCF LFO\'s depth (#172; 0: the JX-8P has no wheel)'),
 ]
 
 
@@ -199,7 +203,7 @@ PATCH_FIELDS = [
     F('OSC_MIX_ENV_PERMILLE', 'OSC_MIX_ENV', (30, 32), "MIX ENV: the mix's change at the envelope's peak"),
     F('OSC_MIX_ENV_SOURCE', 'OSC_MIX_ENV_SOURCE', (32,), '0 filter envelope, 1 amp envelope'),
     F('OSC_MIX_ENV_DYNA', 'OSC_MIX_ENV_DYNA', (31,), 'MIX DYNAMICS: 0 off .. 3'),
-    F('FILTER_LFO_PERMILLE', None, (36,), 'waits #8: LFO to cutoff', lo=0, hi=1000, waits='#8'),
+    F('LFO_CUTOFF_CENTS', 'LFO_CUTOFF_CENTS', (36,), 'VCF LFO: the LFO to the cutoff, cents each way at full (#172)'),
     F('FILTER_ENV_DYNA', 'FILTER_ENV_DYNA', (39,), 'VCF DYNAMICS: 0 off .. 3'),
     F('AMP_KEY_FOLLOW_PERMILLE', 'AMP_KEY_FOLLOW', (56,), 'ENV-2 KEY: 260 per mille a position (#60)'),
     F('FILTER_ENV_KEY_FOLLOW_PERMILLE', 'FILTER_ENV_KEY_FOLLOW', (51,), "the filter envelope's (ENV-1 KEY, or ENV-2's)"),
@@ -304,6 +308,8 @@ DISPLAY = {
     'WHEEL_PW_PCT': D('PLAIN', '%'),
     'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
     'PORTAMENTO_MS': D('MS_S', '', ('OFF',)),
+    'LFO_CUTOFF_CENTS': D('PLAIN', 'ct'),
+    'WHEEL_CUTOFF_CENTS': D('PLAIN', 'ct'),
 }
 
 

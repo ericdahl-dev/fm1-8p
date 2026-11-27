@@ -74,6 +74,23 @@ TT_TEST(wheel_full_adds_its_amount_to_the_vibrato)
     TT_CHECK(wh_same(WH_RATE / 2));
 }
 
+/* The cutoff (#172): the wheel adds wheel_cutoff_cents to the VCF LFO's depth; 0 by default, so the
+ * wheel moves no cutoff until a patch sets it (the JX-8P has no wheel of its own). */
+TT_TEST(wheel_adds_its_cutoff_amount_to_the_vcf_lfo)
+{
+    TT_CHECK_EQ(fm_param_info_get(FM_PARAM_WHEEL_CUTOFF_CENTS)->def, 0);
+    wh_setup(&wh_a);
+    fm_engine_set_param(&wh_a, FM_PARAM_LFO_CUTOFF_CENTS, 300);
+    fm_engine_set_param(&wh_a, FM_PARAM_WHEEL_CUTOFF_CENTS, 600);
+    TT_CHECK_EQ(wh_route(&wh_a, FM_MOD_CUTOFF), 300);
+    fm_engine_controller(&wh_a, 1, 127);
+    fm_engine_render(&wh_a, wh_buf_a, WH_SETTLE);
+    TT_CHECK_EQ(wh_route(&wh_a, FM_MOD_CUTOFF), 900);
+    fm_engine_controller(&wh_a, 1, 0);
+    fm_engine_render(&wh_a, wh_buf_a, WH_SETTLE);
+    TT_CHECK_EQ(wh_route(&wh_a, FM_MOD_CUTOFF), 300);
+}
+
 /* Pulse width: the patch's depth plus the wheel's, at most the route's 49 %. */
 TT_TEST(wheel_adds_pulse_width_up_to_its_limit)
 {
@@ -163,6 +180,7 @@ static void run_wheel_tests(void)
     TT_RUN(wheel_at_zero_changes_nothing);
     TT_RUN(wheel_full_adds_its_amount_to_the_vibrato);
     TT_RUN(wheel_adds_pulse_width_up_to_its_limit);
+    TT_RUN(wheel_adds_its_cutoff_amount_to_the_vcf_lfo);
     TT_RUN(wheel_move_is_smoothed);
     TT_RUN(reset_all_controllers_puts_the_wheel_back);
     TT_RUN(wheel_move_does_not_depend_on_the_block_size);

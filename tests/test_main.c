@@ -26,6 +26,7 @@
 #include "test_lfo.c"
 #include "test_mod.c"
 #include "test_wheel.c"
+#include "test_vcf_lfo.c"
 #include "test_mod_dest.c"
 #include "test_filter.c"
 #include "test_busy.c"
@@ -70,6 +71,7 @@ int main(void)
     run_lfo_tests();
     run_mod_tests();
     run_wheel_tests();
+    run_vcf_lfo_tests();
     run_mod_dest_tests();
     run_filter_tests();
     run_busy_tests();

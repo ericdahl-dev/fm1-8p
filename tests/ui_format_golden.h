@@ -2,7 +2,7 @@
  * tests/ui_format_walk.h: edit the display, then make it again and review the rows that moved.
  * Each param: its id, name, the values walked (min - 2 .. max + 2), their hash, then the text at
  * its min, 1/8 .. 7/8 of the way, max and default, as "focus row | knob column". */
-#define UFW_GOLDEN_N 57u
+#define UFW_GOLDEN_N 59u
 static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
     {0, "amp_attack_ms", 32005u, 0xC4FE2AF3u, {
         "0 ms | 0 ms",             /* amp_attack_ms 0 */
@@ -687,5 +687,29 @@ static const ufw_row UFW_GOLDEN[UFW_GOLDEN_N] = {
         "8.75 s | 8.75 s",         /* portamento_ms 8750 */
         "10.0 s | 10.0 s",         /* portamento_ms 10000 */
         "OFF | OFF",               /* portamento_ms 0, the default */
+    }},
+    {57, "lfo_cutoff_cents", 5605u, 0xE4EE8222u, {
+        "0 ct | 0 ct",             /* lfo_cutoff_cents 0 */
+        "700 ct | 700 ct",         /* lfo_cutoff_cents 700 */
+        "1400 ct | 1400 ct",       /* lfo_cutoff_cents 1400 */
+        "2100 ct | 2100 ct",       /* lfo_cutoff_cents 2100 */
+        "2800 ct | 2800 ct",       /* lfo_cutoff_cents 2800 */
+        "3500 ct | 3500 ct",       /* lfo_cutoff_cents 3500 */
+        "4200 ct | 4200 ct",       /* lfo_cutoff_cents 4200 */
+        "4900 ct | 4900 ct",       /* lfo_cutoff_cents 4900 */
+        "5600 ct | 5600 ct",       /* lfo_cutoff_cents 5600 */
+        "0 ct | 0 ct",             /* lfo_cutoff_cents 0, the default */
+    }},
+    {58, "wheel_cutoff_cents", 5605u, 0xE4EE8222u, {
+        "0 ct | 0 ct",             /* wheel_cutoff_cents 0 */
+        "700 ct | 700 ct",         /* wheel_cutoff_cents 700 */
+        "1400 ct | 1400 ct",       /* wheel_cutoff_cents 1400 */
+        "2100 ct | 2100 ct",       /* wheel_cutoff_cents 2100 */
+        "2800 ct | 2800 ct",       /* wheel_cutoff_cents 2800 */
+        "3500 ct | 3500 ct",       /* wheel_cutoff_cents 3500 */
+        "4200 ct | 4200 ct",       /* wheel_cutoff_cents 4200 */
+        "4900 ct | 4900 ct",       /* wheel_cutoff_cents 4900 */
+        "5600 ct | 5600 ct",       /* wheel_cutoff_cents 5600 */
+        "0 ct | 0 ct",             /* wheel_cutoff_cents 0, the default */
     }},
 };
