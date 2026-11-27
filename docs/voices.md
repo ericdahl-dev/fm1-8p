@@ -31,6 +31,12 @@ On a note on, in this order:
 3. **Idle voice.** Otherwise an idle voice takes it: the one whose last note
    on or off was longest ago (least recently used). A voice never played
    counts as the longest ago, so new notes use every voice before reusing one.
+   An idle voice's filter envelope and envelope 2 keep releasing, and its
+   next note, this key or another, attacks from where they then are, as on
+   PG-8X 2.0.13 ([#396](https://github.com/ericdahl-dev/fm1-8p/issues/396),
+   measured 2026-11-26): a tone with a short amp release and a long filter
+   release starts a note on a played voice as open as that release has left
+   it. All sound off starts them from 0 again.
 4. **Steal.** Otherwise a sounding voice is stolen. The engine takes the
    first non-empty group, and within it the voice whose last note on or off
    was longest ago:

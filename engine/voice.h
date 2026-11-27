@@ -123,7 +123,9 @@ static inline int fm_voice_key_holds(const fm_voice *v, uint8_t note)
  *
  * Plays `note` at `pitch` (Q16.16 semitones) with amp envelope peak
  * `peak` (Q1.30, from its MIDI `velocity`, which the voice keeps for the
- * DYNAMICS of its other depths). An idle voice starts it from silence. A
+ * DYNAMICS of its other depths). An idle voice starts it from silence,
+ * its filter envelope and envelope 2 from wherever their releases have
+ * come to (#396, fm_voice_idle_pass). A
  * sounding voice, on the same note or another (a steal), starts it at once
  * from the levels its envelopes are at, as PG-8X 2.0.13 does: no fade, and
  * the filter envelope carries on from where it is. A steal starts the LFO's
