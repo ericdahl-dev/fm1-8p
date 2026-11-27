@@ -6,6 +6,14 @@ import os
 SR = 48000
 
 
-def render_command(tree, args, mid, path):
-    """The argv that renders MID to PATH with TREE's renderer and the tone's ARGS (its -s settings)."""
-    return [os.path.join(tree, "build", "fm1-8p-render"), "-r", str(SR), "-t", "3000", "-v", "6", *args, mid, path]
+# s12 (#382): ours are scored over draws with DCO-2 started these thousandths of a cycle on (fm1-8p-render
+# -o): an eighth of a cycle apart, they cancel a slow beat's cross term for its first 7 harmonics
+OFFSETS_MILLI = (0, 125, 250, 375, 500, 625, 750, 875)
+
+
+def render_command(tree, args, mid, path, offset_milli=None):
+    """The argv that renders MID to PATH with TREE's renderer and the tone's ARGS (its -s settings); with
+    OFFSET_MILLI, DCO-2 started that far on (-o)."""
+    o = [] if offset_milli is None else ["-o", str(offset_milli)]
+    return [os.path.join(tree, "build", "fm1-8p-render"), "-r", str(SR), "-t", "3000", "-v", "6", *o, *args,
+            mid, path]

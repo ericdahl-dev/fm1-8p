@@ -18,9 +18,10 @@ def vlq(n):
     return bytes(out)
 
 
-def smf(notes, other=()):
+def smf(notes, other=(), lead=0):
     """A format-0 file of (note, start s, end s, velocity) on channel 1, plus `other`: (time s, status,
-    data1, data2) channel messages (controllers, pitch bend)."""
+    data1, data2) channel messages (controllers, pitch bend); with `lead`, every event that many ticks
+    later (a PG-8X reference draw at another beat phase: tools/scorecard.py, #382)."""
     ev = []
     for note, s, e, v in notes:
         ev.append((round(s * TPS), 1, bytes([0x90, note, v])))
@@ -28,7 +29,7 @@ def smf(notes, other=()):
     for t, st, d1, d2 in other:
         ev.append((round(t * TPS), 2, bytes([st, d1, d2])))
     ev.sort(key=lambda x: (x[0], x[1]))
-    body, now = b"", 0
+    body, now = b"", -lead
     for t, _, msg in ev:
         body += vlq(t - now) + msg
         now = t
