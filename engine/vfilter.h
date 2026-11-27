@@ -55,8 +55,16 @@ void fm_vfilter_set_key(fm_vfilter *vf, uint8_t note);
  * note), keeping the settings and the cutoff. */
 void fm_vfilter_clear(fm_vfilter *vf);
 
-/* Resonance, per mille: at once (fm_filter_set_resonance). */
+/* Resonance, per mille: at once (fm_filter_set_resonance), for a voice that isn't sounding. */
 void fm_vfilter_set_resonance(fm_vfilter *vf, int32_t permille);
+
+/* Resonance on a sounding voice (fm_filter_turn_resonance): at once but for the resonant top's handover
+ * (#168), which fm_vfilter_handover_step then moves, a step a control point. */
+void fm_vfilter_turn_resonance(fm_vfilter *vf, int32_t permille);
+
+/* The handover where its resonance says, at once (a note starts on a voice that wasn't sounding). Returns 1 if
+ * the filter was set. */
+int fm_vfilter_handover_snap(fm_vfilter *vf);
 
 /* The highpass position 0..4 (fm_filter_set_highpass): at once. */
 void fm_vfilter_set_highpass(fm_vfilter *vf, uint8_t step);
@@ -126,6 +134,19 @@ static inline uint8_t fm_vfilter_phase(const fm_vfilter *vf)
 static inline const fm_filter *fm_vfilter_filter(const fm_vfilter *vf)
 {
     return &vf->f;
+}
+
+/* Nonzero while the resonant top's handover is on its way (fm_filter_handover_moving). */
+static inline int fm_vfilter_handover_moving(const fm_vfilter *vf)
+{
+    return fm_filter_handover_moving(&vf->f);
+}
+
+/* A control point: the handover one step on if it is on its way (fm_filter_handover_step: 0 if not, else 1,
+ * plus 2 while there is further to go). The compare is inline; the step is control-rate flash code. */
+static inline int fm_vfilter_handover_step(fm_vfilter *vf)
+{
+    return fm_filter_handover_moving(&vf->f) ? fm_filter_handover_step(&vf->f) : 0;
 }
 
 /* Nonzero while the filter is a wire. */

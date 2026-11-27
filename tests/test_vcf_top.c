@@ -232,13 +232,19 @@ static void vt_against(int32_t cutoff, int32_t resonance, const double *pg, doub
  * - Resonance 45 (RES 2) at FREQ 120: over half the fade is still there (7.22 dB under; 12.1 with it handed
  *   over as 1 - 20 w, gone by resonance 23). Within 10 dB.
  * And none is more than 6 dB over PG-8X's.
+ *
+ * Re-pinned with #168: resonance 180, 290 and 340 are the resonant top's now (from resonance 112 all of it),
+ * and the sections' shortfall is gone: h37 reads 0.02, 0.25 and 0.36 dB under PG-8X's (it was 8.92, 11.13 and
+ * 12.15), so their bounds are 1.5 dB under and 1.5 over, and they no longer tell this top's fade apart. The
+ * row at resonance 45 still does, and the low top's coefficients up to resonance 90 are held to the base's
+ * in tests/test_res_top.c (res_top_leaves_the_low_resonance_top_as_it_was).
  */
 TT_TEST(vcf_top_low_resonance_keeps_its_top_harmonic)
 {
     static const struct { int32_t res, cut; double pg[VT_HARMONICS], under; } row[] = {
-        { 290, 12923, { +0.91, +2.23, +0.81, -4.47, -8.94 }, 13.0 },
-        { 340, 12923, { +1.18, +3.23, +2.41, -3.41, -8.33 }, 13.0 },
-        { 180, 12923, { +0.25, +0.08, -2.34, -6.80, -10.44 }, 12.0 },
+        { 290, 12923, { +0.91, +2.23, +0.81, -4.47, -8.94 }, 1.5 },
+        { 340, 12923, { +1.18, +3.23, +2.41, -3.41, -8.33 }, 1.5 },
+        { 180, 12923, { +0.25, +0.08, -2.34, -6.80, -10.44 }, 1.5 },
         { 45, 13752, { -0.09, -0.35, -0.94, -1.88, -2.80 }, 10.0 },
     };
     size_t r;
@@ -246,7 +252,7 @@ TT_TEST(vcf_top_low_resonance_keeps_its_top_harmonic)
         double under, over;
         vt_against(row[r].cut, row[r].res, row[r].pg, &under, &over);
         TT_CHECK(under < row[r].under);
-        TT_CHECK(over < 6.0);
+        TT_CHECK(over < (row[r].res >= 112 ? 1.5 : 6.0));
     }
 }
 
@@ -256,14 +262,19 @@ TT_TEST(vcf_top_low_resonance_keeps_its_top_harmonic)
  * filter): its peak is up there. With the stop held under the short fade ours reads 6.0 dB under it; giving way
  * to none at open, 1.63. No harmonic read is more than 4 dB under PG-8X's or 5 over (h31 is 3.60 over: the
  * peak's height, #168's).
+ *
+ * Re-pinned with #168: resonance 290 is the resonant top's now, which has no f0 stop and no fade, and it
+ * reads PG-8X's within 0.11 dB here (1.63 under and 3.60 over before): within 1 dB either way. The give-way
+ * itself is still this top's up to resonance 90, where its coefficients are held to the base's
+ * (tests/test_res_top.c, res_top_leaves_the_low_resonance_top_as_it_was: the give-way taken out moves them).
  */
 TT_TEST(vcf_top_f0_stop_gives_way_near_open_at_low_resonance)
 {
     static const double pg[VT_HARMONICS] = { +0.40, +1.32, +2.64, +3.69, +3.95 };
     double under, over;
     vt_against(14030, 290, pg, &under, &over);
-    TT_CHECK(under < 4.0);
-    TT_CHECK(over < 5.0);
+    TT_CHECK(under < 1.0);
+    TT_CHECK(over < 1.0);
 }
 
 static void run_vcf_top_tests(void)

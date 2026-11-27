@@ -41,6 +41,18 @@ void fm_vfilter_set_resonance(fm_vfilter *vf, int32_t permille)
     fm_filter_set_resonance(&vf->f, permille);
 }
 
+void fm_vfilter_turn_resonance(fm_vfilter *vf, int32_t permille)
+{
+    fm_filter_turn_resonance(&vf->f, permille);
+}
+
+int fm_vfilter_handover_snap(fm_vfilter *vf)
+{
+    if (!fm_filter_handover_moving(&vf->f)) return 0;
+    fm_filter_set_resonance(&vf->f, vf->f.res);
+    return 1;
+}
+
 void fm_vfilter_set_highpass(fm_vfilter *vf, uint8_t step)
 {
     fm_filter_set_highpass(&vf->f, step, vf->rate_cents);
@@ -48,7 +60,8 @@ void fm_vfilter_set_highpass(fm_vfilter *vf, uint8_t step)
 
 int fm_vfilter_at_rest(const fm_vfilter *vf)
 {
-    return fm_filter_voice_cents(vf->base, vf->key_track, vf->key, 0) == vf->cutoff;
+    return fm_filter_voice_cents(vf->base, vf->key_track, vf->key, 0) == vf->cutoff &&
+           !fm_filter_handover_moving(&vf->f);
 }
 
 int fm_vfilter_update(fm_vfilter *vf, int32_t mod_cents)

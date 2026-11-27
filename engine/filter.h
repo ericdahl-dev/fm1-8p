@@ -41,6 +41,9 @@ typedef struct {
     int16_t res;  /* resonance as set, per mille */
     int16_t cut;  /* lowpass cutoff as set (clamped), cents */
     int16_t rate; /* rate_cents it was set with (0: not yet) */
+    /* how much of the resonant top's handover plays, 0..FM_FILTER_UR_ONE (below): where the resonance says,
+     * or on its way there on a sounding voice (in the struct's padding: fm_filter is no larger for it) */
+    int16_t ur;
 } fm_filter;
 
 /* Pitch of the sample rate in cents above MIDI note 0. Computed once
@@ -79,10 +82,45 @@ void fm_filter_clear(fm_filter *f);
 void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
                           int32_t rate_cents);
 
+/*
+ * The resonant top's handover (#168, filter.c). Up to resonance FM_FILTER_TOP_RES_LO the top of the cutoff
+ * range is the one below (it fades to the input: an open cutoff is a wire); from FM_FILTER_TOP_RES_HI it is
+ * PG-8X's resonant top (no fade: an open cutoff keeps the resonance's level cut and is not a wire); between,
+ * linear. f->ur is how much of it plays, in FM_FILTER_UR_ONE.
+ *
+ * The handover is 22 per mille wide and takes the output from a wire to a filter, and a RES knob step is 10:
+ * taken at once that is a click (4.8 % of the output's peak for 90 -> 100 at an open cutoff). So a resonance
+ * turned on a sounding voice (fm_filter_turn_resonance) leaves f->ur where it plays, and
+ * fm_filter_handover_step, once a control point, moves it FM_FILTER_UR_STEP at most: all of it in 32 control
+ * points (512 samples, 11.6 ms at 44.1 kHz), about PG-8X's own 16 ms glide of a setting.
+ */
+#define FM_FILTER_TOP_RES_LO 90
+#define FM_FILTER_TOP_RES_HI 112
+#define FM_FILTER_UR_ONE 16368                  /* 744 a per mille of the handover's 22 */
+#define FM_FILTER_UR_STEP (FM_FILTER_UR_ONE / 32 + 1)
+
+/* Where f->ur goes: the handover at the resonance as set. */
+static inline int32_t fm_filter_ur_target(const fm_filter *f)
+{
+    int32_t r = f->res - FM_FILTER_TOP_RES_LO;
+    return r <= 0 ? 0 : r >= FM_FILTER_TOP_RES_HI - FM_FILTER_TOP_RES_LO ? FM_FILTER_UR_ONE
+         : r * (FM_FILTER_UR_ONE / (FM_FILTER_TOP_RES_HI - FM_FILTER_TOP_RES_LO));
+}
+
+/* Nonzero while the handover is on its way (fm_filter_handover_step has steps to make). */
+static inline int fm_filter_handover_moving(const fm_filter *f)
+{
+    return f->ur != fm_filter_ur_target(f);
+}
+
 /* Resonance, per mille: the sections' Q, PG-8X 2.0.13's (0.69 at 0, 6.7
  * at 935, its RES 127), and the passband with it (Q0 / Q); past 935 on to
- * Q 13.4 at 1000, ringing long but never self-oscillating (as PG-8X). The
- * output fades to the input over the top 600 cents of cutoff.
+ * Q 13.4 at 1000, ringing long but never self-oscillating (as PG-8X). Up
+ * to resonance 90 the output fades to the input over the top 600 cents of
+ * cutoff; from 112 the top is PG-8X's resonant one (11500 cents up, at
+ * 44.1 to 48 kHz: filter.c), which does not. Set at once, the handover
+ * with it: for a voice that isn't sounding, and for anything that sets a
+ * filter up.
  *
  * At resonance 0 the top of the range is fitted to PG-8X's (#151, filter.c):
  * f0 stops at 0.306 of the rate, the sections take more damping, and the fade
@@ -92,6 +130,14 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
  * sample that changes one thing: at resonances 0 to about 100 the fade's
  * multiply runs from cutoff 12191 up, where it ran from 13801. */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
+
+/* The same on a sounding voice: every coefficient at once, as fm_filter_set_resonance, but the handover
+ * (f->ur) stays where it plays, for fm_filter_handover_step to move. */
+void fm_filter_turn_resonance(fm_filter *f, int32_t permille);
+
+/* Once a control point while fm_filter_handover_moving: the handover one step on, and the coefficients with
+ * it. Returns 0 if it was there already, else 1, plus 2 while there is further to go. Control rate. */
+int fm_filter_handover_step(fm_filter *f);
 
 /* Highpass position 0..4 (higher is clamped to 4): 0 is off (a wire),
  * then one-pole (6 dB/octave) corners at about 100, 240 and 560 Hz. 4 is
@@ -105,8 +151,9 @@ void fm_filter_set_highpass(fm_filter *f, uint8_t step, int32_t rate_cents);
  * output of the same filter computed in 64 bits. */
 int32_t fm_filter_process(fm_filter *f, int32_t in);
 
-/* Nonzero while the filter is a wire (fully open, highpass off): the one
- * place that decides it. */
+/* Nonzero while the filter is a wire (fully open, highpass off, and no
+ * more resonance than the low top's, 90: with more the open cutoff keeps
+ * PG-8X's level cut and the fade is not 0): the one place that decides it. */
 static inline int fm_filter_is_wire(const fm_filter *f)
 {
     return f->fade == 0 && f->hp_g == 0;

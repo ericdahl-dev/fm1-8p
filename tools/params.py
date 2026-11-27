@@ -76,7 +76,7 @@ PARAMS = [
     P(24, 'OSC_XMOD', 'osc_xmod_permille', '0', '1000', '0', 24,
       "per mille: osc1 bends osc2's frequency by up to +-100 %"),
     P(25, 'FILTER_CUTOFF_CENTS', 'filter_cutoff_cents', '0', 'FM_FILTER_OPEN_CENTS', 'FM_FILTER_OPEN_CENTS', 25,
-      'lowpass cutoff at note 60 with no modulation, cents above MIDI note 0 (6900 = 440 Hz); FM_FILTER_OPEN_CENTS (the maximum) is fully open'),
+      'lowpass cutoff at note 60 with no modulation, cents above MIDI note 0 (6900 = 440 Hz); FM_FILTER_OPEN_CENTS (the maximum) is fully open (a wire up to resonance 90; with more it plays PG-8X\'s VCF FREQ 127)'),
     P(26, 'FILTER_RESONANCE', 'filter_resonance_permille', '0', '1000', '0', 26,
       'per mille; 1000 self-oscillates'),
     P(27, 'FILTER_KEY_TRACK', 'filter_key_track_permille', '0', '1300', '0', 27,
