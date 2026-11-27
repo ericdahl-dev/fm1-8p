@@ -103,6 +103,7 @@ const ui_cc_move UI_CC_STANDARD[] = {
     {41, 18}, {42, 19}, {43, 61}, {44, 20}, {45, 107},                  /* MIXER */
     {52, 23}, {53, 24}, {54, 25}, {55, 26}, {56, 27}, {57, 28}, {58, 75},   /* VCF */
     {61, 21}, {62, 76}, {63, 22}, {64, 81},                             /* VCA */
+    {66, 86}, {67, 87}, {68, 89},          /* the reverb (ours, #197): CC 91, GM's reverb send, is BEND here (Kiwi's) */
     {71, 78}, {72, 40}, {73, 39},                                       /* LFO: Kiwi's LFO 1 */
     {81, 29}, {82, 30}, {83, 31}, {84, 33},                             /* ENV-1 */
     {91, 34}, {92, 35}, {93, 36}, {94, 37},                             /* ENV-2 */
@@ -142,6 +143,9 @@ const ui_slot UI_SLOTS[UI_PAGES * 4u] = {
     CHOICE(63, "DYNA", "DYNAMICS", FM_PARAM_AMP_DYNA, DYNA_ORDER),
     CHOICE(64, "CHORUS", "CHORUS", FM_PARAM_CHORUS_MODE, CHORUS_ORDER),
     PAGE(10) LIVE(65, "VEL", "VELOCITY", FM_PARAM_AMP_VELOCITY, 1, 5),               /* ours */
+    LIVE(66, "REVERB", "REVERB MIX", FM_PARAM_REVERB_MIX, 1, 5),                   /* ours: #197, after the chorus */
+    LIVE(67, "TIME", "REVERB TIME", FM_PARAM_REVERB_TIME_MS, 50, 500),
+    LIVE(68, "TONE", "REVERB TONE", FM_PARAM_REVERB_TONE, 1, 5),
     PAGE(12) TIME(81, "ATTACK", "ATTACK", FM_PARAM_FILTER_ENV_ATTACK_MS),
     TIME(82, "DECAY", "DECAY", FM_PARAM_FILTER_ENV_DECAY_MS),
     LIVE(83, "SUSTAIN", "SUSTAIN", FM_PARAM_FILTER_ENV_SUSTAIN, 10, 50),

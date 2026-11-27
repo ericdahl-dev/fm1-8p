@@ -164,7 +164,9 @@ The JX-8P numbers CHORUS 64, with the VCA, so it shares the VCA's page.
 | 63 | K3 | `amp_dyna` | DYNA | OFF, 1, 2, 3 | 1 / 1 |
 | 64 | K4 | `chorus_mode` | CHORUS | OFF, I, II (and our FAST) | 1 / 1 |
 | 65 | K1 | `amp_velocity_pct` (*ours*: the curve while DYNA is OFF) | VEL | 0..100 % (inactive unless DYNA is OFF) | 1 / 5 |
-| 66-68 | K2-K4 | reserved | | | |
+| 66 | K2 | `reverb_mix_pct` (*ours*, #197: the reverb after the chorus, a send) | REVERB | 0..100 %, 0 off | 1 / 5 |
+| 67 | K3 | `reverb_time_ms` (*ours*) | TIME | 300 ms..10.0 s, its decay to -60 dB | 50 ms / 500 ms |
+| 68 | K4 | `reverb_tone_pct` (*ours*) | TONE | 0..100 %: 100 bright (no damping), lower darker | 1 / 5 |
 
 ### 7x LFO (page 7A)
 
@@ -1240,6 +1242,9 @@ CC first.
 | 63 | VCA | DYNAMICS | 63 | 22 |
 | 64 | VCA | CHORUS | 113 | 81 |
 | 65 | VCA | VELOCITY | 65 | - |
+| 66 | VCA | REVERB MIX | 66 | 86 |
+| 67 | VCA | REVERB TIME | 67 | 87 |
+| 68 | VCA | REVERB TONE | 68 | 89 |
 | 71 | LFO | WAVEFORM | 71 | 78 |
 | 72 | LFO | DELAY TIME | 72 | 40 |
 | 73 | LFO | RATE | 73 | 39 |
