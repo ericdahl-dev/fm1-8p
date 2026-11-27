@@ -127,6 +127,10 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    if (pattern && o.osc2_offset_milli) {
+        fprintf(stderr, "-o is for a MIDI file render, not -p\n");
+        return 2;
+    }
     if (pattern) {
         if (argc - i != 1) {
             usage();

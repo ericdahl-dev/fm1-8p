@@ -527,10 +527,16 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
     if "shifts_ticks" in man:
         shas = man.get("midi_sha256s", [])
         for j, t in enumerate(shifts):
+            if isinstance(t, bool) or not isinstance(t, int) or t < 0:
+                raise SystemExit(f"scorecard: {ref}: draw {j}'s shift {t!r} is not a whole number of ticks, 0 or more")
             if j >= len(shas) or shas[j] != sha256(write_midi(work, t)):
                 raise SystemExit(f"scorecard: {ref}: draw {j} (a lead of {t} ticks) was rendered from other MIDI")
-    draw_info = {"ours_offsets_milli": list(scorecard_cmd.OFFSETS_MILLI), "pg_shifts_ticks": list(shifts)}
     names = {i: n for i, n, _ in tone_args(tree, bank)}
+    missing = [draw_file(i, j) for i in names for j in range(len(shifts))
+               if not os.path.isfile(os.path.join(ref, draw_file(i, j)))]
+    if missing:
+        raise SystemExit(f"scorecard: {ref}: no {', '.join(missing[:4])}{' ..' if len(missing) > 4 else ''}")
+    draw_info = {"ours_offsets_milli": list(scorecard_cmd.OFFSETS_MILLI), "pg_shifts_ticks": list(shifts)}
     odd = inharmonic_tones(tree, bank)
     date, ref_id = now(), man["midi_sha256"][:12]
     rows = []

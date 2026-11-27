@@ -293,6 +293,17 @@ class BeatPhaseTest(unittest.TestCase):
     def draws(self, start, k=8, **kw):
         return [self.pair(start + j / k, **kw) for j in range(k)]
 
+    # A PG-8X draw whose MIDI started LEAD ticks late (50 samples a tick at 48 kHz) is read from its own
+    # start: the same render padded with that much silence scores as the unpadded one, figure for figure
+    def test_a_draw_shifted_by_its_lead_scores_as_the_same_render_unshifted(self):
+        np = self.np
+        ours = self.draws(0.0)
+        pg = [self.pair(0.3, decay_s=8), self.pair(0.7, decay_s=8)]
+        lead = [240, 1011]
+        late = [(np.concatenate([np.zeros((50 * t, 2)), x]), self.sc.lead_seconds(t)) for x, t in zip(pg, lead)]
+        self.assertEqual(self.sc.score_tone(ours, late), self.sc.score_tone(ours, pg))
+        self.assertEqual(self.sc.ruler_noise(late), self.sc.ruler_noise(pg))
+
     def test_the_loudness_gap_over_spread_offsets_does_not_depend_on_where_they_start(self):
         pg = self.pair(0.3, beat=0.05)
         one = [self.sc.score_tone(self.pair(o, beat=0.05), pg)["loudness_gap_lu"] for o in (0.0, 0.25, 0.5)]
@@ -602,6 +613,34 @@ class RunTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as e:
             self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "h8.jsonl"), work=os.path.join(self.tmp.name, "w8"))
         self.assertIn("draw 3", str(e.exception))
+
+    # A shift is a lead of whole ticks, 0 or more: anything else stops the run before it renders
+    def test_a_shift_that_is_not_a_whole_tick_count_of_0_or_more_is_refused(self):
+        import json
+        import shutil
+        for bad in (-300, 48.0, "48"):
+            ref = os.path.join(self.tmp.name, f"badshift-{bad}")
+            shutil.copytree(self.ref, ref)
+            with open(os.path.join(ref, "manifest.json")) as fh:
+                man = json.load(fh)
+            man["shifts_ticks"][1] = bad
+            with open(os.path.join(ref, "manifest.json"), "w") as fh:
+                json.dump(man, fh)
+            with self.assertRaises(SystemExit) as e:
+                self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "hb.jsonl"),
+                            work=os.path.join(self.tmp.name, f"wb-{bad}"))
+            self.assertIn("draw 1", str(e.exception))
+
+    def test_a_reference_missing_a_draw_file_is_refused_before_rendering(self):
+        import shutil
+        ref = os.path.join(self.tmp.name, "missing")
+        shutil.copytree(self.ref, ref)
+        os.remove(os.path.join(ref, self.sc.draw_file(17, 5)))
+        work = os.path.join(self.tmp.name, "wm")
+        with self.assertRaises(SystemExit) as e:
+            self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "hm.jsonl"), work=work)
+        self.assertIn("17-5.wav", str(e.exception))
+        self.assertFalse(os.path.exists(os.path.join(work, "ours")))
 
     def test_another_bank_is_scored_and_its_rows_say_so(self):
         import json
