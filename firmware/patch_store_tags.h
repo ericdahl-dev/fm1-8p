@@ -59,4 +59,6 @@ static const uint8_t TAG_PARAM[] = {
     FM_PARAM_WHEEL_PW_PCT,   /* 54 */
     FM_PARAM_OSC1_COARSE_SEMIS,   /* 55 */
     FM_PARAM_PORTAMENTO_MS,   /* 56 */
+    FM_PARAM_LFO_CUTOFF_CENTS,   /* 57 */
+    FM_PARAM_WHEEL_CUTOFF_CENTS,   /* 58 */
 };

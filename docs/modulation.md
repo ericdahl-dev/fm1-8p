@@ -17,6 +17,8 @@ in [fixed-point.md](fixed-point.md); voices, stealing and unison in
 | `pitch_env_source` | 0..1 | 0 | the envelope it follows: 0 envelope 1 (filter), 1 envelope 2 (amp) |
 | `pitch_env_dyna` | 0..3 | 0 | DYNAMICS: 0 off, 1..3 scale the depth by velocity (`engine/dyna.c`) |
 | `lfo_pw_pct` | 0..49 | 0 | pulse width depth at full LFO, in percent of a cycle, each way |
+| `lfo_cutoff_cents` | 0..4800 | 0 | cutoff depth at full LFO, each way, in the filter envelope's cents (the VCF LFO, #172; the converter takes 37 a step, PG-8X's 0.37 st) |
+| `wheel_cutoff_cents` | 0..4800 | 0 | the mod wheel at full adds this to `lfo_cutoff_cents` (#172; 0: the JX-8P has no wheel) |
 | `amp_velocity_pct` | 0..100 | 0 | how much velocity sets the level: 0 ignores it, 100 follows the full curve |
 | `amp_gate` | 0..1 | 0 | 1: the VCA is a gate (VCA MODE GATE, #63), up in about 1.5 ms (PG-8X's fastest attack, #274) and down with a 0.6 ms time constant; the `amp_*` settings then run envelope 2 apart from it |
 
@@ -24,8 +26,8 @@ Every depth defaults to 0 and so does `amp_velocity_pct`, so a patch that
 does not set them renders byte-identical to an engine without this module
 (`zero_pitch_depth_leaves_the_output_untouched`,
 `zero_pulse_width_depth_leaves_the_output_untouched`, and the host's demo
-render). A cutoff route (`lfo_cutoff`) and filter velocity land in #8
-after the filter.
+render). The LFO reaches the cutoff with `lfo_cutoff_cents` (#172), summed
+with the filter envelope's amount before the cutoff curve.
 
 ## One LFO, a delay per voice
 
@@ -144,7 +146,7 @@ on its own, its level its share), both set at the
 when `pitch_env_dyna` is on, set every control tick); the destinations are each oscillator's pitch
 (`FM_MOD_PITCH1` and `FM_MOD_PITCH2`), pulse width, level
 (the amp envelope's peak, from velocity at full depth), cutoff (linear cents,
-summed before the cutoff curve, #253, docs/fixed-point.md; from envelope 1, or envelope 2 when `filter_env_source` is 1, at
+summed before the cutoff curve, #253, docs/fixed-point.md; from the LFO at `lfo_cutoff_cents`, #172, and from envelope 1, or envelope 2 when `filter_env_source` is 1, at
 `filter_env_amount_cents`: a negative amount is the inverted mode,
 closing the filter at full envelope) and mix (Q1.30 added to
 osc2's level, `osc2_level_permille`, from envelope 1 or 2 as `osc_mix_env_source` picks, at

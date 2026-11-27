@@ -141,11 +141,11 @@ estimate, not a measurement, are marked *est.*; Eric's listening against PG-8X d
 
 These fields are in every patch now and do nothing until their feature lands. `patch_param()`
 returns `PATCH_NONE` for them; when a feature lands, its field gets the new param in
-`PATCH_FIELDS` (`tools/params.py`) and `make generate` writes the tables again.
+`PATCH_FIELDS` (`tools/params.py`) and `make generate` writes the tables again. None waits now:
+VCF LFO, the last, landed as `LFO_CUTOFF_CENTS` (#172).
 
 | Field | From | Waits for |
 | --- | --- | --- |
-| `FILTER_LFO_PERMILLE` | VCF LFO | #8 (LFO to cutoff) |
 
 Aftertouch (#61) and portamento (#62) are not tone data on the JX-8P: they are panel settings
 (the AFTER TOUCH buttons and the PORTAMENTO switch and knob), so no factory tone carries them, and
@@ -184,7 +184,7 @@ A patch the user saves is a record of at most 248 bytes (`STORE_SLOT_BYTES`), so
 - **Damaged:** a wrong version, a length that disagrees with the count, or a record longer than the
   bytes read is an empty slot.
 <!-- generated: tools/jx8p.py from tools/params.py (make generate) -->
-- **Room:** 57 params take 186 bytes; a slot has room for 77.
+- **Room:** 59 params take 192 bytes; a slot has room for 77.
 <!-- end generated -->
 
 ### Settings (`firmware/settings_store.c`, GLO)

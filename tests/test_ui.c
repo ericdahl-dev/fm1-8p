@@ -753,7 +753,7 @@ TT_TEST(ui_vcf_slots_are_the_jx_panels)
 {
     static const struct { uint8_t num; uint16_t id; } WANT[8] = {
         {51, FM_PARAM_HIGHPASS_STEP}, {52, FM_PARAM_FILTER_CUTOFF_CENTS},
-        {53, FM_PARAM_FILTER_RESONANCE}, {54, 0},
+        {53, FM_PARAM_FILTER_RESONANCE}, {54, FM_PARAM_LFO_CUTOFF_CENTS},
         {55, FM_PARAM_FILTER_ENV_AMOUNT_CENTS}, {56, FM_PARAM_FILTER_KEY_TRACK},
         {57, FM_PARAM_FILTER_ENV_DYNA}, {58, FM_PARAM_FILTER_ENV_SOURCE},
     };
@@ -2308,7 +2308,8 @@ TT_TEST(ui_cc_leaves_the_engines_ccs_to_it)
     TT_CHECK(!ui_cc(&ui_u, 64, 127, 0));
     TT_CHECK(!ui_cc(&ui_u, 120, 0, 0));
     TT_CHECK(!ui_cc(&ui_u, 123, 0, 0));
-    TT_CHECK(!ui_cc(&ui_u, 54, 10, 0));                       /* 54 VCF LFO DEPTH: pending */
+    TT_CHECK(!ui_cc(&ui_u, 2, 10, 0));                        /* 2 AT BRI (#61): pending */
+    TT_CHECK(ui_cc(&ui_u, 54, 10, 0));                        /* 54 VCF LFO DEPTH: live (#172) */
     ui_u.set.cc_recv = 0;
     TT_CHECK(!ui_cc(&ui_u, 52, 10, 0));
 }
@@ -2850,7 +2851,10 @@ TT_TEST(ui_wheel_page_has_the_wheel_amounts)
     TT_CHECK(strcmp(num, "W1") == 0);
     ui_slot_number(w2, num);
     TT_CHECK(strcmp(num, "W2") == 0);
-    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->kind, (uint8_t)UI_RESERVED);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 2)->id, FM_PARAM_WHEEL_CUTOFF_CENTS);          /* #172 */
+    ui_slot_number(ui_page_slot(&ui_u, 2), num);
+    TT_CHECK(strcmp(num, "W3") == 0);
+    TT_CHECK_EQ(ui_page_slot(&ui_u, 3)->kind, (uint8_t)UI_RESERVED);
     before = play_get_param(&ui_p, FM_PARAM_WHEEL_PITCH_CENTS);
     ui_event(&ui_u, UI_EV_ENC | UI_ENC_KNOB1, 1, 800);
     TT_CHECK(play_get_param(&ui_p, FM_PARAM_WHEEL_PITCH_CENTS) > before);

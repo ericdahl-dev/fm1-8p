@@ -147,7 +147,7 @@ both 15 and 27.
 | 51 | K1 | `highpass_step` | HPF | BOOST, FLAT, 240 Hz, 560 Hz (JX order, #138) | 1 / 1 |
 | 52 | K2 | `filter_cutoff_cents` | CUTOFF | Hz, 3 significant digits; `OPEN` at 14400 | 100 ct / 400 ct |
 | 53 | K3 | `filter_resonance_permille` | RES | 0..100 (100 self-oscillates) | 1 / 5 |
-| 54 | K4 | LFO to cutoff (pending, #172) | LFO | -- | - |
+| 54 | K4 | `lfo_cutoff_cents` (#172): the LFO at full moves the cutoff this much each way | LFO | 0..4800 ct | 10 / 100 |
 | 55 | K1 | `filter_env_amount_cents` (its size) | ENV | 0..164 st | 1 st / 6 st |
 | 56 | K2 | `filter_key_track_permille` | KEY | 0..130 % | 1 / 10 |
 | 57 | K3 | `filter_env_dyna` | DYNA | OFF, 1, 2, 3 | 1 / 1 |
@@ -219,13 +219,14 @@ settings.
 ### 0C WHEEL (page 0C)
 
 The mod wheel's amounts (#41), on a third page of section 0 (Eric: 0B had no free knob). They have no
-PG-800 number and no CC, so they show as W1 and W2; the number jump's two digits can't reach them,
+PG-800 number and no CC, so they show as W1, W2 and W3; the number jump's two digits can't reach them,
 but LFO's ring and SELECT do. The LED window shows only the digit (a 7-segment W can't be drawn).
 
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
 | W1 | K1 | `wheel_pitch_cents`: the wheel at full adds this to the vibrato depth | PITCH | 0..1200 ct | 1 / 10 |
 | W2 | K2 | `wheel_pw_pct`: the wheel at full adds this to the PW depth | PW | 0..49 % | 1 / 5 |
+| W3 | K3 | `wheel_cutoff_cents`: the wheel at full adds this to the VCF LFO's depth (#172) | CUTOFF | 0..4800 ct | 10 / 100 |
 
 ### Units and value tables
 
@@ -1230,7 +1231,7 @@ CC first.
 | 51 | VCF | HIGHPASS | 51 | - |
 | 52 | VCF | CUTOFF | 52 | 23, 74 |
 | 53 | VCF | RESONANCE | 53 | 24, 71 |
-| 54 | VCF | LFO DEPTH (when it lands) | 54 | 25 |
+| 54 | VCF | LFO DEPTH | 54 | 25 |
 | 55 | VCF | ENV DEPTH | 55 | 26 |
 | 56 | VCF | KEY FOLLOW | 56 | 27 |
 | 57 | VCF | DYNAMICS | 57 | 28 |
