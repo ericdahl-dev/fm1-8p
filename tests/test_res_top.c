@@ -510,13 +510,16 @@ static double rt_res_step(int32_t cutoff, int32_t r1, int32_t r2)
  * A knob step into, inside or out of the handover, at cutoffs open, 14100 and 13475: the output's first frame
  * after it is within 2 % of the output's peak of where it would have been. (The low-resonance top's own
  * worst knob step, before #168: 3.7 %, at 14100 from resonance 100 to 90. Without the limit: 4.8 % at an open
- * cutoff from 90 to 100, 8.6 % at 14100 from 100 to 90.) A move clear across the handover in one go is not
- * such a step: it goes at once (res_top_move_clear_across_the_handover_goes_at_once).
+ * cutoff from 90 to 100, 8.6 % at 14100 from 100 to 90.) The last step, 110 -> 0, starts inside the handover
+ * and leaves it far behind: while the handover fades out, its sections keep the level of the tables' first
+ * resonance (112) and do not jump to resonance 0's (8.14 % with the level following the resonance). A
+ * move clear across the handover in one go is not such a step: it goes at once
+ * (res_top_move_clear_across_the_handover_goes_at_once).
  */
 TT_TEST(res_top_knob_step_makes_no_click)
 {
     static const int32_t cut[] = { FM_FILTER_OPEN_CENTS, 14100, 13475 };
-    static const int32_t step[][2] = { { 90, 100 }, { 100, 110 }, { 110, 120 }, { 120, 110 }, { 110, 100 }, { 100, 90 } };
+    static const int32_t step[][2] = { { 90, 100 }, { 100, 110 }, { 110, 120 }, { 120, 110 }, { 110, 100 }, { 100, 90 }, { 110, 0 } };
     size_t c, s;
     for (c = 0; c < sizeof cut / sizeof cut[0]; c++) {
         double worst = 0;
