@@ -66,8 +66,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 7056u     /* +292: the reverb's state (#197): 12 lines' pointer, length and write (144), its taps, gains and filters; its lines are the caller's */
-#define FM_ENGINE_BUDGET_BASE_64 7144u     /* +212 on the 64-bit layout's figure: the reverb's state, its 12 line pointers 8 B each */
+#define FM_ENGINE_BUDGET_BASE_32 6992u     /* +228: the reverb's state (#197): its lines' offsets and lengths (48), taps, gains, filters and phases; its lines are the caller's */
+#define FM_ENGINE_BUDGET_BASE_64 7040u     /* +108 on the 64-bit layout's figure: the reverb's state, its 3 pointers 8 B each, in padding the layout had */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
