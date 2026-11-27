@@ -211,7 +211,7 @@ FM_HOT_ENTRIES="fm_osc_pair_render fm_osc_pair_next fm_filter_process fm_chorus_
 # (default 12288 of fm1-dock's 16384, the rest for growth). The toolchain's own nm reads it.
 check_ram_text() {
     (
-        nm=$JIELI_TOOLCHAIN/pi32v2/bin/nm
+        nm=${FM1_NM:-$JIELI_TOOLCHAIN/pi32v2/bin/nm}
         syms=$("$nm" "$1/module_02200000.elf") || exit 1
         lo=$(echo "$syms" | awk '$3 == "_hb_rt_start" { print $1 }')
         hi=$(echo "$syms" | awk '$3 == "_hb_rt_end" { print $1 }')

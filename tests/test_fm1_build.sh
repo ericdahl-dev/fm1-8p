@@ -164,6 +164,10 @@ rt_syms 01c07001
 expect_ok   "FM1_RAM_TEXT_BUDGET moves the budget" env FM1_BUILD_LIB=1 FM1_RAM_TEXT_BUDGET=16384 JIELI_TOOLCHAIN="$T/nm/tc" sh -c '. tools/fm1-build.sh && check_ram_text "$1"' x "$T/rt/mod"
 printf '01c04000 T _hb_rt_start\n02200000 T render\n' >"$T/rt/mod/module_02200000.elf.nm"
 expect_fail "a module with no RAM text bounds fails" rtc
+rt_syms 01c06190 fm_filter_process
+expect_fail "with FM1_NM the RAM text check reads the module too (a render entry point in flash fails)" env FM1_BUILD_LIB=1 JIELI_TOOLCHAIN="$T/nm/tc2" FM1_NM="$T/nm/nm" sh -c '. tools/fm1-build.sh && check_ram_text "$1"' x "$T/rt/mod"
+rt_syms 01c06190
+expect_ok   "... and passes a good one" env FM1_BUILD_LIB=1 JIELI_TOOLCHAIN="$T/nm/tc2" FM1_NM="$T/nm/nm" sh -c '. tools/fm1-build.sh && check_ram_text "$1"' x "$T/rt/mod"
 mkdir -p "$T/nm/none" && cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/none/"
 expect_fail "a module with no linked image fails it (nm can't read it)" with_nm check_module_symbols "$T/nm/none"
 # FM1_NM: another nm reads the module and the libraries, for a host the toolchain's Linux nm can't run on
