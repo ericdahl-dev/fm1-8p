@@ -54,7 +54,8 @@ typedef enum {
     /* per mille: osc1 bends osc2's frequency by up to +-100 % */
     FM_PARAM_OSC_XMOD,
     /* lowpass cutoff at note 60 with no modulation, cents above MIDI note 0 (6900 = 440 Hz);
-     * FM_FILTER_OPEN_CENTS (the maximum) is fully open */
+     * FM_FILTER_OPEN_CENTS (the maximum) is fully open (a wire up to resonance 90; with more
+     * it plays PG-8X's VCF FREQ 127) */
     FM_PARAM_FILTER_CUTOFF_CENTS,
     /* per mille; 1000 self-oscillates */
     FM_PARAM_FILTER_RESONANCE,

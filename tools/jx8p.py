@@ -16,6 +16,7 @@ from collections import namedtuple
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import params  # noqa: E402  (tools/params.py: the param list)
 import cutoff_curve  # noqa: E402  (tools/cutoff_curve.py: VCF FREQ's curve)
+import res_top  # noqa: E402  (tools/res_top.py: the resonant top's tables, #168)
 
 Tone = namedtuple("Tone", "name params")   # params: the 59 data bytes, PG-800 / SysEx numbering
 
@@ -304,6 +305,7 @@ def generated_params():
             "firmware/patch_store_tags.h": emit_store_tags_h(),
             "firmware/ui_params.h": emit_ui_params_h(),
             "engine/cutoff_curve.h": cutoff_curve.emit_h(),
+            "engine/res_top_tables.h": res_top.emit_h(),
             "docs/patches.md": emit_patches_md()}
 
 

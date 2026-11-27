@@ -412,16 +412,20 @@ TT_TEST(svf_is_bounded_at_every_rate)
  * input, exactly. At resonance 500, and at resonance 0, whose fade starts at 12190 and whose damping moves
  * from 12510 to 12870 (#151). The first 10 ms (to 11480) are skipped, so the sweep starts well under the
  * fade's corner: a 10 % step in the fade at 12190 reads 0.0086 here. (Until #151 this compared first
- * differences after 4800 samples, which the sweep never reached.) */
+ * differences after 4800 samples, which the sweep never reached.)
+ * Re-pinned with #168: the wire at the top is the low-resonance top's, up to resonance 90, so the wire is
+ * checked at resonance 90 and 0. At resonance 500 the sweep is as smooth, but the top is PG-8X's resonant one
+ * and does not end in a wire: PG-8X keeps the resonance's level cut at VCF FREQ 127 (the sine comes out at
+ * k Q0 = 0.503 of its level there, within 2 %). */
 TT_TEST(svf_fades_to_the_wire_at_the_top)
 {
-    static const int16_t res[] = { 500, 0 };
+    static const int16_t res[] = { 500, 90, 0 };
     static fm_filter f;
     int32_t rate = fm_filter_rate_cents(SVF_RATE);
     double own = 0.5 * 16777216.0 * pow(2 * sin(AN_PI * 440.0 / SVF_RATE), 2);
     size_t r;
     for (r = 0; r < sizeof res / sizeof res[0]; r++) {
-        int32_t prev = 0, pp = 0, c;
+        int32_t prev = 0, pp = 0, c, top = 0;
         double worst = 0;
         int exact = 1;
         uint32_t i = 0;
@@ -434,13 +438,20 @@ TT_TEST(svf_fades_to_the_wire_at_the_top)
             y = fm_filter_run(&f, x);
             if (i > 480) worst = fmax(worst, fabs((double)y - 2.0 * prev + pp));
             if (c >= FM_FILTER_OPEN_CENTS && y != x) exact = 0;
+            if (c >= FM_FILTER_OPEN_CENTS + 90 && (y < 0 ? -y : y) > top) top = y < 0 ? -y : y;
             pp = prev;
             prev = y;
         }
         printf("    resonance %d, cutoff swept to the top: largest second difference %.5f (the sine's own %.5f); "
                "open is a wire: %s\n", res[r], worst / 16777216.0, own / 16777216.0, exact ? "yes" : "no");
         TT_CHECK(worst < 1.2 * own + (1 << 24) / 1000);
-        TT_CHECK(exact);
+        if (res[r] <= 90) {
+            TT_CHECK(exact);
+        } else {
+            printf("    resonance %d at open: the sine at 0.5 comes out at %.4f\n", res[r], top / 16777216.0);
+            TT_CHECK(!exact);
+            TT_CHECK(fabs(top / 16777216.0 - 0.5 * 0.503) < 0.005);
+        }
     }
 }
 
@@ -529,14 +540,20 @@ TT_TEST(svf_input_past_the_hold_is_the_hold)
     TT_CHECK_EQ(differ, 0u);
 }
 
-/* PG-8X 2.0.13 at the top: its peak re its open render (noise, as PG_ROWS) at VCF FREQ 88 and 96, the
- * engine's cutoff for them, RES 112 and 127 */
+/* PG-8X 2.0.13 at the top: its peak's gain re its open filter and where it is, at VCF FREQ 108, 112 and 116
+ * (the engine's cutoff for them), RES 112 and 127, rendered at 48 kHz.
+ * Re-pinned with #168. The rows were PG-8X's peak on noise at the cutoffs 11927 and 13022 (10.0 and 13.4 dB at
+ * 6557 and 6568 Hz; 11.3 and 14.7 at 11628 and 11610). PG-8X's noise is darker than a flat source above 8 kHz,
+ * which read its peaks low and flat up there (#168). These are source-free: a C3 saw, each harmonic re the
+ * same harmonic through PG-8X's open filter, the peak by a parabola through three harmonics, 131 Hz apart
+ * (tests/test_res_top.c's method). */
 static const struct { int16_t cut, permille; float db, hz; } PG_TOP[] = {
-    { 11927, 900, 10.0f, 6557.0f }, { 11927, 935, 13.4f, 6568.0f },
-    { 13022, 900, 11.3f, 11628.0f }, { 13022, 935, 14.7f, 11610.0f } };
+    { 12102, 900, 10.2f, 7277.0f }, { 12102, 935, 13.6f, 7291.0f },
+    { 12649, 900, 10.7f, 9706.0f }, { 12649, 935, 14.1f, 9704.0f },
+    { 13199, 900, 11.6f, 12922.0f }, { 13199, 935, 15.1f, 12879.0f } };
 
-/* Up at F88 and F96 (f0 6.6 and 11.6 kHz at 48 kHz) the resonant peak is PG-8X's: as high within 1
- * dB (the zero corrections' lift folded out of the level) and where it is within 30 cents */
+/* Up at VCF FREQ 108 to 116 (peaks at 7.3 to 12.9 kHz at 48 kHz) the resonant peak is PG-8X's: as high
+ * within 1 dB and where it is within 30 cents (the resonant top's tables, #168) */
 TT_TEST(svf_top_peaks_are_pg8x)
 {
     static fm_filter f;
@@ -564,15 +581,19 @@ TT_TEST(svf_top_peaks_are_pg8x)
     TT_CHECK(wh < 1.0 && wc < 30.0);
 }
 
-/* PG-8X 2.0.13 at VCF FREQ 104 (the engine's 14130), its peak re its open render as PG_TOP: its f0
- * goes no further than about 20.4..20.9 kHz at 48 kHz */
-static const struct { int16_t permille; float db, hz; } PG_F104[] = {
-    { 756, 8.8f, 20883.0f }, { 900, 14.2f, 20628.0f }, { 935, 17.6f, 20399.0f } };
+/* PG-8X 2.0.13 at VCF FREQ 120 and 122 (the engine's 13752 and 14030), its peak as PG_TOP's, at 48 kHz.
+ * Replaced with #168. The test was svf_top_stops_where_pg8x_does: PG-8X's peak on noise at the cutoff 14130
+ * (8.8, 14.2 and 17.6 dB at 20883, 20628 and 20399 Hz for resonance 756, 900 and 935), read as "its f0 goes
+ * no further than about 20.4..20.9 kHz". That stop was the measure's: on noise the peak read within the
+ * render's last bins. Source-free (as PG_TOP), PG-8X's peak goes on up with the cutoff and leaves the band:
+ * 17.1 kHz at FREQ 120 and 19.6 at 122 for RES 127, and past 23.5 kHz at 124. */
+static const struct { int16_t cut, permille; float db, hz; } PG_F104[] = {
+    { 13752, 795, 8.6f, 17329.0f }, { 13752, 900, 13.0f, 17196.0f }, { 13752, 935, 16.5f, 17067.0f },
+    { 14030, 795, 9.5f, 20123.0f }, { 14030, 900, 14.0f, 19845.0f }, { 14030, 935, 17.4f, 19646.0f } };
 
-/* At the very top the resonance stops where PG-8X's does: under its f0 by no more than 100 cents
- * and over it by no more than 30 (PG-8X's own peak there reads within its last bins), and no more than
- * 2 dB over its height */
-TT_TEST(svf_top_stops_where_pg8x_does)
+/* At the very top the peak goes on up where PG-8X's does: within 100 cents under it and 30 over (it is
+ * 131 Hz wide of a harmonic either way in PG-8X's own reading), and no more than 2 dB over its height */
+TT_TEST(svf_top_peak_goes_on_up_as_pg8x)
 {
     static fm_filter f;
     int32_t rate = fm_filter_rate_cents(SVF_RATE);
@@ -582,14 +603,14 @@ TT_TEST(svf_top_stops_where_pg8x_does)
         double best = -1e9, at = 0, c, h;
         fm_filter_reset(&f);
         fm_filter_set_resonance(&f, PG_F104[r].permille);
-        fm_filter_set_cutoff(&f, 14130, rate);
+        fm_filter_set_cutoff(&f, PG_F104[r].cut, rate);
         for (h = 12000.0; h < SVF_RATE / 2.0 - 50.0; h *= pow(2.0, 2 / 1200.0)) {
             double g = svf_gain_db(&f, h, SVF_RATE);
             if (g > best) best = g, at = h;
         }
         c = 1200 * log2(at / PG_F104[r].hz);
-        printf("    F104 res %d: peak %+.1f dB at %.0f Hz (PG-8X %+.1f at %.0f: %+.0f cents)\n", PG_F104[r].permille,
-               best, at, PG_F104[r].db, PG_F104[r].hz, c);
+        printf("    cutoff %d res %d: peak %+.1f dB at %.0f Hz (PG-8X %+.1f at %.0f: %+.0f cents)\n", PG_F104[r].cut,
+               PG_F104[r].permille, best, at, PG_F104[r].db, PG_F104[r].hz, c);
         wh = fmax(wh, best - PG_F104[r].db);
         wc = fmax(wc, c);
         lc = fmin(lc, c);
@@ -641,7 +662,10 @@ TT_TEST(svf_top_slope_is_pg8x_at_resonance_0)
  * it is. One hash over golden_input (tests/test_filter.c) through each setting; taken on 2fc0c99, and again
  * with #151: resonance 0's top (12500, 13600 and 14100 here) moved on purpose; every resonance from 389 up
  * has the coefficients it had, at every cutoff (checked on both trees, 0..14400 by 7 cents), and so has
- * every resonance at rates outside 44.1 to 48 kHz. */
+ * every resonance at rates outside 44.1 to 48 kHz. And again with #168 (0x75C3FD27 before): resonances 756
+ * and 935 at 12500, 13600 and 14100 moved on purpose, to the resonant top's tables; resonance 0 and every
+ * cutoff under 11500 have the coefficients they had (tests/test_res_top.c holds resonance 0, 45 and 90 to
+ * the base's from 11000 up). */
 TT_TEST(svf_output_holds_bit_for_bit)
 {
     static const int16_t cuts[] = { 6769, 8717, 10844, 12500, 13600, 14100 };
@@ -662,13 +686,17 @@ TT_TEST(svf_output_holds_bit_for_bit)
             }
         }
     printf("    svf output hash 0x%08Xu\n", (unsigned)h);
-    TT_CHECK_EQ(h, 0x75C3FD27u);
+    TT_CHECK_EQ(h, 0xAB1C5B34u);
 }
 
 /* The top's weights by resonance (#151) step no coefficient: at 44.1 and 48 kHz, cutoffs 12000..14399, from
- * each resonance 0..399 to the next per mille the sections' t moves under 0.1 and the fade under 0.008 (the
- * f0 stop's handover near its end, where tan is steep: 0.0930; the long fade's 1 - 5 w: 0.0073). Without the
- * stop's 1 - 1.25 w ramp t steps 2.85 between resonance 388 and 389. */
+ * each resonance 0..90 to the next per mille the sections' t moves under 0.1 and the fade under 0.008 (the
+ * long fade's 1 - 5 w: 0.0073).
+ * Re-pinned with #168 (it ran to resonance 399, where the f0 stop's 1 - 1.25 w ramp ends: t 0.0930 there, and
+ * 2.85 between 388 and 389 without the ramp). From resonance 90 the resonant top takes over, by 112 all of
+ * it, so this top's weights are heard only up to there; past 90 the coefficients are checked, weighed by how
+ * much the sections are heard, in tests/test_res_top.c (res_top_steps_no_coefficient), and this top is held to
+ * the base's coefficients up to 90 (res_top_leaves_the_low_resonance_top_as_it_was). */
 TT_TEST(svf_top_weights_step_no_coefficient_with_resonance)
 {
     static const uint32_t rates[] = { 44100, 48000 };
@@ -677,7 +705,7 @@ TT_TEST(svf_top_weights_step_no_coefficient_with_resonance)
     size_t r;
     for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
         int32_t rate = fm_filter_rate_cents(rates[r]), res, c, wt = 0, wf = 0;
-        for (res = 0; res <= 400; res++)
+        for (res = 0; res <= 90; res++)
             for (c = 12000; c < 14400; c++) {
                 int32_t dt, df;
                 fm_filter_reset(&f);
@@ -741,7 +769,7 @@ static void run_svf_tests(void)
     TT_RUN(svf_f0_moves_with_resonance_as_pg8x_at_f80);
     TT_RUN(svf_input_past_the_hold_is_the_hold);
     TT_RUN(svf_top_peaks_are_pg8x);
-    TT_RUN(svf_top_stops_where_pg8x_does);
+    TT_RUN(svf_top_peak_goes_on_up_as_pg8x);
     TT_RUN(svf_top_slope_is_pg8x_at_resonance_0);
     TT_RUN(svf_top_weights_step_no_coefficient_with_resonance);
     TT_RUN(svf_top_is_as_before_outside_the_fitted_rates);

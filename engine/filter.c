@@ -24,7 +24,9 @@
  * reach past 128 at the top resonance); the second's are held to +-32.0,
  * so nothing wraps, and that hold is past anything the output's own hold
  * lets out. Across the top FADE_CENTS of the cutoff the output fades to
- * the input, so the fully open filter is an exact wire. At resonance 0
+ * the input, so the fully open filter is an exact wire: that is the top
+ * of the range up to resonance 90. With more resonance the top is PG-8X's
+ * (#168, RT_C0 below): no fade, and the open cutoff is not a wire. At resonance 0
  * and 44.1 to 48 kHz the top is PG-8X's (#151): f0 stops at F0_MAX_R0 and
  * the fade is FADE0_CENTS long. (Resonance 0 plays a cent and a few LSB
  * short of those: w, how much peak, reads 2 of 2^30 there, not 0, so the
@@ -33,6 +35,7 @@
  */
 #include "filter.h"
 #include "cutoff_curve.h"
+#include "res_top_tables.h"
 
 /* Tables from tools/gen_filter_tables.py. */
 
@@ -230,6 +233,7 @@ void fm_filter_reset(fm_filter *f)
     f->a = ONE_Q30;
     f->cut = FM_FILTER_OPEN_CENTS;
     f->rate = 0;
+    f->ur = 0;
     f->fade = 0;
     f->hp_g = 0;
 }
@@ -342,7 +346,7 @@ typedef char fm_require_k_top0_ramp_fits[(int64_t)360 * K_TOP0_STEP <= K_TOP0 ? 
 /*
  * k = 1 / Q by resonance per mille: PG-8X 2.0.13's (its F49 and F64 fits'
  * mean, tests/test_svf.c), Q30, linear between. Past 935 (its RES 127,
- * the most a JX-8P patch or CC reaches) to Q 13.4 at 1000: it rings long
+ * the most a JX-8P patch reaches; the RES knob and a CC go on) to Q 13.4 at 1000: it rings long
  * and decays, as PG-8X's never self-oscillates either.
  */
 static const int16_t k_pm[14] = { 0, 290, 395, 400, 500, 575, 690, 756, 828, 860, 900, 925, 935, 1000 };
@@ -383,6 +387,65 @@ static int32_t k_of(int32_t pm)
     return k_tab[i] - k_fall[i] * (pm - k_pm[i]);    /* (within 3.5e6 x 290: 32 bits) */
 }
 
+/*
+ * The top of the range with resonance (#168). PG-8X 2.0.13's filter up there is an analog-style pair: its
+ * passband is the resonance's alone at every cutoff (it never becomes a wire: RES 64 -4.6 dB and RES 127 -20.0
+ * at VCF FREQ 127 too), its peak grows 5 dB from FREQ 100 to 122 and then leaves the band upward, and it reads
+ * the same in Hz at 44.1 and 48 kHz. The sections as they are below the top can't follow it:
+ * - section 2's zeros at the origin lift the peak by 1 + t^2 (FREQ 120, RES 127: +18.7 dB over PG-8X's 36.7);
+ * - section 1's zeros, a complex pair tapering from 5/8 of the way to the origin to none, cross the top band
+ *   as a notch (FREQ 114: 27 dB under PG-8X's at 20 kHz);
+ * - f0 stops at F0_MAX where PG-8X's goes on past Nyquist, and the fade to the input lets the level cut go
+ *   (+5 dB at RES 64 and +20 at RES 127 between FREQ 120 and 124).
+ * So from RT_C0 cents up, at the rates it is fitted for (44.1 to 48 kHz, as #151's top), and as much as the
+ * handover's weight says (below):
+ * - t, the damping k and section 1's zeros come from tables (engine/res_top_tables.h, a fit to PG-8X made
+ *   outside the repository: tools/res_top.py), bilinear between the knots, and linear between the 44.1 and 48
+ *   kHz sets for a rate between;
+ * - section 1's zeros are a real double zero, (1 + c s)^2: z3 = 2 c + c^2 and zt = t c^2. A real pair has no
+ *   notch wherever it sits;
+ * - the level is PG-8X's passband alone, k(resonance) Q0, with no trim and no lift taken out;
+ * - there is no fade to the input: the open cutoff (and everything a patch asks over it, VCF FREQ 125 up)
+ *   plays PG-8X's VCF FREQ 127, where PG-8X's own sum of cutoff sources stops.
+ * Past the tables' last resonance (935, VCF RES 127: the RES knob and a CC go on to 1000) k falls on as the
+ * engine's own does, x k(resonance) / k(935).
+ *
+ * The weight is u = u_c u_r: u_c from 0 at RT_C0 to 1 at RT_C1 of cutoff; u_r the handover in resonance, 0 up
+ * to FM_FILTER_TOP_RES_LO and 1 from FM_FILTER_TOP_RES_HI (filter.h: f->ur is how much of it plays). Every
+ * coefficient is linear in a weight, so none steps with cutoff or resonance. The fade takes u. The sections
+ * (t, k, the zeros, the level) take u / (u + (1 - u) fade): u where the old top is all there, and all the new
+ * top's where the old one is faded out and not heard (the open cutoff), so that a move of u there moves only
+ * the fade's share and not the sections under it.
+ *
+ * Flash code and flash data: nothing of this is read per sample, and nothing is in RAM but the int16 f->ur.
+ * (When the per-sample loops move to RAM text, #304: apply(), rt_read, rt_get, k_of and tan_of stay flash
+ * functions, the tables flash data, and mul_q30, which fm_filter_process uses too, must then be shared by
+ * both sides.)
+ */
+#define RT_C0 11500
+#define RT_C1 12100
+typedef char fm_require_rt_cutoff_span_is_the_fades[RT_C1 - RT_C0 == FADE_CENTS ? 1 : -1];
+typedef char fm_require_rt_tables_end_at_open[RT_NC >= 2 && RT_NR >= 2 ? 1 : -1];
+#define RT_UR_Q30   65600                       /* 2^30 / FM_FILTER_UR_ONE, rounded down: a unit of f->ur */
+typedef char fm_require_rt_ur_fits_q30[(int64_t)(FM_FILTER_UR_ONE - 1) * RT_UR_Q30 < ONE_Q30 ? 1 : -1];
+#define RT_K_LAST_INV 27490                     /* 2^12 / k(935): k(resonance) / k(935) by a multiply */
+
+/* A table's value at knot (i, j) and the Q15 fractions to the next knots, x 2^15. */
+static int32_t rt_read(const int16_t tab[RT_NC][RT_NR], int i, int j, int32_t fc, int32_t fr)
+{
+    int32_t a = tab[i][j] * 32768 + (tab[i][j + 1] - tab[i][j]) * fr;
+    int32_t b = tab[i + 1][j] * 32768 + (tab[i + 1][j + 1] - tab[i + 1][j]) * fr;
+    return a + (int32_t)(((int64_t)(b - a) * fc) >> 15);
+}
+
+/* The same between the two rates' sets: wr 0 at 44.1 kHz, 2^15 at 48 kHz. */
+static int32_t rt_get(const int16_t tab[2][RT_NC][RT_NR], int i, int j, int32_t fc, int32_t fr, int32_t wr)
+{
+    int32_t v = rt_read(tab[0], i, j, fc, fr);
+    if (wr) v += (int32_t)(((int64_t)(rt_read(tab[1], i, j, fc, fr) - v) * wr) >> 15);
+    return v;
+}
+
 /* tan(pi f / fs), Q5.27, for f / fs in cents (held to 1/4096 .. 0.45) */
 static int32_t tan_of(int32_t d)
 {
@@ -394,11 +457,70 @@ static int32_t tan_of(int32_t d)
     return tan_tab[i] + (int32_t)((((int64_t)(tan_tab[i + 1] - tan_tab[i]) * r) * 42949673) >> 32);   /* / 100 */
 }
 
+/* The resonant top's own coefficients at cutoff c (over RT_C0) and f's resonance and rate: t (Q5.27), k
+ * (Q27), section 1's double zero c (Q30) and the level (Q30). kraw is k_of(f->res), which the caller has. Two
+ * 32-bit divides, for the knots' fractions. */
+static void rt_top(const fm_filter *f, int32_t c, int32_t kraw, int32_t *tn, int32_t *kn, int32_t *cn, int32_t *an)
+{
+    int32_t res = f->res > rt_rk[RT_NR - 1] ? rt_rk[RT_NR - 1] : f->res < rt_rk[0] ? rt_rk[0] : f->res;
+    int32_t fc, fr, wr, kr;
+    int ci, rj;
+    for (ci = 0; ci < RT_NC - 2 && c >= rt_ck[ci + 1]; ci++) {}
+    for (rj = 0; rj < RT_NR - 2 && res >= rt_rk[rj + 1]; rj++) {}
+    fc = ((c - rt_ck[ci]) << 15) / (rt_ck[ci + 1] - rt_ck[ci]);          /* (c is at most the last knot, open) */
+    fr = ((res - rt_rk[rj]) << 15) / (rt_rk[rj + 1] - rt_rk[rj]);
+    wr = ((f->rate - TOP0_RATE_LO) << 15) / (TOP0_RATE_HI - TOP0_RATE_LO);
+    *tn = rt_get(rt_t, ci, rj, fc, fr, wr) >> (RT_T_SHIFT + 15 - 27);    /* Q5.27 */
+    *kn = rt_get(rt_k, ci, rj, fc, fr, wr) >> (RT_K_SHIFT + 15 - 27);    /* Q27 (to 3.0: past Q30's int32) */
+    *cn = rt_get(rt_c, ci, rj, fc, fr, wr) >> (RT_C_SHIFT + 15 - 30);    /* Q30 */
+    /* the level's k, without the trim; under the tables' first resonance (inside the handover) it is that
+     * resonance's, as the tables' values are: the handover fades one top in, it does not move it */
+    kr = f->res < rt_rk[0] ? k_of(rt_rk[0]) : kraw;
+    if (f->res > rt_rk[RT_NR - 1]) {            /* past VCF RES 127: on down as the engine's k goes */
+        int32_t ratio = (int32_t)(((int64_t)kr * RT_K_LAST_INV) >> 12);
+        if (ratio < ONE_Q30) *kn = mul_q30(*kn, ratio);
+    }
+    *an = (int32_t)(((int64_t)(kr > K_FLOOR ? kr : K_FLOOR) * Q0_Q30) >> 30);
+}
+
+/* The sections' a1, a2, a3 and t from t (Q5.27) and the damping k (Q27): a 32-bit divide and a Newton step. */
+static void set_poles(fm_filter *f, int32_t t, int32_t kq)
+{
+    /* 1 + t (t + k), Q9.23: t within 6.72 and k within 3.0, Q27, so the product is under 2^59 */
+    int32_t den = (1 << 23) + (int32_t)(((int64_t)t * (t + kq)) >> 31);
+    int32_t a1 = (int32_t)((0x80000000u / (uint32_t)(den >> 7)) << 15);                 /* 2^31 / Q16: Q15, to Q30 */
+    /* one Newton step, a1 (2 - den a1): 15 bits to 30, so the lowpass's DC gain is 1 (within 1e-8) */
+    a1 = (int32_t)(((int64_t)a1 * ((1ll << 31) - (((int64_t)den * a1) >> 23))) >> 30);
+    f->a1 = a1;
+    f->a2 = (int32_t)(((int64_t)a1 * t) >> 27);
+    f->a3 = (int32_t)(((int64_t)f->a2 * t) >> 27);
+    f->t = t;
+}
+
 /* The coefficients from the cutoff, rate and resonance as set: control rate, a few 32-bit divides. */
 static void apply(fm_filter *f)
 {
-    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, t48, tt, k, kl, trim, den, a1, w, v, vf;
+    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, t48, tt, k, kl, trim, w, v, vf;
+    int32_t u = 0, us = 0, t_old, tn = 0, kn = 0, cn = 0, an = 0;   /* the resonant top (#168) and its weights */
     int was_open = fm_filter_is_wire(f);
+    if (f->ur > 0 && c > RT_C0 && f->rate >= TOP0_RATE_LO && f->rate <= TOP0_RATE_HI) {     /* the resonant top */
+        int32_t ur = f->ur >= FM_FILTER_UR_ONE ? ONE_Q30 : f->ur * RT_UR_Q30;
+        int32_t uc = c >= RT_C1 ? ONE_Q30 : (c - RT_C0) * FADE_STEP;
+        u = mul_q30(ur, uc);
+        rt_top(f, c, k_of(f->res), &tn, &kn, &cn, &an);
+        if (u == ONE_Q30) {     /* all of it (resonance from 112, cutoff from RT_C1): the top below is not
+                                 * worked out at all. Exactly what the weighted sums further down come to at
+                                 * weight 1, with one divide where they take two and the lift's Newton step */
+            int32_t c2 = mul_q30(cn, cn);
+            set_poles(f, tn, kn);
+            f->z3 = 2 * cn + c2;
+            f->zt = (int32_t)(((int64_t)tn * c2) >> 30);
+            f->a = an;
+            f->fade = ONE_Q30;
+            if (was_open) leave_open(f);
+            return;
+        }
+    }
     i = c / 1200;
     r = c % 1200;
     d = c + (i >= 12 ? f0_off[12] + (f0_off[12] - f0_off[11]) * r / 1200
@@ -446,45 +568,7 @@ static void apply(fm_filter *f)
         if (d + shift > top) shift = top - d;
         if (shift) t = tan_of(d + shift);
     }
-    {   /* resonance 0's damping at the top (K_TOP0), by v */
-        int32_t up = f->cut - K_TOP0_FROM, k0 = 0;
-        if (v && up > 0) k0 = (int32_t)(((int64_t)(up >= 360 ? K_TOP0 : up * K_TOP0_STEP) * v) >> 30);
-        /* 1 + t (t + k), Q9.23: t within 6.72 and k within 2.35, Q27, so the product is under 2^59 */
-        den = (1 << 23) + (int32_t)(((int64_t)t * (t + (k >> 3) + k0)) >> 31);
-    }
-    a1 = (int32_t)((0x80000000u / (uint32_t)(den >> 7)) << 15);                         /* 2^31 / Q16: Q15, to Q30 */
-    /* one Newton step, a1 (2 - den a1): 15 bits to 30, so the lowpass's DC gain is 1 (within 1e-8) */
-    a1 = (int32_t)(((int64_t)a1 * ((1ll << 31) - (((int64_t)den * a1) >> 23))) >> 30);
-    f->a1 = a1;
-    f->a2 = (int32_t)(((int64_t)a1 * t) >> 27);
-    f->a3 = (int32_t)(((int64_t)f->a2 * t) >> 27);
-    f->t = t;
-    {   /* section 1's zeros: 5/8 of the way to the origin, to none near Nyquist, from t 0.4 to 1.2 where
-         * there is a peak (PG-8X's peaks at F88..F96), from 0.3 to 1.0 at resonance 0 (its slope past f0
-         * up to F104, as match.py's VCF_FREQ reads it); between, by w (twice 1 - k Q0, to 1) */
-        int32_t zp = t <= Z1_T0 ? Z1_FULL : t >= Z1_T1 ? 0
-                   : (int32_t)(((int64_t)(Z1_T1 - t) * 25) >> 2);          /* Z1_FULL / (Z1_T1 - Z1_T0): 6.25 */
-        int32_t z0 = t <= Z1_T0R ? Z1_FULL : t >= Z1_T1R ? 0
-                   : (int32_t)(((int64_t)(Z1_T1R - t) * 479349029) >> 26);  /* Z1_FULL / 0.7: 50/7, Q26 */
-        zp = z0 + (int32_t)(((int64_t)(zp - z0) * w) >> 30);   /* z1 */
-        f->z3 = 3 * zp;                                          /* <= 1.875, Q30 */
-        f->zt = (int32_t)(((int64_t)t * zp) >> 30);              /* t z1, Q5.27 */
-    }
-    f->a = (int32_t)(((int64_t)(kl > K_FLOOR ? kl : K_FLOOR) * Q0_Q30) >> 30);            /* <= 1.0 (1.2 at the top) */
-    {   /* the zero corrections lift the resonant peak past F80 over PG-8X's (F88: 1.4 dB, F96: 4.0):
-         * the level takes out 1 + E_LIFT (t^2 - t80^2) of it (none to F80; t^2 - t80^2 held to 0.4, so
-         * 1.34 at most; t at the engine's rate, as z1: the lift is the digital sections'), by a 32-bit divide and a Newton step (it in Q9.23, 1 / it in Q30) */
-        int64_t over = (((int64_t)t * t) >> 31) - T2_LIFT;                              /* t^2 past F80's, Q9.23 */
-        int32_t e, inv;
-        over = over < 0 ? 0 : over > OVER_MAX ? OVER_MAX : over;
-        /* a lift of the peak, so as much of it as there is a peak: none at resonance 0, nearly all at 935
-         * (1 - k / k0 = 1 - k Q0: the untrimmed k, from the table) */
-        over = (over * (ONE_Q30 - (((int64_t)k_of(f->res) * Q0_Q30) >> 30))) >> 30;
-        e = (1 << 23) + (int32_t)((over * E_LIFT) >> 30);
-        inv = (int32_t)((0x80000000u / (uint32_t)(e >> 7)) << 15);
-        inv = (int32_t)(((int64_t)inv * ((1ll << 31) - (((int64_t)e * inv) >> 23))) >> 30);
-        f->a = (int32_t)(((int64_t)f->a * inv) >> 30);
-    }
+    /* the fade of the top below the resonant one (it sets how the resonant top's sections come in) */
     f->fade = f->cut <= FM_FILTER_OPEN_CENTS - FADE_CENTS ? ONE_Q30 : (FM_FILTER_OPEN_CENTS - f->cut) * FADE_STEP;
     if (f->fade != ONE_Q30) {   /* toward its cube, as much as there is a peak (1 - k Q0, as the level's
                                  * fold): the sections' peak near Nyquist (zeros at the origin) to PG-8X's
@@ -499,6 +583,61 @@ static void apply(fm_filter *f)
         int32_t top = FM_FILTER_OPEN_CENTS - f->cut;    /* >= 0: the cutoff is clamped */
         int32_t f0 = top >= FADE0_CENTS ? ONE_Q30 : top * FADE0_STEP;
         f->fade += (int32_t)(((int64_t)(f0 - f->fade) * vf) >> 30);
+    }
+    t_old = t;                                  /* the zeros' taper and the lift below go by this t */
+    if (u) {                                    /* the resonant top, in part: its sections' weight */
+        us = u;
+        if (f->fade != ONE_Q30) {               /* u / (u + (1 - u) fade), to 15 bits: a 32-bit divide */
+            uint32_t u15 = (uint32_t)u >> 15, den15 = (uint32_t)(u + mul_q30(ONE_Q30 - u, f->fade)) >> 15;
+            us = den15 ? (int32_t)(((u15 << 15) / den15) << 15) : 0;
+            if (us > ONE_Q30) us = ONE_Q30;
+        }
+        t += mul_q30(tn - t, us);
+    }
+    {   /* resonance 0's damping at the top (K_TOP0), by v */
+        int32_t up = f->cut - K_TOP0_FROM, k0 = 0, kq;
+        if (v && up > 0) k0 = (int32_t)(((int64_t)(up >= 360 ? K_TOP0 : up * K_TOP0_STEP) * v) >> 30);
+        kq = (k >> 3) + k0;                     /* Q27 */
+        if (u) kq += mul_q30(kn - kq, us);
+        set_poles(f, t, kq);
+    }
+    {   /* section 1's zeros: 5/8 of the way to the origin, to none near Nyquist, from t 0.4 to 1.2 where
+         * there is a peak (PG-8X's peaks at F88..F96), from 0.3 to 1.0 at resonance 0 (its slope past f0
+         * up to F104, as match.py's VCF_FREQ reads it); between, by w (twice 1 - k Q0, to 1) */
+        int32_t c1, c2;
+        int32_t zp = t_old <= Z1_T0 ? Z1_FULL : t_old >= Z1_T1 ? 0
+                   : (int32_t)(((int64_t)(Z1_T1 - t_old) * 25) >> 2);          /* Z1_FULL / (Z1_T1 - Z1_T0): 6.25 */
+        int32_t z0 = t_old <= Z1_T0R ? Z1_FULL : t_old >= Z1_T1R ? 0
+                   : (int32_t)(((int64_t)(Z1_T1R - t_old) * 479349029) >> 26);  /* Z1_FULL / 0.7: 50/7, Q26 */
+        zp = z0 + (int32_t)(((int64_t)(zp - z0) * w) >> 30);   /* z1 */
+        /* as 1 + c1 s + c2 s^2 in s = j tan(pi f / fs): c1 = 2 z1, c2 = z1; the resonant top's (1 + c s)^2 */
+        c1 = 2 * zp;
+        c2 = zp;
+        if (u) {
+            c1 += mul_q30(2 * cn - c1, us);
+            c2 += mul_q30(mul_q30(cn, cn) - c2, us);
+        }
+        f->z3 = c1 + c2;                                         /* <= 1.89, Q30 (3 z1 without the top) */
+        f->zt = (int32_t)(((int64_t)t * c2) >> 30);              /* t c2, Q5.27 */
+    }
+    f->a = (int32_t)(((int64_t)(kl > K_FLOOR ? kl : K_FLOOR) * Q0_Q30) >> 30);            /* <= 1.0 (1.2 at the top) */
+    {   /* the zero corrections lift the resonant peak past F80 over PG-8X's (F88: 1.4 dB, F96: 4.0):
+         * the level takes out 1 + E_LIFT (t^2 - t80^2) of it (none to F80; t^2 - t80^2 held to 0.4, so
+         * 1.34 at most; t at the engine's rate, as z1: the lift is the digital sections'), by a 32-bit divide and a Newton step (it in Q9.23, 1 / it in Q30) */
+        int64_t over = (((int64_t)t_old * t_old) >> 31) - T2_LIFT;                              /* t^2 past F80's, Q9.23 */
+        int32_t e, inv;
+        over = over < 0 ? 0 : over > OVER_MAX ? OVER_MAX : over;
+        /* a lift of the peak, so as much of it as there is a peak: none at resonance 0, nearly all at 935
+         * (1 - k / k0 = 1 - k Q0: the untrimmed k, from the table) */
+        over = (over * (ONE_Q30 - (((int64_t)k_of(f->res) * Q0_Q30) >> 30))) >> 30;
+        e = (1 << 23) + (int32_t)((over * E_LIFT) >> 30);
+        inv = (int32_t)((0x80000000u / (uint32_t)(e >> 7)) << 15);
+        inv = (int32_t)(((int64_t)inv * ((1ll << 31) - (((int64_t)e * inv) >> 23))) >> 30);
+        f->a = (int32_t)(((int64_t)f->a * inv) >> 30);
+    }
+    if (u) {    /* the resonant top: its level by the sections' weight, and no fade by u */
+        f->a += mul_q30(an - f->a, us);
+        f->fade += mul_q30(ONE_Q30 - f->fade, u);
     }
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }
@@ -518,7 +657,30 @@ void fm_filter_set_resonance(fm_filter *f, int32_t permille)
     if (permille < 0) permille = 0;
     if (permille > 1000) permille = 1000;
     f->res = (int16_t)permille;
+    f->ur = (int16_t)fm_filter_ur_target(f);    /* at once, the handover with it */
     apply(f);
+}
+
+void fm_filter_turn_resonance(fm_filter *f, int32_t permille)
+{
+    int32_t was = f->res;
+    if (permille < 0) permille = 0;
+    if (permille > 1000) permille = 1000;
+    f->res = (int16_t)permille;
+    /* a move clear across the handover takes it along at once, as it takes every other coefficient: a
+     * jump that size steps the output whatever the handover does, and a patch whose resonance glides in
+     * over it (700: 61, then 116) is not held 32 control points between the two tops */
+    if ((was <= FM_FILTER_TOP_RES_LO && permille >= FM_FILTER_TOP_RES_HI) ||
+        (was >= FM_FILTER_TOP_RES_HI && permille <= FM_FILTER_TOP_RES_LO))
+        f->ur = (int16_t)fm_filter_ur_target(f);
+    apply(f);                                   /* else it stays where it plays: fm_filter_handover_step */
+}
+
+int fm_filter_handover_step(fm_filter *f)
+{
+    int moved = fm_filter_handover_advance(f);
+    if (moved) apply(f);
+    return moved;
 }
 
 

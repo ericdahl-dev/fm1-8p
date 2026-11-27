@@ -325,12 +325,53 @@ resonant 4-pole (24 dB/octave) lowpass.
   1 to 388 per mille are blended: the f0 stop and the damping fall off as
   `1 - 1.25 w` (w: how much peak), the long fade as `1 - 5 w` (gone by about
   resonance 100), and the stop gives way over the top 600 cents where the
-  long fade is not all there. From 389 up everything is as before. It is all
+  long fade is not all there. It is all
   control-rate math. **Rates:** this top is fitted at 44.1 and 48 kHz and is
   used only from 44.1 to 48 kHz; every other rate (8 to 192 kHz) keeps the
   top it had, coefficient for coefficient. Per sample, at resonances 0 to
   about 100 the fade's multiply now runs from cutoff 12191 instead of
   13801.
+- **The top with resonance (#168).** That top, and its wire at the open
+  cutoff, is the filter's up to resonance 90. PG-8X 2.0.13 never becomes a
+  wire with resonance: its passband is the resonance's alone at every
+  cutoff (VCF RES 64: -4.6 dB, RES 127: -20.0, at VCF FREQ 127 too), its
+  peak grows 5 dB from VCF FREQ 100 to 122 and then leaves the band upward,
+  and it reads the same in Hz at 44.1 and 48 kHz. The sections as they are
+  lower down cannot follow it: section 2's zeros at the origin lift the peak
+  by `1 + t^2` (18.7 dB at FREQ 120), section 1's complex zeros cross the
+  top band as a notch on their way to Nyquist, f0 stops at 0.425 of the
+  rate, and the fade lets the level cut go. So from resonance 112, from
+  11500 cents of cutoff up (all of it from 12100), at 44.1 to 48 kHz:
+  - the sections' `t`, their damping `k` and section 1's zeros come from
+    tables, `engine/res_top_tables.h`: 10 cutoff knots by 9 resonance
+    knots, a set for 44.1 kHz and one for 48 kHz, int16, 1080 bytes of
+    flash, read bilinearly (and linearly between the two sets for a rate
+    between). They are a fit to PG-8X made outside the repository
+    (`tools/res_top.py` says how); `make generate` writes the header and
+    `tests/test_res_top.py` checks it;
+  - section 1's zeros are a real double zero, `(1 + c s)^2`
+    (`z3 = 2 c + c^2`, `zt = t c^2`): no notch wherever it sits;
+  - the level is PG-8X's passband, `k(resonance) Q0`, and there is no fade:
+    the open cutoff (and VCF FREQ 125 and 126, which clamp to it) plays
+    PG-8X's VCF FREQ 127, where PG-8X's own sum of cutoff sources stops;
+  - past resonance 935 (VCF RES 127; the RES knob and a CC reach 1000)
+    `k` falls on as the engine's own does.
+  Between resonance 90 and 112 the two tops hand over, every coefficient
+  linear in a weight, so none steps. The fade takes the weight `u`; the
+  sections take `u / (u + (1 - u) fade)`, which is all of the new top's
+  where the old one is faded out and not heard, so that at an open cutoff
+  only the fade's share moves. That handover takes the output from a wire
+  to a filter in 22 per mille, and a RES knob step is 10, so on a sounding
+  voice it does not move at once: `fm_filter_turn_resonance` leaves it
+  where it plays (`f->ur`, an int16 in the struct's padding: `fm_filter`
+  and `fm_engine` are no larger) and `fm_filter_handover_step` moves it
+  1/32 a control point, all of it in 512 samples (11.6 ms at 44.1 kHz).
+  The voice keeps its control points coming until it is there
+  (`FM_BUSY_CUTOFF`), and a voice that is not sounding takes it at once. A
+  knob step through the handover then moves the output's next sample by at
+  most 1.2 % of its peak (`res_top_knob_step_makes_no_click`). Everything
+  here is control-rate flash code and flash data: nothing is read per
+  sample, and the render loop is unchanged.
 - **Highpass.** `x - lowpass(x)` with a one-pole lowpass, so it cannot
   resonate. Turning it on clears that lowpass, so the output starts equal to
   the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
@@ -409,7 +450,8 @@ envelope step. Inside the top 600 cents of cutoff the stage zero takes a
 multiply instead of a shift (four more). Since #151, at 44.1 to 48 kHz and
 resonances 0 to about 100 per mille, the fade's one multiply per sample runs
 from cutoff 12191 up, where it ran from 13801 (the top 2210 cents instead
-of the top 600). The cutoff update every 16 samples
+of the top 600). With resonance from 112 up the top has no fade (#168), so
+from cutoff 12100 that multiply is not run at all. The cutoff update every 16 samples
 adds about ten multiplies and three divisions by constants (1200 and 10,
 which compile to multiplies), under one multiply per sample on average; it
 is skipped when nothing feeding it changed, and the coefficients are not
@@ -421,7 +463,10 @@ than throughput. The device numbers come with the CPU spike.
 Two cases cost almost nothing, so the default patch costs what it did
 before the filter:
 
-- **Wide open** (cutoff at the top, highpass off: the default). Every stage
+- **Wide open** (cutoff at the top, highpass off, resonance up to 90: the
+  default). With more resonance the open cutoff is not a wire (#168, at
+  44.1 to 48 kHz): PG-8X keeps the resonance's level cut there, and the
+  filter runs, at the cost it has one cent lower. Every stage
   passes its input through exactly, so the render skips the filter
   (`fm_filter_run`, inline: four compares, for the fade, the highpass and
   the input's range) and keeps only the last sample.

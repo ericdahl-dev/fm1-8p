@@ -119,9 +119,18 @@ void fm_voice_set_output_level(fm_voice *v, int32_t permille)
     fm_env_set_floor(&v->amp_env, permille > 0 ? FM_ENV_FLOOR * 1000 / permille : FM_ENV_FULL);
 }
 
+/* With resonance the open cutoff is not a wire (#168), so a resonance change can start or stop the filter:
+ * the busy bit follows, as for the cutoff. On a sounding voice the resonant top's handover moves a step a
+ * control point (inside fm_vfilter_update), which FM_BUSY_CUTOFF keeps coming until it is there. */
 void fm_voice_set_resonance(fm_voice *v, int32_t permille)
 {
-    fm_vfilter_set_resonance(&v->vf, permille);
+    if (v->amp_env.stage != FM_ENV_IDLE) {
+        fm_vfilter_turn_resonance(&v->vf, permille);
+        if (fm_vfilter_handover_moving(&v->vf)) fm_voice_mark(v, FM_BUSY_CUTOFF, 1);
+    } else {
+        fm_vfilter_set_resonance(&v->vf, permille);
+    }
+    mark_filter(v);
 }
 
 /*
@@ -165,12 +174,14 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
     fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV1, fenv);
     if (m->routes.depth[FM_MOD_SRC_ENV2][FM_MOD_CUTOFF])
         fm_mod_set_source(&v->mod, FM_MOD_SRC_ENV2, env2);
-    if (fm_vfilter_update(&v->vf, fm_mod_update(&v->mod, &m->routes,
-                                                FM_MOD_CUTOFF)))
-        mark_filter(v); /* else the coefficients stand */
-    fm_voice_mark(v, FM_BUSY_FILTER_ENV,
-                  !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF));
-    fm_voice_mark(v, FM_BUSY_CUTOFF, 0);
+    {   /* bit 0: the filter was set; bit 1: the resonant top's handover has further to go (#168), so the
+         * control points keep coming. One call, as before: the handover's step is inside it */
+        int set = fm_vfilter_update(&v->vf, fm_mod_update(&v->mod, &m->routes, FM_MOD_CUTOFF));
+        if (set & 1) mark_filter(v); /* else the coefficients stand */
+        fm_voice_mark(v, FM_BUSY_FILTER_ENV,
+                      !fm_mod_at_rest(&v->mod, &m->routes, FM_MOD_CUTOFF));
+        fm_voice_mark(v, FM_BUSY_CUTOFF, set >> 1);
+    }
 }
 
 /* Gates both envelopes on. The filter envelope starts from where the amp
@@ -181,6 +192,8 @@ static void gate_on(fm_voice *v)
     if (v->amp_env.stage == FM_ENV_IDLE) {
         fm_env_reset(&v->filter_env);
         fm_env_reset(&v->env2);
+        /* a handover left on its way when the voice fell silent: where it goes, before the note sounds */
+        if (fm_vfilter_handover_snap(&v->vf)) mark_filter(v);
     }
     fm_env_key(&v->amp_env, v->note);
     fm_env_key(&v->filter_env, v->note);

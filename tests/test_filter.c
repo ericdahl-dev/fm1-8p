@@ -302,20 +302,30 @@ TT_TEST(jx_max_resonance_rings_down_at_every_cutoff)
 }
 
 /*
- * At FM_FILTER_OPEN_CENTS (the default) the lowpass is an exact wire,
- * even at maximum resonance: the stage zero, the feedback and 1 - g all
- * fade to zero over the top of the range. That is what keeps the default
- * patch sounding exactly as it did before the filter.
+ * At FM_FILTER_OPEN_CENTS (the default) the lowpass is an exact wire up
+ * to resonance 90: the output fades to the input over the top of the
+ * range. That is what keeps the default patch sounding exactly as it did
+ * before the filter.
+ *
+ * Re-pinned with #168 (it read "at any resonance", 0, 500 and 1000 at 8,
+ * 44.1 and 192 kHz): PG-8X 2.0.13 never becomes a wire with resonance, it
+ * keeps the resonance's level cut at VCF FREQ 127 (RES 32: -5.9 dB; RES
+ * 127: -20.0). So at the rates the resonant top is fitted for (44.1 to
+ * 48 kHz) the open cutoff is a wire only up to resonance 90, and with
+ * more it plays PG-8X's cut: a 1 kHz sine at resonance 500 comes out at
+ * k Q0 = 0.503 (-6.0 dB), within 2 %. Other rates keep the top they had:
+ * a wire at any resonance.
  */
-TT_TEST(open_lowpass_is_an_exact_wire_at_any_resonance)
+TT_TEST(open_lowpass_is_an_exact_wire_up_to_resonance_90)
 {
-    static const int32_t res[] = { 0, 500, 1000 };
+    static const int32_t res[] = { 0, 90, 500, 1000 };
     static const uint32_t rates[] = { 8000, 44100, 192000 };
     static fm_filter f;
     size_t r, q, i;
     for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
         for (q = 0; q < sizeof res / sizeof res[0]; q++) {
-            int same = 1;
+            int same = 1, wire = rates[r] != 44100 || res[q] <= 90;
+            int32_t top = 0;
             fm_filter_reset(&f);
             fm_filter_set_resonance(&f, res[q]);
             fm_filter_set_cutoff(&f, FM_FILTER_OPEN_CENTS,
@@ -326,9 +336,15 @@ TT_TEST(open_lowpass_is_an_exact_wire_at_any_resonance)
                     ? sine_q24(1.0, 1000.0, i)
                     : (int32_t)((i * 220 * 2 % FRATE) * (2u << 24) / FRATE) -
                           (1 << 24);
-                if (fm_filter_process(&f, x) != x) same = 0;
+                int32_t y = fm_filter_process(&f, x);
+                if (y != x) same = 0;
+                if (i >= 5000 && i < 10000 && (y < 0 ? -y : y) > top) top = y < 0 ? -y : y;
             }
-            TT_CHECK(same);
+            TT_CHECK(same == wire);
+            if (!wire && res[q] == 500) {
+                printf("    44.1 kHz, open, resonance 500: a 1 kHz sine at 1.0 comes out at %.4f\n", top / 16777216.0);
+                TT_CHECK(fabs(top / 16777216.0 - 0.503) < 0.01);
+            }
         }
     }
 }
@@ -896,11 +912,16 @@ TT_TEST(setting_a_param_does_not_restart_the_other_envelopes)
 }
 
 /*
- * In the voice: with the cutoff at its default (open), even maximum
- * resonance changes nothing at all, so the default patch is the plain
- * oscillator and amp envelope.
+ * In the voice: with the cutoff at its default (open), resonance up to 90
+ * changes nothing at all, so the default patch is the plain oscillator
+ * and amp envelope.
+ *
+ * Re-pinned with #168 (it set resonance 1000 and expected no change):
+ * with more resonance the open cutoff plays PG-8X's level cut and is not
+ * a wire, so resonance 1000 now makes the note quieter (its passband is
+ * -25.7 dB; at least 6 dB in all).
  */
-TT_TEST(default_patch_is_unfiltered_even_with_resonance)
+TT_TEST(default_patch_is_unfiltered_up_to_resonance_90)
 {
     static const uint8_t notes[] = { 33, 60, 96 };
     size_t n;
@@ -909,11 +930,16 @@ TT_TEST(default_patch_is_unfiltered_even_with_resonance)
         fm_engine_note_on(&feng, notes[n], 100);
         fm_engine_render(&feng, fbuf_a, FRAMES_HALF_S);
         fm_engine_init(&feng, FRATE, 1);
-        fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 1000);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 90);
         fm_engine_note_on(&feng, notes[n], 100);
         fm_engine_render(&feng, fbuf_b, FRAMES_HALF_S);
         TT_CHECK(peak_abs(fbuf_a, 4410, FRAMES_HALF_S) > 1000);
         TT_CHECK(memcmp(fbuf_a, fbuf_b, FRAMES_HALF_S * 4) == 0);
+        fm_engine_init(&feng, FRATE, 1);
+        fm_engine_set_param(&feng, FM_PARAM_FILTER_RESONANCE, 1000);
+        fm_engine_note_on(&feng, notes[n], 100);
+        fm_engine_render(&feng, fbuf_b, FRAMES_HALF_S);
+        TT_CHECK(rms(fbuf_b, 4410, FRAMES_HALF_S) < 0.5 * rms(fbuf_a, 4410, FRAMES_HALF_S));
     }
 }
 
@@ -3164,8 +3190,8 @@ static void run_filter_tests(void)
     TT_RUN(filter_output_does_not_depend_on_block_size);
     TT_RUN(extreme_filter_settings_stay_bounded_and_release);
     TT_RUN(setting_a_param_does_not_restart_the_other_envelopes);
-    TT_RUN(open_lowpass_is_an_exact_wire_at_any_resonance);
-    TT_RUN(default_patch_is_unfiltered_even_with_resonance);
+    TT_RUN(open_lowpass_is_an_exact_wire_up_to_resonance_90);
+    TT_RUN(default_patch_is_unfiltered_up_to_resonance_90);
     TT_RUN(every_release_path_releases_the_filter_envelope);
     TT_RUN(all_sound_off_clears_the_filter_ringing);
     TT_RUN(new_note_gets_its_cutoff_from_the_first_sample);
