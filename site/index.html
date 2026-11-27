@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FM1-8P: polysynth firmware for the M-VAVE FM-1</title>
-<meta name="description" content="FM1-8P is an original firmware that turns the M-VAVE FM-1 into a 4-voice analog-style synth with the 32 JX-8P factory tones. Play it in the browser or install it over USB.">
+<meta name="description" content="FM1-8P is an original firmware that turns the M-VAVE FM-1 into a 4-voice analog-style synth with a 16-step sequencer and the 32 JX-8P factory tones. It runs on the FM-1 today as an fm1-dock module.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="FM1-8P: polysynth firmware for the M-VAVE FM-1">
 <meta property="og:description" content="A 4-voice analog-style synth for the FM-1, with the 32 JX-8P factory tones.">
@@ -54,9 +54,10 @@
     <a class="skip-link" href="#top">Skip to content</a>
     <a class="nav__logo" href="#top"><span class="mark" data-mark="dots" aria-hidden="true"></span>FM1-8P</a>
     <nav class="nav__links" aria-label="Main">
-      <div class="nav__item"><a class="nav__link" href="#play">Play</a></div>
       <div class="nav__item"><a class="nav__link" href="#sound">Engine</a></div>
+      <div class="nav__item"><a class="nav__link" href="#seq">Sequencer</a></div>
       <div class="nav__item"><a class="nav__link" href="#install">Install</a></div>
+      <div class="nav__item"><a class="nav__link" href="#play">Try it</a></div>
       <div class="nav__item"><a class="nav__link" href="#questions">Questions</a></div>
     </nav>
     <div class="nav__actions">
@@ -71,9 +72,9 @@
   <section class="hero hero--triptych" data-enter aria-labelledby="hero-h">
     <div class="wrap"><div class="hero-text grid hero__grid">
       <div class="span-3">
-        <p class="hero__kicker">Beta: v0.1 ships after testing on a real FM-1</p>
+        <p class="hero__kicker">Runs on the FM-1 today as an fm1-dock module</p>
         <h1 id="hero-h">Polysynth firmware for the FM-1</h1>
-        <p class="hero__lead">FM1-8P turns the M-VAVE FM-1 into a 4-voice analog-style synth with two oscillators a voice and the 32 JX-8P factory tones.</p>
+        <p class="hero__lead">FM1-8P turns your M-VAVE FM-1 into a 4-voice analog-style synth with a 16-step sequencer and the 32 JX-8P factory tones. Play it from its keys or USB MIDI.</p>
       </div>
       <div class="ly-collage span-6 start-4" role="img" aria-label="FM1-8P's screens on the FM-1: the boot screen, the play page, the filter, the envelope and the global settings, in its two themes, Membrane and Night panel">
         <div class="ly-collage__set is-on">
@@ -93,27 +94,6 @@
     </div></div>
   </section>
 
-  <section class="section ground-inverse" id="play" aria-labelledby="play-h">
-    <div class="wrap">
-      <div class="grid grid--top">
-        <h2 class="span-5" id="play-h">Play FM1-8P in your browser</h2>
-        <p class="span-6 start-7 play__lead">The current build runs in Joakim Eriksson's <a class="link" href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a>. Press Start, then play with the computer keyboard, the mouse, a touch screen or a MIDI keyboard over Web MIDI.</p>
-      </div>
-      <div class="app ui fill">
-        <div class="app__pane app__pane--list">
-          <p class="app__head"><span class="app__label">Tone memory</span><span>{{BOOT_NUM}} {{BOOT_NAME}} at boot</span></p>
-          <ol class="tones">
-{{TONES}}
-          </ol>
-        </div>
-        <div class="app__pane app__pane--open">
-          <div class="emu">
-            <iframe src="{{EMU_SRC}}" title="FM1-8P in the fm1-emu emulator" tabindex="0" allow="midi; autoplay" loading="lazy"></iframe>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
 
   <section class="section" id="sound" aria-labelledby="sound-h">
     <div class="wrap">
@@ -145,6 +125,23 @@
     </div>
   </section>
 
+  <section class="section" id="seq" aria-labelledby="seq-h">
+    <div class="wrap">
+      <div class="grid grid--top">
+        <div class="span-5 stack-4">
+          <h2 id="seq-h">A 16-step sequencer on the keys</h2>
+          <p class="t-lead">The FM-1's white keys become 16 step keys. Each step holds a note, a chord, a tie or a rest, with its own velocity, bend and glide.</p>
+          <ul class="facts">
+            <li><span>Patterns</span><span>64 slots, apart from the patches</span></li>
+            <li><span>Tempo</span><span>30 to 300 BPM, or MIDI clock</span></li>
+            <li><span>Swing and gate</span><span>Per pattern</span></li>
+          </ul>
+        </div>
+        <figure class="seq__screen span-6 start-7"><img src="img/night-panel-4-seq.png" alt="The sequencer page: a piano roll of C minor 7 chords over 16 steps, with velocity, bend, mod and move for the step" width="720" height="720" loading="lazy"></figure>
+      </div>
+    </div>
+  </section>
+
   <!-- pinned-chapters (references/moments.md): three steps, one screen of the FM-1 each -->
   <section class="section" id="steps" style="--h: 2" data-moment="pinned-chapters" aria-labelledby="steps-h">
     <div class="wrap mo-pc__grid">
@@ -152,18 +149,18 @@
         <h2 id="steps-h">Install FM1-8P in 3 steps</h2>
         <ol class="mo-pc__steps">
           <li class="mo-pc__step">
-            <h3>Plug the FM-1 into USB</h3>
-            <p>Open this page in Chrome or Edge on a computer. The installer talks to the FM-1 over Web MIDI.</p>
+            <h3>Put fm1-dock on the FM-1</h3>
+            <p>fm1-dock is Joakim Eriksson's firmware that runs synth modules on the FM-1. FM1-8P is one of them.</p>
             <figure class="mo-pc__visual mo-pc__visual--lit"><img src="img/boot-night-panel.png" alt="The FM-1's screen showing FM1-8P's boot screen in the Night panel theme" width="720" height="720" loading="lazy"></figure>
           </li>
           <li class="mo-pc__step">
-            <h3>Check the FM-1 package, then write it</h3>
-            <p>The installer shows the identity FM-1_948, the version and what the FM-1 runs now before it writes anything.</p>
+            <h3>Add the FM1-8P module over USB</h3>
+            <p>Send fm1_8p.dock with fm1-dock's own tools, or with the button below in Chrome or Edge.</p>
             <figure class="mo-pc__visual mo-pc__visual--lit"><img src="img/boot-membrane.png" alt="FM1-8P's boot screen in the Membrane theme, with its progress bar" width="720" height="720" loading="lazy"></figure>
           </li>
           <li class="mo-pc__step">
             <h3>Play the 32 tones</h3>
-            <p>It boots on {{BOOT_NUM}}, {{BOOT_NAME}}. KNOB1 to KNOB4 edit the patch, four parameters a page.</p>
+            <p>It boots on {{BOOT_NUM}}, {{BOOT_NAME}}. Hold HOME, pick FM1-8P and play it from the keys or a USB MIDI keyboard.</p>
             <figure class="mo-pc__visual mo-pc__visual--lit"><img src="img/night-panel-1-play.png" alt="The play page in the Night panel theme, ready to play" width="720" height="720" loading="lazy"></figure>
           </li>
         </ol>
@@ -176,24 +173,48 @@
       <div class="grid grid--top">
         <div class="span-5 stack-4">
           <h2 id="install-h">Install <span class="nw">FM1-8P</span> on the FM-1</h2>
-          <p class="untested"><strong>Not tested on hardware yet.</strong> This installer has not been tested on an FM-1 yet. Wait for v0.1 unless you know how to recover your FM-1, and do not unplug it while it writes.</p>
-          <p>Over USB with Web MIDI, in Chrome or Edge. It installs <a class="link" href="fw/fm1-8p.fwsc">the latest build</a> from <code>main</code>, identity <code>FM-1_948</code>. To go back, install the stock V15 from the <a class="link" href="https://thefirmwarehub.com/">FM-1 Firmware Hub</a>; hold OCT- while you switch the FM-1 on for its USB rescue.</p>
           <p id="fm1-browser" class="warn" role="alert" hidden></p>
           <noscript><p class="warn">The installer needs JavaScript, and Chrome or Edge.</p></noscript>
           <div class="installer">
-            <p id="fm1-package" class="t-small"></p>
-            <div class="btn-row"><button type="button" class="btn btn--primary" id="fm1-install-btn" disabled>Install on your FM-1</button></div>
-            <progress id="fm1-install-bar" max="100" value="0" hidden></progress>
-            <p id="fm1-install-status" class="status" role="status"></p>
-          </div>
-          <div class="installer">
-            <p>Already on <a class="link" href="https://github.com/joakimeriksson/fm1-dock">fm1-dock</a>? Add <a class="link" href="fw/fm1_8p.dock">the module</a> beside your other synths, then hold HOME and pick it.</p>
-            <div class="btn-row"><button type="button" class="btn btn--secondary" id="fm1-add-btn" disabled>Add FM1-8P to my fm1-dock</button></div>
+            <h3 class="t-card">As an fm1-dock module</h3>
+            <p>How it runs on the FM-1 today. Keep your other <a class="link" href="https://github.com/joakimeriksson/fm1-dock">fm1-dock</a> synths and add <a class="link" href="fw/fm1_8p.dock">the module</a> beside them.</p>
+            <div class="btn-row"><button type="button" class="btn btn--primary" id="fm1-add-btn" disabled>Add FM1-8P to my fm1-dock</button></div>
             <progress id="fm1-add-bar" max="100" value="0" hidden></progress>
             <p id="fm1-add-status" class="status" role="status"></p>
           </div>
+          <div class="installer">
+            <h3 class="t-card">As the full firmware</h3>
+            <p class="untested"><strong>This installer has not been tested on an FM-1 yet.</strong> Wait for v0.1 unless you can recover your FM-1.</p>
+            <p class="fw__details">It writes <a class="link" href="fw/fm1-8p.fwsc">the package</a>, identity <code>FM-1_948</code>, over Web MIDI in Chrome or Edge. To go back, install V15 from the <a class="link" href="https://thefirmwarehub.com/">FM-1 Firmware Hub</a>; hold OCT- at power-on for the USB rescue.</p>
+            <p id="fm1-package" class="t-small"></p>
+            <div class="btn-row"><button type="button" class="btn btn--secondary" id="fm1-install-btn" disabled>Install the full firmware</button></div>
+            <progress id="fm1-install-bar" max="100" value="0" hidden></progress>
+            <p id="fm1-install-status" class="status" role="status"></p>
+          </div>
         </div>
-        <figure class="install__screen span-6 start-7"><img src="img/boot-badge-night-panel.png" alt="FM1-8P's boot screen on the FM-1 after an install" width="720" height="720" loading="lazy"></figure>
+        <figure class="install__screen span-6 start-7"><img src="img/boot-badge-night-panel.png" alt="FM1-8P's boot screen on the FM-1" width="720" height="720" loading="lazy"></figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="section ground-inverse" id="play" aria-labelledby="play-h">
+    <div class="wrap">
+      <div class="grid grid--top">
+        <h2 class="span-5" id="play-h">Try FM1-8P in your browser first</h2>
+        <p class="span-6 start-7 play__lead">No FM-1 at hand? The current build also runs in Joakim Eriksson's <a class="link" href="https://github.com/joakimeriksson/fm1-emu">fm1-emu</a>. Press Start, then play with the computer keyboard, the mouse, a touch screen or a MIDI keyboard over Web MIDI.</p>
+      </div>
+      <div class="app ui fill">
+        <div class="app__pane app__pane--list">
+          <p class="app__head"><span class="app__label">Tone memory</span><span>{{BOOT_NUM}} {{BOOT_NAME}} at boot</span></p>
+          <ol class="tones">
+{{TONES}}
+          </ol>
+        </div>
+        <div class="app__pane app__pane--open">
+          <div class="emu">
+            <iframe src="{{EMU_SRC}}" title="FM1-8P in the fm1-emu emulator" tabindex="0" allow="midi; autoplay" loading="lazy"></iframe>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -203,7 +224,12 @@
       <div class="grid grid--top">
         <div class="span-5 stack-4">
           <h2 id="questions-h">Questions</h2>
-          <p>FM1-8P is a beta. The installer and the emulator work in these browsers on a computer.</p>
+          <h3 class="t-card">What's coming</h3>
+          <ul class="facts">
+            <li><span>v0.1</span><span>After a hardware test, then the Firmware Hub</span></li>
+            <li><span>Tone matching</span><span>Closer to the JX-8P's filter and chorus</span></li>
+            <li><span>Reverb</span><span>Per patch, in design</span></li>
+          </ul>
           <ul class="browsers">
             <li><span>Chrome<small>Install and play</small></span><img class="ic ic-40" src="assets/icons/chrome.svg" alt="" width="40" height="40"></li>
             <li><span>Edge<small>Install and play</small></span><img class="ic ic-40" src="assets/icons/microsoft-edge.svg" alt="" width="40" height="40"></li>
@@ -211,8 +237,8 @@
           </ul>
         </div>
         <div class="faq span-6 start-7">
-          <div class="faq__item"><h3>Is FM1-8P free?</h3><p>Yes, GPL-3.0-or-later. The source is on <a class="link" href="https://github.com/ericdahl-dev/fm1-8p">GitHub</a>.</p></div>
-          <div class="faq__item"><h3>Do my fm1-dock synths stay?</h3><p>With the module route, yes: the other synths, the settings and the presets stay on the FM-1.</p></div>
+          <div class="faq__item"><h3>Does FM1-8P run on a real FM-1?</h3><p>Yes. It runs on the FM-1 as an fm1-dock module, 4 voices, played from its keys or USB MIDI.</p></div>
+          <div class="faq__item faq__item--desk"><h3>Is FM1-8P free?</h3><p>Yes, GPL-3.0-or-later. The source is on <a class="link" href="https://github.com/ericdahl-dev/fm1-8p">GitHub</a>.</p></div>
           <div class="faq__item"><h3>Why does the FM-1 installer need Chrome or Edge?</h3><p>It needs Web MIDI with SysEx on a computer. Other browsers cannot reach the FM-1.</p></div>
           <div class="faq__item"><h3>Is it the Roland JX-8P?</h3><p>No. FM1-8P is an original engine; its 32 tones are the JX-8P factory bank, converted to its parameters.</p></div>
           <div class="faq__item faq__item--desk"><h3>Where do I report an FM-1 bug?</h3><p>Open an issue on <a class="link" href="https://github.com/ericdahl-dev/fm1-8p/issues">GitHub</a>, with the tone number and what you played.</p></div>
@@ -239,7 +265,7 @@
           <p class="footer__lede">Polysynth firmware for the M-VAVE FM-1.</p>
         </div>
         <div class="span-2 footer__col"><h3>Play</h3><ul><li><a href="#play">Emulator</a></li><li><a href="#play">32 tones</a></li></ul></div>
-        <div class="span-2 footer__col"><h3>Engine</h3><ul><li><a href="#sound">Synth engine</a></li><li><a href="#steps">How it installs</a></li></ul></div>
+        <div class="span-2 footer__col"><h3>Engine</h3><ul><li><a href="#sound">Synth engine</a></li><li><a href="#seq">Sequencer</a></li></ul></div>
         <div class="span-2 footer__col"><h3>Install</h3><ul><li><a href="#install">Installer</a></li><li><a href="#questions">Questions</a></li></ul></div>
         <div class="span-2 footer__col"><h3>Source</h3><ul><li><a href="https://github.com/ericdahl-dev/fm1-8p">GitHub</a></li><li><a href="vendor/fm1-dock/VENDORED.md">Vendored code</a></li></ul></div>
       </div>

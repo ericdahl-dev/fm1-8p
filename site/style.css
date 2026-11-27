@@ -38,7 +38,7 @@
 .emu iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 @media (max-width: 1279px) {
   .app__label { display: none; }
-  .tones li { padding: 3px 0; }
+  .tones li { padding: 2px 0; }
 }
 @media (max-width: 1023px) {
   .app.ui { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
@@ -105,10 +105,16 @@ main > #steps[data-moment]:not(.is-live) { min-height: 200svh; }
   .sound__grid .panel.screen:not(.screen--corner) > img { object-fit: cover; object-position: 50% 20%; }
 }
 @media (max-width: 639px) {
-  #sound, #install { --hm: 2; }
+  #sound { --hm: 2; }
+  /* a phone cannot run the installer (Web MIDI with SysEx needs a computer): the buttons and the firmware's
+     details stay on the computer's page, and fm1-browser says why */
+  #install .btn-row, #install .installer p.fw__details { display: none; }
+  #install .install__screen { aspect-ratio: 16 / 9; }
+  #install .install__screen > img { object-fit: cover; }
   footer.closing { --hm: 2; }
-  .sound__grid > .card { grid-column: auto / span 6; }
-  .sound__grid .panel.screen--corner > img { left: var(--s-4); top: var(--s-4); }
+  .sound__grid > .card { grid-column: 1 / -1; }
+  #sound .sound__grid .panel.screen { aspect-ratio: auto; height: 200px; --p-h: 200px; }
+  .sound__grid .panel.screen:not(.screen--corner) > img { object-fit: cover; object-position: 50% 20%; }
   .app.ui { height: auto; grid-template-rows: auto; }
   .app > .app__pane--open { aspect-ratio: 3 / 4; }
   .hero--triptych h1 { font-size: 34px; }
@@ -119,3 +125,16 @@ main > #steps[data-moment]:not(.is-live) { min-height: 200svh; }
 /* a tablet with a short screen (768x1024) keeps the questions to one screen: five answers */
 @media (min-width: 640px) and (max-width: 1023px) and (max-height: 1100px) { #questions .faq__item--desk { display: none; } }
 @media (max-width: 639px) { .browsers li { max-width: none; } }
+
+/* plain fact rows (the sequencer, what's coming): label left, value right, a rule under each */
+.facts { list-style: none; margin: 0; padding: 0; display: grid; }
+.facts li { display: flex; justify-content: space-between; gap: var(--s-4); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
+.facts li > span:first-child { font-weight: 500; }
+.facts li > span + span { color: var(--muted); text-align: right; }
+.seq__screen { margin: 0; aspect-ratio: 1; border-radius: var(--r-md); overflow: hidden; background: #0b0d12; }
+.seq__screen > img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.installer h3 { margin: 0; }
+@media (min-width: 640px) and (max-width: 1023px) {
+  #seq .seq__screen { aspect-ratio: auto; height: calc(100svh - 600px); }
+  #seq .seq__screen > img { object-fit: contain; }
+}
