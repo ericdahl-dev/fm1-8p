@@ -328,7 +328,9 @@ resonant 4-pole (24 dB/octave) lowpass.
   long fade is not all there. From 389 up everything is as before. It is all
   control-rate math. **Rates:** this top is fitted at 44.1 and 48 kHz and is
   used only from 44.1 to 48 kHz; every other rate (8 to 192 kHz) keeps the
-  top it had, coefficient for coefficient.
+  top it had, coefficient for coefficient. Per sample, at resonances 0 to
+  about 100 the fade's multiply now runs from cutoff 12191 instead of
+  13801.
 - **Highpass.** `x - lowpass(x)` with a one-pole lowpass, so it cannot
   resonate. Turning it on clears that lowpass, so the output starts equal to
   the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240
@@ -404,7 +406,10 @@ feedback), three more with resonance on (the input level and the shelf's
 lowpass and mix), and about 40 adds, shifts and compares, plus one multiply for the
 highpass when it is on (three for the bass boost), one in the clip only above +-2.0, and the filter
 envelope step. Inside the top 600 cents of cutoff the stage zero takes a
-multiply instead of a shift (four more). The cutoff update every 16 samples
+multiply instead of a shift (four more). Since #151, at 44.1 to 48 kHz and
+resonances 0 to about 100 per mille, the fade's one multiply per sample runs
+from cutoff 12191 up, where it ran from 13801 (the top 2210 cents instead
+of the top 600). The cutoff update every 16 samples
 adds about ten multiplies and three divisions by constants (1200 and 10,
 which compile to multiplies), under one multiply per sample on average; it
 is skipped when nothing feeding it changed, and the coefficients are not

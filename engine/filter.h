@@ -88,7 +88,9 @@ void fm_filter_set_cutoff(fm_filter *f, int32_t cutoff_cents,
  * f0 stops at 0.306 of the rate, the sections take more damping, and the fade
  * is the top 2210 cents. Resonances 1 to 388 get a share of it (the long fade
  * only up to about 100); from 389 up nothing of it. Only at the rates it is
- * fitted for, 44.1 to 48 kHz: every other rate keeps the top it had. */
+ * fitted for, 44.1 to 48 kHz: every other rate keeps the top it had. Per
+ * sample that changes one thing: at resonances 0 to about 100 the fade's
+ * multiply runs from cutoff 12191 up, where it ran from 13801. */
 void fm_filter_set_resonance(fm_filter *f, int32_t permille);
 
 /* Highpass position 0..4 (higher is clamped to 4): 0 is off (a wire),

@@ -201,35 +201,69 @@ TT_TEST(vcf_top_reads_as_pg8x_at_48k)
     TT_CHECK(worst < 1.5);
 }
 
+/* Ours against PG-8X's response `pg` at `cutoff` and `resonance`, 44.1 kHz: the most any harmonic read is under
+ * PG-8X's and the most one is over, dB; prints the row. */
+static void vt_against(int32_t cutoff, int32_t resonance, const double *pg, double *under, double *over)
+{
+    double db[VT_HARMONICS];
+    int i;
+    *under = *over = 0;
+    vt_response(44100, cutoff, resonance, db);
+    printf("    resonance %d, cutoff %d:", (int)resonance, (int)cutoff);
+    for (i = 0; i < VT_HARMONICS; i++) {
+        printf(" h%d %+.2f (%+.2f)", vt_k[i], db[i], pg[i]);
+        *under = fmax(*under, pg[i] - db[i]);
+        *over = fmax(*over, db[i] - pg[i]);
+    }
+    printf("\n    most under PG-8X %.2f dB, most over %.2f\n", *under, *over);
+}
+
 /*
- * A little resonance keeps the top harmonic. At resonance 290 and 340 per mille (VCF RES 16 and 20) and VCF
- * FREQ 114, PG-8X's h37 reads -8.94 and -8.33 dB (44.1 kHz, re the open RES 0 filter). The sections' own
- * shortfall there is 11 to 12 dB (the resonant top, #168). The long fade to the input must not add to it: a
- * few per cent of the input against the sections' output, out of phase past f0, took h37 to 17.2 and 23.8 dB
- * under PG-8X when the fade was handed over as slowly as the f0 stop. So the fade is resonance 0's alone
- * (gone by about resonance 100), and no harmonic read here is more than 13 dB under PG-8X's, or 6 over.
+ * A little resonance keeps the top harmonic: the long fade is resonance 0's alone, handed over as 1 - 5 w
+ * (gone by about resonance 100). PG-8X at 44.1 kHz, re the open RES 0 filter; the bounds are ratchets, not a
+ * fit, each a little over what the rule reads and under what a wrong handover reads:
+ * - Resonance 290 and 340 (VCF RES 16, 20) at VCF FREQ 114: PG-8X's h37 reads -8.94 and -8.33 dB. The
+ *   sections' own shortfall there is 11 to 12 dB, and it is the resonant top's, #168's (before #151: 10.94 and
+ *   12.07). The fade must not add to it: a few per cent of the input against the sections' output, out of
+ *   phase past f0, took h37 to 17.15 and 23.8 dB under when the fade was handed over as slowly as the f0
+ *   stop (dbe1d5a). Within 13 dB.
+ * - Resonance 180 (RES 8) at FREQ 114: the fade is gone (8.92 dB under; 15.3 with the fade handed over as
+ *   1 - 2 w). Within 12 dB.
+ * - Resonance 45 (RES 2) at FREQ 120: over half the fade is still there (7.22 dB under; 12.1 with it handed
+ *   over as 1 - 20 w, gone by resonance 23). Within 10 dB.
+ * And none is more than 6 dB over PG-8X's.
  */
 TT_TEST(vcf_top_low_resonance_keeps_its_top_harmonic)
 {
-    static const struct { int32_t res; double pg[VT_HARMONICS]; } row[] = {
-        { 290, { +0.91, +2.23, +0.81, -4.47, -8.94 } },
-        { 340, { +1.18, +3.23, +2.41, -3.41, -8.33 } },
+    static const struct { int32_t res, cut; double pg[VT_HARMONICS], under; } row[] = {
+        { 290, 12923, { +0.91, +2.23, +0.81, -4.47, -8.94 }, 13.0 },
+        { 340, 12923, { +1.18, +3.23, +2.41, -3.41, -8.33 }, 13.0 },
+        { 180, 12923, { +0.25, +0.08, -2.34, -6.80, -10.44 }, 12.0 },
+        { 45, 13752, { -0.09, -0.35, -0.94, -1.88, -2.80 }, 10.0 },
     };
     size_t r;
-    int i;
     for (r = 0; r < sizeof row / sizeof row[0]; r++) {
-        double db[VT_HARMONICS], under = 0, over = 0;
-        vt_response(44100, 12923, row[r].res, db);
-        printf("    resonance %d, VCF FREQ 114:", (int)row[r].res);
-        for (i = 0; i < VT_HARMONICS; i++) {
-            printf(" h%d %+.2f (%+.2f)", vt_k[i], db[i], row[r].pg[i]);
-            under = fmax(under, row[r].pg[i] - db[i]);
-            over = fmax(over, db[i] - row[r].pg[i]);
-        }
-        printf("\n    most under PG-8X %.2f dB, most over %.2f\n", under, over);
-        TT_CHECK(under < 13.0);
+        double under, over;
+        vt_against(row[r].cut, row[r].res, row[r].pg, &under, &over);
+        TT_CHECK(under < row[r].under);
         TT_CHECK(over < 6.0);
     }
+}
+
+/*
+ * With a little resonance the f0 stop gives way near open. At resonance 290 (VCF RES 16) and VCF FREQ 122
+ * (14030, inside the short fade's top 600 cents) PG-8X's h37 reads +3.95 dB (44.1 kHz, re the open RES 0
+ * filter): its peak is up there. With the stop held under the short fade ours reads 6.0 dB under it; giving way
+ * to none at open, 1.63. No harmonic read is more than 4 dB under PG-8X's or 5 over (h31 is 3.60 over: the
+ * peak's height, #168's).
+ */
+TT_TEST(vcf_top_f0_stop_gives_way_near_open_at_low_resonance)
+{
+    static const double pg[VT_HARMONICS] = { +0.40, +1.32, +2.64, +3.69, +3.95 };
+    double under, over;
+    vt_against(14030, 290, pg, &under, &over);
+    TT_CHECK(under < 4.0);
+    TT_CHECK(over < 5.0);
 }
 
 static void run_vcf_top_tests(void)
@@ -239,4 +273,5 @@ static void run_vcf_top_tests(void)
     TT_RUN(vcf_top_reads_as_pg8x_at_44k1);
     TT_RUN(vcf_top_reads_as_pg8x_at_48k);
     TT_RUN(vcf_top_low_resonance_keeps_its_top_harmonic);
+    TT_RUN(vcf_top_f0_stop_gives_way_near_open_at_low_resonance);
 }

@@ -665,6 +665,67 @@ TT_TEST(svf_output_holds_bit_for_bit)
     TT_CHECK_EQ(h, 0x75C3FD27u);
 }
 
+/* The top's weights by resonance (#151) step no coefficient: at 44.1 and 48 kHz, cutoffs 12000..14399, from
+ * each resonance 0..399 to the next per mille the sections' t moves under 0.1 and the fade under 0.008 (the
+ * f0 stop's handover near its end, where tan is steep: 0.0930; the long fade's 1 - 5 w: 0.0073). Without the
+ * stop's 1 - 1.25 w ramp t steps 2.85 between resonance 388 and 389. */
+TT_TEST(svf_top_weights_step_no_coefficient_with_resonance)
+{
+    static const uint32_t rates[] = { 44100, 48000 };
+    static fm_filter f;
+    static int32_t pt[2400], pf[2400];
+    size_t r;
+    for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
+        int32_t rate = fm_filter_rate_cents(rates[r]), res, c, wt = 0, wf = 0;
+        for (res = 0; res <= 400; res++)
+            for (c = 12000; c < 14400; c++) {
+                int32_t dt, df;
+                fm_filter_reset(&f);
+                fm_filter_set_resonance(&f, res);
+                fm_filter_set_cutoff(&f, c, rate);
+                dt = f.t > pt[c - 12000] ? f.t - pt[c - 12000] : pt[c - 12000] - f.t;
+                df = f.fade > pf[c - 12000] ? f.fade - pf[c - 12000] : pf[c - 12000] - f.fade;
+                if (res && dt > wt) wt = dt;
+                if (res && df > wf) wf = df;
+                pt[c - 12000] = f.t;
+                pf[c - 12000] = f.fade;
+            }
+        printf("    %u Hz: largest step a per mille of resonance, t %.4f, fade %.5f\n", (unsigned)rates[r],
+               wt / 134217728.0, wf / 1073741824.0);
+        TT_CHECK(wt < (int32_t)(0.1 * 134217728.0));
+        TT_CHECK(wf < (int32_t)(0.008 * 1073741824.0));
+    }
+}
+
+/* Rates outside 44.1 to 48 kHz keep the top they had before #151, coefficient for coefficient: one hash a
+ * rate over a1, a2, a3, t, z3, zt, fade and the level at resonances 0, 45, 180 and 290, cutoffs 12000..14400
+ * by 7. The values are the base's (9d7a7e2, the same loop on its filter.c). 32 and 88.2 kHz are the rates next
+ * to the fitted band on either side. */
+TT_TEST(svf_top_is_as_before_outside_the_fitted_rates)
+{
+    static const struct { uint32_t rate, hash; } row[] = {
+        { 22050, 0x2364F6A0u }, { 32000, 0x245869CFu }, { 88200, 0xA1521378u }, { 96000, 0xCBA07BECu },
+    };
+    static const int16_t res[] = { 0, 45, 180, 290 };
+    static fm_filter f;
+    size_t r, i;
+    for (r = 0; r < sizeof row / sizeof row[0]; r++) {
+        int32_t rate = fm_filter_rate_cents(row[r].rate), c;
+        uint32_t h = 2166136261u;
+        for (i = 0; i < sizeof res / sizeof res[0]; i++)
+            for (c = 12000; c <= FM_FILTER_OPEN_CENTS; c += 7) {
+                int32_t v[8];
+                fm_filter_reset(&f);
+                fm_filter_set_resonance(&f, res[i]);
+                fm_filter_set_cutoff(&f, c, rate);
+                v[0] = f.a1, v[1] = f.a2, v[2] = f.a3, v[3] = f.t, v[4] = f.z3, v[5] = f.zt, v[6] = f.fade, v[7] = f.a;
+                h = fnv1a(h, v, sizeof v);
+            }
+        printf("    %u Hz: coefficient hash 0x%08Xu\n", (unsigned)row[r].rate, (unsigned)h);
+        TT_CHECK_EQ(h, row[r].hash);
+    }
+}
+
 static void run_svf_tests(void)
 {
     TT_RUN(svf_lowpass_is_pg8x_two_sections);
@@ -682,4 +743,6 @@ static void run_svf_tests(void)
     TT_RUN(svf_top_peaks_are_pg8x);
     TT_RUN(svf_top_stops_where_pg8x_does);
     TT_RUN(svf_top_slope_is_pg8x_at_resonance_0);
+    TT_RUN(svf_top_weights_step_no_coefficient_with_resonance);
+    TT_RUN(svf_top_is_as_before_outside_the_fitted_rates);
 }

@@ -26,7 +26,10 @@
  * lets out. Across the top FADE_CENTS of the cutoff the output fades to
  * the input, so the fully open filter is an exact wire. At resonance 0
  * and 44.1 to 48 kHz the top is PG-8X's (#151): f0 stops at F0_MAX_R0 and
- * the fade is FADE0_CENTS long.
+ * the fade is FADE0_CENTS long. (Resonance 0 plays a cent and a few LSB
+ * short of those: w, how much peak, reads 2 of 2^30 there, not 0, so the
+ * stop is at -2049 cents, the damping 1 LSB under K_TOP0 and the fade up
+ * to 7 LSB over its line. The fit was made with it.)
  */
 #include "filter.h"
 #include "cutoff_curve.h"
@@ -405,7 +408,8 @@ static void apply(fm_filter *f)
     w = ONE_Q30 - (int32_t)(((int64_t)k * Q0_Q30) >> 30);     /* how much peak: 0 at resonance 0 */
     w = w <= 0 ? 0 : w >= ONE_Q30 / 2 ? ONE_Q30 : 2 * w;      /* twice it, to 1 from about resonance 400 */
     /* how much of resonance 0's top (v) and of its long fade (vf): none with a peak or at a rate it is not
-     * fitted for, which is one or two compares for a resonant patch */
+     * fitted for. A resonant patch pays one compare here (w), and further down three tests for zero and
+     * a subtract; no multiply */
     v = vf = 0;
     if (w < V_W_END && f->rate >= TOP0_RATE_LO && f->rate <= TOP0_RATE_HI) {
         v = ONE_Q30 - (int32_t)(((int64_t)w * V_SLOPE) >> 28);
