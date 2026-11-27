@@ -285,7 +285,7 @@ static FM_BOTH void quiet_after(fm_reverb *r, int32_t nz, uint32_t steps)
 
 /* the damping one-pole: lp + k (d - lp), k Q15 (32768: none), the step rounded away from zero: it moves
  * lp toward d by 1 LSB at least and never past it (k <= 32768), so lp reaches d. Truncated toward zero,
- * the step had a dead band of 32768 / k LSB that cancelled the loop's loss, and a damped tail held a DC
+ * the step had a dead band of 32768 / k LSB that canceled the loop's loss, and a damped tail held a DC
  * for good (#408's review); this way the tail decays as an undamped one does, through the loop's gain
  * (truncated toward zero). As cheap as mulr: no branch. */
 static FM_BOTH int32_t damp(int32_t lp, int32_t d, int32_t k)
