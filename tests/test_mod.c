@@ -430,7 +430,7 @@ TT_TEST(restriking_a_sounding_note_keeps_its_vibrato)
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 1200);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 10);
     fm_engine_note_on(&mod_eng, 57, 127);
-    /* after the 10 + 10 ms delay and fade, the triangle peaks (+1 octave)
+    /* after the 10 + 20 ms delay and fade, the triangle peaks (+1 octave)
      * at 125 ms: restrike there */
     fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 8);
     fm_engine_note_on(&mod_eng, 57, 127);
@@ -643,8 +643,8 @@ TT_TEST(pulse_width_alone_ticks_the_voices_and_clears)
 }
 
 /* A4 with a 2 Hz square vibrato of 100 cents and a 500 ms delay; the
- * depth is set before the note, or only after 1 s with `late`. Returns
- * the pitch (cents) over 1.02..1.23 s, the top half of an LFO cycle. */
+ * depth is set before the note, or only after 1.5 s with `late`. Returns
+ * the pitch (cents) over 1.52..1.73 s, the top half of an LFO cycle. */
 static double vibrato_after_late_depth(int late)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 1);
@@ -846,7 +846,7 @@ TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
     /* the delay and fade ran out at 1.5 s whether or not a depth was set then */
     double early = vibrato_after_late_depth(0), late = vibrato_after_late_depth(1);
-    printf("    depth before the note %.1f cents, after 1 s %.1f cents\n",
+    printf("    depth before the note %.1f cents, after 1.5 s %.1f cents\n",
            early, late);
     TT_CHECK_NEAR(early, 100, 1);
     TT_CHECK_NEAR(late, early, 0.5);

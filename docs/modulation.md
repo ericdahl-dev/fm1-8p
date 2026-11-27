@@ -97,8 +97,10 @@ starts its new note (as PG-8X 2.0.13's does, measured 2026-11-20, #312), its
 LFO level drops to zero and is held there for `lfo_delay_ms`, then rises
 in a straight line to full over twice `lfo_delay_ms`, so it is full at three
 times the delay. That is PG-8X 2.0.13's shape (measured 2026-11-26, #384: the
-depth leaves zero at b/127 s and is full at about three times that, at
-bytes 32, 76 and 127, at either LFO rate tried). With a delay of 0 the
+depth leaves zero at b/127 s and is full at about three times that, read
+from the fade curve at bytes 32, 76 and 127; t50 and t90 at bytes 64 and 127
+are 2 and 2.8 times the delay; the same at LFO rates of 0.61, 4.04 and
+8.86 Hz, and on the filter LFO as on pitch). With a delay of 0 the
 LFO is at full depth at once. The delay is counted in ticks (rounded down),
 the fade step is `2^30 / (2 x delay_ticks)`, both computed when the parameter is
 set, so the tick has no divide. A voice keeps the tick its delay started at,
