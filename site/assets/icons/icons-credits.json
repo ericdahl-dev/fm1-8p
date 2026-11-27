@@ -1,0 +1,38 @@
+[
+  {
+    "file": "chrome.svg",
+    "icon": "logos:chrome",
+    "name": "Chrome",
+    "kind": "colour",
+    "source": "gilbarbara/logos@d6960edc1b7309d392c76e40d3a320df7f9ff85c",
+    "author": "Gil Barbara",
+    "licence": "CC0-1.0",
+    "url": "https://github.com/gilbarbara/logos",
+    "trademark": true,
+    "markUrl": "https://www.google.com/chrome/"
+  },
+  {
+    "file": "firefox.svg",
+    "icon": "logos:firefox",
+    "name": "Firefox",
+    "kind": "colour",
+    "source": "gilbarbara/logos@d6960edc1b7309d392c76e40d3a320df7f9ff85c",
+    "author": "Gil Barbara",
+    "licence": "CC0-1.0",
+    "url": "https://github.com/gilbarbara/logos",
+    "trademark": true,
+    "markUrl": "https://firefox.com/"
+  },
+  {
+    "file": "microsoft-edge.svg",
+    "icon": "logos:microsoft-edge",
+    "name": "Microsoft Edge",
+    "kind": "colour",
+    "source": "gilbarbara/logos@d6960edc1b7309d392c76e40d3a320df7f9ff85c",
+    "author": "Gil Barbara",
+    "licence": "CC0-1.0",
+    "url": "https://github.com/gilbarbara/logos",
+    "trademark": true,
+    "markUrl": "https://www.microsoft.com/en-us/windows/microsoft-edge"
+  }
+]
