@@ -599,7 +599,7 @@ def to_engine(tone):
     # PG-8X 2.0.13: 0.537 Hz at 64, x 2.664 every 16 steps (25.4 Hz at 127), from 32 up. Below 32
     # PG-8X flattens near 0.05 Hz (0.050 Hz measured at 16): the curve stops there (at 25)
     e["LFO_RATE_CENTIHZ"] = max(5, rnd(53.7 * 2.664 ** ((p[LFO_RATE] - 64) / 16)))
-    e["LFO_DELAY_MS"] = rnd(3000 * (p[LFO_DELAY] / 127) ** 3)
+    e["LFO_DELAY_MS"] = rnd(1000 * p[LFO_DELAY] / 127)   # PG-8X 2.0.13 (#384); the fade takes twice that
     # a vibrato depth per oscillator (#58). PG-8X 2.0.13: linear, 4.72 cents of peak per step (599
     # cents at 127), the same law for both. #330: the 2..98 % spread read 4.5 a step, but it reads a
     # triangle's peak about 0.95 low; the same measure on ours read 0.952 of PG-8X's at bytes 32, 64, 127

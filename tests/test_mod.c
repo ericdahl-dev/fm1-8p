@@ -130,30 +130,43 @@ TT_TEST(zero_pitch_depth_leaves_the_output_untouched)
     TT_CHECK(!same_as_default(FM_PARAM_LFO_PITCH_CENTS, 50, &n));
 }
 
-TT_TEST(lfo_delay_holds_modulation_at_zero_then_fades_it_in)
+/* The LFO delay, as PG-8X 2.0.13 plays it (#384): zero for the delay, then a straight line up to full over
+ * twice the delay, whatever the LFO rate. Square LFO at `centihz`; its depth in each `half` ms half-cycle. */
+static void lfo_delay_depths(int32_t centihz, int half, int delay_ms, double *mag, int n)
 {
-    double mag[10];
     int k;
     TT_CHECK_EQ(fm_engine_init(&mod_eng, MOD_RATE, 1), FM_OK);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_WAVE, FM_LFO_SQUARE);
-    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, 500); /* 5 Hz */
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_RATE_CENTIHZ, centihz);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
-    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 400);
-    /* the LFO runs freely from init; the delay starts at the note */
-    fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 10);
+    fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, delay_ms);
+    /* the LFO runs freely from init; the delay starts at the note, a half cycle in (an edge) */
+    fm_engine_render(&mod_eng, mod_buf, (uint32_t)(MOD_RATE * half / 1000));
     fm_engine_note_on(&mod_eng, 69, 100);
-    fm_engine_render(&mod_eng, mod_buf, MOD_RATE);
-    /* each 100 ms is one half of the square: measure inside it */
-    for (k = 0; k < 10; k++)
-        mag[k] = fabs(cents(hz_between(mod_buf, k * 100 + 15, k * 100 + 85),
+    fm_engine_render(&mod_eng, mod_buf, (uint32_t)(MOD_RATE * n * half / 1000));
+    for (k = 0; k < n; k++)                           /* inside each half of the square */
+        mag[k] = fabs(cents(hz_between(mod_buf, k * half + half / 8, (k + 1) * half - half / 8),
                             note_hz(69)));
-    for (k = 0; k < 4; k++) TT_CHECK(mag[k] < 0.5);   /* delay: none */
-    for (k = 4; k < 8; k++) {                         /* fade-in */
-        double expect = 100.0 * ((k - 4) * 100 + 50) / 400.0;
-        TT_CHECK_NEAR(mag[k], expect, 6);
+}
+
+TT_TEST(lfo_delay_holds_modulation_at_zero_then_fades_it_in_over_twice_the_delay)
+{
+    static const struct { int32_t centihz; int half; } R[2] = { {500, 100}, {250, 200} };
+    double mag[12];
+    int r, k;
+    for (r = 0; r < 2; r++) {                         /* the rate doesn't change it */
+        int n = 1200 / R[r].half, h = R[r].half;
+        lfo_delay_depths(R[r].centihz, h, 300, mag, n);
+        for (k = 0; k < n; k++) {
+            double a = k * h, b = a + h, mid = a + h / 2.0;   /* ms after the note */
+            if (b <= 300)
+                TT_CHECK(mag[k] < 0.5);               /* the delay: none */
+            else if (a >= 300 && b <= 900)
+                TT_CHECK_NEAR(mag[k], 100.0 * (mid - 300) / 600.0, 6);   /* a straight line, 600 ms */
+            else if (a >= 900)
+                TT_CHECK_NEAR(mag[k], 100, 1);        /* full from 3 x the delay */
+        }
     }
-    TT_CHECK_NEAR(mag[8], 100, 1);                    /* full depth */
-    TT_CHECK_NEAR(mag[9], 100, 1);
 }
 
 /* One note with vibrato, rendered in blocks of `block` frames. */
@@ -417,7 +430,7 @@ TT_TEST(restriking_a_sounding_note_keeps_its_vibrato)
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 1200);
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 10);
     fm_engine_note_on(&mod_eng, 57, 127);
-    /* after the 10 + 10 ms delay and fade, the triangle peaks (+1 octave)
+    /* after the 10 + 20 ms delay and fade, the triangle peaks (+1 octave)
      * at 125 ms: restrike there */
     fm_engine_render(&mod_eng, mod_buf, MOD_RATE / 8);
     fm_engine_note_on(&mod_eng, 57, 127);
@@ -630,8 +643,8 @@ TT_TEST(pulse_width_alone_ticks_the_voices_and_clears)
 }
 
 /* A4 with a 2 Hz square vibrato of 100 cents and a 500 ms delay; the
- * depth is set before the note, or only after 1 s with `late`. Returns
- * the pitch (cents) over 1.02..1.23 s, the top half of an LFO cycle. */
+ * depth is set before the note, or only after 1.5 s with `late`. Returns
+ * the pitch (cents) over 1.52..1.73 s, the top half of an LFO cycle. */
 static double vibrato_after_late_depth(int late)
 {
     fm_engine_init(&mod_eng, MOD_RATE, 1);
@@ -640,10 +653,10 @@ static double vibrato_after_late_depth(int late)
     fm_engine_set_param(&mod_eng, FM_PARAM_LFO_DELAY_MS, 500);
     if (!late) fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
     fm_engine_note_on(&mod_eng, 69, 100);
-    fm_engine_render(&mod_eng, mod_buf, MOD_RATE);
+    fm_engine_render(&mod_eng, mod_buf, MOD_RATE * 3 / 2);   /* the delay and its fade (3 x 500 ms) */
     if (late) fm_engine_set_param(&mod_eng, FM_PARAM_LFO_PITCH_CENTS, 100);
-    fm_engine_render(&mod_eng, mod_buf + 2 * MOD_RATE, MOD_RATE / 2);
-    return cents(hz_between(mod_buf, 1020, 1230), note_hz(69));
+    fm_engine_render(&mod_eng, mod_buf + 3 * MOD_RATE, MOD_RATE / 2);
+    return cents(hz_between(mod_buf, 1520, 1730), note_hz(69));
 }
 
 /* The one vibrato depth moves osc 2 as well as osc 1: with only osc 2
@@ -831,9 +844,9 @@ TT_TEST(pitch_env_adds_to_tuning_and_bend)
 
 TT_TEST(lfo_delay_counts_from_the_note_even_with_no_depth_set)
 {
-    /* the delay ran out at 0.5 s whether or not a depth was set then */
+    /* the delay and fade ran out at 1.5 s whether or not a depth was set then */
     double early = vibrato_after_late_depth(0), late = vibrato_after_late_depth(1);
-    printf("    depth before the note %.1f cents, after 1 s %.1f cents\n",
+    printf("    depth before the note %.1f cents, after 1.5 s %.1f cents\n",
            early, late);
     TT_CHECK_NEAR(early, 100, 1);
     TT_CHECK_NEAR(late, early, 0.5);
@@ -844,7 +857,7 @@ static void run_mod_tests(void)
     TT_RUN(lfo_to_pitch_moves_the_pitch_by_the_depth);
     TT_RUN(lfo_triangle_swings_to_the_depth_at_its_peaks);
     TT_RUN(zero_pitch_depth_leaves_the_output_untouched);
-    TT_RUN(lfo_delay_holds_modulation_at_zero_then_fades_it_in);
+    TT_RUN(lfo_delay_holds_modulation_at_zero_then_fades_it_in_over_twice_the_delay);
     TT_RUN(block_size_does_not_change_lfo_output);
     TT_RUN(zero_pulse_width_depth_leaves_the_output_untouched);
     TT_RUN(lfo_to_pulse_width_moves_the_duty_by_the_depth);
