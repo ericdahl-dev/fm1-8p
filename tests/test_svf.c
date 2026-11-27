@@ -405,33 +405,43 @@ TT_TEST(svf_is_bounded_at_every_rate)
     TT_CHECK(st <= 32 << 23);
 }
 
-/* (j) The top of the range: a cutoff swept a cent a sample from 13000 to the top (14400) on a 440 Hz
- * sine never steps more than the sine itself moves plus 0.001 (-60 dB), and at the top the filter is
- * a wire: its output is its input, exactly */
+/* (j) The top of the range: a cutoff swept a cent a sample from 11000 to the top (14400) on a 440 Hz
+ * sine adds no step of its own. The output's second difference (what a step shows in, whatever the filter's
+ * delay) stays within the sine's own, 0.00166, times the passband's level (under 1 at resonance 500, 1.138
+ * at resonance 0: taken as 1.2), plus 0.001 (-60 dB). And at the top the filter is a wire: its output is its
+ * input, exactly. At resonance 500, and at resonance 0, whose fade starts at 12190 and whose damping moves
+ * from 12510 to 12870 (#151). The first 10 ms (to 11480) are skipped, so the sweep starts well under the
+ * fade's corner: a 10 % step in the fade at 12190 reads 0.0086 here. (Until #151 this compared first
+ * differences after 4800 samples, which the sweep never reached.) */
 TT_TEST(svf_fades_to_the_wire_at_the_top)
 {
+    static const int16_t res[] = { 500, 0 };
     static fm_filter f;
-    int32_t rate = fm_filter_rate_cents(SVF_RATE), prev = 0, px = 0, worst = 0;
-    int32_t c;
-    int exact = 1;
-    uint32_t i = 0;
-    fm_filter_reset(&f);
-    fm_filter_set_resonance(&f, 500);
-    fm_filter_set_cutoff(&f, 13000, rate);
-    for (c = 13000; c <= FM_FILTER_OPEN_CENTS + 200; c++, i++) {
-        int32_t x = (int32_t)lround(0.5 * 16777216.0 * sin(2 * AN_PI * 440.0 * i / SVF_RATE)), y, d;
-        fm_filter_set_cutoff(&f, c, rate);
-        y = fm_filter_run(&f, x);
-        d = (y > prev ? y - prev : prev - y) - (x > px ? x - px : px - x);
-        if (i > 4800 && d > worst) worst = d;
-        if (c >= FM_FILTER_OPEN_CENTS && y != x) exact = 0;
-        prev = y;
-        px = x;
+    int32_t rate = fm_filter_rate_cents(SVF_RATE);
+    double own = 0.5 * 16777216.0 * pow(2 * sin(AN_PI * 440.0 / SVF_RATE), 2);
+    size_t r;
+    for (r = 0; r < sizeof res / sizeof res[0]; r++) {
+        int32_t prev = 0, pp = 0, c;
+        double worst = 0;
+        int exact = 1;
+        uint32_t i = 0;
+        fm_filter_reset(&f);
+        fm_filter_set_resonance(&f, res[r]);
+        fm_filter_set_cutoff(&f, 11000, rate);
+        for (c = 11000; c <= FM_FILTER_OPEN_CENTS + 200; c++, i++) {
+            int32_t x = (int32_t)lround(0.5 * 16777216.0 * sin(2 * AN_PI * 440.0 * i / SVF_RATE)), y;
+            fm_filter_set_cutoff(&f, c, rate);
+            y = fm_filter_run(&f, x);
+            if (i > 480) worst = fmax(worst, fabs((double)y - 2.0 * prev + pp));
+            if (c >= FM_FILTER_OPEN_CENTS && y != x) exact = 0;
+            pp = prev;
+            prev = y;
+        }
+        printf("    resonance %d, cutoff swept to the top: largest second difference %.5f (the sine's own %.5f); "
+               "open is a wire: %s\n", res[r], worst / 16777216.0, own / 16777216.0, exact ? "yes" : "no");
+        TT_CHECK(worst < 1.2 * own + (1 << 24) / 1000);
+        TT_CHECK(exact);
     }
-    printf("    cutoff swept to the top: largest step past the sine's own %.5f; open is a wire: %s\n",
-           worst / 16777216.0, exact ? "yes" : "no");
-    TT_CHECK(worst < (1 << 24) / 1000);
-    TT_CHECK(exact);
 }
 
 /* (k) A cutoff change starts nothing of its own: a 1-sample 3000-cent jump at resonance 935 on a
@@ -628,7 +638,10 @@ TT_TEST(svf_top_slope_is_pg8x_at_resonance_0)
 
 /* The SVF's output, bit for bit, at cutoffs on both sides of Z1_T1 (section 1's zeros on, and gone at the top
  * of the range where F's sweep spends its time) and at resonances 0, 756 and 935: a speed cut must leave it as
- * it is. One hash over golden_input (tests/test_filter.c) through each setting; taken on 2fc0c99. */
+ * it is. One hash over golden_input (tests/test_filter.c) through each setting; taken on 2fc0c99, and again
+ * with #151: resonance 0's top (12500, 13600 and 14100 here) moved on purpose; every resonance from 389 up
+ * has the coefficients it had, at every cutoff (checked on both trees, 0..14400 by 7 cents), and so has
+ * every resonance at rates outside 44.1 to 48 kHz. */
 TT_TEST(svf_output_holds_bit_for_bit)
 {
     static const int16_t cuts[] = { 6769, 8717, 10844, 12500, 13600, 14100 };
@@ -649,7 +662,68 @@ TT_TEST(svf_output_holds_bit_for_bit)
             }
         }
     printf("    svf output hash 0x%08Xu\n", (unsigned)h);
-    TT_CHECK_EQ(h, 0xED82D709u);
+    TT_CHECK_EQ(h, 0x75C3FD27u);
+}
+
+/* The top's weights by resonance (#151) step no coefficient: at 44.1 and 48 kHz, cutoffs 12000..14399, from
+ * each resonance 0..399 to the next per mille the sections' t moves under 0.1 and the fade under 0.008 (the
+ * f0 stop's handover near its end, where tan is steep: 0.0930; the long fade's 1 - 5 w: 0.0073). Without the
+ * stop's 1 - 1.25 w ramp t steps 2.85 between resonance 388 and 389. */
+TT_TEST(svf_top_weights_step_no_coefficient_with_resonance)
+{
+    static const uint32_t rates[] = { 44100, 48000 };
+    static fm_filter f;
+    static int32_t pt[2400], pf[2400];
+    size_t r;
+    for (r = 0; r < sizeof rates / sizeof rates[0]; r++) {
+        int32_t rate = fm_filter_rate_cents(rates[r]), res, c, wt = 0, wf = 0;
+        for (res = 0; res <= 400; res++)
+            for (c = 12000; c < 14400; c++) {
+                int32_t dt, df;
+                fm_filter_reset(&f);
+                fm_filter_set_resonance(&f, res);
+                fm_filter_set_cutoff(&f, c, rate);
+                dt = f.t > pt[c - 12000] ? f.t - pt[c - 12000] : pt[c - 12000] - f.t;
+                df = f.fade > pf[c - 12000] ? f.fade - pf[c - 12000] : pf[c - 12000] - f.fade;
+                if (res && dt > wt) wt = dt;
+                if (res && df > wf) wf = df;
+                pt[c - 12000] = f.t;
+                pf[c - 12000] = f.fade;
+            }
+        printf("    %u Hz: largest step a per mille of resonance, t %.4f, fade %.5f\n", (unsigned)rates[r],
+               wt / 134217728.0, wf / 1073741824.0);
+        TT_CHECK(wt < (int32_t)(0.1 * 134217728.0));
+        TT_CHECK(wf < (int32_t)(0.008 * 1073741824.0));
+    }
+}
+
+/* Rates outside 44.1 to 48 kHz keep the top they had before #151, coefficient for coefficient: one hash a
+ * rate over a1, a2, a3, t, z3, zt, fade and the level at resonances 0, 45, 180 and 290, cutoffs 12000..14400
+ * by 7. The values are the base's (9d7a7e2, the same loop on its filter.c). 32 and 88.2 kHz are the rates next
+ * to the fitted band on either side. */
+TT_TEST(svf_top_is_as_before_outside_the_fitted_rates)
+{
+    static const struct { uint32_t rate, hash; } row[] = {
+        { 22050, 0x2364F6A0u }, { 32000, 0x245869CFu }, { 88200, 0xA1521378u }, { 96000, 0xCBA07BECu },
+    };
+    static const int16_t res[] = { 0, 45, 180, 290 };
+    static fm_filter f;
+    size_t r, i;
+    for (r = 0; r < sizeof row / sizeof row[0]; r++) {
+        int32_t rate = fm_filter_rate_cents(row[r].rate), c;
+        uint32_t h = 2166136261u;
+        for (i = 0; i < sizeof res / sizeof res[0]; i++)
+            for (c = 12000; c <= FM_FILTER_OPEN_CENTS; c += 7) {
+                int32_t v[8];
+                fm_filter_reset(&f);
+                fm_filter_set_resonance(&f, res[i]);
+                fm_filter_set_cutoff(&f, c, rate);
+                v[0] = f.a1, v[1] = f.a2, v[2] = f.a3, v[3] = f.t, v[4] = f.z3, v[5] = f.zt, v[6] = f.fade, v[7] = f.a;
+                h = fnv1a(h, v, sizeof v);
+            }
+        printf("    %u Hz: coefficient hash 0x%08Xu\n", (unsigned)row[r].rate, (unsigned)h);
+        TT_CHECK_EQ(h, row[r].hash);
+    }
 }
 
 static void run_svf_tests(void)
@@ -669,4 +743,6 @@ static void run_svf_tests(void)
     TT_RUN(svf_top_peaks_are_pg8x);
     TT_RUN(svf_top_stops_where_pg8x_does);
     TT_RUN(svf_top_slope_is_pg8x_at_resonance_0);
+    TT_RUN(svf_top_weights_step_no_coefficient_with_resonance);
+    TT_RUN(svf_top_is_as_before_outside_the_fitted_rates);
 }

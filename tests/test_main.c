@@ -56,6 +56,7 @@
 #include "test_ui_boot.c"
 #include "test_ui_format.c"
 #include "test_source_lp.c"
+#include "test_vcf_top.c"
 
 int main(void)
 {
@@ -101,5 +102,6 @@ int main(void)
     run_ui_boot_tests();
     run_ui_format_tests();
     run_source_lp_tests();
+    run_vcf_top_tests();
     return tt_report();
 }

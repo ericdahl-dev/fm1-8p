@@ -65,17 +65,19 @@ TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
     static const struct { uint8_t notes[4]; double sat_min, sat_max, knee_min, knee_max; } c[] = {
         /* Measured with the source lowpass (#299), which takes a little off the chords' top band and so off
-         * their peaks; main ad0f34d, before it, in brackets. The second and third bands are re-centered
-         * on these. */
-        { { 48, 52, 55, 60 }, 15.75, 16.45, 0.07, 0.09 },  /* 16.104 %, 0.081 % (main ad0f34d: 16.113, 0.081) */
-        { { 36, 48, 79, 91 }, 24.2, 24.9, 0.17, 0.21 },    /* 24.559 %, 0.186 % (main ad0f34d: 24.639, 0.187) */
-        { { 24, 36, 96, 108 }, 32.55, 33.25, 0.44, 0.50 }, /* 32.905 %, 0.474 % (main ad0f34d: 33.028, 0.492) */
+         * their peaks, and with #151's top of the cutoff range, which these envelopes pass through. In
+         * brackets: #299 alone (b4ce8dc), then main ad0f34d before both. The saturation bands are #299's;
+         * the third chord's knee band is re-centered on #151's figure and tight enough that #299's 0.474
+         * does not pass: that move is #151's. */
+        { { 48, 52, 55, 60 }, 15.75, 16.45, 0.07, 0.09 },  /* 15.913 %, 0.081 % (16.104, 0.081; 16.113, 0.081) */
+        { { 36, 48, 79, 91 }, 24.2, 24.9, 0.17, 0.21 },    /* 24.361 %, 0.185 % (24.559, 0.186; 24.639, 0.187) */
+        { { 24, 36, 96, 108 }, 32.55, 33.25, 0.43, 0.465 }, /* 32.824 %, 0.453 % (32.905, 0.474; 33.028, 0.492) */
     };
     size_t k;
     for (k = 0; k < sizeof c / sizeof c[0]; k++) {
         hr_stats s = hr_chord(c[k].notes, 4, 34, 127);
         printf("    SOUNDTRACK %d %d %d %d at 127, held 34 s: module peak %+.2f dBFS, %.3f %% saturated (pin %.2f..%.2f); "
-               "engine %.3f %% past its knee (pin %.2f..%.2f)\n", c[k].notes[0], c[k].notes[1], c[k].notes[2],
+               "engine %.3f %% past its knee (pin %.3f..%.3f)\n", c[k].notes[0], c[k].notes[1], c[k].notes[2],
                c[k].notes[3], s.peak_dbfs, s.sat_pct, c[k].sat_min, c[k].sat_max, s.knee_pct, c[k].knee_min,
                c[k].knee_max);
         TT_CHECK(s.ok);
