@@ -38,7 +38,7 @@ import scorecard_cmd  # noqa: E402
 import numpy as np
 from scipy import signal
 
-SCHEMA = 13  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 14  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
@@ -51,7 +51,8 @@ SCHEMA = 13  # history rows: bump when a field changes meaning (2: timings sampl
              # 12: every figure over draws, power averaged: ours at 8 DCO-2 start offsets, PG-8X's at its
              #     reference's shifts, so a slow beat's start phase isn't scored, #382;
              # 13: ours render each of the reference's K leads with 4 DCO-2 offsets (4K draws, draw_plan), so
-             #     what runs on the clock (the chorus's LFO, the LFO) meets PG-8X's phases; v6 reads as s12, #392)
+             #     what runs on the clock (the chorus's LFO, the LFO) meets PG-8X's phases; v6 reads as s12, #392;
+             # 14: a band at 31.5 Hz in the low section, so its fundamental, C1, is read, not only its skirt, #326)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = scorecard_cmd.SR
@@ -101,7 +102,16 @@ def loudness_gap(ours, pg):
     return lufs(ours) - lufs(pg)
 
 
-_BANDS = 1000 * 2 ** (np.arange(-14, 10) / 3)   # 1/3-octave centers, about 63 Hz .. 6.3 kHz
+_BANDS = 1000 * 2 ** (np.arange(-15, 10) / 3)   # 1/3-octave centers, 31.5 Hz .. 8 kHz: C1, the low
+                                                # section's fundamental (32.7 Hz), has its own (s14, #326)
+_C1_BAND = ("low",)   # the sections that play C1, so count its band (s14): elsewhere the band holds a
+                      # tone's sub-audible content (RES BELL's high note's 18 Hz skirt) or moves the floor
+                      # (PSYCHMELLO's), not the note; those keep the grid from 39.4 Hz
+
+
+def section_bands(section):
+    """The band centers section SECTION is scored over."""
+    return _BANDS if section in _C1_BAND else _BANDS[1:]
 
 
 def power_spectrum(x):
@@ -112,12 +122,13 @@ def power_spectrum(x):
     return sp, np.fft.rfftfreq(len(xs[0]), 1 / SR)
 
 
-def band_levels(x):
-    """dB per 1/3-octave band (Hann-windowed power spectrum; over several draws, their mean power)."""
+def band_levels(x, bands=_BANDS):
+    """dB per 1/3-octave band of BANDS (Hann-windowed power spectrum; over several draws, their mean
+    power)."""
     sp, f = power_spectrum(x)
     floor = 1e-12 * sp.sum() + 1e-30   # relative, so a level change moves every band alike
     return np.array([10 * np.log10(sp[(f >= c * 2 ** (-1 / 6)) & (f < c * 2 ** (1 / 6))].sum() + floor)
-                     for c in _BANDS])
+                     for c in bands])
 
 
 def _floored(levels):
@@ -127,10 +138,10 @@ def _floored(levels):
     return np.maximum(levels, levels.max() - FLOOR_DB)
 
 
-def spectral_distance(ours, pg):
-    """RMS of the band level differences after taking their median out (level-matched), dB; each side's
-    bands floored FLOOR_DB under its loudest."""
-    d = _floored(band_levels(ours)) - _floored(band_levels(pg))
+def spectral_distance(ours, pg, bands=_BANDS):
+    """RMS of the band level differences over BANDS after taking their median out (level-matched), dB;
+    each side's bands floored FLOOR_DB under its loudest."""
+    d = _floored(band_levels(ours, bands)) - _floored(band_levels(pg, bands))
     d -= np.median(d)
     return float(np.sqrt(np.mean(d ** 2)))
 
@@ -257,7 +268,7 @@ def score_tone(ours, pg, harmonic=True):
     spec = {}
     for k, (a, b) in SECTIONS.items():   # PG-8X's side at our level in int16, per channel (s10)
         o, p = cuts(ours, a, b), cuts(pg, a, b)
-        spec[k] = round(spectral_distance(o, as_ours_int16_draws(p, o, clip=False)), 2)
+        spec[k] = round(spectral_distance(o, as_ours_int16_draws(p, o, clip=False), section_bands(k)), 2)
     return {
         "loudness_gap_lu": round(loudness_gap(ours, pg), 2),
         "spectral_db": spec,
@@ -279,7 +290,8 @@ def ruler_noise(pg):
     """Each section's spectral distance between PG's render and itself NOISE_SHIFT_S later (dB): what the
     ruler reads from a change that small, which isn't timbre (s11); over PG's draws, power averaged."""
     later = [(d, sh + NOISE_SHIFT_S) for d, sh in draws(pg)]
-    return {k: round(spectral_distance(cuts(pg, a, b), cuts(later, a, b)), 2) for k, (a, b) in SECTIONS.items()}
+    return {k: round(spectral_distance(cuts(pg, a, b), cuts(later, a, b), section_bands(k)), 2)
+            for k, (a, b) in SECTIONS.items()}
 
 
 def noise_line(noises):
