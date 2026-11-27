@@ -181,6 +181,9 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
  * follows, takes its mark). */
 static void gate_on(fm_voice *v)
 {
+#ifdef FM_CHECK_ENGINE /* debug builds: restart_lfo came first and took a load's mark */
+    assert(!v->new_patch);
+#endif
     fm_env_key(&v->amp_env, v->note);
     fm_env_key(&v->filter_env, v->note);
     fm_env_gate_on(&v->amp_env);
@@ -241,7 +244,12 @@ static void restart_lfo(fm_voice *v, const fm_voice_mod *m, uint32_t now)
     v->lfo_start = now;
     /* an envelope carried on (#396) is on the pitch from the note's first
      * sample, not from its first control tick: the tick's own sums, the
-     * LFO at 0 (v->velocity is already the note's) */
+     * LFO at 0 (v->velocity is already the note's). Right here because
+     * the tick keeps no state (voice.h); the pitch envelope's source
+     * reaches only the two pitch sums (engine.c, the PITCH_ENV params);
+     * and the level sum, just reset with its sources, sums to 0 again, so
+     * the tick leaves the amp envelope's peak alone (a legato return to an
+     * idle voice sets no level after this) */
     if (fm_mod_source_routed(&m->routes, FM_MOD_SRC_PENV))
         fm_voice_tick(v, 0, m, now);
 }

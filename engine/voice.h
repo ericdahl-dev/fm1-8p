@@ -196,6 +196,12 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
  * applies `lfo` (Q1.30, the shared LFO's value), scaled by the voice's
  * delay and fade-in, at the depths in `m`. With zero depth nothing
  * changes.
+ *
+ * Also called at a note's start on an idle voice (voice.c restart_lfo,
+ * with `lfo` 0), so a carried pitch envelope is on the pitch from the
+ * first sample (#396): it must keep no state of its own from tick to
+ * tick, only set sources and sum them, or a note start would count as a
+ * tick.
  */
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now);
