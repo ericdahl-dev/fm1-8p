@@ -9,6 +9,7 @@
 #define FM_CHORUS_H
 
 #include <stdint.h>
+#include "placement.h"
 
 #include "chorus_state.h"
 

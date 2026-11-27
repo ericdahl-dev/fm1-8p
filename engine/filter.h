@@ -14,6 +14,7 @@
 #define FM_FILTER_H
 
 #include <stdint.h>
+#include "placement.h"
 #ifdef FM_CHECK_BUSY
 #include <assert.h>
 #endif
@@ -99,7 +100,7 @@ int32_t fm_filter_process(fm_filter *f, int32_t in);
 
 /* Nonzero while the filter is a wire (fully open, highpass off): the one
  * place that decides it. */
-static inline int fm_filter_is_wire(const fm_filter *f)
+static FM_BOTH int fm_filter_is_wire(const fm_filter *f)
 {
     return f->fade == 0 && f->hp_g == 0;
 }
@@ -121,7 +122,7 @@ static inline int32_t fm_filter_run(fm_filter *f, int32_t in)
         f->s[3] = in;
         return in;
     }
-    return fm_filter_process(f, in);
+    return FM_FAR(fm_filter_process)(f, in);
 }
 
 /* `last`, the last of samples that passed the filter as a wire without
