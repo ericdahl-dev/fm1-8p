@@ -36,7 +36,14 @@ On a note on, in this order:
    PG-8X 2.0.13 ([#396](https://github.com/ericdahl-dev/fm1-8p/issues/396),
    measured 2026-11-26): a tone with a short amp release and a long filter
    release starts a note on a played voice as open as that release has left
-   it. All sound off starts them from 0 again.
+   it. All sound off starts them from 0 again, and so does loading a patch:
+   the new patch's first note on a voice starts both from 0, unless that
+   voice was still sounding at the load and is struck again before it has
+   gone quiet (then it carries on, as any note struck again). Turning a
+   knob does not: PG-8X carries the level on through a parameter change
+   (1308.7 cents against a first note's 27.4, the host stepping ENV-1's
+   times mid-render), and so do we. What PG-8X does on a program change is
+   not measured; starting from 0 is what the FM-1 did before #396.
 4. **Steal.** Otherwise a sounding voice is stolen. The engine takes the
    first non-empty group, and within it the voice whose last note on or off
    was longest ago:

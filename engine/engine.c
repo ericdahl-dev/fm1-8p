@@ -1090,6 +1090,13 @@ static void advance_ticks(fm_engine *e, uint32_t n)
     e->tick_left -= n;
 }
 
+void fm_engine_patch_loaded(fm_engine *e)
+{
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++)
+        fm_voice_patch_loaded(&e->voices[i]);
+}
+
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
 {
     while (frames) {

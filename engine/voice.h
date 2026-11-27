@@ -38,6 +38,9 @@ typedef struct {
                              * starts */
     uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
     uint8_t velocity;       /* the sounding note's MIDI velocity */
+    uint8_t new_patch;      /* a patch loaded while it sounded: its next note
+                             * starts the envelopes from 0 if it is idle then
+                             * (fm_voice_patch_loaded) */
     /* the filter, its cutoff and the voice's control cadence (vfilter.h);
      * its key stays the sounding note's when a mode switch sets
      * FM_VOICE_NO_NOTE */
@@ -266,6 +269,14 @@ static inline const fm_vfilter *fm_voice_filter(const fm_voice *v)
 {
     return &v->vf;
 }
+
+/*
+ * A new patch has loaded (fm_engine_patch_loaded): its notes do not start
+ * from the last patch's envelopes. Not sounding: the filter envelope and
+ * envelope 2 are back at 0 now. Sounding: its release runs on, and its
+ * next note starts them from 0 if the voice has gone idle by then.
+ */
+void fm_voice_patch_loaded(fm_voice *v);
 
 /*
  * `frames` samples pass on a voice that is not sounding (fm_voice_active

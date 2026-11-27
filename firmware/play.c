@@ -389,6 +389,7 @@ void play_render(play *p, int32_t *out, uint32_t n)
         if (p->loads != p->loads_seen) {        /* a load: all notes off with its params, one block */
             p->loads_seen = p->loads;
             fm_engine_controller(&p->engine, 123, 0);   /* they release, on the new patch's times */
+            fm_engine_patch_loaded(&p->engine);         /* its notes start their envelopes from 0 (#396) */
         }
         apply_params(p);                        /* before the notes: a note played after a load sounds it */
     }

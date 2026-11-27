@@ -162,6 +162,19 @@ void fm_engine_note_off(fm_engine *e, uint8_t note);
 void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value);
 
 /*
+ * A new patch has been loaded: call it once at the load, after the load's
+ * all notes off (controller 123) and with its params. The new patch's
+ * notes do not start from the last patch's envelopes: a voice that is not
+ * sounding has its filter envelope and envelope 2 back at 0 now, and a
+ * voice still sounding keeps its release, then starts them from 0 at its
+ * next note if it has gone idle by then (struck again while it still
+ * sounds it carries on, as any note). A param set alone, a knob turned,
+ * does not call it: an idle voice's envelopes then carry on, as PG-8X's
+ * do through a parameter change (#396).
+ */
+void fm_engine_patch_loaded(fm_engine *e);
+
+/*
  * MIDI pitch bend, 0..16383 (the 14-bit value; 8192 is center). Full
  * down is -bend_range_semitones, full up 8191/8192 of +range. Sounding
  * notes follow at once. Out-of-range values are ignored.

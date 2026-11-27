@@ -396,6 +396,118 @@ TT_TEST(the_level_carried_does_not_depend_on_the_block_size)
     }
 }
 
+/* 13. a patch load (all notes off, fm_engine_patch_loaded, the new params) does not carry the last
+ * patch's envelope into the new patch's notes: a voice idle at the load starts its next note as a
+ * voice's first. (PG-8X through a parameter step by the host, 2026-11-26, carries on: 1308.7 cents
+ * against a first note's 27.4; a program change itself could not be rendered. A load starting from 0
+ * is our choice, as before #396.) */
+TT_TEST(a_patch_load_starts_an_idle_voices_envelopes_from_0)
+{
+    double first, again;
+    ec_init(4);
+    first = ec_strike(60, 100);
+    ec_run(2500);
+    fm_engine_note_off(&ec_eng, 60);
+    ec_run(200);
+    TT_CHECK_EQ(fm_engine_active_voices(&ec_eng), 0);
+    fm_engine_controller(&ec_eng, 123, 0);
+    fm_engine_patch_loaded(&ec_eng);
+    ec_set(FM_PARAM_FILTER_ENV_RELEASE_MS, 6000);
+    ec_run(500);
+    again = ec_strike(60, 100);
+    if (fabs(again - first) > 1.0) printf("    first note %.2f cents, after a patch load %.2f\n", first, again);
+    TT_CHECK_NEAR(again, first, 1.0);
+}
+
+/* 14. a voice still sounding at the load keeps its release (the envelope stays on the pitch while
+ * the note dies away), and its next note, once it has gone idle, starts from 0 too */
+TT_TEST(a_patch_load_lets_a_sounding_voice_release_and_then_start_from_0)
+{
+    double first, releasing, again;
+    ec_init(4);
+    ec_set(FM_PARAM_AMP_RELEASE_MS, 300);
+    first = ec_strike(60, 100);
+    ec_run(2500);
+    fm_engine_controller(&ec_eng, 123, 0);
+    fm_engine_patch_loaded(&ec_eng);
+    ec_run(100);
+    TT_CHECK_EQ(fm_engine_active_voices(&ec_eng), 1);
+    releasing = ec_cents(60);
+    ec_run(4000);
+    TT_CHECK_EQ(fm_engine_active_voices(&ec_eng), 0);
+    again = ec_strike(60, 100);
+    if (fabs(again - first) > 1.0 || !(releasing > 1000.0))
+        printf("    first note %.2f cents; releasing through the load %.1f; its next note %.2f\n", first, releasing, again);
+    TT_CHECK(releasing > 1000.0);
+    TT_CHECK_NEAR(again, first, 1.0);
+}
+
+/* 15. a voice still sounding at the load and struck again while it sounds carries on, as any note
+ * struck again does; and a later note on it, after another release, is not started from 0 by the
+ * load long past */
+TT_TEST(a_patch_load_does_not_reach_a_note_struck_while_its_voice_still_sounds)
+{
+    double again, later;
+    ec_init(4);
+    ec_set(FM_PARAM_AMP_RELEASE_MS, 20000);
+    ec_hold(60, 2500);
+    fm_engine_controller(&ec_eng, 123, 0);
+    fm_engine_patch_loaded(&ec_eng);
+    ec_run(500);
+    TT_CHECK_EQ(fm_engine_active_voices(&ec_eng), 1);
+    again = ec_strike(60, 100);
+    ec_set(FM_PARAM_AMP_RELEASE_MS, 1);
+    ec_run(2500);
+    fm_engine_note_off(&ec_eng, 60);
+    ec_run(500);
+    TT_CHECK_EQ(fm_engine_active_voices(&ec_eng), 0);
+    later = ec_strike(60, 100);
+    if (!(again > 900.0 && later > 900.0)) printf("    struck while sounding %.1f cents; a note after its next release %.1f\n", again, later);
+    TT_CHECK(again > 900.0 && again < EC_DEPTH);
+    TT_CHECK(later > 900.0 && later < EC_DEPTH);
+}
+
+/* 16. the level carried is on the pitch from the note's first sample, not from its first control
+ * tick (up to 31 samples on): at the note-on, at every tick phase, osc 1's pitch sum is already the
+ * carried level's depth (0.88 of 1200 cents; Q16.16 octaves), and the next tick leaves it there */
+TT_TEST(a_carried_pitch_envelope_is_on_the_pitch_from_the_first_sample)
+{
+    uint32_t phase;
+    for (phase = 0; phase < 32; phase += 5) {
+        int v;
+        int32_t at_on, after;
+        ec_init(4);
+        ec_hold(60, 2500);
+        ec_run(500);
+        fm_engine_render(&ec_eng, ec_buf, phase + 1);
+        fm_engine_note_on(&ec_eng, 60, 100);
+        v = ec_voice(60);
+        TT_CHECK(v >= 0);
+        if (v < 0) return;
+        at_on = fm_mod_get(&ec_eng.voices[v].mod, FM_MOD_PITCH1);
+        fm_engine_render(&ec_eng, ec_buf, 64);
+        after = fm_mod_get(&ec_eng.voices[v].mod, FM_MOD_PITCH1);
+        if (!(at_on > 55000 && after - at_on < 600))
+            printf("    tick phase %u: pitch sum %d at the note-on, %d 64 samples on\n", (unsigned)phase, (int)at_on, (int)after);
+        TT_CHECK(at_on > 55000 && at_on < 65536);
+        TT_CHECK(after >= at_on && after - at_on < 600);
+    }
+}
+
+/* 17. the same on a unison stack gone idle */
+TT_TEST(a_carried_pitch_envelope_is_on_a_unison_notes_pitch_from_the_first_sample)
+{
+    int32_t at_on;
+    ec_init(4);
+    ec_set(FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    ec_hold(60, 2500);
+    ec_run(500);
+    fm_engine_note_on(&ec_eng, 62, 100);
+    at_on = fm_mod_get(&ec_eng.voices[0].mod, FM_MOD_PITCH1);
+    if (!(at_on > 55000)) printf("    unison: pitch sum %d at the note-on\n", (int)at_on);
+    TT_CHECK(at_on > 55000 && at_on < 65536);
+}
+
 static void run_env_carry_tests(void)
 {
     TT_RUN(a_key_played_again_after_its_amp_has_ended_carries_the_filter_envelope_on);
@@ -411,4 +523,9 @@ static void run_env_carry_tests(void)
     TT_RUN(an_idle_voices_envelope_is_caught_up_within_a_block_and_then_costs_nothing);
     TT_RUN(a_new_release_time_reaches_an_idle_voices_release);
     TT_RUN(the_level_carried_does_not_depend_on_the_block_size);
+    TT_RUN(a_patch_load_starts_an_idle_voices_envelopes_from_0);
+    TT_RUN(a_patch_load_lets_a_sounding_voice_release_and_then_start_from_0);
+    TT_RUN(a_patch_load_does_not_reach_a_note_struck_while_its_voice_still_sounds);
+    TT_RUN(a_carried_pitch_envelope_is_on_the_pitch_from_the_first_sample);
+    TT_RUN(a_carried_pitch_envelope_is_on_a_unison_notes_pitch_from_the_first_sample);
 }
