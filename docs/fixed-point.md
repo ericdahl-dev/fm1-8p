@@ -131,7 +131,7 @@ levels, so both at full peak at 2.0, as on PG-8X's mixer.
 The spike (`FM_WAVE_SPIKE`, #150) is PG-8X 2.0.13's PULSE, which is not a
 fixed duty. Fitted to #150's measurements (its level against the square at C2
 to C6 and its partials at C4, C5 and C6), it is an impulse train of area
-2.865e-4 (the square's amplitude times seconds) through two one-pole lowpasses
+2.93e-4 (the square's amplitude times seconds) through two one-pole lowpasses
 at 3050 Hz, in its periodic steady state, less its mean. With u the time since
 the impulse, tau the lowpasses' time constant, T the period and
 q = e^(-T / tau):
@@ -148,32 +148,41 @@ PG-8X's top-band roll-off in it, and the source lowpass above now adds that
 roll-off to every source. Left alone, the spike would get it twice: 2.47 dB
 rms off PG-8X's PULSE at 44.1 kHz and 2.72 at 48 kHz (six pitches, harmonics
 from 1 to 20 kHz), where it was 1.80 and 1.41 on main with no lowpass. So the
-spike takes most of the lowpass back off itself:
+spike takes part of the lowpass back off itself:
 
-    y'(u) = (1 + c) y(u) - c y(u - one sample),  c = 0.62 (1 - a) / a
+    y'(u) = s ((1 + c) y(u) - c y(u - one sample))
+    c = 0.45 (1 - a) / a,  s = 1 - 0.175 c
 
-with a the lowpass's weight at the sample rate: c is 0.27 at 44.1 kHz and 0.33
-at 48 kHz, the values fitted at each rate, and 0 where the lowpass is a wire.
-Under the lowpass the spike is then within 0.90 dB rms of PG-8X's PULSE at
-44.1 kHz and 0.83 at 48 kHz, and from 250 Hz to 8 kHz it reads as it did on
-main within 0.2 dB a band. The area fell from 2.9317e-4 to hold its level
-against the square (the pre-emphasis adds 0.2 dB).
+with a the lowpass's weight at the sample rate: c is 0.197 at 44.1 kHz and
+0.240 at 48 kHz, and 0 where the lowpass is a wire, so at 32 kHz and below
+the spike, and the whole render, is main's sample for sample. Under the
+lowpass the spike is then within 1.07 dB rms of PG-8X's PULSE at both rates,
+and from 250 Hz to 8 kHz it reads as it did on main within 0.1 dB a band.
 
+- **Why 0.45 and the trim.** PG-8X's PULSE fits best at 0.62 (0.90 / 0.83 dB
+  rms at 44.1 / 48 kHz). But the pre-emphasis sharpens the spike's peak, and
+  a ringed pair of spikes then came within 0.05 of the pair's hold (3.950 of
+  4.0 at 44.1 kHz, 3.958 at 48 kHz; 3.868 on main). At 0.45, with the level
+  trim s (-0.31 dB at 44.1 kHz, -0.37 at 48 kHz), that pair peaks at main's
+  3.868 again. The trim leaves the spike 0.16 to 0.25 dB under PG-8X's level
+  against the square from C3 to C6 (on main it is within 0.1).
 - It is the same closed form: e^(-u / tau) is common to both terms, so only
-  the two constants change, on events. It is still a function of the phase
-  alone and still continuous, and no less band-limited than y, since it is a
-  filter of the samples.
+  the constants change, on events. It is still a function of the phase alone
+  (the cross-mod's bent increment included), still continuous, and no less
+  band-limited than y, since it is a filter of the samples.
 - Only the sample right after the impulse differs: the sample before it came
   before the impulse, so that impulse's own response is taken back off there.
-  One compare a sample, and two more multiplies once a cycle.
+  It is found by the phase (under one sample's decay), not by the increment,
+  which the cross-mod bends. One compare a sample, and two more multiplies
+  once a cycle.
 - Moving the two poles instead (to 1800 and 7453 Hz) fitted the top as well
   (1.12 / 1.18 dB rms) but bent the spike's body: 250 Hz to 8 kHz went from
   1.08 to 1.39 dB rms, and the scorecard's PULSE tones moved away from PG-8X
   (05 ARCOSTRING 1.82 to 2.22, 10 ORGAN 2 1.14 to 1.36).
 
 - **Constants:** from the sample rate, on events (two divides there): the
-  decay per sample, the impulse area times the rate, and the pre-emphasis's c
-  and c e^(one sample / tau). The rest come from the pitch as played, on
+  decay per sample, the impulse area times the rate, and the pre-emphasis's s,
+  s (1 + c - c e^(one sample / tau)) and s c e^(one sample / tau). The rest come from the pitch as played, on
   events and on the pitch modulation's control ticks (only the oscillator
   whose modulation moved), with no division: the decay per 2^32 of phase
   (1 / dt by Newton's reciprocal), 1 / (1 - q) (Newton again), the earlier

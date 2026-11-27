@@ -3105,10 +3105,11 @@ TT_TEST(lowpass_without_resonance_is_linear_past_two)
     TT_CHECK(worst <= 64.0);
 }
 
-/* The hold is past anything the pair can play (its peak 3.855, a ringed spike: ring_stays_within_four)
- * through the bass boost (step 4: 2.28 x at low frequencies) at no resonance's input level (1.41): up
- * to 12.4 (15.2 at the largest, 1.733). A 20 Hz square at +-3.855 never reaches it, at cutoffs from 6000 to 12000 cents, so the hold leaves it alone (what
- * shapes it at that level is the resonance's soft clip: at resonance 0 its k is 0.45, the knee's). */
+/* The hold is past anything the pair can play (the pair's own hold, 4.0: its peak is 3.868, a ringed pair of
+ * spikes: ring_stays_within_four) through the bass boost (step 4: 2.28 x at low frequencies) at no
+ * resonance's input level (1.41): up to 12.9 (15.8 at the largest, 1.733). A 20 Hz square at +-4.0 never
+ * reaches it, at cutoffs from 6000 to 12000 cents, so the hold leaves it alone (what shapes it at that level
+ * is the resonance's soft clip: at resonance 0 its k is 0.45, the knee's). */
 TT_TEST(the_hold_is_past_the_pair_through_the_bass_boost)
 {
     static const int32_t cuts[] = { 6000, 9000, 12000 };
@@ -3120,13 +3121,13 @@ TT_TEST(the_hold_is_past_the_pair_through_the_bass_boost)
         fm_filter_set_highpass(&f, 4, rate);
         fm_filter_set_cutoff(&f, cuts[c], rate);
         for (i = 0; i < FRATE; i++) {
-            int32_t x = (i / (FRATE / 40u)) % 2u ? (int32_t)(3.855 * 16777216.0) : -(int32_t)(3.855 * 16777216.0);
+            int32_t x = (i / (FRATE / 40u)) % 2u ? (4 << 24) : -(4 << 24);
             int32_t a = fm_filter_run(&f, x);
             a = a < 0 ? -a : a;
             peak = a > peak ? a : peak;
         }
     }
-    printf("    no resonance, bass boost, a +-3.855 square: largest %.2f, the hold %.1f\n", peak / 16777216.0,
+    printf("    no resonance, bass boost, a +-4.0 square: largest %.2f, the hold %.1f\n", peak / 16777216.0,
            FM_FILTER_HOLD / 16777216.0);
     TT_CHECK(peak < FM_FILTER_HOLD - (1 << 24));
 }

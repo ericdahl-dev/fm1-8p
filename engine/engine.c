@@ -235,6 +235,9 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
     return 1;
 }
 
+typedef char fm_require_mix_gain_within_the_lowpass_range[   /* fm_out_mix_block's bound (output.h) */
+    FM_MIX_GAIN_Q30 <= (uint32_t)FM_OUT_MIX_GAIN_MAX ? 1 : -1];
+
 /*
  * The mix gain at VCA LEVEL `permille`: the voices' sum times the gain for
  * the voice count (headroom, set at init) times the level, as PG-8X's VCA
@@ -242,8 +245,6 @@ static int apply_env_param(fm_engine *e, uint16_t id, int32_t v)
  * in Q30 is permille x 2^30 / 1000 in 32 bits, exact at 1000 (so a full
  * level leaves the gain as it was). Event rate.
  */
-typedef char fm_require_mix_gain_within_the_lowpass_range[   /* fm_out_mix_block's bound (output.h) */
-    FM_MIX_GAIN_Q30 <= (uint32_t)FM_OUT_MIX_GAIN_MAX ? 1 : -1];
 static int32_t level_gain(const fm_engine *e, int32_t permille)
 {
     uint32_t p = (uint32_t)permille, q = p * 1073741u + p * 824u / 1000u;
