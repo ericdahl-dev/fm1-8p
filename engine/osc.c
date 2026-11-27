@@ -113,12 +113,12 @@ void fm_osc_set_inc(fm_osc *o, uint32_t inc)
  * - SPIKE_PRE: PG-8X's PULSE at six pitches fits best at 0.62 (0.90 / 0.83 dB
  *   rms at 44.1 / 48 kHz), but the pre-emphasis sharpens the spike's peak, and
  *   a ringed pair of spikes then came within 0.05 of the pair's hold (3.950
- *   of 4.0; 3.868 on main). At 0.45 the fit is 1.07 dB rms at both rates
- *   (main, with no lowpass: 1.80 / 1.41).
+ *   of 4.0 at 44.1 kHz, 3.959 at 48 kHz; 3.868 on main). At 0.45 the fit is
+ *   1.07 dB rms at both rates (main, with no lowpass: 1.80 / 1.41).
  * - SPIKE_PRE_TRIM: the level trim s (-0.31 dB at 44.1 kHz, -0.37 at 48 kHz)
- *   puts that pair's peak back at main's, 3.868. It leaves the spike 0.16 to
- *   0.25 dB under PG-8X's level against the square at C3 to C6 (it was within
- *   0.1).
+ *   puts that pair's peak back at main's, 3.868. It leaves the spike 0.14 to
+ *   0.25 dB under PG-8X's level against the square at C3 to C6 (on main it is
+ *   within 0.13).
  * It is the same closed form: e^(-u / tau) is common to both terms, so only
  * the constants change (update_spike), and y' is still a function of the
  * phase alone (the cross-mod's bent increment included: the one branch below

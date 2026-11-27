@@ -64,13 +64,14 @@ static hr_stats hr_chord(const uint8_t *notes, int count, uint32_t seconds, uint
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
     static const struct { uint8_t notes[4]; double sat_min, sat_max, knee_min, knee_max; } c[] = {
-        /* #151's top of the cutoff range (these envelopes pass through it): 15.913 %, 0.081 % (before it, on
-         * 9d7a7e2: 16.104, 0.081; main 248ff96: 17.176, 0.100) */
-        { { 48, 52, 55, 60 }, 15.75, 16.45, 0.07, 0.09 },
-        { { 36, 48, 79, 91 }, 24.3, 25.0, 0.17, 0.21 },    /* 24.361 %, 0.185 % (9d7a7e2: 24.559, 0.186; main: 24.855, 0.191) */
-        /* 32.824 %, 0.453 % (9d7a7e2: 32.905, 0.474; main: 33.151, 0.500). The knee band is tight enough to tell
-         * the top before #151 (0.474) from the one after */
-        { { 24, 36, 96, 108 }, 32.7, 33.4, 0.43, 0.465 },
+        /* Measured with the source lowpass (#299), which takes a little off the chords' top band and so off
+         * their peaks, and with #151's top of the cutoff range, which these envelopes pass through. In
+         * brackets: #299 alone (b4ce8dc), then main ad0f34d before both. The saturation bands are #299's;
+         * the third chord's knee band is re-centered on #151's figure and tight enough that #299's 0.474
+         * does not pass: that move is #151's. */
+        { { 48, 52, 55, 60 }, 15.75, 16.45, 0.07, 0.09 },  /* 15.913 %, 0.081 % (16.104, 0.081; 16.113, 0.081) */
+        { { 36, 48, 79, 91 }, 24.2, 24.9, 0.17, 0.21 },    /* 24.361 %, 0.185 % (24.559, 0.186; 24.639, 0.187) */
+        { { 24, 36, 96, 108 }, 32.55, 33.25, 0.43, 0.465 }, /* 32.824 %, 0.453 % (32.905, 0.474; 33.028, 0.492) */
     };
     size_t k;
     for (k = 0; k < sizeof c / sizeof c[0]; k++) {
@@ -95,15 +96,15 @@ TT_TEST(headroom_soundtrack_velocity_100_pinned)
     printf("    SOUNDTRACK C4 at 100: peak %+.2f dBFS, %.3f %% saturated\n", s.peak_dbfs, s.sat_pct);
     TT_CHECK(s.ok);
     TT_CHECK(s.sat_pct == 0);
-    TT_CHECK(s.peak_dbfs > -1.0);   /* -0.06 dBFS (main 248ff96: -0.35): just under the rails */
+    TT_CHECK(s.peak_dbfs > -1.0);   /* -0.07 dBFS (main ad0f34d: -0.06): just under the rails */
     s = hr_chord(triad, 3, 10, 100);
     printf("    SOUNDTRACK C4 E4 G4 at 100: %.3f %% saturated (pin 1.2..1.6)\n", s.sat_pct);
     TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct >= 1.2 && s.sat_pct <= 1.6);     /* 1.422 % (main 248ff96: 2.022) */
+    TT_CHECK(s.sat_pct >= 1.2 && s.sat_pct <= 1.6);     /* 1.424 % (main ad0f34d: 1.422) */
     s = hr_chord(four, 4, 10, 100);
     printf("    SOUNDTRACK C3 E3 G3 C4 at 100: %.3f %% saturated (pin 13.25..13.95)\n", s.sat_pct);
     TT_CHECK(s.ok);
-    TT_CHECK(s.sat_pct >= 13.25 && s.sat_pct <= 13.95); /* 13.592 % (main 248ff96: 14.655) */
+    TT_CHECK(s.sat_pct >= 13.25 && s.sat_pct <= 13.95); /* 13.590 % (main ad0f34d: 13.592) */
 }
 
 static void run_headroom_tests(void)

@@ -114,9 +114,9 @@ six pitches, harmonics at each render's measured f0, 1 to 20 kHz):
   moves within the lowpass's one-sample memory).
 - **Cost, per sample:** one 32-bit subtract, one 32 x 32 -> 64 multiply, a
   shift and an add (`fm_out_mix_block`, with the mix gain's multiply). The
-  scaled sum stays within +-2^30 for any int32 sum, because the mix gain is at
-  most 0.5 (the engine's largest is 0.36; checked at compile time), so the
-  difference of two samples fits int32.
+  scaled sum is -2^30 or more and under 2^30 for any int32 sum, because the
+  mix gain is at most 0.5 (the engine's largest is 0.36; checked at compile
+  time), so the difference of two samples fits int32.
 - **State:** one int32, cleared at init and on all sound off, and the weight.
 
 The pulse is the difference of two saws, `saw(t) - saw(t + width)`, so it has
@@ -162,10 +162,10 @@ and from 250 Hz to 8 kHz it reads as it did on main within 0.1 dB a band.
 - **Why 0.45 and the trim.** PG-8X's PULSE fits best at 0.62 (0.90 / 0.83 dB
   rms at 44.1 / 48 kHz). But the pre-emphasis sharpens the spike's peak, and
   a ringed pair of spikes then came within 0.05 of the pair's hold (3.950 of
-  4.0 at 44.1 kHz, 3.958 at 48 kHz; 3.868 on main). At 0.45, with the level
+  4.0 at 44.1 kHz, 3.959 at 48 kHz; 3.868 on main). At 0.45, with the level
   trim s (-0.31 dB at 44.1 kHz, -0.37 at 48 kHz), that pair peaks at main's
-  3.868 again. The trim leaves the spike 0.16 to 0.25 dB under PG-8X's level
-  against the square from C3 to C6 (on main it is within 0.1).
+  3.868 again. The trim leaves the spike 0.14 to 0.25 dB under PG-8X's level
+  against the square from C3 to C6 (on main it is within 0.13).
 - It is the same closed form: e^(-u / tau) is common to both terms, so only
   the constants change, on events. It is still a function of the phase alone
   (the cross-mod's bent increment included), still continuous, and no less
