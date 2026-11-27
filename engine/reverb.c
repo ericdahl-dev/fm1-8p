@@ -26,6 +26,7 @@
 #define FDN_RATE 44100u  /* the rate the FDN4's lengths are tuned at */
 #define PLATE_RATE 29761u /* the paper's */
 #define FDN_SWAY 8u      /* the swaying lines' excursion, samples each way */
+#define MIX_GLIDE 16u    /* the wet level's glide, Q15 a sample: full to off in 2048 samples (46 ms) */
 
 /* the FDN4's lengths at FDN_RATE: 2 input allpasses (2.6 and 7.6 ms, g 0.5:
  * longer or stronger ones ring undamped into the tail), then the 4 lines
@@ -193,7 +194,9 @@ static void empty(fm_reverb *r)
 {
     uint32_t i;
     if (r->ready) {
-        uint32_t n = fm_reverb_words(r->design, r->sample_rate);
+        /* (the buffers' sizes from their masks: no layout again, no divide; in the ISR once, after a
+         * turn-on or all sound off: 16 K or 17 K words) */
+        uint32_t n = r->mask + 1u + (r->buf2 && r->mask2 ? r->mask2 + 1u : 0u);
         for (i = 0; i < n; i++) r->mem[i] = 0;
     }
     r->p = 0;
@@ -222,7 +225,8 @@ void fm_reverb_set(fm_reverb *r, int32_t mix_pct, int32_t time_ms, int32_t tone_
     if (time_ms < 100) time_ms = 100;
     if (tone_pct < 0) tone_pct = 0;
     if (tone_pct > 100) tone_pct = 100;
-    r->mix = mix_pct * 32767 / 100;
+    r->mix_to = mix_pct * 32767 / 100;   /* (the level glides there: process_block) */
+    r->quiet = 0;   /* (a new TONE can move a lowpass the idle skip would not) */
     if (r->design == FM_REVERB_FDN4) {
         for (i = 0; i < 4u; i++)
             r->gain[i] = loop_gain(r->len[2u + i] - ((i == 0 || i == 2) ? FDN_SWAY + 2u : 0u), rate, time_ms);
@@ -230,6 +234,7 @@ void fm_reverb_set(fm_reverb *r, int32_t mix_pct, int32_t time_ms, int32_t tone_
         /* one loop of the tank passes its decay four times: twice in each half */
         uint32_t loop = 0;
         for (i = 0; i < 8u; i++) loop += r->len[4u + i];
+        loop -= 2u * (2u * r->exc + 2u);   /* (the modulated allpasses' slack isn't in the loop: #408's review) */
         r->gain[0] = loop_gain(loop, rate, 4 * time_ms);
     }
     if (tone_pct >= 100) {
@@ -270,13 +275,23 @@ static FM_BOTH int32_t half(int32_t v) /* v / 2 toward zero */
 }
 #endif
 
-/* after a block: quiet grows while every line took only zeros (NZ: all its writes, or-ed with the states
- * that must be 0, and each damping lowpass's next step on a zero input: a lowpass a few LSB up stays
- * there for good, truncated toward zero, so it counts as still once its step is 0) */
+/* after a block: quiet grows while every line took only zeros and every state is 0 (NZ: all of them
+ * or-ed; the damping lowpasses reach 0 too, so a silent input lets everything rest) */
 static FM_BOTH void quiet_after(fm_reverb *r, int32_t nz, uint32_t steps)
 {
     if (nz) r->quiet = 0;
     else if (r->quiet < 0x40000000u) r->quiet += steps;
+}
+
+/* the damping one-pole: lp + k (d - lp), k Q15 (32768: none), the step rounded away from zero: it moves
+ * lp toward d by 1 LSB at least and never past it (k <= 32768), so lp reaches d. Truncated toward zero,
+ * the step had a dead band of 32768 / k LSB that cancelled the loop's loss, and a damped tail held a DC
+ * for good (#408's review); this way the tail decays as an undamped one does, through the loop's gain
+ * (truncated toward zero). As cheap as mulr: no branch. */
+static FM_BOTH int32_t damp(int32_t lp, int32_t d, int32_t k)
+{
+    int32_t p = (d - lp) * k;
+    return lp + ((p + (~(p >> 31) & 32767)) >> 15);
 }
 
 /* (1 - D) / (1 + D) for D = 1 + f / 32, f = 0..32, Q15: the allpass
@@ -358,10 +373,11 @@ static FM_HOT void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32
         d1 = AT(a3);
         sy1 = d2 = sat16(mulr(AT(s2), e2) + AT(s2 + 1u) - mulr(sy1, e2));
         d3 = AT(a5);
-        lp0 += mulr(d0 - lp0, k);                    /* damping (k 32768: none) */
-        lp1 += mulr(d1 - lp1, k);
-        lp2 += mulr(d2 - lp2, k);
-        lp3 += mulr(d3 - lp3, k);
+        /* damping (k 32768: none) */
+        lp0 = damp(lp0, d0, k);
+        lp1 = damp(lp1, d1, k);
+        lp2 = damp(lp2, d2, k);
+        lp3 = damp(lp3, d3, k);
         d = mulr(lp0, g0);
         v = mulr(lp1, g1);
         a = d + v; b = d - v;                        /* Hadamard, halved: orthonormal */
@@ -386,7 +402,7 @@ static FM_HOT void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32
     r->p = p;
     r->lp[0] = lp0; r->lp[1] = lp1; r->lp[2] = lp2; r->lp[3] = lp3;
     r->sw_y[0] = sy0; r->sw_y[1] = sy1;
-    quiet_after(r, nz | sy0 | sy1 | mulr(-lp0, k) | mulr(-lp1, k) | mulr(-lp2, k) | mulr(-lp3, k), frames);
+    quiet_after(r, nz | sy0 | sy1 | lp0 | lp1 | lp2 | lp3, frames);
 }
 #endif
 
@@ -403,7 +419,8 @@ static FM_HOT void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint
     uint32_t odd = r->odd, s4, s8;
     int32_t e4, e8, nz = 0;
     /* each line's offsets: its write (w), and its full delay before this tick's write (f) or after it
-     * (h: a line written earlier in the tick is read one sample nearer) */
+     * (h: a line written earlier in the tick is read one sample nearer, so lines 5, 7 and 9 and the taps
+     * are one sample short of their nominal lengths, as the first loop had them; inaudible) */
     const uint32_t f0 = base[0] + len[0], f1 = base[1] + len[1], f2 = base[2] + len[2], f3 = base[3] + len[3];
     const uint32_t w4 = base[4], w5 = base[5], w6 = base[6], w7 = base[7], w8 = base[8], w9 = base[9],
                    w10 = base[10], w11 = base[11];
@@ -442,7 +459,7 @@ static FM_HOT void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint
             a = sat16(b - mulr(v, 22938));
             AT(w5) = (int16_t)a;
             nz |= a;
-            lpl += mulr(AT(h5) - lpl, k);
+            lpl = damp(lpl, AT(h5), k);
             b = mulr(lpl, g);
             d = AT(f6); v = sat16(b - mulr(d, 16384)); AT(w6) = (int16_t)v;
             nz |= v;
@@ -458,7 +475,7 @@ static FM_HOT void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint
             a = sat16(b - mulr(v, 22938));
             AT(w9) = (int16_t)a;
             nz |= a;
-            lpr += mulr(AT(h9) - lpr, k);
+            lpr = damp(lpr, AT(h9), k);
             b = mulr(lpr, g);
             d = AT(f10); v = sat16(b - mulr(d, 16384)); AT(w10) = (int16_t)v;
             nz |= v;
@@ -484,7 +501,7 @@ static FM_HOT void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint
     r->odd = (uint8_t)odd;
     r->lp[0] = lpl; r->lp[1] = lpr; r->sw_y[0] = sy0; r->sw_y[1] = sy1;
     r->yl = yl; r->yr = yr; r->pl = pl; r->pr = pr; r->in_acc = in_acc;
-    quiet_after(r, nz | sy0 | sy1 | yl | yr | pl | pr | in_acc | mulr(-lpl, k) | mulr(-lpr, k), ticks);
+    quiet_after(r, nz | sy0 | sy1 | yl | yr | pl | pr | in_acc | lpl | lpr, ticks);
 }
 #endif
 
@@ -500,6 +517,13 @@ void fm_reverb_process_block(fm_reverb *r, int32_t *left, int32_t *right, uint32
 {
     if (!fm_reverb_is_on(r)) return;
     if (r->clear) empty(r);
+    /* MIX glides, a step a block of MIX_GLIDE a sample (#408's review): a dry patch loaded mid-tail fades
+     * the tail out instead of cutting it, and a turned knob doesn't jump */
+    {
+        int32_t step = frames > 32767u / MIX_GLIDE ? 32767 : (int32_t)(MIX_GLIDE * frames);
+        if (r->mix < r->mix_to) r->mix = r->mix_to - r->mix > step ? r->mix + step : r->mix_to;
+        else if (r->mix > r->mix_to) r->mix = r->mix - r->mix_to > step ? r->mix - step : r->mix_to;
+    }
     r->idle = 0;
     if (r->quiet > r->longest) {   /* every line holds only zeros: idle while the input is silent */
         uint32_t i, steps;

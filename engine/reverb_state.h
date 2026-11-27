@@ -35,7 +35,8 @@ typedef struct {
     uint8_t ready;      /* the lines fit in mem */
     uint8_t odd;        /* the plate: the second sample of a pair is next */
     uint8_t clear;      /* the lines must be emptied before the next sample */
-    int32_t mix;        /* the wet's level, Q15 (0: off) */
+    int32_t mix;        /* the wet's level now, Q15: it glides to mix_to, MIX_GLIDE a block (0 and mix_to 0: off) */
+    int32_t mix_to;     /* the level MIX asks for, Q15 */
     int32_t gain[4];    /* per line (FDN4) or the tank's decay ([0], plate), Q15 */
     int32_t damp;       /* the damping one-pole's coefficient, Q15 (32767: none) */
     int32_t lp[4];      /* the damping lowpasses' state */
