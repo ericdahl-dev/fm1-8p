@@ -12,8 +12,6 @@
  */
 #include "reverb.h"
 
-#include <string.h>
-
 #include "units.h"
 
 /* A device build compiles one design (FM_REVERB_ONE); the host both. */
@@ -109,7 +107,8 @@ void fm_reverb_init(fm_reverb *r, uint8_t design, uint32_t sample_rate,
                     int16_t *mem, uint32_t words)
 {
     uint32_t len[FM_REVERB_LINES], n, i, at = 0, rate;
-    memset(r, 0, sizeof *r);
+    static const fm_reverb zero; /* (the engine has no C library) */
+    *r = zero;
     r->design = design;
     r->sample_rate = sample_rate;
     r->mem = mem;
@@ -142,7 +141,10 @@ void fm_reverb_silence(fm_reverb *r)
 static void empty(fm_reverb *r)
 {
     uint32_t i;
-    if (r->ready) memset(r->mem, 0, fm_reverb_words(r->design, r->sample_rate) * sizeof *r->mem);
+    if (r->ready) {
+        uint32_t n = fm_reverb_words(r->design, r->sample_rate);
+        for (i = 0; i < n; i++) r->mem[i] = 0;
+    }
     for (i = 0; i < FM_REVERB_LINES; i++) r->line[i].w = 0;
     for (i = 0; i < 4u; i++) r->lp[i] = 0;
     r->in_acc = r->yl = r->yr = r->pl = r->pr = 0;
@@ -202,8 +204,10 @@ static inline int32_t sat16(int32_t v)
  * product grows a sample, so every tail falls to 0 */
 static inline int32_t mulr(int32_t a, int32_t g)
 {
-    int64_t p = (int64_t)a * g;
-    return p >= 0 ? (int32_t)(p >> 15) : -(int32_t)((-p) >> 15);
+    /* 32 bits: |a| <= 65535 and |g| <= 32767 everywhere here (the lines and the allpasses' inner values
+     * are saturated to 16 bits first), so a x g fits; no 64-bit multiply, no branch */
+    int32_t p = a * g;
+    return (p + ((p >> 31) & 32767)) >> 15;
 }
 
 static inline int32_t half(int32_t v) /* v / 2 toward zero */
@@ -228,8 +232,9 @@ static inline void wr(fm_rv_line *l, int32_t v)
 /* a Schroeder allpass the line's length long: the line holds v */
 static inline int32_t ap(fm_rv_line *l, int32_t x, int32_t g)
 {
-    int32_t d = rd(l, l->len), v = x - mulr(d, g);
-    wr(l, v);
+    int32_t d = rd(l, l->len), v = sat16(x - mulr(d, g));
+    l->b[l->w] = (int16_t)v;
+    if (++l->w >= l->len) l->w = 0;
     return d + mulr(v, g);
 }
 
@@ -255,8 +260,8 @@ static void sway_set(fm_reverb *r, uint32_t k, uint32_t back_q8)
 /* y = eta x[n - i] + x[n - i - 1] - eta y[n - 1] */
 static inline int32_t rd_sway(fm_reverb *r, const fm_rv_line *l, uint32_t k)
 {
-    int32_t y = mulr(rd(l, r->sw_i[k]), r->sw_eta[k]) + rd(l, r->sw_i[k] + 1u) - mulr(r->sw_y[k], r->sw_eta[k]);
-    return r->sw_y[k] = y;
+    int32_t y = sat16(mulr(rd(l, r->sw_i[k]), r->sw_eta[k]) + rd(l, r->sw_i[k] + 1u) - mulr(r->sw_y[k], r->sw_eta[k]));
+    return r->sw_y[k] = y;   /* (16 bits, as a line's sample: the products after it stay in 32) */
 }
 
 /* a triangle, -32768..32767, from a phase */
@@ -290,7 +295,7 @@ static void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t fram
     r->ph[0] += r->ph_inc[0] * frames;
     r->ph[1] += r->ph_inc[1] * frames;
     for (i = 0; i < frames; i++) {
-        int32_t x = ((left[i] >> 1) + (right[i] >> 1)) >> IN_SHIFT, d0, d1, d2, d3, y0, y1, y2, y3, a, b, c, e;
+        int32_t x = sat16(((left[i] >> 1) + (right[i] >> 1)) >> IN_SHIFT), d0, d1, d2, d3, y0, y1, y2, y3, a, b, c, e;
         x = ap(&L[0], x, 16384);
         x = ap(&L[1], x, 16384);
         d0 = rd_sway(r, &L[2], 0);
@@ -308,8 +313,8 @@ static void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t fram
         wr(&L[5], half(b - e) + x);
         /* the sides: two lines each, one of them inverted (L/R correlation about 0, where the same
          * signs read 0.33) */
-        left[i] += (int32_t)(((int64_t)(d0 - d3) * r->mix) >> (15 - IN_SHIFT + 1));
-        right[i] += (int32_t)(((int64_t)(d1 - d2) * r->mix) >> (15 - IN_SHIFT + 1));
+        left[i] += ((d0 - d3) * r->mix) >> (15 - IN_SHIFT + 1);   /* (|d0 - d3| <= 65534: fits) */
+        right[i] += ((d1 - d2) * r->mix) >> (15 - IN_SHIFT + 1);
     }
 }
 #endif
@@ -328,14 +333,14 @@ static void plate_tick(fm_reverb *r, int32_t x)
     /* left half, fed by the right's end */
     a = x + mulr(rd(&L[11], L[11].len), g);
     b = rd_sway(r, &L[4], 0); /* the modulated allpass, g -0.7 */
-    { int32_t v = a + mulr(b, 22938); wr(&L[4], v); a = b - mulr(v, 22938); }
+    { int32_t v = sat16(a + mulr(b, 22938)); wr(&L[4], v); a = b - mulr(v, 22938); }
     wr(&L[5], a);
     b = mulr(damp_lp(&r->lp[0], rd(&L[5], L[5].len), r->damp), g);
     wr(&L[7], ap(&L[6], b, 16384));
     /* right half, fed by the left's end */
     a = x + mulr(rd(&L[7], L[7].len), g);
     b = rd_sway(r, &L[8], 1);
-    { int32_t v = a + mulr(b, 22938); wr(&L[8], v); a = b - mulr(v, 22938); }
+    { int32_t v = sat16(a + mulr(b, 22938)); wr(&L[8], v); a = b - mulr(v, 22938); }
     wr(&L[9], a);
     b = mulr(damp_lp(&r->lp[1], rd(&L[9], L[9].len), r->damp), g);
     wr(&L[11], ap(&L[10], b, 16384));
@@ -351,8 +356,8 @@ static void plate_tick(fm_reverb *r, int32_t x)
     }
     r->pl = r->yl;
     r->pr = r->yr;
-    r->yl = mulr(a, 19661);
-    r->yr = mulr(b, 19661);
+    r->yl = (int32_t)(((int64_t)a * 19661) >> 15);   /* (7 taps: past 16 bits, so 64 bits, once a tick) */
+    r->yr = (int32_t)(((int64_t)b * 19661) >> 15);
 }
 
 static void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t frames)
@@ -363,7 +368,7 @@ static void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t fr
     r->ph[0] += r->ph_inc[0] * ticks;
     r->ph[1] += r->ph_inc[1] * ticks;
     for (i = 0; i < frames; i++) {
-        int32_t x = ((left[i] >> 1) + (right[i] >> 1)) >> IN_SHIFT, wl, wr_;
+        int32_t x = sat16(((left[i] >> 1) + (right[i] >> 1)) >> IN_SHIFT), wl, wr_;
         if (!r->odd) {
             r->in_acc = x;
             wl = r->yl;
@@ -374,7 +379,7 @@ static void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t fr
             wr_ = (r->pr + r->yr) >> 1;
         }
         r->odd ^= 1u;
-        left[i] += (int32_t)(((int64_t)wl * r->mix) >> (15 - IN_SHIFT));
+        left[i] += (int32_t)(((int64_t)wl * r->mix) >> (15 - IN_SHIFT));   /* (the taps' sum can pass 16 bits) */
         right[i] += (int32_t)(((int64_t)wr_ * r->mix) >> (15 - IN_SHIFT));
     }
 }
