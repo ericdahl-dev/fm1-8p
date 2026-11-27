@@ -28,6 +28,9 @@ static const cpu_test_param FULL_PATCH[] = {
     {FM_PARAM_FILTER_ENV_AMOUNT_CENTS, 3030},
     {FM_PARAM_HIGHPASS_STEP, FM_FILTER_HIGHPASS_BOOST},
     {FM_PARAM_SETTING_GLIDE, 1},
+#if CT_REVERB_MIX
+    {FM_PARAM_REVERB_MIX, CT_REVERB_MIX},      /* #197: the reverb's rows (FM1_CPU_REVERB) */
+#endif
 };
 
 void cpu_test_set_full_patch(cpu_test *t, const cpu_test_param *p, uint32_t n)
@@ -82,6 +85,10 @@ static int start(cpu_test *t, uint8_t voices, patch_kind patch)
     if (fm_engine_init(&t->engine, CT_FS, engine_voices) != FM_OK ||
         fm_engine_set_output_shift(&t->engine, FM_OUT_SHIFT_DEVICE) != FM_OK)  /* the device's stage (#342) */
         rc = FM_ERR_ARG;
+#if CT_REVERB_MIX
+    else if (fm_engine_set_reverb_memory(&t->engine, t->reverb_mem, FM_REVERB_WORDS_44K) != FM_OK)
+        rc = FM_ERR_ARG;
+#endif
     else if (patch == PATCH_UNISON)
         rc = fm_engine_set_param(&t->engine, FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
     else if (patch == PATCH_FULL)

@@ -32,6 +32,8 @@
 #   JIELI_TOOLCHAIN (its directory must be the pinned version), AC79_SDK (a checkout),
 #   FM1_DOCK (a clone at the pinned commit), PYTHON (needs Pillow), FM1_LIVE (the pinned fm1-live
 #   build; FM1_EMU_UNPINNED=1 takes another, marked in the report). fetch never changes these.
+# FM1_REVERB=fdn4|plate: the reverb a module build compiles (#197; default fdn4); FM1_CPU_REVERB=0..100 the
+# CPU test's reverb mix in step F (default 0: off), for the CPU rows of each.
 #   FM1_NM: an nm for the module symbol check where the toolchain's (a Linux binary) can't run: on
 #   macOS, FM1_NM=nm (its llvm-nm reads the module's ELF).
 # Downloads need curl, git, tar and xz.
@@ -75,6 +77,17 @@ stage_module() {
     src=$(abspath "$1") eng=$(abspath "$3")
     dbg=; [ "${FM1_DEBUG:-}" = 1 ] && dbg=" -DFM1_DEBUG"   # only 1 is the debug build (0 is not)
     [ "${FM1_THEME:-}" = night ] && dbg="$dbg -DFM1_THEME_NIGHT"   # a Night Panel preview (the default: Membrane)
+    case "${FM1_REVERB:-}" in                    # #197: the reverb the build compiles (module.cfg: FM_REVERB_ONE)
+        '') ;;
+        fdn4) dbg="$dbg -DFM_REVERB_DESIGN=1" ;;
+        plate) dbg="$dbg -DFM_REVERB_DESIGN=2" ;;
+        *) echo "fm1-build: FM1_REVERB=$FM1_REVERB: fdn4 or plate" >&2; return 1 ;;
+    esac
+    if [ -n "${FM1_CPU_REVERB:-}" ]; then        # the CPU test's reverb mix, 0..100 (0: off)
+        case "$FM1_CPU_REVERB" in *[!0-9]*) echo "fm1-build: FM1_CPU_REVERB=$FM1_CPU_REVERB: 0..100" >&2; return 1 ;; esac
+        [ "$FM1_CPU_REVERB" -le 100 ] || { echo "fm1-build: FM1_CPU_REVERB=$FM1_CPU_REVERB: 0..100" >&2; return 1; }
+        dbg="$dbg -DCT_REVERB_MIX=$FM1_CPU_REVERB"
+    fi
     mkdir -p "$2" || return 1
     rm -f "$2"/module.cfg
     while IFS= read -r line || [ -n "$line" ]; do
@@ -196,6 +209,41 @@ check_module_symbols() {
             '^(__(u?(div|mod|divmod)|mul|ashl|ashr|lshr|cmp|ucmp|neg)(si|di)[234]|__(clz|ctz|popcount|bswap|ffs|parity)(si|di)2|memset|memcpy|memmove)$')
         [ -z "$bad" ] && exit 0
         echo "fm1-build: the module links in symbols outside the allowlist (soft-float, libm or heap?):" $bad >&2
+        exit 1
+    )
+}
+
+# FM_HOT_ENTRIES: the render's entry points engine/placement.h's FM_HOT puts in the module RAM text (#304);
+# flash code reaches them through FM_FAR. A new FM_HOT entry point goes here.
+FM_HOT_ENTRIES="fm_osc_pair_render fm_osc_pair_next fm_filter_process fm_chorus_process_block fm_out_block"
+
+# check_ram_text DIR: #304. The engine's per-sample render loops run from fm1-dock's module RAM text, where
+# no flash-cache layout can slow them. It reads the linked image (DIR/module_02200000.elf), not the cflags:
+# a module that links any of FM_HOT_ENTRIES must have every one inside its RAM text, so a module.cfg that
+# drops or misspells FM_RAM_TEXT fails the build; and the RAM text stays within FM1_RAM_TEXT_BUDGET bytes
+# (default 12288 of fm1-dock's 16384, the rest for growth). The toolchain's own nm reads it.
+check_ram_text() {
+    (
+        nm=${FM1_NM:-$JIELI_TOOLCHAIN/pi32v2/bin/nm}
+        syms=$("$nm" "$1/module_02200000.elf") || exit 1
+        lo=$(echo "$syms" | awk '$3 == "_hb_rt_start" { print $1 }')
+        hi=$(echo "$syms" | awk '$3 == "_hb_rt_end" { print $1 }')
+        [ -n "$lo" ] && [ -n "$hi" ] || { echo "fm1-build: $1: no RAM text bounds in the module" >&2; exit 1; }
+        size=$(( 0x$hi - 0x$lo ))
+        budget=${FM1_RAM_TEXT_BUDGET:-12288}
+        out=$(echo "$syms" | awk -v lo=$((0x$lo)) -v hi=$((0x$hi)) -v names="$FM_HOT_ENTRIES" '
+            BEGIN { n = split(names, w, " "); for (i = 1; i <= n; i++) want[w[i]] = 1 }
+            ($3 in want) {
+                seen[$3] = 1; a = 0; h = "0123456789abcdef"; x = tolower($1)
+                for (i = 1; i <= length(x); i++) a = a * 16 + index(h, substr(x, i, 1)) - 1
+                if (a < lo || a >= hi) print $3 }
+            END { k = 0; for (f in seen) k++
+                  if (k) for (i = 1; i <= n; i++) if (!(w[i] in seen)) print w[i] " (missing)" }')
+        [ -z "$out" ] || {
+            echo "fm1-build: $1: render code outside its RAM text, so in the flash cache (#304; is FM_RAM_TEXT in its cflags?):" $out >&2
+            exit 1; }
+        [ "$size" -le "$budget" ] && exit 0
+        echo "fm1-build: $1: RAM text $size B is over its budget, $budget B (FM1_RAM_TEXT_BUDGET; fm1-dock has 16384): move the least-hot FM_HOT code back to flash (#304)" >&2
         exit 1
     )
 }
@@ -337,6 +385,7 @@ build_module() {
     stage_module "$ROOT/firmware/$1" "$OUT/modules/$1" "$ROOT/engine" || return 1
     dock hbmod.py "$OUT/modules/$1" || return 1
     check_module_symbols "$FM1_DOCK/build/modules/$1" || return 1
+    check_ram_text "$FM1_DOCK/build/modules/$1" || return 1
     dock build.py --modules "$OUT/modules/$1" --name "$2" --app-name "$3" --identity "$FM1_IDENTITY" \
         ${4:+--release "$4"} || return 1
     cp "$FM1_DOCK/build/modules/$1.dock" "$OUT/" || return 1
@@ -417,6 +466,7 @@ run_emu() {
     dock build.py --modules "$OUT/modules/$mod" --name "$fw" \
         --app-name "FM1-8P CPU" --identity "$FM1_IDENTITY"
     check_module_symbols "$FM1_DOCK/build/modules/$mod" || return 1
+    check_ram_text "$FM1_DOCK/build/modules/$mod" || return 1
     emu_rc=0      # (no pipefail in sh: the log goes to a file first, so a crash isn't hidden by tee)
     (cd "$FM1_DOCK" && FM1_STRICT=1 FM1_LIVE=$FM1_LIVE "$PYTHON" tools/dock.py emu \
         --fwsc "build/$fw.fwsc" --ms "${FM1_EMU_MS:-$(emu_window_ms "$(sed -n 's/.*-DCPU_HOLD_BLOCKS=\([0-9]*\)u.*/\1/p' "$ROOT/firmware/$mod/module.cfg")")}" --out "$OUT/$name") \

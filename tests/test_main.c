@@ -23,6 +23,7 @@
 #include "test_bench.c"
 #include "test_osc.c"
 #include "test_chorus.c"
+#include "test_reverb.c"
 #include "test_lfo.c"
 #include "test_mod.c"
 #include "test_wheel.c"
@@ -67,6 +68,7 @@ int main(void)
     run_bench_tests();
     run_osc_tests();
     run_chorus_tests();
+    run_reverb_tests();
     run_lfo_tests();
     run_mod_tests();
     run_wheel_tests();

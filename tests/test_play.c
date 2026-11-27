@@ -596,9 +596,29 @@ TT_TEST(play_event_put_with_the_interrupt_inside_plays_once_next_block)
     TT_CHECK_EQ(pl_a.head, pl_a.tail);
 }
 
+/* #197: the module gives its engine the reverb's memory (its .bss), so a patch with MIX up rings on after
+ * the key is up; the factory patches leave MIX at 0 */
+TT_TEST(play_the_reverb_has_its_memory_and_factory_patches_leave_it_off)
+{
+    uint32_t b, tail = 0;
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    TT_CHECK_EQ(fm_engine_get_param(&pl_a.engine, FM_PARAM_REVERB_MIX), 0);
+    fm_engine_set_param(&pl_a.engine, FM_PARAM_AMP_RELEASE_MS, 20);
+    fm_engine_set_param(&pl_a.engine, FM_PARAM_REVERB_MIX, 60);
+    play_note(&pl_a, 60, 100);
+    for (b = 0; b < 40u; b++) pl_render(&pl_a);
+    play_note(&pl_a, 60, 0);
+    for (b = 0; b < 200u; b++) {               /* ~1.2 s after the release: the last ~0.3 s */
+        pl_render(&pl_a);
+        if (b >= 150u) tail += (uint32_t)pl_sound();
+    }
+    TT_CHECK(tail > 40u);
+}
+
 static void run_play_tests(void)
 {
     TT_RUN(play_event_put_with_the_interrupt_inside_plays_once_next_block);
+    TT_RUN(play_the_reverb_has_its_memory_and_factory_patches_leave_it_off);
     TT_RUN(play_param_set_again_by_the_asks_race_changes_nothing);
     TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
     TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);

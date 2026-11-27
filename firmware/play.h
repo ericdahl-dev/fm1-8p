@@ -20,6 +20,7 @@
 
 typedef struct {
     fm_engine engine;
+    int16_t reverb_mem[FM_REVERB_WORDS_44K];    /* the reverb's lines (#197): the module's .bss */
     int16_t buf[2u * PLAY_BLOCK];       /* engine output, static: not on the ISR stack */
     /* Fields both contexts touch are handoffs, each of one kind (A queue, B ask counter, C gated
      * publish, D single word): docs/handoffs.md has the rules and every field.

@@ -4,6 +4,7 @@
  * Copyright (C) 2026 fm1-8p contributors. GPL-3.0-or-later.
  */
 #include "chorus.h"
+#include "reverb.h"
 #include "dyna.h"
 #include "fm1_8p.h"
 #include "output.h"
@@ -591,6 +592,11 @@ static void apply_param(fm_engine *e, uint16_t id)
         fm_chorus_set_mode(&e->chorus, (uint8_t)v);
         return;
     }
+    if (id == FM_PARAM_REVERB_MIX || id == FM_PARAM_REVERB_TIME_MS || id == FM_PARAM_REVERB_TONE) {
+        fm_reverb_set(&e->reverb, e->params[FM_PARAM_REVERB_MIX], e->params[FM_PARAM_REVERB_TIME_MS],
+                      e->params[FM_PARAM_REVERB_TONE]);
+        return;
+    }
     if (apply_env_param(e, id, v))
         return;
     if (id == FM_PARAM_FILTER_ENV_AMOUNT_CENTS ||
@@ -667,6 +673,21 @@ static void end_mode(fm_engine *e)
     unison_reset(e);
 }
 
+fm_status fm_engine_set_reverb_memory(fm_engine *e, int16_t *mem, uint32_t words)
+{
+    if (!e) return FM_ERR_ARG;
+    fm_reverb_init(&e->reverb, FM_REVERB_DESIGN, e->sample_rate, mem, words);
+    fm_reverb_set(&e->reverb, e->params[FM_PARAM_REVERB_MIX], e->params[FM_PARAM_REVERB_TIME_MS],
+                  e->params[FM_PARAM_REVERB_TONE]);
+    /* memory too small to hold the lines: the reverb stays off, and the caller hears of it */
+    return mem && words < fm_reverb_words(FM_REVERB_DESIGN, e->sample_rate) ? FM_ERR_ARG : FM_OK;
+}
+
+uint32_t fm_engine_reverb_words(uint32_t sample_rate)
+{
+    return fm_reverb_words(FM_REVERB_DESIGN, sample_rate);
+}
+
 fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
                          uint8_t voice_count)
 {
@@ -720,6 +741,7 @@ fm_status fm_engine_init(fm_engine *e, uint32_t sample_rate,
         }
     }
     fm_chorus_init(&e->chorus, sample_rate);
+    fm_reverb_init(&e->reverb, FM_REVERB_DESIGN, sample_rate, 0, 0); /* no lines until given */
     glide_init(e);
     e->wheel = e->wheel_to = 0;                 /* the mod wheel down (#41) */
     {                                           /* no glide, nor a note to glide from (#62) */
@@ -974,7 +996,10 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value)
         e->wheel_moving = (uint8_t)(e->wheel != e->wheel_to);
     }
     if (controller == 120 || controller == 123) unison_reset(e);
-    if (controller == 120) fm_chorus_silence(&e->chorus); /* no wet tail */
+    if (controller == 120) { /* no wet tail */
+        fm_chorus_silence(&e->chorus);
+        fm_reverb_silence(&e->reverb);
+    }
     for (i = 0; i < e->voice_count; i++) {
         fm_voice *v = &e->voices[i];
         switch (controller) {
@@ -1084,10 +1109,16 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);
         if (fm_chorus_is_on(&e->chorus)) {
-            fm_chorus_process_block(&e->chorus, e->mix, e->mix_right, n);
-            fm_out_block(out, e->mix, e->mix_right, n, e->out_shift);
+            FM_FAR(fm_chorus_process_block)(&e->chorus, e->mix, e->mix_right, n);
+            if (fm_reverb_is_on(&e->reverb))
+                fm_reverb_process_block(&e->reverb, e->mix, e->mix_right, n);
+            FM_FAR(fm_out_block)(out, e->mix, e->mix_right, n, e->out_shift);
+        } else if (fm_reverb_is_on(&e->reverb)) { /* the reverb makes the mono mix stereo */
+            for (i = 0; i < n; i++) e->mix_right[i] = e->mix[i];
+            fm_reverb_process_block(&e->reverb, e->mix, e->mix_right, n);
+            FM_FAR(fm_out_block)(out, e->mix, e->mix_right, n, e->out_shift);
         } else {
-            fm_out_block(out, e->mix, NULL, n, e->out_shift);
+            FM_FAR(fm_out_block)(out, e->mix, NULL, n, e->out_shift);
         }
         advance_ticks(e, n);
         out += 2 * n;

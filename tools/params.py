@@ -140,6 +140,12 @@ PARAMS = [
     P(56, 'PORTAMENTO_MS', 'portamento_ms', '0', '10000', '0', 56,
       'portamento (#62): each note glides from the last one played, the distance left falling by 1/e '
       'every this many ms (PG-8X\'s exponential glide); 0 off'),
+    P(57, 'REVERB_MIX', 'reverb_mix_pct', '0', '100', '0', 57,
+      'the reverb\'s wet level after the chorus (#197), percent; 0 off (the engine skips it)'),
+    P(58, 'REVERB_TIME_MS', 'reverb_time_ms', '300', '10000', '2500', 58,
+      'its decay to -60 dB'),
+    P(59, 'REVERB_TONE', 'reverb_tone_pct', '0', '100', '60', 59,
+      'its damping: 100 none, lower darker (a lowpass in the tank, 1 kHz at 0 to 16 kHz)'),
 ]
 
 
@@ -304,6 +310,9 @@ DISPLAY = {
     'WHEEL_PW_PCT': D('PLAIN', '%'),
     'OSC1_COARSE_SEMIS': D('SIGNED', 'st'),
     'PORTAMENTO_MS': D('MS_S', '', ('OFF',)),
+    'REVERB_MIX': D('PLAIN', '%'),
+    'REVERB_TIME_MS': D('MS_S'),
+    'REVERB_TONE': D('PLAIN', '%'),
 }
 
 

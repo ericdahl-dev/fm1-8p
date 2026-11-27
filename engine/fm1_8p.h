@@ -29,6 +29,7 @@
 #include <stdint.h>
 
 #include "chorus_state.h"
+#include "reverb_state.h"
 #include "voice.h"
 
 #define FM_MAX_VOICES 8
@@ -65,8 +66,8 @@ typedef enum {
  * the chorus) must raise the base. The FM-1 build checks the 32-bit budget
  * (engine/engine.c), the host tests the 64-bit one (tests/test_chorus.c).
  */
-#define FM_ENGINE_BUDGET_BASE_32 6764u     /* +48: portamento (#62): a glide a voice (8), its step, the note glided from and the newest, 2 flags */
-#define FM_ENGINE_BUDGET_BASE_64 6932u     /* +48: portamento (#62): as on 32-bit, less the 4 B the 64-bit layout had spare, plus 4 B of padding */
+#define FM_ENGINE_BUDGET_BASE_32 6996u     /* +232: the reverb's state (#197): its lines' offsets and lengths (48), taps, gains, filters and phases; its lines are the caller's */
+#define FM_ENGINE_BUDGET_BASE_64 7048u     /* +116 on the 64-bit layout's figure: the reverb's state, its 3 pointers 8 B each, in padding the layout had */
 #define FM_ENGINE_BUDGET_32 (FM_ENGINE_BUDGET_BASE_32 + 4u * (unsigned)FM_PARAM_COUNT)
 #define FM_ENGINE_BUDGET_64 (FM_ENGINE_BUDGET_BASE_64 + 4u * (unsigned)FM_PARAM_COUNT)
 
@@ -131,6 +132,9 @@ typedef struct {
     /* output stage, after the voices are mixed: about 2.1 KiB, almost
      * all of it the delay line (see chorus_state.h) */
     fm_chorus chorus;
+    /* the reverb after it (#197): its state; its lines are in the memory
+     * fm_engine_set_reverb_memory gives it */
+    fm_reverb reverb;
 } fm_engine;
 
 /*
@@ -167,6 +171,20 @@ void fm_engine_controller(fm_engine *e, uint8_t controller, uint8_t value);
  * notes follow at once. Out-of-range values are ignored.
  */
 void fm_engine_pitch_bend(fm_engine *e, uint16_t value);
+
+/*
+ * The reverb's delay lines (#197): `words` int16 samples at `mem`, owned
+ * by the caller (the device: the module's .bss), for the engine's
+ * lifetime. fm_engine_reverb_words says how many it needs at the engine's
+ * sample rate; with none, or too few, reverb_mix_pct does nothing. Call
+ * after fm_engine_init (which forgets it) and before playing. Returns
+ * FM_ERR_ARG for a null engine, or memory too small for the lines (the
+ * reverb then stays off); null memory is no reverb, and FM_OK.
+ */
+fm_status fm_engine_set_reverb_memory(fm_engine *e, int16_t *mem, uint32_t words);
+
+/* The int16 words the reverb's lines need at `sample_rate` Hz. */
+uint32_t fm_engine_reverb_words(uint32_t sample_rate);
 
 /*
  * Sets a parameter; values outside its range are clamped. Returns

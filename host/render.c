@@ -111,6 +111,20 @@ static void offset_new_voices(fm_engine *e, uint32_t milli, uint8_t *started)
     }
 }
 
+int render_give_reverb(fm_engine *e, uint32_t sample_rate)
+{
+    static int16_t *mem;    /* kept for the process: an engine may hold it */
+    static uint32_t have;
+    uint32_t need = fm_engine_reverb_words(sample_rate);
+    if (need > have) {
+        int16_t *m = realloc(mem, (size_t)need * sizeof *m);
+        if (!m) return -1;
+        mem = m;
+        have = need;
+    }
+    return fm_engine_set_reverb_memory(e, mem, have) == FM_OK ? 0 : -1;
+}
+
 int render_midi(const char *midi_path, const char *wav_path,
                 const render_opts *o, render_info *info)
 {
@@ -169,7 +183,8 @@ int render_midi(const char *midi_path, const char *wav_path,
     pcm = malloc((size_t)(total ? total : 1) * 2 * sizeof *pcm);
     if (!pcm || o->output_shift > FM_OUT_SHIFT_MAX ||
         fm_engine_init(&eng, o->sample_rate, (uint8_t)voices) != FM_OK ||
-        fm_engine_set_output_shift(&eng, (uint8_t)o->output_shift) != FM_OK) {
+        fm_engine_set_output_shift(&eng, (uint8_t)o->output_shift) != FM_OK ||
+        render_give_reverb(&eng, o->sample_rate) != 0) {
         fprintf(stderr, "cannot set up render\n");
         free(pcm);
         smf_free(&song);

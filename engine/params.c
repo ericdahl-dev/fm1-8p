@@ -69,6 +69,9 @@ static const fm_param_info table[FM_PARAM_COUNT] = {
     { FM_PARAM_WHEEL_PW_PCT, "wheel_pw_pct", 0, 49, 0 },
     { FM_PARAM_OSC1_COARSE_SEMIS, "osc1_coarse_semis", -12, 12, 0 },
     { FM_PARAM_PORTAMENTO_MS, "portamento_ms", 0, 10000, 0 },
+    { FM_PARAM_REVERB_MIX, "reverb_mix_pct", 0, 100, 0 },
+    { FM_PARAM_REVERB_TIME_MS, "reverb_time_ms", 300, 10000, 2500 },
+    { FM_PARAM_REVERB_TONE, "reverb_tone_pct", 0, 100, 60 },
 };
 
 const fm_param_info *fm_param_info_get(uint16_t id)
