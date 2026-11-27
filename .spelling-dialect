@@ -1,0 +1,6 @@
+# American spelling (ericdahl-dev/spelling-dialect).
+
+# fm1-dock's browser installer, vendored unmodified (site/vendor/fm1-dock/VENDORED.md): its spelling is upstream's.
+path: site/vendor/fm1-dock/dock.js
+path: site/vendor/fm1-dock/install/
+path: site/vendor/fm1-dock/LICENSE

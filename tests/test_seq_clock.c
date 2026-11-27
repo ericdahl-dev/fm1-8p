@@ -407,6 +407,139 @@ TT_TEST(clock_source_int_midi_and_auto)
     TT_CHECK(!seq_waiting(&ck) && !seq_playing(&ck));
 }
 
+/* #349: a stop and then PLAY (armed, the clock in charge) inside one block. The interrupt takes the
+ * stop ask, and must stop: the transport waits for the next MIDI start, not plays on from the stop
+ * (seq_play's armed path sets `want` with no ask of its own). */
+TT_TEST(clock_stop_then_play_inside_one_block_stops)
+{
+    double at;
+    uint32_t n;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_ticks_ramp(0.05, 100.0, 100.0, 0, 1, 24u * 16u);
+    ck_msg_at(ck_tick_at[24] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[24 + 6 * 4] - 0.012);
+    TT_CHECK(seq_playing(&ck) && ck_n_on == 4u);
+    at = ck_tick_at[24 + 6 * 4] - 0.006;          /* two presses before the same block */
+    ck_msg_at(at, 0, CK_PLAY);
+    ck_msg_at(at + 0.0001, 0, CK_PLAY);
+    n = ck_n_on;
+    ck_run(ck_tick_at[24 + 6 * 12]);               /* the clock ticks on, no MIDI start */
+    TT_CHECK(seq_waiting(&ck));                    /* armed (seq_playing says so too) */
+    TT_CHECK_EQ(ck_n_on, n);                       /* and no step played */
+}
+
+/* #373: three asks before one block, under MIDI clock: a start (0xFA, then its tick: clock_tick asks to
+ * play), then STOP, then PLAY (the clock in charge, so it only arms: `want` = 1, no ask). The interrupt
+ * takes both asks at once and must not start: the last ask was the stop. The transport waits, armed, for
+ * the next MIDI start; none comes, so no step plays. The presses go as ui_seq_transport's: STOP while
+ * `want` is set, PLAY when it isn't. */
+TT_TEST(clock_start_stop_then_play_inside_one_block_stays_armed)
+{
+    const double t0 = 0.1, dt = 60.0 / 100.0 / SEQ_CLK_PPQN;
+    const uint32_t at = 24u;                      /* the start's tick, delivered by hand */
+    uint32_t i;
+    ck_fresh(SEQ_CLK_MIDI);
+    for (i = 0; i < 24u * 8u; i++)
+        if (i != at)
+            ck_msg_at(t0 + i * dt, 0, 0xF8u);
+    ck_run(t0 + at * dt);                         /* a running clock, not followed yet */
+    TT_CHECK_EQ(ck_n_on, 0u);
+    seq_clock_in(&ck, 0xFAu, ck_host(t0 + at * dt - 0.001));   /* the main loop, before one block: */
+    seq_clock_in(&ck, 0xF8u, ck_host(t0 + at * dt));           /* a start and its tick ask to play */
+    TT_CHECK(ck.want);
+    ck_msg_at((double)ck_done / CK_FS - 2e-6, 0, CK_PLAY);    /* then two presses, both handled before the */
+    ck_msg_at((double)ck_done / CK_FS - 1e-6, 0, CK_PLAY);    /* next block, as ui_seq_transport: STOP, PLAY */
+    ck_run(t0 + 24u * 8u * dt);                   /* the clock ticks on, no MIDI start */
+    TT_CHECK(seq_waiting(&ck));                   /* still armed */
+    TT_CHECK(!ck.playing);
+    TT_CHECK_EQ(ck_n_on, 0u);                     /* and no step played */
+}
+
+/* #349, kind C (the seqlock, the interrupt writing): the interrupt runs a block inside the main loop's
+ * read of the block's time, once, mid-run (gap "blk" 1). The read takes the record again, whole, so the
+ * steps stay on the steady clock's grid as with no gap: within 0.05 ms once locked (no jitter here) */
+static uint32_t ck_blk_hits;
+static void ck_gap_blk(const char *where, uint32_t n)
+{
+    static seq_event ev[SEQ_EVENTS];
+    (void)n;
+    if (strcmp(where, "blk") == 0 && ck_blk_hits++ == 0) {
+        seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+        ck_done += CK_BLOCK;
+    }
+}
+TT_TEST(clock_read_of_the_block_time_inside_a_block_stays_on_the_grid)
+{
+    const double t0 = 0.1, dt = 60.0 / 120.0 / SEQ_CLK_PPQN;
+    const uint32_t gap = 24u * 8u + 3u;           /* a tick mid-step (no step starts in its block) */
+    uint32_t i;
+    ck_fresh(SEQ_CLK_MIDI);
+    ck_msg_at(0.05, 0, 0xFAu);
+    for (i = 0; i < 24u * 20u; i++)
+        if (i != gap)
+            ck_msg_at(t0 + i * dt, 0, 0xF8u);
+    ck_run(t0 + gap * dt);                        /* to the gap's tick, then it by hand */
+    ck_blk_hits = 0;
+    handoff_gap = ck_gap_blk;
+    seq_clock_in(&ck, 0xF8u, ck_host(t0 + gap * dt));
+    handoff_gap = 0;
+    ck_run(t0 + 24u * 20u * dt - 0.012);
+    printf("    a block inside the read of the block time: %u steps, worst %.3f ms off the grid\n",
+           ck_n_on, ck_worst_ms(t0, 120.0, 4));
+    TT_CHECK(ck_blk_hits >= 1u);                  /* (it did cut in) */
+    TT_CHECK(ck_n_on == 80u);
+    TT_CHECK(ck_worst_ms(t0, 120.0, 4) < 0.05);   /* (0.011; a read with no retry, 0.147) */
+}
+
+/* #349, kind B: the interrupt between an ask's payload (`want`) and its counter (gaps "play" 1 and "stop"
+ * 0), on its own clock, PLAY and STOP called between blocks as the main loop does. That block takes no ask
+ * (the counter hasn't moved), so it plays on or stays stopped; the next takes the ask: PLAY starts from
+ * step 1, once, and STOP stops. */
+static uint32_t ck_b_hits, ck_b_on;
+static const char *ck_b_where;
+static uint32_t ck_b_n;
+static void ck_gap_b(const char *where, uint32_t n)
+{
+    static seq_event ev[SEQ_EVENTS];
+    uint32_t got, k;
+    if (strcmp(where, ck_b_where) == 0 && n == ck_b_n && ck_b_hits++ == 0) {
+        seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+        got = seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+        for (k = 0; k < got; k++)               /* (that block's note-ons, which ck_run doesn't see) */
+            ck_b_on += ev[k].kind == SEQ_EV_NOTE && ev[k].vel;
+        ck_done += CK_BLOCK;
+    }
+}
+TT_TEST(seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once)
+{
+    uint32_t n;
+    double t;
+    ck_fresh(SEQ_CLK_AUTO);                     /* no clock coming: its own */
+    ck_run(0.2);
+    ck_b_where = "play", ck_b_n = 1, ck_b_hits = 0, ck_b_on = 0;
+    handoff_gap = ck_gap_b;
+    seq_play(&ck);                              /* PLAY, the interrupt between want and ask_play */
+    handoff_gap = 0;
+    TT_CHECK_EQ(ck_b_hits, 1u);                 /* (it did cut in there) */
+    TT_CHECK_EQ(ck_b_on, 0u);                   /* that block, no ask yet: nothing plays (no start twice) */
+    t = (double)ck_done / CK_FS;
+    ck_run(t + 1.0);                            /* 120 BPM: a step 125 ms */
+    TT_CHECK(ck.playing);
+    TT_CHECK(ck_n_on >= 7u && ck_n_on <= 9u);   /* step 1 at once, then one every 125 ms */
+    TT_CHECK(ck_n_on && ck_on[0] - t < (double)CK_BLOCK / CK_FS + 1e-9);   /* the next block */
+    TT_CHECK(ck_n_on && ck_note[0] == 48u);     /* from step 1 */
+    ck_b_where = "stop", ck_b_n = 0, ck_b_hits = 0;
+    handoff_gap = ck_gap_b;
+    seq_stop(&ck);                              /* STOP, the interrupt between want and ask_stop */
+    handoff_gap = 0;
+    TT_CHECK_EQ(ck_b_hits, 1u);
+    n = ck_n_on;
+    ck_run((double)ck_done / CK_FS + 1.0);
+    TT_CHECK(!ck.playing);
+    TT_CHECK_EQ(ck_n_on, n);                    /* stopped: no step after */
+}
+
 /* SWING and GATE under clock: at 66 % the second step of each pair starts 1.32 steps into it, and a
  * 25 % gate lets go a quarter step in, of the clock's step (within 0.5 ms once locked) */
 TT_TEST(clock_swing_and_gate_follow_the_clock)
@@ -702,6 +835,30 @@ TT_TEST(clock_out_ticks_with_the_steps)
     TT_CHECK_EQ(j, 8u);
 }
 
+/* #373 (FW review): STOP and then PLAY on its own clock before one block, with the interrupt between
+ * PLAY's last-ask and its count (gap "play" 1). That block sees the stop's count alone, so it stops; the
+ * next takes the play and starts from step 1, once. Clock out (G14) shows it: one stop, one start more,
+ * never a restart twice (FC FA FC FA). */
+TT_TEST(seq_stop_then_play_with_the_interrupt_before_its_count_starts_once)
+{
+    ck_fresh(SEQ_CLK_AUTO);                     /* no clock coming: its own */
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.6);
+    TT_CHECK_EQ(ck_outs(0xFAu), 1u);
+    seq_stop(&ck);                              /* STOP, not taken yet */
+    ck_b_where = "play", ck_b_n = 1, ck_b_hits = 0, ck_b_on = 0;
+    handoff_gap = ck_gap_b;
+    seq_play(&ck);                              /* PLAY, the interrupt before its count */
+    handoff_gap = 0;
+    TT_CHECK_EQ(ck_b_hits, 1u);
+    TT_CHECK_EQ(ck_b_on, 0u);                   /* that block: the stop, no start */
+    ck_run((double)ck_done / CK_FS + 1.0);
+    TT_CHECK(ck.playing);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);            /* one stop */
+    TT_CHECK_EQ(ck_outs(0xFAu), 2u);            /* and one start more, not two */
+}
+
 /* G14 on: PLAY sends a start and STOP a stop, after the ticks before it; PLAY again, a start again. Never
  * two starts or two stops in a row; no tick after a stop till the next start; a stop with nothing
  * playing sends nothing (#286) */
@@ -731,6 +888,379 @@ TT_TEST(clock_out_start_and_stop)
     seq_stop(&ck);                              /* stopped already: nothing more */
     ck_run(1.8);
     TT_CHECK_EQ(ck_outs(0xFCu), 2u);
+}
+
+/* #349: G14 on, its own clock, a STOP and then the module let go (seq_clock_out_stop) inside one block,
+ * with the interrupt cutting in between its read of out_on and its clear (gap "out_stop" 1): one MIDI
+ * stop, not two. The same with a restart (PLAY asked again) pending instead of the stop. */
+static uint32_t ck_gap_hits, ck_gap_at;
+static void ck_gap_block(const char *where, uint32_t n)
+{
+    static seq_event ev[SEQ_EVENTS];
+    if (strcmp(where, "out_stop") == 0 && n == ck_gap_at && ck_gap_hits++ == 0) {
+        seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+    }
+}
+TT_TEST(clock_out_stop_inside_a_pending_ask_sends_one_stop)
+{
+    uint8_t b;
+    uint32_t k, g;
+    for (g = 0; g < 2u; g++)                    /* gap 0: after out_block; 1: between out_on's read and clear */
+        for (k = 0; k < 2u; k++) {
+            ck_fresh(SEQ_CLK_AUTO);
+            seq_set_clock_out(&ck, 1);
+            ck_msg_at(0.1, 0, CK_PLAY);
+            ck_run(0.5);
+            TT_CHECK_EQ(ck_outs(0xFAu), 1u);
+            if (k == 0)
+                seq_stop(&ck);                  /* STOP: the interrupt is to send its stop */
+            else
+                seq_play(&ck);                  /* PLAY again: a restart, stop then start */
+            ck_gap_at = g;
+            ck_gap_hits = 0;
+            handoff_gap = ck_gap_block;
+            seq_clock_out_stop(&ck);            /* let go, the interrupt inside it */
+            handoff_gap = 0;
+            TT_CHECK_EQ(ck_gap_hits, 1u);       /* (it did cut in there) */
+            seq_stop(&ck);                      /* then release's seq_stop and its one drain */
+            while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)
+                ck_out[ck_n_out++] = b;
+            if (ck_outs(0xFCu) != 1u || ck_outs(0xFAu) != 1u)
+                printf("    gap %u, %s pending: %u stops, %u starts\n", (unsigned)g, k ? "a restart" : "a stop",
+                       (unsigned)ck_outs(0xFCu), (unsigned)ck_outs(0xFAu));
+            TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+            TT_CHECK_EQ(ck_outs(0xFAu), 1u);    /* (and no start after it) */
+            TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+        }
+}
+
+/* #349: the let-go in every order. A pending ask (none, STOP, a restart, PLAY from stopped) and one
+ * interrupt block landing anywhere: before seq_clock_out_stop, at its gaps 0 and 1, between it and
+ * release's seq_stop, between that and the one drain, or not at all; on its own clock and followed.
+ * Whatever the order: starts and stops alternate, as many of each, and clock out ends stopped. */
+static uint32_t ck_mx_where, ck_mx_hits;
+static void ck_mx_block(void)
+{
+    static seq_event ev[SEQ_EVENTS];
+    ck_mx_hits++;
+    seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+    (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+    ck_done += CK_BLOCK;
+}
+static void ck_mx_gap(const char *where, uint32_t n)
+{
+    if (strcmp(where, "out_stop") == 0 && n + 1u == ck_mx_where && !ck_mx_hits)
+        ck_mx_block();
+}
+/* 1 when starts (FA, or a continue's FB) and stops (FC) alternate from a start, as many of each */
+static int ck_alternate(void)
+{
+    uint32_t i, fa = 0, fc = 0;
+    uint8_t last = 0xFCu;
+    for (i = 0; i < ck_n_out; i++) {
+        uint8_t st = ck_out[i] == 0xFBu ? 0xFAu : ck_out[i];
+        if (st != 0xFAu && st != 0xFCu)
+            continue;
+        if (st == last)
+            return 0;
+        last = st;
+        fa += last == 0xFAu;
+        fc += last == 0xFCu;
+    }
+    return fa == fc;
+}
+TT_TEST(clock_out_let_go_in_every_order_ends_stopped)
+{
+    uint8_t b;
+    uint32_t ext, ask, where, bad = 0, n = 0, on;
+    for (ext = 0; ext < 2u; ext++)
+        for (ask = 0; ask < 4u; ask++)
+            for (where = 0; where < 6u; where++) {  /* 0 before, 1 gap 0, 2 gap 1 (there only with out_on set at
+                                                     * the call: it returns before it otherwise), 3 after, 4
+                                                     * before the drain, 5 none */
+                ck_fresh(SEQ_CLK_AUTO);
+                seq_set_clock_out(&ck, 1);
+                if (ext) {                          /* followed: a clock and its start */
+                    ck_ticks_ramp(0.05, 140.0, 140.0, 0, 1, 24u * 2u);
+                    ck_msg_at(ck_tick_at[12] - 0.002, 0, 0xFAu);
+                    ck_run(ck_tick_at[24u * 2u - 1u] - 0.005);
+                } else {
+                    ck_msg_at(0.1, 0, CK_PLAY);
+                    ck_run(0.5);
+                }
+                if (ask == 1u)
+                    seq_stop(&ck);
+                else if (ask == 2u)
+                    seq_play(&ck);
+                else if (ask == 3u) {               /* stopped, then PLAY */
+                    seq_stop(&ck);
+                    ck_mx_hits = 0;
+                    ck_mx_block();
+                    seq_play(&ck);
+                }
+                ck_mx_where = where;
+                ck_mx_hits = 0;
+                if (where == 0u)
+                    ck_mx_block();
+                on = ck.out_on;                     /* (gap 1 is there only while it is set) */
+                handoff_gap = ck_mx_gap;
+                seq_clock_out_stop(&ck);            /* release, as fm1_8p.c's */
+                handoff_gap = 0;
+                if (where == 3u)
+                    ck_mx_block();
+                seq_stop(&ck);
+                if (where == 4u)
+                    ck_mx_block();
+                while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)
+                    ck_out[ck_n_out++] = b;
+                n++;
+                if ((where < 5u && (where != 2u || on) && ck_mx_hits != 1u) || ck_mx_hits > 1u || !ck_alternate() ||
+                    (ck_outs(0xFAu) && ck_out[ck_n_out - 1u] != 0xFCu)) {
+                    bad++;
+                    printf("    let go, %s, ask %u, block at %u: %u starts, %u stops, last %02X\n", ext ? "followed" : "own",
+                           (unsigned)ask, (unsigned)where, (unsigned)ck_outs(0xFAu), (unsigned)ck_outs(0xFCu),
+                           ck_n_out ? (unsigned)ck_out[ck_n_out - 1u] : 0u);
+                }
+            }
+    printf("    let go: %u orders, %u wrong\n", (unsigned)n, (unsigned)bad);
+    TT_CHECK_EQ(bad, 0u);
+}
+
+/* #364: G14 on, its own clock playing, a STOP (or a restart) asked and not yet taken when a MIDI start and
+ * its tick come in: clock_tick's followed start stops the own run's clock out first. The interrupt cuts
+ * in between its read of out_on and its clear (gap "clock_start" 0) and takes the pending ask. One MIDI
+ * stop between the own run's start and the followed run's, never two: FA FC FA. */
+TT_TEST(clock_start_with_an_ask_pending_sends_one_stop)
+{
+    uint32_t k;
+    for (k = 0; k < 2u; k++) {
+        ck_fresh(SEQ_CLK_AUTO);                 /* no clock yet: its own */
+        seq_set_clock_out(&ck, 1);
+        ck_msg_at(0.1, 0, CK_PLAY);
+        ck_run(0.5);
+        TT_CHECK_EQ(ck_outs(0xFAu), 1u);
+        if (k == 0)
+            seq_stop(&ck);                      /* STOP, not taken yet */
+        else
+            seq_play(&ck);                      /* PLAY again (a restart), not taken yet */
+        seq_clock_in(&ck, 0xFAu, ck_host(0.5)); /* a MIDI start, then its tick: */
+        ck_b_where = "clock_start", ck_b_n = 0, ck_b_hits = 0, ck_b_on = 0;
+        handoff_gap = ck_gap_b;
+        seq_clock_in(&ck, 0xF8u, ck_host(0.501));   /* clock_tick's start, the interrupt inside it */
+        handoff_gap = 0;
+        TT_CHECK_EQ(ck_b_hits, 1u);             /* (it did cut in there) */
+        ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
+        ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
+        {                                       /* the starts and stops, ticks left out: FA FC FA */
+            uint32_t q, m = 0;
+            uint8_t seen[4] = { 0, 0, 0, 0 };
+            for (q = 0; q < ck_n_out; q++)
+                if (ck_out[q] != 0xF8u && m < 4u)
+                    seen[m++] = ck_out[q];
+            if (m != 3u || seen[0] != 0xFAu || seen[1] != 0xFCu || seen[2] != 0xFAu)
+                printf("    %s pending: %u starts and stops, %02X %02X %02X %02X\n", k ? "a restart" : "a stop",
+                       (unsigned)m, seen[0], seen[1], seen[2], seen[3]);
+            TT_CHECK_EQ(m, 3u);                 /* the own run's start, its stop once, the followed start */
+            TT_CHECK(seen[0] == 0xFAu && seen[1] == 0xFCu && seen[2] == 0xFAu);
+        }
+    }
+}
+
+/* #364: the followed start in every order. Before a MIDI start and its tick: nothing pending, a STOP, a
+ * restart, or a let-go (seq_clock_out_stop); the interrupt cuts into clock_tick's start at each of its gaps
+ * "clock_start" 0..4. Starts (FA, FB) and stops (FC) alternate from a start; with a run going the last is
+ * the followed run's start, one stop fewer than starts; after a let-go nothing more goes out (FA FC). */
+TT_TEST(clock_start_in_every_order_alternates)
+{
+    uint32_t ask, gap, bad = 0;
+    for (ask = 0; ask < 4u; ask++)
+        for (gap = 0; gap < 5u; gap++) {
+            uint32_t q, m = 0, fa = 0, fc = 0, ok = 1;
+            uint8_t last = 0xFCu;
+            ck_fresh(SEQ_CLK_AUTO);
+            seq_set_clock_out(&ck, 1);
+            ck_msg_at(0.1, 0, CK_PLAY);
+            ck_run(0.5);
+            if (ask == 1u)
+                seq_stop(&ck);
+            else if (ask == 2u)
+                seq_play(&ck);
+            else if (ask == 3u)
+                seq_clock_out_stop(&ck);
+            seq_clock_in(&ck, 0xFAu, ck_host(0.5));
+            ck_b_where = "clock_start", ck_b_n = gap, ck_b_hits = 0, ck_b_on = 0;
+            handoff_gap = ck_gap_b;
+            seq_clock_in(&ck, 0xF8u, ck_host(0.501));
+            handoff_gap = 0;
+            ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
+            ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
+            for (q = 0; q < ck_n_out; q++) {
+                uint8_t st = ck_out[q] == 0xFBu ? 0xFAu : ck_out[q];
+                if (st != 0xFAu && st != 0xFCu)
+                    continue;
+                ok &= st != last;
+                last = st;
+                fa += st == 0xFAu;
+                fc += st == 0xFCu;
+                m++;
+            }
+            if (ask == 3u)
+                ok &= fa == 1u && fc == 1u;         /* let go: FA FC, then nothing */
+            else
+                ok &= last == 0xFAu && fc + 1u == fa;   /* the followed run's start last */
+            ok &= ck_b_hits == ((ask == 3u && gap == 0u) ? 0u : 1u);   /* (gap 0 needs out_on set) */
+            if (!ok) {
+                bad++;
+                printf("    clock start, ask %u, gap %u: %u starts, %u stops, %u hits\n", (unsigned)ask,
+                       (unsigned)gap, (unsigned)fa, (unsigned)fc, (unsigned)ck_b_hits);
+            }
+            (void)m;
+        }
+    TT_CHECK_EQ(bad, 0u);
+}
+
+/* #377: an ask's last-ask record ahead of its count, trusted on another ask's count. Own clock, G14 on.
+ * (1) Stopped; PLAY, STOP, PLAY before one block (ui_seq_transport's toggle: want 0, 1, 0), the interrupt
+ * inside the second PLAY (gap "play" 1): that block sees the first play's and the stop's counts, with the
+ * second play's record already written, and must start nothing; one start follows. (2) Playing, a restart
+ * asked when a MIDI start and its tick come in, the interrupt at "clock_start" 2 (the followed start's
+ * payload written, its count not yet): that block must not start the followed run early; one start does. */
+TT_TEST(seq_a_last_ask_ahead_of_its_count_starts_once)
+{
+    uint32_t fa;
+    ck_fresh(SEQ_CLK_AUTO);                     /* (1) its own clock */
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_msg_at(0.3, 0, CK_PLAY);                 /* stop: stopped */
+    ck_run(0.5);
+    TT_CHECK(!ck.playing && !ck.want);
+    fa = ck_outs(0xFAu);
+    seq_play(&ck);                              /* PLAY */
+    TT_CHECK(ck.want);
+    seq_stop(&ck);                              /* STOP */
+    TT_CHECK(!ck.want);
+    ck_b_where = "play", ck_b_n = 1, ck_b_hits = 0, ck_b_on = 0;
+    handoff_gap = ck_gap_b;
+    seq_play(&ck);                              /* PLAY, the interrupt before its count */
+    handoff_gap = 0;
+    TT_CHECK_EQ(ck_b_hits, 1u);
+    TT_CHECK_EQ(ck_b_on, 0u);                   /* that block: no start */
+    ck_run((double)ck_done / CK_FS + 0.5);
+    TT_CHECK(ck.playing);
+    TT_CHECK_EQ(ck_outs(0xFAu), fa + 1u);       /* one start */
+    ck_fresh(SEQ_CLK_AUTO);                     /* (2) playing on its own clock */
+    seq_set_clock_out(&ck, 1);
+    ck_msg_at(0.1, 0, CK_PLAY);
+    ck_run(0.5);
+    seq_play(&ck);                              /* PLAY again: a restart, not taken yet */
+    seq_clock_in(&ck, 0xFAu, ck_host(0.5));
+    ck_b_where = "clock_start", ck_b_n = 2, ck_b_hits = 0, ck_b_on = 0;
+    handoff_gap = ck_gap_b;
+    seq_clock_in(&ck, 0xF8u, ck_host(0.501));   /* clock_tick's start, the interrupt at gap 2 */
+    handoff_gap = 0;
+    TT_CHECK_EQ(ck_b_hits, 1u);
+    TT_CHECK_EQ(ck_b_on, 0u);                   /* that block: not the followed run yet, nor the restart */
+    ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
+    ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
+    TT_CHECK(ck.playing && ck.ext);             /* then the followed run, */
+    TT_CHECK_EQ(ck_outs(0xFAu), 2u);            /* started once: FA (own) FC FA (followed) */
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+}
+
+/* #380: G14 on, stopped, MIDI clock: a MIDI start and its tick start the followed run (the main loop
+ * sends its start, FA, and asks to play), then the clock source goes to INT before the interrupt takes the
+ * ask (ext 0, no ask of its own). The run goes on on its own clock, and clock out says so once: one FA, its
+ * ticks after it, no second start. */
+TT_TEST(clock_source_to_int_with_a_start_pending_sends_one_start)
+{
+    uint32_t q, fa = 0, f8_after = 0;
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, 1);
+    ck_run(0.2);
+    seq_clock_in(&ck, 0xFAu, ck_host(0.2));
+    seq_clock_in(&ck, 0xF8u, ck_host(0.201));   /* the followed start: FA, and the ask */
+    seq_set_clock_source(&ck, SEQ_CLK_INT);     /* before one block: INT */
+    ck_run(1.0);
+    TT_CHECK(ck.playing && !ck.ext);            /* on, on its own clock */
+    for (q = 0; q < ck_n_out; q++) {
+        fa += ck_out[q] == 0xFAu || ck_out[q] == 0xFBu;
+        f8_after += fa && ck_out[q] == 0xF8u;
+    }
+    if (fa != 1u)
+        printf("    INT with a start pending: %u starts\n", (unsigned)fa);
+    TT_CHECK_EQ(fa, 1u);                        /* one start, */
+    TT_CHECK(f8_after > 0u);                    /* and its clock after it */
+    TT_CHECK_EQ(ck_outs(0xFCu), 0u);
+    {                                           /* tick 0 once: the main loop passed it on with the start, */
+        uint32_t first = 0, n0 = 0;             /* so no second tick in the same block (FW review) */
+        for (q = 0; q < ck_n_out; q++)
+            if (ck_out[q] == 0xF8u) {
+                if (!n0++)
+                    first = q;
+                else if (ck_out_t[q] - ck_out_t[first] < 1e-9)
+                    printf("    INT with a start pending: a second tick with tick 0\n");
+            }
+        TT_CHECK(n0 >= 2u && ck_out_t[first + 1u] - ck_out_t[first] > 1e-9);
+    }
+    seq_stop(&ck);                              /* and a stop after it closes the run */
+    ck_run(1.2);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+}
+
+/* #380 (FW review): a MIDI continue (FB), then INT before the interrupt took it: the run goes on from the
+ * step after the last, as a continue says, with clock out on (the FB passed on) or off. And a PLAY after
+ * them, before the same block, is the last ask: from step 1. */
+static uint32_t ck_continue_then_int(uint32_t out, uint32_t play_too)
+{
+    static const uint8_t N[4] = {60, 62, 64, 65};
+    uint32_t k, at;
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, out);
+    seq_set_length(&ck, 4);
+    for (k = 0; k < 4u; k++)
+        seq_set_step(&ck, k, &N[k], 1, 100);  /* 60 62 64 65: each step its own */
+    ck_ticks_ramp(0.05, 120.0, 120.0, 0, 1, 24u);
+    ck_msg_at(ck_tick_at[0] - 0.002, 0, 0xFAu);
+    ck_run(ck_tick_at[6] + 0.005);              /* steps 1 and 2 played (60, 62) */
+    ck_msg_at(ck_tick_at[6] + 0.006, 0, 0xFCu);
+    ck_run(ck_tick_at[6] + 0.1);                /* stopped after step 2 */
+    if (ck.playing)
+        return 0;
+    at = ck_n_on;
+    seq_clock_in(&ck, 0xFBu, ck_host(0.5));     /* a continue, its tick: asked */
+    seq_clock_in(&ck, 0xF8u, ck_host(0.501));
+    seq_set_clock_source(&ck, SEQ_CLK_INT);     /* before one block */
+    if (play_too) {
+        seq_stop(&ck);                          /* PLAY twice as the UI toggles: STOP (want set), PLAY */
+        seq_play(&ck);
+    }
+    ck_run(0.6);
+    return ck_n_on > at ? ck_note[at] : 0u;
+}
+TT_TEST(clock_source_to_int_with_a_continue_pending_goes_on)
+{
+    TT_CHECK_EQ(ck_continue_then_int(1, 0), 64u);   /* step 3, the one after the last, clock out on, */
+    TT_CHECK_EQ(ck_continue_then_int(0, 0), 64u);   /* and off */
+    TT_CHECK_EQ(ck_continue_then_int(1, 1), 60u);   /* a PLAY after it: from step 1 */
+    TT_CHECK_EQ(ck_continue_then_int(0, 1), 60u);
+}
+
+/* #380 (FW review): the same start pending, INT, and then STOP before the interrupt takes either. The
+ * start went out (the main loop sent it): one stop closes it, FA FC. */
+TT_TEST(clock_source_to_int_then_stop_with_a_start_pending_closes_it)
+{
+    ck_fresh(SEQ_CLK_MIDI);
+    seq_set_clock_out(&ck, 1);
+    ck_run(0.2);
+    seq_clock_in(&ck, 0xFAu, ck_host(0.2));
+    seq_clock_in(&ck, 0xF8u, ck_host(0.201));
+    seq_set_clock_source(&ck, SEQ_CLK_INT);
+    seq_stop(&ck);                              /* all before one block */
+    ck_run(0.6);
+    TT_CHECK(!ck.playing);
+    TT_CHECK_EQ(ck_outs(0xFAu), 1u);
+    TT_CHECK_EQ(ck_outs(0xFCu), 1u);            /* the start closed */
 }
 
 /* A restart from step 1 while playing (a play asked again with no stop between) sends a stop, then the
@@ -939,14 +1469,41 @@ TT_TEST(clock_out_ends_with_a_stop_when_let_go)
     TT_CHECK_EQ(ck_n_out, n);
 }
 
-/* the interrupt cutting in at a point of the main loop's clock_tick start (seq_test_hook): one block */
-static uint32_t ck_hook_at;
-static void ck_hook(seq *s, uint32_t point)
+/* #349: the same with a STOP, or a restart (PLAY again), asked just before the let-go and not yet taken
+ * by the interrupt: release sends what is due, once, with no block between (nothing drains after it),
+ * so the stop goes out then, once (FW review of f6609ec: it was left to an interrupt that never ran) */
+TT_TEST(clock_out_ends_with_a_stop_when_let_go_with_an_ask_pending)
+{
+    uint8_t b;
+    uint32_t k;
+    for (k = 0; k < 2u; k++) {
+        ck_fresh(SEQ_CLK_AUTO);
+        seq_set_clock_out(&ck, 1);
+        ck_msg_at(0.1, 0, CK_PLAY);
+        ck_run(0.5);
+        if (k == 0)
+            seq_stop(&ck);                     /* STOP, not yet taken */
+        else
+            seq_play(&ck);                     /* PLAY again, not yet taken */
+        seq_clock_out_stop(&ck);               /* release, as fm1_8p.c's: then seq_stop, then the drain */
+        seq_stop(&ck);
+        while (seq_clock_out_take(&ck, &b) && ck_n_out < 8192u)
+            ck_out[ck_n_out++] = b;
+        TT_CHECK_EQ(ck_outs(0xFCu), 1u);
+        TT_CHECK_EQ(ck_out[ck_n_out - 1u], 0xFCu);
+    }
+}
+
+/* the interrupt cutting in at a gap of the main loop's clock_tick start (handoff_test.h, gap
+ * "clock_start" 1-4): one block */
+static uint32_t ck_hook_at, ck_hook_hits;
+static void ck_hook(const char *where, uint32_t point)
 {
     static seq_event ev[SEQ_EVENTS];
-    if (point == ck_hook_at) {
-        seq_block_time(s, ck_host((double)ck_done / CK_FS));
-        (void)seq_render(s, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
+    if (strcmp(where, "clock_start") == 0 && point == ck_hook_at) {
+        ck_hook_hits++;
+        seq_block_time(&ck, ck_host((double)ck_done / CK_FS));
+        (void)seq_render(&ck, CK_BLOCK, CK_FS, SEQ_NOTES, ev);
         ck_done += CK_BLOCK;
     }
 }
@@ -966,9 +1523,11 @@ TT_TEST(clock_out_a_stop_pending_when_a_clock_starts)
         seq_stop(&ck);                         /* STOP: asked, not yet taken */
         seq_clock_in(&ck, 0xFAu, ck_host(0.5));
         ck_hook_at = at;
-        seq_test_hook = ck_hook;
+        ck_hook_hits = 0;
+        handoff_gap = ck_hook;
         seq_clock_in(&ck, 0xF8u, ck_host(0.501));   /* the start's tick: the interrupt cuts in at `at` */
-        seq_test_hook = 0;
+        handoff_gap = 0;
+        TT_CHECK_EQ(ck_hook_hits, 1u);         /* (it did cut in there) */
         ck_ticks_ramp(0.52, 140.0, 140.0, 0, 1, 24u);
         ck_run(0.52 + 23 * 60.0 / 140.0 / SEQ_CLK_PPQN + 0.01);
         for (i = 0, fa_at = 9999u; i < ck_n_out; i++)
@@ -1011,7 +1570,14 @@ TT_TEST(clock_out_let_go_with_a_play_pending)
 static void run_seq_clock_tests(void)
 {
     TT_RUN(clock_out_ticks_with_the_steps);
+    TT_RUN(clock_out_stop_inside_a_pending_ask_sends_one_stop);
     TT_RUN(clock_out_start_and_stop);
+    TT_RUN(clock_source_to_int_with_a_start_pending_sends_one_start);
+    TT_RUN(clock_source_to_int_then_stop_with_a_start_pending_closes_it);
+    TT_RUN(clock_source_to_int_with_a_continue_pending_goes_on);
+    TT_RUN(clock_start_with_an_ask_pending_sends_one_stop);
+    TT_RUN(clock_start_in_every_order_alternates);
+    TT_RUN(seq_a_last_ask_ahead_of_its_count_starts_once);
     TT_RUN(clock_out_restart_stops_first);
     TT_RUN(clock_out_off_and_changed_while_playing);
     TT_RUN(clock_out_follows_tempo_changes);
@@ -1020,6 +1586,8 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_out_hand_over_to_a_clock);
     TT_RUN(clock_out_a_followed_stop_before_a_new_start);
     TT_RUN(clock_out_ends_with_a_stop_when_let_go);
+    TT_RUN(clock_out_ends_with_a_stop_when_let_go_with_an_ask_pending);
+    TT_RUN(clock_out_let_go_in_every_order_ends_stopped);
     TT_RUN(clock_out_a_stop_pending_when_a_clock_starts);
     TT_RUN(clock_out_let_go_with_a_play_pending);
     TT_RUN(clock_lost_while_armed_disarms);
@@ -1037,6 +1605,11 @@ static void run_seq_clock_tests(void)
     TT_RUN(clock_start_stop_and_continue);
     TT_RUN(clock_lost_stops_and_the_internal_clock_takes_over);
     TT_RUN(clock_source_int_midi_and_auto);
+    TT_RUN(clock_read_of_the_block_time_inside_a_block_stays_on_the_grid);
+    TT_RUN(seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once);
+    TT_RUN(clock_stop_then_play_inside_one_block_stops);
+    TT_RUN(clock_start_stop_then_play_inside_one_block_stays_armed);
+    TT_RUN(seq_stop_then_play_with_the_interrupt_before_its_count_starts_once);
     TT_RUN(clock_swing_and_gate_follow_the_clock);
     TT_RUN(clock_rides_out_a_burst_of_late_ticks);
     TT_RUN(clock_edits_act_as_on_the_internal_clock);

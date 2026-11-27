@@ -223,6 +223,26 @@ class MetricTest(unittest.TestCase):
         self.assertTrue(all(v == 0.0 for v in s["pitch_cents"].values()))
 
 
+    # The ruler's own noise: PG-8X's render scored against itself 10 ms later, per section. A section
+    # that reads a change in the sound that small isn't reading timbre. A held sine reads 0 everywhere;
+    # one that changes pitch inside v90's window reads there and nowhere else.
+    def test_the_ruler_noise_reads_only_where_the_sound_moves_within_10_ms(self):
+        np = self.np
+        t = np.arange(13 * SR) / SR
+        steady = 0.1 * np.sin(2 * np.pi * 440 * t)
+        self.assertTrue(all(v < 0.01 for v in self.sc.ruler_noise(steady).values()))
+        a, b = self.sc.SECTIONS["v90"]
+        f = np.where((t >= a + 0.2) & (t < b), 3000.0, 440.0)
+        moving = 0.1 * np.sin(2 * np.pi * np.cumsum(f) / SR)
+        n = self.sc.ruler_noise(moving)
+        self.assertGreater(n["v90"], 0.1)
+        self.assertTrue(all(v < 0.01 for k, v in n.items() if k != "v90"), n)
+
+    # The report's line for it: each section's mean over the tones, in SECTIONS' order.
+    def test_the_ruler_noise_line_is_each_sections_mean(self):
+        line = self.sc.noise_line([{"chord": 0.0, "v90": 1.0}, {"chord": 0.2, "v90": 0.5}])
+        self.assertEqual(line, "ruler noise (PG-8X against itself 10 ms later, dB): chord 0.10, v90 0.75")
+
     # A ring or cross-mod tone has no single pitch: the correlation lines up unrelated partials (WINDCHIMES
     # read +140 c with every partial within 6 c of PG-8X's, s7), so no pitch is reported for it.
     def test_an_inharmonic_tone_reports_no_pitch(self):
@@ -249,6 +269,74 @@ class MetricTest(unittest.TestCase):
         self.assertNotIn(20, odd)    # WAVEAURA: osc2 -14 c
         self.assertNotIn(32, odd)    # PSYCHMELLO: osc2 -12 c
 
+@unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
+class BeatPhaseTest(unittest.TestCase):
+    """s12 (#382): two detuned DCOs beat slower than a section is long, so one render's score reads where
+    in the beat the note started. Scored over renders at evenly spread DCO-2 start offsets, power
+    averaged, the beat's cross term cancels: the score no longer depends on the start."""
+    def setUp(self):
+        import numpy as np
+        import scorecard
+        self.np, self.sc = np, scorecard
+
+    def pair(self, offset, f0=220.0, beat=0.3, seconds=13.0, decay_s=None):
+        """A saw-like pair, DCO-2 `beat` Hz above DCO-1 and `offset` of a cycle ahead at the start;
+        falling 20 dB every `decay_s` s from the start when given."""
+        np = self.np
+        t = np.arange(int(seconds * SR)) / SR
+        x = 0.01 * sum((np.sin(2 * np.pi * k * f0 * t) + np.sin(2 * np.pi * k * ((f0 + beat) * t + offset))) / k
+                       for k in range(1, 13))
+        if decay_s:
+            x = x * 10 ** (-t / decay_s)
+        return np.stack([x, x], axis=1)
+
+    def draws(self, start, k=8, **kw):
+        return [self.pair(start + j / k, **kw) for j in range(k)]
+
+    # A PG-8X draw whose MIDI started LEAD ticks late (50 samples a tick at 48 kHz) is read from its own
+    # start: the same render padded with that much silence scores as the unpadded one, figure for figure
+    def test_a_draw_shifted_by_its_lead_scores_as_the_same_render_unshifted(self):
+        np = self.np
+        ours = self.draws(0.0)
+        pg = [self.pair(0.3, decay_s=8), self.pair(0.7, decay_s=8)]
+        lead = [240, 1011]
+        late = [(np.concatenate([np.zeros((50 * t, 2)), x]), self.sc.lead_seconds(t)) for x, t in zip(pg, lead)]
+        self.assertEqual(self.sc.score_tone(ours, late), self.sc.score_tone(ours, pg))
+        self.assertEqual(self.sc.ruler_noise(late), self.sc.ruler_noise(pg))
+
+    def test_the_loudness_gap_over_spread_offsets_does_not_depend_on_where_they_start(self):
+        pg = self.pair(0.3, beat=0.05)
+        one = [self.sc.score_tone(self.pair(o, beat=0.05), pg)["loudness_gap_lu"] for o in (0.0, 0.25, 0.5)]
+        self.assertGreater(max(one) - min(one), 1.0)
+        a = self.sc.score_tone(self.draws(0.0, beat=0.05), pg)["loudness_gap_lu"]
+        b = self.sc.score_tone(self.draws(1 / 16, beat=0.05), pg)["loudness_gap_lu"]
+        self.assertAlmostEqual(a, b, delta=0.02)
+
+    # The envelope's timings read the draws' mean power over time, so a beat's dip doesn't decide where a
+    # decay crosses its line
+    def test_a_decay_over_spread_offsets_does_not_depend_on_where_they_start(self):
+        np = self.np
+        one = [self.sc.decay_ms(self.pair(o, f0=1046.5, beat=1.5, seconds=3, decay_s=0.6), 0.0, 3.0, 1046.5, 20)
+               for o in (0.0, 0.25, 0.5)]
+        self.assertGreater(max(one) - min(one), 20)
+        a, b = (self.sc.decay_ms(self.draws(s, f0=1046.5, beat=1.5, seconds=3, decay_s=0.6), 0.0, 3.0, 1046.5, 20)
+                for s in (0.0, 1 / 16))
+        self.assertAlmostEqual(a, b, delta=2)
+        self.assertAlmostEqual(a, 600, delta=60)
+
+    def test_a_score_over_spread_offsets_does_not_depend_on_where_they_start(self):
+        pg = self.pair(0.3)
+        one = [self.sc.score_tone(self.pair(o), pg)["spectral_db"] for o in (0.0, 0.25, 0.5)]
+        swing = max(max(s[k] for s in one) - min(s[k] for s in one) for k in self.sc.SECTIONS)
+        self.assertGreater(swing, 1.0)
+        # 8 offsets cancel harmonics 1..7's cross term exactly; the 8th's (2.4 Hz here) is left, partly
+        # averaged out inside the section, so a little stays
+        a = self.sc.score_tone(self.draws(0.0), pg)
+        b = self.sc.score_tone(self.draws(1 / 16), pg)
+        for k in self.sc.SECTIONS:
+            self.assertAlmostEqual(a["spectral_db"][k], b["spectral_db"][k], delta=0.15, msg=k)
+
+
 # The scorecard scores PG-8X against the engine's own level (#342): its renders never take -d, the FM-1
 # module's output gain, so moving that gain (#320) leaves the ruler (v5/s10) as it is. Needs no numpy.
 class RenderCommandTest(unittest.TestCase):
@@ -258,6 +346,33 @@ class RenderCommandTest(unittest.TestCase):
         self.assertNotIn("-d", cmd)
         self.assertEqual(cmd, [os.path.join("/t", "build", "fm1-8p-render"), "-r", "48000", "-t", "3000", "-v", "6",
                                "-s", "osc1_level_permille=1000", "a.mid", "b.wav"])
+
+    # s12 (#382): each draw of ours is a render with DCO-2 started OFFSET thousandths of a cycle on (-o)
+    def test_a_draw_renders_with_its_dco2_offset(self):
+        import scorecard_cmd
+        cmd = scorecard_cmd.render_command("/t", ["-s", "osc1_level_permille=1000"], "a.mid", "b.wav", offset_milli=375)
+        self.assertEqual(cmd, [os.path.join("/t", "build", "fm1-8p-render"), "-r", "48000", "-t", "3000", "-v", "6",
+                               "-o", "375", "-s", "osc1_level_permille=1000", "a.mid", "b.wav"])
+
+    # ours' draws: 8 offsets an eighth of a cycle apart, which cancel the cross term of a beat's first 7
+    # harmonics exactly (the split-half check on the factory bank: under 0.21 dB a section, #382)
+    def test_ours_are_eight_draws_an_eighth_of_a_cycle_apart(self):
+        import scorecard_cmd
+        self.assertEqual(scorecard_cmd.OFFSETS_MILLI, (0, 125, 250, 375, 500, 625, 750, 875))
+
+
+# A PG-8X reference can be several draws (s12, #382): its DCOs run free, so the same MIDI started later
+# meets them at another beat phase. The scorecard MIDI with a lead of N ticks (960 a second) is the same
+# notes N ticks later. Needs no numpy.
+class LeadTest(unittest.TestCase):
+    def test_a_lead_moves_every_event_by_whole_ticks(self):
+        import gate_midi
+        a, b = gate_midi.smf(gate_midi.score()), gate_midi.smf(gate_midi.score(), lead=96)
+        # the first event's delta: SCORE_START (240 ticks), then 96 more; the rest as they were
+        self.assertEqual(a[22:24], gate_midi.vlq(240))
+        self.assertEqual(b[22:24], gate_midi.vlq(336))
+        self.assertEqual(a[24:], b[24:])
+        self.assertEqual(a[18:22], b[18:22])
 
 
 @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
@@ -275,7 +390,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 10)
+        self.assertEqual(row["schema"], 12)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -324,7 +439,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (10, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (12, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -428,7 +543,8 @@ class HistoryTest(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
 class RunTest(unittest.TestCase):
-    """The whole run on this checkout, against a "reference" of its own renders: every tone scores 0."""
+    """The whole run on this checkout, against a "reference" of its own renders: every tone scores 0. The
+    reference holds all 8 of ours' draws (s12), each at shift 0, so they meet ours' 8 draw for draw."""
 
     @classmethod
     def setUpClass(cls):
@@ -444,9 +560,10 @@ class RunTest(unittest.TestCase):
         work = os.path.join(cls.tmp.name, "w0")
         mid = scorecard.write_midi(work)
         os.makedirs(cls.ref)
-        for i, path in scorecard.render_tones(cls.repo, mid, work):
-            os.replace(path, os.path.join(cls.ref, f"{i:02d}.wav"))
-        scorecard.write_manifest(cls.ref, mid)
+        for i, paths in scorecard.render_tones(cls.repo, mid, work):
+            for j, path in enumerate(paths):
+                os.replace(path, os.path.join(cls.ref, scorecard.draw_file(i, j)))
+        scorecard.write_manifest(cls.ref, mid, shifts_ticks=[0] * len(paths))
 
     @classmethod
     def tearDownClass(cls):
@@ -461,6 +578,70 @@ class RunTest(unittest.TestCase):
             got = [json.loads(line) for line in fh]
         self.assertEqual(len([r for r in got if r["kind"] == "tone" and r["commit"] == "deadbee"]), 32)
 
+    def test_a_row_says_which_draws_it_was_scored_over(self):
+        rows = self.sc.run(self.repo, "deadbee", self.ref, os.path.join(self.tmp.name, "hd.jsonl"),
+                           work=os.path.join(self.tmp.name, "wd"))
+        self.assertEqual(rows[0]["schema"], 12)
+        self.assertEqual(rows[0]["draws"], {"ours_offsets_milli": [0, 125, 250, 375, 500, 625, 750, 875],
+                                            "pg_shifts_ticks": [0] * 8})
+
+    # A one-draw reference (v6) is still read: the PG-8X side is then that one draw
+    def test_a_reference_of_one_draw_per_tone_is_read(self):
+        import shutil
+        ref = os.path.join(self.tmp.name, "one")
+        os.makedirs(ref)
+        for i in range(1, 33):
+            shutil.copy(os.path.join(self.ref, self.sc.draw_file(i, 0)), os.path.join(ref, f"{i:02d}.wav"))
+        mid = self.sc.write_midi(os.path.join(self.tmp.name, "w6"))
+        self.sc.write_manifest(ref, mid)
+        rows = self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "h7.jsonl"),
+                           work=os.path.join(self.tmp.name, "w7"))
+        self.assertEqual(rows[0]["draws"]["pg_shifts_ticks"], [0])
+        self.assertTrue(all(r["spectral_db_mean"] < 10 for r in rows))
+
+    # Each draw of a reference names the MIDI it was rendered from: the scorecard MIDI with its lead
+    def test_a_draw_rendered_from_other_midi_is_refused(self):
+        import json
+        import shutil
+        ref = os.path.join(self.tmp.name, "badlead")
+        shutil.copytree(self.ref, ref)
+        with open(os.path.join(ref, "manifest.json")) as fh:
+            man = json.load(fh)
+        man["shifts_ticks"][3] = 48            # says 48 ticks late, but its MIDI is the unshifted one
+        with open(os.path.join(ref, "manifest.json"), "w") as fh:
+            json.dump(man, fh)
+        with self.assertRaises(SystemExit) as e:
+            self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "h8.jsonl"), work=os.path.join(self.tmp.name, "w8"))
+        self.assertIn("draw 3", str(e.exception))
+
+    # A shift is a lead of whole ticks, 0 or more: anything else stops the run before it renders
+    def test_a_shift_that_is_not_a_whole_tick_count_of_0_or_more_is_refused(self):
+        import json
+        import shutil
+        for bad in (-300, 48.0, "48"):
+            ref = os.path.join(self.tmp.name, f"badshift-{bad}")
+            shutil.copytree(self.ref, ref)
+            with open(os.path.join(ref, "manifest.json")) as fh:
+                man = json.load(fh)
+            man["shifts_ticks"][1] = bad
+            with open(os.path.join(ref, "manifest.json"), "w") as fh:
+                json.dump(man, fh)
+            with self.assertRaises(SystemExit) as e:
+                self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "hb.jsonl"),
+                            work=os.path.join(self.tmp.name, f"wb-{bad}"))
+            self.assertIn("draw 1", str(e.exception))
+
+    def test_a_reference_missing_a_draw_file_is_refused_before_rendering(self):
+        import shutil
+        ref = os.path.join(self.tmp.name, "missing")
+        shutil.copytree(self.ref, ref)
+        os.remove(os.path.join(ref, self.sc.draw_file(17, 5)))
+        work = os.path.join(self.tmp.name, "wm")
+        with self.assertRaises(SystemExit) as e:
+            self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "hm.jsonl"), work=work)
+        self.assertIn("17-5.wav", str(e.exception))
+        self.assertFalse(os.path.exists(os.path.join(work, "ours")))
+
     def test_another_bank_is_scored_and_its_rows_say_so(self):
         import json
         import shutil
@@ -469,7 +650,7 @@ class RunTest(unittest.TestCase):
         ref = os.path.join(self.tmp.name, "bankref")
         shutil.copytree(self.ref, ref)
         mid = self.sc.write_midi(os.path.join(self.tmp.name, "w3"))
-        self.sc.write_manifest(ref, mid, bank)
+        self.sc.write_manifest(ref, mid, bank, shifts_ticks=[0] * 8)
         hist = os.path.join(self.tmp.name, "bank-history.jsonl")
         rows = self.sc.run(self.repo, "deadbee", ref, hist, work=os.path.join(self.tmp.name, "w4"),
                            bank=bank, bank_name="other")
@@ -564,12 +745,22 @@ class ScoreMidiTest(unittest.TestCase):
         want = {"chord": (60, 100), "v110": (67, 110), "v60": (72, 60), "v90": (71, 90), "v40": (69, 40),
                 "low": (36, 100), "high": (84, 100)}
         src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools", "scorecard.py")).read()
-        for name, (a, b) in {"chord": (0.55, 3.15), "v110": (4.38, 4.65), "v60": (4.88, 5.15), "v90": (5.38, 5.55),
-                             "v40": (5.78, 6.25), "low": (6.95, 8.25), "high": (9.15, 10.15)}.items():
+        for name, (a, b) in {"chord": (0.55, 3.15), "v110": (4.38, 4.95), "v60": (5.18, 5.75), "v90": (5.98, 6.55),
+                             "v40": (6.78, 7.35), "low": (8.05, 9.35), "high": (10.25, 11.25)}.items():
             self.assertIn(f'"{name}": ({a}, {b})', src)
             note, vel = want[name]
             self.assertTrue(any(n == note and v == vel and s <= a and b <= e + 0.001 for n, s, e, v in notes),
                             (name, a, b))
+
+    @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
+    def test_every_section_is_long_enough_to_read(self):
+        """A section reads one Hann-windowed spectrum. At 170 ms (v90, s10) its gap read 5.0 dB on the 32
+        factory tones where v40 cut to the same 170 ms read 4.7 and in full 3.1, and PG-8X against itself
+        10 ms later read 0.96 there against 0.06 on the chord: the window's length, not the sound
+        (2026-11-23). Every section is 0.5 s or longer (s11)."""
+        import scorecard as sc
+        for name, (a, b) in sc.SECTIONS.items():
+            self.assertGreaterEqual(round(b - a, 3), 0.5, name)
 
     @unittest.skipUnless(HAVE_NUMPY, "needs numpy and scipy (make check-scorecard)")
     def test_each_section_starts_past_pg8xs_onset_thump(self):

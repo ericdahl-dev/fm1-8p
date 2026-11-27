@@ -18,9 +18,10 @@ def vlq(n):
     return bytes(out)
 
 
-def smf(notes, other=()):
+def smf(notes, other=(), lead=0):
     """A format-0 file of (note, start s, end s, velocity) on channel 1, plus `other`: (time s, status,
-    data1, data2) channel messages (controllers, pitch bend)."""
+    data1, data2) channel messages (controllers, pitch bend); with `lead`, every event that many ticks
+    later (a PG-8X reference draw at another beat phase: tools/scorecard.py, #382)."""
     ev = []
     for note, s, e, v in notes:
         ev.append((round(s * TPS), 1, bytes([0x90, note, v])))
@@ -28,7 +29,7 @@ def smf(notes, other=()):
     for t, st, d1, d2 in other:
         ev.append((round(t * TPS), 2, bytes([st, d1, d2])))
     ev.sort(key=lambda x: (x[0], x[1]))
-    body, now = b"", 0
+    body, now = b"", -lead
     for t, _, msg in ev:
         body += vlq(t - now) + msg
         now = t
@@ -78,15 +79,17 @@ SCORE_START = 0.25
 
 def score():
     """The scorecard's MIDI (tools/scorecard.py SECTIONS): a held C major triad, a phrase at velocities
-    110, 60, 90, 40, a low C held, then a high C held, from SCORE_START."""
-    notes = [(60, 0, 3, 100), (64, 0, 3, 100), (67, 0, 3, 100), (67, 4.0, 4.4, 110), (72, 4.5, 4.9, 60),
-             (71, 5.0, 5.3, 90), (69, 5.4, 6.0, 40), (36, 6.4, 8.1, 100), (84, 8.6, 10.0, 100)]
+    110, 60, 90, 40, a low C held, then a high C held, from SCORE_START. Each phrase note is 0.7 s, so
+    each of its sections reads 0.57 s past the onset thump (s11; s10's notes were 0.3 to 0.6 s)."""
+    notes = [(60, 0, 3, 100), (64, 0, 3, 100), (67, 0, 3, 100), (67, 4.0, 4.7, 110), (72, 4.8, 5.5, 60),
+             (71, 5.6, 6.3, 90), (69, 6.4, 7.1, 40), (36, 7.5, 9.2, 100), (84, 9.7, 11.1, 100)]
     return [(n, SCORE_START + a, SCORE_START + b, v) for n, a, b, v in notes]
 
 
 def wide127():
-    """A wide four-note chord at velocity 127, held 6 s: the loudest everyday case, where the FM-1 module
-    clips (#320). Four notes, so on 4 voices no voice is stolen."""
+    """A wide four-note chord at velocity 127, held 6 s: the loudest everyday case, where the engine's soft
+    clip bends the most (#320; at the device's gain, x1, the module no longer clips). Four notes, so on 4
+    voices no voice is stolen."""
     return [(n, 0.25, 6.25, 127) for n in (36, 48, 79, 91)]
 
 

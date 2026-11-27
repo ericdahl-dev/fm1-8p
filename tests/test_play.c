@@ -1,5 +1,6 @@
 /* The playable module's logic (firmware/play.c): keys and MIDI into the engine, run on the desktop. */
 #include "../firmware/play.h"
+#include <stdlib.h>
 
 static play pl_a;
 static int32_t pl_out[2 * PLAY_BLOCK];
@@ -289,8 +290,8 @@ TT_TEST(play_last_note_skips_a_note_the_full_queue_dropped)
 }
 
 /* The module's output gain is the engine's output stage at FM_OUT_SHIFT_DEVICE (#342): play_render
- * adds the engine's samples as they are, and they already reach the stage's clamp at +-32767 (a
- * loud chord at full velocity), never wrapping. */
+ * adds the engine's samples as they are. At shift 0 (#320) that is the engine's own level: a loud
+ * chord at full velocity holds under the soft clip's ceiling, never at the rails. */
 TT_TEST(play_output_is_the_engines_at_the_device_gain)
 {
     uint32_t i, k, clamped = 0;
@@ -309,8 +310,8 @@ TT_TEST(play_output_is_the_engines_at_the_device_gain)
             clamped |= pl_a.buf[i] == 32767 || pl_a.buf[i] == -32767;
         }
     }
-    TT_CHECK_EQ(FM_OUT_SHIFT_DEVICE, 2);        /* x4 (+12 dB) until #320 picks */
-    TT_CHECK(clamped);                          /* the device gain is in the engine's output */
+    TT_CHECK_EQ(FM_OUT_SHIFT_DEVICE, 0);        /* the engine's level (#320) */
+    TT_CHECK(!clamped);                         /* no module gain: the soft clip holds it under the rails */
 }
 
 /* The OCT- / OCT+ LEDs say where the octave is: OCT- lit below 0, OCT+ above, both dark at 0. */
@@ -453,8 +454,152 @@ TT_TEST(play_load_patch_asks_only_for_the_params_that_change)
     TT_CHECK_EQ(pl_a.asked[FM_PARAM_FILTER_RESONANCE >> 5], 1u << (FM_PARAM_FILTER_RESONANCE & 31u));
 }
 
+/* #349: the param asks' |= split by the interrupt (handoff_test.h, gap "asked" 1). The main loop has read
+ * asked[] with X's bit still on; a block applies X and clears it; the main loop writes X's bit back with
+ * Y's, so the next block sets X again, to the same value. That second set must not change the sound:
+ * the render is the same, sample for sample, as when the block falls after the |= */
+static play pl_b;
+static int32_t pl_ra[2 * PLAY_BLOCK], pl_rb[2 * PLAY_BLOCK];
+static void pl_into(play *p, int32_t *o)
+{
+    uint32_t i;
+    for (i = 0; i < 2 * PLAY_BLOCK; i++)
+        o[i] = 0;
+    play_render(p, o, PLAY_BLOCK);
+}
+static uint32_t pl_gap_hits;
+static void pl_gap(const char *where, uint32_t n)
+{
+    (void)n;
+    if (strcmp(where, "asked") == 0 && pl_gap_hits++ == 0)
+        pl_into(&pl_a, pl_ra);
+}
+/* blocks rendered before the sets (past PL_SECOND: the notes let go that many blocks before), and the
+ * first block after them that differs (0: none) */
+static uint32_t pl_race(uint32_t patch, uint16_t x, uint32_t before, int32_t *worst, int32_t *peak)
+{
+    const fm_param_info *in = fm_param_info_get(x);
+    uint16_t y = (uint16_t)((x ^ 1u) < FM_PARAM_COUNT ? x ^ 1u : x - 1u);   /* the same word of asked[] */
+    int32_t v;
+    uint32_t k, i, first = 0;
+    play *ps[2] = { &pl_a, &pl_b };
+    *worst = *peak = 0;
+    for (k = 0; k < 2u; k++) {
+        (void)play_init(ps[k]);
+        play_load_patch(ps[k], patch);
+        play_note(ps[k], 48, 110);
+        play_note(ps[k], 55, 100);
+        play_note(ps[k], 64, 90);
+        for (i = 0; i < before; i++) {
+            if (i + PL_SECOND == before) {               /* the release */
+                play_note(ps[k], 48, 0);
+                play_note(ps[k], 55, 0);
+                play_note(ps[k], 64, 0);
+            }
+            pl_into(ps[k], k ? pl_rb : pl_ra);
+        }
+    }
+    v = play_get_param(&pl_a, x) < in->max ? in->max : in->min;
+    play_set_param(&pl_b, x, v);                            /* the block after the |= */
+    pl_into(&pl_b, pl_rb);
+    play_set_param(&pl_b, y, play_get_param(&pl_b, y));
+    play_set_param(&pl_a, x, v);                            /* the block inside it */
+    pl_gap_hits = 0;
+    handoff_gap = pl_gap;
+    play_set_param(&pl_a, y, play_get_param(&pl_a, y));
+    handoff_gap = 0;
+    if (pl_gap_hits != 1u)                                  /* (the block did fall inside the |=) */
+        return 0xFFFFFFFFu;
+    for (i = 0; i < 2 * PLAY_BLOCK; i++)                   /* (that block: the same either way) */
+        if (pl_ra[i] != pl_rb[i] && !first)
+            first = 1;
+    for (k = 1; k <= PL_SECOND; k++) {
+        pl_into(&pl_a, pl_ra);
+        pl_into(&pl_b, pl_rb);
+        for (i = 0; i < 2 * PLAY_BLOCK; i++) {
+            int32_t d = pl_ra[i] - pl_rb[i], m = pl_rb[i] < 0 ? -pl_rb[i] : pl_rb[i];
+            d = d < 0 ? -d : d;
+            if (m > *peak)
+                *peak = m;
+            if (d > *worst)
+                *worst = d;
+            if (d && !first)
+                first = k + 1u;
+        }
+    }
+    return first;
+}
+/* 1 for a patch whose oscillators or voices play in a mode of their own (sync, cross-mod, ring, noise,
+ * unison): the cut sweep's patches */
+static int pl_patch_has_a_mode(uint32_t t)
+{
+    (void)play_init(&pl_a);
+    play_load_patch(&pl_a, t);
+    return play_get_param(&pl_a, FM_PARAM_OSC_SYNC) || play_get_param(&pl_a, FM_PARAM_OSC_XMOD) ||
+           play_get_param(&pl_a, FM_PARAM_OSC_RING) || play_get_param(&pl_a, FM_PARAM_OSC1_WAVE) == FM_WAVE_NOISE ||
+           play_get_param(&pl_a, FM_PARAM_OSC2_WAVE) == FM_WAVE_NOISE ||
+           play_get_param(&pl_a, FM_PARAM_VOICE_MODE) != FM_VOICE_MODE_POLY;
+}
+/* The full sweep (every patch, three moments) takes about a minute: CI runs it (TT_LONG=1, the build-test
+ * jobs). A plain `make test` runs every param on the patches with a mode of their own, at the attack. */
+TT_TEST(play_param_set_again_by_the_asks_race_changes_nothing)
+{
+    static const uint32_t BEFORE[] = { 2, 40, PL_SECOND + 4u };   /* attack, decay; released 4 blocks */
+    const char *e = getenv("TT_LONG");
+    int full = e && *e && strcmp(e, "0") != 0;
+    uint32_t b, n = 0, t, races = 0;
+    uint16_t x;
+    int32_t worst, peak;
+    for (t = 0; t < PATCH_COUNT; t++) {                     /* every factory patch: its envelopes, modes */
+        if (!full && !pl_patch_has_a_mode(t))
+            continue;
+        for (b = 0; b < (full ? sizeof BEFORE / sizeof BEFORE[0] : 1u); b++)
+            for (x = 0; x < FM_PARAM_COUNT; x++) {
+                races++;
+                uint32_t f = pl_race(t, x, BEFORE[b], &worst, &peak);
+                if (f) {
+                    n++;
+                    printf("    asks race: patch %u, %s after %u blocks: differs from block %u, worst %d of peak %d\n",
+                           (unsigned)t + 1u, fm_param_info_get(x)->name, (unsigned)BEFORE[b], (unsigned)f,
+                           (int)worst, (int)peak);
+                }
+            }
+    }
+    printf("    asks race: %u races (%s)\n", (unsigned)races, full ? "TT_LONG: every patch, three moments"
+                                                                   : "patches with a mode, the attack");
+    TT_CHECK_EQ(n, 0u);
+}
+
+/* #349, kind A: the interrupt between an event's entry and the head that publishes it (gap "put" 1)
+ * sees no event yet; the next block plays it, once */
+static void pl_gap_block(const char *where, uint32_t n)
+{
+    (void)n;
+    if (strcmp(where, "put") == 0 && pl_gap_hits++ == 0)
+        pl_into(&pl_a, pl_ra);
+}
+TT_TEST(play_event_put_with_the_interrupt_inside_plays_once_next_block)
+{
+    TT_CHECK_EQ(play_init(&pl_a), 0);
+    play_load_patch(&pl_a, PATCH_SOUNDTRACK);
+    pl_into(&pl_a, pl_ra);
+    pl_gap_hits = 0;
+    handoff_gap = pl_gap_block;
+    play_note(&pl_a, 60, 100);
+    handoff_gap = 0;
+    TT_CHECK_EQ(pl_gap_hits, 1u);
+    TT_CHECK_EQ(pl_a.sounding, 0u);                         /* (that block: not yet) */
+    pl_into(&pl_a, pl_ra);
+    TT_CHECK_EQ(pl_a.sounding, 1u);                         /* the next: the note */
+    pl_into(&pl_a, pl_ra);
+    TT_CHECK_EQ(pl_a.sounding, 1u);                         /* and once */
+    TT_CHECK_EQ(pl_a.head, pl_a.tail);
+}
+
 static void run_play_tests(void)
 {
+    TT_RUN(play_event_put_with_the_interrupt_inside_plays_once_next_block);
+    TT_RUN(play_param_set_again_by_the_asks_race_changes_nothing);
     TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
     TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);
     TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);

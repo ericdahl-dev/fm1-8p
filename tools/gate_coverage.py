@@ -5,7 +5,7 @@ usage: python3 tools/gate_coverage.py OBJDIR SRCDIR RUNS
   SRCDIR  the tree's sources
   RUNS    one folder per clip, each holding that clip's .gcda files (GCOV_PREFIX, flattened)
 Prints, for every function in SRCDIR/engine/*.c, the number of clips that ran any of its lines.
-Exit 2, naming why, when gcov fails or writes no JSON for an object (Apple's llvm-cov gcov has no -j) or
+Exit 2, naming why, when gcov fails or writes nothing for an object (gcc's JSON, or Apple's -i text) or
 none for its source, when it lists no engine function, or when there is no clip, or a clip with no run
 data: never a count of 0 read as coverage (#335)."""
 import glob
@@ -22,20 +22,61 @@ class CoverageError(Exception):
     """gcov could not say what ran."""
 
 
-def gcov_json(tmp, src):
-    """Runs gcov -j on SRC's notes in TMP; returns the JSON files it wrote. CoverageError when gcov is
-    missing, fails or writes none."""
+def _gcov(flag, tmp, src):
+    """gcov FLAG on SRC's notes in TMP: its finished process. CoverageError when gcov is missing."""
     try:
-        p = subprocess.run(["gcov", "-j", "-o", tmp, src], cwd=tmp, capture_output=True, text=True)
+        return subprocess.run(["gcov", flag, "-o", tmp, src], cwd=tmp, capture_output=True, text=True)
     except OSError as e:
         raise CoverageError(f"gcov: {e}") from None
+
+
+def _failed(p, src):
+    return CoverageError(f"gcov failed on {os.path.basename(src)} (exit {p.returncode}): "
+                         f"{(p.stderr or p.stdout).strip()[:300]}")
+
+
+def gcov_files(tmp, src):
+    """gcov's entries for SRC's notes (and run data) in TMP, as its JSON's "files": gcc's gcov -j, or
+    Apple's (llvm-cov gcov, which refuses -j) -i. CoverageError when gcov is missing, fails or writes
+    nothing."""
+    p = _gcov("-j", tmp, src)
+    if p.returncode != 0 and "'-j'" in p.stderr:   # Apple's: "Unknown command line argument '-j'"
+        return gcov_text(tmp, src)
     if p.returncode != 0:
-        raise CoverageError(f"gcov failed on {os.path.basename(src)} (exit {p.returncode}): "
-                            f"{(p.stderr or p.stdout).strip()[:300]}")
+        raise _failed(p, src)
     out = glob.glob(os.path.join(tmp, "*.gcov.json.gz"))
     if not out:
         raise CoverageError(f"gcov wrote no JSON for {os.path.basename(src)} (a gcov without -j?)")
-    return out
+    files = []
+    for js in out:
+        with gzip.open(js) as fh:
+            files += json.load(fh)["files"]
+        os.remove(js)
+    return files
+
+
+def gcov_text(tmp, src):
+    """Apple's gcov -i: its intermediate text (file:NAME, then function:LINE,COUNT,NAME), as gcov_files'
+    entries, a function's entry count standing for its lines'."""
+    p = _gcov("-i", tmp, src)
+    if p.returncode != 0:
+        raise _failed(p, src)
+    out = glob.glob(os.path.join(tmp, "*.gcov"))
+    if not out:
+        raise CoverageError(f"gcov wrote no intermediate text for {os.path.basename(src)}")
+    files = []
+    for t in out:
+        with open(t) as fh:
+            for row in fh:
+                key, _, value = row.rstrip("\n").partition(":")
+                if key == "file":
+                    files.append({"file": value, "functions": [], "lines": []})
+                elif key == "function" and files:
+                    _, count, name = value.split(",", 2)
+                    files[-1]["functions"].append({"name": name})
+                    files[-1]["lines"].append({"count": int(count), "function_name": name})
+        os.remove(t)
+    return files
 
 
 def stem(gcno):
@@ -59,25 +100,21 @@ def reached(objdir, srcdir, run):
             shutil.copy(gcno, os.path.join(tmp, base + ".gcno"))
             shutil.copy(gcda, os.path.join(tmp, base + ".gcda"))
             src = os.path.join(srcdir, "engine", base + ".c")
-            for js in gcov_json(tmp, src):
-                with gzip.open(js) as fh:
-                    data = json.load(fh)
-                for f in own(data, base, js):
-                    for line in f["lines"]:
-                        if line["count"] > 0 and line.get("function_name"):
-                            out.add((base + ".c", line["function_name"]))
-                os.remove(js)
+            for f in own(gcov_files(tmp, src), base):
+                for line in f["lines"]:
+                    if line["count"] > 0 and line.get("function_name"):
+                        out.add((base + ".c", line["function_name"]))
     if not n_gcda:
         raise CoverageError(f"clip {os.path.basename(run)}: no run data (no .gcda for any object in {run})")
     return out
 
 
-def own(data, base, js):
-    """The entries of gcov's JSON DATA for BASE.c; CoverageError when there are none (its functions would
-    vanish from the report instead of showing 0)."""
-    mine = [f for f in data["files"] if os.path.basename(f["file"]) == base + ".c"]
+def own(files, base):
+    """The entries of gcov's FILES (gcov_files) for BASE.c; CoverageError when there are none (its
+    functions would vanish from the report instead of showing 0)."""
+    mine = [f for f in files if os.path.basename(f["file"]) == base + ".c"]
     if not mine:
-        raise CoverageError(f"gcov's {os.path.basename(js)} has no entry for {base}.c")
+        raise CoverageError(f"gcov's output has no entry for {base}.c")
     return mine
 
 
@@ -89,11 +126,8 @@ def functions(objdir, srcdir):
             obj, base = stem(gcno)
             shutil.copy(gcno, os.path.join(tmp, base + ".gcno"))
             src = os.path.join(srcdir, "engine", base + ".c")
-            for js in gcov_json(tmp, src):
-                with gzip.open(js) as fh:
-                    for f in own(json.load(fh), base, js):
-                        out.update((base + ".c", fn["name"]) for fn in f["functions"])
-                os.remove(js)
+            for f in own(gcov_files(tmp, src), base):
+                out.update((base + ".c", fn["name"]) for fn in f["functions"])
     return out
 
 

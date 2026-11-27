@@ -2,10 +2,8 @@
  * The device's headroom (#320): the playable module (firmware/play.c) on its 4 voices at 44.1 kHz, booted on
  * SOUNDTRACK (the default patch): velocity-127 chords held 34 s, past the 32 s filter attack, and everyday
  * velocity-100 chords held 10 s. Measured through play_render, the device's own output path (the engine's
- * output stage at FM_OUT_SHIFT_DEVICE, #342: the makeup, then the module's +12 dB, saturated at the Q15
- * rails; at that gain the soft clip never shapes a sample, since its knee is past the clamp, so every
- * saturated sample here is a hard clip). The knee figure comes from a twin at the engine's own level (output shift 0), as the stage's
- * soft clip sees it.
+ * output stage at FM_OUT_SHIFT_DEVICE 0, #342: the makeup and the soft clip, the engine's own level, under
+ * the Q15 rails). The knee figure comes from a twin at output shift 0, as the stage's soft clip sees it.
  */
 #include "../firmware/play.h"
 
@@ -67,7 +65,7 @@ static int hr_check(const hr_pin *p)
 {
     hr_stats s = hr_chord(p->notes, p->count, p->seconds, p->vel);
     printf("    SOUNDTRACK %s at %u, held %u s: module peak %+.2f dBFS (pin %+.2f..%+.2f), %.3f %% saturated "
-           "(pin %.3f..%.3f); engine %.3f %% past its knee\n", p->name, (unsigned)p->vel, (unsigned)p->seconds,
+           "(pin %.4f..%.4f); engine %.3f %% past its knee\n", p->name, (unsigned)p->vel, (unsigned)p->seconds,
            s.peak_dbfs, p->peak_min, p->peak_max, s.sat_pct, p->sat_min, p->sat_max, s.knee_pct);
     return s.ok && s.sat_pct >= p->sat_min && s.sat_pct <= p->sat_max && s.peak_dbfs >= p->peak_min &&
            s.peak_dbfs <= p->peak_max && (p->knee_min < 0 || (s.knee_pct >= p->knee_min && s.knee_pct <= p->knee_max));
@@ -83,28 +81,30 @@ static int hr_check_all(const hr_pin *p, size_t n)
 }
 
 /*
- * A PIN, not a goal (#320): the figures with #319's wet path at today's FM_OUT_SHIFT_DEVICE 2 (x4, +12 dB),
- * inside a band either way, so a change to the level, the chorus or aftertouch (#61), up or down, shows as a
- * measured difference and has to move these on purpose. They are re-measured on whichever gain #320 picks.
+ * A PIN, not a goal (#320): the figures at FM_OUT_SHIFT_DEVICE 0 (the engine's level, no module gain), inside
+ * a band either way, so a change to the level, the chorus (#319) or aftertouch (#61), up or down, shows as a
+ * measured difference and has to move these on purpose. Nothing saturates: velocity-127 chords held past the
+ * filter attack peak 0.9 to 1.5 dB under the rails, with PG-8X's chorus wet path (#319). The engine's own soft
+ * clip (past -2.85 dBFS) bends 0.2 to 1.0 % of their samples, whatever the module's gain.
  */
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
     static const hr_pin c[] = {
-        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 34, 127, 19.5, 20.2, -0.1, 0.1, 0.18, 0.21 },  /* today 19.872 %, knee 0.195 % */
-        { "C2 C3 G5 G6", { 36, 48, 79, 91 }, 4, 34, 127, 28.5, 29.3, -0.1, 0.1, 0.37, 0.43 },  /* today 28.900 %, knee 0.398 % */
-        { "C1 C2 C7 C8", { 24, 36, 96, 108 }, 4, 34, 127, 36.8, 37.6, -0.1, 0.1, 0.92, 1.02 }, /* today 37.180 %, knee 0.969 % */
+        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 34, 127, 0, 0, -2.05, -0.95, 0.18, 0.21 },  /* peak -1.51 dBFS, knee 0.195 % (#319's wet path) */
+        { "C2 C3 G5 G6", { 36, 48, 79, 91 }, 4, 34, 127, 0, 0, -1.5, -0.4, 0.37, 0.43 },    /* peak -0.96 dBFS, knee 0.398 % */
+        { "C1 C2 C7 C8", { 24, 36, 96, 108 }, 4, 34, 127, 0, 0, -1.45, -0.35, 0.92, 1.02 }, /* peak -0.89 dBFS, knee 0.969 % */
     };
     TT_CHECK(hr_check_all(c, sizeof c / sizeof c[0]));
 }
 
-/* The same pin for everyday playing at velocity 100 (#320), chords held 10 s: at x4 with the wet path a
- * single C4 reaches the rails (0.030 %), a triad saturates 2.1 % and a 4-note chord 16.9 %. */
+/* The same pin for everyday playing at velocity 100 (#320), chords held 10 s: nothing saturates; a 4-note
+ * chord peaks 2.8 dB under the rails, a triad 5.6 dB, one note 11.5 dB (with #319's wet path). */
 TT_TEST(headroom_soundtrack_velocity_100_pinned)
 {
     static const hr_pin c[] = {
-        { "C4", { 60 }, 1, 10, 100, 0.01, 0.06, -0.1, 0.1, -1, -1 },                      /* today 0.030 %: at the rails */
-        { "C4 E4 G4", { 60, 64, 67 }, 3, 10, 100, 1.9, 2.4, -0.1, 0.1, -1, -1 },          /* today 2.143 % */
-        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 10, 100, 16.6, 17.3, -0.1, 0.1, -1, -1 }, /* today 16.944 % */
+        { "C4", { 60 }, 1, 10, 100, 0, 0, -12.05, -10.95, -1, -1 },                  /* peak -11.50 dBFS (#319's wet path) */
+        { "C4 E4 G4", { 60, 64, 67 }, 3, 10, 100, 0, 0, -6.15, -5.05, -1, -1 },      /* peak -5.61 dBFS */
+        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 10, 100, 0, 0, -3.35, -2.25, -1, -1 }, /* peak -2.81 dBFS */
     };
     TT_CHECK(hr_check_all(c, sizeof c / sizeof c[0]));
 }

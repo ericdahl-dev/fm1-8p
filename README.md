@@ -4,6 +4,10 @@ An original firmware for the M-VAVE FM-1 that turns it into a polyphonic analog-
 inspired by mid-80s two-oscillator polysynths with a chorus. It is not affiliated with or endorsed
 by Roland or M-VAVE.
 
+**Try it in your browser and get the firmware:** [ericdahl-dev.github.io/fm1-8p](https://ericdahl-dev.github.io/fm1-8p/).
+The project page plays fm1-8p in the browser (the fm1-emu emulator) and has the `.fwsc` and `.dock`
+of the latest build from `main`, which is not a release yet.
+
 ## Status
 
 On the desktop, the fixed-point engine plays band-limited voices of two
@@ -184,8 +188,7 @@ to 8, U, then F (it stops there; a hand-picked U keeps bursting), and stops the 
 again from 1. To run it on an FM-1,
 follow [docs/device-test.md](docs/device-test.md).
 
-Linux x86-64 (macOS through fm1-dock's Docker fallback, untested), with curl, git, tar, xz and
-Python 3 with Pillow:
+Linux x86-64 or macOS (below), with curl, git, tar, xz and Python 3 with Pillow:
 
 ```sh
 tools/fm1-build.sh fetch     # fm1-dock, JieLi toolchain, AC79 SDK files into build/fm1-deps
@@ -210,6 +213,18 @@ To use inputs you already have, set `JIELI_TOOLCHAIN`, `AC79_SDK`, `FM1_DOCK`, `
 `FM1_LIVE`. They are checked the same way, and `fetch` never changes them: a mismatch stops the
 build. `FM1_LIVE` must be the pinned fm1-live build unless `FM1_EMU_UNPINNED=1`, which the report
 then notes.
+
+**On macOS** (Apple Silicon, 2026-11-27), the toolchain runs through fm1-dock's Docker fallback, and the
+CPU rows match a Linux x86-64 build to the decimal, code bytes too:
+
+- **Docker:** [colima](https://github.com/abiosoft/colima) is enough (`brew install colima docker`):
+  `colima start --vm-type vz --vz-rosetta --mount $HOME:w --mount DIR:w`. Mount every folder outside
+  `$HOME` that the build reads, for example a worktree or a gate output under `/tmp`.
+- **The same folders in `HB_MOUNT`:** fm1-dock mounts them into each toolchain container.
+- **`FM1_NM=nm`:** the toolchain's `nm` is a Linux binary, and macOS's own llvm-nm reads the module's
+  ELF for the symbol check.
+- **fm1-emu:** build the pinned release from source (`git checkout v0.4.0; cargo build --release`) and
+  set `FM1_LIVE` to its `target/release/fm1-live`. The downloaded one is Linux-only.
 
 The module lists no engine files: the build fills in every `engine/*.c`, so a new engine file needs
 no firmware edit.
@@ -238,6 +253,12 @@ the device (#13).
   `fm1_8p/` (the fm1-dock module); the CPU test, `cpu_test.[ch]` and `fm1_8p_cpu/`; `canary/`
   (modules the build must reject), `pins.env`.
 - `tests/` - tests, run with a small single-header runner (`tests/tinytest.h`).
+- `site/` - the project page, [ericdahl-dev.github.io/fm1-8p](https://ericdahl-dev.github.io/fm1-8p/) (#356): `tools/site_build.py` adds the 32 tone
+  names and the fm1-emu embed, and `.github/workflows/pages.yml` publishes it with the `.fwsc` and `.dock`
+  built from `main` in `fw/`, with their catalog `fw/index.json`. Its browser installer (Web MIDI, Chrome or
+  Edge) is `site/install.js` and `site/installer.js` (tested by `tests/js`, `make check-site-js`) on
+  fm1-dock's own installer, vendored unmodified in `site/vendor/fm1-dock` (GPL-3.0-only; its VENDORED.md names
+  the commit). It is not tested on hardware yet.
 - `tools/` - the float-free check, the FM-1 build (`fm1-build.sh`) and the scripts that
   generate the pitch table and `examples/demo.mid`.
 
@@ -262,4 +283,7 @@ the device (#13).
 
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE).
+fm1-8p's own code is GPL-3.0-or-later. See [LICENSE](LICENSE). Files from
+[fm1-dock](https://github.com/joakimeriksson/fm1-dock) stay GPL-3.0-only: the installer vendored in
+`site/vendor/fm1-dock` (its VENDORED.md names the commit) and the code the FM-1 build fetches at a pinned
+commit.

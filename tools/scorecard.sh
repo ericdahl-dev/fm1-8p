@@ -3,7 +3,8 @@
 # PG-8X 2.0.13, and (with the match harness) every tone parameter. Appends to a JSONL history.
 #
 # usage: tools/scorecard.sh COMMIT [BASE]        (make scorecard COMMIT=<commit> [BASE=<commit>])
-#   SCORECARD_REF       the PG-8X reference renders: NN.wav and manifest.json (made outside this repo;
+#   SCORECARD_REF       the PG-8X reference renders: NN.wav (and NN-1.wav .. for a reference of several draws,
+#                       manifest shifts_ticks, s12) and manifest.json (made outside this repo;
 #                       no PG-8X audio is committed). Default: $FM1_REF/pg8x/scorecard/v5 (PG-8X 2.0.13,
 #                       SELFNOISE 0: #247; OCTAVE STRETCH at PG-8X's default 0.4, which plays a saw 1.4
 #                       cents flat at C4 and 2.1 at C6, where 0.5 is exact. Ours stays exact: Eric, #260).

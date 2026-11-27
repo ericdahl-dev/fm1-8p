@@ -90,6 +90,27 @@ void render_describe(const render_info *info, char *buf, size_t len)
              (unsigned)info->channel, 1.0 / voice_gain, peak);
 }
 
+/*
+ * -o (#382): a voice that has just started its first note gets DCO-2's
+ * phase moved on by `milli` thousandths of a cycle, on top of whatever
+ * start phase the engine gave it, unless sync restarts DCO-2 with DCO-1.
+ * The offset then holds for the voice's life: both DCOs run free, so the
+ * scorecard can hear a detuned tone's slow beat from other start points.
+ * `started` marks the voices done.
+ */
+static void offset_new_voices(fm_engine *e, uint32_t milli, uint8_t *started)
+{
+    uint8_t k;
+    if (!milli) return;
+    for (k = 0; k < e->voice_count; k++) {
+        fm_voice *v = &e->voices[k];
+        if (started[k] || v->amp_env.stage == FM_ENV_IDLE) continue;
+        started[k] = 1;
+        if (!v->osc.sync)
+            v->osc.osc[1].phase += (uint32_t)(((uint64_t)milli << 32) / 1000u);
+    }
+}
+
 int render_midi(const char *midi_path, const char *wav_path,
                 const render_opts *o, render_info *info)
 {
@@ -104,6 +125,7 @@ int render_midi(const char *midi_path, const char *wav_path,
     int rc;
     uint32_t voices = o->voice_count ? o->voice_count : RENDER_DEFAULT_VOICES;
     uint8_t channel;
+    uint8_t started[FM_MAX_VOICES] = { 0 };
 
     if (o->channel > 16) {
         fprintf(stderr, "MIDI channel %u out of range (1..16)\n",
@@ -113,6 +135,11 @@ int render_midi(const char *midi_path, const char *wav_path,
     if (voices > FM_MAX_VOICES) {
         fprintf(stderr, "voice count %u out of range (1..%d)\n",
                 (unsigned)voices, FM_MAX_VOICES);
+        return -1;
+    }
+    if (o->osc2_offset_milli > 999) {
+        fprintf(stderr, "DCO-2 offset %u out of range (0..999)\n",
+                (unsigned)o->osc2_offset_milli);
         return -1;
     }
     if (o->sample_rate < 8000 || o->sample_rate > 192000) {
@@ -165,7 +192,10 @@ int render_midi(const char *midi_path, const char *wav_path,
             fm_engine_render(&eng, pcm + 2 * (size_t)done, at - done);
             done = at;
         }
-        if (i < song.count) dispatch(&eng, &song.events[i], channel);
+        if (i < song.count) {
+            dispatch(&eng, &song.events[i], channel);
+            offset_new_voices(&eng, o->osc2_offset_milli, started);
+        }
     }
     smf_free(&song);
 

@@ -124,6 +124,12 @@ printf 'x.o:\n00000000 d .L_MergedGlobals\n00000000 r .GJTIE2_0_0_\n00000000 t s
 expect_ok "a module whose local labels a library also has locally passes" with_nm check_module_symbols "$T/nm/locals"
 mkdir -p "$T/nm/none" && cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/none/"
 expect_fail "a module with no linked image fails it (nm can't read it)" with_nm check_module_symbols "$T/nm/none"
+# FM1_NM: another nm reads the module and the libraries, for a host the toolchain's Linux nm can't run on
+# (macOS: its own llvm-nm reads the ELF). Here the toolchain has no nm at all.
+mkdir -p "$T/nm/tc2/pi32v2/lib" && cp "$T/nm/tc/pi32v2/lib/"* "$T/nm/tc2/pi32v2/lib/"
+with_fm1_nm() { JIELI_TOOLCHAIN="$T/nm/tc2" FM1_NM="$T/nm/nm" "$@"; }
+expect_ok "FM1_NM reads a module where the toolchain's nm isn't there" with_fm1_nm check_module_symbols "$T/nm/locals"
+expect_fail "with FM1_NM a soft-float helper still fails it" with_fm1_nm check_module_symbols "$T/nm/mod"
 # ... and a build runs it on the module it links: fm1-dock's tools stand in, linking the module in
 # directory $1 (a clean one builds, so the soft-float one fails on the symbol check alone).
 build_with() (
@@ -377,6 +383,28 @@ expect_fail "a canary failing for another reason is not caught" canary_caught "$
 for c in firmware/canary/*/; do
     expect_ok "canary $(basename "$c") names the check it targets" test -s "$c/expect"
 done
+
+# release: the packages the Firmware Hub's workflow attests and publishes (#356) are the synth's
+# .fwsc and .dock only, never the CPU test's, in a folder of their own (one glob, `build/release/*`).
+mkdir -p "$T/built" "$T/rel"
+for f in fm1-8p.fwsc fm1_8p.dock fm1-8p-cpu.fwsc fm1_8p_cpu.dock; do printf '%s\n' "$f" >"$T/built/$f"; done
+: >"$T/rel/old.fwsc"
+expect_ok   "a release stages the synth's packages" stage_release "$T/built" "$T/rel" 0.1
+expect_ok   "... exactly the .fwsc and the .dock, named with the version" \
+            test "$(LC_ALL=C ls "$T/rel" | tr '\n' ' ')" = "fm1-8p-0.1.fwsc fm1_8p-0.1.dock "
+expect_ok   "... as built" cmp -s "$T/built/fm1_8p.dock" "$T/rel/fm1_8p-0.1.dock"
+expect_fail "a release with no version fails" stage_release "$T/built" "$T/rel" ""
+rm "$T/built/fm1_8p.dock"
+expect_fail "a release with a package missing fails" stage_release "$T/built" "$T/rel" 0.1
+# The version a tag gives (v0.1 -> 0.1) is what fm1-dock's build.py --release takes, checked before the
+# build: X.Y, X.Y.Z or X.Y-suffix, one digit each (the boot log's and OPTIONS > ABOUT's APP_VER).
+for v in 0.1 1.0 0.1.2 0.1-beta 0.0-rehearsal1; do
+    expect_ok   "release version $v is taken" release_version_ok "$v"
+done
+for v in "" 10.1 0.1.2.3 0.0.0-rehearsal.1 v0.1 0.1-; do
+    expect_fail "release version '$v' is refused" release_version_ok "$v"
+done
+expect_fail "a release version of two lines is refused" release_version_ok "$(printf '0.1\nzzz')"
 
 echo
 echo "$run tests, $failed failed"
