@@ -12,7 +12,10 @@
 #   make generate           write those files again (after editing tools/params.py)
 #   make check-runner       test tools/run-tests.sh (make test fails on an empty or silent test binary)
 #                           and that a build killed partway leaves no empty output make would reuse
-#   make check              test + check-runner + check-float-free + check-fm1-build + check-patches
+#   make check-site-js      test the project page's browser installer (site/installer.js, the vendored
+#                           fm1-dock code it uses) with node --test; skipped when node is not installed,
+#                           except under CI (CI set), where that fails
+#   make check              test + check-runner + check-float-free + check-fm1-build + check-patches + check-site-js
 #   make gate BASE=<commit> [HEAD=<commit>]
 #                           the no-sound gate (tools/gate.sh): renders every gate clip on BASE and HEAD
 #                           (default: the commit checked out) and fails if any differs; prints how many
@@ -58,7 +61,7 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches check-font check-draw-colors generate ui-golden render-demo clean \
+.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches check-font check-draw-colors check-site-js generate ui-golden render-demo clean \
 	gate check-gate scorecard check-scorecard
 
 all: $(RENDER) $(BENCH)
@@ -130,6 +133,8 @@ check-fm1-build:
 check-runner:
 	sh tests/test_run_tests.sh
 	sh tests/test_build_outputs.sh
+	sh tests/test_ci_scope.sh
+	sh tests/test_check_site_js.sh
 
 # the files tools/params.py makes (engine/fm1_8p_params.h, engine/params.c) and firmware/patches.c
 generate:
@@ -148,7 +153,17 @@ check-font:
 check-draw-colors:
 	sh tests/test_draw_colors.sh
 
-check: test check-runner check-float-free check-fm1-build check-patches check-font check-draw-colors
+# the project page's browser installer (#356): node is optional on a desktop, required under CI (CI set)
+check-site-js:
+	@if command -v node >/dev/null 2>&1; then \
+		node --test tests/js/*.test.mjs; \
+	elif [ -n "$$CI" ]; then \
+		echo "check-site-js: node not found, and CI is set: the installer's tests must run" >&2; exit 1; \
+	else \
+		echo "check-site-js: node not found, skipped (CI runs it)"; \
+	fi
+
+check: test check-runner check-float-free check-fm1-build check-patches check-font check-draw-colors check-site-js
 
 gate:
 	@test -n "$(BASE)" || { echo "usage: make gate BASE=<commit> [HEAD=<commit>]" >&2; exit 2; }

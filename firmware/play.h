@@ -21,11 +21,13 @@
 typedef struct {
     fm_engine engine;
     int16_t buf[2u * PLAY_BLOCK];       /* engine output, static: not on the ISR stack */
-    /* events from the main loop to the audio interrupt: status << 16 | d1 << 8 | d2 */
+    /* Fields both contexts touch are handoffs, each of one kind (A queue, B ask counter, C gated
+     * publish, D single word): docs/handoffs.md has the rules and every field.
+     * events from the main loop to the audio interrupt: status << 16 | d1 << 8 | d2 (kind A) */
     uint32_t queue[PLAY_QUEUE];
-    volatile uint32_t head;             /* main loop writes: events put */
-    volatile uint32_t tail;             /* ISR writes: events applied */
-    volatile uint32_t lost;             /* main loop: +1 per event the full queue dropped */
+    volatile uint32_t head;             /* kind A, main loop writes: events put */
+    volatile uint32_t tail;             /* kind A, ISR writes: events applied */
+    volatile uint32_t lost;             /* kind B, main loop: +1 per event the full queue dropped */
     uint32_t lost_seen;                 /* ISR only: the last `lost` it acted on */
     int32_t last_note;                  /* main loop: the last note on, -1 none */
     const patch *patch;                 /* the patch playing */
@@ -33,16 +35,17 @@ typedef struct {
     uint8_t held[PLAY_KEYS];            /* main loop: the note each key started */
     /* params set from the main loop (the UI's knobs): the value asked for, which the ISR moves the
      * engine to */
-    volatile int32_t target[FM_PARAM_COUNT];
+    volatile int32_t target[FM_PARAM_COUNT];   /* payload of asked (B) and of loading (C) */
     int32_t stored[FM_PARAM_COUNT];     /* main loop: the stored patch's values (play_edited) */
-    volatile uint32_t asked[PLAY_PARAM_WORDS];  /* bit id: a param set that the ISR hasn't applied */
-    volatile uint32_t loading;          /* main loop: 1 part way through a load (the ISR waits) */
-    volatile uint32_t loads;            /* main loop: +1 per load done */
+    volatile uint32_t asked[PLAY_PARAM_WORDS];  /* bit id: a param set that the ISR hasn't applied (two
+                                                 * writers: main sets, ISR clears; docs/handoffs.md) */
+    volatile uint32_t loading;          /* kind C gate, main loop: 1 part way through a load (the ISR waits) */
+    volatile uint32_t loads;            /* kind C generation, main loop: +1 per load done */
     uint32_t loads_seen;                /* ISR only: the last `loads` it applied */
     store_lib *lib;                     /* main loop: the user slots (NULL: none, or not loaded yet) */
     store_lib *lib_attached;            /* main loop: attached at init, loaded on the first tick */
     const store_io *io;                 /* main loop: its flash */
-    volatile uint32_t sounding;         /* ISR writes after each block: the voices sounding */
+    volatile uint32_t sounding;         /* kind D, ISR writes after each block: the voices sounding */
     uint32_t live_mod;                  /* ISR only: the last MIDI CC1 (#42: where a stop returns the mod) */
     uint32_t prog;                      /* main loop: the program playing (PLAY_PROG_P + n: P n+1) */
     uint32_t prog_gone;                 /* main loop: 1 when its slot was deleted (#303): edited, whatever */

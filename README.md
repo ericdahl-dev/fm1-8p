@@ -4,6 +4,10 @@ An original firmware for the M-VAVE FM-1 that turns it into a polyphonic analog-
 inspired by mid-80s two-oscillator polysynths with a chorus. It is not affiliated with or endorsed
 by Roland or M-VAVE.
 
+**Try it in your browser and get the firmware:** [ericdahl-dev.github.io/fm1-8p](https://ericdahl-dev.github.io/fm1-8p/).
+The project page plays fm1-8p in the browser (the fm1-emu emulator) and has the `.fwsc` and `.dock`
+of the latest build from `main`, which is not a release yet.
+
 ## Status
 
 On the desktop, the fixed-point engine plays band-limited voices of two
@@ -238,6 +242,12 @@ the device (#13).
   `fm1_8p/` (the fm1-dock module); the CPU test, `cpu_test.[ch]` and `fm1_8p_cpu/`; `canary/`
   (modules the build must reject), `pins.env`.
 - `tests/` - tests, run with a small single-header runner (`tests/tinytest.h`).
+- `site/` - the project page, [ericdahl-dev.github.io/fm1-8p](https://ericdahl-dev.github.io/fm1-8p/) (#356): `tools/site_build.py` adds the 32 tone
+  names and the fm1-emu embed, and `.github/workflows/pages.yml` publishes it with the `.fwsc` and `.dock`
+  built from `main` in `fw/`, with their catalog `fw/index.json`. Its browser installer (Web MIDI, Chrome or
+  Edge) is `site/install.js` and `site/installer.js` (tested by `tests/js`, `make check-site-js`) on
+  fm1-dock's own installer, vendored unmodified in `site/vendor/fm1-dock` (GPL-3.0-only; its VENDORED.md names
+  the commit). It is not tested on hardware yet.
 - `tools/` - the float-free check, the FM-1 build (`fm1-build.sh`) and the scripts that
   generate the pitch table and `examples/demo.mid`.
 
@@ -262,4 +272,7 @@ the device (#13).
 
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE).
+fm1-8p's own code is GPL-3.0-or-later. See [LICENSE](LICENSE). Files from
+[fm1-dock](https://github.com/joakimeriksson/fm1-dock) stay GPL-3.0-only: the installer vendored in
+`site/vendor/fm1-dock` (its VENDORED.md names the commit) and the code the FM-1 build fetches at a pinned
+commit.

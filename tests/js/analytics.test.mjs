@@ -1,0 +1,208 @@
+// site/analytics.js: the page's cookie-free usage stats (PostHog), without a browser: the PostHog library is
+// passed in (a fake here), so these run in node. Run with `node --test tests/js/` (make check-site-js).
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import * as A from "../../site/analytics.js";
+
+test("config: cookieless, no person profiles, the US host", () => {
+  const c = A.initConfig();
+  assert.equal(c.api_host, "https://us.i.posthog.com");
+  assert.equal(c.cookieless_mode, "always");
+  assert.equal(c.persistence, "memory");
+  assert.equal(c.person_profiles, "never");
+});
+
+test("config: recording, autocapture, heatmaps, console logs and surveys are off in the init itself", () => {
+  // the project has recording, console logs and heatmaps on: the page's init must turn each off
+  const c = A.initConfig();
+  assert.equal(c.disable_session_recording, true);
+  assert.equal(c.autocapture, false);
+  assert.equal(c.capture_heatmaps, false);
+  assert.equal(c.enable_recording_console_log, false);
+  assert.equal(c.disable_surveys, true);
+});
+
+test("config: page views are captured, nothing else of PostHog's own", () => {
+  const c = A.initConfig();
+  assert.equal(c.capture_pageview, true);
+  assert.equal(c.capture_pageleave, false);
+  assert.equal(c.capture_dead_clicks, false);
+  assert.equal(c.capture_exceptions, false);
+  assert.equal(c.capture_performance, false);
+  assert.equal(c.rageclick, false);
+  assert.equal(c.disable_external_dependency_loading, true);
+  assert.equal(c.advanced_disable_flags, true);
+});
+
+test("the project's public token", () => {
+  assert.equal(A.TOKEN, "phc_uzsUUTbN2k3EJVDvtTGBtrRgPmdWrRxzxbLZcsw7Vvm4");
+});
+
+// a PostHog stand-in: what init and capture got
+function fakePosthog() {
+  const ph = { inits: [], captured: [] };
+  ph.init = (token, config) => { ph.inits.push({ token, config }); return ph; };
+  ph.capture = (event, properties) => { ph.captured.push({ event, properties }); };
+  return ph;
+}
+
+test("every event PostHog sends, its page view too, carries site: fm1-8p", () => {
+  const ev = A.initConfig().before_send({ event: "$pageview", properties: { $current_url: "https://x/?utm_source=y" } });
+  assert.equal(ev.properties.site, "fm1-8p");
+  assert.equal(ev.properties.$current_url, "https://x/?utm_source=y");
+});
+
+test("track: our event, with the site tag and nothing else", async () => {
+  const ph = fakePosthog();
+  const a = A.createAnalytics({ load: async () => ph });
+  a.track("install_started", { serial: "1234", sysex: [0xf0] });
+  await a.ready;
+  assert.deepEqual(ph.inits.map((i) => i.token), [A.TOKEN]);
+  assert.deepEqual(ph.captured, [{ event: "install_started", properties: { site: "fm1-8p" } }]);
+});
+
+test("track: a failure carries only an allow-listed error class and the site tag", async () => {
+  const ph = fakePosthog();
+  const a = A.createAnalytics({ load: async () => ph });
+  a.track("install_failed", { error: "foreign", message: "FM-1 serial 1234", detail: "F0 7E", bytes: [1, 2] });
+  a.track("dock_add_failed", { error: "space" });
+  a.track("install_failed", { error: "The FM-1 FM-1_915 serial 1234 said no" });
+  a.track("install_failed", {});
+  await a.ready;
+  assert.deepEqual(ph.captured.map((c) => c.properties), [
+    { site: "fm1-8p", error: "foreign" }, { site: "fm1-8p", error: "space" },
+    { site: "fm1-8p", error: "other" }, { site: "fm1-8p", error: "other" }]);
+});
+
+test("track: the error classes are the installer's codes and canceled, all short words", () => {
+  for (const c of ["foreign", "mismatch", "lost", "canceled", "denied", "notfound", "identity", "nocatalog", "badpkg", "nodock"])
+    assert.ok(A.ERROR_CLASSES.includes(c), c);
+  for (const c of A.ERROR_CLASSES) assert.match(c, /^[a-z]{2,12}$/);
+});
+
+test("track: an event that is not ours is not sent", async () => {
+  const ph = fakePosthog();
+  const a = A.createAnalytics({ load: async () => ph });
+  a.track("$identify", { $set: { serial: "1234" } });
+  a.track("device_serial", { serial: "1234" });
+  await a.ready;
+  assert.deepEqual(ph.captured, []);
+});
+
+// a window stand-in: its listeners, its document's focused element, and timers run by hand
+function fakeWindow() {
+  const listeners = {}, timers = [];
+  const win = {
+    document: { activeElement: null },
+    addEventListener: (t, f) => { (listeners[t] ||= []).push(f); },
+    removeEventListener: (t, f) => { listeners[t] = (listeners[t] || []).filter((g) => g !== f); },
+    setTimeout: (f) => { timers.push(f); },
+    fire: (t) => { for (const f of [...(listeners[t] || [])]) f({ type: t }); for (const f of timers.splice(0)) f(); },
+    listeners,
+  };
+  return win;
+}
+
+test("emulator_start: the first time focus goes into the emulator's iframe, once", () => {
+  const win = fakeWindow(), iframe = { tagName: "IFRAME" }, got = [];
+  A.watchEmulatorStart(win, iframe, (e) => got.push(e));
+  win.document.activeElement = { tagName: "BUTTON" };
+  win.fire("blur");                                  // focus left for another tab or window: not the emulator
+  assert.deepEqual(got, []);
+  win.document.activeElement = iframe;
+  win.fire("blur");                                  // a click into the emulator (its Start button)
+  win.fire("blur");
+  assert.deepEqual(got, ["emulator_start"]);
+  assert.equal((win.listeners.blur || []).length, 0);
+});
+
+test("emulator_start: a track that throws, or no iframe, changes nothing", () => {
+  const win = fakeWindow(), iframe = {};
+  A.watchEmulatorStart(win, iframe, () => { throw new Error("broke"); });
+  win.document.activeElement = iframe;
+  assert.doesNotThrow(() => win.fire("blur"));
+  assert.doesNotThrow(() => A.watchEmulatorStart(fakeWindow(), null, () => {}));
+  assert.doesNotThrow(() => A.watchEmulatorStart(undefined, undefined, undefined));
+});
+
+test("before_send: the page's URL keeps only its utm_ parameters, without its fragment", () => {
+  const ev = A.initConfig().before_send({ event: "$pageview", properties: {
+    $current_url: "https://ericdahl-dev.github.io/fm1-8p/?utm_source=facebook&email=a%40b.c&utm_campaign=x32-group#serial-1234",
+    $session_entry_url: "https://ericdahl-dev.github.io/fm1-8p/?token=secret#top",
+    $referrer: "https://www.facebook.com/", $raw_user_agent: "Mozilla/5.0 Chrome/158" } });
+  assert.equal(ev.properties.$current_url, "https://ericdahl-dev.github.io/fm1-8p/?utm_source=facebook&utm_campaign=x32-group");
+  assert.equal(ev.properties.$session_entry_url, "https://ericdahl-dev.github.io/fm1-8p/");
+  assert.equal(ev.properties.$referrer, "https://www.facebook.com");
+  assert.equal(ev.properties.$raw_user_agent, "Mozilla/5.0 Chrome/158");
+  assert.equal(ev.properties.site, "fm1-8p");
+});
+
+test("before_send: a URL it cannot read is dropped, the event still sent", () => {
+  const ev = A.initConfig().before_send({ event: "install_started", properties: { $current_url: "not a url?x=1" } });
+  assert.equal(ev.event, "install_started");
+  assert.equal(ev.properties.$current_url, undefined);
+  assert.equal(ev.properties.site, "fm1-8p");
+});
+
+import { readFileSync } from "node:fs";
+const BUNDLE = readFileSync(new URL("../../site/posthog-js/module.slim.no-external.js", import.meta.url), "utf8");
+
+// capture_heatmaps is the one exception: the slim bundle has no heatmaps (they are an extension it leaves out), so
+// it never reads it. If a newer bundle does read it, this fails, and the comment in initConfig() needs a look.
+const SLIM_NO_OP = ["capture_heatmaps"];
+
+test("config: every option is one the self-hosted PostHog bundle reads (capture_heatmaps: a no-op in slim)", () => {
+  for (const k of Object.keys(A.initConfig())) {
+    if (SLIM_NO_OP.includes(k)) assert.ok(!BUNDLE.includes(k), `${k} is read by the bundle now`);
+    else assert.ok(BUNDLE.includes(k), `${k} is not in module.slim.no-external.js`);
+  }
+});
+
+// ---- ad click IDs and other campaign keys PostHog sends as their own properties (#376 review M1)
+
+test("config: PostHog masks personal data properties itself", () => {
+  assert.equal(A.initConfig().mask_personal_data_properties, true);
+});
+
+test("before_send: ad click IDs are not sent, as properties or in the URL", () => {
+  const props = { $current_url: "https://ericdahl-dev.github.io/fm1-8p/?fbclid=SECRETF&gclid=SECRETG&msclkid=SECRETM&utm_source=fb",
+    fbclid: "SECRETF", gclid: "SECRETG", msclkid: "SECRETM", utm_source: "fb" };
+  for (const k of ["gclsrc", "dclid", "gbraid", "wbraid", "twclid", "li_fat_id", "igshid", "ttclid", "rdt_cid", "epik",
+    "qclid", "sccid", "oppref", "bfcid", "irclid", "_kx", "gad_source", "mc_cid"]) props[k] = `SECRET-${k}`;
+  const ev = A.initConfig().before_send({ event: "$pageview", properties: props });
+  assert.equal(ev.properties.$current_url, "https://ericdahl-dev.github.io/fm1-8p/?utm_source=fb");
+  assert.equal(ev.properties.utm_source, "fb");
+  assert.doesNotMatch(JSON.stringify(ev), /SECRET/);
+  for (const k of ["fbclid", "gclid", "msclkid", "gad_source", "mc_cid", "_kx"]) assert.ok(!(k in ev.properties), k);
+});
+
+test("the campaign keys dropped, with the five utm_ ones, are the bundle's whole campaign list", () => {
+  const m = /\["utm_source","utm_medium","utm_campaign","utm_content","utm_term",([^\]]*)\]/.exec(BUNDLE);
+  const c = /\["gclid"[^\]]*\]/.exec(BUNDLE);
+  assert.ok(m && c, "campaign lists not found in the bundle");
+  const listed = [...m[1].replace(/,?\.\.\.[A-Za-z_$]+/, "").matchAll(/"([^"]+)"/g), ...c[0].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  assert.deepEqual([...listed].sort(), [...A.CAMPAIGN_DROPPED].sort());
+});
+
+// ---- only the five standard utm_ keys (#376 review L1)
+
+test("before_send: only utm_source, utm_medium, utm_campaign, utm_content and utm_term stay, not lookalikes", () => {
+  const url = "https://ericdahl-dev.github.io/fm1-8p/?utm_source=fb&utm_serial=SECRET1&%75tm_x=SECRET2&%75tm_source=SECRET3" +
+    "&utm_medium=social&utm_campaign=x32&utm_content=a&utm_term=b";
+  const ev = A.initConfig().before_send({ event: "$pageview", properties: { $current_url: url, utm_serial: "SECRET1" } });
+  assert.equal(ev.properties.$current_url,
+    "https://ericdahl-dev.github.io/fm1-8p/?utm_source=fb&utm_medium=social&utm_campaign=x32&utm_content=a&utm_term=b");
+  assert.doesNotMatch(JSON.stringify(ev), /SECRET/);
+});
+
+// ---- the referrer: the site it came from, not the page (#376 review L2)
+
+test("before_send: the referrer is cut to its origin, $direct stays, one it cannot read is dropped", () => {
+  const send = (ref) => A.initConfig().before_send({ event: "$pageview", properties: { $referrer: ref, $initial_referrer: ref } }).properties;
+  const p = send("https://ericdahl-dev.github.io/other-repo/page.html?token=SECRET#SECRET");
+  assert.equal(p.$referrer, "https://ericdahl-dev.github.io");
+  assert.equal(p.$initial_referrer, "https://ericdahl-dev.github.io");
+  assert.equal(send("https://www.facebook.com/groups/x32/posts/1?fbclid=SECRET").$referrer, "https://www.facebook.com");
+  assert.equal(send("$direct").$referrer, "$direct");
+  assert.equal(send("not a url?x=SECRET").$referrer, undefined);
+});

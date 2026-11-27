@@ -84,27 +84,27 @@ static int hr_check_all(const hr_pin *p, size_t n)
  * A PIN, not a goal (#320): the figures at FM_OUT_SHIFT_DEVICE 0 (the engine's level, no module gain), inside
  * a band either way, so a change to the level, the chorus (#319) or aftertouch (#61), up or down, shows as a
  * measured difference and has to move these on purpose. Nothing saturates: velocity-127 chords held past the
- * filter attack peak about 1 dB under the rails. The engine's own soft clip (past -2.85 dBFS) bends 0.1 to
+ * filter attack peak 1.0 to 1.8 dB under the rails. The engine's own soft clip (past -2.85 dBFS) bends 0.1 to
  * 0.5 % of its samples, whatever the module's gain.
  */
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
     static const hr_pin c[] = {
-        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.09, 0.11 },   /* today peak -1.03 dBFS, knee 0.100 % */
-        { "C2 C3 G5 G6", { 36, 48, 79, 91 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.17, 0.21 },   /* today peak -1.07 dBFS, knee 0.191 % */
-        { "C1 C2 C7 C8", { 24, 36, 96, 108 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.47, 0.53 },  /* today peak -0.95 dBFS, knee 0.500 % */
+        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 34, 127, 0, 0, -2.3, -1.2, 0.07, 0.09 },   /* today peak -1.76 dBFS, knee 0.081 % */
+        { "C2 C3 G5 G6", { 36, 48, 79, 91 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.17, 0.21 },   /* today peak -1.07 dBFS, knee 0.187 % */
+        { "C1 C2 C7 C8", { 24, 36, 96, 108 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.46, 0.52 },  /* today peak -1.02 dBFS, knee 0.492 % */
     };
     TT_CHECK(hr_check_all(c, sizeof c / sizeof c[0]));
 }
 
 /* The same pin for everyday playing at velocity 100 (#320), chords held 10 s: nothing saturates; a 4-note
- * chord peaks 1.7 dB under the rails, a triad 5.7 dB, one note 12.4 dB. */
+ * chord peaks 3.5 dB under the rails, a triad 6.2 dB, one note 12.1 dB. */
 TT_TEST(headroom_soundtrack_velocity_100_pinned)
 {
     static const hr_pin c[] = {
-        { "C4", { 60 }, 1, 10, 100, 0, 0, -13.0, -11.8, -1, -1 },                    /* today peak -12.39 dBFS */
-        { "C4 E4 G4", { 60, 64, 67 }, 3, 10, 100, 0, 0, -6.2, -5.1, -1, -1 },        /* today peak -5.72 dBFS */
-        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 10, 100, 0, 0, -2.2, -1.2, -1, -1 }, /* today peak -1.68 dBFS */
+        { "C4", { 60 }, 1, 10, 100, 0, 0, -12.7, -11.5, -1, -1 },                    /* today peak -12.10 dBFS */
+        { "C4 E4 G4", { 60, 64, 67 }, 3, 10, 100, 0, 0, -6.8, -5.6, -1, -1 },        /* today peak -6.20 dBFS */
+        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 10, 100, 0, 0, -4.0, -2.9, -1, -1 }, /* today peak -3.49 dBFS */
     };
     TT_CHECK(hr_check_all(c, sizeof c / sizeof c[0]));
 }
