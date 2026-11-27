@@ -51,6 +51,10 @@ void fm_reverb_silence(fm_reverb *r);
 void fm_reverb_process_block(fm_reverb *r, int32_t *left, int32_t *right,
                              uint32_t frames);
 
+/* Whether the last block skipped its loop: the tail had ended and the
+ * input was silent (#197). */
+int fm_reverb_idle(const fm_reverb *r);
+
 /* Whether it sounds (the engine skips it entirely when not). */
 #define fm_reverb_is_on(r) ((r)->mix != 0 && (r)->ready)
 

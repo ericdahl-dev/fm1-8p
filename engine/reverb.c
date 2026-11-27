@@ -161,6 +161,9 @@ void fm_reverb_init(fm_reverb *r, uint8_t design, uint32_t sample_rate,
     r->mask = a - 1u;
     r->buf2 = mem + a;
     r->mask2 = b ? b - 1u : 0u;
+    /* the write taps sweep each whole buffer, so a word no line reads now may still hold an old sample
+     * that a window moves onto later: only after a full sweep of zeros is every word 0 */
+    r->longest = a > b ? a : b;
     for (i = 0; i < n; i++) {
         r->len[i] = (uint16_t)len[i];
         if (i < split) { r->base[i] = (uint16_t)at2; at2 += len[i] + 1u; }
@@ -198,6 +201,7 @@ static void empty(fm_reverb *r)
     r->in_acc = r->yl = r->yr = r->pl = r->pr = 0;
     r->sw_y[0] = r->sw_y[1] = 0;
     r->odd = 0;
+    r->quiet = 0;
     r->clear = 0;
 }
 
@@ -266,6 +270,15 @@ static FM_BOTH int32_t half(int32_t v) /* v / 2 toward zero */
 }
 #endif
 
+/* after a block: quiet grows while every line took only zeros (NZ: all its writes, or-ed with the states
+ * that must be 0, and each damping lowpass's next step on a zero input: a lowpass a few LSB up stays
+ * there for good, truncated toward zero, so it counts as still once its step is 0) */
+static FM_BOTH void quiet_after(fm_reverb *r, int32_t nz, uint32_t steps)
+{
+    if (nz) r->quiet = 0;
+    else if (r->quiet < 0x40000000u) r->quiet += steps;
+}
+
 /* (1 - D) / (1 + D) for D = 1 + f / 32, f = 0..32, Q15: the allpass
  * interpolator's coefficient for a fraction of 1 to 2 samples */
 static const int16_t ETA[33] = {
@@ -319,7 +332,7 @@ static FM_HOT void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32
     int32_t lp0 = r->lp[0], lp1 = r->lp[1], lp2 = r->lp[2], lp3 = r->lp[3];
     int32_t sy0 = r->sw_y[0], sy1 = r->sw_y[1];
     uint32_t s0, s2;
-    int32_t e0, e2;
+    int32_t e0, e2, nz = 0;
     sway_set(r, 0, sway_back(r->len[2] - 2u * FDN_SWAY - 2u, FDN_SWAY, r->ph[0]));
     sway_set(r, 1, sway_back(r->len[4] - 2u * FDN_SWAY - 2u, FDN_SWAY, r->ph[1]));
     r->ph[0] += r->ph_inc[0] * frames;
@@ -333,10 +346,12 @@ static FM_HOT void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32
         d = AT(a0);                                  /* the two input allpasses, g 0.5 */
         v = sat16(x - mulr(d, 16384));
         AT(b0) = (int16_t)v;
+        nz |= v;
         x = d + mulr(v, 16384);
         d = AT(a1);
         v = sat16(x - mulr(d, 16384));
         AT(b1) = (int16_t)v;
+        nz |= v;
         x = d + mulr(v, 16384);
         /* the swaying reads: y = eta x[n - i] + x[n - i - 1] - eta y[n - 1] */
         sy0 = d0 = sat16(mulr(AT(s0), e0) + AT(s0 + 1u) - mulr(sy0, e0));
@@ -353,10 +368,15 @@ static FM_HOT void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32
         d = mulr(lp2, g2);
         v = mulr(lp3, g3);
         c = d + v; e = d - v;
-        AT(b2) = (int16_t)sat16(half(a + c) + x);
-        AT(b3) = (int16_t)sat16(half(b + e) + x);
-        AT(b4) = (int16_t)sat16(half(a - c) + x);
-        AT(b5) = (int16_t)sat16(half(b - e) + x);
+        {
+            int32_t w2 = sat16(half(a + c) + x), w3 = sat16(half(b + e) + x), w4 = sat16(half(a - c) + x),
+                    w5 = sat16(half(b - e) + x);
+            AT(b2) = (int16_t)w2;
+            AT(b3) = (int16_t)w3;
+            AT(b4) = (int16_t)w4;
+            AT(b5) = (int16_t)w5;
+            nz |= w2 | w3 | w4 | w5;
+        }
         /* the sides: two lines each, one of them inverted (L/R correlation about 0, where the same
          * signs read 0.33); |d0 - d3| <= 65534, so the product fits */
         left[i] += ((d0 - d3) * mix) >> (15 - IN_SHIFT + 1);
@@ -366,6 +386,7 @@ static FM_HOT void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32
     r->p = p;
     r->lp[0] = lp0; r->lp[1] = lp1; r->lp[2] = lp2; r->lp[3] = lp3;
     r->sw_y[0] = sy0; r->sw_y[1] = sy1;
+    quiet_after(r, nz | sy0 | sy1 | mulr(-lp0, k) | mulr(-lp1, k) | mulr(-lp2, k) | mulr(-lp3, k), frames);
 }
 #endif
 
@@ -380,7 +401,7 @@ static FM_HOT void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint
     int32_t lpl = r->lp[0], lpr = r->lp[1], sy0 = r->sw_y[0], sy1 = r->sw_y[1];
     int32_t yl = r->yl, yr = r->yr, pl = r->pl, pr = r->pr, in_acc = r->in_acc;
     uint32_t odd = r->odd, s4, s8;
-    int32_t e4, e8;
+    int32_t e4, e8, nz = 0;
     /* each line's offsets: its write (w), and its full delay before this tick's write (f) or after it
      * (h: a line written earlier in the tick is read one sample nearer) */
     const uint32_t f0 = base[0] + len[0], f1 = base[1] + len[1], f2 = base[2] + len[2], f3 = base[3] + len[3];
@@ -408,32 +429,42 @@ static FM_HOT void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint
         } else {
             int32_t d, v, a, b;
             x = (in_acc + x) >> 1;                   /* the pair's mean: down to half the rate */
-            d = AT2(f0); v = sat16(x - mulr(d, 24576)); AT2(base[0]) = (int16_t)v; x = d + mulr(v, 24576);
-            d = AT2(f1); v = sat16(x - mulr(d, 24576)); AT2(base[1]) = (int16_t)v; x = d + mulr(v, 24576);
-            d = AT2(f2); v = sat16(x - mulr(d, 20480)); AT2(base[2]) = (int16_t)v; x = d + mulr(v, 20480);
-            d = AT2(f3); v = sat16(x - mulr(d, 20480)); AT2(base[3]) = (int16_t)v; x = d + mulr(v, 20480);
+            d = AT2(f0); v = sat16(x - mulr(d, 24576)); AT2(base[0]) = (int16_t)v; nz |= v; x = d + mulr(v, 24576);
+            d = AT2(f1); v = sat16(x - mulr(d, 24576)); AT2(base[1]) = (int16_t)v; nz |= v; x = d + mulr(v, 24576);
+            d = AT2(f2); v = sat16(x - mulr(d, 20480)); AT2(base[2]) = (int16_t)v; nz |= v; x = d + mulr(v, 20480);
+            d = AT2(f3); v = sat16(x - mulr(d, 20480)); AT2(base[3]) = (int16_t)v; nz |= v; x = d + mulr(v, 20480);
             /* left half, fed by the right's end */
             a = x + mulr(AT(f11), g);
             sy0 = b = sat16(mulr(AT(s4), e4) + AT(s4 + 1u) - mulr(sy0, e4));   /* the modulated allpass, g -0.7 */
             v = sat16(a + mulr(b, 22938));
             AT(w4) = (int16_t)v;
-            a = b - mulr(v, 22938);
-            AT(w5) = (int16_t)sat16(a);
+            nz |= v;
+            a = sat16(b - mulr(v, 22938));
+            AT(w5) = (int16_t)a;
+            nz |= a;
             lpl += mulr(AT(h5) - lpl, k);
             b = mulr(lpl, g);
             d = AT(f6); v = sat16(b - mulr(d, 16384)); AT(w6) = (int16_t)v;
-            AT(w7) = (int16_t)sat16(d + mulr(v, 16384));
+            nz |= v;
+            v = sat16(d + mulr(v, 16384));
+            AT(w7) = (int16_t)v;
+            nz |= v;
             /* right half, fed by the left's end */
             a = x + mulr(AT(h7), g);
             sy1 = b = sat16(mulr(AT(s8), e8) + AT(s8 + 1u) - mulr(sy1, e8));
             v = sat16(a + mulr(b, 22938));
             AT(w8) = (int16_t)v;
-            a = b - mulr(v, 22938);
-            AT(w9) = (int16_t)sat16(a);
+            nz |= v;
+            a = sat16(b - mulr(v, 22938));
+            AT(w9) = (int16_t)a;
+            nz |= a;
             lpr += mulr(AT(h9) - lpr, k);
             b = mulr(lpr, g);
             d = AT(f10); v = sat16(b - mulr(d, 16384)); AT(w10) = (int16_t)v;
-            AT(w11) = (int16_t)sat16(d + mulr(v, 16384));
+            nz |= v;
+            v = sat16(d + mulr(v, 16384));
+            AT(w11) = (int16_t)v;
+            nz |= v;
             /* the taps (Dattorro's), x 0.6; their sums pass 16 bits, so 64-bit, once a tick */
             a = AT(tap[0]) + AT(tap[1]) - AT(tap[2]) + AT(tap[3]) - AT(tap[4]) - AT(tap[5]) - AT(tap[6]);
             b = AT(tap[7]) + AT(tap[8]) - AT(tap[9]) + AT(tap[10]) - AT(tap[11]) - AT(tap[12]) - AT(tap[13]);
@@ -453,8 +484,15 @@ static FM_HOT void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint
     r->odd = (uint8_t)odd;
     r->lp[0] = lpl; r->lp[1] = lpr; r->sw_y[0] = sy0; r->sw_y[1] = sy1;
     r->yl = yl; r->yr = yr; r->pl = pl; r->pr = pr; r->in_acc = in_acc;
+    quiet_after(r, nz | sy0 | sy1 | yl | yr | pl | pr | in_acc | mulr(-lpl, k) | mulr(-lpr, k), ticks);
 }
 #endif
+
+int fm_reverb_idle(const fm_reverb *r)
+{
+    return r->idle;
+}
+
 
 /* (in flash: it checks and, after a turn-on or all sound off, empties the lines, then enters the
  * block's loop in RAM text, #391; a call goes from flash into RAM through FM_FAR, never back) */
@@ -462,6 +500,21 @@ void fm_reverb_process_block(fm_reverb *r, int32_t *left, int32_t *right, uint32
 {
     if (!fm_reverb_is_on(r)) return;
     if (r->clear) empty(r);
+    r->idle = 0;
+    if (r->quiet > r->longest) {   /* every line holds only zeros: idle while the input is silent */
+        uint32_t i, steps;
+        int32_t in = 0;
+        for (i = 0; i < frames; i++) in |= left[i] | right[i];
+        if (!in) {   /* the loop would add 0 to every sample: skip it, its clocks moving on as they would */
+            steps = r->design == FM_REVERB_PLATE ? (frames + r->odd) / 2u : frames;
+            if (r->design == FM_REVERB_PLATE) r->odd = (uint8_t)((r->odd + frames) & 1u);
+            r->ph[0] += r->ph_inc[0] * steps;
+            r->ph[1] += r->ph_inc[1] * steps;
+            r->p -= steps;
+            r->idle = 1;
+            return;
+        }
+    }
 #if !defined(FM_REVERB_ONE) || FM_REVERB_DESIGN == FM_REVERB_FDN4
     if (r->design == FM_REVERB_FDN4) {
         FM_FAR(fdn_block)(r, left, right, frames);

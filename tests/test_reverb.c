@@ -244,6 +244,37 @@ static uint32_t rv_hash(uint8_t design, uint32_t block)
     return h;
 }
 
+/* ... and a burst, 6 s of silence (the tail ends in it) and a second burst: the same with the idle
+ * skip as without it, the sway's phases and all (blocks of 16) */
+static uint32_t rv_hash_twice(uint8_t design)
+{
+    static int32_t l[16], r[16];
+    uint32_t h = 2166136261u, done = 0, total = RV_RATE * 11u, i, k;
+    fm_reverb_init(&rv, design, RV_RATE, rv_mem, sizeof rv_mem / sizeof rv_mem[0]);
+    fm_reverb_set(&rv, 70, 1000, 60);
+    rv_seed = 9;
+    while (done < total) {
+        for (i = 0; i < 16u; i++) {
+            uint32_t t = done + i;
+            l[i] = r[i] = (t < RV_RATE / 4u || (t >= RV_RATE * 7u && t < RV_RATE * 7u + RV_RATE / 4u)) ? rv_noise() / 2 : 0;
+        }
+        fm_reverb_process_block(&rv, l, r, 16);
+        for (i = 0; i < 16u; i++)
+            for (k = 0; k < 4u; k++) {
+                h ^= ((uint32_t)l[i] >> (8u * k)) & 255u; h *= 16777619u;
+                h ^= ((uint32_t)r[i] >> (8u * k)) & 255u; h *= 16777619u;
+            }
+        done += 16u;
+    }
+    return h;
+}
+
+TT_TEST(reverb_output_through_a_silence_is_pinned)
+{
+    TT_CHECK_EQ(rv_hash_twice(FM_REVERB_FDN4), 0x02F6B3AEu);   /* (taken before the idle skip existed) */
+    TT_CHECK_EQ(rv_hash_twice(FM_REVERB_PLATE), 0x4E66BEE9u);
+}
+
 TT_TEST(reverb_output_is_pinned)
 {
     static const uint32_t blocks[3] = {16, 7, 256};
@@ -252,6 +283,37 @@ TT_TEST(reverb_output_is_pinned)
     for (d = 0; d < 2u; d++)
         for (b = 0; b < 3u; b++)
             TT_CHECK_EQ(rv_hash(RV_DESIGNS[d], blocks[b]), want[d][b]);
+}
+
+/* A reverb whose tail has ended (every line zero) and whose input is silent skips its loop: no cost while
+ * nothing sounds. Its output is the same as running it (the pinned hashes include long silences), and it
+ * wakes on the next sound */
+TT_TEST(reverb_idles_once_its_tail_has_ended)
+{
+    uint32_t d, s, i;
+    for (d = 0; d < 2u; d++) {
+        int idle_early, idle_late, woke;
+        fm_reverb_init(&rv, RV_DESIGNS[d], RV_RATE, rv_mem, sizeof rv_mem / sizeof rv_mem[0]);
+        fm_reverb_set(&rv, 100, 1000, 60);
+        rv_burst(&rv, 1);                         /* a burst and its first second */
+        for (i = 0; i < 256u; i++) rv_l[i] = rv_r[i] = 0;
+        fm_reverb_process_block(&rv, rv_l, rv_r, 256);
+        idle_early = fm_reverb_idle(&rv);
+        for (s = 0; s < 4u; s++) {                 /* 4 s more: the 1 s tail has ended */
+            for (i = 0; i < RV_RATE; i++) rv_l[i] = rv_r[i] = 0;
+            fm_reverb_process_block(&rv, rv_l, rv_r, RV_RATE);
+        }
+        for (i = 0; i < 256u; i++) rv_l[i] = rv_r[i] = 0;
+        fm_reverb_process_block(&rv, rv_l, rv_r, 256);
+        idle_late = fm_reverb_idle(&rv);
+        rv_l[0] = rv_r[0] = 1 << 22;
+        for (i = 1; i < 256u; i++) rv_l[i] = rv_r[i] = 0;
+        fm_reverb_process_block(&rv, rv_l, rv_r, 256);
+        woke = !fm_reverb_idle(&rv);
+        TT_CHECK(!idle_early);
+        TT_CHECK(idle_late);
+        TT_CHECK(woke);
+    }
 }
 
 /* ---- in the engine ---- */
@@ -345,6 +407,8 @@ static void run_reverb_tests(void)
     TT_RUN(reverb_full_scale_input_saturates_and_does_not_wrap);
     TT_RUN(reverb_without_memory_is_off_and_turning_on_starts_silent);
     TT_RUN(reverb_output_is_pinned);
+    TT_RUN(reverb_output_through_a_silence_is_pinned);
+    TT_RUN(reverb_idles_once_its_tail_has_ended);
     TT_RUN(reverb_params_are_ours_with_mix_off_by_default);
     TT_RUN(reverb_off_renders_as_without_it);
     TT_RUN(reverb_on_rings_after_the_release_and_needs_its_memory);

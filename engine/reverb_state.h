@@ -53,6 +53,9 @@ typedef struct {
     uint32_t mask, mask2;
     uint32_t p;          /* the pointer the lines share, one step down a sample (the plate: a tick) */
     uint16_t base[FM_REVERB_LINES], len[FM_REVERB_LINES];
+    uint32_t quiet;      /* samples (the plate: ticks) every line has taken only zeros, its states 0 */
+    uint32_t longest;    /* the longer buffer: quiet past a full sweep of it, every word is 0 */
+    uint8_t idle;        /* the last block skipped the loop */
 } fm_reverb;
 
 #endif /* FM_REVERB_STATE_H */
