@@ -177,13 +177,10 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
 /* Gates the envelopes on, each from the level it is at: the filter
  * envelope and envelope 2 carry on from wherever their last note left
  * them, on an idle voice too, as PG-8X's do (#396). Only a patch load
- * comes between (fm_voice_patch_loaded). */
+ * comes between (fm_voice_patch_loaded; restart_lfo, which every gate on
+ * follows, takes its mark). */
 static void gate_on(fm_voice *v)
 {
-    if (v->new_patch) { /* a patch loaded while its last note sounded */
-        v->new_patch = 0;
-        if (v->amp_env.stage == FM_ENV_IDLE) fm_voice_patch_loaded(v);
-    }
     fm_env_key(&v->amp_env, v->note);
     fm_env_key(&v->filter_env, v->note);
     fm_env_gate_on(&v->amp_env);
@@ -223,18 +220,6 @@ static void set_level(fm_voice *v, const fm_voice_mod *m, int32_t peak)
     v->amp_env.peak = fm_mod_update(&v->mod, &m->routes, FM_MOD_LEVEL);
 }
 
-/* The pitch envelope's source now: the filter envelope's level or
- * envelope 2's share, times the velocity's share of the depth (DYNAMICS). */
-static int32_t penv_level(fm_voice *v, const fm_voice_mod *m)
-{
-    int32_t penv = m->penv_amp ? env2_share(v, v->amp_env.level)
-                               : filter_env_level(v);
-    if (m->penv_dyna) /* Q1.30 * Q15 share */
-        penv = (int32_t)(((int64_t)penv *
-                          fm_dyna_share_q15(m->penv_dyna, v->velocity)) >> 15);
-    return penv;
-}
-
 /*
  * A note starts from silence: the LFO's offsets drop to 0 and its delay
  * counts from control tick `now`, the first tick after the start. A note
@@ -244,16 +229,21 @@ static int32_t penv_level(fm_voice *v, const fm_voice_mod *m)
  */
 static void restart_lfo(fm_voice *v, const fm_voice_mod *m, uint32_t now)
 {
+    /* a patch loaded while the voice's last note sounded: the one place
+     * the mark is taken, before anything reads the envelopes. Idle now,
+     * they start from 0; still sounding, the note carries on */
+    if (v->new_patch) {
+        v->new_patch = 0;
+        if (v->amp_env.stage == FM_ENV_IDLE) fm_voice_patch_loaded(v);
+    }
     if (v->amp_env.stage != FM_ENV_IDLE) return;
     fm_mod_reset(&v->mod);
     v->lfo_start = now;
     /* an envelope carried on (#396) is on the pitch from the note's first
-     * sample, not from its first control tick (v->velocity is the note's) */
-    if (fm_mod_source_routed(&m->routes, FM_MOD_SRC_PENV)) {
-        fm_mod_set_source(&v->mod, FM_MOD_SRC_PENV, penv_level(v, m));
-        fm_mod_update(&v->mod, &m->routes, FM_MOD_PITCH1);
-        fm_mod_update(&v->mod, &m->routes, FM_MOD_PITCH2);
-    }
+     * sample, not from its first control tick: the tick's own sums, the
+     * LFO at 0 (v->velocity is already the note's) */
+    if (fm_mod_source_routed(&m->routes, FM_MOD_SRC_PENV))
+        fm_voice_tick(v, 0, m, now);
 }
 
 /* Starts the note from the current level (0 when idle). */
@@ -413,7 +403,14 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
     }
     fm_mod_set_source(&v->mod, FM_MOD_SRC_LFO, lfo);
     if (fm_mod_source_routed(&m->routes, FM_MOD_SRC_PENV))
-        fm_mod_set_source(&v->mod, FM_MOD_SRC_PENV, penv_level(v, m));
+    {
+        int32_t penv = m->penv_amp ? env2_share(v, v->amp_env.level)
+                                   : filter_env_level(v);
+        if (m->penv_dyna) /* Q1.30 * Q15 share */
+            penv = (int32_t)(((int64_t)penv *
+                              fm_dyna_share_q15(m->penv_dyna, v->velocity)) >> 15);
+        fm_mod_set_source(&v->mod, FM_MOD_SRC_PENV, penv);
+    }
     apply_mod(v, fm_mod_tick(&v->mod, &m->routes));
 }
 
@@ -493,10 +490,8 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
 
 void fm_voice_patch_loaded(fm_voice *v)
 {
-    if (fm_voice_active(v)) {
-        v->new_patch = 1;
-        return;
-    }
+    v->new_patch = (uint8_t)fm_voice_active(v);
+    if (v->new_patch) return;
     fm_env_reset(&v->filter_env);
     fm_env_reset(&v->env2);
 }

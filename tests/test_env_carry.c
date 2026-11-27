@@ -477,6 +477,7 @@ TT_TEST(a_carried_pitch_envelope_is_on_the_pitch_from_the_first_sample)
         int v;
         int32_t at_on, after;
         ec_init(4);
+        ec_set(FM_PARAM_PITCH_ENV_OSC2_CENTS, EC_DEPTH / 2);
         ec_hold(60, 2500);
         ec_run(500);
         fm_engine_render(&ec_eng, ec_buf, phase + 1);
@@ -485,6 +486,7 @@ TT_TEST(a_carried_pitch_envelope_is_on_the_pitch_from_the_first_sample)
         TT_CHECK(v >= 0);
         if (v < 0) return;
         at_on = fm_mod_get(&ec_eng.voices[v].mod, FM_MOD_PITCH1);
+        TT_CHECK_EQ(fm_mod_get(&ec_eng.voices[v].mod, FM_MOD_PITCH2), at_on / 2); /* osc 2's, at half the depth */
         fm_engine_render(&ec_eng, ec_buf, 64);
         after = fm_mod_get(&ec_eng.voices[v].mod, FM_MOD_PITCH1);
         if (!(at_on > 55000 && after - at_on < 600))
@@ -500,12 +502,122 @@ TT_TEST(a_carried_pitch_envelope_is_on_a_unison_notes_pitch_from_the_first_sampl
     int32_t at_on;
     ec_init(4);
     ec_set(FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    ec_set(FM_PARAM_PITCH_ENV_OSC2_CENTS, EC_DEPTH / 2);
     ec_hold(60, 2500);
     ec_run(500);
     fm_engine_note_on(&ec_eng, 62, 100);
     at_on = fm_mod_get(&ec_eng.voices[0].mod, FM_MOD_PITCH1);
+    TT_CHECK_EQ(fm_mod_get(&ec_eng.voices[0].mod, FM_MOD_PITCH2), at_on / 2);
     if (!(at_on > 55000)) printf("    unison: pitch sum %d at the note-on\n", (int)at_on);
     TT_CHECK(at_on > 55000 && at_on < 65536);
+}
+
+/* 18. the velocity's share of the depth (DYNAMICS) is in the pitch sum from the first sample too: a
+ * note at 50 after one at 127 starts where its first control tick leaves it, well under the level
+ * carried at full depth */
+TT_TEST(a_carried_pitch_envelopes_first_sample_has_the_new_velocitys_depth)
+{
+    int v;
+    int32_t at_on, after;
+    ec_init(4);
+    ec_set(FM_PARAM_PITCH_ENV_DYNA, 3);
+    fm_engine_note_on(&ec_eng, 60, 127);
+    ec_run(2500);
+    fm_engine_note_off(&ec_eng, 60);
+    ec_run(500);
+    fm_engine_render(&ec_eng, ec_buf, 8);
+    fm_engine_note_on(&ec_eng, 60, 50);
+    v = ec_voice(60);
+    TT_CHECK(v >= 0);
+    if (v < 0) return;
+    at_on = fm_mod_get(&ec_eng.voices[v].mod, FM_MOD_PITCH1);
+    fm_engine_render(&ec_eng, ec_buf, 64);
+    after = fm_mod_get(&ec_eng.voices[v].mod, FM_MOD_PITCH1);
+    if (!(at_on > 2000 && at_on < 28000 && after >= at_on && after - at_on < 300))
+        printf("    50 after 127: pitch sum %d at the note-on, %d 64 samples on\n", (int)at_on, (int)after);
+    TT_CHECK(at_on > 2000 && at_on < 28000);
+    TT_CHECK(after >= at_on && after - at_on < 300);
+}
+
+/* 19. envelope 2 under the gate goes back to 0 at a patch load too (test 13's twin) */
+TT_TEST(a_patch_load_starts_an_idle_voices_envelope_2_from_0)
+{
+    double first, again;
+    ec_init(4);
+    ec_set(FM_PARAM_AMP_GATE, 1);
+    ec_set(FM_PARAM_AMP_ATTACK_MS, 2000);
+    ec_set(FM_PARAM_AMP_RELEASE_MS, 4000);
+    ec_set(FM_PARAM_PITCH_ENV_SOURCE, 1);
+    first = ec_strike(60, 100);
+    ec_run(2500);
+    fm_engine_note_off(&ec_eng, 60);
+    ec_run(200);
+    TT_CHECK_EQ(fm_engine_active_voices(&ec_eng), 0);
+    fm_engine_controller(&ec_eng, 123, 0);
+    fm_engine_patch_loaded(&ec_eng);
+    ec_run(500);
+    again = ec_strike(60, 100);
+    if (fabs(again - first) > 1.0) printf("    envelope 2: first note %.2f cents, after a patch load %.2f\n", first, again);
+    TT_CHECK_NEAR(again, first, 1.0);
+}
+
+/* a note of `ms`, a patch load while it sounds (`gated`: envelope 2 under the gate on the pitch; else
+ * the filter envelope, the amp's release 300 ms), a wait past the amp's end, then `note` struck 7
+ * samples after a control tick: osc 1's pitch sum at that note-on */
+static int32_t ec_sum_after_load(int gated, int unison, uint8_t note)
+{
+    int32_t sum = -1;
+    uint8_t i;
+    ec_init(4);
+    ec_set(FM_PARAM_AMP_RELEASE_MS, 300);
+    if (gated) {
+        ec_set(FM_PARAM_AMP_GATE, 1);
+        ec_set(FM_PARAM_AMP_ATTACK_MS, 2000);
+        ec_set(FM_PARAM_AMP_RELEASE_MS, 4000);
+        ec_set(FM_PARAM_PITCH_ENV_SOURCE, 1);
+    }
+    if (unison) ec_set(FM_PARAM_VOICE_MODE, FM_VOICE_MODE_UNISON);
+    fm_engine_note_on(&ec_eng, 60, 100);
+    ec_run(2500);
+    fm_engine_controller(&ec_eng, 123, 0);
+    fm_engine_patch_loaded(&ec_eng);
+    ec_run(4000);
+    if (fm_engine_active_voices(&ec_eng) != 0) return -2;
+    fm_engine_render(&ec_eng, ec_buf, 7);
+    fm_engine_note_on(&ec_eng, note, 100);
+    for (i = 0; i < ec_eng.voice_count; i++)
+        if (fm_voice_active(&ec_eng.voices[i])) sum = fm_mod_get(&ec_eng.voices[i].mod, FM_MOD_PITCH1);
+    return sum;
+}
+
+/* 20. a voice a load found sounding, idle since: its next note has nothing of the last patch's
+ * envelope on its pitch, from the first sample (not only once the envelopes are back at 0 and a
+ * control tick has passed). Poly and unison, the filter envelope and envelope 2 under the gate */
+TT_TEST(a_note_after_a_patch_load_has_no_old_envelope_on_its_pitch)
+{
+    int gated, unison;
+    for (gated = 0; gated < 2; gated++)
+        for (unison = 0; unison < 2; unison++) {
+            int32_t sum = ec_sum_after_load(gated, unison, unison ? 62 : 60);
+            if (sum != 0) printf("    %s, %s: pitch sum %d at the note-on after a load\n", gated ? "envelope 2 under the gate" : "filter envelope", unison ? "unison" : "poly", (int)sum);
+            TT_CHECK_EQ(sum, 0);
+        }
+}
+
+/* 21. a second load on a voice the first one marked, idle by now, leaves no mark standing */
+TT_TEST(a_second_patch_load_leaves_no_mark_on_an_idle_voice)
+{
+    ec_init(1);
+    ec_set(FM_PARAM_AMP_RELEASE_MS, 300);
+    fm_engine_note_on(&ec_eng, 60, 100);
+    ec_run(500);
+    fm_engine_controller(&ec_eng, 123, 0);
+    fm_engine_patch_loaded(&ec_eng);
+    TT_CHECK_EQ(ec_eng.voices[0].new_patch, 1);
+    ec_run(4000);
+    TT_CHECK_EQ(fm_engine_active_voices(&ec_eng), 0);
+    fm_engine_patch_loaded(&ec_eng);
+    TT_CHECK_EQ(ec_eng.voices[0].new_patch, 0);
 }
 
 static void run_env_carry_tests(void)
@@ -528,4 +640,8 @@ static void run_env_carry_tests(void)
     TT_RUN(a_patch_load_does_not_reach_a_note_struck_while_its_voice_still_sounds);
     TT_RUN(a_carried_pitch_envelope_is_on_the_pitch_from_the_first_sample);
     TT_RUN(a_carried_pitch_envelope_is_on_a_unison_notes_pitch_from_the_first_sample);
+    TT_RUN(a_carried_pitch_envelopes_first_sample_has_the_new_velocitys_depth);
+    TT_RUN(a_patch_load_starts_an_idle_voices_envelope_2_from_0);
+    TT_RUN(a_note_after_a_patch_load_has_no_old_envelope_on_its_pitch);
+    TT_RUN(a_second_patch_load_leaves_no_mark_on_an_idle_voice);
 }
