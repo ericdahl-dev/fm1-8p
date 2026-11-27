@@ -64,11 +64,13 @@ static hr_stats hr_chord(const uint8_t *notes, int count, uint32_t seconds, uint
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
     static const struct { uint8_t notes[4]; double sat_min, sat_max, knee_min, knee_max; } c[] = {
-        { { 48, 52, 55, 60 }, 15.75, 16.45, 0.07, 0.09 }, /* 15.913 %, 0.081 % (main 248ff96: 17.176, 0.100) */
-        { { 36, 48, 79, 91 }, 24.3, 25.0, 0.17, 0.21 },    /* 24.361 %, 0.185 % (main: 24.855, 0.191) */
-        /* 32.824 %, 0.453 % (main: 33.151, 0.500; before #151's top of the cutoff range, whose lift over the
-         * open filter these high notes' envelopes passed through: 33.028, 0.492, pinned 0.46..0.52) */
-        { { 24, 36, 96, 108 }, 32.7, 33.4, 0.42, 0.49 },
+        /* #151's top of the cutoff range (these envelopes pass through it): 15.913 %, 0.081 % (before it, on
+         * 9d7a7e2: 16.104, 0.081; main 248ff96: 17.176, 0.100) */
+        { { 48, 52, 55, 60 }, 15.75, 16.45, 0.07, 0.09 },
+        { { 36, 48, 79, 91 }, 24.3, 25.0, 0.17, 0.21 },    /* 24.361 %, 0.185 % (9d7a7e2: 24.559, 0.186; main: 24.855, 0.191) */
+        /* 32.824 %, 0.453 % (9d7a7e2: 32.905, 0.474; main: 33.151, 0.500). The knee band is tight enough to tell
+         * the top before #151 (0.474) from the one after */
+        { { 24, 36, 96, 108 }, 32.7, 33.4, 0.43, 0.465 },
     };
     size_t k;
     for (k = 0; k < sizeof c / sizeof c[0]; k++) {
