@@ -327,6 +327,7 @@ typedef char fm_require_k_top0_ramp_fits[(int64_t)360 * K_TOP0_STEP <= K_TOP0 ? 
  * So no resonance at VCF FREQ 110..124 reads further from PG-8X than before #151 by more than 0.15 dB rms
  * (VCF RES 1..23 and 52, 56, at 44.1 and 48 kHz). */
 #define V_SLOPE     335544320
+#define V_W_END     858993460                   /* w 0.8: from there 1 - 1.25 w is 0 or under */
 #define VF_SLOPE    5
 /* Only at the rates it is fitted for, 44.1 to 48 kHz (fm_filter_rate_cents of them, and every rate between).
  * The fade and the damping are in cents of cutoff and the stop is a share of the rate: at a higher rate the
@@ -403,10 +404,14 @@ static void apply(fm_filter *f)
     k = k_of(f->res);                                                                    /* Q30, <= 1.45 */
     w = ONE_Q30 - (int32_t)(((int64_t)k * Q0_Q30) >> 30);     /* how much peak: 0 at resonance 0 */
     w = w <= 0 ? 0 : w >= ONE_Q30 / 2 ? ONE_Q30 : 2 * w;      /* twice it, to 1 from about resonance 400 */
-    v = ONE_Q30 - (int32_t)(((int64_t)w * V_SLOPE) >> 28);    /* how much of resonance 0's top (V_SLOPE) */
-    if (v < 0) v = 0;
-    vf = w >= ONE_Q30 / VF_SLOPE ? 0 : ONE_Q30 - VF_SLOPE * w; /* and of its long fade (VF_SLOPE) */
-    if (f->rate < TOP0_RATE_LO || f->rate > TOP0_RATE_HI) v = vf = 0;   /* the rates it is fitted for only */
+    /* how much of resonance 0's top (v) and of its long fade (vf): none with a peak or at a rate it is not
+     * fitted for, which is one or two compares for a resonant patch */
+    v = vf = 0;
+    if (w < V_W_END && f->rate >= TOP0_RATE_LO && f->rate <= TOP0_RATE_HI) {
+        v = ONE_Q30 - (int32_t)(((int64_t)w * V_SLOPE) >> 28);
+        if (v < 0) v = 0;
+        if (w < ONE_Q30 / VF_SLOPE) vf = ONE_Q30 - VF_SLOPE * w;
+    }
     /* PG-8X's Q falls a little at high cutoffs (F80: 3..10 %, F49: none): k + K_TOP k^2 t, and its
      * passband rises half as much (the level's k: k + half that). Fitted to F80 (t 0.25), and taken no
      * further than t 0.3 (F82): at most 0.4 more, k within 1.85 */
