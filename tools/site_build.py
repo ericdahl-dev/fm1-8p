@@ -137,9 +137,9 @@ def build(root, out, base_url, packages=None):
         write_fw(root, out, packages)
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(html)
-    for name in ("style.css", "install.js", "installer.js", "analytics.js"):
+    for name in ("style.css", "install.js", "installer.js", "analytics.js", "favicon.svg", "share.jpg", "head.js"):
         shutil.copy(os.path.join(src, name), out)
-    for folder in ("vendor", "fonts", "posthog-js"):
+    for folder in ("vendor", "fonts", "posthog-js", "assets", "img"):
         shutil.copytree(os.path.join(src, folder), os.path.join(out, folder), dirs_exist_ok=True)
 
 
