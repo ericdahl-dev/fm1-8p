@@ -22,17 +22,10 @@
 
 /* The int16 words FM_REVERB_DESIGN's lines take at 44.1 kHz, the
  * device's rate (fm_engine_reverb_words; tests/test_reverb.c holds them
- * equal): 23.8 KiB for the FDN4, 33.4 KiB for the plate */
-#define FM_REVERB_WORDS_44K (FM_REVERB_DESIGN == FM_REVERB_PLATE ? 16717u : 11902u)
+ * equal): powers of two (reverb.c, layout), 32 KiB for the FDN4, 34 KiB for the plate */
+#define FM_REVERB_WORDS_44K (FM_REVERB_DESIGN == FM_REVERB_PLATE ? 16384u + 1024u : 16384u)
 
 #define FM_REVERB_LINES 12u
-
-/* One delay line in the caller's memory: `len` samples, `w` the next
- * write. */
-typedef struct {
-    int16_t *b;
-    uint32_t len, w;
-} fm_rv_line;
 
 typedef struct {
     int16_t *mem;       /* the caller's memory, or null: no reverb */
@@ -56,7 +49,10 @@ typedef struct {
     int32_t yl, yr;     /* the plate: the newest output pair */
     int32_t pl, pr;     /* the plate: the one before it */
     uint16_t tap[14];   /* the plate's output taps, scaled to its rate */
-    fm_rv_line line[FM_REVERB_LINES];
+    int16_t *buf, *buf2; /* the lines (reverb.c, layout): the main ones, and the plate's input diffusers */
+    uint32_t mask, mask2;
+    uint32_t p;          /* the pointer the lines share, one step down a sample (the plate: a tick) */
+    uint16_t base[FM_REVERB_LINES], len[FM_REVERB_LINES];
 } fm_reverb;
 
 #endif /* FM_REVERB_STATE_H */

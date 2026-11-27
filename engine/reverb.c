@@ -12,6 +12,7 @@
  */
 #include "reverb.h"
 
+#include "placement.h"
 #include "units.h"
 
 /* A device build compiles one design (FM_REVERB_ONE); the host both. */
@@ -29,11 +30,14 @@
 /* the FDN4's lengths at FDN_RATE: 2 input allpasses (2.6 and 7.6 ms, g 0.5:
  * longer or stronger ones ring undamped into the tail), then the 4 lines
  * (mutually prime, 43.8 .. 85.7 ms) */
+#if HAS(FM_REVERB_FDN4)
 static const uint16_t FDN_AP[2] = {113, 337};
 static const uint16_t FDN_LEN[4] = {1931, 2543, 3163, 3779};
+#endif
 
 /* the plate's at PLATE_RATE (Dattorro's Table 1): 4 input diffusers; the
  * tank's left half (modulated allpass, delay, allpass, delay) and right */
+#if HAS(FM_REVERB_PLATE)
 static const uint16_t PL_IN[4] = {142, 107, 379, 277};
 static const uint16_t PL_TANK[8] = {672, 4453, 1800, 3720, 908, 4217, 2656, 3163};
 #define PL_EXC 16u /* the tank allpasses' excursion at PLATE_RATE */
@@ -42,7 +46,8 @@ static const uint16_t PL_TANK[8] = {672, 4453, 1800, 3720, 908, 4217, 2656, 3163
 static const uint8_t PL_TAP_LINE[14] = {5, 5, 6, 7, 1, 2, 3, 1, 1, 2, 3, 5, 6, 7};
 static const uint16_t PL_TAP_AT[14] = {266, 2974, 1913, 1996, 1990, 187, 1066,
                                        353, 3627, 1228, 2673, 2111, 335, 121};
-static const int8_t PL_TAP_SIGN[14] = {1, 1, -1, 1, -1, -1, -1, 1, 1, -1, 1, -1, -1, -1};
+#endif
+/* (their signs: + + - + - - -, both sides; written out in plate_block) */
 
 /* 2^(-i / 16), Q30, i = 0..16 */
 static const int32_t EXP2_16[17] = {
@@ -78,14 +83,17 @@ static uint32_t run_rate(uint8_t design, uint32_t sample_rate)
 static uint32_t line_lengths(uint8_t design, uint32_t sample_rate, uint32_t *len)
 {
     uint32_t i, rate = run_rate(design, sample_rate);
-    if (design == FM_REVERB_FDN4 && HAS(FM_REVERB_FDN4)) {
+#if HAS(FM_REVERB_FDN4)
+    if (design == FM_REVERB_FDN4) {
         for (i = 0; i < 2u; i++) len[i] = scaled(FDN_AP[i], rate, FDN_RATE);
         for (i = 0; i < 4u; i++) len[2u + i] = scaled(FDN_LEN[i], rate, FDN_RATE);
         len[2] += 2u * FDN_SWAY + 2u; /* lines 0 and 2 sway */
         len[4] += 2u * FDN_SWAY + 2u;
         return 6u;
     }
-    if (design == FM_REVERB_PLATE && HAS(FM_REVERB_PLATE)) {
+#endif
+#if HAS(FM_REVERB_PLATE)
+    if (design == FM_REVERB_PLATE) {
         uint32_t exc = scaled(PL_EXC, rate, PLATE_RATE);
         for (i = 0; i < 4u; i++) len[i] = scaled(PL_IN[i], rate, PLATE_RATE);
         for (i = 0; i < 8u; i++) len[4u + i] = scaled(PL_TANK[i], rate, PLATE_RATE);
@@ -93,41 +101,81 @@ static uint32_t line_lengths(uint8_t design, uint32_t sample_rate, uint32_t *len
         len[8] += 2u * exc + 2u;
         return 12u;
     }
+#endif
+    (void)i;
+    (void)rate;
     return 0;
+}
+
+/* the smallest power of two at least N */
+static uint32_t pow2_at_least(uint32_t n)
+{
+    uint32_t p = 1;
+    while (p < n) p <<= 1;
+    return p;
+}
+
+/*
+ * The lines live in one buffer a power of two long (the plate: its input
+ * diffusers in a second, small one, so the tank's fits 16 K words at
+ * 44.1 kHz), under one pointer that steps down each sample: line k's
+ * sample written a samples ago is at (p + base_k + a) & mask, its write at
+ * (p + base_k) & mask. Each line has len + 1 words, so no line's write
+ * reaches a sample another still reads. An add and a mask a read: no
+ * per-line state, no wrap test (Dattorro's and Mutable's layout).
+ */
+static void layout(uint8_t design, uint32_t sample_rate, uint32_t *len, uint32_t *n_lines,
+                   uint32_t *first, uint32_t *second)
+{
+    uint32_t n = line_lengths(design, sample_rate, len), i, a = 0, b = 0, split = design == FM_REVERB_PLATE ? 4u : 0u;
+    for (i = 0; i < n; i++) {
+        if (i < split) a += len[i] + 1u;
+        else b += len[i] + 1u;
+    }
+    *n_lines = n;
+    *first = n ? pow2_at_least(b) : 0;      /* the main lines */
+    *second = split ? pow2_at_least(a) : 0; /* the plate's input diffusers */
 }
 
 uint32_t fm_reverb_words(uint8_t design, uint32_t sample_rate)
 {
-    uint32_t len[FM_REVERB_LINES], n = line_lengths(design, sample_rate, len), i, w = 0;
-    for (i = 0; i < n; i++) w += len[i];
-    return w;
+    uint32_t len[FM_REVERB_LINES], n, a, b;
+    layout(design, sample_rate, len, &n, &a, &b);
+    return a + b;
 }
 
 void fm_reverb_init(fm_reverb *r, uint8_t design, uint32_t sample_rate,
                     int16_t *mem, uint32_t words)
 {
-    uint32_t len[FM_REVERB_LINES], n, i, at = 0, rate;
+    uint32_t len[FM_REVERB_LINES], n, i, a, b, at = 0, at2 = 0, rate, split;
     static const fm_reverb zero; /* (the engine has no C library) */
     *r = zero;
     r->design = design;
     r->sample_rate = sample_rate;
     r->mem = mem;
     r->words = words;
-    n = line_lengths(design, sample_rate, len);
-    if (!mem || !n || fm_reverb_words(design, sample_rate) > words) return;
+    layout(design, sample_rate, len, &n, &a, &b);
+    if (!mem || !n || a + b > words) return;
+    split = design == FM_REVERB_PLATE ? 4u : 0u;
+    r->buf = mem;
+    r->mask = a - 1u;
+    r->buf2 = mem + a;
+    r->mask2 = b ? b - 1u : 0u;
     for (i = 0; i < n; i++) {
-        r->line[i].b = mem + at;
-        r->line[i].len = len[i];
-        at += len[i];
+        r->len[i] = (uint16_t)len[i];
+        if (i < split) { r->base[i] = (uint16_t)at2; at2 += len[i] + 1u; }
+        else { r->base[i] = (uint16_t)at; at += len[i] + 1u; }
     }
     rate = run_rate(design, sample_rate);
     r->ph_inc[0] = fm_rate_to_phase_inc(600u, 1000u, rate, 0);  /* 0.60 Hz */
     r->ph_inc[1] = fm_rate_to_phase_inc(790u, 1000u, rate, 0);  /* 0.79 Hz */
     r->ph[1] = 1u << 30;
+#if HAS(FM_REVERB_PLATE)
     if (design == FM_REVERB_PLATE) {
         for (i = 0; i < 14u; i++) r->tap[i] = (uint16_t)scaled(PL_TAP_AT[i], rate, PLATE_RATE);
         r->exc = scaled(PL_EXC, rate, PLATE_RATE);
     }
+#endif
     r->ready = 1;
     r->clear = 1;
     fm_reverb_set(r, 0, 2000, 100);
@@ -145,7 +193,7 @@ static void empty(fm_reverb *r)
         uint32_t n = fm_reverb_words(r->design, r->sample_rate);
         for (i = 0; i < n; i++) r->mem[i] = 0;
     }
-    for (i = 0; i < FM_REVERB_LINES; i++) r->line[i].w = 0;
+    r->p = 0;
     for (i = 0; i < 4u; i++) r->lp[i] = 0;
     r->in_acc = r->yl = r->yr = r->pl = r->pr = 0;
     r->sw_y[0] = r->sw_y[1] = 0;
@@ -173,11 +221,11 @@ void fm_reverb_set(fm_reverb *r, int32_t mix_pct, int32_t time_ms, int32_t tone_
     r->mix = mix_pct * 32767 / 100;
     if (r->design == FM_REVERB_FDN4) {
         for (i = 0; i < 4u; i++)
-            r->gain[i] = loop_gain(r->line[2u + i].len - ((i == 0 || i == 2) ? FDN_SWAY + 2u : 0u), rate, time_ms);
+            r->gain[i] = loop_gain(r->len[2u + i] - ((i == 0 || i == 2) ? FDN_SWAY + 2u : 0u), rate, time_ms);
     } else {
         /* one loop of the tank passes its decay four times: twice in each half */
         uint32_t loop = 0;
-        for (i = 0; i < 8u; i++) loop += r->line[4u + i].len;
+        for (i = 0; i < 8u; i++) loop += r->len[4u + i];
         r->gain[0] = loop_gain(loop, rate, 4 * time_ms);
     }
     if (tone_pct >= 100) {
@@ -194,49 +242,29 @@ void fm_reverb_set(fm_reverb *r, int32_t mix_pct, int32_t time_ms, int32_t tone_
 
 /* ---- the lines ---- */
 
-static inline int32_t sat16(int32_t v)
+static FM_BOTH int32_t sat16(int32_t v)
 {
     return v > 32767 ? 32767 : v < -32767 ? -32767 : v;
 }
 
 /* a x g (Q15), truncated toward zero: inside a loop, rounding's half-LSB
  * bias holds a tail a few LSB up forever (a limit cycle); toward zero, no
- * product grows a sample, so every tail falls to 0 */
-static inline int32_t mulr(int32_t a, int32_t g)
+ * product grows a sample, so every tail falls to 0. 32 bits: |a| <= 65535
+ * and |g| <= 32768 everywhere here (the lines and the allpasses' inner
+ * values are saturated to 16 bits first), so a x g fits; no 64-bit
+ * multiply, no branch. With g 32768 it is a itself. */
+static FM_BOTH int32_t mulr(int32_t a, int32_t g)
 {
-    /* 32 bits: |a| <= 65535 and |g| <= 32767 everywhere here (the lines and the allpasses' inner values
-     * are saturated to 16 bits first), so a x g fits; no 64-bit multiply, no branch */
     int32_t p = a * g;
     return (p + ((p >> 31) & 32767)) >> 15;
 }
 
-static inline int32_t half(int32_t v) /* v / 2 toward zero */
+#if HAS(FM_REVERB_FDN4)
+static FM_BOTH int32_t half(int32_t v) /* v / 2 toward zero */
 {
-    return v >= 0 ? v >> 1 : -((-v) >> 1);
+    return (v + (int32_t)((uint32_t)v >> 31)) >> 1;
 }
-
-/* the sample written BACK samples ago (1 <= back <= len) */
-static inline int32_t rd(const fm_rv_line *l, uint32_t back)
-{
-    uint32_t i = l->w + l->len - back;
-    if (i >= l->len) i -= l->len;
-    return l->b[i];
-}
-
-static inline void wr(fm_rv_line *l, int32_t v)
-{
-    l->b[l->w] = (int16_t)sat16(v);
-    if (++l->w >= l->len) l->w = 0;
-}
-
-/* a Schroeder allpass the line's length long: the line holds v */
-static inline int32_t ap(fm_rv_line *l, int32_t x, int32_t g)
-{
-    int32_t d = rd(l, l->len), v = sat16(x - mulr(d, g));
-    l->b[l->w] = (int16_t)v;
-    if (++l->w >= l->len) l->w = 0;
-    return d + mulr(v, g);
-}
+#endif
 
 /* (1 - D) / (1 + D) for D = 1 + f / 32, f = 0..32, Q15: the allpass
  * interpolator's coefficient for a fraction of 1 to 2 samples */
@@ -250,152 +278,197 @@ static const int16_t ETA[33] = {
  * samples i and an allpass's fraction of 1 to 2 more, so every frequency
  * keeps its level (a linear read would be a lowpass in the loop and cut
  * a long tail's highs short) */
-static void sway_set(fm_reverb *r, uint32_t k, uint32_t back_q8)
+static FM_BOTH void sway_set(fm_reverb *r, uint32_t k, uint32_t back_q8)
 {
     uint32_t f = back_q8 & 255u, j = f >> 3, sub = f & 7u;
     r->sw_i[k] = (back_q8 >> 8) - 1u;
     r->sw_eta[k] = ETA[j] + (((ETA[j + 1u] - ETA[j]) * (int32_t)sub) >> 3);
 }
 
-/* y = eta x[n - i] + x[n - i - 1] - eta y[n - 1] */
-static inline int32_t rd_sway(fm_reverb *r, const fm_rv_line *l, uint32_t k)
-{
-    int32_t y = sat16(mulr(rd(l, r->sw_i[k]), r->sw_eta[k]) + rd(l, r->sw_i[k] + 1u) - mulr(r->sw_y[k], r->sw_eta[k]));
-    return r->sw_y[k] = y;   /* (16 bits, as a line's sample: the products after it stay in 32) */
-}
-
 /* a triangle, -32768..32767, from a phase */
-static inline int32_t tri(uint32_t ph)
+static FM_BOTH int32_t tri(uint32_t ph)
 {
     int32_t t = (int32_t)(ph >> 15);
     return t < 65536 ? t - 32768 : 98303 - t;
 }
 
 /* the sway, Q8 samples, +-EXC */
-static inline uint32_t sway_back(uint32_t base, uint32_t exc, uint32_t ph)
+static FM_BOTH uint32_t sway_back(uint32_t base, uint32_t exc, uint32_t ph)
 {
     return (base << 8) + (uint32_t)(((int32_t)exc << 8) + ((tri(ph) * (int32_t)exc) >> 7));
 }
 
-/* the damping lowpass: k Q15, 32768 passes it through */
-static inline int32_t damp_lp(int32_t *s, int32_t x, int32_t k)
-{
-    if (k >= 32768) return *s = x;
-    *s += mulr(x - *s, k);
-    return *s;
-}
+/* (the per-sample loops take their state into locals for the block, and
+ * read and write the lines by the macros: AT(off) is the sample at offset
+ * OFF past the pointer, so line k's sample written a samples ago is
+ * AT(base_k + a) and its write AT(base_k)) */
+#define AT(off) B[(p + (off)) & m]
+#define AT2(off) B2[(p + (off)) & m2]
 
 #if !defined(FM_REVERB_ONE) || FM_REVERB_DESIGN == FM_REVERB_FDN4
-static void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t frames)
+static FM_HOT void fdn_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t frames)
 {
-    fm_rv_line *L = r->line;
-    uint32_t i;
-    sway_set(r, 0, sway_back(L[2].len - 2u * FDN_SWAY - 2u, FDN_SWAY, r->ph[0]));
-    sway_set(r, 1, sway_back(L[4].len - 2u * FDN_SWAY - 2u, FDN_SWAY, r->ph[1]));
+    int16_t *B = r->buf;
+    const uint32_t m = r->mask;
+    uint32_t p = r->p, i;
+    const uint32_t b0 = r->base[0], b1 = r->base[1], b2 = r->base[2], b3 = r->base[3], b4 = r->base[4],
+                   b5 = r->base[5];
+    const uint32_t a0 = b0 + r->len[0], a1 = b1 + r->len[1], a3 = b3 + r->len[3], a5 = b5 + r->len[5];
+    const int32_t g0 = r->gain[0], g1 = r->gain[1], g2 = r->gain[2], g3 = r->gain[3], k = r->damp,
+                  mix = r->mix;
+    int32_t lp0 = r->lp[0], lp1 = r->lp[1], lp2 = r->lp[2], lp3 = r->lp[3];
+    int32_t sy0 = r->sw_y[0], sy1 = r->sw_y[1];
+    uint32_t s0, s2;
+    int32_t e0, e2;
+    sway_set(r, 0, sway_back(r->len[2] - 2u * FDN_SWAY - 2u, FDN_SWAY, r->ph[0]));
+    sway_set(r, 1, sway_back(r->len[4] - 2u * FDN_SWAY - 2u, FDN_SWAY, r->ph[1]));
     r->ph[0] += r->ph_inc[0] * frames;
     r->ph[1] += r->ph_inc[1] * frames;
+    s0 = b2 + r->sw_i[0];
+    s2 = b4 + r->sw_i[1];
+    e0 = r->sw_eta[0];
+    e2 = r->sw_eta[1];
     for (i = 0; i < frames; i++) {
-        int32_t x = sat16(((left[i] >> 1) + (right[i] >> 1)) >> IN_SHIFT), d0, d1, d2, d3, y0, y1, y2, y3, a, b, c, e;
-        x = ap(&L[0], x, 16384);
-        x = ap(&L[1], x, 16384);
-        d0 = rd_sway(r, &L[2], 0);
-        d1 = rd(&L[3], L[3].len);
-        d2 = rd_sway(r, &L[4], 1);
-        d3 = rd(&L[5], L[5].len);
-        y0 = mulr(damp_lp(&r->lp[0], d0, r->damp), r->gain[0]);
-        y1 = mulr(damp_lp(&r->lp[1], d1, r->damp), r->gain[1]);
-        y2 = mulr(damp_lp(&r->lp[2], d2, r->damp), r->gain[2]);
-        y3 = mulr(damp_lp(&r->lp[3], d3, r->damp), r->gain[3]);
-        a = y0 + y1; b = y0 - y1; c = y2 + y3; e = y2 - y3; /* Hadamard, halved: orthonormal */
-        wr(&L[2], half(a + c) + x);
-        wr(&L[3], half(b + e) + x);
-        wr(&L[4], half(a - c) + x);
-        wr(&L[5], half(b - e) + x);
+        int32_t x = sat16(((left[i] >> 1) + (right[i] >> 1)) >> IN_SHIFT), d, v, d0, d1, d2, d3, a, b, c, e;
+        d = AT(a0);                                  /* the two input allpasses, g 0.5 */
+        v = sat16(x - mulr(d, 16384));
+        AT(b0) = (int16_t)v;
+        x = d + mulr(v, 16384);
+        d = AT(a1);
+        v = sat16(x - mulr(d, 16384));
+        AT(b1) = (int16_t)v;
+        x = d + mulr(v, 16384);
+        /* the swaying reads: y = eta x[n - i] + x[n - i - 1] - eta y[n - 1] */
+        sy0 = d0 = sat16(mulr(AT(s0), e0) + AT(s0 + 1u) - mulr(sy0, e0));
+        d1 = AT(a3);
+        sy1 = d2 = sat16(mulr(AT(s2), e2) + AT(s2 + 1u) - mulr(sy1, e2));
+        d3 = AT(a5);
+        lp0 += mulr(d0 - lp0, k);                    /* damping (k 32768: none) */
+        lp1 += mulr(d1 - lp1, k);
+        lp2 += mulr(d2 - lp2, k);
+        lp3 += mulr(d3 - lp3, k);
+        d = mulr(lp0, g0);
+        v = mulr(lp1, g1);
+        a = d + v; b = d - v;                        /* Hadamard, halved: orthonormal */
+        d = mulr(lp2, g2);
+        v = mulr(lp3, g3);
+        c = d + v; e = d - v;
+        AT(b2) = (int16_t)sat16(half(a + c) + x);
+        AT(b3) = (int16_t)sat16(half(b + e) + x);
+        AT(b4) = (int16_t)sat16(half(a - c) + x);
+        AT(b5) = (int16_t)sat16(half(b - e) + x);
         /* the sides: two lines each, one of them inverted (L/R correlation about 0, where the same
-         * signs read 0.33) */
-        left[i] += ((d0 - d3) * r->mix) >> (15 - IN_SHIFT + 1);   /* (|d0 - d3| <= 65534: fits) */
-        right[i] += ((d1 - d2) * r->mix) >> (15 - IN_SHIFT + 1);
+         * signs read 0.33); |d0 - d3| <= 65534, so the product fits */
+        left[i] += ((d0 - d3) * mix) >> (15 - IN_SHIFT + 1);
+        right[i] += ((d1 - d2) * mix) >> (15 - IN_SHIFT + 1);
+        p--;
     }
+    r->p = p;
+    r->lp[0] = lp0; r->lp[1] = lp1; r->lp[2] = lp2; r->lp[3] = lp3;
+    r->sw_y[0] = sy0; r->sw_y[1] = sy1;
 }
 #endif
 
 #if !defined(FM_REVERB_ONE) || FM_REVERB_DESIGN == FM_REVERB_PLATE
-/* one sample of the tank at half the rate: in -> 4 diffusers -> the two halves */
-static void plate_tick(fm_reverb *r, int32_t x)
+static FM_HOT void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t frames)
 {
-    fm_rv_line *L = r->line;
-    int32_t a, b, g = r->gain[0];
-    uint32_t i;
-    x = ap(&L[0], x, 24576);
-    x = ap(&L[1], x, 24576);
-    x = ap(&L[2], x, 20480);
-    x = ap(&L[3], x, 20480);
-    /* left half, fed by the right's end */
-    a = x + mulr(rd(&L[11], L[11].len), g);
-    b = rd_sway(r, &L[4], 0); /* the modulated allpass, g -0.7 */
-    { int32_t v = sat16(a + mulr(b, 22938)); wr(&L[4], v); a = b - mulr(v, 22938); }
-    wr(&L[5], a);
-    b = mulr(damp_lp(&r->lp[0], rd(&L[5], L[5].len), r->damp), g);
-    wr(&L[7], ap(&L[6], b, 16384));
-    /* right half, fed by the left's end */
-    a = x + mulr(rd(&L[7], L[7].len), g);
-    b = rd_sway(r, &L[8], 1);
-    { int32_t v = sat16(a + mulr(b, 22938)); wr(&L[8], v); a = b - mulr(v, 22938); }
-    wr(&L[9], a);
-    b = mulr(damp_lp(&r->lp[1], rd(&L[9], L[9].len), r->damp), g);
-    wr(&L[11], ap(&L[10], b, 16384));
-    /* the taps, x 0.6 */
-    a = b = 0;
-    for (i = 0; i < 7u; i++) {
-        int32_t t = rd(&L[4u + PL_TAP_LINE[i]], r->tap[i]);
-        a += PL_TAP_SIGN[i] > 0 ? t : -t;
-    }
-    for (i = 7; i < 14u; i++) {
-        int32_t t = rd(&L[4u + PL_TAP_LINE[i]], r->tap[i]);
-        b += PL_TAP_SIGN[i] > 0 ? t : -t;
-    }
-    r->pl = r->yl;
-    r->pr = r->yr;
-    r->yl = (int32_t)(((int64_t)a * 19661) >> 15);   /* (7 taps: past 16 bits, so 64 bits, once a tick) */
-    r->yr = (int32_t)(((int64_t)b * 19661) >> 15);
-}
-
-static void plate_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t frames)
-{
-    uint32_t i, ticks = (frames + r->odd) / 2u;
-    sway_set(r, 0, sway_back(r->line[4].len - 2u * r->exc - 2u, r->exc, r->ph[0]));
-    sway_set(r, 1, sway_back(r->line[8].len - 2u * r->exc - 2u, r->exc, r->ph[1]));
+    int16_t *B = r->buf, *B2 = r->buf2;
+    const uint32_t m = r->mask, m2 = r->mask2;
+    uint32_t p = r->p, i, j, ticks = (frames + r->odd) / 2u;
+    const uint16_t *base = r->base, *len = r->len;
+    const int32_t g = r->gain[0], k = r->damp, mix = r->mix;
+    int32_t lpl = r->lp[0], lpr = r->lp[1], sy0 = r->sw_y[0], sy1 = r->sw_y[1];
+    int32_t yl = r->yl, yr = r->yr, pl = r->pl, pr = r->pr, in_acc = r->in_acc;
+    uint32_t odd = r->odd, s4, s8;
+    int32_t e4, e8;
+    /* each line's offsets: its write (w), and its full delay before this tick's write (f) or after it
+     * (h: a line written earlier in the tick is read one sample nearer) */
+    const uint32_t f0 = base[0] + len[0], f1 = base[1] + len[1], f2 = base[2] + len[2], f3 = base[3] + len[3];
+    const uint32_t w4 = base[4], w5 = base[5], w6 = base[6], w7 = base[7], w8 = base[8], w9 = base[9],
+                   w10 = base[10], w11 = base[11];
+    const uint32_t h5 = w5 + len[5] - 1u, f6 = w6 + len[6], h7 = w7 + len[7] - 1u, h9 = w9 + len[9] - 1u,
+                   f10 = w10 + len[10], f11 = w11 + len[11];
+    uint32_t tap[14];
+    sway_set(r, 0, sway_back(len[4] - 2u * r->exc - 2u, r->exc, r->ph[0]));
+    sway_set(r, 1, sway_back(len[8] - 2u * r->exc - 2u, r->exc, r->ph[1]));
     r->ph[0] += r->ph_inc[0] * ticks;
     r->ph[1] += r->ph_inc[1] * ticks;
+    s4 = w4 + r->sw_i[0];
+    s8 = w8 + r->sw_i[1];
+    e4 = r->sw_eta[0];
+    e8 = r->sw_eta[1];
+    for (j = 0; j < 14u; j++)   /* the taps read after the tick's writes: one sample nearer */
+        tap[j] = base[4u + PL_TAP_LINE[j]] + r->tap[j] - 1u;
     for (i = 0; i < frames; i++) {
         int32_t x = sat16(((left[i] >> 1) + (right[i] >> 1)) >> IN_SHIFT), wl, wr_;
-        if (!r->odd) {
-            r->in_acc = x;
-            wl = r->yl;
-            wr_ = r->yr;
+        if (!odd) {
+            in_acc = x;
+            wl = yl;
+            wr_ = yr;
         } else {
-            plate_tick(r, (r->in_acc + x) >> 1); /* the pair's mean: down to half the rate */
-            wl = (r->pl + r->yl) >> 1;           /* and back up, linearly */
-            wr_ = (r->pr + r->yr) >> 1;
+            int32_t d, v, a, b;
+            x = (in_acc + x) >> 1;                   /* the pair's mean: down to half the rate */
+            d = AT2(f0); v = sat16(x - mulr(d, 24576)); AT2(base[0]) = (int16_t)v; x = d + mulr(v, 24576);
+            d = AT2(f1); v = sat16(x - mulr(d, 24576)); AT2(base[1]) = (int16_t)v; x = d + mulr(v, 24576);
+            d = AT2(f2); v = sat16(x - mulr(d, 20480)); AT2(base[2]) = (int16_t)v; x = d + mulr(v, 20480);
+            d = AT2(f3); v = sat16(x - mulr(d, 20480)); AT2(base[3]) = (int16_t)v; x = d + mulr(v, 20480);
+            /* left half, fed by the right's end */
+            a = x + mulr(AT(f11), g);
+            sy0 = b = sat16(mulr(AT(s4), e4) + AT(s4 + 1u) - mulr(sy0, e4));   /* the modulated allpass, g -0.7 */
+            v = sat16(a + mulr(b, 22938));
+            AT(w4) = (int16_t)v;
+            a = b - mulr(v, 22938);
+            AT(w5) = (int16_t)sat16(a);
+            lpl += mulr(AT(h5) - lpl, k);
+            b = mulr(lpl, g);
+            d = AT(f6); v = sat16(b - mulr(d, 16384)); AT(w6) = (int16_t)v;
+            AT(w7) = (int16_t)sat16(d + mulr(v, 16384));
+            /* right half, fed by the left's end */
+            a = x + mulr(AT(h7), g);
+            sy1 = b = sat16(mulr(AT(s8), e8) + AT(s8 + 1u) - mulr(sy1, e8));
+            v = sat16(a + mulr(b, 22938));
+            AT(w8) = (int16_t)v;
+            a = b - mulr(v, 22938);
+            AT(w9) = (int16_t)sat16(a);
+            lpr += mulr(AT(h9) - lpr, k);
+            b = mulr(lpr, g);
+            d = AT(f10); v = sat16(b - mulr(d, 16384)); AT(w10) = (int16_t)v;
+            AT(w11) = (int16_t)sat16(d + mulr(v, 16384));
+            /* the taps (Dattorro's), x 0.6; their sums pass 16 bits, so 64-bit, once a tick */
+            a = AT(tap[0]) + AT(tap[1]) - AT(tap[2]) + AT(tap[3]) - AT(tap[4]) - AT(tap[5]) - AT(tap[6]);
+            b = AT(tap[7]) + AT(tap[8]) - AT(tap[9]) + AT(tap[10]) - AT(tap[11]) - AT(tap[12]) - AT(tap[13]);
+            pl = yl;
+            pr = yr;
+            yl = (int32_t)(((int64_t)a * 19661) >> 15);
+            yr = (int32_t)(((int64_t)b * 19661) >> 15);
+            p--;
+            wl = (pl + yl) >> 1;                     /* and back up, linearly */
+            wr_ = (pr + yr) >> 1;
         }
-        r->odd ^= 1u;
-        left[i] += (int32_t)(((int64_t)wl * r->mix) >> (15 - IN_SHIFT));   /* (the taps' sum can pass 16 bits) */
-        right[i] += (int32_t)(((int64_t)wr_ * r->mix) >> (15 - IN_SHIFT));
+        odd ^= 1u;
+        left[i] += (int32_t)(((int64_t)wl * mix) >> (15 - IN_SHIFT));
+        right[i] += (int32_t)(((int64_t)wr_ * mix) >> (15 - IN_SHIFT));
     }
+    r->p = p;
+    r->odd = (uint8_t)odd;
+    r->lp[0] = lpl; r->lp[1] = lpr; r->sw_y[0] = sy0; r->sw_y[1] = sy1;
+    r->yl = yl; r->yr = yr; r->pl = pl; r->pr = pr; r->in_acc = in_acc;
 }
 #endif
 
+/* (in flash: it checks and, after a turn-on or all sound off, empties the lines, then enters the
+ * block's loop in RAM text, #391; a call goes from flash into RAM through FM_FAR, never back) */
 void fm_reverb_process_block(fm_reverb *r, int32_t *left, int32_t *right, uint32_t frames)
 {
     if (!fm_reverb_is_on(r)) return;
     if (r->clear) empty(r);
 #if !defined(FM_REVERB_ONE) || FM_REVERB_DESIGN == FM_REVERB_FDN4
     if (r->design == FM_REVERB_FDN4) {
-        fdn_block(r, left, right, frames);
+        FM_FAR(fdn_block)(r, left, right, frames);
         return;
     }
 #endif
 #if !defined(FM_REVERB_ONE) || FM_REVERB_DESIGN == FM_REVERB_PLATE
-    if (r->design == FM_REVERB_PLATE) plate_block(r, left, right, frames);
+    if (r->design == FM_REVERB_PLATE) FM_FAR(plate_block)(r, left, right, frames);
 #endif
 }
