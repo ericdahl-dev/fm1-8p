@@ -5,10 +5,7 @@
 /* Params with no knob yet. (05 BEND RANGE and 07 VOICE MODE are on 0B.) A param added here is one the
  * panel can't edit; say why beside it. */
 static const uint16_t REACH_NO_PAGE[] = {
-    FM_PARAM_REVERB_MIX,                        /* #197: page 6B's MIX, TIME and TONE come in the UI's own PR */
-    FM_PARAM_REVERB_TIME_MS,
-    FM_PARAM_REVERB_TONE,
-    FM_PARAM_COUNT,                             /* (a value no param has keeps the list) */
+    FM_PARAM_COUNT,                             /* (none now: a value no param has keeps the list) */
 };
 
 static int reach_exempt(uint32_t id)
