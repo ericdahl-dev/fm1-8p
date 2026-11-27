@@ -9,7 +9,7 @@ in [fixed-point.md](fixed-point.md); voices, stealing and unison in
 | --- | --- | --- | --- |
 | `lfo_wave` | 0..3 | 0 | 0 triangle, 1 saw (rising), 2 square, 3 random (sample and hold) |
 | `lfo_rate_centihz` | 1..3000 | 500 | rate in hundredths of a hertz: 0.01 Hz to 30 Hz (5 Hz) |
-| `lfo_delay_ms` | 0..5000 | 0 | after a note starts, the LFO is held at zero this long, then fades in over as long again |
+| `lfo_delay_ms` | 0..5000 | 0 | after a note starts, the LFO is held at zero this long, then fades in over twice as long |
 | `lfo_pitch_cents` | 0..1200 | 0 | pitch depth (vibrato) at full LFO, each way: osc 1's, and osc 2's while `lfo_pitch_osc2_cents` is -1 |
 | `lfo_pitch_osc2_cents` | -1..1200 | -1 | osc 2's own vibrato depth; -1 takes `lfo_pitch_cents` |
 | `pitch_env_osc1_cents` | -3200..3200 | 0 | osc 1's pitch at full envelope, signed (the pitch envelope, #58) |
@@ -95,9 +95,12 @@ count within one cycle.
 When a voice starts a note from silence (from idle), and when a stolen voice
 starts its new note (as PG-8X 2.0.13's does, measured 2026-11-20, #312), its
 LFO level drops to zero and is held there for `lfo_delay_ms`, then rises
-in a straight line to full over another `lfo_delay_ms`. With a delay of 0 the
+in a straight line to full over twice `lfo_delay_ms`, so it is full at three
+times the delay. That is PG-8X 2.0.13's shape (measured 2026-11-26, #384: the
+depth leaves zero at b/127 s and is full at about three times that, at
+bytes 32, 76 and 127, at either LFO rate tried). With a delay of 0 the
 LFO is at full depth at once. The delay is counted in ticks (rounded down),
-the fade step is `2^30 / delay_ticks`, both computed when the parameter is
+the fade step is `2^30 / (2 x delay_ticks)`, both computed when the parameter is
 set, so the tick has no divide. A voice keeps the tick its delay started at,
 not a running counter, so ticks without modulation have nothing to count.
 The start is the first tick after the note starts, even while every depth
@@ -111,10 +114,11 @@ from where they are, so the pitch never jumps by up to the full depth in one
 sample. `restriking_a_sounding_note_keeps_its_vibrato` restrikes a note at
 the top of a one-octave vibrato and checks the pitch stays there.
 
-`lfo_delay_holds_modulation_at_zero_then_fades_it_in` plays a note with a
-5 Hz square vibrato, a 100-cent depth and a 400 ms delay, and checks the
-pitch is unmodulated (under 0.5 cent) for 400 ms, then grows through about
-12, 37, 62 and 87 cents in the next four half-cycles, then sits at 100.
+`lfo_delay_holds_modulation_at_zero_then_fades_it_in_over_twice_the_delay`
+plays a note with a square vibrato, a 100-cent depth and a 300 ms delay, at
+5 Hz and at 2.5 Hz, and checks the pitch is unmodulated (under 0.5 cent) for
+300 ms, then grows in a straight line (about 8, 25, 42, 58, 75 and 92 cents in
+the 5 Hz half-cycles), then sits at 100 from 900 ms.
 
 The filter has a second control clock: each voice updates its cutoff (and
 the mix envelope) every 16 samples, counted from that note's start, so a note
