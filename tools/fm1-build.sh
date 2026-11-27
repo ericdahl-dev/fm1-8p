@@ -32,6 +32,8 @@
 #   JIELI_TOOLCHAIN (its directory must be the pinned version), AC79_SDK (a checkout),
 #   FM1_DOCK (a clone at the pinned commit), PYTHON (needs Pillow), FM1_LIVE (the pinned fm1-live
 #   build; FM1_EMU_UNPINNED=1 takes another, marked in the report). fetch never changes these.
+#   FM1_NM: an nm for the module symbol check where the toolchain's (a Linux binary) can't run: on
+#   macOS, FM1_NM=nm (its llvm-nm reads the module's ELF).
 # Downloads need curl, git, tar and xz.
 
 sha256() {
@@ -177,12 +179,13 @@ emu_play_report() {
 # check_module_symbols DIR: the module hbmod linked in DIR (module_02200000.elf) takes nothing from the
 # toolchain's libraries ($JIELI_TOOLCHAIN/pi32v2/lib/lib*.a) but allowed helpers: no soft-float, libm
 # or heap. It reads the linked image, not DIR's objects: hbmod never cleans DIR, so an object from an
-# older build may sit there. It runs the toolchain's own nm.
+# older build may sit there. It runs the toolchain's own nm, or FM1_NM: a host its Linux nm can't run on
+# (macOS: its own llvm-nm reads these ELF files) names another.
 check_module_symbols() {
     (
         tmp=$(mktemp -d) || exit 1
         trap 'rm -rf "$tmp"' EXIT
-        nm=$JIELI_TOOLCHAIN/pi32v2/bin/nm
+        nm=${FM1_NM:-$JIELI_TOOLCHAIN/pi32v2/bin/nm}
         "$nm" "$1/module_02200000.elf" >"$tmp/linked" && "$nm" "$JIELI_TOOLCHAIN"/pi32v2/lib/lib*.a >"$tmp/libs" ||
             exit 1
         awk 'NF == 3 { print $3 }' "$tmp/linked" | sort -u >"$tmp/linked.n"
@@ -307,7 +310,11 @@ check_inputs() {
         { echo "fm1-build: $FM1_DOCK is not fm1-dock $FM1_DOCK_SHA" >&2; rc=1; }
     verify_toolchain_dir "$JIELI_TOOLCHAIN" "$JIELI_TOOLCHAIN_DIR" || rc=1
     [ -x "$JIELI_TOOLCHAIN/pi32v2/bin/clang" ] || { echo "fm1-build: no clang in $JIELI_TOOLCHAIN" >&2; rc=1; }
-    [ -x "$JIELI_TOOLCHAIN/pi32v2/bin/nm" ] || { echo "fm1-build: no nm in $JIELI_TOOLCHAIN" >&2; rc=1; }
+    if [ -n "${FM1_NM:-}" ]; then
+        [ -x "$FM1_NM" ] || command -v "$FM1_NM" >/dev/null 2>&1 || { echo "fm1-build: FM1_NM=$FM1_NM is not a program" >&2; rc=1; }
+    else
+        [ -x "$JIELI_TOOLCHAIN/pi32v2/bin/nm" ] || { echo "fm1-build: no nm in $JIELI_TOOLCHAIN" >&2; rc=1; }
+    fi
     for pin in $AC79_SDK_FILES; do
         verify_sha256 "$AC79_SDK/cpu/wl82/tools/${pin%%:*}" "${pin#*:}" || rc=1
     done
