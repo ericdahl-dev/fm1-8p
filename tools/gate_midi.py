@@ -87,8 +87,9 @@ def score():
 
 
 def wide127():
-    """A wide four-note chord at velocity 127, held 6 s: the loudest everyday case, where the FM-1 module
-    clips (#320). Four notes, so on 4 voices no voice is stolen."""
+    """A wide four-note chord at velocity 127, held 6 s: the loudest everyday case, where the engine's soft
+    clip bends the most (#320; at the device's gain, x1, the module no longer clips). Four notes, so on 4
+    voices no voice is stolen."""
     return [(n, 0.25, 6.25, 127) for n in (36, 48, 79, 91)]
 
 

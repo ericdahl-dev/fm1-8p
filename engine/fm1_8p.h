@@ -41,8 +41,8 @@
 /* The output stage's gain (#342, engine/output.c): the soft clip's int16
  * times 2^shift, clamped at +-32767. 0 is the engine's own level (the
  * default, what the gate and the scorecard render); the FM-1 module plays at
- * FM_OUT_SHIFT_DEVICE (#320 picks its value). */
-#define FM_OUT_SHIFT_DEVICE 2
+ * FM_OUT_SHIFT_DEVICE: 0, the engine's level, #320. */
+#define FM_OUT_SHIFT_DEVICE 0
 #define FM_OUT_SHIFT_MAX 4
 
 /* Frames mixed at a time inside fm_engine_render (any block size works). */
