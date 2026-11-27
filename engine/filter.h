@@ -111,7 +111,7 @@ static inline int fm_filter_is_wire(const fm_filter *f)
 }
 
 /* The sections' input and the output are held to +-FM_FILTER_HOLD (Q8.24
- * 16.0; engine/filter.c): past anything the pair plays (3.930, a ringed
+ * 16.0; engine/filter.c): past anything the pair plays (3.868, a ringed
  * spike) through the bass boost (2.28 x) at the input level's 1.0, 8.8. */
 #define FM_FILTER_HOLD (16 << 24)
 

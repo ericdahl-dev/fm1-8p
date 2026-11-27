@@ -103,24 +103,36 @@ void fm_osc_set_inc(fm_osc *o, uint32_t inc)
  * The pre-emphasis (#387). That fit was made on PG-8X's output, so it has
  * PG-8X's top-band roll-off in it, and the source lowpass (#299, output.h)
  * now adds that roll-off to every source: the spike would get it twice (2.5
- * to 2.7 dB rms off PG-8X's PULSE over 1-20 kHz). So the spike takes most of
+ * to 2.7 dB rms off PG-8X's PULSE over 1-20 kHz). So the spike takes part of
  * the lowpass back off itself, as a one-sample pre-emphasis:
- *   y'(u) = (1 + c) y(u) - c y(u - one sample),  c = SPIKE_PRE (1 - a) / a
- * with a the lowpass's weight at the sample rate (c is 0 where the lowpass
- * is a wire). Fitted to PG-8X's PULSE at six pitches, c is 0.27 at 44.1 kHz
- * and 0.33 at 48 kHz, 0.62 (1 - a) / a at both. It is the same closed form:
- * e^(-u / tau) is common to both terms, so only the two constants change
- * (update_spike), and y' is still a function of the phase alone, continuous,
- * and no less band-limited than y: it is a filter of the samples. Only the
- * sample right after the impulse differs: the sample before it came before
- * the impulse, whose own response the closed form must not count there
- * (spike_at's one branch).
+ *   y'(u) = s ((1 + c) y(u) - c y(u - one sample))
+ *   c = SPIKE_PRE (1 - a) / a,  s = 1 - SPIKE_PRE_TRIM c
+ * with a the lowpass's weight at the sample rate: c is 0.197 at 44.1 kHz and
+ * 0.240 at 48 kHz, and 0 where the lowpass is a wire (32 kHz and below: the
+ * spike is main's there, sample for sample).
+ * - SPIKE_PRE: PG-8X's PULSE at six pitches fits best at 0.62 (0.90 / 0.83 dB
+ *   rms at 44.1 / 48 kHz), but the pre-emphasis sharpens the spike's peak, and
+ *   a ringed pair of spikes then came within 0.05 of the pair's hold (3.950
+ *   of 4.0; 3.868 on main). At 0.45 the fit is 1.07 dB rms at both rates
+ *   (main, with no lowpass: 1.80 / 1.41).
+ * - SPIKE_PRE_TRIM: the level trim s (-0.31 dB at 44.1 kHz, -0.37 at 48 kHz)
+ *   puts that pair's peak back at main's, 3.868. It leaves the spike 0.16 to
+ *   0.25 dB under PG-8X's level against the square at C3 to C6 (it was within
+ *   0.1).
+ * It is the same closed form: e^(-u / tau) is common to both terms, so only
+ * the constants change (update_spike), and y' is still a function of the
+ * phase alone (the cross-mod's bent increment included: the one branch below
+ * goes by the phase), continuous, and no less band-limited than y: it is a
+ * filter of the samples. Only the sample right after the impulse differs:
+ * the sample before it came before the impulse, whose own response the
+ * closed form must not count there (spike_at's one branch).
  */
-#define SPIKE_PRE_Q30 665719931u /* 0.62, Q30 */
+#define SPIKE_PRE_Q30 483183821u     /* 0.45, Q30 */
+#define SPIKE_PRE_TRIM_Q30 187904819 /* 0.175, Q30 */
 #define SPIKE_LP_HZ 3050u
 #define SPIKE_KQ 1811899801u /* 2 pi SPIKE_LP_HZ / ln 2 x 2^16 */
-#define SPIKE_KA 92113701    /* A 2 pi SPIKE_LP_HZ (A / tau) in Q8.24: 5.490 */
-#define SPIKE_A_Q24 4807u    /* A x 2^24 (A = 2.865e-4 s: 2.9317e-4 before the pre-emphasis, which adds 0.2 dB) */
+#define SPIKE_KA 94258198    /* A 2 pi SPIKE_LP_HZ (A / tau) in Q8.24: 5.618 */
+#define SPIKE_A_Q24 4919u    /* A x 2^24 (A = 2.9317e-4 s) */
 #define LN2_Q16 45426u
 
 /* 2^(-i / 64), Q30, i = 0..64 */
@@ -281,17 +293,18 @@ static void update_spike(fm_osc_pair *p, uint8_t i)
         p->sp_p1[i] = (int32_t)((((int64_t)SPIKE_KA * LN2_Q16) * p1) >> 30);
         p->sp_zc[i] = (int32_t)(((int64_t)SPIKE_KA * zc) >> 18);
     }
-    if (p->sp_c) {
-        /* the pre-emphasis: (1 + c) y(u) - c y(u - d), d one sample: both constants times
-         * G = 1 + c - c e^(d / tau) (0.49..1), and c e^(d / tau) (d / tau) of the slope's
-         * 1 / (1 - q) onto the constant (sp_kq is d / tau in log2, as the slope is on u / tau) */
-        int64_t gq = (1ll << 30) + p->sp_c - p->sp_ce;
+    if (p->sp_ce) {
+        /* the pre-emphasis: s ((1 + c) y(u) - c y(u - d)), d one sample: both constants times
+         * G = s (1 + c - c e^(d / tau)) (0.82..1 over 32 to 192 kHz, least at 88.2 kHz), and
+         * s c e^(d / tau) (d / tau) of the slope's 1 / (1 - q)
+         * onto the constant (sp_kq is d / tau in log2, as the slope is on u / tau) */
         int64_t add = ((((int64_t)p->sp_p1[i] * p->sp_ce) >> 30) * p->sp_kq) >> 20;   /* Q26 -> Q22 */
-        p->sp_p1[i] = (int32_t)(((int64_t)p->sp_p1[i] * gq) >> 30);
-        p->sp_zc[i] = (int32_t)((((int64_t)p->sp_zc[i] * gq) >> 30) + add);
+        p->sp_p1[i] = (int32_t)(((int64_t)p->sp_p1[i] * p->sp_gq) >> 30);
+        p->sp_zc[i] = (int32_t)((((int64_t)p->sp_zc[i] * p->sp_gq) >> 30) + add);
     }
     m = (int64_t)(((uint64_t)p->sp_ar * dt) >> 32);  /* A / T */
     p->sp_mean[i] = (int32_t)(g0 < g ? (m * (int64_t)g0) >> 16 : m);   /* (clamped, g is 2^16: the shape's T) */
+    if (p->sp_ce) p->sp_mean[i] = (int32_t)(((int64_t)p->sp_mean[i] * p->sp_s) >> 30);
 }
 
 /* The spike of oscillator `i` at phase t (the time since its impulse),
@@ -307,12 +320,13 @@ static int32_t spike_at(const fm_osc_pair *p, uint8_t i, uint32_t t)
     if (v >= (30u << 16)) return -p->sp_mean[i];
     e = (int32_t)(((uint32_t)spike_exp[(v >> 6) & 1023u] << 15) >> (v >> 16));   /* e^(-u / tau), Q30 */
     w = (int32_t)(((int64_t)v * p->sp_p1[i]) >> 20) + p->sp_zc[i];
-    if (t < p->osc[i].inc && p->sp_c) {
-        /* the sample right after the impulse: the one before it had no share of this impulse,
-         * so c e^(d / tau) KA (u - d) / tau comes back off (negative: u is under d). Once a
-         * cycle. */
+    if (v < p->sp_kq) {
+        /* within a sample of the impulse (v under one sample's decay: by the phase, not by the
+         * increment, which the cross-mod bends): the sample before it had no share of this impulse,
+         * so s c e^(d / tau) KA (u - d) / tau comes back off (negative, and 0 at u = d; 0 with no
+         * pre-emphasis). Once a cycle. */
         int64_t f1 = ((((int64_t)SPIKE_KA * LN2_Q16) >> 14) * p->sp_ce) >> 30;   /* Q26, on v */
-        w += (int32_t)(((int64_t)v * f1) >> 20) - (int32_t)((f1 * p->sp_kq) >> 20);
+        w += (int32_t)((f1 * ((int64_t)v - p->sp_kq)) >> 20);
     }
     return (int32_t)(((int64_t)e * w) >> 28) - p->sp_mean[i];
 }
@@ -396,7 +410,8 @@ void fm_osc_pair_reset(fm_osc_pair *p, uint32_t seed)
     p->recip0_sh = 0;
     p->noise = seed ? seed : 0x2545F491u;
     p->sp_kq = p->sp_ar = 0;
-    p->sp_c = p->sp_ce = 0;
+    p->sp_s = p->sp_gq = 1 << 30;
+    p->sp_ce = 0;
     for (i = 0; i < 2; i++) {
         p->sp_g[i] = 0;
         p->sp_p1[i] = p->sp_zc[i] = p->sp_mean[i] = 0;
@@ -587,14 +602,21 @@ static void tune_osc(fm_osc_pair *p, uint8_t i, int32_t pitch,
         int32_t a = fm_out_source_lp_weight(sample_rate);
         p->sp_kq = sample_rate ? SPIKE_KQ / sample_rate : 0;
         p->sp_ar = SPIKE_A_Q24 * sample_rate;
-        /* the pre-emphasis's c = 0.62 (1 - a) / a (a is 0.5..1: c 0..0.62) and c e^(d / tau), the
-         * reciprocal of the decay over a sample: over 0.5 wherever c is not 0 (rates above
-         * 32 kHz: the decay is 0.55 there), the range of Newton's reciprocal */
-        p->sp_c = (int32_t)(((uint64_t)(32768 - a) * SPIKE_PRE_Q30) / (uint32_t)a);
+        /* the pre-emphasis's c = SPIKE_PRE (1 - a) / a (a is 0.5..1), its level trim
+         * s = 1 - SPIKE_PRE_TRIM c, and e^(d / tau), the reciprocal of the decay over a sample: over
+         * 0.5 wherever c is not 0 (rates above 32 kHz: the decay is 0.55 there), the range of
+         * Newton's reciprocal */
+        p->sp_s = p->sp_gq = 1 << 30;
         p->sp_ce = 0;
-        if (p->sp_c) {
-            int64_t m = exp2_neg(p->sp_kq);
-            p->sp_ce = (int32_t)((p->sp_c * recip_step(m, recip_step(m, recip_step(m, recip_seed(m))))) >> 30);
+        {
+            int64_t c = (int64_t)(((uint64_t)(32768 - a) * SPIKE_PRE_Q30) / (uint32_t)a);
+            if (c) {
+                int64_t m = exp2_neg(p->sp_kq), sc;
+                p->sp_s = (int32_t)((1ll << 30) - ((c * SPIKE_PRE_TRIM_Q30) >> 30));
+                sc = (c * p->sp_s) >> 30;
+                p->sp_ce = (int32_t)((sc * recip_step(m, recip_step(m, recip_step(m, recip_seed(m))))) >> 30);
+                p->sp_gq = (int32_t)(p->sp_s + sc - p->sp_ce);
+            }
         }
     }
     fm_osc_set_inc(&p->osc[i], mod_inc(p->base[i], p->mod_oct[i]));

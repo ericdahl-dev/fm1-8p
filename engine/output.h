@@ -43,8 +43,9 @@ int32_t fm_out_source_lp_weight(uint32_t sample_rate);
 
 /*
  * One sample x of the source lowpass with weight a (Q15, 0..32768); *last holds the input before it (0 after
- * init: silence). x and *last must lie within +-FM_OUT_SOURCE_LP_MAX (2^30, Q8.24 64.0), so that their
- * difference fits int32 and the multiply is one 32 x 32 -> 64. fm_out_mix_block keeps to it for any sum.
+ * init: silence). x and *last must each be at least -FM_OUT_SOURCE_LP_MAX and under +FM_OUT_SOURCE_LP_MAX
+ * (2^30, Q8.24 64.0), so that their difference fits int32 and the multiply is one 32 x 32 -> 64.
+ * fm_out_mix_block keeps to it for any sum.
  */
 #define FM_OUT_SOURCE_LP_MAX (1 << 30)
 static inline int32_t fm_out_source_lp(int32_t x, int32_t a, int32_t *last)
@@ -58,7 +59,7 @@ static inline int32_t fm_out_source_lp(int32_t x, int32_t a, int32_t *last)
 /*
  * The voices' sum to the mix, in place: each of the n Q8.24 samples times `gain` (Q1.30, the mix gain), then
  * through the source lowpass (weight a, state *last). `gain` must be 0..FM_OUT_MIX_GAIN_MAX (0.5): then any
- * int32 sum scales to within +-2^30, the lowpass's range (the engine's largest gain is 0.36,
+ * int32 sum scales to -2^30 or more and under 2^30, the lowpass's range (the engine's largest gain is 0.36,
  * FM_MIX_GAIN_Q30 at one voice and full level: engine.c checks it at compile time). The one per-sample loop
  * between the voices and the chorus, in a function of its own so it can be placed with the other per-sample
  * code by one attribute (#304).
