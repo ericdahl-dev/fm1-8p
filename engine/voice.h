@@ -266,6 +266,16 @@ static inline const fm_vfilter *fm_voice_filter(const fm_voice *v)
 }
 
 /*
+ * `frames` samples pass on a voice that is not sounding (fm_voice_active
+ * 0), so fm_voice_render_add is not called for them: its filter envelope
+ * and envelope 2 run on through their release, as PG-8X's do (#396), so the
+ * voice's next note starts from where they then are. Two tests and nothing
+ * else once both have ended, or on a voice not played yet; else a count
+ * added (fm_env_skip), caught up within FM_ENV_LAG_MAX samples.
+ */
+void fm_voice_idle_pass(fm_voice *v, uint32_t frames);
+
+/*
  * Adds `frames` samples of the voice (Q8.24) to `mix`. `osc` is scratch
  * for `frames` samples (the oscillators' chunk, when nothing can change
  * them within it).

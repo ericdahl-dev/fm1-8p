@@ -173,15 +173,11 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
     fm_voice_mark(v, FM_BUSY_CUTOFF, 0);
 }
 
-/* Gates both envelopes on. The filter envelope starts from where the amp
- * envelope does: from its level on a retrigger or a steal, from 0 on an
- * idle voice, whatever level it was left at. */
+/* Gates the envelopes on, each from the level it is at: the filter
+ * envelope and envelope 2 carry on from wherever their last note left
+ * them, on an idle voice too, as PG-8X's do (#396). */
 static void gate_on(fm_voice *v)
 {
-    if (v->amp_env.stage == FM_ENV_IDLE) {
-        fm_env_reset(&v->filter_env);
-        fm_env_reset(&v->env2);
-    }
     fm_env_key(&v->amp_env, v->note);
     fm_env_key(&v->filter_env, v->note);
     fm_env_gate_on(&v->amp_env);
@@ -474,8 +470,14 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
         mix[i] += (int32_t)(((int64_t)last * level) >> 30);
     }
     fm_vfilter_pass(&v->vf, last, i);
-    lazy_envs_pass(v, i);
+    lazy_envs_pass(v, frames); /* past the amp's end too (#396) */
     return 1;
+}
+
+void fm_voice_idle_pass(fm_voice *v, uint32_t frames)
+{
+    if (v->filter_env.stage != FM_ENV_IDLE) fm_env_skip(&v->filter_env, frames);
+    if (v->env2.stage != FM_ENV_IDLE) fm_env_skip(&v->env2, frames);
 }
 
 void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
@@ -490,7 +492,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
     for (i = 0; i < frames; i++) {
         int32_t level, fenv, out;
         if (v->amp_env.stage == FM_ENV_IDLE) { /* the release ended */
-            lazy_envs_pass(v, i - told);
+            lazy_envs_pass(v, frames - told); /* theirs run on (#396) */
             return;
         }
         level = fm_env_step(&v->amp_env);
