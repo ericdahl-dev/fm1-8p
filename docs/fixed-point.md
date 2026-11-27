@@ -312,8 +312,14 @@ resonant 4-pole (24 dB/octave) lowpass.
   patch sounds exactly as it did before the filter. At resonance 0 the top
   is fitted to PG-8X 2.0.13's (#151, `engine/filter.c`): the sections' f0
   stops at 0.306 of the sample rate, they take 0.5 more damping, and the
-  output fades to the input over the top 2210 cents (from 12190). That is
-  all control-rate math; resonances from 389 per mille up are as before.
+  output fades to the input over the top 2210 cents (from 12190). Resonances
+  1 to 388 per mille are blended: the f0 stop and the damping fall off as
+  `1 - 1.25 w` (w: how much peak), the long fade as `1 - 5 w` (gone by about
+  resonance 100), and the stop gives way over the top 600 cents where the
+  long fade is not all there. From 389 up everything is as before. It is all
+  control-rate math. **Rates:** this top is fitted at 44.1 and 48 kHz and is
+  used only from 44.1 to 48 kHz; every other rate (8 to 192 kHz) keeps the
+  top it had, coefficient for coefficient.
 - **Highpass.** `x - lowpass(x)` with a one-pole lowpass, so it cannot
   resonate. Turning it on clears that lowpass, so the output starts equal to
   the input instead of jumping by whatever it held the last time it was on. Position 0 is off (a wire), 1 to 3 have corners at about 100, 240

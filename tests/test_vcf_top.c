@@ -47,31 +47,81 @@ static void vt_response(uint32_t rate, int32_t cutoff, int32_t resonance, double
     for (i = 0; i < VT_HARMONICS; i++) db[i] -= open[i];
 }
 
+/* Up the cutoff from 12100 to open by `step` cents at `rate`, resonance 0: the most any harmonic read (vt_k
+ * and h34) is over the open filter, and the most one falls from a step to the next, dB. */
+static void vt_opening(uint32_t rate, int32_t step, double *over, double *fall)
+{
+    static const int k[] = { 8, 15, 23, 31, 34, 37 };
+    enum { N = sizeof k / sizeof k[0] };
+    double open[N], prev[N], h1;
+    int32_t c = FM_FILTER_OPEN_CENTS;   /* the first pass: the open filter */
+    int i, first = 1;
+    *over = *fall = -1e9;
+    while (c <= FM_FILTER_OPEN_CENTS) {
+        fm_engine_init(&vt_eng, rate, 4);
+        fm_engine_set_param(&vt_eng, FM_PARAM_AMP_ATTACK_MS, 0);
+        fm_engine_set_param(&vt_eng, FM_PARAM_AMP_DECAY_MS, 0);
+        fm_engine_set_param(&vt_eng, FM_PARAM_AMP_SUSTAIN, 1000);
+        fm_engine_set_param(&vt_eng, FM_PARAM_OSC1_WAVE, FM_WAVE_SAW);
+        fm_engine_set_param(&vt_eng, FM_PARAM_FILTER_CUTOFF_CENTS, c);
+        fm_engine_note_on(&vt_eng, 72, 100);
+        fm_engine_render(&vt_eng, vt_buf, 4800 + VT_DFT_N);
+        h1 = tone_amp(vt_buf + 2 * 4800, VT_DFT_N, 0, note_hz(72), rate);
+        for (i = 0; i < N; i++) {
+            double db = 20.0 * log10(tone_amp(vt_buf + 2 * 4800, VT_DFT_N, 0, k[i] * note_hz(72), rate) / h1);
+            if (first) {
+                open[i] = db;
+                continue;
+            }
+            db -= open[i];
+            if (db > *over) *over = db;
+            if (c > 12100 && prev[i] - db > *fall) *fall = prev[i] - db;
+            prev[i] = db;
+        }
+        c = first ? 12100 : c + step;
+        first = 0;
+    }
+}
+
 /*
- * At resonance 0 the top opens one way, as PG-8X's does: from VCF FREQ 108 to 127 each harmonic of PG-8X's saw
- * rises with every step and none goes over its open level (at 44.1 kHz h37, 19.4 kHz, reads -26.2 dB at 108,
- * -16.4 at 112, -8.5 at 116, -3.5 at 120, -1.0 at 124 and 0 at 127). So here, at the FM-1's rate: up the
- * cutoff from 12100 (FREQ 108) to open in 100-cent steps, no harmonic falls by more than 0.3 dB a step or
- * reads more than 0.3 dB over the open filter. (Before #151 the sections ran on to 0.425 of the rate, and h37
- * read +14.6 dB over open at 13752, FREQ 120.)
+ * At resonance 0 the top opens as PG-8X's does: from VCF FREQ 108 to 127 each harmonic of PG-8X's saw rises
+ * with every step and none goes over its open level (at 44.1 kHz h37, 19.4 kHz, reads -26.2 dB at 108, -16.4 at
+ * 112, -8.5 at 116, -3.5 at 120, -1.0 at 124 and 0 at 127). Here, at the FM-1's rate, up the cutoff from 12100
+ * (FREQ 108) to open in 20-cent steps: no harmonic reads more than 0.3 dB over the open filter, and none falls
+ * by more than 1.5 dB from a step to the next. (Before #151 the sections ran on to 0.425 of the rate: h37 read
+ * +14.6 dB over open at 13752, FREQ 120, and fell 9.8 dB in 100 cents at 12500.)
+ *
+ * Ours is not strictly one way: near 12560 (FREQ 111.4), where section 1's zeros leave, the harmonics around
+ * 17.5 kHz dip about 1.2 dB as the cutoff rises 110 cents (h34: 0.35 dB in one 20-cent step), near -18 dB.
  */
 TT_TEST(vcf_top_opens_one_way_at_resonance_0)
 {
-    double prev[VT_HARMONICS], db[VT_HARMONICS], over = -1e9, fall = -1e9;
-    int32_t c, over_at = 0, fall_at = 0;
-    int i;
-    for (c = 12100; c <= FM_FILTER_OPEN_CENTS; c += 100) {
-        vt_response(44100, c, 0, db);
-        for (i = 0; i < VT_HARMONICS; i++) {
-            if (db[i] > over) over = db[i], over_at = c;
-            if (c > 12100 && prev[i] - db[i] > fall) fall = prev[i] - db[i], fall_at = c;
-            prev[i] = db[i];
-        }
-    }
-    printf("    resonance 0, 12100 to open: most over the open filter %+.2f dB (at %d), largest fall a step %.2f dB "
-           "(at %d)\n", over, (int)over_at, fall, (int)fall_at);
+    double over, fall;
+    vt_opening(44100, 20, &over, &fall);
+    printf("    44.1 kHz, resonance 0, 12100 to open by 20 cents: most over the open filter %+.2f dB, largest fall "
+           "a step %.2f dB\n", over, fall);
     TT_CHECK(over < 0.3);
-    TT_CHECK(fall < 0.3);
+    TT_CHECK(fall < 1.5);
+}
+
+/*
+ * The top is fitted at 44.1 and 48 kHz, and only rates from 44.1 to 48 kHz get it: its fade and damping are in
+ * cents of cutoff and its f0 stop is a share of the rate, so at a higher rate the sections never reach the
+ * stop and the long fade to the input cuts a notch (192 kHz: -50.5 dB at 15.4 kHz at cutoff 12450, and a 33 dB
+ * fall as the cutoff rises 260 cents; 96 kHz: 3.7 dB). Other rates keep the top they had: at 96 and 192 kHz no
+ * harmonic falls by more than 1 dB over a 50-cent step.
+ */
+TT_TEST(vcf_top_other_rates_keep_the_top_they_had)
+{
+    static const uint32_t rate[] = { 96000, 192000 };
+    size_t r;
+    for (r = 0; r < sizeof rate / sizeof rate[0]; r++) {
+        double over, fall;
+        vt_opening(rate[r], 50, &over, &fall);
+        printf("    %u Hz, resonance 0, 12100 to open by 50 cents: most over the open filter %+.2f dB, largest fall "
+               "a step %.2f dB\n", (unsigned)rate[r], over, fall);
+        TT_CHECK(fall < 1.0);
+    }
 }
 
 /* PG-8X's response at the harmonics (the header's method), by VCF FREQ and the engine's cutoff for it */
@@ -151,9 +201,42 @@ TT_TEST(vcf_top_reads_as_pg8x_at_48k)
     TT_CHECK(worst < 1.5);
 }
 
+/*
+ * A little resonance keeps the top harmonic. At resonance 290 and 340 per mille (VCF RES 16 and 20) and VCF
+ * FREQ 114, PG-8X's h37 reads -8.94 and -8.33 dB (44.1 kHz, re the open RES 0 filter). The sections' own
+ * shortfall there is 11 to 12 dB (the resonant top, #168). The long fade to the input must not add to it: a
+ * few per cent of the input against the sections' output, out of phase past f0, took h37 to 17.2 and 23.8 dB
+ * under PG-8X when the fade was handed over as slowly as the f0 stop. So the fade is resonance 0's alone
+ * (gone by about resonance 100), and no harmonic read here is more than 13 dB under PG-8X's, or 6 over.
+ */
+TT_TEST(vcf_top_low_resonance_keeps_its_top_harmonic)
+{
+    static const struct { int32_t res; double pg[VT_HARMONICS]; } row[] = {
+        { 290, { +0.91, +2.23, +0.81, -4.47, -8.94 } },
+        { 340, { +1.18, +3.23, +2.41, -3.41, -8.33 } },
+    };
+    size_t r;
+    int i;
+    for (r = 0; r < sizeof row / sizeof row[0]; r++) {
+        double db[VT_HARMONICS], under = 0, over = 0;
+        vt_response(44100, 12923, row[r].res, db);
+        printf("    resonance %d, VCF FREQ 114:", (int)row[r].res);
+        for (i = 0; i < VT_HARMONICS; i++) {
+            printf(" h%d %+.2f (%+.2f)", vt_k[i], db[i], row[r].pg[i]);
+            under = fmax(under, row[r].pg[i] - db[i]);
+            over = fmax(over, db[i] - row[r].pg[i]);
+        }
+        printf("\n    most under PG-8X %.2f dB, most over %.2f\n", under, over);
+        TT_CHECK(under < 13.0);
+        TT_CHECK(over < 6.0);
+    }
+}
+
 static void run_vcf_top_tests(void)
 {
     TT_RUN(vcf_top_opens_one_way_at_resonance_0);
+    TT_RUN(vcf_top_other_rates_keep_the_top_they_had);
     TT_RUN(vcf_top_reads_as_pg8x_at_44k1);
     TT_RUN(vcf_top_reads_as_pg8x_at_48k);
+    TT_RUN(vcf_top_low_resonance_keeps_its_top_harmonic);
 }

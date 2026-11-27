@@ -405,13 +405,14 @@ TT_TEST(svf_is_bounded_at_every_rate)
     TT_CHECK(st <= 32 << 23);
 }
 
-/* (j) The top of the range: a cutoff swept a cent a sample from 12000 to the top (14400) on a 440 Hz
+/* (j) The top of the range: a cutoff swept a cent a sample from 11000 to the top (14400) on a 440 Hz
  * sine adds no step of its own. The output's second difference (what a step shows in, whatever the filter's
  * delay) stays within the sine's own, 0.00166, times the passband's level (under 1 at resonance 500, 1.138
  * at resonance 0: taken as 1.2), plus 0.001 (-60 dB). And at the top the filter is a wire: its output is its
  * input, exactly. At resonance 500, and at resonance 0, whose fade starts at 12190 and whose damping moves
- * from 12510 to 12870 (#151). (Until #151 this compared first differences after 4800 samples, which the
- * sweep never reached.) */
+ * from 12510 to 12870 (#151). The first 10 ms (to 11480) are skipped, so the sweep starts well under the
+ * fade's corner: a 10 % step in the fade at 12190 reads 0.0086 here. (Until #151 this compared first
+ * differences after 4800 samples, which the sweep never reached.) */
 TT_TEST(svf_fades_to_the_wire_at_the_top)
 {
     static const int16_t res[] = { 500, 0 };
@@ -426,8 +427,8 @@ TT_TEST(svf_fades_to_the_wire_at_the_top)
         uint32_t i = 0;
         fm_filter_reset(&f);
         fm_filter_set_resonance(&f, res[r]);
-        fm_filter_set_cutoff(&f, 12000, rate);
-        for (c = 12000; c <= FM_FILTER_OPEN_CENTS + 200; c++, i++) {
+        fm_filter_set_cutoff(&f, 11000, rate);
+        for (c = 11000; c <= FM_FILTER_OPEN_CENTS + 200; c++, i++) {
             int32_t x = (int32_t)lround(0.5 * 16777216.0 * sin(2 * AN_PI * 440.0 * i / SVF_RATE)), y;
             fm_filter_set_cutoff(&f, c, rate);
             y = fm_filter_run(&f, x);
@@ -639,7 +640,8 @@ TT_TEST(svf_top_slope_is_pg8x_at_resonance_0)
  * of the range where F's sweep spends its time) and at resonances 0, 756 and 935: a speed cut must leave it as
  * it is. One hash over golden_input (tests/test_filter.c) through each setting; taken on 2fc0c99, and again
  * with #151: resonance 0's top (12500, 13600 and 14100 here) moved on purpose; every resonance from 389 up
- * has the coefficients it had, at every cutoff (checked on both trees, 0..14400 by 7 cents). */
+ * has the coefficients it had, at every cutoff (checked on both trees, 0..14400 by 7 cents), and so has
+ * every resonance at rates outside 44.1 to 48 kHz. */
 TT_TEST(svf_output_holds_bit_for_bit)
 {
     static const int16_t cuts[] = { 6769, 8717, 10844, 12500, 13600, 14100 };
@@ -660,7 +662,7 @@ TT_TEST(svf_output_holds_bit_for_bit)
             }
         }
     printf("    svf output hash 0x%08Xu\n", (unsigned)h);
-    TT_CHECK_EQ(h, 0xBC57AB7Du);
+    TT_CHECK_EQ(h, 0x75C3FD27u);
 }
 
 static void run_svf_tests(void)

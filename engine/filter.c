@@ -25,8 +25,8 @@
  * so nothing wraps, and that hold is past anything the output's own hold
  * lets out. Across the top FADE_CENTS of the cutoff the output fades to
  * the input, so the fully open filter is an exact wire. At resonance 0
- * the top is PG-8X's (#151): f0 stops at F0_MAX_R0 and the fade is
- * FADE0_CENTS long.
+ * and 44.1 to 48 kHz the top is PG-8X's (#151): f0 stops at F0_MAX_R0 and
+ * the fade is FADE0_CENTS long.
  */
 #include "filter.h"
 #include "cutoff_curve.h"
@@ -297,12 +297,14 @@ static const int32_t tan_tab[132] = {
  * The top of the range at resonance 0 (#151). PG-8X 2.0.13's top only opens: from VCF FREQ 108 to 127 a saw's
  * harmonics rise with every step and none passes its open level. The sections can't follow it up there: past
  * about a third of the rate the second section's zeros at the origin lift the top over the input (t^2 at
- * Nyquist; +14.6 dB at 19.4 kHz for FREQ 120 at 44.1 kHz). So, as much as there is no peak (V_SLOPE):
+ * Nyquist; +14.6 dB at 19.4 kHz for FREQ 120 at 44.1 kHz). So, as much as there is no peak (V_SLOPE, below):
  * - f0 / fs goes no further than 0.306 (F0_MAX_R0: t 1.43; 13.5 kHz at 44.1 kHz, 14.7 at 48);
  * - the output fades to the input linearly over the top FADE0_CENTS, from 12190 (FREQ 108.6) to open;
  * - the sections take 0.5 more damping (K_TOP0: k 1.85 to 2.35), in over 12510..12870 (FREQ 111..113.6): held
  *   at that f0 and faded, they dip the harmonics near 16 kHz 2.3 dB under PG-8X's without it, 1.1 with. In
  *   Q27: k itself is Q30, where 2.35 is past int32.
+ * Ours is not strictly one way: near 12560, where section 1's zeros leave, the harmonics around 17.5 kHz dip
+ * about 1.2 dB as the cutoff rises 110 cents (near -18 dB; before #151 they fell 21 dB there).
  * Fitted to PG-8X at 44.1 and 48 kHz with one set of constants (tests/test_vcf_top.c): FREQ 114..124 within
  * 1.3 dB at every harmonic to 19.4 kHz, 110 and 112 within 3.6.
  */
@@ -314,9 +316,24 @@ typedef char fm_require_fade0_fits_q30[(int64_t)FADE0_CENTS * FADE0_STEP <= ONE_
 #define K_TOP0_FROM 12510
 #define K_TOP0_STEP 186413                      /* K_TOP0 / 360, rounded down: a cent's */
 typedef char fm_require_k_top0_ramp_fits[(int64_t)360 * K_TOP0_STEP <= K_TOP0 ? 1 : -1];
-/* How much of that: all at resonance 0, none from w 0.8 (resonance 389: there is a peak, and it is #168's),
- * 1 - 1.25 w between (resonance 180, VCF RES 8: 0.55; 290, RES 16: 0.28). 1.25 in Q28. */
+/* How much of that, by w (how much peak, 0 at resonance 0):
+ * - the f0 stop and the damping: all at resonance 0, none from w 0.8 (resonance 389: there is a peak, and it
+ *   is #168's), 1 - 1.25 w between (V_SLOPE, Q28; resonance 180, VCF RES 8: 0.55; 290, RES 16: 0.28);
+ * - the long fade: resonance 0's alone, 1 - 5 w, gone by w 0.2 (about resonance 100, VCF RES 4.5). With a peak
+ *   a few per cent of the input against the sections' output, out of phase past f0, cuts a notch (VCF FREQ 114
+ *   at resonance 340: a harmonic 23.8 dB under PG-8X's, 12.1 without);
+ * - and where the long fade is not all there, the f0 stop gives way over the top FADE_CENTS, to none at open:
+ *   there the short fade does the opening, and the stop under it only darkens the top (FREQ 124).
+ * So no resonance at VCF FREQ 110..124 reads further from PG-8X than before #151 by more than 0.15 dB rms
+ * (VCF RES 1..23 and 52, 56, at 44.1 and 48 kHz). */
 #define V_SLOPE     335544320
+#define VF_SLOPE    5
+/* Only at the rates it is fitted for, 44.1 to 48 kHz (fm_filter_rate_cents of them, and every rate between).
+ * The fade and the damping are in cents of cutoff and the stop is a share of the rate: at a higher rate the
+ * sections never reach the stop, and the long fade to the input cuts a notch (192 kHz: -50 dB at 15.4 kHz at
+ * cutoff 12450). Every other rate keeps the top it had, coefficient for coefficient. */
+#define TOP0_RATE_LO 14876                      /* 44.1 kHz */
+#define TOP0_RATE_HI 15023                      /* 48 kHz */
 #define D_MAX (-1383)                           /* f0 / fs at most 0.45 */
 /*
  * k = 1 / Q by resonance per mille: PG-8X 2.0.13's (its F49 and F64 fits'
@@ -376,7 +393,7 @@ static int32_t tan_of(int32_t d)
 /* The coefficients from the cutoff, rate and resonance as set: control rate, a few 32-bit divides. */
 static void apply(fm_filter *f)
 {
-    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, t48, tt, k, kl, trim, den, a1, w, v;
+    int32_t c = f->cut < 0 ? 0 : f->cut, i, r, d, t, t48, tt, k, kl, trim, den, a1, w, v, vf;
     int was_open = fm_filter_is_wire(f);
     i = c / 1200;
     r = c % 1200;
@@ -388,6 +405,8 @@ static void apply(fm_filter *f)
     w = w <= 0 ? 0 : w >= ONE_Q30 / 2 ? ONE_Q30 : 2 * w;      /* twice it, to 1 from about resonance 400 */
     v = ONE_Q30 - (int32_t)(((int64_t)w * V_SLOPE) >> 28);    /* how much of resonance 0's top (V_SLOPE) */
     if (v < 0) v = 0;
+    vf = w >= ONE_Q30 / VF_SLOPE ? 0 : ONE_Q30 - VF_SLOPE * w; /* and of its long fade (VF_SLOPE) */
+    if (f->rate < TOP0_RATE_LO || f->rate > TOP0_RATE_HI) v = vf = 0;   /* the rates it is fitted for only */
     /* PG-8X's Q falls a little at high cutoffs (F80: 3..10 %, F49: none): k + K_TOP k^2 t, and its
      * passband rises half as much (the level's k: k + half that). Fitted to F80 (t 0.25), and taken no
      * further than t 0.3 (F82): at most 0.4 more, k within 1.85 */
@@ -408,7 +427,13 @@ static void apply(fm_filter *f)
          * times k - k93, within 2^31: under 2^50) */
         int32_t shift = (int32_t)((((c_t * tt) >> 44) * ((int64_t)k - K_93)) >> 40);
         /* PG-8X's f0 goes no further (F104: 20.4..20.9 kHz); at resonance 0, F0_MAX_R0 */
-        int32_t top = v ? F0_MAX - (int32_t)(((int64_t)(F0_MAX - F0_MAX_R0) * v) >> 30) : F0_MAX;
+        int32_t top = F0_MAX;
+        if (v) {
+            int32_t vs = v, open = FM_FILTER_OPEN_CENTS - c;    /* open >= 0: the cutoff is clamped */
+            if (vf != ONE_Q30 && open < FADE_CENTS)             /* gives way under the short fade: vf at open */
+                vs = (int32_t)(((int64_t)v * (vf + (((int64_t)(ONE_Q30 - vf) * (open * FADE_STEP)) >> 30))) >> 30);
+            top -= (int32_t)(((int64_t)(F0_MAX - F0_MAX_R0) * vs) >> 30);
+        }
         if (d + shift > top) shift = top - d;
         if (shift) t = tan_of(d + shift);
     }
@@ -461,10 +486,10 @@ static void apply(fm_filter *f)
         f3 = (int32_t)(((int64_t)f3 * f1) >> 30);
         f->fade = f1 - (int32_t)(((int64_t)(f1 - f3) * w) >> 30);
     }
-    if (v) {    /* resonance 0's fade, over the top FADE0_CENTS: toward it by v */
+    if (vf) {   /* resonance 0's fade, over the top FADE0_CENTS: toward it by vf */
         int32_t top = FM_FILTER_OPEN_CENTS - f->cut;    /* >= 0: the cutoff is clamped */
         int32_t f0 = top >= FADE0_CENTS ? ONE_Q30 : top * FADE0_STEP;
-        f->fade += (int32_t)(((int64_t)(f0 - f->fade) * v) >> 30);
+        f->fade += (int32_t)(((int64_t)(f0 - f->fade) * vf) >> 30);
     }
     if (was_open && !fm_filter_is_wire(f)) leave_open(f);
 }
