@@ -43,6 +43,20 @@ class MetricTest(unittest.TestCase):
         c2 = self.sc.band_levels(0.25 * np.sin(2 * np.pi * 65.406 * t)).max()
         self.assertAlmostEqual(c1, c2, delta=0.5)
 
+    # ... and only where C1 is played: the low section. Elsewhere that band holds a tone's sub-audible
+    # content (RES BELL's high note's 18 Hz skirt) or re-anchors the floor (PSYCHMELLO's), not the note
+    def test_c1s_band_counts_in_the_low_section_only(self):
+        np = self.np
+        t = np.arange(12 * SR) / SR
+        pg = 0.2 * np.sin(2 * np.pi * 1046.5 * t) + 0.1 * np.sin(2 * np.pi * 65.406 * t)
+        sub = 0.05 * np.sin(2 * np.pi * 30.0 * t)   # inside C1's band, clear of the one above it
+        lo, hi = self.sc.SECTIONS["low"], self.sc.SECTIONS["high"]
+        def score(win):
+            ours = pg + sub * ((t >= win[0] - 0.2) & (t < win[1] + 0.2))
+            return self.sc.score_tone(np.stack([ours, ours], 1), np.stack([pg, pg], 1), harmonic=False)["spectral_db"]
+        self.assertLess(score(hi)["high"], 0.05)
+        self.assertGreater(score(lo)["low"], 1.0)
+
     # Envelope timing, sample-accurate (pg8x-measurement traps): the Hilbert magnitude, smoothed over two
     # periods of the note, so neither the waveform's ripple nor PG-8X's onset burst moves the reading.
     def saw_note(self, f0, burst_db, decay_s, off_s, release_s, total_s=2.5):
@@ -168,7 +182,7 @@ class MetricTest(unittest.TestCase):
         ours = np.clip(np.floor(ours * 32768), -32768, 32767) / 32768
         s = self.sc.score_tone(np.stack([ours, ours], 1), np.stack([pg, pg], 1), harmonic=False)
         for k, w in self.sc.SECTIONS.items():
-            raw = self.sc.spectral_distance(self.sc._cut(ours, *w), self.sc._cut(pg, *w))
+            raw = self.sc.spectral_distance(self.sc._cut(ours, *w), self.sc._cut(pg, *w), self.sc.section_bands(k))
             self.assertGreater(raw, 5.0, k)
             self.assertAlmostEqual(s["spectral_db"][k], raw, delta=0.05, msg=k)
 
@@ -183,7 +197,7 @@ class MetricTest(unittest.TestCase):
         pg = 0.9 * np.sin(2 * np.pi * 200 * t) * ((t * 5) % 1.0 < 0.1)  # bursts: peaks 3.3x ours at our RMS
         s = self.sc.score_tone(np.stack([ours, ours], 1), np.stack([pg, pg], 1), harmonic=False)
         for k, w in self.sc.SECTIONS.items():
-            raw = self.sc.spectral_distance(self.sc._cut(ours, *w), self.sc._cut(pg, *w))
+            raw = self.sc.spectral_distance(self.sc._cut(ours, *w), self.sc._cut(pg, *w), self.sc.section_bands(k))
             self.assertAlmostEqual(s["spectral_db"][k], raw, delta=0.05, msg=k)
 
     # Codex (s10, P3-1): PG-8X's side is scaled to our level section by section, not over the whole
