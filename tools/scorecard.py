@@ -518,10 +518,40 @@ def now():
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name="factory"):
+def _code_id():
+    """The scorecard's own code, hashed: a cached score holds only while the code that made it is the same."""
+    import hashlib
+    h = hashlib.sha256()
+    for f in ("scorecard.py", "scorecard_cmd.py"):
+        with open(os.path.join(HERE, f), "rb") as fh:
+            h.update(fh.read())
+    return h.hexdigest()
+
+
+def tone_key(ours, pg, manifest, harmonic, plan=None):
+    """The cache key of one tone's score: a sha256 of the scorecard's code and schema, the reference's
+    manifest, whether the tone has a pitch, the draw plan and every byte of our draws' wavs (OURS) and the
+    reference's (PG), in order. Same key, same score."""
+    import hashlib
+    h = hashlib.sha256()
+    h.update(json.dumps({"code": _code_id(), "schema": SCHEMA, "manifest": manifest, "harmonic": bool(harmonic),
+                         "plan": plan}, sort_keys=True).encode())
+    for side in (ours, pg):
+        h.update(b"|side|")
+        for path in side:
+            with open(path, "rb") as fh:
+                data = fh.read()
+            h.update(len(data).to_bytes(8, "little"))
+            h.update(data)
+    return h.hexdigest()
+
+
+def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name="factory", cache=None):
     """Scores BANK's tones (default: the factory bank) on TREE against the reference renders in REF;
     appends a row per tone (and, with MATCH, a match harness results folder, a row per parameter) to
-    HISTORY; returns the tone rows. REF must have been rendered from the same MIDI and bank."""
+    HISTORY; returns the tone rows. REF must have been rendered from the same MIDI and bank. With CACHE (a
+    folder), each tone's score is kept there under tone_key and read back while its renders, the reference
+    and the code are the same, so a commit whose sound didn't change scores in the time of its renders."""
     work = work or os.path.join(tree, "build", "scorecard")
     mid = write_midi(work)
     try:
@@ -558,11 +588,26 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
     date, ref_id = now(), man["midi_sha256"][:12]
     rows = []
     for i, paths in render_tones(tree, work, bank, plan):
-        pg = [(read_wav(os.path.join(ref, draw_file(i, j))), lead_seconds(t)) for j, t in enumerate(shifts)]
-        ours = [(read_wav(p), lead_seconds(t)) for p, (t, _) in zip(paths, plan)]
-        score = score_tone(ours, pg, harmonic=i not in odd)
-        rows.append({**tone_row(commit, date, i, names[i], score, ref_id, bank_name), "ruler_noise_db": ruler_noise(pg),
-                     "draws": draw_info})
+        pg_paths = [os.path.join(ref, draw_file(i, j)) for j in range(len(shifts))]
+        got = None
+        if cache:
+            key = tone_key(paths, pg_paths, man, i not in odd, plan)
+            hit = os.path.join(cache, key[:2], key + ".json")
+            if os.path.isfile(hit):
+                with open(hit) as fh:
+                    got = json.load(fh)
+        if got is None:
+            pg = [(read_wav(p), lead_seconds(t)) for p, t in zip(pg_paths, shifts)]
+            ours = [(read_wav(p), lead_seconds(t)) for p, (t, _) in zip(paths, plan)]
+            got = {"score": score_tone(ours, pg, harmonic=i not in odd), "ruler_noise_db": ruler_noise(pg)}
+            got = json.loads(json.dumps(got))   # (as the cache keeps it: a read-back row is the same row)
+            if cache:
+                os.makedirs(os.path.dirname(hit), exist_ok=True)
+                with open(hit + ".tmp", "w") as fh:
+                    json.dump(got, fh)
+                os.replace(hit + ".tmp", hit)
+        rows.append({**tone_row(commit, date, i, names[i], got["score"], ref_id, bank_name),
+                     "ruler_noise_db": got["ruler_noise_db"], "draws": draw_info})
     params = []
     if match:
         import glob
@@ -660,10 +705,12 @@ def main(argv=None):
                                    "this repo when it isn't ours)")
     ap.add_argument("--bank-name", default="factory", help="the bank's name in the history rows")
     ap.add_argument("--root", help="the git repo, to check BASE is an ancestor of COMMIT")
+    ap.add_argument("--cache", help="a folder that keeps each tone's score by tone_key, read back while the "
+                                    "renders, the reference and the code are the same")
     a = ap.parse_args(argv)
     if a.bank and a.bank_name == "factory":
         ap.error("--bank needs a --bank-name")
-    rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match, a.bank, a.bank_name)
+    rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match, a.bank, a.bank_name, a.cache)
     asked = a.base is not None                   # (--base "" is a base asked for, and not found: exit 2)
     base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if asked else None
     note = base_note(a.root, a.commit, a.base) if a.base and a.root else None
