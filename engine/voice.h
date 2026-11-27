@@ -38,6 +38,9 @@ typedef struct {
                              * starts */
     uint8_t busy;           /* FM_BUSY_* bits: processors away from rest */
     uint8_t velocity;       /* the sounding note's MIDI velocity */
+    uint8_t new_patch;      /* a patch loaded while it sounded: its next note
+                             * starts the envelopes from 0 if it is idle then
+                             * (fm_voice_patch_loaded) */
     /* the filter, its cutoff and the voice's control cadence (vfilter.h);
      * its key stays the sounding note's when a mode switch sets
      * FM_VOICE_NO_NOTE */
@@ -123,7 +126,9 @@ static inline int fm_voice_key_holds(const fm_voice *v, uint8_t note)
  *
  * Plays `note` at `pitch` (Q16.16 semitones) with amp envelope peak
  * `peak` (Q1.30, from its MIDI `velocity`, which the voice keeps for the
- * DYNAMICS of its other depths). An idle voice starts it from silence. A
+ * DYNAMICS of its other depths). An idle voice starts it from silence,
+ * its filter envelope and envelope 2 from wherever their releases have
+ * come to (#396, fm_voice_idle_pass). A
  * sounding voice, on the same note or another (a steal), starts it at once
  * from the levels its envelopes are at, as PG-8X 2.0.13 does: no fade, and
  * the filter envelope carries on from where it is. A steal starts the LFO's
@@ -191,6 +196,12 @@ void fm_voice_set_tune(fm_voice *v, uint8_t which, int32_t cents,
  * applies `lfo` (Q1.30, the shared LFO's value), scaled by the voice's
  * delay and fade-in, at the depths in `m`. With zero depth nothing
  * changes.
+ *
+ * Also called at a note's start on an idle voice (voice.c restart_lfo,
+ * with `lfo` 0), so a carried pitch envelope is on the pitch from the
+ * first sample (#396): it must keep no state of its own from tick to
+ * tick, only set sources and sum them, or a note start would count as a
+ * tick.
  */
 void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now);
@@ -264,6 +275,24 @@ static inline const fm_vfilter *fm_voice_filter(const fm_voice *v)
 {
     return &v->vf;
 }
+
+/*
+ * A new patch has loaded (fm_engine_patch_loaded): its notes do not start
+ * from the last patch's envelopes. Not sounding: the filter envelope and
+ * envelope 2 are back at 0 now. Sounding: its release runs on, and its
+ * next note starts them from 0 if the voice has gone idle by then.
+ */
+void fm_voice_patch_loaded(fm_voice *v);
+
+/*
+ * `frames` samples pass on a voice that is not sounding (fm_voice_active
+ * 0), so fm_voice_render_add is not called for them: its filter envelope
+ * and envelope 2 run on through their release, as PG-8X's do (#396), so the
+ * voice's next note starts from where they then are. Two tests and nothing
+ * else once both have ended, or on a voice not played yet; else a count
+ * added (fm_env_skip), caught up within FM_ENV_LAG_MAX samples.
+ */
+void fm_voice_idle_pass(fm_voice *v, uint32_t frames);
 
 /*
  * Adds `frames` samples of the voice (Q8.24) to `mix`. `osc` is scratch

@@ -1090,6 +1090,13 @@ static void advance_ticks(fm_engine *e, uint32_t n)
     e->tick_left -= n;
 }
 
+void fm_engine_patch_loaded(fm_engine *e)
+{
+    uint8_t i;
+    for (i = 0; i < e->voice_count; i++)
+        fm_voice_patch_loaded(&e->voices[i]);
+}
+
 void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
 {
     while (frames) {
@@ -1100,6 +1107,8 @@ void fm_engine_render(fm_engine *e, int16_t *out, uint32_t frames)
         for (k = 0; k < e->voice_count; k++)
             if (fm_voice_active(&e->voices[k]))
                 fm_voice_render_add(&e->voices[k], &e->mod, e->mix, e->mix_right, n);
+            else /* its envelopes' releases run on (#396) */
+                fm_voice_idle_pass(&e->voices[k], n);
         /* sum of the voices (Q8.24) times the mix gain (Q1.30) */
         for (i = 0; i < n; i++)
             e->mix[i] = (int32_t)(((int64_t)e->mix[i] * e->mix_gain) >> 30);

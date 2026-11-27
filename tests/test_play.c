@@ -402,6 +402,39 @@ TT_TEST(play_load_patch_lets_sounding_notes_go)
     TT_CHECK_EQ(fm_engine_active_voices(&pl_a.engine), 0);
 }
 
+/* A load does not carry the last patch's envelope into the new patch's notes (#396): SQUARELEAD's
+ * filter envelope releases for 8 s on an idle voice (its amp is gone in 1 ms); after a load the key
+ * played again starts that envelope from 0, as on a fresh boot. Without the load it carries on. */
+static int32_t pl_fenv_after(int load)
+{
+    uint32_t i;
+    int32_t top = 0;
+    if (play_init(&pl_a) != 0) return -1;
+    play_load_patch(&pl_a, 23);                 /* tone 24, SQUARELEAD */
+    pl_render(&pl_a);
+    play_key_down(&pl_a, 5, 100);
+    pl_render_for(&pl_a, 3 * PL_SECOND);
+    play_key_up(&pl_a, 5);
+    pl_render_for(&pl_a, PL_SECOND / 2);
+    if (fm_engine_active_voices(&pl_a.engine) != 0) return -1;
+    if (load) play_load_patch(&pl_a, 23);
+    pl_render_for(&pl_a, PL_SECOND / 2);
+    play_key_down(&pl_a, 5, 100);
+    pl_render(&pl_a);
+    for (i = 0; i < pl_a.engine.voice_count; i++)
+        if (fm_voice_active(&pl_a.engine.voices[i])) top = fm_env_level(&pl_a.engine.voices[i].filter_env);
+    return top;
+}
+
+TT_TEST(play_load_patch_starts_idle_voices_envelopes_from_0)
+{
+    int32_t kept = pl_fenv_after(0), loaded = pl_fenv_after(1);
+    printf("    SQUARELEAD's filter envelope a block into the key played again: %.4f of full; after a load %.4f\n",
+           (double)kept / FM_ENV_FULL, (double)loaded / FM_ENV_FULL);
+    TT_CHECK(kept > FM_ENV_FULL / 2);
+    TT_CHECK(loaded >= 0 && loaded < FM_ENV_FULL / 50);
+}
+
 /* A key played right after a load, before the next render, starts on the new patch: the load's params
  * go in before the block's note events, so a voice mode change can't end the new note. */
 TT_TEST(play_load_patch_then_a_key_plays_the_new_patch)
@@ -602,6 +635,7 @@ static void run_play_tests(void)
     TT_RUN(play_param_set_again_by_the_asks_race_changes_nothing);
     TT_RUN(play_load_patch_asks_only_for_the_params_that_change);
     TT_RUN(play_load_patch_is_one_step_for_the_audio_interrupt);
+    TT_RUN(play_load_patch_starts_idle_voices_envelopes_from_0);
     TT_RUN(play_load_patch_then_a_key_plays_the_new_patch);
     TT_RUN(play_load_patch_lets_sounding_notes_go);
     TT_RUN(play_load_patch_matches_a_fresh_boot);

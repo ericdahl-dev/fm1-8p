@@ -1183,27 +1183,6 @@ TT_TEST(filter_envelope_follows_the_key)
 }
 
 /*
- * A voice that went idle (its amp release ended) while its filter
- * envelope was still releasing: the next note's filter envelope starts
- * from 0, not from that leftover level.
- */
-TT_TEST(idle_voice_starts_the_filter_envelope_from_zero)
-{
-    fm_engine_init(&feng, FRATE, 1);
-    sweep_patch(&feng);
-    fm_engine_set_param(&feng, FM_PARAM_AMP_RELEASE_MS, 10);
-    fm_engine_set_param(&feng, FM_PARAM_FILTER_ENV_RELEASE_MS, 5000);
-    fm_engine_note_on(&feng, 40, 100);
-    fm_engine_render(&feng, fbuf_a, 22050);
-    fm_engine_note_off(&feng, 40);
-    fm_engine_render(&feng, fbuf_a, 4410); /* amp idle, filter env high */
-    TT_CHECK(!fm_voice_active(&feng.voices[0]));
-    TT_CHECK(feng.voices[0].filter_env.level > FM_ENV_FULL / 2);
-    fm_engine_note_on(&feng, 40, 100);
-    TT_CHECK_EQ(feng.voices[0].filter_env.level, 0);
-}
-
-/*
  * A steal moves the key tracking to the new note at once, as its pitch:
  * full key tracking, note 36 stolen by note 96 (5 octaves up). From the
  * steal's first control update the coefficient is note 96's, with no
@@ -3171,7 +3150,6 @@ static void run_filter_tests(void)
     TT_RUN(unison_note_change_gets_its_cutoff_from_the_first_sample);
     TT_RUN(mode_switch_release_keeps_the_key_tracked_cutoff);
     TT_RUN(filter_envelope_follows_the_key);
-    TT_RUN(idle_voice_starts_the_filter_envelope_from_zero);
     TT_RUN(a_steal_tracks_the_new_notes_cutoff_at_once);
     TT_RUN(mode_switch_after_a_steal_tracks_the_new_note);
     TT_RUN(highpass_turned_on_mid_note_does_not_click);

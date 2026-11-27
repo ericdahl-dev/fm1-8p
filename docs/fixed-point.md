@@ -273,8 +273,18 @@ resonant 4-pole (24 dB/octave) lowpass.
   once and does not come back if the level returns.
 - **Filter envelope.** A second `fm_env` ADSR, advanced every sample like the
   amp envelope; its amount is -16400 to +16400 linear cents (a JX-8P VCF ENV of 127 is 127 knob steps, 14609 linear cents; #253).
-  It starts where the amp envelope does: from 0 on an idle voice (whatever
-  level the last note left it at), from its level on a retrigger or a steal.
+  A note-on never starts it again from 0: it attacks from the level it is
+  at, on a retrigger, a steal and an idle voice alike, and on an idle voice
+  its release runs on (a count added a chunk, `fm_voice_idle_pass`, nothing
+  once it has ended), as PG-8X 2.0.13's does (#396). Envelope 2 under the
+  gate does the same. All sound off silences both, and a patch load
+  (`fm_engine_patch_loaded`, after the load's all notes off) puts them back
+  at 0 on every voice not sounding and marks the sounding ones, whose next
+  note starts them from 0 if the voice is idle by then: a new patch's notes
+  never start from the last patch's envelopes. A param set alone leaves
+  them running. A level carried on is on the pitch from the note's first
+  sample (the pitch envelope's source is set at the note's start, not at
+  its first control tick).
   On a steal the new note's key-tracked cutoff applies at once, as its pitch
   does.
 

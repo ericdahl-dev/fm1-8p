@@ -42,6 +42,7 @@ void fm_voice_reset(fm_voice *v, uint32_t seed, int32_t rate_cents,
     v->note = FM_VOICE_NO_NOTE; /* no last note yet (#164) */
     v->key_down = 0;
     v->sustained = 0;
+    v->new_patch = 0;
     fm_vfilter_reset(&v->vf, rate_cents);
     v->mix_base = 0;
     v->mix_step = 0;
@@ -173,15 +174,16 @@ static FM_ALWAYS_INLINE void update_cutoff(fm_voice *v, const fm_voice_mod *m,
     fm_voice_mark(v, FM_BUSY_CUTOFF, 0);
 }
 
-/* Gates both envelopes on. The filter envelope starts from where the amp
- * envelope does: from its level on a retrigger or a steal, from 0 on an
- * idle voice, whatever level it was left at. */
+/* Gates the envelopes on, each from the level it is at: the filter
+ * envelope and envelope 2 carry on from wherever their last note left
+ * them, on an idle voice too, as PG-8X's do (#396). Only a patch load
+ * comes between (fm_voice_patch_loaded; restart_lfo, which every gate on
+ * follows, takes its mark). */
 static void gate_on(fm_voice *v)
 {
-    if (v->amp_env.stage == FM_ENV_IDLE) {
-        fm_env_reset(&v->filter_env);
-        fm_env_reset(&v->env2);
-    }
+#ifdef FM_CHECK_ENGINE /* debug builds: restart_lfo came first and took a load's mark */
+    assert(!v->new_patch);
+#endif
     fm_env_key(&v->amp_env, v->note);
     fm_env_key(&v->filter_env, v->note);
     fm_env_gate_on(&v->amp_env);
@@ -228,11 +230,28 @@ static void set_level(fm_voice *v, const fm_voice_mod *m, int32_t peak)
  * skips this (a steal starts it again: fm_voice_note_on), so the vibrato carries on from where it
  * is instead of jumping.
  */
-static void restart_lfo(fm_voice *v, uint32_t now)
+static void restart_lfo(fm_voice *v, const fm_voice_mod *m, uint32_t now)
 {
+    /* a patch loaded while the voice's last note sounded: the one place
+     * the mark is taken, before anything reads the envelopes. Idle now,
+     * they start from 0; still sounding, the note carries on */
+    if (v->new_patch) {
+        v->new_patch = 0;
+        if (v->amp_env.stage == FM_ENV_IDLE) fm_voice_patch_loaded(v);
+    }
     if (v->amp_env.stage != FM_ENV_IDLE) return;
     fm_mod_reset(&v->mod);
     v->lfo_start = now;
+    /* an envelope carried on (#396) is on the pitch from the note's first
+     * sample, not from its first control tick: the tick's own sums, the
+     * LFO at 0 (v->velocity is already the note's). Right here because
+     * the tick keeps no state (voice.h); the pitch envelope's source
+     * reaches only the two pitch sums (engine.c, the PITCH_ENV params);
+     * and the level sum, just reset with its sources, sums to 0 again, so
+     * the tick leaves the amp envelope's peak alone (a legato return to an
+     * idle voice sets no level after this) */
+    if (fm_mod_source_routed(&m->routes, FM_MOD_SRC_PENV))
+        fm_voice_tick(v, 0, m, now);
 }
 
 /* Starts the note from the current level (0 when idle). */
@@ -241,7 +260,7 @@ static void start(fm_voice *v, const fm_voice_mod *m, uint32_t sample_rate,
 {
     v->velocity = velocity;
     fm_vfilter_due_next(&v->vf); /* the new note's cutoff from its first sample */
-    restart_lfo(v, now);
+    restart_lfo(v, m, now);
     apply_pitch(v);
     v->pitch = v->next_pitch;
     fm_vfilter_set_key(&v->vf, v->next_key);
@@ -282,12 +301,10 @@ void fm_voice_change_note(fm_voice *v, const fm_voice_mod *m, uint8_t note,
 {
     hold(v, note, pitch);
     if (retrigger || v->amp_env.stage == FM_ENV_IDLE) {
-        restart_lfo(v, now); /* before the gate: it checks for silence */
+        if (retrigger) v->velocity = velocity; /* legato keeps its own */
+        restart_lfo(v, m, now); /* before the gate: it checks for silence */
         apply_pitch(v);
-        if (retrigger) { /* legato keeps its own */
-            set_level(v, m, peak);
-            v->velocity = velocity;
-        }
+        if (retrigger) set_level(v, m, peak);
         gate_on(v); /* both envelopes */
     }
     v->pitch = pitch;
@@ -360,6 +377,7 @@ void fm_voice_silence(fm_voice *v)
     fm_vfilter_clear(&v->vf); /* no ringing left for the next note */
     v->key_down = 0;
     v->sustained = 0;
+    v->new_patch = 0;
 }
 
 void fm_voice_set_amp(fm_voice *v, const fm_env_settings *amp)
@@ -474,8 +492,22 @@ static int render_plain(fm_voice *v, const fm_voice_mod *m, int32_t *mix,
         mix[i] += (int32_t)(((int64_t)last * level) >> 30);
     }
     fm_vfilter_pass(&v->vf, last, i);
-    lazy_envs_pass(v, i);
+    lazy_envs_pass(v, frames); /* past the amp's end too (#396) */
     return 1;
+}
+
+void fm_voice_patch_loaded(fm_voice *v)
+{
+    v->new_patch = (uint8_t)fm_voice_active(v);
+    if (v->new_patch) return;
+    fm_env_reset(&v->filter_env);
+    fm_env_reset(&v->env2);
+}
+
+void fm_voice_idle_pass(fm_voice *v, uint32_t frames)
+{
+    if (v->filter_env.stage != FM_ENV_IDLE) fm_env_skip(&v->filter_env, frames);
+    if (v->env2.stage != FM_ENV_IDLE) fm_env_skip(&v->env2, frames);
 }
 
 void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
@@ -490,7 +522,7 @@ void fm_voice_render_add(fm_voice *v, const fm_voice_mod *m,
     for (i = 0; i < frames; i++) {
         int32_t level, fenv, out;
         if (v->amp_env.stage == FM_ENV_IDLE) { /* the release ended */
-            lazy_envs_pass(v, i - told);
+            lazy_envs_pass(v, frames - told); /* theirs run on (#396) */
             return;
         }
         level = fm_env_step(&v->amp_env);
