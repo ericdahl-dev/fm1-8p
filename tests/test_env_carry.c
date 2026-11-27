@@ -192,6 +192,26 @@ TT_TEST(envelope_2_under_the_gate_carries_on)
     TT_CHECK(again > 900.0 && again < EC_DEPTH);
 }
 
+/* 5b. envelope 2's release under the gate runs on at its own rate while the voice is idle: with the
+ * filter envelope's times (a 2 s attack, a 4 s release) it has a note 3 s on where the filter
+ * envelope has it on a voice whose amp still sounds */
+TT_TEST(envelope_2_under_the_gate_releases_at_its_rate_while_idle)
+{
+    double sounding = ec_again_after(3000, 20000), gated;
+    ec_init(4);
+    ec_set(FM_PARAM_AMP_GATE, 1);
+    ec_set(FM_PARAM_AMP_ATTACK_MS, 2000);
+    ec_set(FM_PARAM_AMP_RELEASE_MS, 4000);
+    ec_set(FM_PARAM_PITCH_ENV_SOURCE, 1);
+    ec_hold(60, 2500);
+    ec_run(3000);
+    TT_CHECK_EQ(fm_engine_active_voices(&ec_eng), 0);
+    gated = ec_strike(60, 100);
+    if (fabs(gated - sounding) > 3.0) printf("    3 s on: envelope 2 on an idle voice %.1f cents, the filter envelope on a sounding one %.1f\n", gated, sounding);
+    TT_CHECK(sounding > 500.0 && sounding < 700.0);
+    TT_CHECK_NEAR(gated, sounding, 3.0);
+}
+
 /* C4 at `first` held 2.5 s, let go, and C4 at `second` half a second on, the envelope's depth on
  * DYNAMICS 3 */
 static double ec_velocities(uint8_t first, uint8_t second)
@@ -283,12 +303,13 @@ TT_TEST(a_unison_note_on_idle_voices_carries_on)
  * nothing: no count is kept */
 TT_TEST(an_idle_voices_envelope_is_caught_up_within_a_block_and_then_costs_nothing)
 {
-    const fm_env *f, *unplayed;
+    const fm_env *f, *f2, *unplayed;
     uint32_t i, counted = 0;
     ec_init(4);
     ec_set(FM_PARAM_FILTER_ENV_RELEASE_MS, 100);
     ec_hold(60, 300);
     f = &ec_eng.voices[ec_voice(60) < 0 ? 0 : ec_voice(60)].filter_env;
+    f2 = &ec_eng.voices[ec_voice(60) < 0 ? 0 : ec_voice(60)].env2; /* without the gate: never started */
     unplayed = &ec_eng.voices[3].filter_env;
     ec_run(50);
     TT_CHECK_EQ(fm_engine_active_voices(&ec_eng), 0);
@@ -296,6 +317,7 @@ TT_TEST(an_idle_voices_envelope_is_caught_up_within_a_block_and_then_costs_nothi
     for (i = 0; i < 40; i++) { /* 280 ms in 7 ms blocks: the release runs out */
         fm_engine_render(&ec_eng, ec_buf, 336);
         TT_CHECK(f->lag < FM_ENV_LAG_MAX);
+        TT_CHECK_EQ(f2->lag, 0u);
         counted += f->lag != 0;
     }
     TT_CHECK(counted > 0);
@@ -304,6 +326,7 @@ TT_TEST(an_idle_voices_envelope_is_caught_up_within_a_block_and_then_costs_nothi
     for (i = 0; i < 40; i++) {
         fm_engine_render(&ec_eng, ec_buf, 336);
         TT_CHECK_EQ(f->lag, 0u);
+        TT_CHECK_EQ(f2->lag, 0u);
         TT_CHECK_EQ(unplayed->lag, 0u);
     }
     TT_CHECK_EQ(unplayed->stage, FM_ENV_IDLE);
@@ -380,6 +403,7 @@ static void run_env_carry_tests(void)
     TT_RUN(after_the_release_has_ended_a_note_starts_as_a_voices_first);
     TT_RUN(a_different_key_on_a_played_idle_voice_carries_on);
     TT_RUN(envelope_2_under_the_gate_carries_on);
+    TT_RUN(envelope_2_under_the_gate_releases_at_its_rate_while_idle);
     TT_RUN(the_new_notes_velocity_sets_the_depth_of_the_level_carried);
     TT_RUN(an_idle_release_runs_at_the_times_of_the_key_that_played_it);
     TT_RUN(all_sound_off_starts_the_envelopes_from_0);
