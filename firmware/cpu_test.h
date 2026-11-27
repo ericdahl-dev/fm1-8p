@@ -40,8 +40,17 @@ typedef struct {
     int32_t value;
 } cpu_test_param;
 
+/* #197: the reverb's mix in step F (FM1_CPU_REVERB in tools/fm1-build.sh), 0..100; 0 (the default) leaves
+ * it off, as every row before it */
+#ifndef CT_REVERB_MIX
+#define CT_REVERB_MIX 0
+#endif
+
 typedef struct {
     fm_engine engine;
+#if CT_REVERB_MIX
+    int16_t reverb_mem[FM_REVERB_WORDS_44K];   /* its lines, with the engine: the module's .bss */
+#endif
     int16_t buf[2u * CT_BLOCK];         /* engine output, static: not on the ISR stack */
     volatile uint8_t want;              /* main loop writes, ISR reads */
     volatile uint32_t asks;             /* main loop: +1 per request, after `want` */

@@ -32,6 +32,8 @@
 #   JIELI_TOOLCHAIN (its directory must be the pinned version), AC79_SDK (a checkout),
 #   FM1_DOCK (a clone at the pinned commit), PYTHON (needs Pillow), FM1_LIVE (the pinned fm1-live
 #   build; FM1_EMU_UNPINNED=1 takes another, marked in the report). fetch never changes these.
+# FM1_REVERB=fdn4|plate: the reverb a module build compiles (#197; default fdn4); FM1_CPU_REVERB=0..100 the
+# CPU test's reverb mix in step F (default 0: off), for the CPU rows of each.
 # Downloads need curl, git, tar and xz.
 
 sha256() {
@@ -73,6 +75,17 @@ stage_module() {
     src=$(abspath "$1") eng=$(abspath "$3")
     dbg=; [ "${FM1_DEBUG:-}" = 1 ] && dbg=" -DFM1_DEBUG"   # only 1 is the debug build (0 is not)
     [ "${FM1_THEME:-}" = night ] && dbg="$dbg -DFM1_THEME_NIGHT"   # a Night Panel preview (the default: Membrane)
+    case "${FM1_REVERB:-}" in                    # #197: the reverb the build compiles (module.cfg: FM_REVERB_ONE)
+        '') ;;
+        fdn4) dbg="$dbg -DFM_REVERB_DESIGN=1" ;;
+        plate) dbg="$dbg -DFM_REVERB_DESIGN=2" ;;
+        *) echo "fm1-build: FM1_REVERB=$FM1_REVERB: fdn4 or plate" >&2; return 1 ;;
+    esac
+    if [ -n "${FM1_CPU_REVERB:-}" ]; then        # the CPU test's reverb mix, 0..100 (0: off)
+        case "$FM1_CPU_REVERB" in *[!0-9]*) echo "fm1-build: FM1_CPU_REVERB=$FM1_CPU_REVERB: 0..100" >&2; return 1 ;; esac
+        [ "$FM1_CPU_REVERB" -le 100 ] || { echo "fm1-build: FM1_CPU_REVERB=$FM1_CPU_REVERB: 0..100" >&2; return 1; }
+        dbg="$dbg -DCT_REVERB_MIX=$FM1_CPU_REVERB"
+    fi
     mkdir -p "$2" || return 1
     rm -f "$2"/module.cfg
     while IFS= read -r line || [ -n "$line" ]; do

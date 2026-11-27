@@ -180,7 +180,8 @@ int play_init(play *p)
     p->store_bank = p->store_read = 0;
     pattern_init(&p->pat, &p->seq);
     if (fm_engine_init(&p->engine, PLAY_FS, PLAY_VOICES) != FM_OK ||
-        fm_engine_set_output_shift(&p->engine, FM_OUT_SHIFT_DEVICE) != FM_OK)   /* the module's gain (#342) */
+        fm_engine_set_output_shift(&p->engine, FM_OUT_SHIFT_DEVICE) != FM_OK ||   /* the module's gain (#342) */
+        fm_engine_set_reverb_memory(&p->engine, p->reverb_mem, FM_REVERB_WORDS_44K) != FM_OK)   /* #197 */
         return -1;
     p->patch = &PATCHES[PATCH_SOUNDTRACK];
     p->prog = PLAY_PROG_P + PATCH_SOUNDTRACK;

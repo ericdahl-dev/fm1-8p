@@ -256,6 +256,7 @@ TT_TEST(reverb_params_are_ours_with_mix_off_by_default)
     TT_CHECK(t && t->min == 300 && t->max == 10000 && t->def == 2500);
     TT_CHECK(o && o->min == 0 && o->max == 100 && o->def == 60);
     TT_CHECK(fm_engine_reverb_words(RV_RATE) > 0u);
+    TT_CHECK_EQ(fm_engine_reverb_words(44100u), FM_REVERB_WORDS_44K);   /* the device's buffer, sized at build */
     TT_CHECK(fm_engine_reverb_words(RV_RATE) <= sizeof rv_emem / sizeof rv_emem[0]);
 }
 

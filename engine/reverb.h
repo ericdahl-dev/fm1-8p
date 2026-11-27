@@ -21,10 +21,6 @@
 
 #include "reverb_state.h"
 
-#ifndef FM_REVERB_DESIGN
-#define FM_REVERB_DESIGN FM_REVERB_FDN4
-#endif
-
 /* The int16 words DESIGN's lines need at SAMPLE_RATE Hz (0 for an unknown
  * design, or one this build left out). */
 uint32_t fm_reverb_words(uint8_t design, uint32_t sample_rate);

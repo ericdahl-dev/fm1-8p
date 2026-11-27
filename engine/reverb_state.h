@@ -16,6 +16,15 @@
 #define FM_REVERB_FDN4 1u  /* four lines, a Hadamard mix (Jot, Stautner and Puckette) */
 #define FM_REVERB_PLATE 2u /* Dattorro's plate (1997), at half the rate */
 
+#ifndef FM_REVERB_DESIGN
+#define FM_REVERB_DESIGN FM_REVERB_FDN4
+#endif
+
+/* The int16 words FM_REVERB_DESIGN's lines take at 44.1 kHz, the
+ * device's rate (fm_engine_reverb_words; tests/test_reverb.c holds them
+ * equal): 23.8 KiB for the FDN4, 33.4 KiB for the plate */
+#define FM_REVERB_WORDS_44K (FM_REVERB_DESIGN == FM_REVERB_PLATE ? 16717u : 11902u)
+
 #define FM_REVERB_LINES 12u
 
 /* One delay line in the caller's memory: `len` samples, `w` the next

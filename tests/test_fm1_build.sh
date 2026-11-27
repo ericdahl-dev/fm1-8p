@@ -58,6 +58,19 @@ stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
 expect_ok "a build without it doesn't" grep -qx "cflags $T/mod/sub/own.c = -Os" "$cfg"
 (FM1_DEBUG=0 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng") >/dev/null 2>&1
 expect_ok "FM1_DEBUG=0 is not a debug build" grep -qx "cflags $T/mod/sub/own.c = -Os" "$cfg"
+# #197: FM1_REVERB picks the reverb a device build compiles (each module's cflags already say
+# FM_REVERB_ONE; the default is the FDN4), and FM1_CPU_REVERB the CPU test's reverb mix (0: off), so the
+# CPU rows can run each design and each mix; unset, the lines stay as they are
+(FM1_REVERB=plate stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng") >/dev/null 2>&1
+expect_ok "FM1_REVERB=plate builds the plate" grep -qx 'cflags = -O2 -DFM_REVERB_DESIGN=2' "$cfg"
+expect_ok "... in a file with its own cflags too" grep -qx "cflags $T/mod/sub/own.c = -Os -DFM_REVERB_DESIGN=2" "$cfg"
+(FM1_REVERB=fdn4 FM1_CPU_REVERB=60 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng") >/dev/null 2>&1
+expect_ok "FM1_REVERB=fdn4 and FM1_CPU_REVERB=60" grep -qx 'cflags = -O2 -DFM_REVERB_DESIGN=1 -DCT_REVERB_MIX=60' "$cfg"
+expect_fail "another FM1_REVERB stops it" sh -c "FM1_BUILD_LIB=1 . tools/fm1-build.sh && FM1_REVERB=hall stage_module '$T/mod/sub' '$T/staged/hall' '$T/eng'"
+expect_fail "an FM1_CPU_REVERB out of 0..100 stops it" sh -c "FM1_BUILD_LIB=1 . tools/fm1-build.sh && FM1_CPU_REVERB=101 stage_module '$T/mod/sub' '$T/staged/r' '$T/eng'"
+for m in fm1_8p fm1_8p_cpu fm1_8p_cpu_quick fm1_8p_cpu_seq fm1_8p_cpu_ui; do
+    expect_ok "firmware/$m builds one reverb design" grep -q '^cflags = .*-DFM_REVERB_ONE' "firmware/$m/module.cfg"
+done
 # hbmod splits each line at its first '=' and strips both sides, so spacing is free.
 printf 'name = x\nsources = ../shared.c\ncflags   own.c=-Os\n' >"$T/mod/sub/module.cfg"
 stage_module "$T/mod/sub" "$T/staged/sub" "$T/eng" >/dev/null 2>&1
