@@ -166,6 +166,12 @@ printf '01c04000 T _hb_rt_start\n02200000 T render\n' >"$T/rt/mod/module_0220000
 expect_fail "a module with no RAM text bounds fails" rtc
 mkdir -p "$T/nm/none" && cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/none/"
 expect_fail "a module with no linked image fails it (nm can't read it)" with_nm check_module_symbols "$T/nm/none"
+# FM1_NM: another nm reads the module and the libraries, for a host the toolchain's Linux nm can't run on
+# (macOS: its own llvm-nm reads the ELF). Here the toolchain has no nm at all.
+mkdir -p "$T/nm/tc2/pi32v2/lib" && cp "$T/nm/tc/pi32v2/lib/"* "$T/nm/tc2/pi32v2/lib/"
+with_fm1_nm() { JIELI_TOOLCHAIN="$T/nm/tc2" FM1_NM="$T/nm/nm" "$@"; }
+expect_ok "FM1_NM reads a module where the toolchain's nm isn't there" with_fm1_nm check_module_symbols "$T/nm/locals"
+expect_fail "with FM1_NM a soft-float helper still fails it" with_fm1_nm check_module_symbols "$T/nm/mod"
 # ... and a build runs it on the module it links: fm1-dock's tools stand in, linking the module in
 # directory $1 (a clean one builds, so the soft-float one fails on the symbol check alone).
 build_with() (

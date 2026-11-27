@@ -23,6 +23,10 @@ typedef struct {
     uint32_t output_shift; /* the output stage's gain, 0..FM_OUT_SHIFT_MAX
                               doublings (#342): 0 the engine's level, -d
                               FM_OUT_SHIFT_DEVICE (the FM-1 module's) */
+    uint32_t osc2_offset_milli; /* -o (#382): 0..999, thousandths of a cycle
+                                   added to DCO-2's phase on each voice's
+                                   first note, where DCO-2 is free (no sync);
+                                   0 renders as without it */
     /* engine parameters set before the song starts, in order */
     uint32_t param_count;
     uint16_t param_id[RENDER_MAX_SETTINGS];

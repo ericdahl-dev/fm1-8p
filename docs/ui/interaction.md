@@ -171,7 +171,7 @@ The JX-8P numbers CHORUS 64, with the VCA, so it shares the VCA's page.
 | No. | Knob | Engine parameter | Label | Shown as | Step / fast |
 | --- | --- | --- | --- | --- | --- |
 | 71 | K1 | `lfo_wave` | WAVE | RANDOM, SQUARE, TRI (panel order), and our SAW | 1 / 1 |
-| 72 | K2 | `lfo_delay_ms` | DELAY | time, 0..5.00 s | time table |
+| 72 | K2 | `lfo_delay_ms` | DELAY | time, 0..5.00 s: the hold; the fade-in after it takes twice as long | time table |
 | 73 | K3 | `lfo_rate_centihz` | RATE | 0.01..30.0 Hz, 3 significant digits | rate table |
 | 74 | K4 | `lfo_pw_pct` (*ours*) | PW | 0..49 % | 1 / 5 |
 

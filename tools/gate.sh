@@ -101,7 +101,8 @@ coverage() {
 # the rows, its toggles GATE_CPU_LAYOUTS, GATE_CPU_HINOTE and GATE_CPU_LIMIT, and the FM-1 tools' identity
 # from gate_cpu.sh --tools): a row added there or skipped by a toggle must not come back missing, nor a
 # rule or a tool changed there leave the old rows standing. A failed run's rows are shown, not kept; its
-# return is gate_cpu.sh's exit.
+# return is gate_cpu.sh's exit. A run that exits 0 with no rows ran nothing: kept nowhere, it returns 2
+# (#179).
 cpu() {
     s=${GATE_CPU:-$ROOT/tools/gate_cpu.sh}
     t=$G/cpu/.tools.json keep=1
@@ -110,10 +111,15 @@ cpu() {
     sh "$s" --tools >"$t" 2>/dev/null || { printf '{"fm1": "not to be had"}\n' >"$t"; keep=0; }
     k=$($PY -B "$ROOT/tools/gate_run.py" cpu-key "$1" "$ROOT" "$s" "$t") && [ ${#k} -eq 16 ] || die "$1: cannot hash its CPU inputs"
     o=$G/cpu/$k
-    if [ "$keep" = 0 ] || [ ! -f "$o/rows.txt" ]; then
+    # (a kept rows.txt with no rows, from a gate before #179, is run again: it ran nothing)
+    if [ "$keep" = 0 ] || ! grep -q '[^[:space:]]' "$o/rows.txt" 2>/dev/null; then
         sh "$s" "$1" "$o/runs" >"$o.rows" 2>"$o.err"
         r=$?
         if [ "$r" -ne 0 ]; then sort "$o.rows"; cat "$o.err" >&2; rm -f "$o.rows" "$o.err"; return "$r"; fi
+        if ! grep -q '[^[:space:]]' "$o.rows"; then
+            cat "$o.err" >&2; rm -f "$o.rows" "$o.err"
+            echo "gate: $1: the CPU run exited 0 with no rows" >&2; return 2
+        fi
         if [ "$keep" = 0 ]; then sort "$o.rows"; rm -f "$o.rows" "$o.err"; return 0; fi
         mkdir -p "$o" && sort "$o.rows" >"$o/rows.txt" && rm -f "$o.rows" "$o.err"
     fi

@@ -197,8 +197,8 @@ TT_TEST(tempo_changes_set_the_song_length)
 }
 
 /* render -d (#342): the output stage at the FM-1 module's gain, FM_OUT_SHIFT_DEVICE: the engine's own
- * render 2^shift louder, clamped at +-32767, sample for sample. */
-TT_TEST(render_at_the_device_gain_is_the_engines_render_louder)
+ * render 2^shift louder, clamped at +-32767, sample for sample. At shift 0 (#320) the two are the same. */
+TT_TEST(render_at_the_device_gain_is_the_engines_render)
 {
     render_opts o;
     uint32_t frames, rate, f2, r2, i, louder = 0;
@@ -222,7 +222,8 @@ TT_TEST(render_at_the_device_gain_is_the_engines_render_louder)
     }
     free(a);
     free(b);
-    TT_CHECK(louder);
+    TT_CHECK_EQ(FM_OUT_SHIFT_DEVICE, 0);
+    TT_CHECK(!louder);
 }
 
 TT_TEST(same_midi_file_renders_byte_identical_wav)
@@ -580,12 +581,12 @@ TT_TEST(render_reports_voice_count_channel_and_level)
     TT_CHECK(strstr(text, "1/8.33") != NULL);
     TT_CHECK(strstr(text, "-2.9 dBFS") != NULL);
     TT_CHECK(strstr(text, "-18.4") == NULL);
-    /* at the device's gain (-d) that note is past full scale: the clamp holds it there (#342) */
+    /* at the device's gain (-d), shift 0 (#320), that note is where the engine puts it */
     info.output_shift = FM_OUT_SHIFT_DEVICE;
     render_describe(&info, text, sizeof text);
     printf("    %s\n", text);
-    TT_CHECK(strstr(text, "clamped at full scale") != NULL);
-    TT_CHECK(strstr(text, "+9.") == NULL);
+    TT_CHECK(strstr(text, "-2.9 dBFS") != NULL);
+    TT_CHECK(strstr(text, "clamped at full scale") == NULL);
 }
 
 TT_TEST(render_rejects_a_bad_voice_count)
@@ -661,6 +662,44 @@ TT_TEST(render_swings_a_pattern)
     TT_CHECK(onset >= 8268u && onset < 8268u + 200u);   /* 1.5 steps in: 5512.5 x 1.5 */
 }
 
+/* -o (#382): DCO-2's start phase moved by a share of a cycle on each voice's first note, so the
+ * scorecard can read a section at several beat phases. Detuned and free, the render changes; with
+ * sync DCO-2 restarts with DCO-1, so it is left alone and the render is the same byte for byte. */
+static size_t render_offset(const char *wav, uint32_t milli, int sync, uint8_t **data)
+{
+    render_opts o;
+    memset(&o, 0, sizeof o);
+    o.sample_rate = 44100;
+    o.tail_ms = 100;
+    o.osc2_offset_milli = milli;
+    o.param_count = 3;
+    o.param_id[0] = FM_PARAM_OSC2_LEVEL;
+    o.param_value[0] = 1000;
+    o.param_id[1] = FM_PARAM_OSC2_FINE_CENTS;
+    o.param_value[1] = 7;
+    o.param_id[2] = FM_PARAM_OSC_SYNC;
+    o.param_value[2] = sync;
+    write_two_track_smf("build/offset.mid");
+    if (render_midi_file("build/offset.mid", wav, &o) != 0) return 0;
+    return slurp(wav, data);
+}
+
+TT_TEST(render_offset_moves_a_free_dco2_and_leaves_a_synced_one)
+{
+    uint8_t *a, *b, *c, *d;
+    size_t na = render_offset("build/offset-0.wav", 0, 0, &a), nb = render_offset("build/offset-500.wav", 500, 0, &b);
+    size_t nc = render_offset("build/offset-s0.wav", 0, 1, &c), nd = render_offset("build/offset-s500.wav", 500, 1, &d);
+    TT_CHECK(na > 44 && na == nb && nc == nd && nc == na);
+    TT_CHECK(memcmp(a, b, na) != 0);
+    TT_CHECK(memcmp(c, d, nc) == 0);
+    printf("    (an expected error message follows)\n");
+    TT_CHECK_EQ(render_offset("build/offset-x.wav", 1000, 0, &d), 0u);   /* a whole cycle is 0: out of range */
+    free(a);
+    free(b);
+    free(c);
+    free(d);
+}
+
 static void run_host_tests(void)
 {
     TT_RUN(slurp_fails_cleanly_on_missing_and_empty_files);
@@ -668,8 +707,9 @@ static void run_host_tests(void)
     TT_RUN(one_note_midi_file_renders_at_note_pitch);
     TT_RUN(render_applies_parameter_settings);
     TT_RUN(tempo_changes_set_the_song_length);
-    TT_RUN(render_at_the_device_gain_is_the_engines_render_louder);
+    TT_RUN(render_at_the_device_gain_is_the_engines_render);
     TT_RUN(same_midi_file_renders_byte_identical_wav);
+    TT_RUN(render_offset_moves_a_free_dco2_and_leaves_a_synced_one);
     TT_RUN(render_rejects_bad_input);
     TT_RUN(smf_accepts_a_well_formed_file);
     TT_RUN(smf_rejects_header_longer_than_file);
