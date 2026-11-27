@@ -211,9 +211,20 @@ check_ram_text() {
         [ -n "$lo" ] && [ -n "$hi" ] || { echo "fm1-build: $1: no RAM text bounds in the module" >&2; exit 1; }
         size=$(( 0x$hi - 0x$lo ))
         budget=${FM1_RAM_TEXT_BUDGET:-12288}
-        if grep -q '^cflags *=.*-DFM_RAM_TEXT' "$2"; then
+        if grep -Eq '^cflags *=(.* )?-DFM_RAM_TEXT( |$)' "$2"; then
             [ "$size" -gt 0 ] || {
                 echo "fm1-build: $1: built with FM_RAM_TEXT but its RAM text is empty: the render loops run from flash (#304)" >&2
+                exit 1; }
+            # the render's entry points (engine/placement.h's FM_HOT) must sit inside it
+            out=$(echo "$syms" | awk -v lo=$((0x$lo)) -v hi=$((0x$hi)) '
+                $3 ~ /^(fm_osc_pair_render|fm_osc_pair_next|fm_filter_process|fm_chorus_process_block|fm_out_block)$/ {
+                    seen[$3] = 1; a = 0; h = "0123456789abcdef"; x = tolower($1)
+                    for (i = 1; i <= length(x); i++) a = a * 16 + index(h, substr(x, i, 1)) - 1
+                    if (a < lo || a >= hi) print $3 }
+                END { n = split("fm_osc_pair_render fm_osc_pair_next fm_filter_process fm_chorus_process_block fm_out_block", w, " ")
+                      for (i = 1; i <= n; i++) if (!(w[i] in seen)) print w[i] " (missing)" }')
+            [ -z "$out" ] || {
+                echo "fm1-build: $1: render code outside its RAM text, so in the flash cache (#304):" $out >&2
                 exit 1; }
         fi
         [ "$size" -le "$budget" ] && exit 0

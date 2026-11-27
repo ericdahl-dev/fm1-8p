@@ -89,7 +89,7 @@ expect_ok "check_inputs says when the toolchain has no nm" grep -q "no nm in $T/
 mkdir -p "$T/nm/mod"
 printf '#!/bin/sh\nfor f; do case "$f" in -*) ;; *) cat "$f.nm" ;; esac; done\n' >"$T/nm/nm"; chmod +x "$T/nm/nm"
 : >"$T/nm/mod/module_02200000.elf"; : >"$T/nm/mod/a.o"
-printf '02200000 T render\n02200100 t helper\n02200200 T __udivdi3\n02200300 T hb_module\n02200400 t _hb_text_end\n01c04000 T _hb_rt_start\n01c06000 T _hb_rt_end\n' >"$T/nm/mod/module_02200000.elf.nm"
+printf '02200000 T render\n02200100 t helper\n02200200 T __udivdi3\n02200300 T hb_module\n02200400 t _hb_text_end\n01c04000 T _hb_rt_start\n01c06000 T _hb_rt_end\n01c04010 T fm_osc_pair_render\n01c04010 T fm_osc_pair_next\n01c04010 T fm_filter_process\n01c04010 T fm_chorus_process_block\n01c04010 T fm_out_block\n' >"$T/nm/mod/module_02200000.elf.nm"
 printf '00000000 T render\n00000010 t helper\n         U __udivdi3\n' >"$T/nm/mod/a.o.nm"
 mkdir -p "$T/nm/tc/pi32v2/lib"                 # the toolchain's libraries, as nm lists them
 for l in compiler_rt m c; do : >"$T/nm/tc/pi32v2/lib/lib$l.a"; done
@@ -128,7 +128,14 @@ expect_ok "a module whose local labels a library also has locally passes" with_n
 mkdir -p "$T/rt/mod" && : >"$T/rt/mod/module_02200000.elf"
 printf 'name = x\ncflags = -O2 -DFM_RAM_TEXT\n' >"$T/rt/hot.cfg"
 printf 'name = x\ncflags = -O2\n' >"$T/rt/cold.cfg"
-rt_syms() { printf '01c04000 T _hb_rt_start\n%s T _hb_rt_end\n02200000 T render\n' "$1" >"$T/rt/mod/module_02200000.elf.nm"; }
+# (the render entry points engine/placement.h puts there: in RAM text unless $2 names one left in flash)
+rt_syms() {
+    printf '01c04000 T _hb_rt_start\n%s T _hb_rt_end\n02200000 T render\n' "$1" >"$T/rt/mod/module_02200000.elf.nm"
+    a=01c04010
+    for f in fm_osc_pair_render fm_osc_pair_next fm_filter_process fm_chorus_process_block fm_out_block; do
+        [ "$f" = "${2:-}" ] && printf '02201000 T %s\n' "$f" || printf '%s T %s\n' "$a" "$f"
+    done >>"$T/rt/mod/module_02200000.elf.nm"
+}
 rt_syms 01c06190
 expect_ok   "a module with its render loops in RAM text passes" with_nm check_ram_text "$T/rt/mod" "$T/rt/hot.cfg"
 rt_syms 01c04000
@@ -138,6 +145,16 @@ rt_syms 01c07001
 expect_fail "RAM text over the 12 KiB budget fails" with_nm check_ram_text "$T/rt/mod" "$T/rt/hot.cfg"
 rt_syms 01c07000
 expect_ok   "... and at the budget passes" with_nm check_ram_text "$T/rt/mod" "$T/rt/hot.cfg"
+rt_syms 01c07001
+rt_syms 01c06190 fm_filter_process
+expect_fail "a render entry point left in flash fails, the RAM text not empty" with_nm check_ram_text "$T/rt/mod" "$T/rt/hot.cfg"
+printf '01c04000 T _hb_rt_start\n02200000 T render\n' >"$T/rt/mod/module_02200000.elf.nm"
+expect_fail "a module with no RAM text bounds fails" with_nm check_ram_text "$T/rt/mod" "$T/rt/cold.cfg"
+printf 'name = x\ncflags = -O2 -DFM_RAM_TEXT_OFF\n' >"$T/rt/other.cfg"
+rt_syms 01c04000
+expect_ok   "a cflags word that only starts with FM_RAM_TEXT is not the flag" with_nm check_ram_text "$T/rt/mod" "$T/rt/other.cfg"
+printf 'name = x\ncflags = -O2 -DFM_RAM_TEXT -DCPU_SEQ\n' >"$T/rt/mid.cfg"
+expect_fail "... and the flag between others is" with_nm check_ram_text "$T/rt/mod" "$T/rt/mid.cfg"
 rt_syms 01c07001
 expect_ok   "FM1_RAM_TEXT_BUDGET moves the budget" env FM1_BUILD_LIB=1 FM1_RAM_TEXT_BUDGET=16384 JIELI_TOOLCHAIN="$T/nm/tc" sh -c '. tools/fm1-build.sh && check_ram_text "$1" "$2"' x "$T/rt/mod" "$T/rt/hot.cfg"
 mkdir -p "$T/nm/none" && cp "$T/nm/mod/a.o" "$T/nm/mod/a.o.nm" "$T/nm/none/"
