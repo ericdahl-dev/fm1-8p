@@ -26,13 +26,22 @@ class MetricTest(unittest.TestCase):
         gap = self.sc.loudness_gap(self.tone * 0.5, self.tone)
         self.assertAlmostEqual(gap, -6.02, places=1)
 
-    # The #8 clips' method: RMS dB difference of 1/3-octave bands, 60 Hz .. 8 kHz, level-matched.
+    # The #8 clips' method: RMS dB difference of 1/3-octave bands, 31.5 Hz .. 8 kHz, level-matched.
     def test_spectral_distance_ignores_level_and_sees_tone(self):
         from scipy import signal
         self.assertAlmostEqual(self.sc.spectral_distance(self.tone * 0.3, self.tone), 0.0, places=6)
         b, a = signal.butter(2, 600 / (SR / 2))
         darker = signal.lfilter(b, a, self.tone + 0.05 * self.np.random.default_rng(1).standard_normal(len(self.tone)))
         self.assertGreater(self.sc.spectral_distance(darker, self.tone + 0.05 * self.np.random.default_rng(1).standard_normal(len(self.tone))), 3.0)
+
+    # The low section's fundamental, C1 (C2 played an octave down: 32.70 Hz), has a band of its own (#326):
+    # a sine there reads as loud as one at C2 (65.41 Hz), not only as a skirt in the band above it
+    def test_c1_has_a_band(self):
+        np = self.np
+        t = np.arange(4 * SR) / SR
+        c1 = self.sc.band_levels(0.25 * np.sin(2 * np.pi * 32.703 * t)).max()
+        c2 = self.sc.band_levels(0.25 * np.sin(2 * np.pi * 65.406 * t)).max()
+        self.assertAlmostEqual(c1, c2, delta=0.5)
 
     # Envelope timing, sample-accurate (pg8x-measurement traps): the Hilbert magnitude, smoothed over two
     # periods of the note, so neither the waveform's ripple nor PG-8X's onset burst moves the reading.
@@ -444,7 +453,7 @@ class HistoryTest(unittest.TestCase):
     def test_a_tone_row_has_its_schema_commit_tone_and_metrics(self):
         score = {"loudness_gap_lu": -1.5, "spectral_db_mean": 12.0}
         row = self.sc.tone_row("a254bee", "2026-11-12T23:00:00-05:00", 25, "SYNC LEAD", score, "ref-1")
-        self.assertEqual(row["schema"], 13)
+        self.assertEqual(row["schema"], 14)
         self.assertEqual(row["kind"], "tone")
         self.assertEqual((row["commit"], row["tone"], row["name"], row["ref"]), ("a254bee", 25, "SYNC LEAD", "ref-1"))
         self.assertEqual(row["loudness_gap_lu"], -1.5)
@@ -493,7 +502,7 @@ class HistoryTest(unittest.TestCase):
                   "judge": {"track_84_re_36": {"err": -14.64, "at": 127, "ratio": 14.64, "n": 9}},
                   "tones_affected": ["PIANO 1", "PIANO 2"], "rows": [[0, 1, 2]]}
         row = self.sc.param_row("a254bee", "2026-11-12T23:00:00-05:00", result)
-        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (13, "param", "VCF_KEY", "VCF"))
+        self.assertEqual((row["schema"], row["kind"], row["param"], row["group"]), (14, "param", "VCF_KEY", "VCF"))
         self.assertEqual(row["status"], "CURVE OFF")
         self.assertEqual(row["worst"], {"track_84_re_36": {"err": -14.64, "at": 127, "unit": "st", "tol": 1}})
         self.assertEqual((row["tones_over"], row["tones"]), (2, ["PIANO 1", "PIANO 2"]))
@@ -668,7 +677,7 @@ class RunTest(unittest.TestCase):
     def test_a_row_says_which_draws_it_was_scored_over(self):
         rows = self.sc.run(self.repo, "deadbee", self.ref, os.path.join(self.tmp.name, "hd.jsonl"),
                            work=os.path.join(self.tmp.name, "wd"))
-        self.assertEqual(rows[0]["schema"], 13)
+        self.assertEqual(rows[0]["schema"], 14)
         self.assertEqual(rows[0]["draws"], {"ours_leads_ticks": [0] * 8,
                                             "ours_offsets_milli": [0, 125, 250, 375, 500, 625, 750, 875],
                                             "pg_shifts_ticks": [0] * 8})

@@ -38,7 +38,7 @@ import scorecard_cmd  # noqa: E402
 import numpy as np
 from scipy import signal
 
-SCHEMA = 13  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 14  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
@@ -51,7 +51,8 @@ SCHEMA = 13  # history rows: bump when a field changes meaning (2: timings sampl
              # 12: every figure over draws, power averaged: ours at 8 DCO-2 start offsets, PG-8X's at its
              #     reference's shifts, so a slow beat's start phase isn't scored, #382;
              # 13: ours render each of the reference's K leads with 4 DCO-2 offsets (4K draws, draw_plan), so
-             #     what runs on the clock (the chorus's LFO, the LFO) meets PG-8X's phases; v6 reads as s12, #392)
+             #     what runs on the clock (the chorus's LFO, the LFO) meets PG-8X's phases; v6 reads as s12, #392;
+             # 14: a band at 31.5 Hz, so the low section's fundamental, C1, is read, not only its skirt, #326)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = scorecard_cmd.SR
@@ -101,7 +102,8 @@ def loudness_gap(ours, pg):
     return lufs(ours) - lufs(pg)
 
 
-_BANDS = 1000 * 2 ** (np.arange(-14, 10) / 3)   # 1/3-octave centers, about 63 Hz .. 6.3 kHz
+_BANDS = 1000 * 2 ** (np.arange(-15, 10) / 3)   # 1/3-octave centers, 31.5 Hz .. 8 kHz: C1, the low
+                                                # section's fundamental (32.7 Hz), has its own (s14, #326)
 
 
 def power_spectrum(x):
