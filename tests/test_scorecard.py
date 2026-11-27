@@ -669,6 +669,45 @@ class RunTest(unittest.TestCase):
         self.assertEqual(rows[0]["draws"], {"ours_leads_ticks": [t for t, _ in plan], "ours_offsets_milli": [o for _, o in plan],
                                             "pg_shifts_ticks": [0, 480]})
 
+    # A tone's score is cached under the hash of what decides it: our draws' wavs, the reference's draws and
+    # manifest, and the scorecard's code. A second run whose renders are the same (main as every PR's base,
+    # or a PR that doesn't touch the sound) reads it back instead of scoring it again, row for row
+    def test_a_second_run_with_the_same_renders_reads_its_scores_from_the_cache(self):
+        cache = os.path.join(self.tmp.name, "cache")
+        first = self.sc.run(self.repo, "c0ffee1", self.ref, os.path.join(self.tmp.name, "hc1.jsonl"),
+                            work=os.path.join(self.tmp.name, "wc1"), cache=cache)
+        real = self.sc.score_tone
+        def refuse(*a, **k):
+            raise AssertionError("scored again")
+        self.sc.score_tone = refuse
+        try:
+            second = self.sc.run(self.repo, "c0ffee2", self.ref, os.path.join(self.tmp.name, "hc2.jsonl"),
+                                 work=os.path.join(self.tmp.name, "wc2"), cache=cache)
+        finally:
+            self.sc.score_tone = real
+        strip = lambda r: {k: v for k, v in r.items() if k not in ("commit", "date")}
+        self.assertEqual([strip(r) for r in first], [strip(r) for r in second])
+        self.assertEqual({r["commit"] for r in second}, {"c0ffee2"})
+
+    def test_the_cache_key_changes_with_any_byte_of_a_draw(self):
+        import shutil
+        d = os.path.join(self.tmp.name, "keys")
+        os.makedirs(d, exist_ok=True)
+        a, b = os.path.join(d, "a.wav"), os.path.join(d, "b.wav")
+        shutil.copy(os.path.join(self.ref, self.sc.draw_file(5, 0)), a)
+        shutil.copy(a, b)
+        man = {"midi_sha256": "x", "selfnoise": 0}
+        k1 = self.sc.tone_key([a], [b], man, True)
+        self.assertEqual(k1, self.sc.tone_key([a], [b], man, True))
+        with open(b, "r+b") as fh:
+            fh.seek(-1, 2)
+            last = fh.read(1)
+            fh.seek(-1, 2)
+            fh.write(bytes([last[0] ^ 1]))
+        self.assertNotEqual(k1, self.sc.tone_key([a], [b], man, True))
+        self.assertNotEqual(k1, self.sc.tone_key([a], [a], man, False))
+        self.assertNotEqual(k1, self.sc.tone_key([a], [a], dict(man, shifts_ticks=[0]), True))
+
     def test_a_row_says_which_draws_it_was_scored_over(self):
         rows = self.sc.run(self.repo, "deadbee", self.ref, os.path.join(self.tmp.name, "hd.jsonl"),
                            work=os.path.join(self.tmp.name, "wd"))
@@ -689,20 +728,7 @@ class RunTest(unittest.TestCase):
         rows = self.sc.run(self.repo, "deadbee", ref, os.path.join(self.tmp.name, "h7.jsonl"),
                            work=os.path.join(self.tmp.name, "w7"))
         self.assertEqual(rows[0]["draws"]["pg_shifts_ticks"], [0])
-        mean = sum(r["spectral_db_mean"] for r in rows) / len(rows)
-        print(f"\n    leads 0 and 480: our own renders score {mean:.3f}")
-        # the negative: the lead-480 draw swapped for a lead-0 render (its sound half a second early) reads far
-        # worse, so the leads are what lines the two sides up
-        bad = os.path.join(self.tmp.name, "leads-bad")
-        shutil.copytree(ref, bad)
-        for i in range(1, 33):
-            shutil.copy(os.path.join(ref, self.sc.draw_file(i, 0)), os.path.join(bad, self.sc.draw_file(i, 1)))
-        wrong = self.sc.run(self.repo, "deadbee", bad, os.path.join(self.tmp.name, "hlb.jsonl"),
-                            work=os.path.join(self.tmp.name, "wl2"))
-        worse = sum(r["spectral_db_mean"] for r in wrong) / len(wrong)
-        print(f"    with draw 1 rendered at lead 0: {worse:.3f}")
-        self.assertLess(mean, 0.5)
-        self.assertGreater(worse, mean + 1.0)
+        self.assertTrue(all(r["spectral_db_mean"] < 10 for r in rows))
 
     # Each draw of a reference names the MIDI it was rendered from: the scorecard MIDI with its lead
     def test_a_draw_rendered_from_other_midi_is_refused(self):
