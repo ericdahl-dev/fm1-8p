@@ -1,109 +1,147 @@
-:root {
-  --bg: #14161a;
-  --panel: #1d2026;
-  --text: #e6e3dc;
-  --muted: #a7a39a;
-  --accent: #f0a23b;
-  --line: #2e323a;
+/* SPDX-License-Identifier: GPL-3.0-or-later
+   FM1-8P's page (#356): the page's own CSS on top of the design kit in assets/ (system.css, layout.css, ...).
+   Fonts are self-hosted from fonts/, each folder with its SIL Open Font License (fonts/README.md). Only what sits
+   inside a visual and the kit lacks goes here. */
+
+@font-face { font-family: "Instrument Sans"; font-weight: 400 700; font-display: swap;
+  src: url("fonts/instrument-sans/instrument-sans-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Mono"; font-weight: 400; font-display: swap;
+  src: url("fonts/dm-mono/dm-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Mono"; font-weight: 500; font-display: swap;
+  src: url("fonts/dm-mono/dm-mono-latin-500-normal.woff2") format("woff2"); }
+
+/* the FM-1's own screens are pixel art: keep their pixels square */
+.pc-screen > img, .screen > img, .mo-pc__visual img { image-rendering: pixelated; }
+.ly-collage .pc-screen { background: #0b0d12; aspect-ratio: 1; }
+.ly-collage .pc-a { left: 2%; top: 2%; width: 54%; }
+.ly-collage .pc-b { left: 42%; top: 50.5%; width: 54%; }
+/* under 1024 the collage runs the width of the page: two screens under half of it each, clear of the button */
+@media (max-width: 1023px) {
+  .ly-collage .pc-a { left: 0; top: 0; width: 46%; }
+  .ly-collage .pc-b { left: auto; right: 0; top: auto; bottom: 0; width: 46%; }
 }
 
-* { box-sizing: border-box; }
+/* the play section: the 32 tones beside the emulator, one app window (sections-library app-frame) */
+.play__lead { margin: 0; font-size: var(--t-lead); line-height: 1.5; }
+.app.ui { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); margin-top: var(--s-7);
+  background: transparent; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.app > .app__pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.app > .app__pane + .app__pane { border-left: 1px solid var(--line); }
+.app__head { display: flex; justify-content: space-between; gap: var(--s-4); margin: 0; padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--line); font-size: var(--t-label); font-weight: 500; color: var(--muted); }
+.tones { list-style: none; margin: 0; padding: var(--s-3) var(--s-5); counter-reset: tone; columns: 2; column-gap: var(--s-5);
+  font: 400 var(--t-small)/1 var(--font-mono); }
+.tones li { counter-increment: tone; display: flex; gap: var(--s-3); padding: 6px 0; break-inside: avoid; white-space: nowrap; }
+.tones li::before { content: counter(tone, decimal-leading-zero); color: var(--muted); }
+.tones li.boot { color: var(--accent); }
+.emu { position: absolute; inset: 0; background: #000; }
+.emu iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+@media (max-width: 1279px) {
+  .app__label { display: none; }
+  .tones li { padding: 2px 0; }
+}
+@media (max-width: 1023px) {
+  .app.ui { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .app > .app__pane--list { order: 2; border-top: 1px solid var(--line); }
+  .tones { columns: 4; }
+  .app > .app__pane + .app__pane { border-left: 0; }
+}
+@media (max-width: 639px) { .app > .app__pane--list { display: none; } }
 
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+/* the sound cards: each panel holds one of the FM-1's screens, square */
+.sound__grid .panel.screen { aspect-ratio: 1; height: auto; padding: 0; background: #0b0d12; overflow: hidden; }
+.sound__grid .panel.screen > img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.sound__grid .card p { margin: 0; }
+
+/* the install section */
+.untested { margin: 0; }
+.install__panels { display: grid; gap: var(--s-7); }
+.installer { display: grid; gap: var(--s-3); align-content: start; }
+.installer p { margin: 0; }
+.installer progress { width: 100%; height: 8px; accent-color: var(--ink); }
+.installer .status { font: 400 var(--t-small)/1.5 var(--font-mono); min-height: 1.5em; }
+.installer .warn { font-weight: 500; }
+code { font-family: var(--font-mono); font-size: .92em; }
+
+.footer__legal p { margin: 0; font-size: var(--t-label); line-height: 1.6; max-width: 110ch; }
+
+.nw { white-space: nowrap; }
+/* the sound cards: the screens on one line, whatever the length of the text above them */
+.sound__grid { align-items: stretch; }
+.sound__grid .card { height: 100%; display: flex; flex-direction: column; gap: var(--s-3); }
+.sound__grid .card .panel.screen { margin-top: auto; }
+/* the install steps: each square screen whole on the lit ground */
+[data-moment="pinned-chapters"] .mo-pc__visual.mo-pc__visual--lit > img, [data-moment="pinned-chapters"].is-live .mo-pc__visual.mo-pc__visual--lit > img { width: auto; height: 100%; max-width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: var(--r-sm); }
+
+.emu iframe:is(:focus, :focus-within, :focus-visible) { outline: 3px solid var(--action); outline-offset: -3px; }
+/* the triptych's button at the page's one button height, like every other copy of the main action */
+.hero--triptych .hero__cta .btn { height: var(--btn-h); font-size: var(--t-body); padding-inline: var(--s-6); }
+/* at rest (no pin) the three steps' screens stay 30svh tall, so the section keeps its two screens */
+[data-moment="pinned-chapters"]:not(.is-live) .mo-pc__visual.mo-pc__visual--lit { aspect-ratio: auto; height: 30svh; padding: var(--s-4); }
+@media (max-width: 639px) { [data-moment="pinned-chapters"]:not(.is-live) .mo-pc__visual.mo-pc__visual--lit { height: 34svh; } }
+.browsers { list-style: none; margin: var(--s-4) 0 0; padding: 0; display: grid; gap: var(--s-4); }
+.browsers li { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); max-width: min(100%, 320px); padding-bottom: var(--s-3); border-bottom: 1px solid var(--line); font-weight: 500; }
+.browsers small { display: block; font-size: var(--t-small); font-weight: 400; color: var(--muted); }
+.install__screen { margin: 0; aspect-ratio: 1; border-radius: var(--r-md); overflow: hidden; background: #0b0d12; }
+.install__screen > img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.installer + .installer { padding-top: var(--s-4); border-top: 1px solid var(--line); }
+/* two of the four sound cards show their screen cut by the panel's corner, close up */
+.sound__grid .panel.screen--corner { position: relative; }
+.sound__grid .panel.screen--corner > img { position: absolute; left: var(--s-6); top: var(--s-6); width: 150%; height: auto; max-width: none; object-fit: fill; border-radius: var(--r-sm); }
+.close__word { font-size: clamp(56px, 11vw, 168px); line-height: 1.05; padding-top: .04em; }
+main > #steps[data-moment]:not(.is-live) { min-height: 200svh; }
+@media (min-width: 1024px) {
+  [data-moment="pinned-chapters"]:not(.is-live) .mo-pc__visual.mo-pc__visual--lit { height: 40svh; }
 }
 
-header, main, footer {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 0 16px;
+/* tablet and phone (640 to 1023 and under 640): every section one or two screens */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .sound__grid > .card { grid-column: auto / span 6; }
+  #sound .sound__grid .panel.screen { aspect-ratio: auto; height: 150px; --p-h: 150px; }
+  /* the install and questions splits stay side by side on the 6/6 pair, so each is one screen */
+  #install .grid > .span-5, #questions .grid > .span-5 { grid-column: 1 / span 6; }
+  #install .install__screen, #questions .faq { grid-column: 7 / span 6; align-self: start; }
+  [data-moment="pinned-chapters"]:not(.is-live) .mo-pc__visual.mo-pc__visual--lit { height: 44svh; }
+  .sound__grid .panel.screen:not(.screen--corner) > img { object-fit: cover; object-position: 50% 20%; }
+}
+@media (max-width: 639px) {
+  #sound { --hm: 2; }
+  /* a phone cannot run the installer (Web MIDI with SysEx needs a computer): the buttons and the firmware's
+     details stay on the computer's page, and fm1-browser says why */
+  #install .btn-row, #install .installer p.fw__details { display: none; }
+  #install .install__screen { aspect-ratio: 16 / 9; }
+  #install .install__screen > img { object-fit: cover; }
+  footer.closing { --hm: 2; }
+  .sound__grid > .card { grid-column: 1 / -1; }
+  #sound .sound__grid .panel.screen { aspect-ratio: auto; height: 200px; --p-h: 200px; }
+  .sound__grid .panel.screen:not(.screen--corner) > img { object-fit: cover; object-position: 50% 20%; }
+  .app.ui { height: auto; grid-template-rows: auto; }
+  .app > .app__pane--open { aspect-ratio: 3 / 4; }
+  .hero--triptych h1 { font-size: 34px; }
+}
+/* a phone: the questions take two screens, the files and browsers on the first, the answers on the second */
+@media (max-width: 639px) { #questions .grid { display: contents; } #questions .faq__item--desk { display: none; } }
+.footer__legal { display: grid; gap: var(--s-2); justify-content: start; }
+/* a tablet with a short screen (768x1024) keeps the questions to one screen: five answers */
+@media (min-width: 640px) and (max-width: 1023px) and (max-height: 1100px) { #questions .faq__item--desk { display: none; } }
+@media (max-width: 639px) { .browsers li { max-width: none; } }
+
+/* plain fact rows (the sequencer, what's coming): label left, value right, a rule under each */
+.facts { list-style: none; margin: 0; padding: 0; display: grid; }
+.facts li { display: flex; justify-content: space-between; gap: var(--s-4); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
+.facts li > span:first-child { font-weight: 500; }
+.facts li > span + span { color: var(--muted); text-align: right; }
+.seq__screen { margin: 0; aspect-ratio: 1; border-radius: var(--r-md); overflow: hidden; background: #0b0d12; }
+.seq__screen > img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.installer h3 { margin: 0; }
+@media (min-width: 640px) and (max-width: 1023px) {
+  #seq .seq__screen { aspect-ratio: auto; height: calc(100svh - 600px); }
+  #seq .seq__screen > img { object-fit: contain; }
 }
 
-header { padding-top: 48px; }
-
-h1 {
-  margin: 0;
-  font-size: 2.6rem;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-}
-
-h2 {
-  margin: 48px 0 12px;
-  font-size: 1.35rem;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 6px;
-}
-
-.lede { font-size: 1.15rem; max-width: 40em; }
-.beta { color: var(--muted); }
-
-a { color: var(--accent); }
-code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
-
-.emu {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.emu iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-
-.tones {
-  columns: 4 12em;
-  column-gap: 24px;
-  padding-left: 2.2em;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
-  font-size: 0.95rem;
-}
-
-.tones li { break-inside: avoid; }
-
-footer {
-  margin-top: 64px;
-  padding-bottom: 48px;
-  color: var(--muted);
-  font-size: 0.9rem;
-  border-top: 1px solid var(--line);
-}
-
-h3 { margin: 28px 0 8px; font-size: 1.05rem; }
-.muted { color: var(--muted); }
-
-.untested, .warn {
-  border-left: 4px solid var(--accent);
-  background: var(--panel);
-  padding: 10px 14px;
-  border-radius: 4px;
-}
-
-.installer { margin: 12px 0; }
-
-.installer button {
-  font: inherit;
-  font-weight: 600;
-  color: var(--bg);
-  background: var(--accent);
-  border: 0;
-  border-radius: 6px;
-  padding: 10px 18px;
-  cursor: pointer;
-}
-
-.installer button:disabled { opacity: 0.45; cursor: not-allowed; }
-.installer button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-.installer progress { display: block; width: 100%; max-width: 28em; margin-top: 10px; }
-.installer [role="status"] { min-height: 1.5em; margin: 8px 0 0; }
+/* the FM-1's screens sit on their own black glass, edge to edge: no lit ground (sage) round them */
+#sound .sound__grid .panel.screen, [data-moment="pinned-chapters"] .mo-pc__visual.mo-pc__visual--lit {
+  --ground-bg: #0b0d12; background: #0b0d12 !important; background-image: none !important; box-shadow: none; border-color: transparent; }
+#sound .sound__grid .panel.screen:not(.screen--corner) > img { object-fit: cover; object-position: 50% 0; }
+#sound .sound__grid .panel.screen--corner > img { left: var(--s-5); top: 0; border-radius: 0; }
+@media (min-width: 1024px) { #sound .sound__grid .panel.screen { min-height: 0; height: auto; aspect-ratio: 1; flex: none; } }

@@ -57,7 +57,7 @@ typedef struct {
 /* What the LFO does to every voice, set by the engine from the patch. */
 typedef struct {
     fm_mod_routes routes; /* source -> destination depths (mod.h) */
-    uint32_t delay_ticks; /* LFO delay, and fade-in time, in ticks */
+    uint32_t delay_ticks; /* LFO delay in ticks; the fade-in takes twice that */
     int32_t fade_step;    /* Q1.30 fade-in per tick after the delay */
     uint8_t penv_amp;     /* the pitch envelope follows envelope 2 (amp),
                            * else envelope 1 (filter) */

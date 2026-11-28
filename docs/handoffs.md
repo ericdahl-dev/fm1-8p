@@ -68,7 +68,8 @@ Writes in `play_init` and `seq_init` come before the interrupt runs and are left
 | `edit`, `edit_base` | C (payload) | main, between `edit_begin` and `edit_end` (and `take_in`, `load_now`) | interrupt: `start_step` | |
 | `editing` | C (the gate) | main: `edit_begin`, `edit_end`, `take_in` | interrupt | |
 | `edits` | C (the generation) | main: `edit_end` | interrupt, against `edits_seen` | A takeover drops an edit of the old pattern (`edits_seen = edits`). |
-| `ask_play`, `ask_stop` | B | main: `seq_play`, `seq_stop`, `clock_tick` (a followed start) | interrupt: `seq_render` | Payload: `want`, and at a followed start `ext`, `ext_t0`, `ext_cont`, `ext_inc`. |
+| `ask_play`, `ask_stop` | B | main: `seq_play`, `seq_stop`, `clock_tick` (a followed start) | interrupt: `seq_render` | Payload: `ask_last` and `want`, and at a followed start `ext`, `ext_t0`, `ext_cont`, `ext_inc`; at an own-clock `seq_play`, `ext` and `ext_cont` cleared. |
+| `ask_last` | payload of `ask_play`/`ask_stop` (B) | main: first in each ask, before `want`, `ext*` and the count | interrupt, at an ask | Which ask came last: STOP, or PLAY with the count it publishes; an armed `seq_play` writes none (#373, #377). |
 | `want` | payload of `ask_play`/`ask_stop` (B) | main | interrupt, at an ask | Also written with no ask; see "Exceptions". |
 | `transpose` | D | main: `seq_set_transpose` | interrupt: `start_step` | |
 | `next`, `ask_kind` | C (payload) | main, while `ask` is odd | interrupt: `start_step` | |
@@ -77,7 +78,7 @@ Writes in `play_init` and `seq_init` come before the interrupt runs and are left
 | `took_pattern` | B, interrupt to main | interrupt: `start_step` | main: `take_in`, against `took_seen` | Payload: `next`, which the main loop can't change until it closes `ask`. |
 | `ext` | B payload at a start; D otherwise | main: `seq_play`, `seq_set_clock_source`, `clock_tick` | interrupt, every block | Two kinds on one field. |
 | `ext_inc` | B payload at a start; D on every tick after | main: `set_rate` (from `clock_tick`) | interrupt, every block | Two kinds on one field. |
-| `ext_t0`, `ext_cont` | B payload | main: `clock_tick` | interrupt, at the ask | |
+| `ext_t0`, `ext_cont` | B payload | main: `clock_tick`; `seq_play`'s own-clock ask clears `ext_cont` (#380) | interrupt, at the ask | |
 | `ext_hold` | D | main | interrupt | |
 | `blk_seq`, `blk_t`, `blk_u`, `blk_inc`, `blk_fs` | C, a seqlock, the interrupt writing | interrupt: `seq_block_time` | main: `block_read` | |
 | `playing`, `step_now`, `steps` | D | interrupt: `seq_render`, `start_step` | main (the UI polls `steps` to redraw) | |
@@ -111,11 +112,18 @@ These don't fit one kind. Each is named here and in its field's comment.
 - **`want`, written outside its asks.** An armed `seq_play` (the clock in charge) sets `want = 1`
   with no ask; `seq_set_clock_source` clears it with no ask. The interrupt reads `want` when it
   takes an ask, not as it was when the ask was made: a `seq_stop` and then an armed `seq_play`
-  inside one block had the stop ask taken as a start. So a stop ask with no play asked since stops,
-  whatever `want` says (every `seq_stop` writes `want = 0` before its ask); with both new, the latest
-  `want` decides (`clock_stop_then_play_inside_one_block_stops`). Not covered: three presses inside
-  one block (a play asked, then STOP, then an armed PLAY) still start. The full answer is a payload
-  written with each ask (which one came last), not `want`.
+  inside one block had the stop ask taken as a start (#349), and so did a play asked, then STOP, then
+  an armed PLAY (#373). So which ask came last is a payload of its own, `ask_last`, written first in
+  each ask; the armed `seq_play` writes none. A play's `ask_last` carries the count it will publish
+  (`SEQ_LAST_PLAY_AT`, its low 7 bits: still one byte), so the interrupt starts only on a play whose
+  count it already sees, with `want` still set (a clock source change clears it with no ask). A last
+  ask not yet counted is a stop to that block, whatever earlier counts are new; the next block takes
+  it (#377). `clock_tick` writes it before `ext_cont`, `ext_t0`, `ext_inc` and `ext`, so an ask pending
+  at a followed start (an own restart, or an earlier followed start) isn't taken with this start's
+  payload
+  (`clock_stop_then_play_inside_one_block_stops`, `clock_start_stop_then_play_inside_one_block_stays_armed`,
+  `seq_stop_then_play_with_the_interrupt_before_its_count_starts_once`,
+  `seq_a_last_ask_ahead_of_its_count_starts_once`).
 - **`out_on`, two writers, gated by `out_block`.** The interrupt sets it at a start and clears it
   at a stop; the main loop clears it at `seq_stop` (a followed run), `seq_clock_out_stop` and
   `clock_tick` (a followed start ends its own run first), and sets it at a followed start. The rule:
@@ -126,12 +134,27 @@ These don't fit one kind. Each is named here and in its field's comment.
   restart lands (gaps "out_stop" 0 and 1). Two earlier tries on this branch each failed one order
   (a stop left to an interrupt that never ran; an interrupt between `out_block` and the read), which
   is why its test runs every order.
-  Open, older than this fix: `clock_tick`'s followed start reads `out_on` and then clears it with
-  `out_block` clear, the same shape; a pending own-clock stop taken between the two sends a second
-  stop (#364).
+  `clock_tick`'s followed start, which ends the own run's clock out first, had the same read and
+  clear with `out_block` clear: a pending stop or restart taken between the two sent a second stop
+  (#364). It now holds the gate for that read and clear and puts `out_block` back as it was before it
+  latches G14, so a let-go stays let go (gap "clock_start" 0,
+  `clock_start_with_an_ask_pending_sends_one_stop`). `out_on` set with nothing playing means the main
+  loop has already sent this start and its tick 0 (a followed start's latch, then the MIDI tick passed
+  on). If the interrupt then takes it on its own clock (the source changed to INT first, see `ext`
+  below), it sends neither again and counts its next tick a unit on; a stop taken there closes it with
+  FC. And a continue asked that way (FB) goes on from the step after the last, clock out on or off, as
+  on the followed path: `ext_cont` is the continue's payload, and `seq_play` clears it with its own
+  ask, so a PLAY is from step 1. Open, one block wide: with clock out on, a continue's FB passed on,
+  then INT, then STOP and PLAY before that block, the run starts at step 1 with no FC FA after the FB
+  (the STOP sends none with `ext` cleared, and the start is taken as already sent). Before, that order sent FA FA and a second tick 0, restarted a continue at step 1, and a
+  stop sent no FC (#380, `clock_source_to_int_with_a_start_pending_sends_one_start`,
+  `clock_source_to_int_with_a_continue_pending_goes_on`,
+  `clock_source_to_int_then_stop_with_a_start_pending_closes_it`).
 - **`ext`, `ext_inc`: two kinds on one field.** Each is the payload of a followed start's ask
   (kind B), and afterwards a single word the interrupt reads every block (kind D): `ext_inc` moves
-  with every clock tick. Both have one writer, the main loop.
+  with every clock tick. Both have one writer, the main loop. `seq_set_clock_source` to INT clears
+  `ext` with no ask of its own, so an ask already made under `ext` 1 is taken on the own-clock path;
+  the start branch allows for it (`out_on` above, #380).
 - **The clock start's gaps.** `clock_tick`'s start of a followed run is pinned by gaps
   "clock_start" 1-4 (`clock_out_a_stop_pending_when_a_clock_starts`). These were `seq_test_hook`'s
   `TEST_POINT`s, which stayed in the device build; `HANDOFF_GAP` is now the one mechanism.
@@ -147,13 +170,15 @@ is there for, red first or by a mutant.
 | A | `play` events | "put" 1, between the entry and `head` | `play_event_put_with_the_interrupt_inside_plays_once_next_block` (the head written first: the note never sounds) |
 | A | `play` events, full queue | none | `play_queue_overflow_*` |
 | B | `asked[]` | "asked" 1, inside the `\|=` | `play_param_set_again_by_the_asks_race_changes_nothing` (found #350): every param on the patches with a mode of their own at the attack; with `TT_LONG=1` (CI) every patch at three moments |
-| B | `ask_stop`, `want` | none: two main-loop calls before one block | `clock_stop_then_play_inside_one_block_stops` |
+| B | `ask_play`, `ask_stop` and their payload `ask_last` and `want` | "play" 1 and "stop" 0, between the payload and the count | `seq_ask_with_the_interrupt_between_want_and_its_count_is_taken_once` (`seq_play` counting before `want`: no step plays; `seq_stop` the same way is covered by the stop rule in `want`'s exception above); `seq_stop_then_play_with_the_interrupt_before_its_count_starts_once` (a stop's block seeing a play's `ask_last` early: one start, not two) |
+| B | `ask_stop`, `want`, `ask_last` | none: two or three main-loop calls before one block | `clock_stop_then_play_inside_one_block_stops`, `clock_start_stop_then_play_inside_one_block_stays_armed` (#373) |
+| B | `ask_last` ahead of its count | "play" 1 inside PLAY, STOP, PLAY; "clock_start" 2 with a restart pending | `seq_a_last_ask_ahead_of_its_count_starts_once` (#377; main started that block in both) |
 | B | `ask_stop` and the pattern ask | "stop" 1 | `pattern_a_takeover_inside_a_stop_loads_the_queued_one` |
 | C | patch load (`loading`, `loads`) | a block between `play_load_begin` and `play_load_end` | `play_load_patch_is_one_step_for_the_audio_interrupt` |
 | C | step edit (`editing`, `edits`) | "edit" 1 | `seq_takeover_inside_an_edit_plays_the_new_pattern`, `pattern_a_takeover_inside_a_step_edit_drops_the_edit` |
 | C | pattern ask (`ask`, `took`) | "ask" 0-3, "sync" 1 | `pattern_a_pass_end_in_any_gap_of_the_handoff_takes_nothing` and the other `pattern_*` gap tests |
 | C | seqlock (`blk_seq`) | "blk" 1, inside `block_read` | `clock_read_of_the_block_time_inside_a_block_stays_on_the_grid` (no retry: 0.147 ms off the grid against 0.011) |
-| B and D | followed start (`ext*`, `ask_play`, `out_on`) | "clock_start" 1-4 | `clock_out_a_stop_pending_when_a_clock_starts` |
+| B and D | followed start (`ext*`, `ask_play`, `out_on`) | "clock_start" 0-4 | `clock_out_a_stop_pending_when_a_clock_starts`; at 0 (#364), `clock_start_with_an_ask_pending_sends_one_stop`: a stop or a restart pending, FA FC FA (main: FA FC FC FA, FA FC FA FC) |
 | two writers | `out_on` at let go | "out_stop" 0 and 1, and blocks before, between and after release's calls | `clock_out_let_go_in_every_order_ends_stopped`: 48 orders (no ask, STOP, restart, PLAY from stopped; six places for the block; own clock and followed), each must alternate starts and stops and end stopped. It catches all three wrong versions: the stop left to the interrupt (0 stops), no `out_block` check (2 stops at gap 1), the stop alone gated (0 stops at gap 0). Also `clock_out_stop_inside_a_pending_ask_sends_one_stop`, `clock_out_ends_with_a_stop_when_let_go_with_an_ask_pending` |
 
 Kind D needs no gap: one store, read whole either side of it.

@@ -84,5 +84,30 @@ class NoRunDataTest(GcovFailsTest):
         self.assertIn("osc.c", p.stderr)
 
 
+class AppleGcovTest(GcovFailsTest):
+    """Apple's gcov (llvm-cov gcov, #322) refuses -j but writes its intermediate text with -i:
+    file:NAME, then function:LINE,COUNT,NAME for each function."""
+    APPLE = ("case $1 in -j) echo \"gcov: Unknown command line argument '-j'.\" >&2; exit 1 ;; "
+             "-i) b=$(basename \"$4\" .c); printf 'file:%s.c\\nfunction:1,1,f\\nfunction:3,0,g\\nlcount:1,1\\n' "
+             "\"$b\" >\"$b.c.gcov\" ;; esac")
+
+    def test_it_counts_from_the_intermediate_text(self):
+        p = self.run_with(self.APPLE)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("     1  osc.c      f   <- fewer than 2", p.stdout)
+        self.assertIn("     0  osc.c      g   <- fewer than 2", p.stdout)
+
+    def test_one_that_writes_no_text_either_stops_it(self):
+        p = self.run_with("case $1 in -j) echo \"gcov: Unknown command line argument '-j'.\" >&2; exit 1 ;; esac")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertIn("no intermediate text for osc.c", p.stderr)
+        self.assertNotIn("clips reaching", p.stdout)
+
+    def test_text_without_its_source_stops_it(self):
+        p = self.run_with(self.APPLE.replace("file:%s.c", "file:other.c"))
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertIn("no entry for osc.c", p.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

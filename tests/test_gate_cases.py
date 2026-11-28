@@ -19,7 +19,7 @@ def voices_at_once(notes):
 
 class WideChordClipTest(unittest.TestCase):
     """SOUNDTRACK on the device's 4 voices, a wide chord at velocity 127 (#320): the loudest everyday case,
-    where the module clips, as a gate clip on the engine path."""
+    where the engine's soft clip bends the most, as a gate clip on the engine path."""
 
     def setUp(self):
         import gate_cases

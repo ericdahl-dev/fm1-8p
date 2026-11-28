@@ -28,6 +28,9 @@
 #define SEQ_GATE_MIN 5u                 /* gate, % of a step: 5..100 (interaction.md, S1 PATTERN) */
 #define SEQ_GATE_DEF 50u
 #define SEQ_SWING_DEF 50u               /* swing, %: 50 straight .. 75 (the even steps late by half a step) */
+#define SEQ_LAST_STOP 0u                /* ask_last: the last ask was a stop (#373) */
+#define SEQ_LAST_PLAY 1u                /* ... a play, with the count it publishes in bits 1..7 (#377): */
+#define SEQ_LAST_PLAY_AT(count) ((uint8_t)(SEQ_LAST_PLAY | ((count) & 0x7Fu) << 1))
 #define SEQ_OUT_EV 8u                   /* #286: starts and stops the main loop has yet to send */
 #define SEQ_OUT_M 16u                   /* #286: a followed clock's bytes, between two takes */
 #define SEQ_TRANSPOSE_MAX 24            /* transpose, semitones: -24..+24 (interaction.md, S3 PLAY) */
@@ -101,6 +104,10 @@ typedef struct {
                                          * (an armed seq_play, seq_set_clock_source): docs/handoffs.md */
     volatile int32_t transpose;         /* kind D, main loop writes: semitones, taken at a step's start */
     uint8_t key_transpose;              /* main loop only: KEY TRANSPOSE (S3), keys set the transpose */
+    volatile uint8_t ask_last;          /* kind B payload, main loop writes first in each ask: SEQ_LAST_STOP,
+                                         * or SEQ_LAST_PLAY_AT(the ask_play it will publish); the last ask
+                                         * made (an armed seq_play makes none). The interrupt starts only on
+                                         * a play whose count it already sees (#373, #377) */
     /* pattern loads (#40, #324): the copy last loaded or saved (main loop: seq_edited), and the queued
      * pattern, handed to the interrupt with one writer per field (kind C). The main loop writes `ask` (a
      * generation: odd while it is being written, when the interrupt takes nothing), `ask_kind` and
@@ -181,8 +188,9 @@ typedef struct {
     volatile uint8_t out_on;            /* this transport sends: latched at its start (two writers: the
                                          * interrupt, and the main loop at a stop; docs/handoffs.md) */
     volatile uint8_t out_block;         /* the gate, main loop writes: let go (release) sets it, the next
-                                         * PLAY clears it; while set the interrupt neither writes out_on
-                                         * nor sends a start or stop (docs/handoffs.md) */
+                                         * PLAY clears it, and clock_tick's followed start holds it while it
+                                         * ends the own run's clock out (#364); while set the interrupt
+                                         * neither writes out_on nor sends a start or stop (docs/handoffs.md) */
     uint32_t out_acc;                   /* interrupt: the clock since the last tick, as acc counts it */
     volatile uint32_t out_ticks;        /* kind D, interrupt writes: ticks due, all told */
     uint32_t out_sent;                  /* main loop: ticks sent */
@@ -252,6 +260,18 @@ uint32_t seq_tempo(const seq *s);
 void seq_set_tempo(seq *s, uint32_t tenths_bpm);       /* clamped to SEQ_TEMPO_MIN..MAX */
 void seq_set_gate(seq *s, uint32_t pct);               /* clamped to SEQ_GATE_MIN..100 */
 void seq_set_swing(seq *s, uint32_t pct);              /* clamped to 50..75 */
+/* main loop: a knob turn, `delta` added to the edit's own value inside the edit, after a takeover is taken
+ * in, so the value read and the value written are the same pattern's (#348). Clamped as the setters do;
+ * the step fields (VEL, BEND in % of the range, MOD, MOVE) act on step i only while it is a note or chord */
+enum { SEQ_NUDGE_TEMPO, SEQ_NUDGE_LENGTH, SEQ_NUDGE_SWING, SEQ_NUDGE_GATE,
+       SEQ_NUDGE_VEL, SEQ_NUDGE_BEND_PCT, SEQ_NUDGE_MOD, SEQ_NUDGE_MOVE };
+void seq_nudge(seq *s, uint32_t what, uint32_t i, int32_t delta);   /* (i: the step; the pattern fields ignore it) */
+/* main loop: MOVE on step i switched, JUMP <-> GLIDE, inside the edit as seq_nudge (#348): a note or chord
+ * only */
+void seq_toggle_glide(seq *s, uint32_t i);
+/* a step's bend (-8192..8191) as -100..+100 % of the bend range, and back: the ends are exact both ways */
+int32_t seq_bend_pct(int32_t bend);
+int32_t seq_pct_bend(int32_t pct);
 
 /* main loop: the transport. play starts at step 1; stop lets go of every note the sequencer started, and
  * loads a queued pattern at once. */

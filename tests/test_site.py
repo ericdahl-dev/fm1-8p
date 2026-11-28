@@ -115,6 +115,33 @@ class VendoredTest(unittest.TestCase):
             self.assertIn("60a89df6554f6df3823f03a4c893b6715bfef9b5", fh.read())
 
 
+class PosthogVendoredTest(unittest.TestCase):
+    """site/posthog-js: PostHog's browser library, self-hosted unmodified at the version its VENDORED.md names."""
+    DIR = os.path.join(ROOT, "site", "posthog-js")
+
+    def note(self):
+        with open(os.path.join(self.DIR, "VENDORED.md"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_every_file_matches_the_sha256_its_note_records(self):
+        rows = re.findall(r"^\| `([^`]+)` \| `([0-9a-f]{64})` \|$", self.note(), re.M)
+        self.assertEqual(sorted(r[0] for r in rows), ["LICENSE", "module.slim.no-external.js"])
+        for rel, sha in rows:
+            with open(os.path.join(self.DIR, rel), "rb") as fh:
+                self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), sha, rel)
+
+    def test_the_note_names_the_pinned_version_and_its_npm_integrity(self):
+        note = self.note()
+        self.assertIn("posthog-js@1.447.10", note)
+        self.assertIn("sha512-KQnjJxd68NuYqLxK8nqIzII4DquMFQcrMwKrX2MGjfyLbIQKDJN/I3YyqHS1ffYyx3piICpDuz4k4nX9kw3EoQ==", note)
+
+    def test_the_license_is_posthogs_apache_2_0(self):
+        with open(os.path.join(self.DIR, "LICENSE"), encoding="utf-8") as fh:
+            lic = fh.read()
+        self.assertIn("Posthog", lic)
+        self.assertIn("Apache License", lic)
+
+
 class PageTest(unittest.TestCase):
     def build(self):
         d = tempfile.mkdtemp()
@@ -128,8 +155,46 @@ class PageTest(unittest.TestCase):
         names = site_build.tone_names(ROOT)
         self.assertEqual(len(names), 32)
         self.assertEqual(names[16], "SOUNDTRACK")
-        at = [html.index(f"<li>{site_build.escape(n)}</li>") for n in names]
+        found = [re.search(rf'<li(?: class="boot")?>{re.escape(site_build.escape(n))}</li>', html) for n in names]
+        self.assertNotIn(None, found)
+        at = [m.start() for m in found]
         self.assertEqual(at, sorted(at))
+
+    def test_marks_tone_17_the_boot_tone_and_no_other(self):
+        _, html = self.build()
+        self.assertEqual(re.findall(r'<li class="boot">([^<]*)</li>', html), ["SOUNDTRACK"])
+
+    def test_the_hero_screens_read_out_once(self):
+        # the hero's collage of FM-1 screens is one picture with one description; its pieces say nothing, and the
+        # sets after the first (they cycle) are hidden from screen readers
+        _, html = self.build()
+        collage = re.search(r'<div class="ly-collage[^"]*" role="img" aria-label="([^"]+)"', html)
+        self.assertIsNotNone(collage)
+        self.assertIn("FM-1", collage.group(1))
+        sets = re.findall(r'<div class="ly-collage__set[^"]*"[^>]*>', html)
+        self.assertGreaterEqual(len(sets), 3)
+        for tag in sets[1:]:
+            self.assertIn('aria-hidden="true"', tag)
+        alts = re.findall(r'<div class="ly-piece[^>]*><img [^>]*alt="([^"]*)"', html)
+        self.assertEqual(len(alts), 2 * len(sets))
+        self.assertEqual(set(alts), {""})
+
+    def test_the_heading_names_the_fm1_and_the_page_names_fm1_8p(self):
+        _, html = self.build()
+        h1 = re.findall(r'<h1 id="hero-h">([^<]*)</h1>', html)
+        self.assertEqual(len(h1), 1)
+        self.assertIn("FM-1", h1[0])
+        self.assertIn("FM1-8P", re.search(r'<p class="hero__lead">([^<]*)</p>', html).group(1))
+        self.assertIn("<title>FM1-8P:", html)
+
+    def test_share_tags_point_at_the_page_and_its_card_by_absolute_url(self):
+        d, html = self.build()
+        self.assertIn(f'<meta property="og:image" content="{BASE}share.jpg">', html)
+        self.assertIn(f'<meta name="twitter:image" content="{BASE}share.jpg">', html)
+        self.assertIn(f'<meta property="og:url" content="{BASE}">', html)
+        self.assertIn(f'<link rel="canonical" href="{BASE}">', html)
+        for name in ("share.jpg", "favicon.svg", "apple-touch-icon.png"):
+            self.assertTrue(os.path.isfile(os.path.join(d, name)), name)
 
     def test_embeds_the_emulator(self):
         _, html = self.build()
@@ -173,9 +238,33 @@ class PageTest(unittest.TestCase):
                     "vendor/fm1-dock/install/fm1ota.js", "vendor/fm1-dock/install/ports.js", "vendor/fm1-dock/LICENSE"):
             self.assertTrue(os.path.isfile(os.path.join(d, rel)), rel)
 
+    def test_copies_the_stats_module_and_the_posthog_library_with_its_license(self):
+        d, _ = self.build()
+        for rel in ("analytics.js", "posthog-js/module.slim.no-external.js", "posthog-js/LICENSE",
+                    "posthog-js/VENDORED.md"):
+            self.assertTrue(os.path.isfile(os.path.join(d, rel)), rel)
+
+    def test_the_page_loads_scripts_only_from_its_own_site(self):
+        _, html = self.build()
+        srcs = re.findall(r"<script\b[^>]*\bsrc=\"([^\"]*)\"", html)
+        self.assertIn("install.js", srcs)
+        for src in srcs:
+            with self.subTest(src):
+                self.assertNotRegex(src, r"^(?:[a-z]+:|//|/)")   # a relative path on this site, never another
+        self.assertEqual(re.findall(r"<script\b(?![^>]*\bsrc=)", html), [])
+
+    def test_the_footer_says_what_the_usage_stats_count(self):
+        _, html = self.build()
+        footer = html[html.index("<footer"):]
+        self.assertIn("Cookie-free usage stats via PostHog: page visits with your browser, screen size, language, "
+                      "the referring site and an approximate location, plus emulator starts and whether installs "
+                      "succeed or fail. Nothing about your FM-1 beyond success or failure.",
+                      " ".join(re.sub(r"<[^>]+>", "", footer).split()))
+
     def install_section(self):
         _, html = self.build()
-        return html[html.index('<section id="install">'):html.index("</section>", html.index('<section id="install">'))]
+        start = re.search(r'<section\b[^>]*\bid="install"', html).start()
+        return html[start:html.index("</section>", start)]
 
     def test_install_section_says_the_installer_is_not_tested_on_hardware(self):
         self.assertIn("not been tested on an FM-1", self.install_section())
@@ -209,7 +298,7 @@ class PageTest(unittest.TestCase):
     def test_page_loads_the_installer_and_credits_the_vendored_code(self):
         _, html = self.build()
         self.assertIn('<script type="module" src="install.js"></script>', html)
-        footer = html[html.index("<footer>"):]
+        footer = html[html.index("<footer"):]
         self.assertIn("https://github.com/joakimeriksson/fm1-dock", footer)
         self.assertIn("Leo Kuroshita", footer)
         self.assertIn("Source on GitHub</a>, GPL-3.0-or-later.", footer)   # FM1-8P's own code
@@ -225,13 +314,120 @@ class PageTest(unittest.TestCase):
 
     def test_escapes_tone_names_in_the_page(self):
         real = site_build.tone_names
-        site_build.tone_names = lambda root: ["A<B&C"]
+        site_build.tone_names = lambda root: ["A<B&C"] + real(root)[1:]
         self.addCleanup(setattr, site_build, "tone_names", real)
         _, html = self.build()
         self.assertIn("<li>A&lt;B&amp;C</li>", html)
 
     def test_escapes_names(self):
         self.assertEqual(site_build.escape('A<B>&"'), "A&lt;B&gt;&amp;&quot;")
+
+
+class BootToneTest(unittest.TestCase):
+    """The tone the page marks as the boot tone is the one the firmware boots on: PATCH_SOUNDTRACK in
+    firmware/patches.h, 0-based, so tone PATCH_SOUNDTRACK + 1 (#356)."""
+
+    def fake_root(self, header):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        os.makedirs(os.path.join(d, "firmware"))
+        with open(os.path.join(d, "firmware", "patches.h"), "w", encoding="utf-8") as fh:
+            fh.write(header)
+        return d
+
+    def test_reads_the_boot_patch_from_the_firmware(self):
+        root = self.fake_root("#define PATCH_COUNT 32u\n#define PATCH_SOUNDTRACK 3u  /* tone 4 */\n")
+        self.assertEqual(site_build.boot_tone(root), 4)
+
+    def test_refuses_a_header_without_the_boot_patch(self):
+        with self.assertRaises(ValueError):
+            site_build.boot_tone(self.fake_root("#define PATCH_COUNT 32u\n"))
+
+    def test_refuses_a_boot_tone_outside_the_bank(self):
+        real = site_build.tone_names
+        site_build.tone_names = lambda root: real(root)[:8]
+        self.addCleanup(setattr, site_build, "tone_names", real)
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        with self.assertRaisesRegex(ValueError, "boot tone 17"):
+            site_build.build(ROOT, d, BASE)
+
+    def test_the_page_marks_reads_out_and_names_the_firmwares_boot_tone(self):
+        n = site_build.boot_tone(ROOT)
+        name = site_build.escape(site_build.tone_names(ROOT)[n - 1])
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        site_build.build(ROOT, d, BASE)
+        with open(os.path.join(d, "index.html"), encoding="utf-8") as fh:
+            html = fh.read()
+        self.assertEqual(re.findall(r'<li class="boot">([^<]*)</li>', html), [name])
+        self.assertIn(f"<span>{n} {name} at boot</span>", html)
+        self.assertIn(f"It boots on {n}, {name}.", html)
+
+class FontsTest(unittest.TestCase):
+    """The page's fonts are self-hosted under site/fonts/, one folder per family, each with its license (#356)."""
+
+    def font_urls(self):
+        with open(os.path.join(ROOT, "site", "style.css"), encoding="utf-8") as fh:
+            return re.findall(r"""url\(\s*["']?(?:\./)?(fonts/[^"')]+)["']?\s*\)""", fh.read())
+
+    def test_the_stylesheet_uses_self_hosted_fonts(self):
+        self.assertTrue(self.font_urls())
+
+    def test_every_font_the_stylesheet_names_is_there_with_its_open_font_license(self):
+        for rel in self.font_urls():
+            with self.subTest(rel):
+                self.assertTrue(os.path.isfile(os.path.join(ROOT, "site", rel)))
+                lic = os.path.join(ROOT, "site", os.path.dirname(rel), "OFL.txt")
+                self.assertTrue(os.path.isfile(lic), lic)
+                with open(lic, encoding="utf-8") as fh:
+                    self.assertIn("SIL Open Font License, Version 1.1", fh.read())
+
+    def test_the_page_loads_no_font_or_style_from_another_site(self):
+        with open(os.path.join(ROOT, "site", "style.css"), encoding="utf-8") as fh:
+            css = fh.read()
+        self.assertEqual(re.findall(r"""url\(\s*["']?(?:[a-z]+:|//)""", css), [])
+        self.assertNotIn("@import", css)
+        with open(os.path.join(ROOT, "site", "index.html"), encoding="utf-8") as fh:
+            links = re.findall(r"<link\b[^>]*>", fh.read())
+        self.assertIn('<link rel="stylesheet" href="style.css">', links)
+        for link in links:
+            with self.subTest(link):
+                href = re.search(r'\bhref="([^"]*)"', link).group(1)
+                if 'rel="canonical"' in link:   # the page's own address, filled in by tools/site_build.py
+                    self.assertEqual(href, "{{BASE_URL}}")
+                    continue
+                self.assertNotRegex(href, r"^(?:[a-z]+:|//|/)")   # no font, style or preconnect to another site
+        # the design kit's stylesheets (site/assets) load nothing from another site either
+        for d, _, files in os.walk(os.path.join(ROOT, "site", "assets")):
+            for f in files:
+                if f.endswith(".css"):
+                    with open(os.path.join(d, f), encoding="utf-8") as fh:
+                        kit = fh.read()
+                    with self.subTest(f):
+                        self.assertEqual(re.findall(r"""url\(\s*["']?(?:https?:|//)""", kit), [])
+                        self.assertNotIn("@import", kit)
+
+    def test_every_font_file_matches_the_sha256_recorded_beside_it(self):
+        # the files are Fontsource's, unmodified: SHA256SUMS beside them holds them to that
+        fonts = os.path.join(ROOT, "site", "fonts")
+        with open(os.path.join(fonts, "SHA256SUMS"), encoding="utf-8") as fh:
+            rows = dict((rel, sha) for sha, rel in re.findall(r"^([0-9a-f]{64})  (\S+\.woff2)$", fh.read(), re.M))
+        files = sorted(os.path.relpath(os.path.join(d, f), fonts).replace(os.sep, "/")
+                       for d, _, names in os.walk(fonts) for f in names if f.endswith(".woff2"))
+        self.assertEqual(sorted(rows), files)
+        for rel in files:
+            with open(os.path.join(fonts, rel), "rb") as fh:
+                self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), rows[rel], rel)
+
+    def test_the_build_copies_the_fonts_and_their_licenses(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        site_build.build(ROOT, d, BASE)
+        for rel in self.font_urls():
+            with self.subTest(rel):
+                self.assertTrue(os.path.isfile(os.path.join(d, rel)))
+                self.assertTrue(os.path.isfile(os.path.join(d, os.path.dirname(rel), "OFL.txt")))
 
 
 if __name__ == "__main__":

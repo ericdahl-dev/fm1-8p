@@ -4,7 +4,7 @@
 import { entryFor, checkPackage, installOn, addModule, explain } from "./vendor/fm1-dock/install/fm1install.js";
 import { moduleInfo } from "./vendor/fm1-dock/dock.js";
 import { webMidiSupport, loadCatalog, firmwareEntry, installLabel, installFlow, addFlow, messageFor, oneAtATime,
-  buttonsEnabled } from "./installer.js";
+  buttonsEnabled, lateTrack } from "./installer.js";
 
 const base = new URL("./", location.href);
 const $ = (id) => document.getElementById(id);
@@ -15,6 +15,17 @@ const guard = oneAtATime();
 const ask = async (q) => window.confirm(q);
 const requestMIDIAccess = (opts) => navigator.requestMIDIAccess(opts);
 let catalogOk = false;
+
+// the usage stats (site/analytics.js), loaded so that nothing here depends on them: blocked, failing to load or
+// throwing, the page works the same. Until they are there, lateTrack keeps what track gets (at most 50) and
+// replays it; if they fail to load, it drops it.
+const late = lateTrack();
+const track = late.track;
+const iframe = document.querySelector("#play iframe");
+import("./analytics.js").then((m) => {
+  late.attach(m.createAnalytics());
+  m.watchEmulatorStart(window, iframe, track);
+}).catch(() => late.attach(null));
 
 function setBusy(busy) {
   fwBtn.disabled = dockBtn.disabled = !buttonsEnabled({ midi: support.ok, catalogOk, busy });
@@ -50,7 +61,7 @@ fwBtn.addEventListener("click", () => guard.run(async () => {
   setBusy(true);
   fwBar.hidden = true; fwBar.value = 0;
   const { say, progress } = reporter(fwBar, fwSay);
-  say(await installFlow({ requestMIDIAccess, fetch, base, lib: { entryFor, checkPackage, installOn }, ask, say, progress, explain }));
+  say(await installFlow({ requestMIDIAccess, fetch, base, lib: { entryFor, checkPackage, installOn }, ask, say, progress, explain, track }));
   setBusy(false);
 }));
 
@@ -58,6 +69,6 @@ dockBtn.addEventListener("click", () => guard.run(async () => {
   setBusy(true);
   dockBar.hidden = true; dockBar.value = 0;
   const { say, progress } = reporter(dockBar, dockSay);
-  say(await addFlow({ requestMIDIAccess, fetch, base, lib: { moduleInfo, addModule }, ask, say, progress, explain }));
+  say(await addFlow({ requestMIDIAccess, fetch, base, lib: { moduleInfo, addModule }, ask, say, progress, explain, track }));
   setBusy(false);
 }));

@@ -188,8 +188,7 @@ to 8, U, then F (it stops there; a hand-picked U keeps bursting), and stops the 
 again from 1. To run it on an FM-1,
 follow [docs/device-test.md](docs/device-test.md).
 
-Linux x86-64 (macOS through fm1-dock's Docker fallback, untested), with curl, git, tar, xz and
-Python 3 with Pillow:
+Linux x86-64 or macOS (below), with curl, git, tar, xz and Python 3 with Pillow:
 
 ```sh
 tools/fm1-build.sh fetch     # fm1-dock, JieLi toolchain, AC79 SDK files into build/fm1-deps
@@ -214,6 +213,18 @@ To use inputs you already have, set `JIELI_TOOLCHAIN`, `AC79_SDK`, `FM1_DOCK`, `
 `FM1_LIVE`. They are checked the same way, and `fetch` never changes them: a mismatch stops the
 build. `FM1_LIVE` must be the pinned fm1-live build unless `FM1_EMU_UNPINNED=1`, which the report
 then notes.
+
+**On macOS** (Apple Silicon, 2026-11-27), the toolchain runs through fm1-dock's Docker fallback, and the
+CPU rows match a Linux x86-64 build to the decimal, code bytes too:
+
+- **Docker:** [colima](https://github.com/abiosoft/colima) is enough (`brew install colima docker`):
+  `colima start --vm-type vz --vz-rosetta --mount $HOME:w --mount DIR:w`. Mount every folder outside
+  `$HOME` that the build reads, for example a worktree or a gate output under `/tmp`.
+- **The same folders in `HB_MOUNT`:** fm1-dock mounts them into each toolchain container.
+- **`FM1_NM=nm`:** the toolchain's `nm` is a Linux binary, and macOS's own llvm-nm reads the module's
+  ELF for the symbol check.
+- **fm1-emu:** build the pinned release from source (`git checkout v0.4.0; cargo build --release`) and
+  set `FM1_LIVE` to its `target/release/fm1-live`. The downloaded one is Linux-only.
 
 The module lists no engine files: the build fills in every `engine/*.c`, so a new engine file needs
 no firmware edit.

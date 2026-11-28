@@ -31,6 +31,9 @@ static void usage(void)
             "                 mixed at 1.44/(2 x VOICES), so fewer voices play louder\n"
             "  -d             at the FM-1 module's output gain (x %u, the device's\n"
             "                 level; default: the engine's own)\n"
+            "  -o MILLI       DCO-2's start phase moved on by MILLI thousandths of a\n"
+            "                 cycle on each voice's first note, 0..999, where DCO-2\n"
+            "                 runs free (not synced); for the scorecard (#382)\n"
             "  -c CHANNEL     MIDI channel to play, 1..16 (default: the channel\n"
             "                 of the first note on); other channels are ignored\n"
             "  -s NAME=VALUE  set a parameter (repeatable); parameters:\n",
@@ -106,6 +109,11 @@ int main(int argc, char **argv)
                 fprintf(stderr, "bad loop count (1..1000): %s\n", argv[i]);
                 return 2;
             }
+        } else if (strcmp(opt, "-o") == 0) {
+            if (args_parse_u32(argv[++i], &o.osc2_offset_milli) != 0 || o.osc2_offset_milli > 999) {
+                fprintf(stderr, "bad DCO-2 offset (0..999): %s\n", argv[i]);
+                return 2;
+            }
         } else if (strcmp(opt, "-d") == 0) {
             o.output_shift = FM_OUT_SHIFT_DEVICE;   /* a flag: no value (#342) */
         } else if (strcmp(opt, "-s") == 0) {
@@ -118,6 +126,10 @@ int main(int argc, char **argv)
             usage();
             return 2;
         }
+    }
+    if (pattern && o.osc2_offset_milli) {
+        fprintf(stderr, "-o is for a MIDI file render, not -p\n");
+        return 2;
     }
     if (pattern) {
         if (argc - i != 1) {

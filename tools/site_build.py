@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The project page (#356): site/ with the 32 factory tone names from data/jx8p-factory-1-32.syx and the
 fm1-emu embed pointed at our .fwsc, written to OUT with the browser installer (site/install.js, site/installer.js
-and fm1-dock's vendored code, site/vendor/fm1-dock).
+and fm1-dock's vendored code, site/vendor/fm1-dock), the self-hosted fonts (site/fonts), and the cookie-free usage
+stats (site/analytics.js, with PostHog's library self-hosted in site/posthog-js).
 
 With the .fwsc and .dock it also writes OUT/fw/: both files and fw/index.json, the catalog site/install.js
 installs from (each file's SHA-256 and size, the package's identity, the module's ABI). It refuses a .fwsc whose
@@ -13,6 +14,7 @@ usage: tools/site_build.py OUT BASE_URL [FWSC DOCK VERSION]
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import sys
@@ -37,6 +39,14 @@ def emu_src(base_url):
         raise ValueError(f"{base_url}: the site's address must be https")
     package = base_url.rstrip("/") + "/fw/" + FWSC
     return EMU + "?" + urlencode({"package": package, "name": "FM1-8P", "embed": "1"})
+
+
+def page_url(base_url):
+    """The page's own https address with one trailing slash: the canonical link, og:url, and the base of the share
+    image's absolute URL (social sites read og:image only as an absolute URL)."""
+    if not base_url.startswith("https://"):
+        raise ValueError(f"{base_url}: the site's address must be https")
+    return base_url.rstrip("/") + "/"
 
 
 def product_of(raw):
@@ -84,6 +94,15 @@ def our_identity(root):
     raise ValueError("firmware/pins.env has no FM1_IDENTITY")
 
 
+def boot_tone(root):
+    """The tone FM1-8P boots on, 1-based: firmware/patches.h's PATCH_SOUNDTRACK (0-based) + 1."""
+    with open(os.path.join(root, "firmware", "patches.h"), encoding="utf-8") as fh:
+        m = re.search(r"^#define PATCH_SOUNDTRACK (\d+)u?\b", fh.read(), re.M)
+    if not m:
+        raise ValueError("firmware/patches.h has no PATCH_SOUNDTRACK")
+    return int(m.group(1)) + 1
+
+
 def tone_names(root):
     with open(os.path.join(root, "data", "jx8p-factory-1-32.syx"), "rb") as fh:
         return [t.name.strip() for t in jx8p.parse_syx(fh.read())]
@@ -115,15 +134,22 @@ def build(root, out, base_url, packages=None):
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(src, "index.html"), encoding="utf-8") as fh:
         html = fh.read()
-    tones = "\n".join(f"        <li>{escape(n)}</li>" for n in tone_names(root))
-    html = html.replace("{{TONES}}", tones).replace("{{EMU_SRC}}", escape(emu_src(base_url)))
+    names, boot = tone_names(root), boot_tone(root)
+    if not 1 <= boot <= len(names):
+        raise ValueError(f"boot tone {boot}: the bank has {len(names)} tones")
+    mark = ' class="boot"'
+    tones = "\n".join(f"        <li{mark if i == boot else ''}>{escape(n)}</li>" for i, n in enumerate(names, 1))
+    html = (html.replace("{{TONES}}", tones).replace("{{EMU_SRC}}", escape(emu_src(base_url)))
+            .replace("{{BOOT_NUM}}", str(boot)).replace("{{BOOT_NAME}}", escape(names[boot - 1]))
+            .replace("{{BASE_URL}}", escape(page_url(base_url))))
     if packages:
         write_fw(root, out, packages)
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(html)
-    for name in ("style.css", "install.js", "installer.js"):
+    for name in ("style.css", "install.js", "installer.js", "analytics.js", "favicon.svg", "apple-touch-icon.png", "share.jpg", "head.js"):
         shutil.copy(os.path.join(src, name), out)
-    shutil.copytree(os.path.join(src, "vendor"), os.path.join(out, "vendor"), dirs_exist_ok=True)
+    for folder in ("vendor", "fonts", "posthog-js", "assets", "img"):
+        shutil.copytree(os.path.join(src, folder), os.path.join(out, folder), dirs_exist_ok=True)
 
 
 if __name__ == "__main__":
