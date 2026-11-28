@@ -185,6 +185,15 @@ class PageTest(unittest.TestCase):
         self.assertIn("FM1-8P", re.search(r'<p class="hero__lead">([^<]*)</p>', html).group(1))
         self.assertIn("<title>FM1-8P:", html)
 
+    def test_share_tags_point_at_the_page_and_its_card_by_absolute_url(self):
+        d, html = self.build()
+        self.assertIn(f'<meta property="og:image" content="{BASE}share.jpg">', html)
+        self.assertIn(f'<meta name="twitter:image" content="{BASE}share.jpg">', html)
+        self.assertIn(f'<meta property="og:url" content="{BASE}">', html)
+        self.assertIn(f'<link rel="canonical" href="{BASE}">', html)
+        for name in ("share.jpg", "favicon.svg", "apple-touch-icon.png"):
+            self.assertTrue(os.path.isfile(os.path.join(d, name)), name)
+
     def test_embeds_the_emulator(self):
         _, html = self.build()
         self.assertIn('src="' + site_build.escape(site_build.emu_src(BASE)) + '"', html)
@@ -383,6 +392,9 @@ class FontsTest(unittest.TestCase):
         for link in links:
             with self.subTest(link):
                 href = re.search(r'\bhref="([^"]*)"', link).group(1)
+                if 'rel="canonical"' in link:   # the page's own address, filled in by tools/site_build.py
+                    self.assertEqual(href, "{{BASE_URL}}")
+                    continue
                 self.assertNotRegex(href, r"^(?:[a-z]+:|//|/)")   # no font, style or preconnect to another site
         # the design kit's stylesheets (site/assets) load nothing from another site either
         for d, _, files in os.walk(os.path.join(ROOT, "site", "assets")):

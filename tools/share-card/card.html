@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- The site's share card (og:image), 1200x630: tools/share-card/render.sh draws it to site/share.jpg. -->
+<html lang="en"><head><meta charset="utf-8">
+<style>
+@font-face { font-family: "Instrument Sans"; font-weight: 400 700; src: url("../../site/fonts/instrument-sans/instrument-sans-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Mono"; font-weight: 500; src: url("../../site/fonts/dm-mono/dm-mono-latin-500-normal.woff2") format("woff2"); }
+* { box-sizing: border-box; } html, body { margin: 0; }
+body { width: 1200px; height: 630px; background: #1c1c1c; color: #f1f1ef; font-family: "Instrument Sans", sans-serif;
+  display: grid; grid-template-columns: 1fr 470px; gap: 56px; padding: 72px 72px 72px 80px; align-items: center; overflow: hidden; }
+.mark { display: inline-grid; grid-template-columns: 14px 14px; gap: 4px; margin-right: 14px; vertical-align: -2px; }
+.mark i { width: 14px; height: 14px; border-radius: 50%; background: #8fa68e; } .mark i:last-child { border-radius: 3px; }
+.name { font-size: 30px; font-weight: 500; letter-spacing: -0.02em; }
+h1 { margin: 40px 0 0; font-size: 68px; line-height: 1.02; font-weight: 500; letter-spacing: -0.036em; }
+p { margin: 28px 0 0; font-size: 26px; line-height: 1.35; color: #c9cac5; max-width: 22ch; }
+.tag { margin-top: 36px; display: inline-block; font: 500 20px/1 "DM Mono", monospace; color: #1c1c1c; background: #8fa68e; padding: 12px 16px; border-radius: 8px; }
+.screen { width: 470px; height: 470px; border-radius: 14px; overflow: hidden; box-shadow: 0 30px 60px -30px #000; }
+.screen img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+</style></head>
+<body>
+  <div>
+    <div class="name"><span class="mark"><i></i><i></i><i></i><i></i></span>FM1-8P</div>
+    <h1>Polysynth firmware for the M-VAVE FM-1</h1>
+    <p>4 voices, a 16-step sequencer and the 32 JX-8P factory tones.</p>
+    <span class="tag">Runs on the FM-1 today</span>
+  </div>
+  <div class="screen"><img src="../../site/img/night-panel-1-play.png" alt=""></div>
+</body></html>
