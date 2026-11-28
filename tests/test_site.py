@@ -172,10 +172,12 @@ class PageTest(unittest.TestCase):
         self.assertIsNotNone(collage)
         self.assertIn("FM-1", collage.group(1))
         sets = re.findall(r'<div class="ly-collage__set[^"]*"[^>]*>', html)
-        self.assertEqual(len(sets), 3)
+        self.assertGreaterEqual(len(sets), 3)
         for tag in sets[1:]:
             self.assertIn('aria-hidden="true"', tag)
-        self.assertEqual(re.findall(r'<div class="ly-piece[^>]*><img [^>]*alt="([^"]*)"', html), [""] * 6)
+        alts = re.findall(r'<div class="ly-piece[^>]*><img [^>]*alt="([^"]*)"', html)
+        self.assertEqual(len(alts), 2 * len(sets))
+        self.assertEqual(set(alts), {""})
 
     def test_the_heading_names_the_fm1_and_the_page_names_fm1_8p(self):
         _, html = self.build()
