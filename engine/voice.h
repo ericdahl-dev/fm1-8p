@@ -96,7 +96,8 @@ static inline fm_voice_hold fm_voice_holding(const fm_voice *v)
     return FM_VOICE_RELEASING;
 }
 
-/* The note the voice plays (FM_VOICE_NO_NOTE after a voice-mode switch). */
+/* The note the voice plays (FM_VOICE_NO_NOTE before its first note, or
+ * after a voice-mode switch). */
 static inline uint8_t fm_voice_note(const fm_voice *v)
 {
     return v->note;
@@ -152,8 +153,9 @@ void fm_voice_key_up(fm_voice *v, int pedal_down);
 void fm_voice_release(fm_voice *v);
 
 /* Lets go of the voice before a voice-mode switch: releases its note if a
- * key or the pedal holds it, and a sounding voice then belongs to no note
- * (FM_VOICE_NO_NOTE), finishing at its pitch. Returns whether it released
+ * key or the pedal holds it, and the voice then belongs to no note
+ * (FM_VOICE_NO_NOTE; a sounding one finishes at its pitch, and an idle one
+ * has no last note for a key to get back, #164). Returns whether it released
  * (the engine ages a voice it releases). */
 int fm_voice_let_go(fm_voice *v);
 
@@ -169,7 +171,8 @@ static inline uint32_t fm_voice_stamp(const fm_voice *v)
     return v->stamp;
 }
 
-/* Silences the voice at once (all sound off). */
+/* Silences the voice at once (all sound off). Its note stays its last
+ * note, for the key to get the voice back (#164). */
 void fm_voice_silence(fm_voice *v);
 
 /* The amp envelope reads `amp` (envelope 2's settings, or the gate's with

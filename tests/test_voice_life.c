@@ -34,6 +34,7 @@ TT_TEST(voice_reset_is_free_and_plays_no_note)
     TT_CHECK_EQ(fm_voice_holding(v), FM_VOICE_FREE);
     TT_CHECK(!fm_voice_plays(v, 60));
     TT_CHECK(!fm_voice_plays(v, 0));
+    TT_CHECK_EQ(fm_voice_note(v), FM_VOICE_NO_NOTE); /* no last note either (#164) */
 }
 
 /* Plays `note` at velocity 100 on `v`, from tick 0. */
