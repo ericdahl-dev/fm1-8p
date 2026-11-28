@@ -34,9 +34,16 @@ k = 0 for F3. Encoders: 0 SELECT, 5 KNOB4.
 | `membrane-play.png`, `night-panel-play.png` | PLAY, P17 SOUNDTRACK (the boot tone, shown as `PATCH 17` and `P17 SOUNDTRACK`), no edits | 4000 | (none) |
 | `membrane-vcf.png`, `night-panel-vcf.png` | page 5A VCF (EDIT tap) | 4000 | `3000:6,3060:6^` |
 | `membrane-vcf-env.png`, `night-panel-vcf-env.png` | page 8A ENV-1, the filter envelope (ENV tapped three times: 5A, 5B, 8A) | 4500 | `3000:4,3060:4^,3400:4,3460:4^,3800:4,3860:4^` |
+| `membrane-dco1.png`, `night-panel-dco1.png` | page 1A DCO-1, the focus on 12 WAVE (number jump 1, 2) | 4500 | `3000:3,3200:14,3260:14^,3400:16,3460:16^,3700:3^` |
+| `membrane-chorus.png`, `night-panel-chorus.png` | page 6A VCA and CHORUS, the focus on 64 CHORUS (number jump 6, 4) | 4500 | `3000:3,3200:23,3260:23^,3400:20,3460:20^,3700:3^` |
+| `membrane-lfo.png`, `night-panel-lfo.png` | page 7A LFO, the focus on 73 RATE (number jump 7, 3) | 4500 | `3000:3,3200:25,3260:25^,3400:18,3460:18^,3700:3^` |
 | `membrane-seq.png`, `night-panel-seq.png` | SEQ view's piano roll while playing (playhead at step 8, 120 BPM) | 9000 | the SEQ script below |
 | `membrane-glo-theme.png` | GLO page 3, the focus on G34 THEME at MEMBRANE | 4500 | `3000:7,3060:7^,3400:e0:2,3600:e5:1,3800:e5:-1` |
 | `night-panel-glo-theme.png` | the same at NIGHT PANEL | 4500 | `3000:7,3060:7^,3400:e0:2,3600:e5:-1,3800:e5:1` |
+
+DCO-1, CHORUS and LFO use the number jump (SEL held, two white keys as digits: F3..A4 are
+1..9 and 0, SEL let go), which moves the focus without touching a value. A knob turned and turned
+back can land on another stored value (LFO RATE's table does) and mark the patch edited.
 
 On the GLO page, KNOB4 is turned one way and back so the focus lands on G34 with the theme
 unchanged.
