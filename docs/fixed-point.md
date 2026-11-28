@@ -509,7 +509,7 @@ How it works, per sample:
   correlate at 0.45 (I) and 0.43 (II), against PG-8X's 0.46. The mix gain
   keeps the chorus's input within +-0.72 (-2.85 dBFS), and the soft clip
   takes dry plus wet past the knee: an eight-note chord at full level peaks
-  at about 29400 of 32767 with the chorus on (23200 off) and never reaches
+  at most 28684 of 32767 with the chorus on (22905 off) and never reaches
   the rails. Before
   #104 each output was half dry plus half wet, which lowered the level by
   3.6 to 4.3 dB.

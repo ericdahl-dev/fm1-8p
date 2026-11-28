@@ -12,8 +12,8 @@
  * Modes I and II are matched to PG-8X 2.0.13's chorus I and II (#104,
  * #312): dry plus wet, their rates, sweeps, centers and start phase, their
  * wet path (each tap 1.21 times the dry's level, through two 1-poles at
- * 4075 Hz; #312, #299), and a short delay, so the wet stays in phase with the dry on a low note's bass,
- * as on PG-8X.
+ * 4075 Hz; #312, #299), and a short delay, so the wet stays in phase
+ * with the dry on a low note's bass, as on PG-8X.
  */
 #include "chorus.h"
 #include "units.h"

@@ -355,12 +355,13 @@ TT_TEST(chorus_output_stays_bounded_for_eight_full_scale_voices)
 /*
  * Through the engine with every voice sounding: an eight-note chord
  * (octaves and fifths of A, all starting together so their peaks line
- * up) at full level, in every mode. Dry plus wet (#104) lets the chorus
- * raise the peak, by at most 2x (+6 dB), but it must never clip: no
- * sample reaches the int16 rails, as before the change, when the chorus
- * kept the peak at or below chorus off. The mix gain keeps the chorus's
- * input within +-0.5 (-6 dBFS, without resonance), which is what leaves
- * room for dry plus wet. The module-level test above covers inputs far
+ * up) at full level, in every mode. Dry plus wet (#104), each wet tap
+ * at 1.21 times the dry's level (#312), lets the chorus raise the peak,
+ * by at most 1 + 1.21 = 2.21 times, but it must never clip: no sample
+ * reaches the int16 rails, as before the change, when the chorus kept
+ * the peak at or below chorus off. The mix gain keeps the chorus's input
+ * within +-0.72 (-2.85 dBFS, without resonance), and the soft clip takes
+ * dry plus wet past its knee. The module-level test above covers inputs far
  * beyond what the mix can reach.
  */
 TT_TEST(chorus_engine_full_chord_never_clips)
@@ -384,15 +385,15 @@ TT_TEST(chorus_engine_full_chord_never_clips)
         printf("    chorus mode %d, %d voices: peak %d\n", mode,
                FM_MAX_VOICES, peak);
         TT_CHECK(peak > 6000);
-        TT_CHECK(peak <= 2 * peak_off + 1);
+        TT_CHECK(peak * 100 <= 221 * peak_off + 100);
         TT_CHECK(peak < 32767);
     }
 }
 
 /*
  * Every mode at the edge sample rates: no division by zero (the desktop
- * traps on one), the taps stay inside the delay line (the deep mode
- * needs more than the line holds at 192 kHz, so it is scaled to fit),
+ * traps on one), the taps stay inside the delay line (the deep mode's
+ * 3.5 ms fits the line's 5.3 ms at 192 kHz, so it runs unscaled there),
  * and the stereo spread survives. An out-of-range mode means off.
  */
 TT_TEST(chorus_handles_extreme_rates_and_unknown_modes)
