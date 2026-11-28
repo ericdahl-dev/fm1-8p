@@ -51,7 +51,7 @@ HOST_SRC   = host/wav.c host/smf.c host/render.c host/args.c host/pattern.c
 BENCH_SRC  = host/bench.c
 HOST_HDR   = $(wildcard host/*.h)
 CANARIES   = $(wildcard tests/canary/*.c)
-FW_SRC     = firmware/cpu_test.c firmware/dfont.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/pattern_now.c firmware/pattern_store.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c firmware/ui_seq.c
+FW_SRC     = firmware/cpu_test.c firmware/dfont.c firmware/skyline.c firmware/play.c firmware/ui.c firmware/ui_map.c firmware/ui_settings.c firmware/seq.c firmware/pattern_now.c firmware/pattern_store.c firmware/settings_store.c firmware/patches.c firmware/patch.c firmware/patch_store.c firmware/ui_save.c firmware/ui_seq.c
 FW_HDR     = firmware/cpu_test.h firmware/play.h firmware/ui.h firmware/ui_params.h firmware/patches.h firmware/patch_fields.h firmware/patch_store.h firmware/patch_store_tags.h firmware/seq.h firmware/pattern_now.h firmware/handoff_test.h firmware/pattern_store.h firmware/settings_store.h firmware/ui_save.h firmware/ui_seq.h
 
 ENGINE_OBJ = $(ENGINE_SRC:%.c=$(BUILD)/%.o)
@@ -61,7 +61,7 @@ FW_OBJ     = $(FW_SRC:%.c=$(BUILD)/%.o)
 RENDER     = $(BUILD)/fm1-8p-render
 BENCH      = $(BUILD)/fm1-8p-bench
 
-.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches check-font check-draw-colors check-site-js generate ui-golden render-demo clean \
+.PHONY: all bench bench-full test check check-float-free check-fm1-build check-runner check-patches check-font check-skyline check-draw-colors check-site-js generate ui-golden render-demo clean \
 	gate check-gate scorecard check-scorecard
 
 all: $(RENDER) $(BENCH)
@@ -150,6 +150,9 @@ check-font:
 	PYTHON="$(PYTHON)" sh tests/test_display_font.sh
 
 # the screen draws only in its theme's colors (#54)
+check-skyline:
+	PYTHON="$(PYTHON)" sh tests/test_skyline_art.sh
+
 check-draw-colors:
 	sh tests/test_draw_colors.sh
 
@@ -163,7 +166,7 @@ check-site-js:
 		echo "check-site-js: node not found, skipped (CI runs it)"; \
 	fi
 
-check: test check-runner check-float-free check-fm1-build check-patches check-font check-draw-colors check-site-js
+check: test check-runner check-float-free check-fm1-build check-patches check-font check-skyline check-draw-colors check-site-js
 
 gate:
 	@test -n "$(BASE)" || { echo "usage: make gate BASE=<commit> [HEAD=<commit>]" >&2; exit 2; }

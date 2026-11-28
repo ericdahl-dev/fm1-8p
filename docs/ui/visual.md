@@ -120,7 +120,7 @@ the two themes:
 | `line` | `83EF` the body | `2969` | rules, frames, unlit meter |
 | `text` | `F7BE` the lettering | `EF7F` | values, focused labels |
 | `dim` | `C659` | `9CB7` | other labels |
-| `ink` | `1904` | `0863` | text on a chip or on the sunset |
+| `ink` | `1904` | `0863` | text on a chip |
 | `window` | `0020` | `0021` | LED and graph windows |
 | `led` | `AF9E` pale cyan | the section color | the 7-segment digits |
 | `ghost` | 10 % | 8 % | unlit segments, as this much of the LED color |
@@ -128,10 +128,9 @@ the two themes:
 | `meter_segments`, `meter_gap` | 0, 0 (one bar) | 8, 2 (an LED ladder) | the knob meter |
 | `focus` | `(1.0, 1.0)` | `(1.0, 0.45, 0.2)` | frames inward from the focused element's edge, as mixes from `bg` to the accent: a 2 px frame, or a glow |
 | `hatch` | 0 | 16 % | the fill under graph curves |
-| `art` | `badge` | `sun` | the PLAY slot: six sunset bands with the device name, or the striped sun over a perspective grid |
+| `art` | skyline | skyline | the PLAY slot and the boot screen: the skyline with a laser line (Eric, 2026-11-27; `docs/ui/mockups/skyline/`), baked as a table (`docs/ui/mockups/skyline_art.h`) in each theme's palette |
 | `playhead`, `cursor` | `F7BE`, `DB0B` | `2EDF`, `EF7F` | the SEQ playhead and step cursor |
-| `sun` | `FE88 FD87 FC67 FB49 F24E D1D2` | `FEC9 FD88 FC48 FAEC F1F2 C198` | the sunset bands (PLAY only) |
-| `grid`, `horizon` | none | `5953`, `F9FB` | the perspective grid (PLAY only) |
+| `sun` | `FE88 FD87 FC67 FB49 F24E D1D2` | `FEC9 FD88 FC48 FAEC F1F2 C198` | the skyline's neon: its lit windows, the laser line, its flare and the street line (`skyline.py` bakes them into the palette) |
 
 All values are RGB565, which is what `HB_RGB()` produces.
 
@@ -188,8 +187,9 @@ The theme changes only the following, and none of it moves anything:
    text. Both are 24 px tall, and the text starts at the same row.
 3. **Focus.** Membrane draws a 2 px frame and Night Panel draws a 3-step glow. Both are frames
    drawn inward from the column's edge, at most 12 fills.
-4. **The PLAY art.** Membrane fills the slot with the badge and Night Panel with the sun. Both
-   fill the same slot and are drawn once.
+4. **The PLAY art.** Both themes draw the same skyline with a laser line, in their own colors: the
+   towers, the window lights, the laser and the street line come from the theme. It fills the
+   slot and is drawn once.
 
 The text sizes, the positions, the fonts, the 7-segment window, the graphs, the piano roll and
 the key strip are identical.
@@ -336,8 +336,8 @@ The meaning stays the same in both themes:
   - a 158 x 24 blit for the focus value;
   - the slot canvas (230 x 56, about 12.9 k pixels), only when the parameter shapes the graph:
     41 and 42 for the filter response, 51-54 and 61-64 for the ADSR.
-- **The sun, the grid and the badge** are drawn once, on entering PLAY: about 90 row fills
-  and 25 lines. A patch change redraws only the name and the LED digits. No frame is ever a
+- **The skyline** is drawn once, on entering PLAY: 204 fills from a const table (the boot
+  screen's: 147, doubled). A patch change redraws only the name and the LED digits. No frame is ever a
   full-screen gradient.
 - **Every gradient is deliberate, hard-edged bands,** one fill per band, so RGB565 banding is
   part of the look and costs nothing per frame.

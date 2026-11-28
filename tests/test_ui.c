@@ -2,6 +2,7 @@
 #include "../firmware/ui.h"
 #include "../firmware/ui_settings.h"
 #include "../firmware/ui_seq.h"
+#include "../firmware/skyline.h"
 
 static play ui_p;
 static ui ui_u;
@@ -1771,13 +1772,13 @@ TT_TEST(ui_settings_default_and_ranges)
     }
 }
 
-/* The sun art's rows (render.py's disc_rows, in integers): ui_isqrt is the floor of the square root. */
+/* ui_isqrt is the floor of the square root (ui.c's curves use it in integers). */
 TT_TEST(ui_isqrt_is_the_floor)
 {
     TT_CHECK_EQ(ui_isqrt(0), 0u);
     TT_CHECK_EQ(ui_isqrt(899), 29u);
     TT_CHECK_EQ(ui_isqrt(900), 30u);
-    TT_CHECK_EQ(ui_isqrt(900 - 29 * 29), 7u);   /* the sun's top rows: r 30, 29 rows down */
+    TT_CHECK_EQ(ui_isqrt(900 - 29 * 29), 7u);
 }
 
 /* WCAG contrast of two RGB565 colors as the panel shows them (each channel's bits repeated into 8,
@@ -1832,8 +1833,9 @@ TT_TEST(ui_themes_meet_their_contrast_rules)
 
 /* Each theme gives every color its own look draws with (#54): none is left at 0, an unset field (both
  * themes' darkest colors, the LED windows, are just off black). What a theme draws with depends on its
- * switches: the LED color only without led_section, the sun's grid and horizon only with the sun, the
- * meter track only with a fill_only section. ghost, focus and hatch are amounts, where 0 means none. */
+ * switches: the LED color only without led_section, the meter track only with a fill_only section; the
+ * skyline art's colors are its palette (firmware/skyline.h, checked in tests/test_skyline.c). ghost, focus
+ * and hatch are amounts, where 0 means none. */
 TT_TEST(ui_themes_set_every_color_they_draw_with)
 {
     const ui_theme *TH[2] = {&UI_MEMBRANE, &UI_NIGHT_PANEL};
@@ -1846,12 +1848,9 @@ TT_TEST(ui_themes_set_every_color_they_draw_with)
             TT_CHECK(base[i] != 0u);
         for (i = 0; i < UI_SECTIONS; i++)
             TT_CHECK(t->section[i] != 0u);
-        for (i = 0; i < 6u; i++)
-            TT_CHECK(t->sun[i] != 0u);
+        TT_CHECK(t->sky == (n ? SKYLINE_NIGHT_PANEL : SKYLINE_MEMBRANE));   /* the skyline in the theme's colors */
         if (!t->led_section)
             TT_CHECK(t->led != 0u);
-        if (t->art == UI_ART_SUN)
-            TT_CHECK(t->grid != 0u && t->horizon != 0u);
         if (t->fill_only)
             TT_CHECK(t->fill_track != 0u);
     }

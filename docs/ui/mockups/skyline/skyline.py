@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """The skyline with a laser line (Eric, 2026-11-27): the art that replaces the sunset on PLAY and on the
 boot screen, in both themes. A night city of towers with lit windows against the theme's dusk bands, one
 neon laser line across the sky behind the towers, with a four-point flare in a gap between them, and a neon
@@ -7,9 +8,13 @@ street line. Every shape is a fill (no sun, no perspective grid: those read as o
 
 writes skyline-both-3x.png here: Membrane PLAY, Membrane boot, Night Panel PLAY, Night Panel boot. Uses
 render.py's Screen, fonts and themes (Pillow and fm1-dock's host font, as render.py needs). The tower layout
-is seeded (seed 8), so the firmware can bake the same towers as a table."""
+is seeded (seed 8), so the firmware can bake the same towers as a table: --table OUT writes
+skyline_art.h, the fills the firmware draws (no Pillow). The art itself is render.py's (scr_play, scr_boot_a)."""
 import argparse, importlib.util, math, os, random, sys
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:                              # --table needs no Pillow (tests/test_skyline_art.sh)
+    Image = None
 here = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("render", os.path.join(here, "..", "render.py"))
 R = importlib.util.module_from_spec(spec); spec.loader.exec_module(R)
@@ -18,98 +23,140 @@ R.PATCH = ("17", "SOUNDTRACK", False)
 R.PATTERN = ("11", "PATTERN 11", False)
 
 
-def neon(t, k):
-    return t["sun"][k % len(t["sun"])]
+art_skyline_laser_sky, boot_art = R.art_skyline_laser_sky, R.boot_art   # render.py draws the art
 
 
-def laser_line(sc, t, x, y, w, h, ly, cx, flare):
-    """one neon laser line across at row ly, with a four-point flare of `flare` px at cx"""
-    for d, c in ((2, neon(t, 5)), (1, neon(t, 4))):
-        sc.fill(x, ly - d, w, 1, c)
-        sc.fill(x, ly + d, w, 1, c)
-    sc.fill(x, ly, w, 1, "#FFFFFF")
-    lim = min(flare, ly - y, y + h - 1 - ly)
-    for r, c in ((lim, neon(t, 4)), (lim * 2 // 3, neon(t, 1)), (lim // 3, "#FFFFFF")):
-        sc.fill(cx, ly - r, 1, 2 * r + 1, c)
-        sc.fill(cx - 2 * r, ly, 4 * r + 1, 1, c)
-    for k in range(1, lim):
-        c = R.mix(t["window"], neon(t, 1), max(0.0, 1 - k / lim))
-        for sx, sy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
-            sc.fill(cx + sx * k, ly + sy * k, 1, 1, c)
-    sc.fill(cx - 1, ly - 1, 3, 3, "#FFFFFF")
+def play_with(fonts, t):
+    return R.scr_play(fonts, t)
 
 
-def towers(sc, t, x, y, w, h, seed, street=True):
-    rnd = random.Random(seed)
-    tower = "#050508"
-    xx = x
-    while xx < x + w:
-        tw = rnd.randrange(10, 24)
-        th = rnd.randrange(h // 3, h - 6)
-        if rnd.random() < 0.18:
-            th = h - 3
-        top = y + h - th
-        sc.fill(xx, top, min(tw, x + w - xx), th, tower)
-        if rnd.random() < 0.3:
-            sc.fill(xx + tw // 2, top - 4, 1, 4, tower)
-        for wy in range(top + 3, y + h - 4, 4):
-            for wx in range(xx + 2, min(xx + tw - 2, x + w - 2), 3):
-                if rnd.random() < 0.22:
-                    sc.fill(wx, wy, 1, 2, neon(t, rnd.choice((0, 1, 2))))
-        xx += tw + rnd.randrange(0, 3)
-    if street:
-        sc.fill(x, y + h - 2, w, 2, neon(t, 4))
+def boot_with(fonts, t):
+    return R.scr_boot_a(fonts, t)
 
 
-def sky(sc, t, x, y, w, h, seed):
-    rnd = random.Random(seed + 1)
-    sc.fill(x, y, w, h, t["window"])
-    bh = h // 5
-    for k, c in enumerate([R.mix(t["window"], neon(t, 5), 0.10), R.mix(t["window"], neon(t, 4), 0.18), R.mix(t["window"], neon(t, 3), 0.28)]):
-        sc.fill(x, y + h - (3 - k) * bh - bh, w, bh, c)
-    for _ in range(w // 10):
-        sc.fill(x + rnd.randrange(w), y + rnd.randrange(h // 2), 1, 1, R.mix(t["window"], t["text"], 0.6))
+# ---------------------------------------------------------------- the firmware's table (no Pillow)
+# The art as the firmware bakes it: each screen's fills, in order, as {x, y, w, h, color index}, and each
+# theme's palette (RGB565). Both themes make the same shapes (the seed draws them; only colors differ), so
+# one table serves both, a fill's index naming its (Membrane, Night Panel) colors. With each screen and
+# theme, the FNV-1a hash of the art's rows (PLAY 78..137, boot 0..139) as drawn here on the theme's bg.
+GEO = {"PLAY": (M, R.SLOT[0], W - 2 * M, R.SLOT[1], R.SLOT[0], 60), "BOOT": (0, 20, W, 112, 0, 140)}
 
 
-def art_skyline_laser_sky(sc, t, x, y, w, h, seed=8):
-    """A: the laser crosses the sky behind the towers, its flare in a gap between them."""
-    sky(sc, t, x, y, w, h, seed)
-    laser_line(sc, t, x, y, w, h, y + h * 2 // 5, x + w * 2 // 3, h // 3)
-    towers(sc, t, x, y, w, h, seed)
+def draw_art(key, f, t):
+    """screen key's art into f: PLAY's slot, or the boot screen's doubled strip"""
+    if key == "BOOT":
+        boot_art(f, t)
+    else:
+        x, y, w, h = GEO[key][:4]
+        art_skyline_laser_sky(f, t, x, y, w, h)
 
 
-def play_with(fonts, t, art):
-    tt = dict(t, art="badge")          # draw PLAY, then paint our art over the slot
-    sc = R.scr_play(fonts, tt)
-    x, y, w, h = M, R.SLOT[0], W - 2 * M, R.SLOT[1]
-    sc.fill(x, y, w, h, t["bg"])
-    art(sc, t, x, y, w, h)
-    return sc
+class Fills:
+    """a Screen that keeps its fills (the art draws with fill only)"""
+    def __init__(self):
+        self.ops = []
+
+    def fill(self, x, y, w, h, c):
+        self.ops.append((int(x), int(y), int(w), int(h), R.rgb565(c)))
 
 
-def boot_with(fonts, t, art):
-    sc = R.Screen(fonts, t["bg"])
-    art(sc, t, 0, 20, W, 112)
-    sc.dtext(0, 150, "D24", "FM1-8P", t["text"], align="c", w=W)
-    sc.text(0, 180, "POLY SYNTH  4 VOICES", t["dim"], align="c", w=W)
-    R.boot_bar(sc, t, 208)
-    sc.text(0, 220, "V1", t["dim"], align="c", w=W)
-    return sc
+def table():
+    themes = list(R.THEMES)
+    ops = {}
+    for key in GEO:
+        per = []
+        for name in themes:
+            f = Fills()
+            draw_art(key, f, R.THEMES[name])
+            per.append(f.ops)
+        if any([o[:4] for o in p] != [o[:4] for o in per[0]] for p in per):
+            raise SystemExit("skyline.py: the themes draw different shapes; one table can't hold both")
+        ops[key] = per
+    pairs = []
+    for per in ops.values():
+        for col in zip(*per):
+            pair = tuple(o[4] for o in col)
+            if pair not in pairs:
+                pairs.append(pair)
+    if len(pairs) > 255:
+        raise SystemExit("skyline.py: %d colors, more than a byte holds" % len(pairs))
+    return themes, ops, pairs
+
+
+def art_hash(ops, bg, top, rows):
+    """FNV-1a over rows top..top+rows-1, 240 pixels each, little-endian RGB565, the fills drawn on bg"""
+    px = [[bg] * W for _ in range(rows)]
+    for x, y, w, h, c in ops:
+        for yy in range(max(y, top), min(y + h, top + rows)):
+            for xx in range(max(x, 0), min(x + w, W)):
+                px[yy - top][xx] = c
+    v = 0x811C9DC5
+    for row in px:
+        for c in row:
+            for b in (c & 0xFF, c >> 8):
+                v = ((v ^ b) * 0x01000193) & 0xFFFFFFFF
+    return v
+
+
+def write_table(path):
+    themes, ops, pairs = table()
+    ident = [n.upper().replace("-", "_") for n in themes]
+    o = ["/* SPDX-License-Identifier: GPL-3.0-or-later */",
+         "/* Generated by docs/ui/mockups/skyline/skyline.py --table; do not edit (tests/test_skyline_art.sh). */",
+         "/* The skyline with a laser line (Eric, 2026-11-27): each screen's fills {x, y, w, h, color}, in order,",
+         " * and each theme's palette. firmware/skyline.c draws them. */",
+         "#ifndef SKYLINE_ART_H", "#define SKYLINE_ART_H", "",
+         "#define SKY_THEMES %d" % len(themes), "#define SKY_COLORS %d" % len(pairs)]
+    for k, name in enumerate(themes):
+        o.append("#define SKY_THEME_%s %d" % (ident[k], k))
+    o.append("static const uint16_t SKY_PAL[SKY_THEMES][SKY_COLORS] = {")
+    for k in range(len(themes)):
+        vals = ["0x%04Xu" % p[k] for p in pairs]
+        o.append("    {" + ", ".join(vals) + "},")
+    o.append("};")
+    for key, (x, y, w, h, top, rows) in GEO.items():
+        per = ops[key]
+        o.append("#define SKY_%s_N %d" % (key, len(per[0])))
+        o.append("#define SKY_%s_TOP %d   /* the art's rows hashed: TOP .. TOP + ROWS - 1 */" % (key, top))
+        o.append("#define SKY_%s_ROWS %d" % (key, rows))
+        o.append("static const uint8_t SKY_%s[SKY_%s_N][5] = {" % (key, key))
+        line = "   "
+        for col in zip(*per):
+            xx, yy, ww, hh = col[0][:4]
+            item = " {%d, %d, %d, %d, %d}," % (xx, yy, ww, hh, pairs.index(tuple(c[4] for c in col)))
+            if len(line) + len(item) > 116:
+                o.append(line)
+                line = "   "
+            line += item
+        o.append(line)
+        o.append("};")
+        for k, name in enumerate(themes):
+            o.append("#define SKY_%s_HASH_%s 0x%08Xu" % (key, ident[k], art_hash(per[k], R.rgb565(R.THEMES[name]["bg"]), top, rows)))
+    for k, name in enumerate(themes):
+        o.append("#define SKY_BG_%s 0x%04Xu   /* the bg the hashes are drawn on (ui_map.c's must match) */" % (ident[k], R.rgb565(R.THEMES[name]["bg"])))
+    o += ["", "#endif", ""]
+    with open(path, "w") as fh:
+        fh.write("\n".join(o))
+    return sum(len(p[0]) for p in ops.values()), len(pairs)
 
 
 def main():
     ap = argparse.ArgumentParser(description="the skyline art, PLAY and boot, both themes")
     dock = os.environ.get("FM1_DOCK", os.path.expanduser("~/Projects/fm1-8p-ref/fm1-dock"))
     ap.add_argument("--font", default=os.path.join(dock, "firmware/gen/felucca_font.h"))
+    ap.add_argument("--table", metavar="OUT", help="write the firmware's table (skyline_art.h) to OUT, and stop")
     args = ap.parse_args()
+    if args.table:
+        n, c = write_table(args.table)
+        print("%s: %d fills, %d colors" % (args.table, n, c))
+        return
     dfont = {k: R.bake_font(v) for k, v in R.SIZES.items()}
     fonts = (R.load_host_font(args.font), dfont)
-    art = art_skyline_laser_sky
     sheet = Image.new("RGB", (4 * W + 5 * 8, H + 16), (40, 40, 40))
     col = 0
     for key, t in R.THEMES.items():
         for fn in (play_with, boot_with):
-            sc = fn(fonts, t, art)
+            sc = fn(fonts, t)
             sc.img.resize((W * 3, H * 3), Image.NEAREST).save(os.path.join(here, "%s-%s-3x.png" % (key, fn.__name__.split("_")[0])))
             sheet.paste(sc.img, (8 + col * (W + 8), 8))
             col += 1
