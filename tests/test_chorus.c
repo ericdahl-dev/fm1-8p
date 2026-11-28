@@ -39,9 +39,12 @@ static uint32_t ch_hash(const int16_t *s, size_t count)
  * Retaken when every amp attack began to ease in (#274: each note's first
  * few samples), and when the saw began to fall, as PG-8X's (#260: the
  * phrase is the default patch's saw: each sample negated before the output's
- * int16 floor, so within 1-2 LSB of the old one negated).
+ * int16 floor, so within 1-2 LSB of the old one negated). Retaken with the
+ * source lowpass on the voices' sum (#299: every sample a 0.695 / 0.305
+ * blend of itself and the one before at this rate, 44.1 kHz, so every sample
+ * of the phrase moves).
  */
-#define CH_GOLDEN_HASH 0x364E5CD9u
+#define CH_GOLDEN_HASH 0xE6FF6719u
 
 /*
  * set_mode: set chorus_mode to `mode` before the phrase. was_on: first

@@ -89,6 +89,8 @@ typedef struct {
     uint8_t out_shift; /* fm_engine_set_output_shift (#342) */
     int32_t params[FM_PARAM_COUNT];
     int32_t mix_gain; /* Q1.30, applied to the sum of the voices */
+    int32_t source_lp; /* the source lowpass's last input, Q8.24 (engine/output.h, #299) */
+    int32_t source_lp_a; /* and its weight for this sample rate, Q15 */
     uint32_t stamp;   /* counts note ons and offs, to age the voices */
     fm_env_settings amp_set;    /* every voice's amp envelope reads these */
     fm_env_settings filter_set; /* and its filter envelope these (#19) */

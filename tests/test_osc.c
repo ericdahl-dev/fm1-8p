@@ -219,7 +219,10 @@ static double held_rms(uint8_t wave, uint8_t note)
 
 /*
  * The spike against its closed form in double (#150's model: an impulse of
- * area A through two one-poles at 3050 Hz, steady state, less its mean),
+ * area A through two one-poles at 3050 Hz, steady state, less its mean;
+ * then #387's pre-emphasis, s ((1 + c) y(u) - c y(u - one sample)) with
+ * c = 0.45 (1 - a) / a and s = 1 - 0.175 c, a the source lowpass's weight
+ * at the rate),
  * osc1 alone at full, notes 24..108 at 48 kHz and 120..132 at 192 kHz: the
  * largest error is under -58 dB of the spike's peak at 48 kHz (-45 dB at
  * 192 kHz's high notes), so a cheaper way to the same form stays as close to
@@ -227,11 +230,23 @@ static double held_rms(uint8_t wave, uint8_t note)
  * 144..168 at 192 kHz, to its pitch limit) it keeps that pitch's shape, so
  * it stays within the spike's own peak (2.3) and never runs away.
  */
-static double spike_ref(double u, double T)
+static double spike_body(double u, double T)
 {
     const double A = 2.9317e-4, tau = 1.0 / (2.0 * AN_PI * 3050.0);
     double q = exp(-T / tau);
     return A / tau * exp(-u / tau) * (u / tau / (1 - q) + T / tau * q / ((1 - q) * (1 - q))) - A / T;
+}
+
+#include "../engine/output.h"
+static double spike_ref_rate; /* the sample rate spike_ref's pre-emphasis is for */
+#define SPIKE_REF_PRE 0.45   /* engine/osc.c's SPIKE_PRE */
+#define SPIKE_REF_TRIM 0.175 /* and SPIKE_PRE_TRIM */
+static double spike_ref(double u, double T)
+{
+    double a = fm_out_source_lp_weight((uint32_t)spike_ref_rate) / 32768.0, c = SPIKE_REF_PRE * (1 - a) / a;
+    double before = u - 1.0 / spike_ref_rate;
+    while (before < 0) before += T;
+    return (1 - SPIKE_REF_TRIM * c) * ((1 + c) * spike_body(u, T) - c * spike_body(before, T));
 }
 
 TT_TEST(spike_matches_its_closed_form)
@@ -249,6 +264,7 @@ TT_TEST(spike_matches_its_closed_form)
         uint32_t rate = at[n].rate;
         double peak = 0, err0 = 0, err1 = 0, g, T;
         uint32_t inc, t;
+        spike_ref_rate = rate;
         fm_osc_pair_reset(&p, 1);
         fm_osc_pair_set_wave(&p, 0, FM_WAVE_SPIKE);
         fm_osc_pair_set_pitch(&p, pitch, rate);
@@ -289,7 +305,10 @@ TT_TEST(spike_matches_its_closed_form)
  * duty (#150): its level against the square rises about 2.8 dB an octave
  * with pitch. DCO-1 alone, steady RMS, PG-8X: pulse minus square -12.9 dB
  * at C3, -10.0 at C4, -7.2 at C5, -4.5 at C6. The spike wave keeps to
- * that within a dB.
+ * that within 0.4 dB at this rate, 44.1 kHz: it reads -13.12, -10.16, -7.34
+ * and -4.75, so 0.14 to 0.25 dB under. That is its pre-emphasis's level
+ * trim (#387), which keeps a ringed pair of spikes' peak at main's; main
+ * ad0f34d read -12.81, -9.87, -7.07 and -4.53, within 0.13.
  */
 TT_TEST(spike_level_rises_with_pitch_as_pg8x)
 {
@@ -302,7 +321,7 @@ TT_TEST(spike_level_rises_with_pitch_as_pg8x)
                                  held_rms(FM_WAVE_SQUARE, want[k].note));
         printf("    spike re square at note %u: %+.2f dB (PG-8X %+.1f)\n", want[k].note, db,
                want[k].db);
-        TT_CHECK(fabs(db - want[k].db) < 1.0);
+        TT_CHECK(fabs(db - want[k].db) < 0.4);
     }
 }
 
@@ -330,7 +349,9 @@ static double held_partials(uint8_t which, uint8_t wave, uint8_t note, double *d
 /*
  * PG-8X's PULSE rolls off smoothly, with no sinc nulls (#150): partials
  * h1..h16 against h1 at C4, C5 and C6, as measured. The spike keeps to
- * them within 2.5 dB.
+ * them within 2.5 dB under the source lowpass (#299), PG-8X's top-band
+ * roll-off on every source: the spike was fitted with that roll-off in it,
+ * so its one-sample pre-emphasis takes part of the lowpass back off (#387).
  */
 TT_TEST(spike_partials_follow_pg8x)
 {
@@ -617,7 +638,10 @@ static void render_level_change(int16_t *out, uint32_t at, int32_t l)
  * With no envelope routed a level change snaps, as osc_mix did. A knob step
  * (10 per mille) on a held note is a pure gain step: from the change on,
  * the output is 0.99 of the unchanged one sample for sample (1 % of full
- * scale at most, about -40 dB), with no transient of its own.
+ * scale at most, about -40 dB), with no transient of its own: from the
+ * sample after the change, since the source lowpass (#299) weighs each
+ * sample with the one before it, so the change's own sample is the two
+ * levels' blend. After it the worst is 1 LSB, and the check allows 2.
  */
 TT_TEST(a_level_step_on_a_held_note_is_a_pure_gain_step)
 {
@@ -628,6 +652,7 @@ TT_TEST(a_level_step_on_a_held_note_is_a_pure_gain_step)
     for (i = 0; i < 2 * 4096; i++) {
         double want = i < 2 * 2000 ? same[i] : same[i] * 0.99;
         int d = abs(buf[i] - (int)lround(want));
+        if (i / 2 == 2000) continue; /* the change's own sample, blended by the source lowpass */
         if (d > worst) worst = d;
     }
     printf("    largest error against 0.99 x unchanged: %d\n", worst);
@@ -1128,8 +1153,10 @@ TT_TEST(osc_mix_ends_play_one_oscillator_and_middle_plays_both)
 
 /*
  * Noise stays within full scale and does not repeat: over a 0.2 s window
- * no lag up to 4096 samples correlates with the signal by more than 0.1.
- * A pitched wave fails this at its period.
+ * no lag from 2 to 4096 samples correlates with the signal by more than 0.1.
+ * A pitched wave fails this at its period. Lag 1 is the source lowpass's
+ * own (#299): a (1 - a) / (a^2 + (1 - a)^2) for white noise, 0.368 at
+ * 44.1 kHz's weight, 0.695 (measured 0.372); within 0.05 of it.
  */
 TT_TEST(noise_is_bounded_and_not_periodic)
 {
@@ -1156,9 +1183,14 @@ TT_TEST(noise_is_bounded_and_not_periodic)
         double r = 0;
         for (i = 0; i + lag < NOISE_FRAMES; i++) r += x[i] * x[i + lag];
         r = fabs(r) / energy;
-        if (r > worst) worst = r;
+        if (lag == 1) {
+            printf("    noise: lag-1 autocorrelation %.3f (the source lowpass's 0.368)\n", r);
+            TT_CHECK(fabs(r - 0.368) < 0.05);
+        } else if (r > worst) {
+            worst = r;
+        }
     }
-    printf("    noise: worst autocorrelation %.3f\n", worst);
+    printf("    noise: worst autocorrelation, lags 2..%d: %.3f\n", NOISE_LAGS, worst);
     TT_CHECK(worst < 0.1);
 #undef NOISE_FRAMES
 #undef NOISE_LAGS
@@ -2705,41 +2737,80 @@ TT_TEST(ring_rides_the_synced_osc2)
  * pitch and rate extremes, osc2 heard alone or summed with osc1 at full
  * (the mixer's sum: osc1 plus the ringed osc2 would reach 3.0).
  */
+/* The largest |sample| of 20000 from one ringed pair. */
+static int32_t ring_peak(uint8_t w1, uint8_t w2, int32_t note, int32_t tune, uint32_t rate, int l1, uint8_t sy,
+                         int32_t xmod)
+{
+    static fm_osc_pair p;
+    int32_t peak = 0, pitch = note << 16;
+    int i;
+    fm_osc_pair_reset(&p, 7);
+    fm_osc_pair_set_wave(&p, 0, w1);
+    fm_osc_pair_set_wave(&p, 1, w2);
+    fm_osc_pair_set_width(&p, 0, 25);
+    fm_osc_pair_set_width(&p, 1, 1);
+    fm_osc_pair_set_tune(&p, 1, tune, pitch, rate);
+    fm_osc_pair_set_pitch(&p, pitch, rate);
+    fm_osc_pair_set_level(&p, 0, l1 ? FM_OSC_LEVEL_FULL : 0);
+    fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
+    fm_osc_pair_set_sync(&p, sy);
+    fm_osc_pair_set_ring(&p, 1);
+    fm_osc_pair_set_xmod(&p, xmod);
+    for (i = 0; i < 20000; i++) {
+        int32_t v = fm_osc_pair_next(&p);
+        if (v < 0) v = -v;
+        if (v > peak) peak = v;
+    }
+    return peak;
+}
+
 TT_TEST(ring_stays_within_four)
 {
     static const uint32_t rates[] = { 8000, 44100, 192000 };
     static const int32_t notes[] = { 0, 48, 60, 127 };
-    static fm_osc_pair p;
-    int32_t peak = 0;
-    size_t r, n, w1, w2, sy, l1, i;
+    /* the spike's sweep (#387): its pre-emphasis sharpens its peak, most at low notes and at the rates
+     * that have it, and the cross-mod bends the increment its first sample is found by */
+    static const uint32_t sp_rates[] = { 8000, 36000, 44100, 48000, 192000 };
+    static const int32_t sp_notes[] = { 0, 5, 11, 48, 60, 127 };
+    static const int32_t sp_tunes[] = { 3737, 0, -2400 };
+    static const int32_t xmods[] = { 0, FM_OSC_LEVEL_FULL / 2, FM_OSC_LEVEL_FULL };
+    int32_t peak = 0, sp_peak = 0, v;
+    size_t r, n, w1, w2, sy, l1, x, t;
     for (l1 = 0; l1 < 2; l1++)
     for (r = 0; r < 3; r++)
     for (n = 0; n < 4; n++)
     for (w1 = 0; w1 < FM_WAVE_COUNT; w1++)
     for (w2 = 0; w2 < FM_WAVE_COUNT; w2++)
-    for (sy = 0; sy < 2; sy++) {
-        int32_t pitch = notes[n] << 16;
-        fm_osc_pair_reset(&p, 7);
-        fm_osc_pair_set_wave(&p, 0, (uint8_t)w1);
-        fm_osc_pair_set_wave(&p, 1, (uint8_t)w2);
-        fm_osc_pair_set_width(&p, 0, 25);
-        fm_osc_pair_set_width(&p, 1, 1);
-        fm_osc_pair_set_tune(&p, 1, 3737, pitch, rates[r]);
-        fm_osc_pair_set_pitch(&p, pitch, rates[r]);
-        fm_osc_pair_set_level(&p, 0, l1 ? FM_OSC_LEVEL_FULL : 0);
-        fm_osc_pair_set_level(&p, 1, FM_OSC_LEVEL_FULL);
-        fm_osc_pair_set_sync(&p, (uint8_t)sy);
-        fm_osc_pair_set_ring(&p, 1);
-        for (i = 0; i < 20000; i++) {
-            int32_t v = fm_osc_pair_next(&p);
-            if (v < 0) v = -v;
-            if (v > peak) peak = v;
-        }
+    for (sy = 0; sy < 2; sy++)
+    for (x = 0; x < 3; x += 2) {
+        v = ring_peak((uint8_t)w1, (uint8_t)w2, notes[n], 3737, rates[r], (int)l1, (uint8_t)sy, xmods[x]);
+        if (v > peak) peak = v;
     }
-    printf("    ring: largest sample %.3f\n", peak / RING_ONE);
-    /* under the hold, not at it: nothing is cut (3.855 at worst: a ringed spike, #261; 3.503
-     * without it) */
-    TT_CHECK(peak < (int32_t)(3.95 * RING_ONE));
+    for (l1 = 0; l1 < 2; l1++)
+    for (r = 0; r < 5; r++)
+    for (n = 0; n < 6; n++)
+    for (w1 = 0; w1 < FM_WAVE_COUNT; w1++)
+    for (w2 = 0; w2 < FM_WAVE_COUNT; w2++)
+    for (sy = 0; sy < 2; sy++)
+    for (x = 0; x < 3; x++)
+    for (t = 0; t < 3; t++) {
+        if (w1 != FM_WAVE_SPIKE && w2 != FM_WAVE_SPIKE) continue;
+        if (sp_rates[r] == 8000 && x) continue; /* at 8 kHz the pair reaches the hold on main too: see below */
+        v = ring_peak((uint8_t)w1, (uint8_t)w2, sp_notes[n], sp_tunes[t], sp_rates[r], (int)l1, (uint8_t)sy, xmods[x]);
+        if (v > sp_peak) sp_peak = v;
+    }
+    printf("    ring: largest sample %.3f; with a spike in the pair %.3f\n", peak / RING_ONE, sp_peak / RING_ONE);
+    /* Under the hold, not at it: nothing is cut. Measured 3.855 and 3.874. The second is a ringed pair of
+     * spikes, DCO-2 at DCO-1's pitch, synced, at note 0 to 11: 3.874 at 36 kHz, a rate between the fitted
+     * ones (main ad0f34d 3.867 there), and 3.868 at 44.1 kHz, main's own worst, which the spike's
+     * pre-emphasis is trimmed to keep (#387; untrimmed it was 3.950 at 44.1 kHz and 3.959 at 48 kHz, and
+     * with the cross-mod bending the increment its first sample went by, 4.2: cut).
+     * Not held to this: at 8 kHz a synced pair of spikes reaches the hold, cross-mod on or off (main's
+     * own behavior, identical on head, where that rate has no pre-emphasis: with the hold lifted, a true
+     * peak of 4.078 with DCO-2 7 cents up and the cross-mod off, 4.098 with it on). The sweep's 8 kHz
+     * cases (cross-mod off, tunes 3737, 0 and -2400) stay under it. No issue was opened for it. */
+    TT_CHECK(peak < (int32_t)(3.90 * RING_ONE));
+    TT_CHECK(sp_peak < (int32_t)(3.90 * RING_ONE));
 }
 
 /*
@@ -2962,14 +3033,17 @@ static uint32_t pair_hash(fm_osc_pair *p, uint32_t n)
  * spikes, DCO-2 two octaves down and ringed) among them: pinned bit for bit
  * to their renders before it. Square, spike and pulse, free, synced and
  * ringed (SYNC 2).
+ * The four with a spike retaken with the spike's pre-emphasis and its level
+ * trim (#387: every sample of it at this rate; the pulse and square pair is
+ * as it was).
  */
 TT_TEST(pairs_without_a_saw_are_unchanged_by_the_saw_flip)
 {
     static const struct { uint8_t w1, w2, sync, ring; int32_t semis; uint32_t want; } c[] = {
-        { FM_WAVE_SPIKE, FM_WAVE_SPIKE, 0, 1, -2400, 0xb8dfb1eau },  /* BUBBLES */
-        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 0, 500, 0x501c0af7u },
-        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 1, 500, 0xbb16c07fu },
-        { FM_WAVE_SPIKE, FM_WAVE_SQUARE, 1, 1, 700, 0x40a3da68u },
+        { FM_WAVE_SPIKE, FM_WAVE_SPIKE, 0, 1, -2400, 0xd040726du },  /* BUBBLES */
+        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 0, 500, 0x9aaaba81u },
+        { FM_WAVE_SQUARE, FM_WAVE_SPIKE, 1, 1, 500, 0x9ad6a40bu },
+        { FM_WAVE_SPIKE, FM_WAVE_SQUARE, 1, 1, 700, 0xe2a3c830u },
         { FM_WAVE_PULSE, FM_WAVE_SQUARE, 1, 0, 1200, 0x6eecd1abu },
     };
     static fm_osc_pair p;

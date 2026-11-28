@@ -89,10 +89,12 @@ static int hr_check_all(const hr_pin *p, size_t n)
  */
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
+    /* Measured with the source lowpass (#299), which takes a little off the chords' top band and so off their
+     * peaks and the knee; main 96ccac1, before it, in brackets. The last knee band is re-centered on it. */
     static const hr_pin c[] = {
-        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 34, 127, 0, 0, -2.3, -1.2, 0.07, 0.09 },   /* today peak -1.76 dBFS, knee 0.081 % */
-        { "C2 C3 G5 G6", { 36, 48, 79, 91 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.17, 0.21 },   /* today peak -1.07 dBFS, knee 0.187 % */
-        { "C1 C2 C7 C8", { 24, 36, 96, 108 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.46, 0.52 },  /* today peak -1.02 dBFS, knee 0.492 % */
+        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 34, 127, 0, 0, -2.3, -1.2, 0.07, 0.09 },   /* peak -1.76 dBFS, knee 0.081 % (main: -1.76, 0.081) */
+        { "C2 C3 G5 G6", { 36, 48, 79, 91 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.17, 0.21 },   /* peak -1.07 dBFS, knee 0.186 % (main: -1.07, 0.187) */
+        { "C1 C2 C7 C8", { 24, 36, 96, 108 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.44, 0.50 },  /* peak -1.03 dBFS, knee 0.474 % (main: -1.02, 0.492) */
     };
     TT_CHECK(hr_check_all(c, sizeof c / sizeof c[0]));
 }
@@ -102,7 +104,7 @@ TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 TT_TEST(headroom_soundtrack_velocity_100_pinned)
 {
     static const hr_pin c[] = {
-        { "C4", { 60 }, 1, 10, 100, 0, 0, -12.7, -11.5, -1, -1 },                    /* today peak -12.10 dBFS */
+        { "C4", { 60 }, 1, 10, 100, 0, 0, -12.7, -11.5, -1, -1 },                    /* peak -12.11 dBFS (main 96ccac1: -12.10) */
         { "C4 E4 G4", { 60, 64, 67 }, 3, 10, 100, 0, 0, -6.8, -5.6, -1, -1 },        /* today peak -6.20 dBFS */
         { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 10, 100, 0, 0, -4.0, -2.9, -1, -1 }, /* today peak -3.49 dBFS */
     };

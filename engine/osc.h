@@ -91,6 +91,10 @@ typedef struct {
     int32_t sp_p1[2];                   /* the spike's slope on u / tau (log2), Q26: KA ln2 / (1 - q) */
     int32_t sp_zc[2];                   /* and its constant, Q22: KA (T / tau) q / (1 - q)^2 */
     int32_t sp_mean[2];
+    /* the spike's pre-emphasis (#387), from the sample rate (on events), Q30: its level trim s, and with
+     * it G = s (1 + c - c e^(one sample / tau)) and s c e^(one sample / tau); 1.0, 1.0 and 0 where there
+     * is none */
+    int32_t sp_s, sp_gq, sp_ce;
 } fm_osc_pair;
 
 /*
