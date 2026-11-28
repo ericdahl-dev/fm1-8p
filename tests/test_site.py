@@ -164,17 +164,37 @@ class PageTest(unittest.TestCase):
         _, html = self.build()
         self.assertEqual(re.findall(r'<li class="boot">([^<]*)</li>', html), ["SOUNDTRACK"])
 
-    def test_the_panel_decoration_is_hidden_from_screen_readers(self):
-        # the window legends, the boot readout and the tone key repeat what the page says (#356 page design)
+    def test_the_hero_screens_read_out_once(self):
+        # the hero's collage of FM-1 screens is one picture with one description; its pieces say nothing, and the
+        # sets after the first (they cycle) are hidden from screen readers
         _, html = self.build()
-        tags = re.findall(r'<p class="(?:legend|readout|tone-key)"[^>]*>', html)
-        self.assertEqual(len(tags), 5)
-        for tag in tags:
+        collage = re.search(r'<div class="ly-collage[^"]*" role="img" aria-label="([^"]+)"', html)
+        self.assertIsNotNone(collage)
+        self.assertIn("FM-1", collage.group(1))
+        sets = re.findall(r'<div class="ly-collage__set[^"]*"[^>]*>', html)
+        self.assertGreaterEqual(len(sets), 3)
+        for tag in sets[1:]:
             self.assertIn('aria-hidden="true"', tag)
+        alts = re.findall(r'<div class="ly-piece[^>]*><img [^>]*alt="([^"]*)"', html)
+        self.assertEqual(len(alts), 2 * len(sets))
+        self.assertEqual(set(alts), {""})
 
-    def test_the_heading_is_the_name(self):
+    def test_the_heading_names_the_fm1_and_the_page_names_fm1_8p(self):
         _, html = self.build()
-        self.assertEqual(re.findall(r"<h1>([^<]*)</h1>", html), ["FM1-8P"])
+        h1 = re.findall(r'<h1 id="hero-h">([^<]*)</h1>', html)
+        self.assertEqual(len(h1), 1)
+        self.assertIn("FM-1", h1[0])
+        self.assertIn("FM1-8P", re.search(r'<p class="hero__lead">([^<]*)</p>', html).group(1))
+        self.assertIn("<title>FM1-8P:", html)
+
+    def test_share_tags_point_at_the_page_and_its_card_by_absolute_url(self):
+        d, html = self.build()
+        self.assertIn(f'<meta property="og:image" content="{BASE}share.jpg">', html)
+        self.assertIn(f'<meta name="twitter:image" content="{BASE}share.jpg">', html)
+        self.assertIn(f'<meta property="og:url" content="{BASE}">', html)
+        self.assertIn(f'<link rel="canonical" href="{BASE}">', html)
+        for name in ("share.jpg", "favicon.svg", "apple-touch-icon.png"):
+            self.assertTrue(os.path.isfile(os.path.join(d, name)), name)
 
     def test_embeds_the_emulator(self):
         _, html = self.build()
@@ -227,7 +247,10 @@ class PageTest(unittest.TestCase):
     def test_the_page_loads_scripts_only_from_its_own_site(self):
         _, html = self.build()
         srcs = re.findall(r"<script\b[^>]*\bsrc=\"([^\"]*)\"", html)
-        self.assertEqual(srcs, ["install.js"])
+        self.assertIn("install.js", srcs)
+        for src in srcs:
+            with self.subTest(src):
+                self.assertNotRegex(src, r"^(?:[a-z]+:|//|/)")   # a relative path on this site, never another
         self.assertEqual(re.findall(r"<script\b(?![^>]*\bsrc=)", html), [])
 
     def test_the_footer_says_what_the_usage_stats_count(self):
@@ -240,7 +263,7 @@ class PageTest(unittest.TestCase):
 
     def install_section(self):
         _, html = self.build()
-        start = html.index('<section id="install"')
+        start = re.search(r'<section\b[^>]*\bid="install"', html).start()
         return html[start:html.index("</section>", start)]
 
     def test_install_section_says_the_installer_is_not_tested_on_hardware(self):
@@ -338,7 +361,7 @@ class BootToneTest(unittest.TestCase):
         with open(os.path.join(d, "index.html"), encoding="utf-8") as fh:
             html = fh.read()
         self.assertEqual(re.findall(r'<li class="boot">([^<]*)</li>', html), [name])
-        self.assertIn(f'<span class="cells inv">{n}</span><span class="cells">{name}</span>', html)
+        self.assertIn(f"<span>{n} {name} at boot</span>", html)
         self.assertIn(f"It boots on {n}, {name}.", html)
 
 class FontsTest(unittest.TestCase):
@@ -367,7 +390,23 @@ class FontsTest(unittest.TestCase):
         self.assertNotIn("@import", css)
         with open(os.path.join(ROOT, "site", "index.html"), encoding="utf-8") as fh:
             links = re.findall(r"<link\b[^>]*>", fh.read())
-        self.assertEqual(links, ['<link rel="stylesheet" href="style.css">'])
+        self.assertIn('<link rel="stylesheet" href="style.css">', links)
+        for link in links:
+            with self.subTest(link):
+                href = re.search(r'\bhref="([^"]*)"', link).group(1)
+                if 'rel="canonical"' in link:   # the page's own address, filled in by tools/site_build.py
+                    self.assertEqual(href, "{{BASE_URL}}")
+                    continue
+                self.assertNotRegex(href, r"^(?:[a-z]+:|//|/)")   # no font, style or preconnect to another site
+        # the design kit's stylesheets (site/assets) load nothing from another site either
+        for d, _, files in os.walk(os.path.join(ROOT, "site", "assets")):
+            for f in files:
+                if f.endswith(".css"):
+                    with open(os.path.join(d, f), encoding="utf-8") as fh:
+                        kit = fh.read()
+                    with self.subTest(f):
+                        self.assertEqual(re.findall(r"""url\(\s*["']?(?:https?:|//)""", kit), [])
+                        self.assertNotIn("@import", kit)
 
     def test_every_font_file_matches_the_sha256_recorded_beside_it(self):
         # the files are Fontsource's, unmodified: SHA256SUMS beside them holds them to that

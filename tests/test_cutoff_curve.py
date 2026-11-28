@@ -18,13 +18,6 @@ class CurveTest(unittest.TestCase):
             self.assertEqual(jx8p.cutoff_cents(v), max(0, jx8p.rnd(cutoff_curve.cents(v))), v)
         self.assertEqual(jx8p.LINEAR_CENTS_PER_STEP, cutoff_curve.cents_per_step())
 
-    # Migration check for #344, to be removed once it merges: the generated constants are the ones
-    # engine/filter.c typed by hand before, so the engine's sound doesn't change
-    def test_the_generated_constants_are_the_ones_typed_before(self):
-        self.assertEqual(cutoff_curve.zero(), -1474)
-        self.assertEqual(cutoff_curve.a_q32(), 32070)
-        self.assertEqual(cutoff_curve.a_q32() // 2, 16035)
-
     # the header holds the constants it's generated from, by name
     def test_the_header_defines_the_constants(self):
         h = cutoff_curve.emit_h()

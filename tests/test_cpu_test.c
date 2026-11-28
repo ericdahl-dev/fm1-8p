@@ -5,7 +5,7 @@
 /* F plays the device's polyphony (#269): a build-time tie, cpu_test.h can't see play.h (its patches.h) */
 typedef char ct_full_voices_is_play_voices[CT_FULL_VOICES == PLAY_VOICES ? 1 : -1];
 
-static cpu_test ct_a, ct_b;
+static cpu_test ct_a, ct_b, ct_c;
 static int32_t ct_out[2 * CT_BLOCK];
 
 TT_TEST(cpu_test_render_adds_engine_audio_into_host_buffer)
@@ -25,20 +25,35 @@ TT_TEST(cpu_test_render_adds_engine_audio_into_host_buffer)
 }
 
 /* The CPU rows time what the device runs (#342): every count's engine plays at the module's output
- * gain, FM_OUT_SHIFT_DEVICE, as play_init sets it, so the output stage's clamp is in the time. */
+ * gain, FM_OUT_SHIFT_DEVICE, as play_init sets it. A twin set to that gain plays the same samples; a
+ * twin a doubling louder doesn't. */
 TT_TEST(cpu_test_counts_run_at_the_device_output_gain)
 {
-    uint32_t b, i, clamped = 0;
+    static int32_t dev[2 * CT_BLOCK], loud[2 * CT_BLOCK];
+    uint32_t b, i, same = 1, differ = 0;
     TT_CHECK_EQ(cpu_test_init(&ct_a), 0);
+    TT_CHECK_EQ(cpu_test_init(&ct_b), 0);
+    TT_CHECK_EQ(cpu_test_init(&ct_c), 0);
     cpu_test_request_voices(&ct_a, (int32_t)CT_FULL);  /* the full patch's chord, its loudest count */
-    /* the engine's own level holds under 31643 (the soft clip): +-32767 is the device gain's clamp */
-    for (b = 0; b < 400 && !clamped; b++) {
-        for (i = 0; i < 2 * CT_BLOCK; i++) ct_out[i] = 0;
+    cpu_test_request_voices(&ct_b, (int32_t)CT_FULL);
+    cpu_test_request_voices(&ct_c, (int32_t)CT_FULL);
+    cpu_test_render(&ct_a, ct_out, CT_BLOCK);          /* the count starts here, its engine set afresh */
+    cpu_test_render(&ct_b, dev, CT_BLOCK);
+    cpu_test_render(&ct_c, loud, CT_BLOCK);
+    TT_CHECK_EQ(fm_engine_set_output_shift(&ct_b.engine, FM_OUT_SHIFT_DEVICE), FM_OK);
+    TT_CHECK_EQ(fm_engine_set_output_shift(&ct_c.engine, FM_OUT_SHIFT_DEVICE + 1), FM_OK);
+    for (b = 0; b < 400; b++) {
+        for (i = 0; i < 2 * CT_BLOCK; i++) ct_out[i] = dev[i] = loud[i] = 0;
         cpu_test_render(&ct_a, ct_out, CT_BLOCK);
-        for (i = 0; i < 2 * CT_BLOCK; i++)
-            clamped |= ct_out[i] == 32767 || ct_out[i] == -32767;
+        cpu_test_render(&ct_b, dev, CT_BLOCK);
+        cpu_test_render(&ct_c, loud, CT_BLOCK);
+        for (i = 0; i < 2 * CT_BLOCK; i++) {
+            same &= ct_out[i] == dev[i];
+            differ |= ct_out[i] != loud[i];
+        }
     }
-    TT_CHECK(clamped);
+    TT_CHECK(same);
+    TT_CHECK(differ);
 }
 
 TT_TEST(cpu_test_voice_request_clamps_and_applies_at_next_block)

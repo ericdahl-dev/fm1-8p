@@ -381,10 +381,10 @@ void fm_voice_tick(fm_voice *v, int32_t lfo, const fm_voice_mod *m,
                    uint32_t now)
 {
     uint32_t since;
-    /* zero for delay_ticks, then up by fade_step a tick to full; kept as
+    /* zero for delay_ticks, then up by fade_step a tick to full at 3 x delay_ticks (#384); kept as
      * a start tick, so a tick without modulation has nothing to count */
     since = now - v->lfo_start; /* wraps after 2^32 ticks (36 days) */
-    if (m->delay_ticks && since < 2 * m->delay_ticks) {
+    if (m->delay_ticks && since < 3 * m->delay_ticks) {
         int64_t fade = since <= m->delay_ticks
                            ? 0
                            : (int64_t)(since - m->delay_ticks) * m->fade_step;

@@ -347,17 +347,24 @@ class MapTest(unittest.TestCase):
         self.assertEqual({v: e["AMP_DYNA"] for v, e in got.items()}, {0: 0, 32: 1, 64: 2, 96: 3})
         self.assertEqual({v: e["OSC_MIX_ENV_DYNA"] for v, e in got.items()}, {0: 3, 32: 2, 64: 1, 96: 0})
 
-    # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay cubic to 3 s;
+    # LFO: random, square, triangle (2 positions); rate as PG-8X (below); delay linear to 1 s (below);
     # depth to pitch linear to 599 cents (below), one per oscillator
     def test_lfo_shape_rate_delay_and_vibrato_depth(self):
         e = patch("SOUNDTRACK")                 # triangle, delay 78, rate 103, depths 0
-        self.assertEqual((e["LFO_WAVE"], e["LFO_RATE_CENTIHZ"], e["LFO_DELAY_MS"]), (0, 585, 695))
+        self.assertEqual((e["LFO_WAVE"], e["LFO_RATE_CENTIHZ"], e["LFO_DELAY_MS"]), (0, 585, 614))
         self.assertEqual(e["LFO_PITCH_CENTS"], 0)
         self.assertEqual(patch("CLAV")["LFO_WAVE"], 3)          # 0: random (engine FM_LFO_RANDOM)
         self.assertEqual(patch("ORGAN 2")["LFO_WAVE"], 2)       # 32: square
         self.assertEqual(patch("BUBBLES")["LFO_PITCH_CENTS"], 599)
         e = patch("CELLO SECT")                 # DCO-1 2 (a trace), DCO-2 34: mostly DCO-2 wobbles
         self.assertEqual((e["LFO_PITCH_CENTS"], e["LFO_PITCH_OSC2_CENTS"]), (9, 160))
+
+    # LFO DELAY as PG-8X 2.0.13 plays it (#384): it holds the LFO at zero for b/127 of a second, then the
+    # engine fades it in over twice that (engine/engine.c). Measured, t50 and t90 of the depth after the
+    # note: byte 64 0.98 / 1.43 s, byte 127 2.00 / 2.79 s, against 2H / 2.8H = 1.01 / 1.41 and 2.00 / 2.80
+    def test_lfo_delay_is_linear_to_one_second_as_pg8x_plays_it(self):
+        delay = {b: patch_with("SOUNDTRACK", LFO_DELAY=b)["LFO_DELAY_MS"] for b in (0, 64, 76, 127)}
+        self.assertEqual(delay, {0: 0, 64: 504, 76: 598, 127: 1000})
 
     # DCO-1 LFO as PG-8X 2.0.13 plays it: linear, 4.72 cents of peak per step (127 = 599 cents; #330: the
     # 2..98 % depth read 4.5 a step, but that reads a triangle's peak 0.95 low on both synths, and ours with

@@ -391,6 +391,7 @@ void seq_play(seq *s)
     }
     s->ask_last = SEQ_LAST_PLAY_AT(s->ask_play + 1u);   /* first: till its count, a stop to the interrupt */
     s->ext = 0;                                 /* (its own clock) */
+    s->ext_cont = 0;                            /* (a PLAY is from step 1, not a continue asked before, #380) */
     s->clk_pending = 0;                         /* (a start come in with no clock: nothing to wait for) */
     s->want = 1;
     BARRIER();                                  /* the wish before the ask: never an ask with an old one */
@@ -1101,22 +1102,33 @@ uint32_t seq_render(seq *s, uint32_t n, uint32_t fs, uint32_t voices, seq_event 
             if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
                 if (s->playing && s->out_on)
                     out_put(s, 0xFCu);          /* #286: a restart: stop, then start (never two starts) */
-                s->out_on = s->out_want;        /* #286: G14 as it is at the start */
-                if (s->out_on) {
-                    out_put(s, 0xFAu);          /* start, then the first tick, with step 1 */
+                if (s->playing || !s->out_on) { /* #286: G14 as it is at the start */
+                    s->out_on = s->out_want;
+                    if (s->out_on) {
+                        out_put(s, 0xFAu);      /* start, then the first tick, with step 1 */
+                        s->out_acc = 0;
+                        s->out_ticks++;
+                    }
+                } else {                        /* out_on with nothing playing: the main loop has sent this
+                                                 * start and its tick 0 already (a followed start's, its source
+                                                 * changed to INT before this block took it, #380): the clock
+                                                 * from here, tick 1 a unit on */
                     s->out_acc = 0;
-                    s->out_ticks++;
                 }
             }
-            s->pos = s->acc = 0;
+            s->pos = s->ext_cont ? s->pos + 1u : 0;     /* a continue asked (a followed one, its source changed
+                                                 * to INT before this block, #380): on from the step after the
+                                                 * last, as the followed branch; start_step wraps it */
+            s->acc = 0;
             s->cur_bend = s->cur_mod = 0;       /* (a first GLIDE moves from center and 0) */
             s->glide_on = 0;
             s->playing = 1;
             cnt = start_step(s, ev, cnt, 0, voices);
         } else {
             if (!s->out_block) {                /* let go: out_on and its stop are the main loop's (#349) */
-                if (s->playing && s->out_on)
-                    out_put(s, 0xFCu);          /* #286: stop */
+                if (s->out_on)
+                    out_put(s, 0xFCu);          /* #286: stop (also of a start the main loop sent that never
+                                                 * played, #380) */
                 s->out_on = 0;
             }
             if (s->playing) {                   /* bend to center, mod to the live wheel (#42) */

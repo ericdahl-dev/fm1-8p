@@ -1,461 +1,147 @@
-/* The project page (#356): the charcoal front panel of a mid-80s polysynth, with glass only where the
-   instrument has a display: the header display, the tone memory and the emulator window. Display color: VFD
-   cyan-teal. Light scheme: a light-gray panel with "daylight LCD" glass. Fonts are self-hosted from fonts/,
-   each folder with its SIL Open Font License (fonts/README.md). */
+/* SPDX-License-Identifier: GPL-3.0-or-later
+   FM1-8P's page (#356): the page's own CSS on top of the design kit in assets/ (system.css, layout.css, ...).
+   Fonts are self-hosted from fonts/, each folder with its SIL Open Font License (fonts/README.md). Only what sits
+   inside a visual and the kit lacks goes here. */
 
-@font-face { font-family: "Doto"; font-weight: 800; font-display: swap;
-  src: url("fonts/doto/doto-latin-800-normal.woff2") format("woff2"); }
-@font-face { font-family: "Doto"; font-weight: 900; font-display: swap;
-  src: url("fonts/doto/doto-latin-900-normal.woff2") format("woff2"); }
-@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 400; font-display: swap;
-  src: url("fonts/atkinson-hyperlegible/atkinson-hyperlegible-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 700; font-display: swap;
-  src: url("fonts/atkinson-hyperlegible/atkinson-hyperlegible-latin-700-normal.woff2") format("woff2"); }
-@font-face { font-family: "Atkinson Hyperlegible Mono"; font-weight: 400; font-display: swap;
-  src: url("fonts/atkinson-hyperlegible-mono/atkinson-hyperlegible-mono-latin-400-normal.woff2") format("woff2"); }
-@font-face { font-family: "Atkinson Hyperlegible Mono"; font-weight: 600; font-display: swap;
-  src: url("fonts/atkinson-hyperlegible-mono/atkinson-hyperlegible-mono-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Instrument Sans"; font-weight: 400 700; font-display: swap;
+  src: url("fonts/instrument-sans/instrument-sans-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Mono"; font-weight: 400; font-display: swap;
+  src: url("fonts/dm-mono/dm-mono-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "DM Mono"; font-weight: 500; font-display: swap;
+  src: url("fonts/dm-mono/dm-mono-latin-500-normal.woff2") format("woff2"); }
 
-:root {
-  /* panel */
-  --page: #26282b;
-  --panel: #303236;
-  --panel-hi: #3d4045;
-  --panel-lo: #1c1d20;
-  --line: #45484d;
-  --text: #efeee9;
-  --muted: #c0c1bc;
-  --link: #6ff5dc;
-  --code-bg: #232528;
-  --code-text: #8ff6e3;
-  --warn-bg: #282a2e;
-  --warn-edge: #ee8a2a;
-  --focus: #5cf2d6;
-
-  /* window bezel around the glass */
-  --bezel: #18191b;
-  --bezel-hi: #2c2e31;
-  --legend: #f3f2ec;
-
-  /* display glass */
-  --glass: #060a09;
-  --cell: #0e1b19;
-  --lit: #5cf2d6;
-  --lit-ink: #041311;
-  --g-muted: #8fb5ad;
-  --glow-1: rgb(92 242 214 / 0.55);
-  --glow-2: rgb(92 242 214 / 0.22);
-
-  /* membrane keys */
-  --key: #3c3f44;
-  --key-hi: #4c5056;
-  --key-edge: #17181a;
-  --key-text: #f3f2ec;
-  --key-text-off: #cfd0d2;
-
-  --tab-red: #d8402e;
-  --tab-orange: #ee8a2a;
-  --tab-blue: #3d7bd0;
-
-  --font-dot: "Doto", ui-monospace, "Courier New", monospace;
-  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Atkinson Hyperlegible Mono", ui-monospace, Menlo, monospace;
+/* the FM-1's own screens are pixel art: keep their pixels square */
+.pc-screen > img, .screen > img, .mo-pc__visual img { image-rendering: pixelated; }
+.ly-collage .pc-screen { background: #0b0d12; aspect-ratio: 1; }
+.ly-collage .pc-a { left: 2%; top: 2%; width: 54%; }
+.ly-collage .pc-b { left: 42%; top: 50.5%; width: 54%; }
+/* under 1024 the collage runs the width of the page: two screens under half of it each, clear of the button */
+@media (max-width: 1023px) {
+  .ly-collage .pc-a { left: 0; top: 0; width: 46%; }
+  .ly-collage .pc-b { left: auto; right: 0; top: auto; bottom: 0; width: 46%; }
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --page: #d3d3cf;
-    --panel: #e2e2de;
-    --panel-hi: #f1f1ee;
-    --panel-lo: #b9b9b4;
-    --line: #bfbfba;
-    --text: #1c1d1f;
-    --muted: #45474a;
-    --link: #0b5446;
-    --code-bg: #d2d3ce;
-    --code-text: #1c1d1f;
-    --warn-bg: #d8d8d3;
-    --warn-edge: #a8501a;
-    --focus: #0b5446;
-
-    --bezel: #3a3c40;
-    --bezel-hi: #4a4d52;
-
-    --glass: #c9d4bf;
-    --cell: #bccab0;
-    --lit: #13221a;
-    --lit-ink: #d3ddc9;
-    --g-muted: #354539;
-    --glow-1: rgb(0 0 0 / 0.14);
-    --glow-2: transparent;
-  }
-}
-
-* { box-sizing: border-box; }
-[hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; }
-
-body {
-  margin: 0;
-  color: var(--text);
-  background-color: var(--page);
-  font: 17px/1.6 var(--font-body);
-}
-
-.page {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 28px 16px 48px;
-}
-
-/* ---------- Panel sections ---------- */
-.panel {
-  margin: 0 0 22px;
-  padding: 24px clamp(14px, 3vw, 34px) 26px;
-  background-color: var(--panel);
-  border-radius: 4px;
-  box-shadow: inset 0 1px 0 var(--panel-hi), 0 0 0 1px var(--panel-lo), 0 4px 14px rgb(0 0 0 / 0.22);
-}
-
-h2, h3 {
-  font-family: var(--font-body);
-  color: var(--text);
-  text-transform: uppercase;
-}
-h2 {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 0 16px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
-  font-size: 1.12rem;
-  font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: 0.16em;
-}
-h2::before {
-  content: "";
-  flex: none;
-  width: 22px;
-  height: 10px;
-  border-radius: 1px;
-  background: var(--tab-red);
-  box-shadow: inset 0 -2px 0 rgb(0 0 0 / 0.25);
-}
-#what h2::before { background: var(--tab-orange); }
-#tones h2::before { background: var(--tab-blue); }
-#install h2::before { background: var(--tab-orange); }
-h3 {
-  margin: 30px 0 8px;
-  font-size: 0.95rem;
-  font-weight: 700;
-  line-height: 1.3;
-  letter-spacing: 0.12em;
-}
-h3::before {
-  content: "";
-  display: inline-block;
-  width: 12px;
-  height: 6px;
-  margin: 0 10px 0.2em 0;
-  border-radius: 1px;
-  background: var(--tab-orange);
-  vertical-align: middle;
-}
-
-p, ul { margin: 0 0 14px; }
-ul { padding-left: 1.3em; }
-li { margin: 0 0 6px; }
-p, li { max-width: 46em; }
-.nw { white-space: nowrap; }
-
-a {
-  color: var(--link);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-a:hover { text-decoration-thickness: 2px; }
-a:focus-visible, button:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 3px;
-  border-radius: 2px;
-}
-code {
-  font: 600 0.92em var(--font-mono);
-  color: var(--code-text);
-  background-color: var(--code-bg);
-  padding: 0 0.2em;
-  border-radius: 2px;
-  overflow-wrap: anywhere;
-}
-.muted { color: var(--muted); }
-
-/* ---------- Display window: bezel + glass ---------- */
-.window {
-  position: relative;
-  padding: 24px 8px 8px;
-  background-color: var(--bezel);
-  border-radius: 4px;
-  box-shadow: inset 0 1px 0 var(--bezel-hi), 0 0 0 1px var(--panel-lo);
-}
-.legend {
-  position: absolute;
-  top: 5px;
-  left: 12px;
-  right: 12px;
-  display: flex;
-  gap: 8px;
-  max-width: none;
-  margin: 0;
-  font: 700 11px/14px var(--font-body);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--legend);
-  white-space: nowrap;
-  overflow: hidden;
-}
-.legend .right { margin-left: auto; font-weight: 400; letter-spacing: 0.12em; }
-.glass {
-  background-color: var(--glass);
-  border-radius: 2px;
-  box-shadow: inset 0 2px 10px rgb(0 0 0 / 0.5), inset 0 0 0 1px rgb(0 0 0 / 0.5);
-  padding: 18px clamp(12px, 2.6vw, 26px) 20px;
-}
-
-/* dot-matrix type: h1, readout, tone names only */
-h1, .readout, .tones li {
-  font-family: var(--font-dot);
-  color: var(--lit);
-  text-shadow: 0 0 6px var(--glow-1), 0 0 18px var(--glow-2);
-}
-
-/* ---------- Header ---------- */
-.hero .glass { padding-top: 24px; padding-bottom: 24px; }
-h1 {
-  margin: 0;
-  font-size: clamp(3.2rem, 13vw, 7.5rem);
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: 0.04em;
-}
-.readout {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
-  margin: 16px 0 0;
-  font-size: clamp(1.05rem, 3.6vw, 1.5rem);
-  font-weight: 800;
-}
-.readout .label {
-  font: 700 11px/1 var(--font-body);
-  letter-spacing: 0.16em;
-  color: var(--g-muted);
-  text-shadow: none;
-}
-.cells {
-  display: inline-block;
-  white-space: pre;
-  padding: 0 0 0 0.06ch;
-  background: repeating-linear-gradient(90deg, var(--cell) 0 0.9ch, transparent 0.9ch 1ch);
-  line-height: 1.35;
-}
-.cells.inv {
-  color: var(--lit-ink);
-  text-shadow: none;
-  padding: 0 0.15ch;
-  border-radius: 1px;
-  background: var(--lit);
-  box-shadow: 0 0 12px var(--glow-2);
-}
-.lede { font-size: 1.2rem; margin: 22px 0 10px; }
-.beta { color: var(--muted); margin: 0; }
-
-/* ---------- Emulator window: the biggest one ---------- */
-.window.emu-window { margin-top: 18px; padding: 26px 12px 12px; }
-.emu-window .glass { padding: 8px; }
-.emu {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  background-color: #000;
-  border-radius: 2px;
-  overflow: hidden;
-}
+/* the play section: the 32 tones beside the emulator, one app window (sections-library app-frame) */
+.play__lead { margin: 0; font-size: var(--t-lead); line-height: 1.5; }
+.app.ui { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); margin-top: var(--s-7);
+  background: transparent; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.app > .app__pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.app > .app__pane + .app__pane { border-left: 1px solid var(--line); }
+.app__head { display: flex; justify-content: space-between; gap: var(--s-4); margin: 0; padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--line); font-size: var(--t-label); font-weight: 500; color: var(--muted); }
+.tones { list-style: none; margin: 0; padding: var(--s-3) var(--s-5); counter-reset: tone; columns: 2; column-gap: var(--s-5);
+  font: 400 var(--t-small)/1 var(--font-mono); }
+.tones li { counter-increment: tone; display: flex; gap: var(--s-3); padding: 6px 0; break-inside: avoid; white-space: nowrap; }
+.tones li::before { content: counter(tone, decimal-leading-zero); color: var(--muted); }
+.tones li.boot { color: var(--accent); }
+.emu { position: absolute; inset: 0; background: #000; }
 .emu iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+@media (max-width: 1279px) {
+  .app__label { display: none; }
+  .tones li { padding: 2px 0; }
+}
+@media (max-width: 1023px) {
+  .app.ui { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .app > .app__pane--list { order: 2; border-top: 1px solid var(--line); }
+  .tones { columns: 4; }
+  .app > .app__pane + .app__pane { border-left: 0; }
+}
+@media (max-width: 639px) { .app > .app__pane--list { display: none; } }
 
-/* ---------- The 32 tones as a bank/tone readout ---------- */
-.tones-window { margin-top: 18px; }
-.tones {
-  list-style: none;
-  counter-reset: tone;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(16, auto);
-  grid-auto-flow: column;
-  gap: 6px 14px;
-  font-size: clamp(14px, 3.4vw, 1.2rem);
-  font-weight: 800;
-}
-.tones li {
-  counter-increment: tone;
-  display: flex;
-  align-items: center;
-  gap: 0.6ch;
-  justify-self: start;
-  width: 12.8ch;
-  max-width: none;
-  margin: 0;
-  white-space: pre;
-  line-height: 1.4;
-  /* name cells: always 10 cells wide, padded */
-  background:
-    repeating-linear-gradient(90deg, var(--cell) 0 0.9ch, transparent 0.9ch 1ch)
-    2.6ch 0 / 10ch 100% no-repeat;
-}
-.tones li::before {
-  content: counter(tone, decimal-leading-zero);
-  display: inline-block;
-  width: 2ch;
-  padding-left: 0.05ch;
-  color: var(--g-muted);
-  text-shadow: none;
-  background: repeating-linear-gradient(90deg, var(--cell) 0 0.9ch, transparent 0.9ch 1ch);
-}
-.tones li.boot {
-  color: var(--lit-ink);
-  text-shadow: none;
-  background: none;
-  background-color: var(--lit);
-  border-radius: 1px;
-}
-.tones li.boot::before { color: var(--lit-ink); background: none; }
-.tone-key {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 16px 0 0;
-  font-size: 0.9rem;
-  color: var(--g-muted);
-}
-.tone-key .sw {
-  width: 18px; height: 12px; border-radius: 1px; background-color: var(--lit);
-  box-shadow: 0 0 8px var(--glow-2);
-}
-@media (min-width: 900px) {
-  .tones {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    grid-template-rows: repeat(8, auto);
-    gap: 8px 22px;
-  }
-}
-@media (max-width: 399px) {
-  .tones {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: none;
-    grid-auto-flow: row;
-    font-size: 16px;
-    gap: 5px;
-  }
+/* the sound cards: each panel holds one of the FM-1's screens, square */
+.sound__grid .panel.screen { aspect-ratio: 1; height: auto; padding: 0; background: #0b0d12; overflow: hidden; }
+.sound__grid .panel.screen > img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.sound__grid .card p { margin: 0; }
+
+/* the install section */
+.untested { margin: 0; }
+.install__panels { display: grid; gap: var(--s-7); }
+.installer { display: grid; gap: var(--s-3); align-content: start; }
+.installer p { margin: 0; }
+.installer progress { width: 100%; height: 8px; accent-color: var(--ink); }
+.installer .status { font: 400 var(--t-small)/1.5 var(--font-mono); min-height: 1.5em; }
+.installer .warn { font-weight: 500; }
+code { font-family: var(--font-mono); font-size: .92em; }
+
+.footer__legal p { margin: 0; font-size: var(--t-label); line-height: 1.6; max-width: 110ch; }
+
+.nw { white-space: nowrap; }
+/* the sound cards: the screens on one line, whatever the length of the text above them */
+.sound__grid { align-items: stretch; }
+.sound__grid .card { height: 100%; display: flex; flex-direction: column; gap: var(--s-3); }
+.sound__grid .card .panel.screen { margin-top: auto; }
+/* the install steps: each square screen whole on the lit ground */
+[data-moment="pinned-chapters"] .mo-pc__visual.mo-pc__visual--lit > img, [data-moment="pinned-chapters"].is-live .mo-pc__visual.mo-pc__visual--lit > img { width: auto; height: 100%; max-width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: var(--r-sm); }
+
+.emu iframe:is(:focus, :focus-within, :focus-visible) { outline: 3px solid var(--action); outline-offset: -3px; }
+/* the triptych's button at the page's one button height, like every other copy of the main action */
+.hero--triptych .hero__cta .btn { height: var(--btn-h); font-size: var(--t-body); padding-inline: var(--s-6); }
+/* at rest (no pin) the three steps' screens stay 30svh tall, so the section keeps its two screens */
+[data-moment="pinned-chapters"]:not(.is-live) .mo-pc__visual.mo-pc__visual--lit { aspect-ratio: auto; height: 30svh; padding: var(--s-4); }
+@media (max-width: 639px) { [data-moment="pinned-chapters"]:not(.is-live) .mo-pc__visual.mo-pc__visual--lit { height: 34svh; } }
+.browsers { list-style: none; margin: var(--s-4) 0 0; padding: 0; display: grid; gap: var(--s-4); }
+.browsers li { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); max-width: min(100%, 320px); padding-bottom: var(--s-3); border-bottom: 1px solid var(--line); font-weight: 500; }
+.browsers small { display: block; font-size: var(--t-small); font-weight: 400; color: var(--muted); }
+.install__screen { margin: 0; aspect-ratio: 1; border-radius: var(--r-md); overflow: hidden; background: #0b0d12; }
+.install__screen > img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.installer + .installer { padding-top: var(--s-4); border-top: 1px solid var(--line); }
+/* two of the four sound cards show their screen cut by the panel's corner, close up */
+.sound__grid .panel.screen--corner { position: relative; }
+.sound__grid .panel.screen--corner > img { position: absolute; left: var(--s-6); top: var(--s-6); width: 150%; height: auto; max-width: none; object-fit: fill; border-radius: var(--r-sm); }
+.close__word { font-size: clamp(56px, 11vw, 168px); line-height: 1.05; padding-top: .04em; }
+main > #steps[data-moment]:not(.is-live) { min-height: 200svh; }
+@media (min-width: 1024px) {
+  [data-moment="pinned-chapters"]:not(.is-live) .mo-pc__visual.mo-pc__visual--lit { height: 40svh; }
 }
 
-/* ---------- Install ---------- */
-.untested, .warn {
-  padding: 12px 14px 12px 16px;
-  background-color: var(--warn-bg);
-  border-left: 4px solid var(--warn-edge);
-  border-radius: 2px;
+/* tablet and phone (640 to 1023 and under 640): every section one or two screens */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .sound__grid > .card { grid-column: auto / span 6; }
+  #sound .sound__grid .panel.screen { aspect-ratio: auto; height: 150px; --p-h: 150px; }
+  /* the install and questions splits stay side by side on the 6/6 pair, so each is one screen */
+  #install .grid > .span-5, #questions .grid > .span-5 { grid-column: 1 / span 6; }
+  #install .install__screen, #questions .faq { grid-column: 7 / span 6; align-self: start; }
+  [data-moment="pinned-chapters"]:not(.is-live) .mo-pc__visual.mo-pc__visual--lit { height: 44svh; }
+  .sound__grid .panel.screen:not(.screen--corner) > img { object-fit: cover; object-position: 50% 20%; }
 }
-.rule {
-  height: 0;
-  margin: 28px 0 0;
-  border-top: 1px solid var(--line);
+@media (max-width: 639px) {
+  #sound { --hm: 2; }
+  /* a phone cannot run the installer (Web MIDI with SysEx needs a computer): the buttons and the firmware's
+     details stay on the computer's page, and fm1-browser says why */
+  #install .btn-row, #install .installer p.fw__details { display: none; }
+  #install .install__screen { aspect-ratio: 16 / 9; }
+  #install .install__screen > img { object-fit: cover; }
+  footer.closing { --hm: 2; }
+  .sound__grid > .card { grid-column: 1 / -1; }
+  #sound .sound__grid .panel.screen { aspect-ratio: auto; height: 200px; --p-h: 200px; }
+  .sound__grid .panel.screen:not(.screen--corner) > img { object-fit: cover; object-position: 50% 20%; }
+  .app.ui { height: auto; grid-template-rows: auto; }
+  .app > .app__pane--open { aspect-ratio: 3 / 4; }
+  .hero--triptych h1 { font-size: 34px; }
 }
-.installer {
-  margin: 14px 0 6px;
-  padding: 14px;
-  border: 1px dashed var(--line);
-  border-radius: 3px;
-  max-width: 34em;
-}
-.installer p:empty { margin: 0; }
-.installer button {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 46px;
-  padding: 10px 18px 10px 12px;
-  font: 700 1rem/1.2 var(--font-body);
-  color: var(--key-text);
-  background-color: var(--key);
-  border: 1px solid var(--key-edge);
-  border-radius: 3px;
-  box-shadow: inset 0 1px 0 var(--key-hi), 0 2px 0 var(--key-edge);
-  cursor: pointer;
-  text-align: left;
-}
-.installer button::before {
-  content: "";
-  flex: none;
-  width: 8px;
-  align-self: stretch;
-  min-height: 24px;
-  border-radius: 1px;
-  background: var(--tab-red);
-  box-shadow: inset 0 -3px 0 rgb(0 0 0 / 0.25);
-}
-#fm1-add-btn::before { background: var(--tab-blue); }
-.installer button:disabled { color: var(--key-text-off); cursor: not-allowed; }
-.installer button:disabled::before { opacity: 0.65; }
-.installer progress {
-  display: block;
-  width: 100%;
-  height: 12px;
-  margin-top: 12px;
-  appearance: none;
-  border: 1px solid var(--bezel);
-  background-color: var(--glass);
-}
-.installer progress[hidden] { display: none; }
-.installer progress::-webkit-progress-bar { background-color: var(--glass); }
-.installer progress::-webkit-progress-value {
-  background: repeating-linear-gradient(90deg, var(--lit) 0 7px, transparent 7px 9px);
-}
-.installer progress::-moz-progress-bar {
-  background: repeating-linear-gradient(90deg, var(--lit) 0 7px, transparent 7px 9px);
-}
-.installer [role="status"] {
-  min-height: 1.5em;
-  margin: 10px 0 0;
-  font-family: var(--font-mono);
+/* a phone: the questions take two screens, the files and browsers on the first, the answers on the second */
+@media (max-width: 639px) { #questions .grid { display: contents; } #questions .faq__item--desk { display: none; } }
+.footer__legal { display: grid; gap: var(--s-2); justify-content: start; }
+/* a tablet with a short screen (768x1024) keeps the questions to one screen: five answers */
+@media (min-width: 640px) and (max-width: 1023px) and (max-height: 1100px) { #questions .faq__item--desk { display: none; } }
+@media (max-width: 639px) { .browsers li { max-width: none; } }
+
+/* plain fact rows (the sequencer, what's coming): label left, value right, a rule under each */
+.facts { list-style: none; margin: 0; padding: 0; display: grid; }
+.facts li { display: flex; justify-content: space-between; gap: var(--s-4); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
+.facts li > span:first-child { font-weight: 500; }
+.facts li > span + span { color: var(--muted); text-align: right; }
+.seq__screen { margin: 0; aspect-ratio: 1; border-radius: var(--r-md); overflow: hidden; background: #0b0d12; }
+.seq__screen > img { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.installer h3 { margin: 0; }
+@media (min-width: 640px) and (max-width: 1023px) {
+  #seq .seq__screen { aspect-ratio: auto; height: calc(100svh - 600px); }
+  #seq .seq__screen > img { object-fit: contain; }
 }
 
-/* ---------- Footer ---------- */
-footer.panel { padding-top: 18px; padding-bottom: 18px; }
-footer p { margin: 0; font-size: 0.92rem; color: var(--muted); max-width: none; }
-
-@media (max-width: 480px) {
-  body { font-size: 16px; }
-  .panel { padding: 20px 14px 22px; margin-bottom: 18px; }
-  .window { padding: 22px 6px 6px; }
-  .window.emu-window { padding: 22px 6px 6px; }
-  .emu-window .glass { padding: 4px; }
-  .legend { left: 10px; right: 10px; letter-spacing: 0.12em; }
-  .glass { padding: 14px 12px 16px; }
-  .emu { aspect-ratio: 3 / 4; }
-  h2 { letter-spacing: 0.12em; }
-}
-
-/* the header legend's long right-hand text does not fit beside "Display" under 390 px: it is decoration */
-@media (max-width: 389px) {
-  .hero .legend .right { display: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  h1, .readout, .tones li { text-shadow: none; }
-  .cells.inv, .tone-key .sw { box-shadow: none; }
-  * { transition: none !important; animation: none !important; }
-}
+/* the FM-1's screens sit on their own black glass, edge to edge: no lit ground (sage) round them */
+#sound .sound__grid .panel.screen, [data-moment="pinned-chapters"] .mo-pc__visual.mo-pc__visual--lit {
+  --ground-bg: #0b0d12; background: #0b0d12 !important; background-image: none !important; box-shadow: none; border-color: transparent; }
+#sound .sound__grid .panel.screen:not(.screen--corner) > img { object-fit: cover; object-position: 50% 0; }
+#sound .sound__grid .panel.screen--corner > img { left: var(--s-5); top: 0; border-radius: 0; }
+@media (min-width: 1024px) { #sound .sound__grid .panel.screen { min-height: 0; height: auto; aspect-ratio: 1; flex: none; } }

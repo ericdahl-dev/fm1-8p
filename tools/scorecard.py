@@ -9,7 +9,25 @@ int16 too, and our 16-bit floor isn't read as timbre. The other side of that: in
 -55 dBFS, a difference counts only down to that floor. A band has to stand about 10 dB over it to count
 near fully, so a low score there means a match above the floor, not in the detail under it. PG-8X's
 float tail under one step, where our idle engine reads exact 0, floors to 0 or -1 on its side. That
-reads 1.5-6 dB in bands 55-60 dB down, about 0.1 dB on the section (AGOGO BELL's chord: 1.47 s9, 1.58 s10)."""
+reads 1.5-6 dB in bands 55-60 dB down, about 0.1 dB on the section (AGOGO BELL's chord: 1.47 s9, 1.58 s10).
+
+Beat phase (s12, #382): two detuned DCOs beat slower than a section is long, so one render's score reads
+where in that beat the note started, not the tone (one build with only DCO-2's start moved swung POLY
+BRASS v40 1.62 .. 6.73 dB). Each tone is rendered at 8 DCO-2 start offsets an eighth of a cycle apart
+(fm1-8p-render -o) and every figure is read from their power averaged: the band levels, the air share,
+the loudness, the envelope the timings read and the spectrum the pitch reads. That is the tone's expected
+spectrum under a random start: the beat's cross term cancels for its first 7 harmonics, so the score no
+longer depends on the start (scored from offsets 0, 2/16 .. 14/16 against 1/16 .. 15/16, the factory
+bank's sections agree within 0.21 dB). A reference can be several draws in the same way (manifest
+shifts_ticks: the scorecard MIDI that many ticks late, 960 a second, its files NN.wav, NN-1.wav ..); PG-8X's
+DCOs run free, so a later start meets them at another beat phase. With one draw the PG-8X side is that one
+draw, beat and all; with one draw on both sides every figure is s11's.
+
+Clock phase (s13, #392): what runs on the clock from the render's start (the chorus's LFO, the LFO, on both
+sides) also meets a section at a phase set by when the MIDI starts. Against a reference of several draws,
+ours render at the same leads, 4 DCO-2 offsets at each (scorecard_cmd.draw_plan): averaged over 16 leads
+PG-8X's chorus was at 16 phases and ours at one, so the chorus tones scored 0.56 dB further on v7 than v6
+while the others moved -0.05. One draw (v6) reads as s12."""
 import json
 import os
 import sys
@@ -20,7 +38,7 @@ import scorecard_cmd  # noqa: E402
 import numpy as np
 from scipy import signal
 
-SCHEMA = 11  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
+SCHEMA = 13  # history rows: bump when a field changes meaning (2: timings sample-accurate, on the high note;
              # 3: spectral and air floored 60 dB under the loudest band, so int16's floor isn't a difference;
              # 4: the MIDI starts 0.25 s in, past PG-8X's start-up burst and glide, #163;
              # 5: the phrase sections start 130 ms past their note on, past PG-8X's onset thump, #146;
@@ -29,7 +47,11 @@ SCHEMA = 11  # history rows: bump when a field changes meaning (2: timings sampl
              # 8: no pitch for a ring or cross-mod tone without sync (it has none), #253;
              # 9: the air gap takes PG-8X's side at our level in int16, so our 16-bit floor isn't air, #299;
              # 10: so does each spectral section, so the floor isn't timbre either;
-             # 11: the phrase notes are 0.7 s, so every section reads 0.5 s or more; the reference is v6)
+             # 11: the phrase notes are 0.7 s, so every section reads 0.5 s or more; the reference is v6;
+             # 12: every figure over draws, power averaged: ours at 8 DCO-2 start offsets, PG-8X's at its
+             #     reference's shifts, so a slow beat's start phase isn't scored, #382;
+             # 13: ours render each of the reference's K leads with 4 DCO-2 offsets (4K draws, draw_plan), so
+             #     what runs on the clock (the chorus's LFO, the LFO) meets PG-8X's phases; v6 reads as s12, #392)
 FLOOR_DB = 60.0   # bands (and the air share) this far under the loudest band count as silent
 
 SR = scorecard_cmd.SR
@@ -44,10 +66,34 @@ def mono(x):
     return x.mean(axis=1) if x.ndim == 2 else x
 
 
+def draws(x):
+    """A render, or several of one tone (s12, #382), as [(samples, shift s)]: one array is one draw at
+    shift 0; a list holds arrays (shift 0) or (array, shift) pairs, a draw whose MIDI starts `shift` s
+    late. Every figure is read from the draws' power averaged over them, so a slow beat's cross term
+    cancels when the draws spread its start phase."""
+    if isinstance(x, np.ndarray):
+        return [(x, 0.0)]
+    return [(d, 0.0) if isinstance(d, np.ndarray) else (np.asarray(d[0]), float(d[1])) for d in x]
+
+
+def aligned(x):
+    """Each draw from its own shift on, cut to the shortest: [samples], time 0 at the MIDI's start."""
+    xs = [np.asarray(d)[int(round(sh * SR)):] for d, sh in draws(x)]
+    n = min(len(d) for d in xs)
+    return [d[:n] for d in xs]
+
+
+def cuts(x, a, b):
+    """Each draw's samples from a to b s past its MIDI's start, all as long as one cut at shift 0."""
+    n = int(b * SR) - int(a * SR)
+    return [np.asarray(d)[int(a * SR) + int(round(sh * SR)):][:n] for d, sh in draws(x)]
+
+
 def lufs(x):
-    """Loudness, LUFS: BS.1770 K-weighting, ungated, over the whole signal (mono)."""
-    y = signal.lfilter(*_K2, signal.lfilter(*_K1, mono(x)))
-    return -0.691 + 10 * np.log10(np.mean(y ** 2) + 1e-20)
+    """Loudness, LUFS: BS.1770 K-weighting, ungated, over the whole signal (mono); over several draws,
+    of their mean power."""
+    ms = [np.mean(signal.lfilter(*_K2, signal.lfilter(*_K1, mono(d))) ** 2) for d in aligned(x)]
+    return -0.691 + 10 * np.log10(np.mean(ms) + 1e-20)
 
 
 def loudness_gap(ours, pg):
@@ -58,11 +104,17 @@ def loudness_gap(ours, pg):
 _BANDS = 1000 * 2 ** (np.arange(-14, 10) / 3)   # 1/3-octave centers, about 63 Hz .. 6.3 kHz
 
 
+def power_spectrum(x):
+    """The Hann-windowed power spectrum (mono) and its frequencies; over several draws (cuts of one
+    length), their mean."""
+    xs = [mono(d) for d, _ in draws(x)]
+    sp = np.mean([np.abs(np.fft.rfft(d * np.hanning(len(d)))) ** 2 for d in xs], axis=0)
+    return sp, np.fft.rfftfreq(len(xs[0]), 1 / SR)
+
+
 def band_levels(x):
-    """dB per 1/3-octave band (Hann-windowed power spectrum)."""
-    x = mono(x)
-    sp = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
-    f = np.fft.rfftfreq(len(x), 1 / SR)
+    """dB per 1/3-octave band (Hann-windowed power spectrum; over several draws, their mean power)."""
+    sp, f = power_spectrum(x)
     floor = 1e-12 * sp.sum() + 1e-30   # relative, so a level change moves every band alike
     return np.array([10 * np.log10(sp[(f >= c * 2 ** (-1 / 6)) & (f < c * 2 ** (1 / 6))].sum() + floor)
                      for c in _BANDS])
@@ -85,12 +137,12 @@ def spectral_distance(ours, pg):
 
 def envelope_db(x, period_s):
     """Level in dB per sample: the Hilbert magnitude, RMS-smoothed over two periods of the note, so the
-    waveform's own ripple cancels (frame RMS shorter than a period reads crossings late)."""
-    x = mono(x)
-    e = np.abs(signal.hilbert(x))
+    waveform's own ripple cancels (frame RMS shorter than a period reads crossings late); over several
+    draws, their mean power, each from its MIDI's start."""
     n = max(1, int(round(2 * period_s * SR)))
     k = np.ones(n) / n
-    return 10 * np.log10(np.convolve(e ** 2, k, mode="same") + 1e-24)
+    p = np.mean([np.convolve(np.abs(signal.hilbert(mono(d))) ** 2, k, mode="same") for d in aligned(x)], axis=0)
+    return 10 * np.log10(p + 1e-24)
 
 
 def decay_ms(x, onset, end, f0, drop, skip=0.03):
@@ -116,11 +168,26 @@ AIR_HZ = 6300.0
 
 
 def air_db(x):
-    """Energy above AIR_HZ as a share of the whole, dB, floored at -FLOOR_DB (see _floored)."""
-    x = mono(x)
-    sp = np.abs(np.fft.rfft(x * np.hanning(len(x)))) ** 2
-    f = np.fft.rfftfreq(len(x), 1 / SR)
+    """Energy above AIR_HZ as a share of the whole, dB, floored at -FLOOR_DB (see _floored); over several
+    draws, of their mean power."""
+    sp, f = power_spectrum(x)
     return max(10 * np.log10(sp[f >= AIR_HZ].sum() / (sp.sum() + 1e-30) + 1e-30), -FLOOR_DB)
+
+
+def as_ours_int16_draws(pg, ours, clip=True):
+    """as_ours_int16 for PG's draws, all at one gain: their mean power to OURS' draws' mean power."""
+    po = np.mean([np.mean(mono(d) ** 2) for d, _ in draws(ours)])
+    pp = np.mean([np.mean(mono(d) ** 2) for d, _ in draws(pg)])
+    return [(_on_int16(d, np.sqrt(po / (pp + 1e-30)), clip), sh) for d, sh in draws(pg)]
+
+
+def _on_int16(pg, g, clip):
+    """PG at gain G on 16 bits as output.c's to_int16 puts it, scaled back (as_ours_int16)."""
+    pg = np.asarray(pg, dtype=np.float64)
+    if g <= 0:
+        return pg
+    q = np.floor(pg * g * 32768)
+    return (np.clip(q, -32768, 32767) if clip else q) / 32768 / g
 
 
 def as_ours_int16(pg, ours, clip=True):
@@ -129,27 +196,22 @@ def as_ours_int16(pg, ours, clip=True):
     hiss in it; scored against this, the floor is on both sides (#299). With clip False it is floored but
     not clipped: at our RMS PG-8X's peaks can pass full scale where ours don't, and clipped they'd gain
     harmonics neither render has (the spectral sections, s10)."""
-    pg = np.asarray(pg, dtype=np.float64)
     g = np.sqrt(np.mean(mono(ours) ** 2) / (np.mean(mono(pg) ** 2) + 1e-30))
-    if g <= 0:
-        return pg
-    q = np.floor(pg * g * 32768)
-    return (np.clip(q, -32768, 32767) if clip else q) / 32768 / g
+    return _on_int16(pg, g, clip)
 
 
 def air_gap(ours, pg):
     """Ours' air minus PG-8X's, dB: + means more energy up there than PG-8X has. PG-8X's side is taken as
     it would be at our level in int16 (as_ours_int16), so the 16-bit floor isn't read as air (#299)."""
-    return float(air_db(ours) - air_db(as_ours_int16(pg, ours)))
+    return float(air_db(ours) - air_db(as_ours_int16_draws(pg, ours)))
 
 
 _GRID = 30 * 2 ** (np.arange(0, 1200 * np.log2(8000 / 30), 5) / 1200)   # 5-cent steps, 30 Hz .. 8 kHz
 
 
 def _logspec(x):
-    x = mono(x)
-    sp = np.abs(np.fft.rfft(x * np.hanning(len(x))))
-    f = np.fft.rfftfreq(len(x), 1 / SR)
+    sp, f = power_spectrum(x)
+    sp = np.sqrt(sp)
     v = np.log1p(np.interp(_GRID, f, sp) / (sp.max() + 1e-12) * 1000)
     return v - v.mean()
 
@@ -176,7 +238,8 @@ HIGH = (9.95, 11.35, 1046.50)   # the high C6: onset, note-off (s), f0 (Hz): abo
 
 
 def _cut(x, a, b):
-    return mono(x)[int(a * SR):int(b * SR)]
+    """The draws' cuts from a to b s, mono, as draws at shift 0."""
+    return [mono(c) for c in cuts(x, a, b)]
 
 
 def _gap(a, b):
@@ -193,8 +256,8 @@ def score_tone(ours, pg, harmonic=True):
     section's 16-bit floor isn't read as timbre (s10) or air (s9)."""
     spec = {}
     for k, (a, b) in SECTIONS.items():   # PG-8X's side at our level in int16, per channel (s10)
-        o, p = (np.asarray(x)[int(a * SR):int(b * SR)] for x in (ours, pg))
-        spec[k] = round(spectral_distance(o, as_ours_int16(p, o, clip=False)), 2)
+        o, p = cuts(ours, a, b), cuts(pg, a, b)
+        spec[k] = round(spectral_distance(o, as_ours_int16_draws(p, o, clip=False)), 2)
     return {
         "loudness_gap_lu": round(loudness_gap(ours, pg), 2),
         "spectral_db": spec,
@@ -214,10 +277,9 @@ NOISE_SHIFT_S = 0.01
 
 def ruler_noise(pg):
     """Each section's spectral distance between PG's render and itself NOISE_SHIFT_S later (dB): what the
-    ruler reads from a change that small, which isn't timbre (s11)."""
-    x, n = mono(pg), int(NOISE_SHIFT_S * SR)
-    return {k: round(spectral_distance(x[int(a * SR):int(b * SR)], x[int(a * SR) + n:int(b * SR) + n]), 2)
-            for k, (a, b) in SECTIONS.items()}
+    ruler reads from a change that small, which isn't timbre (s11); over PG's draws, power averaged."""
+    later = [(d, sh + NOISE_SHIFT_S) for d, sh in draws(pg)]
+    return {k: round(spectral_distance(cuts(pg, a, b), cuts(later, a, b)), 2) for k, (a, b) in SECTIONS.items()}
 
 
 def noise_line(noises):
@@ -313,17 +375,29 @@ def worst(rows, n=5):
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def write_midi(work):
-    """The scorecard MIDI (tools/gate_midi.py score()) in work/midi; returns its path."""
+def write_midi(work, lead=0):
+    """The scorecard MIDI (tools/gate_midi.py score()) in work/midi, every event LEAD ticks (960 a second)
+    later when given (a PG-8X draw's, s12); returns its path."""
     import sys
     sys.path.insert(0, HERE)
     import gate_midi
     d = os.path.join(work, "midi")
     os.makedirs(d, exist_ok=True)
-    path = os.path.join(d, "score.mid")
+    path = os.path.join(d, f"score+{lead}.mid" if lead else "score.mid")
     with open(path, "wb") as fh:
-        fh.write(gate_midi.smf(gate_midi.score()))
+        fh.write(gate_midi.smf(gate_midi.score(), lead=lead))
     return path
+
+
+def lead_seconds(lead):
+    """A lead of LEAD ticks, in seconds."""
+    import gate_midi
+    return lead / gate_midi.TPS
+
+
+def draw_file(tone, j):
+    """Draw J's file for TONE in a reference folder (or ours): NN.wav for the first, NN-J.wav after it."""
+    return f"{tone:02d}.wav" if j == 0 else f"{tone:02d}-{j}.wav"
 
 
 def sha256(path):
@@ -332,10 +406,15 @@ def sha256(path):
         return hashlib.sha256(fh.read()).hexdigest()
 
 
-def write_manifest(ref, mid, bank=None):
+def write_manifest(ref, mid, bank=None, shifts_ticks=None):
     """A reference folder's manifest: the MIDI (and bank) it was rendered from, PG-8X's SELFNOISE at 0
-    (make_ref.py writes the real one)."""
+    (make_ref.py writes the real one); with SHIFTS_TICKS, a draw per lead (s12: draw_file names them),
+    each with its MIDI's sha256 (write_midi with that lead)."""
     man = {"midi_sha256": sha256(mid), "selfnoise": 0}
+    if shifts_ticks is not None:
+        work = os.path.dirname(os.path.dirname(mid))
+        man["shifts_ticks"] = list(shifts_ticks)
+        man["midi_sha256s"] = [sha256(write_midi(work, t)) for t in shifts_ticks]
     if bank:
         man["bank_sha256"] = sha256(bank)
     with open(os.path.join(ref, "manifest.json"), "w") as fh:
@@ -398,16 +477,31 @@ def inharmonic_tones(tree, bank=None):
             if e.get("XMOD_AM") and not e.get("OSC_SYNC") and off_whole(e) > WHOLE_RATIO_CENTS}
 
 
-def render_tones(tree, mid, work, bank=None):
-    """Renders the 32 tones with TREE's build/fm1-8p-render (48 kHz, 3 s tail, 6 voices); yields
-    (tone number, wav path)."""
+def render_tones(tree, work, bank=None, plan=None):
+    """Renders the 32 tones with TREE's build/fm1-8p-render (48 kHz, 3 s tail, 6 voices), a draw for each
+    (lead ticks, DCO-2 offset) of PLAN (scorecard_cmd.draw_plan; default a one-draw reference's, s12's 8
+    offsets at lead 0): the scorecard MIDI that late, DCO-2 that far on; yields (tone number, [wav path per
+    draw])."""
     import subprocess
+    from concurrent.futures import ThreadPoolExecutor
+    plan = plan or scorecard_cmd.draw_plan([0])
     d = os.path.join(work, "ours")
     os.makedirs(d, exist_ok=True)
-    for i, _, args in tone_args(tree, bank):
-        path = os.path.join(d, f"{i:02d}.wav")
-        subprocess.run(scorecard_cmd.render_command(tree, args, mid, path), check=True, capture_output=True)
-        yield i, path
+    mids = {t: write_midi(work, t) for t in {t for t, _ in plan}}
+
+    def one(job):   # (a tone's draws render side by side: 64 a tone against a 16-draw reference, s13)
+        i, args, j, t, o = job
+        path = os.path.join(d, draw_file(i, j))
+        r = subprocess.run(scorecard_cmd.render_command(tree, args, mids[t], path, o), capture_output=True, text=True)
+        if r.returncode == 2 and "usage: fm1-8p-render" in r.stderr and "-o MILLI" not in r.stderr:
+            raise SystemExit(f"scorecard: {tree}'s renderer has no -o (DCO-2 start offset, #382): s12 scores a "
+                             "tree that has it; merge main into it first")
+        if r.returncode != 0:
+            raise SystemExit(f"scorecard: tone {i:02d} at offset {o} did not render: {r.stderr.strip()}")
+        return path
+    with ThreadPoolExecutor(max(1, min(8, os.cpu_count() or 1))) as ex:
+        for i, _, args in tone_args(tree, bank):
+            yield i, list(ex.map(one, [(i, args, j, t, o) for j, (t, o) in enumerate(plan)]))
 
 
 def read_wav(path):
@@ -424,10 +518,40 @@ def now():
     return datetime.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name="factory"):
+def _code_id():
+    """The scorecard's own code, hashed: a cached score holds only while the code that made it is the same."""
+    import hashlib
+    h = hashlib.sha256()
+    for f in ("scorecard.py", "scorecard_cmd.py"):
+        with open(os.path.join(HERE, f), "rb") as fh:
+            h.update(fh.read())
+    return h.hexdigest()
+
+
+def tone_key(ours, pg, manifest, harmonic, plan=None):
+    """The cache key of one tone's score: a sha256 of the scorecard's code and schema, the reference's
+    manifest, whether the tone has a pitch, the draw plan and every byte of our draws' wavs (OURS) and the
+    reference's (PG), in order. Same key, same score."""
+    import hashlib
+    h = hashlib.sha256()
+    h.update(json.dumps({"code": _code_id(), "schema": SCHEMA, "manifest": manifest, "harmonic": bool(harmonic),
+                         "plan": plan}, sort_keys=True).encode())
+    for side in (ours, pg):
+        h.update(b"|side|")
+        for path in side:
+            with open(path, "rb") as fh:
+                data = fh.read()
+            h.update(len(data).to_bytes(8, "little"))
+            h.update(data)
+    return h.hexdigest()
+
+
+def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name="factory", cache=None):
     """Scores BANK's tones (default: the factory bank) on TREE against the reference renders in REF;
     appends a row per tone (and, with MATCH, a match harness results folder, a row per parameter) to
-    HISTORY; returns the tone rows. REF must have been rendered from the same MIDI and bank."""
+    HISTORY; returns the tone rows. REF must have been rendered from the same MIDI and bank. With CACHE (a
+    folder), each tone's score is kept there under tone_key and read back while its renders, the reference
+    and the code are the same, so a commit whose sound didn't change scores in the time of its renders."""
     work = work or os.path.join(tree, "build", "scorecard")
     mid = write_midi(work)
     try:
@@ -444,14 +568,46 @@ def run(tree, commit, ref, history, work=None, match=None, bank=None, bank_name=
                          "make the reference again with make_ref.py (SELFNOISE 0)")
     if bank and man.get("bank_sha256") != sha256(bank):
         raise SystemExit(f"scorecard: {ref} was not rendered from {bank}")
+    shifts = man.get("shifts_ticks", [0])
+    if "shifts_ticks" in man:
+        shas = man.get("midi_sha256s", [])
+        for j, t in enumerate(shifts):
+            if isinstance(t, bool) or not isinstance(t, int) or t < 0:
+                raise SystemExit(f"scorecard: {ref}: draw {j}'s shift {t!r} is not a whole number of ticks, 0 or more")
+            if j >= len(shas) or shas[j] != sha256(write_midi(work, t)):
+                raise SystemExit(f"scorecard: {ref}: draw {j} (a lead of {t} ticks) was rendered from other MIDI")
     names = {i: n for i, n, _ in tone_args(tree, bank)}
+    missing = [draw_file(i, j) for i in names for j in range(len(shifts))
+               if not os.path.isfile(os.path.join(ref, draw_file(i, j)))]
+    if missing:
+        raise SystemExit(f"scorecard: {ref}: no {', '.join(missing[:4])}{' ..' if len(missing) > 4 else ''}")
+    plan = scorecard_cmd.draw_plan(shifts)
+    draw_info = {"ours_leads_ticks": [t for t, _ in plan], "ours_offsets_milli": [o for _, o in plan],
+                 "pg_shifts_ticks": list(shifts)}
     odd = inharmonic_tones(tree, bank)
     date, ref_id = now(), man["midi_sha256"][:12]
     rows = []
-    for i, path in render_tones(tree, mid, work, bank):
-        pg = read_wav(os.path.join(ref, f"{i:02d}.wav"))
-        score = score_tone(read_wav(path), pg, harmonic=i not in odd)
-        rows.append({**tone_row(commit, date, i, names[i], score, ref_id, bank_name), "ruler_noise_db": ruler_noise(pg)})
+    for i, paths in render_tones(tree, work, bank, plan):
+        pg_paths = [os.path.join(ref, draw_file(i, j)) for j in range(len(shifts))]
+        got = None
+        if cache:
+            key = tone_key(paths, pg_paths, man, i not in odd, plan)
+            hit = os.path.join(cache, key[:2], key + ".json")
+            if os.path.isfile(hit):
+                with open(hit) as fh:
+                    got = json.load(fh)
+        if got is None:
+            pg = [(read_wav(p), lead_seconds(t)) for p, t in zip(pg_paths, shifts)]
+            ours = [(read_wav(p), lead_seconds(t)) for p, (t, _) in zip(paths, plan)]
+            got = {"score": score_tone(ours, pg, harmonic=i not in odd), "ruler_noise_db": ruler_noise(pg)}
+            got = json.loads(json.dumps(got))   # (as the cache keeps it: a read-back row is the same row)
+            if cache:
+                os.makedirs(os.path.dirname(hit), exist_ok=True)
+                with open(hit + ".tmp", "w") as fh:
+                    json.dump(got, fh)
+                os.replace(hit + ".tmp", hit)
+        rows.append({**tone_row(commit, date, i, names[i], got["score"], ref_id, bank_name),
+                     "ruler_noise_db": got["ruler_noise_db"], "draws": draw_info})
     params = []
     if match:
         import glob
@@ -549,10 +705,12 @@ def main(argv=None):
                                    "this repo when it isn't ours)")
     ap.add_argument("--bank-name", default="factory", help="the bank's name in the history rows")
     ap.add_argument("--root", help="the git repo, to check BASE is an ancestor of COMMIT")
+    ap.add_argument("--cache", help="a folder that keeps each tone's score by tone_key, read back while the "
+                                    "renders, the reference and the code are the same")
     a = ap.parse_args(argv)
     if a.bank and a.bank_name == "factory":
         ap.error("--bank needs a --bank-name")
-    rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match, a.bank, a.bank_name)
+    rows = run(a.tree, a.commit, a.ref, a.history, a.work, a.match, a.bank, a.bank_name, a.cache)
     asked = a.base is not None                   # (--base "" is a base asked for, and not found: exit 2)
     base = rows_for(a.history, a.base, rows[0]["ref"], a.bank_name) if asked else None
     note = base_note(a.root, a.commit, a.base) if a.base and a.root else None

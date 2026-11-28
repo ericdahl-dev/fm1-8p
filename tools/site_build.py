@@ -41,6 +41,14 @@ def emu_src(base_url):
     return EMU + "?" + urlencode({"package": package, "name": "FM1-8P", "embed": "1"})
 
 
+def page_url(base_url):
+    """The page's own https address with one trailing slash: the canonical link, og:url, and the base of the share
+    image's absolute URL (social sites read og:image only as an absolute URL)."""
+    if not base_url.startswith("https://"):
+        raise ValueError(f"{base_url}: the site's address must be https")
+    return base_url.rstrip("/") + "/"
+
+
 def product_of(raw):
     """A .fwsc's package identity ("FM-1_948"), read as fm1-dock's fm1install.js productOf does: one marker byte
     after each of the first 20 blocks of 0x30 bytes, 0x7D for none."""
@@ -132,14 +140,15 @@ def build(root, out, base_url, packages=None):
     mark = ' class="boot"'
     tones = "\n".join(f"        <li{mark if i == boot else ''}>{escape(n)}</li>" for i, n in enumerate(names, 1))
     html = (html.replace("{{TONES}}", tones).replace("{{EMU_SRC}}", escape(emu_src(base_url)))
-            .replace("{{BOOT_NUM}}", str(boot)).replace("{{BOOT_NAME}}", escape(names[boot - 1])))
+            .replace("{{BOOT_NUM}}", str(boot)).replace("{{BOOT_NAME}}", escape(names[boot - 1]))
+            .replace("{{BASE_URL}}", escape(page_url(base_url))))
     if packages:
         write_fw(root, out, packages)
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(html)
-    for name in ("style.css", "install.js", "installer.js", "analytics.js"):
+    for name in ("style.css", "install.js", "installer.js", "analytics.js", "favicon.svg", "apple-touch-icon.png", "share.jpg", "head.js"):
         shutil.copy(os.path.join(src, name), out)
-    for folder in ("vendor", "fonts", "posthog-js"):
+    for folder in ("vendor", "fonts", "posthog-js", "assets", "img"):
         shutil.copytree(os.path.join(src, folder), os.path.join(out, folder), dirs_exist_ok=True)
 
 

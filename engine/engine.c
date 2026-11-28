@@ -535,9 +535,9 @@ static void apply_param(fm_engine *e, uint16_t id)
         return;
     case FM_PARAM_LFO_DELAY_MS:
         e->mod.delay_ticks = fm_ms_to_samples(v, e->sample_rate) >> FM_LFO_TICK_SHIFT;
-        /* fades in over as long as the delay; the divisor is at least 1 */
+        /* then fades in over twice the delay, as PG-8X (#384); the divisor is at least 2 */
         e->mod.fade_step = e->mod.delay_ticks
-                               ? (int32_t)(FM_LFO_FULL / e->mod.delay_ticks)
+                               ? (int32_t)(FM_LFO_FULL / (2 * e->mod.delay_ticks))
                                : FM_LFO_FULL;
         return;
     case FM_PARAM_LFO_PW_PCT:

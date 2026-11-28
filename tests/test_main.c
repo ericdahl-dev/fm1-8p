@@ -53,6 +53,7 @@
 #include "test_svf.c"
 #include "test_porta.c"
 #include "test_dfont.c"
+#include "test_skyline.c"
 #include "test_ui_boot.c"
 #include "test_ui_format.c"
 #include "test_source_lp.c"
@@ -98,6 +99,7 @@ int main(void)
     run_svf_tests();
     run_porta_tests();
     run_dfont_tests();
+    run_skyline_tests();
     run_ui_boot_tests();
     run_ui_format_tests();
     run_source_lp_tests();
