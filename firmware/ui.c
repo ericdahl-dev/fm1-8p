@@ -748,7 +748,7 @@ static void turn(ui *u, uint32_t k, int32_t clicks, uint32_t ms)
         set_slot(u, s, ui_slot_value(u, s) + (clicks >= 3 || clicks <= -3 ? s->fast : s->step) * clicks);
     }
     u->dirty |= (u->focus < 4u ? UI_D_COL(u->focus) : 0u) | UI_D_COL(k) | UI_D_FOCUS;
-    if (u->state == UI_PLAY) {                  /* the focus row reads the knob for 3 s; the slot is the badge */
+    if (u->state == UI_PLAY) {                  /* the focus row reads the knob for 3 s; the slot is the art */
         u->readout = 1;
         u->readout_ms = ms;
     }

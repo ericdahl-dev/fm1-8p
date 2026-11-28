@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "ui_map.h"
 #include "../engine/fm1_8p.h"
+#include "skyline.h"
 
 /* visual.md: Membrane */
 const ui_theme UI_MEMBRANE = {
@@ -19,8 +20,7 @@ const ui_theme UI_MEMBRANE = {
     .meter_segments = 0u,
     .focus = {256u, 256u, 0u},          /* a 2 px frame */
     .hatch = 0u,
-    .sun = {0xFE88u, 0xFD87u, 0xFC67u, 0xFB49u, 0xF24Eu, 0xD1D2u},
-    .art = UI_ART_BADGE,
+    .sky = SKYLINE_MEMBRANE,
     .fill_only = 1u << UI_SEC_DCO1 | 1u << UI_SEC_VCF_ENV | 1u << UI_SEC_SEQ,
     .fill_track = 0x0020u,              /* the LED window's near black: the red bars by lightness too */
 };
@@ -35,10 +35,8 @@ const ui_theme UI_NIGHT_PANEL = {
     .meter_segments = 8u,               /* an LED ladder */
     .focus = {256u, 115u, 51u},         /* a glow: 1.0, 0.45, 0.2 */
     .hatch = 41u,                       /* 16 % */
-    .sun = {0xFEC9u, 0xFD88u, 0xFC48u, 0xFAECu, 0xF1F2u, 0xC198u},
     .led_section = 1u,
-    .art = UI_ART_SUN,
-    .grid = 0x5953u, .horizon = 0xF9FBu,
+    .sky = SKYLINE_NIGHT_PANEL,
     .fill_track = 0x2969u,              /* (no fill_only sections: the line) */
 };
 
