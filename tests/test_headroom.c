@@ -84,27 +84,27 @@ static int hr_check_all(const hr_pin *p, size_t n)
  * A PIN, not a goal (#320): the figures at FM_OUT_SHIFT_DEVICE 0 (the engine's level, no module gain), inside
  * a band either way, so a change to the level, the chorus (#319) or aftertouch (#61), up or down, shows as a
  * measured difference and has to move these on purpose. Nothing saturates: velocity-127 chords held past the
- * filter attack peak 1.0 to 1.8 dB under the rails. The engine's own soft clip (past -2.85 dBFS) bends 0.1 to
- * 0.5 % of its samples, whatever the module's gain.
+ * filter attack peak 0.9 to 1.5 dB under the rails, with PG-8X's chorus wet path (#319). The engine's own soft
+ * clip (past -2.85 dBFS) bends 0.2 to 1.0 % of their samples, whatever the module's gain.
  */
 TT_TEST(headroom_soundtrack_velocity_127_chords_pinned)
 {
     static const hr_pin c[] = {
-        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 34, 127, 0, 0, -2.3, -1.2, 0.07, 0.09 },   /* today peak -1.76 dBFS, knee 0.081 % */
-        { "C2 C3 G5 G6", { 36, 48, 79, 91 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.17, 0.21 },   /* today peak -1.07 dBFS, knee 0.187 % */
-        { "C1 C2 C7 C8", { 24, 36, 96, 108 }, 4, 34, 127, 0, 0, -1.6, -0.5, 0.46, 0.52 },  /* today peak -1.02 dBFS, knee 0.492 % */
+        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 34, 127, 0, 0, -2.05, -0.95, 0.18, 0.21 },  /* peak -1.51 dBFS, knee 0.195 % (#319's wet path) */
+        { "C2 C3 G5 G6", { 36, 48, 79, 91 }, 4, 34, 127, 0, 0, -1.5, -0.4, 0.37, 0.43 },    /* peak -0.96 dBFS, knee 0.398 % */
+        { "C1 C2 C7 C8", { 24, 36, 96, 108 }, 4, 34, 127, 0, 0, -1.45, -0.35, 0.92, 1.02 }, /* peak -0.89 dBFS, knee 0.969 % */
     };
     TT_CHECK(hr_check_all(c, sizeof c / sizeof c[0]));
 }
 
 /* The same pin for everyday playing at velocity 100 (#320), chords held 10 s: nothing saturates; a 4-note
- * chord peaks 3.5 dB under the rails, a triad 6.2 dB, one note 12.1 dB. */
+ * chord peaks 2.8 dB under the rails, a triad 5.6 dB, one note 11.5 dB (with #319's wet path). */
 TT_TEST(headroom_soundtrack_velocity_100_pinned)
 {
     static const hr_pin c[] = {
-        { "C4", { 60 }, 1, 10, 100, 0, 0, -12.7, -11.5, -1, -1 },                    /* today peak -12.10 dBFS */
-        { "C4 E4 G4", { 60, 64, 67 }, 3, 10, 100, 0, 0, -6.8, -5.6, -1, -1 },        /* today peak -6.20 dBFS */
-        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 10, 100, 0, 0, -4.0, -2.9, -1, -1 }, /* today peak -3.49 dBFS */
+        { "C4", { 60 }, 1, 10, 100, 0, 0, -12.05, -10.95, -1, -1 },                  /* peak -11.50 dBFS (#319's wet path) */
+        { "C4 E4 G4", { 60, 64, 67 }, 3, 10, 100, 0, 0, -6.15, -5.05, -1, -1 },      /* peak -5.61 dBFS */
+        { "C3 E3 G3 C4", { 48, 52, 55, 60 }, 4, 10, 100, 0, 0, -3.35, -2.25, -1, -1 }, /* peak -2.81 dBFS */
     };
     TT_CHECK(hr_check_all(c, sizeof c / sizeof c[0]));
 }

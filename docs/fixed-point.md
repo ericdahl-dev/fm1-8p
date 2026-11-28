@@ -495,18 +495,21 @@ How it works, per sample:
   its, so the scorecard's short sections compare like with like. Delays are
   Q16.16 samples; each tap reads two neighbors and interpolates linearly
   (Q0.15 fraction, 32-bit math).
-- Each output is the dry input plus its tap, at full size each, as on
-  PG-8X 2.0.13 (#104). An output never exceeds the input peak plus 2.0 (the
-  line's clamp). The dry part is limited to about +-126.0, so the sum fits
-  in int32 for any input (one clamp, no 64-bit math). On a held C3 saw the chorus raises the RMS level by about 2.4 dB
-  over chorus off (I +2.2, II +2.5; PG-8X +3.0), and the left and right
-  correlate at 0.54 (I) and 0.52 (II), against PG-8X's 0.46. The rest of the
-  gap is PG-8X's wet path: 1.21 times as loud as ours at low notes and
-  darkened above about 4 kHz (2.6 kHz -1.5 dB, 7 kHz -10.2 dB; #312, #299),
-  not modeled yet. The mix gain
+- Each output is the dry input plus its tap's wet path: the tap times 1.21,
+  through two 1-poles at 4075 Hz (`y += k (x - y)`, k = 1 - e^-w worked out
+  from its series in `fm_chorus_set_mode`, rounded steps). That is PG-8X
+  2.0.13's (#104, #312, #299): measured by a least-squares fit of its output
+  to the dry and the two taps, the dry is 1.00, there is no cross-feed, and
+  the wet is 1.21 times as loud at low notes, falling to -10.2 dB at 7 kHz
+  (the two poles fit within 0.13 dB rms). An output never exceeds the input
+  peak plus 2.42 (the line's clamp times 1.21; the 1-poles never overshoot).
+  The dry part is limited to about +-124.0, so the sum fits in int32 for any
+  input (one clamp). On a held C3 saw the chorus raises the RMS level by about 3 dB
+  over chorus off (I +2.9, II +3.1; PG-8X +3.0), and the left and right
+  correlate at 0.45 (I) and 0.43 (II), against PG-8X's 0.46. The mix gain
   keeps the chorus's input within +-0.72 (-2.85 dBFS), and the soft clip
   takes dry plus wet past the knee: an eight-note chord at full level peaks
-  at about 29400 of 32767 with the chorus on (23200 off) and never reaches
+  at most 28684 of 32767 with the chorus on (22905 off) and never reaches
   the rails. Before
   #104 each output was half dry plus half wet, which lowered the level by
   3.6 to 4.3 dB.
@@ -529,11 +532,13 @@ How it works, per sample:
   per-harmonic gain from 16 Hz to 1 kHz (1.5 and 1.4 dB rms, from 2.8 and
   2.2), held to its L/R correlation and to the depth that the Doppler spread
   of its high harmonics shows. `chorus_keeps_a_low_notes_bass_in_phase`
-  holds a 65 Hz sine at +4.5 dB or more through I and II (now +5.1 and
-  +5.0, PG-8X +5.9).
+  holds a 65 Hz sine at +4.5 dB or more through I and II (now +5.9 in
+  both, with the wet path's 1.21; PG-8X +5.9).
 - Cost, per sample with the chorus on: one 64-bit multiply (the sweep), two
-  32-bit multiplies (the interpolations), a few shifts, adds and masks, and
-  four reads and one write of the delay line. The engine runs it over each
+  32-bit multiplies (the interpolations), six 32x32->64 multiplies for the
+  wet path (two gains, four 1-pole steps: about 2 points of a block on the
+  FM-1, measured on fm1-emu's padded rows, #312), a few shifts, adds and
+  masks, and four reads and one write of the delay line. The engine runs it over each
   64-frame mix block (`fm_chorus_process_block`, writing the right side to
   `fm_engine.mix_right`); with the chorus off it skips the call entirely and
   the block costs one check. Divisions run only when the mode is set.

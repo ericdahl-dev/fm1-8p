@@ -12,15 +12,20 @@
  * When on, the input goes into one short delay line, read by two taps
  * whose delay a triangle LFO sweeps in opposite directions (left gets
  * center + sweep, right center - sweep). Each output is the dry input
- * plus its tap (as PG-8X's chorus, #104), so an output never exceeds the
- * input peak plus the delay line's +-2.0 clamp; the dry part is limited
- * to about +-126.0 so the sum never overflows int32.
+ * plus its tap (as PG-8X's chorus, #104). Each tap goes through the wet
+ * path measured on PG-8X's chorus I and II (#312): x1.21, then two
+ * 1-poles at 4075 Hz. Every mode gets it, FAST too, so the three modes
+ * share one wet sound and differ only in rate and delays. The delay line
+ * clamps at +-2.0 and the 1-poles never overshoot, so an output never
+ * exceeds the input peak plus 2.42; the dry part is limited to about
+ * +-124.0 so the sum never overflows int32.
  *
  * Memory: fixed, no allocation. The delay line is FM_CHORUS_DELAY_LEN
  * int16_t samples = 2048 bytes; the whole struct is about 2.1 KiB
- * (sizeof(fm_chorus) is 2072 on the desktop), and it lives inside
- * fm_engine. The line holds 23 ms at 44.1 kHz; the deepest mode needs
- * 9.0 ms, so above about 113 kHz a mode's delays are scaled down to fit.
+ * (sizeof(fm_chorus) is 2092 on the desktop), and it lives inside
+ * fm_engine. The line holds 23 ms at 44.1 kHz; the deepest mode (SLOW)
+ * needs 3.53 ms, so a mode's delays would be scaled down to fit only above
+ * about 289 kHz, past the engine's 192 kHz maximum.
  */
 #ifndef FM_CHORUS_STATE_H
 #define FM_CHORUS_STATE_H
@@ -52,6 +57,8 @@ typedef struct {
     int32_t depth;      /* sweep either side of center, samples, Q16.16 */
     uint16_t pos;       /* index of the newest sample in line */
     uint8_t mode;       /* fm_chorus_mode */
+    int32_t wet_k;      /* the wet path's 1-pole coefficient, Q16 (#312) */
+    int32_t wet[4];     /* its two 1-poles a side, left then right, Q8.24 */
     int16_t line[FM_CHORUS_DELAY_LEN]; /* Q8.24 >> 10: 1.0 = 16384 */
 } fm_chorus;
 
