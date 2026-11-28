@@ -97,6 +97,20 @@ def boot_with(fonts, t, art):
     return sc
 
 
+def hub_card(fonts, t):
+    """The FM-1 Firmware Hub card (fmhub.json's image, 240 x 240): the skyline across the top two thirds,
+    the name under it, big enough to read at the hub's 160 px thumbnail."""
+    sc = R.Screen(fonts, t["bg"])
+    # the art at PLAY's proportions (120 x 56, as Eric picked it there: the laser shows over the towers), then
+    # twice as big: square pixels, readable at the hub's 160 px thumbnail
+    art = R.Screen(fonts, t["bg"])
+    art_skyline_laser_sky(art, t, 0, 0, 120, 56)
+    sc.img.paste(art.img.crop((0, 0, 120, 56)).resize((240, 112), Image.NEAREST), (0, 28))
+    sc.dtext(0, 162, "D24", "FM1-8P", t["text"], align="c", w=W)
+    sc.text(0, 196, "POLY SYNTH  4 VOICES", t["dim"], align="c", w=W)
+    return sc
+
+
 def main():
     ap = argparse.ArgumentParser(description="the skyline art, PLAY and boot, both themes")
     dock = os.environ.get("FM1_DOCK", os.path.expanduser("~/Projects/fm1-8p-ref/fm1-dock"))
@@ -114,6 +128,9 @@ def main():
             sheet.paste(sc.img, (8 + col * (W + 8), 8))
             col += 1
     sheet.resize((sheet.width * 3, sheet.height * 3), Image.NEAREST).save(os.path.join(here, "skyline-both-3x.png"))
+    card = hub_card(fonts, R.THEMES["night-panel"])
+    card.img.save(os.path.join(here, "hub-card.png"))
+    card.img.resize((160, 160), Image.LANCZOS).save(os.path.join(here, "hub-card-at-160.png"))
     print("skyline-both-3x.png")
 
 
