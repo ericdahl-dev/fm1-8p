@@ -4,6 +4,7 @@
  * Apart from the module (fm1_8p.c) so the CPU test can draw the same pages while it times (#47). */
 #include "draw.h"
 #include "../dfont.h"
+#include "../skyline.h"
 #include "ui_seq.h"
 #include "ui_save.h"
 
@@ -405,52 +406,6 @@ static void column(uint32_t k)
 }
 
 /* ---------------------------------------------------------------- the screens, a part per call */
-/* PLAY's art in the slot (render.py's PLAY: 230 x 56 from M): Membrane's badge, six sunset bands */
-static void badge_art(void)
-{
-    static const int32_t BAND_H[6] = {11, 11, 11, 9, 7, 4};
-    int32_t y = 0, k;
-    for (k = 0; k < 6; k++) {
-        H->cv_rect(M, y, 240 - 2 * M, BAND_H[k], T->sun[k]);
-        y += BAND_H[k] + (y < 22 ? 0 : 1);      /* (a 1 px gap under the lower bands) */
-    }
-    text_c(M, 240 - 2 * M, 9, 0, "FM1-8P  POLY SYNTH", T->ink);
-}
-
-/* Night Panel's: a striped sun on the horizon over a perspective grid, in integers (render.py: hz 34,
- * the sun r 30 centered 4 below it, its cuts; 17 grid lines from x 120 + 9k to 120 + 40k, clipped to
- * the slot; rows 2, 5, 10, 18 below the horizon) */
-static void sun_art(void)
-{
-    static const uint8_t CUT[9] = {33, 32, 31, 27, 26, 22, 21, 16, 10};
-    static const uint8_t ROW[4] = {2, 5, 10, 18};
-    const int32_t hz = 34, cy = 38, r = 30, top = cy - r, w = 240 - 2 * M, yb = 55;
-    int32_t yy, k;
-    for (yy = top; yy < hz; yy++) {
-        uint32_t c, skip = 0;
-        int32_t dx;
-        for (c = 0; c < sizeof CUT; c++)
-            skip |= CUT[c] == (uint32_t)yy;
-        dx = (int32_t)ui_isqrt((uint32_t)(r * r - (yy - cy) * (yy - cy)));
-        if (skip || dx < 3)                     /* (the cuts; no 1 px nub on top) */
-            continue;
-        k = (yy - top) * 6 / (hz - top);
-        H->cv_rect(120 - dx, yy, 2 * dx + 1, 1, T->sun[k > 5 ? 5 : k]);
-    }
-    H->cv_rect(M, hz, w, 1, T->horizon);
-    for (k = -8; k <= 8; k++) {
-        int32_t x0 = 120 + 9 * k, x1 = 120 + 40 * k, y1 = yb;
-        if (x1 < M || x1 > M + w - 1) {         /* clipped: it ends where it leaves the slot */
-            int32_t xe = x1 < M ? M : M + w - 1;
-            y1 = hz + (yb - hz) * (xe - x0) / (x1 - x0);
-            x1 = xe;
-        }
-        H->cv_line(x0, hz, x1, y1, T->grid);
-    }
-    for (k = 0; k < 4; k++)
-        H->cv_rect(M, hz + ROW[k], w, 1, T->grid);
-}
-
 /* PLAY: the header and footer, then three strips (as the VCF page's bands, so the same bits) */
 static void play_part(uint32_t b, uint32_t part)
 {
@@ -482,11 +437,8 @@ static void play_part(uint32_t b, uint32_t part)
         (void)dfont_draw(&DFONT_D20, M + 72, 22, P->name, C_TEXT, H->cv_rect);   /* the name in D20 (visual.md); a user slot's own */
         blit(0, 28, 240, 50);
     } else if (b == UI_D_SLOT) {                /* rows 78..137: the art, drawn on a full redraw only */
-        H->cv_begin(240, 60, C_BG);
-        if (T->art == UI_ART_SUN)
-            sun_art();
-        else
-            badge_art();
+        H->cv_begin(240, 60, C_BG);             /* the skyline with a laser line (skyline.py's PLAY) */
+        skyline_draw(SKYLINE_PLAY, T->sky, 78, 60, H->cv_rect);
         blit(0, 78, 240, 60);
     } else {
         for (k = 0; k < 4u; k++)                /* rows 138..221: the performance knobs */
@@ -1034,56 +986,13 @@ static void seq_part(uint32_t b, uint32_t part)
 }
 
 /* ---------------------------------------------------------------- the boot screen (#50, Eric's A: Horizon)
- * render.py's scr_boot_a in integers: the theme's art over rows 0..139 (Membrane's six sunset bands, or
- * Night Panel's striped sun r 56 on a horizon at 92 over the grid), FM1-8P in D24, the device line, the
- * flash banks' load bar and the version. Four strips of the FULL band (a canvas is at most 240 x 96); the
- * bar is its FOOT band, redrawn as the banks are read. Drawn once: no part is per frame. */
-#define BOOT_HZ 92
-static void boot_art(int32_t oy)               /* the art's rows that fall in a canvas whose top is oy */
-{
-    int32_t k, y;
-    if (T->chip) {                              /* Membrane: the sunset bands, a 1 px gap under the lower */
-        static const int32_t BAND[6] = {26, 26, 26, 21, 16, 9};
-        for (k = 0, y = 0; k < 6; k++) {
-            H->cv_rect(0, y - oy, 240, BAND[k], T->sun[k]);
-            y += BAND[k] + (k >= 2 ? 1 : 0);
-        }
-        return;
-    }
-    {                                           /* Night Panel: the sun r 56, centered 7 below the horizon */
-        static const int32_t GAP[5] = {6, 4, 4, 2, 2}, SOLID[5] = {6, 6, 7, 9, 11};
-        static const int32_t ROW[5] = {2, 5, 10, 18, 31};
-        const int32_t cy = BOOT_HZ + 7, r = 56, top = cy - r;
-        for (y = top; y < BOOT_HZ; y++) {
-            int32_t dx, cut = 0, at = BOOT_HZ - 1;
-            for (k = 0; k < 5; k++) {           /* the cuts: GAP rows, then SOLID, from the horizon up */
-                cut |= y <= at && y > at - GAP[k];
-                at -= GAP[k] + SOLID[k];
-            }
-            dx = (int32_t)ui_isqrt((uint32_t)(r * r - (y - cy) * (y - cy)));
-            if (cut || dx < 3)
-                continue;
-            k = (y - top) * 6 / (BOOT_HZ - top);
-            H->cv_rect(120 - dx, y - oy, 2 * dx + 1, 1, T->sun[k > 5 ? 5 : k]);
-        }
-        H->cv_rect(0, BOOT_HZ - oy, 240, 1, T->horizon);
-        for (k = -8; k <= 8; k++) {
-            int32_t x0 = 120 + 9 * k, x1 = 120 + 42 * k, y1 = 139;
-            if (x1 < 0 || x1 > 239) {           /* clipped: it ends where it leaves the screen */
-                int32_t xe = x1 < 0 ? 0 : 239;
-                y1 = BOOT_HZ + (139 - BOOT_HZ) * (xe - x0) / (x1 - x0);
-                x1 = xe;
-            }
-            H->cv_line(x0, BOOT_HZ - oy, x1, y1 - oy, T->grid);
-        }
-        for (k = 0; k < 5; k++)
-            H->cv_rect(0, BOOT_HZ + ROW[k] - oy, 240, 1, T->grid);
-    }
-}
-
+ * skyline.py's boot screen: the skyline with a laser line over rows 20..131 (PLAY's strip proportions,
+ * doubled: Eric, 2026-11-28), FM1-8P in D24, the device line, the flash banks' load bar and the version.
+ * Four strips of the FULL band (a canvas is at most 240 x 96); the bar is its FOOT band, redrawn as the
+ * banks are read. Drawn once: no part is per frame. */
 static void boot_part(uint32_t b, uint32_t part)
 {
-    static const int32_t TOP[4] = {0, 80, 140, 212}, HT[4] = {80, 60, 72, 28};
+    static const int32_t TOP[4] = {0, 80, 140, 204}, HT[4] = {80, 60, 64, 36};
     char line[UI_VALUE_LEN * 3u], ver[UI_VALUE_LEN];
     int32_t oy;
     if (b == UI_D_FOOT)
@@ -1093,17 +1002,17 @@ static void boot_part(uint32_t b, uint32_t part)
     oy = TOP[part];
     H->cv_begin(240, HT[part], C_BG);
     if (part < 2u) {
-        boot_art(oy);
+        skyline_draw(SKYLINE_BOOT, T->sky, oy, HT[part], H->cv_rect);
     } else if (part == 2u) {
         ui_boot_text(line, ver);
-        d24((240 - d24_w("FM1-8P")) / 2, 156 - oy, "FM1-8P", C_TEXT);
-        text_c(0, 240, 186 - oy, 0, line, C_DIM);
+        d24((240 - d24_w("FM1-8P")) / 2, 150 - oy, "FM1-8P", C_TEXT);
+        text_c(0, 240, 180 - oy, 0, line, C_DIM);
     } else {
         const int32_t w = 240 - 2 * M - 40;
         ui_boot_text(line, ver);
-        H->cv_rect(M + 20, 214 - oy, w, 2, C_LINE);
-        H->cv_rect(M + 20, 214 - oy, w * (int32_t)play_store_progress(P) / (int32_t)PLAY_STORE_BANKS, 2, C_PLAY);
-        text_c(0, 240, 222 - oy, 0, ver, C_DIM);
+        H->cv_rect(M + 20, 208 - oy, w, 2, C_LINE);
+        H->cv_rect(M + 20, 208 - oy, w * (int32_t)play_store_progress(P) / (int32_t)PLAY_STORE_BANKS, 2, C_PLAY);
+        text_c(0, 240, 220 - oy, 0, ver, C_DIM);
     }
     blit(0, oy, 240, HT[part]);
 }

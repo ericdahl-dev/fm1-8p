@@ -26,6 +26,7 @@ firmware/gen/felucca_font.h: by default ~/Projects/fm1-8p-ref/fm1-dock, or $FM1_
 import argparse
 import math
 import os
+import random
 import re
 import sys
 
@@ -367,16 +368,6 @@ class Screen:
         gap = t + 2 if gap is None else gap
         return n * dw + (n - 1) * gap
 
-    def disc_rows(self, cx, cy, r, color_for_row, skip_row, y_max):
-        """A disc as one fill per row (the sun): cheap on the device."""
-        for y in range(int(cy - r), int(cy + r) + 1):
-            if y >= y_max or skip_row(y):
-                continue
-            dx = int(math.sqrt(max(0, r * r - (y - cy) ** 2)))
-            if dx < 3:                    # no 1 px nub on top
-                continue
-            self.fill(cx - dx, y, 2 * dx + 1, 1, color_for_row(y))
-
     def save(self, path):
         self.img.save(path + ".png")
         self.img.resize((W * 3, H * 3), Image.NEAREST).save(path + "-3x.png")
@@ -397,7 +388,6 @@ THEMES = {
         meter_gap=0,
         focus=(1.0, 1.0),           # frames inward from the edge, as mixes of bg -> accent
         hatch=0.0,                  # fill under graph curves (0: none)
-        art="badge",                # what fills the graph slot on PLAY
         playhead="#F6F5F0", cursor="#DE615A", tie_mix=0.45,
         black_key="#1E2023",        # the key strip's black keys
         index=0, short="MEMB",      # THEME's value: its index, and its label in a 56 px column
@@ -409,7 +399,7 @@ THEMES = {
              "PLAY": "#D6D5CE"},
         fill_only=("DCO-1", "VCF ENV", "SEQ"),     # the red: too dark for text, its text the lettering
         fill_track="#050506",       # the meter track under a fill-only bar: the LED window
-        sun=["#FFD040", "#FFB038", "#FF8C38", "#FF6848", "#F04870", "#D03890"], grid=None, horizon=None,
+        sun=["#FFD040", "#FFB038", "#FF8C38", "#FF6848", "#F04870", "#D03890"],
     ),
     "night-panel": dict(
         name="NIGHT PANEL",
@@ -422,7 +412,6 @@ THEMES = {
         meter_gap=2,
         focus=(1.0, 0.45, 0.2),     # a glow
         hatch=0.16,
-        art="sun",
         playhead="#2FD8FF", cursor="#EEECF8", tie_mix=0.45,
         black_key="#0E0E1A",
         index=1, short="NIGHT",
@@ -431,7 +420,7 @@ THEMES = {
              "PLAY": "#FF3DD8"},
         fill_only=(),
         fill_track="#2E2E4C",
-        sun=["#FFD84A", "#FFB040", "#FF8840", "#FF5C60", "#F03C90", "#C030C0"], grid="#5A2A9A", horizon="#FF3DD8",
+        sun=["#FFD84A", "#FFB040", "#FF8840", "#FF5C60", "#F03C90", "#C030C0"],
     ),
 }
 
@@ -522,14 +511,6 @@ def env_points(x0, y0, w, h, a, d, s, r):
         t = i / 12
         pts.append((xs + hold + tr * t, y0 + h - s * math.exp(-4 * t) * (1 - t) * h))
     return pts, [x0 + ta, xs, xs + hold, xs + hold + tr]
-
-
-def sun_cuts(hz, gaps, solid):
-    rows, y = set(), hz - 1
-    for g, sl in zip(gaps, solid):
-        rows.update(range(y - g + 1, y + 1))
-        y -= g + sl
-    return rows
 
 
 # ================================================================ shared parts
@@ -710,35 +691,8 @@ def scr_play(fonts, t):
     if edited:
         sc.text(0, y, "EDITED", accent(t, "PLAY"), align="r", w=W - M)
     sc.dtext(M + 72, y + 22, "D20", name, t["text"])
-    # the art: drawn once on entry, never per frame
-    x, y, w, h = M, SLOT[0], W - 2 * M, SLOT[1]
-    if t["art"] == "badge":
-        yy = y
-        for c, hgt in zip(t["sun"], (11, 11, 11, 9, 7, 4)):
-            sc.fill(x, yy, w, hgt, c)
-            yy += hgt + (0 if yy - y < 22 else 1)
-        sc.text(x, y + 9, "fm1-8p  POLY SYNTH", t["ink"], align="c", w=w)
-    else:
-        hz = y + 34
-        cy, r = hz + 4, 30
-        rows = len(t["sun"])
-        cuts = sun_cuts(hz, (3, 2, 2, 1, 1), (3, 3, 4, 5, 6))
-        sc.disc_rows(120, cy, r, lambda yy: t["sun"][min(rows - 1, max(0, (yy - (cy - r)) * rows // (hz - (cy - r))))],
-                     lambda yy: yy in cuts, hz)
-        sc.fill(x, hz, w, 1, t["horizon"])
-        for k in range(-8, 9):            # clipped to the slot: a line ends where it leaves it
-            x0, x1, y1 = 120 + k * 9, 120 + k * 40, y + h - 1
-            if not (x <= x1 <= x + w - 1):
-                xe = x if x1 < x else x + w - 1
-                y1 = hz + (y1 - hz) * (xe - x0) / (x1 - x0)
-                x1 = xe
-            sc.line(x0, hz, x1, y1, t["grid"])
-        yy, step = hz + 2, 2.0
-        while yy < y + h:
-            sc.fill(x, int(yy), w, 1, t["grid"])
-            step *= 1.6
-            yy += step
-        sc.fill(0, y + h, W, COLS[0] - y - h, t["bg"])
+    # the art: drawn once on entry, never per frame (the skyline with a laser line, below)
+    art_skyline_laser_sky(sc, t, M, SLOT[0], W - 2 * M, SLOT[1])
     knob_columns(sc, t, PERF, focus=-1, sec_of=lambda k: PERF[k][5])
     status_footer(sc, t)
     return sc
@@ -954,40 +908,91 @@ def scr_seq(fonts, t):
 BOOT_LOAD = 0.6                           # the mockups catch the flash banks 60 % read
 
 
-def art_sunset(sc, t, x, y, w, h):
-    """Membrane's art at any size: the six sunset bands, the lower ones thinner, a 1 px gap under each."""
-    weights = (11, 11, 11, 9, 7, 4)
-    total = sum(weights) + 3
-    yy = y
-    for k, (c, wt) in enumerate(zip(t["sun"], weights)):
-        hgt = max(2, round(wt * h / total))
-        sc.fill(x, yy, w, hgt, c)
-        yy += hgt + (1 if k >= 2 else 0)
-    return yy
+# The skyline with a laser line (Eric, 2026-11-27): the art on PLAY and on the boot screen, both themes. A
+# night city of towers with lit windows against the theme's dusk bands, one neon laser line across the sky
+# behind the towers with a four-point flare in a gap, a neon street line. Every shape is a fill (no sun, no
+# perspective grid: those read as other hub firmwares). The towers are seeded (seed 8): skyline/skyline.py
+# --table bakes the same fills into skyline_art.h, which the firmware draws.
+def neon(t, k):
+    return t["sun"][k % len(t["sun"])]
 
 
-def art_horizon(sc, t, x, y, w, h, hz, r):
-    """Night Panel's art at any size: the striped sun on the horizon at hz, over the perspective grid."""
-    cy, rows = hz + r // 8, len(t["sun"])
-    k = r / 30
-    cuts = sun_cuts(hz, tuple(max(1, round(g * k)) for g in (3, 2, 2, 1, 1)),
-                    tuple(max(1, round(g * k)) for g in (3, 3, 4, 5, 6)))
-    sc.disc_rows(x + w // 2, cy, r, lambda yy: t["sun"][min(rows - 1, max(0, (yy - (cy - r)) * rows // (hz - (cy - r))))],
-                 lambda yy: yy in cuts, hz)
-    sc.fill(x, hz, w, 1, t["horizon"])
-    mid = x + w // 2
-    for kk in range(-8, 9):
-        x0, x1, y1 = mid + kk * round(9 * w / 230), mid + kk * round(40 * w / 230), y + h - 1
-        if not (x <= x1 <= x + w - 1):
-            xe = x if x1 < x else x + w - 1
-            y1 = hz + (y1 - hz) * (xe - x0) / (x1 - x0)
-            x1 = xe
-        sc.line(x0, hz, x1, y1, t["grid"])
-    yy, step = hz + 2, 2.0
-    while yy < y + h:
-        sc.fill(x, int(yy), w, 1, t["grid"])
-        step *= 1.6
-        yy += step
+def laser_line(sc, t, x, y, w, h, ly, cx, flare):
+    """one neon laser line across at row ly, with a four-point flare of `flare` px at cx"""
+    for d, c in ((2, neon(t, 5)), (1, neon(t, 4))):
+        sc.fill(x, ly - d, w, 1, c)
+        sc.fill(x, ly + d, w, 1, c)
+    sc.fill(x, ly, w, 1, "#FFFFFF")
+    lim = min(flare, ly - y, y + h - 1 - ly)
+    for r, c in ((lim, neon(t, 4)), (lim * 2 // 3, neon(t, 1)), (lim // 3, "#FFFFFF")):
+        sc.fill(cx, ly - r, 1, 2 * r + 1, c)
+        sc.fill(cx - 2 * r, ly, 4 * r + 1, 1, c)
+    for k in range(1, lim):
+        c = mix(t["window"], neon(t, 1), max(0.0, 1 - k / lim))
+        for sx, sy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+            sc.fill(cx + sx * k, ly + sy * k, 1, 1, c)
+    sc.fill(cx - 1, ly - 1, 3, 3, "#FFFFFF")
+
+
+def towers(sc, t, x, y, w, h, seed, street=True):
+    rnd = random.Random(seed)
+    tower = "#050508"
+    xx = x
+    while xx < x + w:
+        tw = rnd.randrange(10, 24)
+        th = rnd.randrange(h // 3, h - 6)
+        if rnd.random() < 0.18:
+            th = h - 3
+        top = y + h - th
+        sc.fill(xx, top, min(tw, x + w - xx), th, tower)
+        if rnd.random() < 0.3:
+            sc.fill(xx + tw // 2, top - 4, 1, 4, tower)
+        for wy in range(top + 3, y + h - 4, 4):
+            for wx in range(xx + 2, min(xx + tw - 2, x + w - 2), 3):
+                if rnd.random() < 0.22:
+                    sc.fill(wx, wy, 1, 2, neon(t, rnd.choice((0, 1, 2))))
+        xx += tw + rnd.randrange(0, 3)
+    if street:
+        sc.fill(x, y + h - 2, w, 2, neon(t, 4))
+
+
+def sky(sc, t, x, y, w, h, seed):
+    rnd = random.Random(seed + 1)
+    sc.fill(x, y, w, h, t["window"])
+    bh = h // 5
+    for k, c in enumerate([mix(t["window"], neon(t, 5), 0.10), mix(t["window"], neon(t, 4), 0.18),
+                           mix(t["window"], neon(t, 3), 0.28)]):
+        sc.fill(x, y + h - (3 - k) * bh - bh, w, bh, c)
+    for _ in range(w // 10):
+        sc.fill(x + rnd.randrange(w), y + rnd.randrange(h // 2), 1, 1, mix(t["window"], t["text"], 0.6))
+
+
+def art_skyline_laser_sky(sc, t, x, y, w, h, seed=8):
+    """the laser crosses the sky behind the towers, its flare in a gap between them"""
+    sky(sc, t, x, y, w, h, seed)
+    laser_line(sc, t, x, y, w, h, y + h * 2 // 5, x + w * 2 // 3, h // 3)
+    towers(sc, t, x, y, w, h, seed)
+
+
+class Doubled:
+    """The boot art (Eric, 2026-11-28): the strip at PLAY's proportions, 120 x 56, each fill clipped to it
+    and drawn twice as big at (ox, oy), square pixels, so the laser reads over the towers. A fill on sc's
+    fill; the doubled fills are what the firmware bakes."""
+    SW, SH = 120, 56
+
+    def __init__(self, sc, ox, oy):
+        self.sc, self.ox, self.oy = sc, ox, oy
+
+    def fill(self, x, y, w, h, c):
+        x0, y0 = max(int(x), 0), max(int(y), 0)
+        x1, y1 = min(int(x + w), self.SW), min(int(y + h), self.SH)
+        if x1 > x0 and y1 > y0:
+            self.sc.fill(self.ox + 2 * x0, self.oy + 2 * y0, 2 * (x1 - x0), 2 * (y1 - y0), c)
+
+
+def boot_art(sc, t):
+    """the boot screen's art: the strip doubled across rows 20..131"""
+    art_skyline_laser_sky(Doubled(sc, 0, 20), t, 0, 0, Doubled.SW, Doubled.SH)
 
 
 def boot_bar(sc, t, y):
@@ -997,35 +1002,14 @@ def boot_bar(sc, t, y):
 
 
 def scr_boot_a(fonts, t):
-    """A, Horizon: the theme's art across the top two thirds, the name in D24 under it, a load bar."""
+    """A, Horizon (#50), with the skyline (Eric, 2026-11-28): the art across rows 20..131, the name in D24
+    under it, a load bar."""
     sc = Screen(fonts, t["bg"])
-    if t["art"] == "badge":
-        art_sunset(sc, t, 0, 0, W, 132)
-    else:
-        art_horizon(sc, t, 0, 0, W, 140, 92, 56)
-    sc.fill(0, 140, W, H - 140, t["bg"])
-    sc.dtext(0, 156, "D24", "FM1-8P", t["text"], align="c", w=W)
-    sc.text(0, 186, "POLY SYNTH  4 VOICES", t["dim"], align="c", w=W)
-    boot_bar(sc, t, 214)
-    sc.text(0, 222, "V1", t["dim"], align="c", w=W)
-    return sc
-
-
-def scr_boot_b(fonts, t):
-    """B, Badge: PLAY's badge (or sun) as a card in the middle of a plain screen, the name on it."""
-    sc = Screen(fonts, t["bg"])
-    x, y, w, h = 30, 62, 180, 92
-    sc.fill(x - 2, y - 2, w + 4, h + 4, t["line"])
-    if t["art"] == "badge":
-        art_sunset(sc, t, x, y, w, h)
-        sc.fill(x, y + h - 2, w, 2, t["sun"][-1])
-        sc.dtext(x, y + 14, "D24", "FM1-8P", t["ink"], align="c", w=w)
-    else:
-        sc.fill(x, y, w, h, t["window"])
-        art_horizon(sc, t, x, y, w, h, y + 60, 22)
-        sc.dtext(x, y + 6, "D20", "FM1-8P", t["text"], align="c", w=w)
-    sc.text(0, y + h + 14, "POLY SYNTH  4 VOICES", t["dim"], align="c", w=W)
-    boot_bar(sc, t, y + h + 40)
+    boot_art(sc, t)
+    sc.dtext(0, 150, "D24", "FM1-8P", t["text"], align="c", w=W)
+    sc.text(0, 180, "POLY SYNTH  4 VOICES", t["dim"], align="c", w=W)
+    boot_bar(sc, t, 208)
+    sc.text(0, 220, "V1", t["dim"], align="c", w=W)
     return sc
 
 
@@ -1038,7 +1022,7 @@ def scr_boot_c(fonts, t):
     return sc
 
 
-BOOT = [("boot-a-horizon", scr_boot_a), ("boot-b-badge", scr_boot_b), ("boot-c-play", scr_boot_c)]
+BOOT = [("boot-a-horizon", scr_boot_a), ("boot-c-play", scr_boot_c)]
 
 
 SCREENS = [("1-play", scr_play), ("2-vcf", scr_vcf), ("3-env", scr_env), ("4-seq", scr_seq), ("5-glo", scr_glo)]
