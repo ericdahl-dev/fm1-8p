@@ -67,4 +67,25 @@ git -C "$T" mv engine/a.c site/a.c; git -C "$T" commit -qm move
 report "$(scope "$base")" full "BASE: code moved into site/ is a code change (no rename detection)"
 report "$(scope 0000000000000000000000000000000000000000)" full "BASE: a base that isn't there runs everything"
 report "$(scope "")" full "BASE: an empty base runs everything"
+
+# --scorecard (#407): the scorecard's tests (numpy, about 10 minutes) run only when a change touches their
+# inputs; a push to main runs them always (the workflow)
+sc() { report "$(printf '%s' "$2" | sh "$ROOT/tools/ci_scope.sh" --scorecard)" "$1" "$3"; }
+sc skip "engine/voice.c${nl}firmware/seq.c" "--scorecard: engine and firmware code: skip"
+sc skip "README.md" "--scorecard: a doc: skip"
+for f in tools/scorecard.py tools/scorecard_cmd.py tools/scorecard.sh tools/gate_midi.py tools/jx8p.py \
+         tools/params.py data/jx8p-factory-1-32.syx tests/test_scorecard.py .github/workflows/ci.yml; do
+    sc scorecard "engine/voice.c${nl}$f" "--scorecard: $f: scorecard"
+done
+sc scorecard "firmware/pins.env" "--scorecard: pins.env from a bare list (its lines unseen): scorecard"
+sc scorecard "" "--scorecard: no list: scorecard"
+scs() { (cd "$T" && sh "$ROOT/tools/ci_scope.sh" --scorecard "$1"); }
+mkdir -p "$T/firmware" && printf 'PILLOW_VERSION=1\nNUMPY_VERSION=1\n' >"$T/firmware/pins.env"
+git -C "$T" add -A && git -C "$T" commit -qm pins
+b2=$(git -C "$T" rev-parse HEAD)
+printf 'PILLOW_VERSION=2\nNUMPY_VERSION=1\n' >"$T/firmware/pins.env"; git -C "$T" commit -qam pillow
+report "$(scs "$b2")" skip "--scorecard BASE: pins.env, Pillow's line only: skip"
+printf 'PILLOW_VERSION=2\nNUMPY_VERSION=2\n' >"$T/firmware/pins.env"; git -C "$T" commit -qam numpy
+report "$(scs "$b2")" scorecard "--scorecard BASE: pins.env's numpy line: scorecard"
+report "$(scs "")" scorecard "--scorecard BASE: an empty base: scorecard"
 exit $fail

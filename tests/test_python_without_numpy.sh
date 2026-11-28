@@ -19,6 +19,11 @@ $PY -c 'import numpy' 2>/dev/null \
 (cd "$ROOT" && $PY -m unittest discover -s tests -p 'test_*.py') >"$T/log" 2>&1 \
     && ok "the Python tests pass without numpy (those that need it skip)" \
     || { fail "the Python tests pass without numpy (those that need it skip)"; tail -20 "$T/log"; }
+# CI runs the scorecard tests with numpy and scipy, and with SCORECARD_REQUIRE_NUMPY=1, so they can't skip
+# there: missing either, they fail
+(cd "$ROOT" && SCORECARD_REQUIRE_NUMPY=1 $PY -m unittest tests/test_scorecard.py) >"$T/log2" 2>&1 \
+    && { fail "with SCORECARD_REQUIRE_NUMPY=1 the scorecard tests fail without numpy"; tail -5 "$T/log2"; } \
+    || ok "with SCORECARD_REQUIRE_NUMPY=1 the scorecard tests fail without numpy"
 
 echo
 echo "$run tests, $failed failed"

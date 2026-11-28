@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
+      scorecard: ${{ steps.scope.outputs.scorecard }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,6 +31,14 @@ jobs:
           scope=$(sh tools/ci_scope.sh "$base")
           echo "scope=$scope" >> "$GITHUB_OUTPUT"
           echo "CI scope: $scope (base ${base:-none})"
+          # the scorecard's tests (about 10 minutes): when a change touches their inputs, and on every push to main
+          if [ "${{ github.event_name }}" = push ] && [ "${{ github.ref }}" = refs/heads/main ]; then
+            scorecard=scorecard
+          else
+            scorecard=$(sh tools/ci_scope.sh --scorecard "$base")
+          fi
+          echo "scorecard=$scorecard" >> "$GITHUB_OUTPUT"
+          echo "CI scorecard tests: $scorecard"
 
   # Ubuntu with gcc and clang, and macOS (Apple clang, arm64). The Ubuntu jobs keep the names
   # "build-test (gcc)" and "build-test (clang)": ruleset "main requires CI" requires them.
@@ -67,6 +76,23 @@ jobs:
         env:
           TT_LONG: 1
         run: make test
+
+      # numpy and scipy pinned (firmware/pins.env), and SCORECARD_REQUIRE_NUMPY=1: the scorecard's tests run
+      # here and can't skip (#404); only when the change touches their inputs, and on every push to main
+      # (tools/ci_scope.sh --scorecard)
+      - name: Python for the scorecard's tests
+        if: needs.scope.outputs.scope == 'full' && needs.scope.outputs.scorecard == 'scorecard' && matrix.os == 'ubuntu-latest' && matrix.cc == 'gcc'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: The scorecard's tests (numpy and scipy, none skipped)
+        if: needs.scope.outputs.scope == 'full' && needs.scope.outputs.scorecard == 'scorecard' && matrix.os == 'ubuntu-latest' && matrix.cc == 'gcc'
+        env:
+          SCORECARD_REQUIRE_NUMPY: 1
+        run: |
+          python -m pip install "numpy==$(sed -n 's/^NUMPY_VERSION=//p' firmware/pins.env)" "scipy==$(sed -n 's/^SCIPY_VERSION=//p' firmware/pins.env)"
+          make check-scorecard SCORECARD_PYTHON=python
 
       - name: Tests with AddressSanitizer and UBSan
         if: needs.scope.outputs.scope == 'full'

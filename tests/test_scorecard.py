@@ -8,6 +8,10 @@ import sys
 import unittest
 
 HAVE_NUMPY = all(importlib.util.find_spec(m) for m in ("numpy", "scipy"))
+# CI sets SCORECARD_REQUIRE_NUMPY=1 and installs both (firmware/pins.env): there a missing one is a failure, not
+# 59 skipped tests that look green (#404: a broken test merged that way)
+if os.environ.get("SCORECARD_REQUIRE_NUMPY") == "1" and not HAVE_NUMPY:
+    raise ImportError("tests/test_scorecard.py: SCORECARD_REQUIRE_NUMPY=1, but numpy or scipy is missing")
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
 
 SR = 48000
