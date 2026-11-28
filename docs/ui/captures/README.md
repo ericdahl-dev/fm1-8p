@@ -3,16 +3,15 @@
 Real screens of FM1-8P, the raw 240 x 240 LCD as fm1-emu draws it (no emulator panel), for the
 project page in place of the mockups.
 
-- **Firmware:** main at `9bcfdef` (`site: a designed share card, absolute share links and a touch
-  icon (#356) (#412)`).
+- **Firmware:** PLAY and the boot screen (`*-play.png`, `*-boot.png`) are from main at `6ade0ca`
+  (`ui: the skyline with a laser line on PLAY and the boot screen, in both themes (#416)`); the
+  other pages are from main at `9bcfdef`, before the skyline, which changed only PLAY's art slot and
+  the boot screen.
 - **Builds:** `tools/fm1-build.sh build` for Membrane, and `FM1_THEME=night tools/fm1-build.sh build`
   for Night Panel; each capture used `build/fm1/fm1-8p.fwsc` of its theme's build. The key scripts
   are the same for both themes, except on the GLO theme page (below).
 - **Emulator:** fm1-live from fm1-emu `5c6ed85` (not the pinned v0.4.0 release), default timing (not
   `FM1_STRICT`), a fresh flash each run, so every run boots to P17 SOUNDTRACK with no edits.
-
-**Note:** PLAY and the boot screen show the old sunset art (Membrane's bands, Night Panel's sun over
-the grid). Eric has picked a skyline to replace it; these two will be captured again once it lands.
 
 ## Regenerating
 
