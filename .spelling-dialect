@@ -4,3 +4,6 @@
 path: site/vendor/fm1-dock/dock.js
 path: site/vendor/fm1-dock/install/
 path: site/vendor/fm1-dock/LICENSE
+
+# The page's design kit (tasteskill), copied unmodified into site/assets: its spelling is the kit's.
+path: site/assets/

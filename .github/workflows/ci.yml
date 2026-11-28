@@ -99,6 +99,9 @@ jobs:
       - name: Display font (generated, unedited, within 6 KB; #55)
         if: needs.scope.outputs.scope == 'full'
         run: make check-font
+      - name: Skyline art (generated from the mockup, unedited)
+        if: needs.scope.outputs.scope == 'full'
+        run: make check-skyline
       - name: Draw colors (all from the theme; #54)
         if: needs.scope.outputs.scope == 'full'
         run: make check-draw-colors
