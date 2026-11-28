@@ -547,7 +547,7 @@ TT_TEST(ui_env_on_5a_steps_to_5b)
 
 /* PLAY shows no last note any more (visual.md: its columns are the performance knobs): a note redraws
  * nothing. A knob turn there shows that knob in the focus row for 3 s (interaction.md 6, PLAY), then
- * the name again; a CUTOFF turn doesn't redraw the slot (PLAY's is the badge, not the curve). */
+ * the name again; a CUTOFF turn doesn't redraw the slot (PLAY's is the skyline art, not the curve). */
 TT_TEST(ui_play_turn_shows_its_readout_for_3_s)
 {
     uint32_t d;

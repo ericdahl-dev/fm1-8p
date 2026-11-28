@@ -128,9 +128,9 @@ the two themes:
 | `meter_segments`, `meter_gap` | 0, 0 (one bar) | 8, 2 (an LED ladder) | the knob meter |
 | `focus` | `(1.0, 1.0)` | `(1.0, 0.45, 0.2)` | frames inward from the focused element's edge, as mixes from `bg` to the accent: a 2 px frame, or a glow |
 | `hatch` | 0 | 16 % | the fill under graph curves |
-| `art` | skyline | skyline | the PLAY slot and the boot screen: the skyline with a laser line (Eric, 2026-11-27; `docs/ui/mockups/skyline/`), baked as a table (`docs/ui/mockups/skyline_art.h`) in each theme's palette |
+| `sky` (firmware) | `SKYLINE_MEMBRANE` | `SKYLINE_NIGHT_PANEL` | the palette of PLAY's and the boot screen's art, the skyline with a laser line (Eric, 2026-11-27; `docs/ui/mockups/skyline/`), baked as a table (`docs/ui/mockups/skyline_art.h`, `SKY_PAL`) |
 | `playhead`, `cursor` | `F7BE`, `DB0B` | `2EDF`, `EF7F` | the SEQ playhead and step cursor |
-| `sun` | `FE88 FD87 FC67 FB49 F24E D1D2` | `FEC9 FD88 FC48 FAEC F1F2 C198` | the skyline's neon: its lit windows, the laser line, its flare and the street line (`skyline.py` bakes them into the palette) |
+| `sun` | `FE88 FD87 FC67 FB49 F24E D1D2` | `FEC9 FD88 FC48 FAEC F1F2 C198` | the skyline's neon: its lit windows, the laser line, its flare and the street line (render.py's; `skyline.py --table` bakes them into `SKY_PAL`, so the firmware's themes no longer carry them) |
 
 All values are RGB565, which is what `HB_RGB()` produces.
 
@@ -336,8 +336,8 @@ The meaning stays the same in both themes:
   - a 158 x 24 blit for the focus value;
   - the slot canvas (230 x 56, about 12.9 k pixels), only when the parameter shapes the graph:
     41 and 42 for the filter response, 51-54 and 61-64 for the ADSR.
-- **The skyline** is drawn once, on entering PLAY: 204 fills from a const table (the boot
-  screen's: 147, doubled). A patch change redraws only the name and the LED digits. No frame is ever a
+- **The skyline** is drawn once, on entering PLAY: 204 fills from a const table. The boot
+  screen's 147 (the strip doubled) take 87 calls in its first strip and 69 in its second. A patch change redraws only the name and the LED digits. No frame is ever a
   full-screen gradient.
 - **Every gradient is deliberate, hard-edged bands,** one fill per band, so RGB565 banding is
   part of the look and costs nothing per frame.

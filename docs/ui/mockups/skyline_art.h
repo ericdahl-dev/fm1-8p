@@ -5,6 +5,8 @@
 #ifndef SKYLINE_ART_H
 #define SKYLINE_ART_H
 
+#include <stdint.h>
+
 #define SKY_THEMES 2
 #define SKY_COLORS 29
 #define SKY_THEME_MEMBRANE 0
